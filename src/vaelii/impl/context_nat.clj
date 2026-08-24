@@ -27,6 +27,7 @@
   (:require [vaelii.impl.datetime :as datetime]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.special :as special]))
@@ -88,28 +89,55 @@
     [f pos r (:id sx)]))
 
 (defn- context-nats-of
-  "Every believed context NAT whose expression head is `f`, as `[k expr termOfUnit-handle]`."
+  "Every believed context NAT whose expression head is `f`, as `[k expr termOfUnit-handle]`.
+
+  Reached through the **inverted term index** on `f` — which descends into a ground
+  compound, so an expression's head is one of the sentex's posted terms — rather than by
+  reading the whole `termOfUnit` population and keeping the few under `f`.  That
+  distinction is the difference between a bounded read and a scan of every reified NAT in
+  the KB, and this runs on the assert maintenance path (`reconcile-genlCx`), once per
+  fact stored into a `cx/` context.  `nat/minted-applications` reads the same map the
+  same way, for the same reason."
   [kb f]
-  (for [sx  (kb/sentexes-matching kb '(termOfUnit ?k ?e) universal-context)
-        :let [[_ k e] (:sentence sx)]
-        :when (and (nat/reified-context-symbol? k) (sequential? e) (= f (first e)))]
-    [k e (:id sx)]))
+  (->> (kb/find-sentexes kb f)
+       (keep (fn [sx]
+               (let [[_ k e] (:sentence sx)]
+                 (when (and (= universal-context (:context sx))
+                            (= 'termOfUnit (nm/functor (:sentence sx)))
+                            (jtms/in? (:tms kb) (:id sx))
+                            (nat/reified-context-symbol? k)
+                            (sequential? e) (= f (first e)))
+                   [k e (:id sx)]))))
+       distinct))
 
 (defn- sibling-key
   "The identity of a context NAT's sibling group under argument `pos`: its expression with
   the ordered argument masked, so two contexts share a key iff they agree on every *other*
   argument (the dimension) and differ only where `R` orders them.  `pos` is 1-based over
-  the function's arguments, hence the expression index `pos` (index 0 is the functor)."
+  the function's arguments, hence the expression index `pos` (index 0 is the functor).
+
+  **nil when `pos` does not index this expression** — a `pos` past the function's arity,
+  or one that is not a position at all.  Nothing at the assert door ties a declaration's
+  `pos` to the arity of the function it names, so `(contextArgSubrelation CxTimeFn 9 R)`
+  is storable; masking blind would throw out of the maintenance path and take the
+  unrelated assert with it, and appending at `pos = arity` would invent a sibling group
+  whose ordered argument is `nil`.  `reconcile-function` drops a nil key, which is the
+  same tolerance `order-group` already shows with its `(nth … pos nil)`."
   [expr pos]
-  (assoc (vec expr) pos '_))
+  (when (and (integer? pos) (pos? (long pos)) (< (long pos) (count expr)))
+    (assoc (vec expr) pos '_)))
 
 ;; ---- materialization ------------------------------------------------------
 
-(defn- materialize-edge!
+(defn- materialize-edge
   "Deduce `(genlCx sub super)` in CxUniverse, justified by `antes`, unless a violation
   refuses it (a genlCx edge over two `cx/` contexts is admissible except a self-edge, which
   the caller already excludes).  Idempotent: a second call with the same antecedents adds
-  no justification, and a different route adds another supporter of the one edge."
+  no justification, and a different route adds another supporter of the one edge.
+
+  Bare: it adds one derived sentex and one justification, and the JTMS withdraws the edge
+  when an antecedent stops being believed — nothing here destroys stored knowledge, so
+  nothing in this chain carries a `!`."
   [kb sub super antes]
   (let [edge (list 'genlCx sub super)]
     (when-not (special/inadmissible kb edge universal-context)
@@ -125,7 +153,7 @@
               (jtms/add-justification (:tms kb) just))))
         h2))))
 
-(defn- order-group!
+(defn- order-group
   "Materialize every genlCx edge within one sibling group under declaration `[pos R declH]`:
   for each ordered pair of siblings whose `pos` arguments stand in `R`, the sub `genlCx` the
   super.  `nats` is `[k expr termOfUnit-handle]` for the group's members."
@@ -137,9 +165,9 @@
                  asup (nth esup pos nil)
                  ev   (r-evidence kb r asub asup)]
           :when ev]
-    (materialize-edge! kb ksub ksup
-                       (cond-> [th-sub th-sup declH]
-                         (not= ::pure ev) (conj ev)))))
+    (materialize-edge kb ksub ksup
+                      (cond-> [th-sub th-sup declH]
+                        (not= ::pure ev) (conj ev)))))
 
 (defn- reconcile-function
   "Materialize the structural genlCx edges for every declaration of function `f`, over all
@@ -147,10 +175,13 @@
   [kb f]
   (doseq [[_ pos r declH] (subrelation-declarations kb #(= f %))
           :let [groups (group-by #(sibling-key (second %) pos) (context-nats-of kb f))]
-          [_ nats] groups]
-    (order-group! kb pos r declH nats)))
+          [k nats] groups
+          ;; a nil key is an expression the declared `pos` does not index — no sibling
+          ;; group, so nothing to order (`sibling-key`)
+          :when (some? k)]
+    (order-group kb pos r declH nats)))
 
-(defn reconcile-genlCx!
+(defn reconcile-genlCx
   "The structural-genlCx maintenance a just-asserted `sentence` in `context` calls for,
   scoped to what could have changed:
 
@@ -173,9 +204,9 @@
       (when-let [e (nat/nat-expression kb context)]
         (when (sequential? e) (reconcile-function kb (first e)))))))
 
-(defn reconcile-revivals!
+(defn reconcile-revivals
   "Rebuild the structural genlCx edges for **every** declared `contextArgSubrelation`
-  function — the build direction a belief *revival* needs, which `reconcile-genlCx!` (only
+  function — the build direction a belief *revival* needs, which `reconcile-genlCx` (only
   ever called from the assert choke-point) cannot serve.
 
   Belief of a `contextArgSubrelation` declaration — or of a stored `(R a b)` evidence fact
@@ -186,7 +217,7 @@
   producer once its belief has settled, and the withdraw direction the JTMS already handles
   meets a build direction here.
 
-  Idempotent (`materialize-edge!` adds no duplicate justification) and **local**: scoped to
+  Idempotent (`materialize-edge` adds no duplicate justification) and **local**: scoped to
   the declared context functions, each reconciled only over its own contexts — bounded by
   the context-NAT population, never the whole graph.  Behind the **free** in-memory
   `contextDenotingFunction` gate first — a KB with no `cx/` context to order pays neither

@@ -88,12 +88,20 @@
                         (map vector (rest fields) field-ranges))
             fields))))))
 
+(defn- term-fields
+  "The parsed fields of a `(DatetimeFn \"<iso>\")` term, or nil for anything that is not
+  one.  Both readers below go through this, so a term is parsed once per question rather
+  than once to recognize it and again to read it — which matters because the caller is
+  the structural genlCx producer, inside the settle/relabel loop."
+  [form]
+  (when (and (sequential? form) (= 2 (count form))
+             (= datetime-function (first form)))
+    (parse (second form))))
+
 (defn datetime-term?
   "True iff `form` is a `(DatetimeFn \"<iso>\")` term with a parseable ISO string."
   [form]
-  (and (sequential? form) (= 2 (count form))
-       (= datetime-function (first form))
-       (some? (parse (second form)))))
+  (some? (term-fields form)))
 
 (defn subinterval?
   "True iff datetime term `a` denotes an interval contained in `b`'s — `b`'s fields are a
@@ -103,7 +111,7 @@
   pair of datetime terms, so a caller can hand it any two argument terms."
   [a b]
   (boolean
-   (when (and (datetime-term? a) (datetime-term? b))
-     (let [pa (parse (second a)) pb (parse (second b))]
+   (when-let [pa (term-fields a)]
+     (when-let [pb (term-fields b)]
        (and (<= (count pb) (count pa))
             (= pb (subvec pa 0 (count pb))))))))

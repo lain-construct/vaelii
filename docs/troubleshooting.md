@@ -152,6 +152,7 @@ without storing anything, and answers with the identical problem.
 | `:not-well-formed` | a malformed connective frame, such as a bare `(implies)` |
 | `:not-range-restricted` | a rule variable in the consequent that no antecedent binds |
 | `:arg-type` / `:arg-genl` | an `arg` / `genlArg` constraint convicted it — [argtypes.md](argtypes.md) |
+| `:arg-variable` | a **rule** variable two argument constraints demand disjoint types of — [taxonomy.md](taxonomy.md) |
 | `:disjoint` / `:functional` / `:asymmetric` | a definitional clash — [exceptions.md](exceptions.md) |
 | `:unknown-option` | an option key nothing reads, or a non-map `opts` |
 
@@ -227,23 +228,43 @@ classpath, so a foreign read that works may be the link rather than the code.
 
 ## `open-kb` refuses an unknown backend
 
-Five throws share `:type :unknown-backend`, every one of them at `open-kb` before a
-store is ever touched, so there is no partial KB to close. The other key in `ex-data`
-says which opt was wrong:
+Nine throws share `:type :unknown-backend` — eight in `open-kb` itself and one in the
+overlay's bookkeeping store, which `open-kb` reaches when mounting a fork. All nine are
+raised while building, and `open-kb` returns no KB value when it throws, so there is
+nothing half-built to close. The other key in `ex-data` says which opt was wrong:
 
 | `ex-data` carries | What was wrong |
 |---|---|
-| `:backend` | the `:backend` sugar names nothing in the table — [storage.md](storage.md#backend-selection-two-independent-axes) lists the seven legal names |
-| `:records` **and** `:index` together | the axes resolved to `{:records :memory :index :disk}`, the one pairing among eight the table refuses — a durable index over records that do not survive JVM exit |
-| `:records` alone | the `:records` opt names a kind nothing implements — `:memory` or `:disk` are the only two |
+| `:backend` | the `:backend` sugar names nothing in the table — [storage.md](storage.md#backend-selection-two-independent-axes) lists the eleven legal names |
+| `:records` **and** `:index` together | the axes resolved to the durable `:disk` index over records it cannot be derived from — `:memory`, which empties at JVM exit, or `:sqlite`, whose file survives but whose lifecycle the index does not share |
+| `:records` alone | the `:records` opt names a kind nothing implements — `:memory`, `:disk`, `:sqlite` or `:pg` |
 | `:index` alone | the `:index` opt names a kind nothing implements — `:memory`, `:dense`, `:columnar` or `:disk` |
 | `:tms` alone | the `:tms` opt names a kind nothing implements — `:reference` or `:dense` |
 
 `(v/open-kb {:backend :bogus})` throws `unknown KB backend :bogus — want one of […], or
 the :records / :index opts`; `(v/open-kb {:records :memory :index :disk})` throws `the
-:disk index needs :disk records — …`; a bad `:records`, `:index` or `:tms` kind names
-itself the same way (`unknown record backend …`, `unknown index backend …`, `unknown TMS
-…`). None of these reaches a daemon client: `open-kb` runs before the daemon answers its
+:disk index needs durable records — :disk or :pg — and these are :memory …`; a bad
+`:records`, `:index` or `:tms` kind names itself the same way (`unknown record backend
+…`, `unknown index backend …`, `unknown TMS …`).
+
+Two of the eight are not about a name at all. `:sqlite` and `:pg` records live in the
+**Apache-2.0 sibling adapters**, resolved lazily so the SSPL engine loads no JDBC driver
+unless a KB selects one — so a legal `:backend :sqlite` or `:pg-memory` with the sibling
+off the classpath throws here, naming the coordinate to add (`com.vaelii/sqlite`,
+`com.vaelii/postgres`) rather than a bare `FileNotFoundException` from the resolve. The
+eighth carries `:records :pg` **and** `:half :overlay`: a fork's own writable half keeps
+tombstones and released premise marks beside its records, which is written for `:memory`
+and `:disk` and not for a server. A `:pg` KB can still be the frozen base
+([overlay.md](overlay.md)).
+
+The `:pg` opts have their own refusals, under `:type :unknown-option` rather than
+`:unknown-backend`, because the backend named is legal and what it was handed is not:
+`:pg` absent or naming no database (nothing derives a server, and the index is keyed by
+which database its records are in); `:pg-disk` with no `:dir` (the durable index is files
+on *this* host, so a derived default is one two KBs over two databases would share);
+`:pg` given to records that are not `:pg`. [storage.md](storage.md#postgres-records-pg-memory-pg-disk).
+
+None of these reaches a daemon client: `open-kb` runs before the daemon answers its
 first request, so a caller across the wire opens a KB the daemon already opened.
 
 ## The disk KB will not open

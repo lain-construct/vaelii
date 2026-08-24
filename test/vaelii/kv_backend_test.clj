@@ -101,7 +101,18 @@
     (testing "every op in the batch actually took effect"
       (is (= :hello (kv/kv-get b [:b :v])) "the :put landed")
       (is (zero? (kv/kv-count b [:b :s])) "the :add-to-set then :remove-from-set cancelled to empty")
-      (is (= 2 (long (kv/kv-increment b [:b :n]))) "the counter settled at 1 (incr,incr,decr)")))
+      (is (= 2 (long (kv/kv-increment b [:b :n]))) "the counter settled at 1 (incr,incr,decr)"))
+    ;; An op no adapter recognizes is `:unknown-frame` on **every** adapter, and it is a
+    ;; contract rather than an implementation detail: on the disk backend a write op is
+    ;; also a WAL frame, so an unreadable one is a log written by some other build and a
+    ;; build that cannot read a log has to be able to say so by name rather than delete
+    ;; it.  `case`'s own IllegalArgumentException carries no `:type`, and a caller
+    ;; discriminating on one must not have to know which adapter it reached.
+    (testing "an op no fold recognizes is refused by name, not by `case`"
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (kv/kv-batch b [[:frobnicate [:b :v] 1]])))]
+        (is (= :unknown-frame (:type (ex-data e))))
+        (is (= :frobnicate (:op (ex-data e))) "and names the op it could not read"))))
 
   (testing "entries out, entries back in — the projection a dump is written from"
     ;; The one operation whose *shape* is shared rather than private: a backend may hold

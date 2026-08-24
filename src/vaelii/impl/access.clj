@@ -15,7 +15,7 @@
     a raw KB → the same local path (so a caller holding a plain KB needs no wrapper)
 
   The pure display fns (`term-role`, `reified-term?`, `readable-sentence`,
-  `indexable-terms`, `levels`)
+  `indexable-terms`, `levels`, `calculi`)
   and the bootstrap fns (`open-kb`, `clear!`) take no target and just delegate to
   `vaelii.core` — they are here only so a caller can require this one namespace and
   reach the whole surface it needs.
@@ -87,7 +87,12 @@
   query query? sentexes-matching ask ask? prove provable? sentex handle-of find-sentexes
   in? believed? belief-status believed why-not
   why isa? types-of disjoint? genls specs types contexts premise? defeat-class justification
-  supporting-justifications dependent-justifications lookup escalate explain-levels count-in-context
+  supporting-justifications dependent-justifications
+  ;; which justifications the rule exceptions currently block — the one thing about a
+  ;; justification that cannot be read off belief, and so the one a remote reader would
+  ;; otherwise have to render wrong
+  blocked-justifications
+  lookup escalate explain-levels count-in-context
   sentexes-in-context sentexes-with-arg sentexes-with-functor count-with-arg
   count-with-functor disjoint-metatypes metatype-members conflicts contradictions
   ;; what a reified term denotes, so a reified NAT is displayed as the expression it was

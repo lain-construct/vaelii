@@ -166,8 +166,9 @@ reading of the three reasons [qcn.md](qcn.md) gives:
   never asked to reason with.
 
 It is recorded on the way past, once per network **per KB and context**. The closure itself
-is memoized on the network *value* and is therefore shared: two contexts seeing the same
-constraints, or two KBs holding them, close it once between them. A report riding on that
+is memoized on the network *value* — with `provers/*quantity-tolerance*` beside it, since
+both verdicts are read to that band and it is a dynamic var — and is therefore shared: two
+contexts seeing the same constraints, or two KBs holding them, close it once between them. A report riding on that
 pass would fire for whichever asked first and leave the rest answering nothing with an empty
 ledger — so the entry hangs off `observe/newly-seen?` instead, which asks whether *this* KB
 has said *this* about *this* context yet. A query loop still reports once, and a change of

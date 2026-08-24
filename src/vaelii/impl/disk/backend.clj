@@ -68,7 +68,7 @@
   (case kind
     :records (let [rec (drs/open-record-store dir)]
                (register-or-close!
-                rec {:fsync      (fn [{:keys [fsync?]}] (drs/fsync rec fsync?))
+                rec {:fsync      (fn [_] (drs/fsync rec))
                      :close      (fn [] (drs/close! rec))
                      :compact    (fn [] (drs/compact! rec))
                      :dead-ratio (fn [] (drs/dead-ratio rec))
@@ -76,7 +76,7 @@
     :index   (let [kvb (dkv/open-kv-backend dir)]
                (register-or-close!
                 (kv/->KvIndexStore kvb)
-                {:fsync      (fn [{:keys [fsync?]}] (dkv/fsync kvb fsync?))
+                {:fsync      (fn [_] (dkv/fsync kvb))
                  :close      (fn [] (dkv/close! kvb))
                  :compact    (fn [] (dkv/compact! kvb))
                  :dead-ratio (fn [] (dkv/dead-ratio kvb))
@@ -88,7 +88,7 @@
     ;; never been forked never grows one.
     :overlay-meta (let [kvb (dkv/open-kv-backend (str dir "/overlay-meta"))]
                     (register-or-close!
-                     kvb {:fsync      (fn [{:keys [fsync?]}] (dkv/fsync kvb fsync?))
+                     kvb {:fsync      (fn [_] (dkv/fsync kvb))
                           :close      (fn [] (dkv/close! kvb))
                           :compact    (fn [] (dkv/compact! kvb))
                           :dead-ratio (fn [] (dkv/dead-ratio kvb))

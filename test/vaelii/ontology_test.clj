@@ -243,3 +243,57 @@
     (is (v/genl? kb 'time_point 'temporal_thing)))
   (testing "and an animal reaches spatial_thing, so a spatial relation admits one"
     (is (v/genl? kb 'dog 'spatial_thing))))
+
+;; ---- the literal types: one vocabulary, and one exception ----------------
+;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers
+;; and names, and both argument declarations read the same four (docs/argtypes.md).  The
+;; distinction between them is carried by *which predicate you write* — `arg` types what
+;; an argument denotes, `quotedArg` the term written there — so a second set of type
+;; names would be redundancy plus a trap, a `quotedArg` outside the syntactic lattice
+;; convicting nothing for the life of the KB.  These pin the modelling half of that: the
+;; placement, the two disjointness claims, and the one type the pattern does not reach.
+
+(tu/deftest-kb the-literal-types-are-placed-in-the-domain-lattice
+  (testing "text and a number have no mass and no location"
+    (is (v/genl? kb 'string 'intangible))
+    (is (v/genl? kb 'number 'intangible)))
+  (testing "integer reaches intangible through number, carrying no edge of its own"
+    (is (v/genl? kb 'integer 'number))
+    (is (v/genl? kb 'integer 'intangible))
+    (is (empty? (v/sentexes-matching kb '(genl integer intangible) 'CxUniverse))
+        "the reach is transitive: no second parent is asserted for it"))
+  (testing "and neither of them is a relation"
+    (is (v/disjoint? kb 'string 'predicate))
+    (is (v/disjoint? kb 'number 'predicate))
+    (is (v/disjoint? kb 'integer 'predicate)
+        "the declaration on number carries integer with it")))
+
+(tu/deftest-kb symbol-is-mention-only-and-carries-neither-claim
+  ;; the deliberate absence, and the one a later reader is most likely to "fix": a symbol
+  ;; does not denote itself, so the set of names and the set of things named are two sets
+  ;; — parentOf is written as a symbol and denotes a predicate.  Both claims below would
+  ;; be false of every predicate name in the KB.
+  (is (not (v/disjoint? kb 'symbol 'predicate))
+      "a name is exactly how a predicate is written")
+  (is (not (v/genl? kb 'symbol 'intangible))
+      "and nothing places it in the domain lattice, there being no use-level reading"))
+
+(tu/deftest-kb the-comment-text-position-refuses-a-relation-and-exempts-a-name
+  ;; `(arg comment 2 string)` at the ground level, and the mechanism is `args-problem`'s
+  ;; own rather than the disjointness above: a term already in the hierarchy that reaches
+  ;; no path to the declared type is convicted, and one the KB classifies not at all is
+  ;; exempt.  The disjointness does two other jobs — it refuses a term asserted both at
+  ;; once, and it is what the rule-variable arm reads (docs/taxonomy.md).
+  (tu/with-terms [SomeDoc]
+    (testing "a predicate in the text position is convicted"
+      (is (= :arg-type (:type (first (v/check kb (list 'comment 'thing 'genl) 'CxUniverse))))))
+    (testing "an unclassified name is exempt — nothing says what it denotes"
+      (is (= [] (v/check kb (list 'comment 'thing SomeDoc) 'CxUniverse))))
+    (testing "and a string literal is what the position is for"
+      (is (= [] (v/check kb (list 'comment 'thing "some text") 'CxUniverse))))))
+
+(tu/deftest-kb a-term-cannot-be-both-a-string-and-a-relation
+  (tu/with-terms [Thing1]
+    (v/assert kb (list 'string Thing1) 'CxUniverse)
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (v/assert kb (list 'predicate Thing1) 'CxUniverse)))))

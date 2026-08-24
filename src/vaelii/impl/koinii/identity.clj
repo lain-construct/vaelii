@@ -106,16 +106,31 @@
   "The admin-only registry context.  The one context governed agents may not write."
   'CxRegistry)
 
+(defn place-agent-context
+  "Place `agent-id`'s per-agent context (`context-for`) in the lattice: LIFTED under
+  `parent` so the parent sees the agent's writes — `(genlCx parent CxAtlas)` — and ROOTED
+  under `roots` so the agent speaks that vocabulary and the rules over it fire.  Both
+  edges are `:monotonic` topology in `CxUniverse` and both are idempotent, so re-placing
+  an agent is a no-op.  Returns the agent context symbol.
+
+  **The two edges in one place, and `write!` is what lets them be.**  A channel writes
+  through its `Medium` (for a `wire` handle, the daemon), a plain caller writes straight
+  to a KB — so the writer is the argument: `write!` is `(fn [sentence context opts] …)`.
+  Every koinii placement — `agent-context` here, `speech-acts/speaker-context`,
+  `channel/join` — is this pair of edges under a different parent and a different root."
+  [write! parent agent-id roots]
+  (let [actx (context-for agent-id)]
+    (write! (list 'genlCx parent actx) 'CxUniverse {:strength :monotonic})
+    (write! (list 'genlCx actx roots)  'CxUniverse {:strength :monotonic})
+    actx))
+
 (defn agent-context
   "Create/lift `agent-id`'s per-agent context under the channel `deploy-ctx` so the
   channel sees it — `(genlCx deploy-ctx CxAtlas)` — and root it under `CxCore` so the
   agent speaks the core vocabulary.  Both edges are monotonic topology.  Returns the
   agent context symbol."
   [kb deploy-ctx agent-id]
-  (let [actx (context-for agent-id)]
-    (v/assert kb (list 'genlCx deploy-ctx actx) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'genlCx actx 'CxCore)    'CxUniverse {:strength :monotonic})
-    actx))
+  (place-agent-context #(v/assert kb %1 %2 %3) deploy-ctx agent-id 'CxCore))
 
 ;; ---- the auth seam: authenticate a principal (policy-conditional) --------
 

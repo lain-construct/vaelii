@@ -58,6 +58,7 @@
             [clojure.string :as str]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
+            [vaelii.impl.capabilities :as cap]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.foreign :as foreign]
@@ -683,7 +684,7 @@
   succeeds and every answer is empty, the worst way for this to go wrong.  One record is
   enough to tell, and an empty store is fine (there is nothing to disagree about)."
   [kb path]
-  (when-let [h (first (p/sentex-ids (:records kb)))]
+  (when-let [h (cap/some-sentex-id (:records kb))]
     (let [r (p/get-sentex (:records kb) h)]
       (when-not (:sentence r)
         (throw (ex-info (str "the store at " path " holds records this build cannot read"
@@ -860,9 +861,13 @@
                            ;; `:progress` settles with the status, as it does on the job
                            ;; itself: the placeholder this entry registered with reads
                            ;; `:starting`, and an hour on that is the only reading left
-                           (put-entry! key #(assoc % :summary summary :stats (stats (:kb %))
-                                                   :status :done :finished (now)
-                                                   :progress {:phase :done}))
+                           ;; `stats` is a four-read census, so it runs BEFORE the swap —
+                           ;; a swap! fn must be cheap and retryable (`start-monitor`'s
+                           ;; own argument), and under contention it re-runs per retry
+                           (let [ks (some-> (get-in @state [:entries key]) :kb stats)]
+                             (put-entry! key #(assoc % :summary summary :stats ks
+                                                     :status :done :finished (now)
+                                                     :progress {:phase :done})))
                            (swap! state (fn [s] (cond-> s (nil? (:active s)) (assoc :active key))))
                            (trove/log! {:level :info :id ::loaded
                                         :msg (str "loaded KB " key) :data summary})
@@ -947,8 +952,9 @@
        ;; this refuses for the same reason: its thread is still going, and the stores are
        ;; still its.
        (when-not (#{:done :cancelled :failed} (:status (jobs/wait (:job e) 30000)))
-         (put-entry! key #(assoc % :error "still stopping — its loader has not reached a
-                                          point at which it can be interrupted"))
+         (put-entry! key #(assoc % :error (str "still stopping — its loader has not "
+                                               "reached a point at which it can be "
+                                               "interrupted")))
          (throw (ex-info (str (:name e) " is still stopping; unload it again in a moment")
                          {:type :still-stopping :key key}))))
      ;; and an export is a reader of exactly this KB, mid-request.  Not cancelled for the
@@ -1088,8 +1094,8 @@
             ;; all and has to be loaded again.  Two different instructions, and telling
             ;; the first case to reload sends it back through hours of work for nothing.
             recoverable? (and (not= ::unreadable n)
-                              (boolean (or (first (p/premise-ids (:records kb)))
-                                           (first (p/justification-ids (:records kb))))))]
+                              (boolean (or (cap/some-premise-id (:records kb))
+                                           (cap/some-justification-id (:records kb)))))]
         (when-not (and settled? belief?)
           {:key key :name (:name e) :status (if (= ::unreadable n) :unreadable (:status e))
            :progress (:progress e) :belief? belief? :recoverable? recoverable?})))))
@@ -1192,10 +1198,9 @@
   part of a dump.
 
   Asked of the running set rather than of `jobs/latest`: the panel shows the last export's
-  report for an hour after it settles, and the newest export of any status is one that
-  finished this morning — `jobs/cancel!` answers true for any job the registry still
-  holds, so cancelling that one reported a cancellation nothing was cancelled by, over a
-  dump already written."
+  report for an hour after it settles, so the newest export of any status is routinely one
+  that finished this morning, and this reports on the dump that is still being written
+  rather than on whichever one the panel happens to be showing."
   []
   (boolean (some-> (first (filter #(= :export (:kind %)) (jobs/running)))
                    :id jobs/cancel!)))
@@ -1210,14 +1215,17 @@
   from, so a KB registered at startup shows as *loaded* rather than being offered again."
   ([key name kb] (register! key name kb nil))
   ([key name kb {:keys [where source]}]
-   (swap! state (fn [s]
-                  (-> s
-                      (assoc-in [:entries key]
-                                {:key key :name name :status :done :kb kb :where where
-                                 :source (or source {:kind :registered}) :started (now)
-                                 :finished (now) :stats (stats kb) :progress {:phase :done}})
-                      (update :order #(vec (distinct (conj % key))))
-                      (update :active #(or % key)))))
+   ;; `stats` is a four-read census, computed before the swap for the same reason as
+   ;; `load-source`'s: a swap! fn re-runs per retry under contention
+   (let [ks (stats kb)]
+     (swap! state (fn [s]
+                    (-> s
+                        (assoc-in [:entries key]
+                                  {:key key :name name :status :done :kb kb :where where
+                                   :source (or source {:kind :registered}) :started (now)
+                                   :finished (now) :stats ks :progress {:phase :done}})
+                        (update :order #(vec (distinct (conj % key))))
+                        (update :active #(or % key))))))
    key))
 
 (defn reset-registry!
@@ -1233,7 +1241,9 @@
   down calls, and stranding four KBs because the first would not close is the wrong
   trade.  Each refusal is logged and the sweep goes on."
   []
-  (when-let [id (:id (jobs/latest :export))]
+  ;; through `cancel-export!` — its docstring says why `jobs/latest` is the wrong ask
+  ;; (the newest export of any status is routinely one that settled this morning)
+  (when-let [id (:id (first (filter #(= :export (:kind %)) (jobs/running))))]
     (jobs/cancel! id)
     (jobs/wait id 30000))
   (doseq [k (:order @state)]

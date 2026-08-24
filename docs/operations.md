@@ -55,6 +55,13 @@ lein cli repl --starter                                                    # int
   written as an EDN string (`'(dog Muffet)'`), a context as a symbol, a handle as an
   integer, and a path as itself — an argument that reads as no EDN form is kept as the
   string it already was, which is what `/var/lib/vaelii` is.
+- **A command that answers a set prints it sorted.** `match`, `query` and `ask` answer
+  sets, and a set has no order of its own — so an unsorted print was whichever order the
+  retrieval enumerated, and two loads of the same knowledge printed it differently, which
+  a `diff` of two runs reads as a change in the KB. They are ordered by content key
+  (`naming/print-key`), alongside `types` and `contexts`, which always were. **`prove` is
+  the exception and stays in DFS order**: it answers one solution per derivation, and the
+  order those were found in is part of what a proof says ([inference.md](inference.md)).
 - **`load <file>`** reads an EDN vector of `[sentence context]` (or `[sentence context
   opts]`) entries and asserts them in one batch (`with-deferred-settle` — one settle for
   the whole file).
@@ -279,7 +286,15 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   as something other than a map — a proxy's HTML error page, a truncated body).
 - The convenience wrappers (`assert`, `assert-rule`, `sentexes-matching`, `ask`, `prove`,
   `why`, `retract!`, …) mirror the `vaelii.core` surface, bare and `!`-marked exactly as
-  it spells them; `call` reaches any op in `serve/op-names` directly.
+  it spells them, **arity for arity** where the served op takes one: `(c/why conn h
+  {:max-depth 32})` is how a `{:truncated? true}` branch is re-asked whole, and a wrapper
+  short of an arity the daemon accepts is a read a remote caller cannot make. `call`
+  reaches any op in `serve/op-names` directly.
+- **`blocked-justifications`** is the read a remote proof tree needs and no per-handle
+  call answers: the ids a rule exception currently blocks, every antecedent IN and
+  supporting nothing ([exceptions.md](exceptions.md)). Blocking lives in the network
+  rather than in a record, so without this op an attached reader draws a blocked
+  justification as supporting.
 - **`watch` / `poll` / `unwatch` / `watchers` are the change feed** ([feed.md](feed.md)),
   and the one place the client's shape differs from `vaelii.core`'s: in process `watch`
   takes a callback, and here it returns a token a caller reads forward with a cursor.
@@ -619,9 +634,9 @@ CI sets these too; nothing in a deployment does.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_TEST_BACKEND` | `test/vaelii/test_util.clj:130+` | a `<records>-<index>` backend name (`memory`, `disk`, `memory-columnar`, …), or `overlay` | `memory` | Which of the eight stores the whole suite runs on. |
-| `VAELII_TEST_TMS` | `test/vaelii/test_util.clj:60+` | `reference` `dense` | `reference` | Which truth-maintenance representation the suite runs on. |
-| `VAELII_TEST_SPACE` | `test/vaelii/test_util.clj:120+` | a whole number from 5 to 15 | `15` | The top of the two-space block the suite's KBs live on, so two runs can have distinct directories. |
+| `VAELII_TEST_BACKEND` | `test/vaelii/test_util.clj:210+` | a `<records>-<index>` backend name (`memory`, `disk`, `memory-columnar`, …), or `overlay` | `memory` | Which of the eight stores the whole suite runs on. |
+| `VAELII_TEST_TMS` | `test/vaelii/test_util.clj:60+` | `reference` `dense` | `dense` | Which truth-maintenance representation the suite runs on. |
+| `VAELII_TEST_SPACE` | `test/vaelii/test_util.clj:190+` | a whole number from 5 to 15 | `15` | The top of the two-space block the suite's KBs live on, so two runs can have distinct directories. |
 | `VAELII_TEST_LOG_LEVEL` | `project.clj:130+` | `error` `warn` `info` `debug` `trace` | `error` | The floor the `:test` profile installs the engine's logging at, through `set-log-level` itself. |
 | `VAELII_BENCH_LOG_LEVEL` | `project.clj:170+` | `error` `warn` `info` `debug` `trace` | `error` | The same floor for the `:bench` profile, so `lein perf` and the `bench-*` harnesses print readings rather than the logging their workloads provoke. |
 | `VAELII_LLM_LIVE` | `test/vaelii/test_util.clj:200+` | `1` `true` `yes` | unset | The consent to call a real model. The `^:llm` mark is the separate half, and both are needed. |

@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.11.0"
+(defproject com.vaelii/vaelii "0.12.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -108,7 +108,7 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.11.0"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.12.0"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
@@ -271,7 +271,6 @@
             "lint-unused"     ["shell" "python3" "scripts/check-unused-publics.py"]
             ;; the `authorship` CI gate's rules, against synthetic commits — the gate
             ;; runs only on a pull request, so this is where they are exercised first
-            "lint-authorship" ["shell" "python3" "scripts/check-authorship.py" "--selftest"]
             ;; lint, the suite and the perf claims in one run, not fail-fast
             ;; (scripts/gate.sh says why)
             "gate"            ["shell" "bash" "scripts/gate.sh"]

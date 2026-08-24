@@ -46,7 +46,7 @@ oracle.clj     the other direction: the KB's conclusions judged by a model (docs
 |---|---|---|---|---|
 | unit of work | the KB | a set of handles | one term's page | a document |
 | the turn is | "record this" | "rewrite these lines" | "flesh this out" | "what does this text claim?" |
-| how the model reads | 57 generated tool schemas | the selection + its vocabulary | the page + the KB's vocabulary inventory | the numbered text + the vocabulary its own words resolved to |
+| how the model reads | 61 generated tool schemas | the selection + its vocabulary | the page + the KB's vocabulary inventory | the numbered text + the vocabulary its own words resolved to |
 | how the model answers | a fenced `edn` block | the editor's `[sentence context]` lines | bare sentences under a JSON schema | sentences + the sentence each came from, under a JSON schema |
 | the context is | the model's to write | the model's to write | the **caller's**, never written | the **caller's**, never written |
 | needs | a tool-capable model | any model that can complete text | a model that writes s-expressions | a model that writes s-expressions |
@@ -78,12 +78,12 @@ is the argument for it and the measurement against `phi4:14b`, control group inc
 surface the daemon and the browser reach a KB through. `tools/schemas` derives the
 model's tools from its **read subset** rather than transcribing them: parameter names
 and arities come from each `vaelii.core` var's own `:arglists`, descriptions from its
-docstring. Of its 65 entries nine are filed with the writes — seven that store, plus
+docstring. Of its 71 entries nine are filed with the writes — seven that store, plus
 `:preview`, which stores nothing but holds the process's single writer and advances
 the handle counter, and `:clear-caches`, which mutates the process's measurement
-state — and one more resolves to a `!` var, so the model sees 55. A read added to
-`serve/ops` becomes a tool with no edit here; a signature change is picked up on the
-next build.
+state — and one more (`:export`) names no `vaelii.core` var to read a signature off, so
+the model sees 61. A read added to `serve/ops` becomes a tool with no edit here; a
+signature change is picked up on the next build.
 
 Names are munged to the provider's identifier grammar — `:find-sentexes` becomes
 `kb_find_sentexes`, `:ask?` becomes `kb_ask_p` (so it stays distinct from `kb_ask`).
@@ -94,6 +94,14 @@ an EDN s-expression** — `"(dog ?x)"` — read back with `clojure.edn/read-stri
 An op with several genuinely different shapes (`why-not` takes a handle *or* a
 sentence and a context) declares all their parameters, requires only the ones every
 shape needs, and dispatches on the longest signature the model's input satisfies.
+
+**An argument the chosen shape does not take is refused rather than dropped**, and that
+is `opts/check!`'s rule one level out. The nested shapes are where it bites: `query`
+takes `(goal)`, `(goal, context)`, `(goal, context, opts)`, so a call giving goal and
+`opts` and no context satisfies the *first* — and passing it on would run the read
+facts-only with the depth discarded, which is indistinguishable from a goal no rule can
+reach. The refusal names the shape the input selected and the shapes the op has, so the
+next call supplies the argument in between.
 
 **Writes are excluded structurally.** `tools/write-ops` names every mutating op, and
 anything resolving to a `!` var is treated as a write whatever the table says, so
@@ -256,7 +264,7 @@ Two things about where it comes from, both measured and both counter-intuitive:
   domain relations — and `arg` then supplies argument *types* for 118 of the 120 a page
   renders.
 - **Arity is never inferred from `arg`.** `arg` constrains an argument to a *type* and
-  is deliberately partial: `hasCapability/2` and `resultIsa/2` each constrain only their
+  is deliberately partial: `hasCapability/2` and `result/2` each constrain only their
   first argument, and `interArg/5` constrains one position of five. Its highest declared
   position disagrees with the declared arity for 6 of the 145 predicates it constrains, so
   an inventory built that way would print `interArg/1` and *cause* the arity errors it
@@ -421,10 +429,12 @@ keeps the prompt bounded as the KB grows.
 ### Why the whole-KB path does not fit a small local model
 
 Measured against the **schema-only starter** (no individuals, no facts): the generated
-system prompt is 27,503 characters and the 57 tool schemas another 32,448 — about
-**17,000 tokens before the user has said anything**. On a 16,384-token model that is
-the whole window and past it, spent on a KB with nothing in it but its schema, and the
-real target is millions of sentexes.
+system prompt is 29,931 characters and the 61 tool schemas another 37,416 as sent — about
+**19,000 tokens before the user has said anything**, at `selection/chars-per-token`. On a
+16,384-token model that is the whole window and past it, spent on a KB with nothing in it
+but its schema, and the real target is millions of sentexes. Both figures grow with the
+read surface: the schemas are generated from `serve/ops`, so a read added there is another
+six hundred characters in every whole-KB request.
 
 Worse, it is unusable rather than merely expensive on the model this was built for.
 `phi4:14b` declares `capabilities: ["completion"]` — no `tools` — so its chat template
@@ -557,7 +567,7 @@ well under phi4's native 16,384, small enough that prefill is cheap and an overs
 selection surfaces as a refusal rather than a truncation, and large enough for a
 selection bigger than anyone drags out by hand.
 
-For contrast, the same three-fact edit on the whole-KB path would start at ~17,000 tokens
+For contrast, the same three-fact edit on the whole-KB path would start at ~19,000 tokens
 of fixed overhead — nearly five times the whole 60-sentex selection-scoped request, on
 a KB with no facts in it.
 
@@ -833,10 +843,18 @@ neither hermetic nor reproducible, which is why an ordinary run — and `lein ga
 holds the two in agreement **both ways**: a test that consults the live gate must carry
 the mark (or it would run in `:default`), and a marked test must consult the gate (or a
 selector alone would be enough to call a host). Consulting it means a **path** to
-`live-llm?` — the call in the test's own body, or a call to a helper in the same file
-whose source reaches it — so what proves consent is the gate and never a helper's name.
-A second test names the six outright, so adding a live test is a visible change rather
-than a quiet one.
+`live-llm?` — the call in the test's own body, or a call to a helper whose source reaches
+it, in the same file or hoisted into `test_util.clj` — so what proves consent is the gate
+and never a helper's name. A second test names the six outright, so adding a live test is
+a visible change rather than a quiet one.
+
+Agreement is not the whole claim, and the same scan reads a third thing: **what a test
+calls**. A test carrying *neither* decoration satisfies both directions above and dials
+out under a plain `lein test`, so a host probe — `ollama/version` and everything over it —
+or a real backend built and then handed to a turn is itself reaching, and a reaching test
+must carry the mark or must pin the var it reaches through. It reads calls, so it does not
+follow indirection: a web route that resolves its own provider is invisible to it, which is
+why `web_propose_test` pins `provider/configured` rather than relying on the scan.
 
 It is scriptable, so a test drives the loop exactly. `:script` is the turns to hand
 back, one per call; each is a full response map or a shorthand:
@@ -920,7 +938,7 @@ already resident the *first* real turn still took 6.4 s to its first assertion a
 turn after it took 0.40 s. Bare, not `warm!` — it destroys nothing.
 
 `capabilities` is worth reading before choosing a path: a model without `:tools` cannot
-tool-call, and sending it 57 schemas spends the window on something it will never emit.
+tool-call, and sending it 61 schemas spends the window on something it will never emit.
 `supports-tools?` answers false for an unreachable host too — the conservative direction,
 since the cost of guessing yes is a wasted context window.
 
@@ -932,6 +950,54 @@ runs), `VAELII_OLLAMA_NUM_CTX` (default 8192) and `VAELII_OLLAMA_KEEP_ALIVE` (de
 overloaded — `ollama serve` reads it as the address to **bind**, so a machine running
 its own Ollama commonly has it set to `0.0.0.0:11434`. A wildcard is not somewhere to
 connect to, and is not read as one.
+
+### What both HTTP backends share
+
+`vaelii.impl.llm.http` holds the part of a transport that is not a wire format, because a
+deadline policy living in two places is one that gets fixed in one. Each backend passes an
+**endpoint** descriptor, `{:label :slug}` — how the far end is named in a message and in a
+thread title — and that pair is the whole of the difference between the two copies.
+
+**The failing body is data, never the message.** A response can be megabytes, and what
+answered is often not the API — a proxy in front of it answers HTML. So every refusal that
+carries body text bounds what it puts in the message to `http/excerpt`'s opening 200
+characters and hands the whole text over in the ex-data: `:excerpt` for a 200 that would not
+parse (`:llm-bad-response`), `:body` for a non-200 (`:llm-api-error`). Unbounded, that
+megabyte is in every log line the failure reaches, and the first line is what says why
+anyway.
+
+**The body read carries its own deadline.** A request's `.timeout` bounds the response
+*arriving*, and a streamed turn is almost entirely what comes after that — the lines are
+pulled off the socket once `send` has returned. `http/under-read-deadline` runs a daemon
+watchdog that closes the body once the deadline passes, which is what makes a blocked read
+fail, and rewrites the failure that follows as `:llm-timeout` with the original as its cause.
+It catches `Throwable`, not `Exception`: what the read does is parse bytes a far end chose, so
+a hostile body can overflow the stack or exhaust the heap, and an `Error` escaping the rewrite
+would reach a caller's `:llm-timeout` handler as a parser bug instead. With the deadline
+unspent the original propagates unchanged; the watchdog is cancelled either way.
+
+**The connect deadline is not the turn's.** `http/connect-timeout-ms` is a fixed five
+seconds and every client is built on it, whatever `:timeout-ms` a caller allowed. The two
+bound different things: a turn may legitimately run for minutes — a cold 14B load, a
+high-effort answer — while a connection either completes in well under a second or is not
+going to. Handed the turn's budget, `connectTimeout` makes a host that never answers the
+SYN cost five minutes on Ollama and ten on the Messages API, which is the shape of a hang
+rather than of a refusal. A probe that wants to fail faster still can: the request's own
+`.timeout` bounds the exchange, connection included, so `ollama/version` keeps its
+two-second gate.
+
+**One client for the probes.** A JDK `HttpClient` owns a connection pool and a selector
+thread. `ollama/probe-client` is one held client that `version`, `show` and `warm` all
+send on — and so `available?` and `capabilities` above them, which matters because
+`available?` runs on every `/propose` the browser posts. Nothing varies per probe: the
+host rides on the request URI and the deadline on the request. A provider keeps its **own**
+client, since a turn is long-lived and streams and its connections are not a probe's to
+share.
+
+**There is no retry and no backoff.** A 429 or a 529 surfaces as `:llm-api-error` with the
+status in its ex-data, exactly like any other non-200, and the turn ends there. Nothing
+here sleeps, re-sends, or reads a `retry-after` header; a caller that wants to try again
+calls again.
 
 ### Credentials
 

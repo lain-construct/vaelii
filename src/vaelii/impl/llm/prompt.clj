@@ -19,7 +19,8 @@
   message turn after the cache breakpoint, never in here."
   (:require [clojure.string :as str]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]))
+            [vaelii.impl.core-context :as core-context]
+            [vaelii.impl.naming :as nm]))
 
 (def ^:private naming-rules
   "| role | convention | example |
@@ -93,12 +94,13 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
            (str "\n- … and " (- (count cs) max-contexts) " more (`kb_contexts`)")))))
 
 (defn- type-section [kb {:keys [max-types] :or {max-types 80}}]
-  (let [ts (sort-by str (v/types kb))]     ; str, never bare sort: a type node may be a NAT, not a symbol
+  ;; `by-print-key`, never bare sort: a type node may be a NAT, not a symbol
+  (let [ts (nm/by-print-key (v/types kb))]
     (str "## Types (" (count ts) ")\n\n"
          "Each is a unary predicate; `genls` are its supertypes.\n\n"
          (str/join "\n"
                    (for [t (take max-types ts)]
-                     (let [up (sort-by str (disj (set (v/genls kb t)) t))]   ; NAT-safe (a type may be a NAT)
+                     (let [up (nm/by-print-key (disj (set (v/genls kb t)) t))]   ; NAT-safe
                        (bullet "`" t "`"
                                (when (seq up)
                                  (str " ⊂ " (str/join ", " (map #(str "`" % "`") up))))))))
@@ -154,7 +156,7 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
 
 (defn- disjoint-section [kb]
   (let [pairs (sort (set (for [{:keys [sentence]} (v/sentexes-matching kb (list 'disjoint '?a '?b) '?ctx)]
-                           (vec (sort-by str [(nth sentence 1) (nth sentence 2)])))))   ; disjoint args may be NATs
+                           (nm/by-print-key [(nth sentence 1) (nth sentence 2)]))))   ; args may be NATs
         metas (sort (v/disjoint-metatypes kb))]
     (when (or (seq pairs) (seq metas))
       (str "## Disjointness\n\n"
@@ -166,7 +168,8 @@ Write the batch **last**, after any prose. Put nothing else in the `edn` block."
                       (for [m metas]
                         (bullet "metatype `" m "` — pairwise disjoint members: "
                                 (str/join ", " (map #(str "`" % "`")
-                                                    (sort-by str (v/metatype-members kb m))))))))))))
+                                                    (nm/by-print-key
+                                                     (v/metatype-members kb m))))))))))))
 
 (defn- scale-section [kb]
   (str "## This knowledge base\n\n"

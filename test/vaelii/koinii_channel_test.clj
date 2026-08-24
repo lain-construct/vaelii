@@ -12,7 +12,8 @@
   context (D1), idempotent by sentence identity (so an at-least-once feed is safe), and
   torn down with its target (D7, no dangling edges).  Belief is never special-cased — every
   move is an ordinary assert / retract, which the full suite staying green is the check on."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [taoensso.trove :as trove]
             [vaelii.client :as vc]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
@@ -52,6 +53,30 @@
     (testing "re-joining is idempotent topology, no second edge"
       (let [again (join! kb 'AgentAtlas)]
         (is (= (:context atlas) (:context again)))))))
+
+(tu/deftest-kb an-agent-cannot-assert-under-another-agents-name
+  ;; The creator is the write boundary's other half: the context is fixed by identity, and
+  ;; so is the stamp.  A caller's `:creator` neither wins (Atlas signing Boreas's name) nor
+  ;; is dropped in silence (a stamp that looks like it took) — it is refused.
+  (let [atlas (join! kb 'AgentAtlas)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot assert as"
+                          (ch/assert atlas '(usesDatabase ProdCluster PostgreSQL14)
+                                     {:creator 'AgentBoreas})))
+    (let [e (try (ch/assert atlas '(usesDatabase ProdCluster PostgreSQL14)
+                            {:creator 'AgentBoreas})
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :koinii/creator-mismatch (:type (ex-data e))))
+      (is (= 'AgentBoreas (:creator (ex-data e)))))
+    (testing "nothing was written under either name"
+      (is (nil? (v/handle-of kb '(usesDatabase ProdCluster PostgreSQL14) 'CxAtlas)))
+      (is (nil? (v/handle-of kb '(usesDatabase ProdCluster PostgreSQL14) 'CxBoreas))))
+    (testing "the agent's own id is redundant, not a conflict, and other opts pass through"
+      (let [h (ch/assert atlas '(usesDatabase ProdCluster PostgreSQL14)
+                         {:creator 'AgentAtlas :strength :monotonic})]
+        (is (= 'AgentAtlas (:creator (v/provenance kb h))))
+        (is (= 'CxAtlas (:context (v/sentex kb h))))
+        (is (= :monotonic (:strength (v/sentex kb h))) "the other opt reached the store")))))
 
 ;; ---- reply: a meta-sentex in the replier's own context (D1) --------------
 
@@ -324,3 +349,139 @@
                             (ch/-feed-open m nil 'CxDeploy)))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no cursor feed"
                             (ch/-feed-poll m nil nil nil))))))
+
+;; ---- the two doors that nil-punned: a bad handle, and a bad stance -------
+
+(tu/deftest-kb dispute-refuses-a-handle-that-names-no-record
+  ;; `dispute` reads the target's sentence to build the rebuttal, so a handle naming
+  ;; nothing would assert the literal `(not nil)` and a `disputes` edge on nothing — a
+  ;; challenge to a claim that does not exist, stored as though it were one.
+  (let [boreas (join! kb 'AgentBoreas)
+        absent (+ 1000000 (count (v/handles kb)))
+        e (is (thrown? clojure.lang.ExceptionInfo (ch/dispute boreas absent)))]
+    (is (= :koinii/no-such-handle (:type (ex-data e))))
+    (is (= absent (:handle (ex-data e))))
+    (is (empty? (v/sentexes-matching kb '(not ?s) 'CxBoreas))
+        "and the rebuttal was never written")))
+
+(tu/deftest-kb vote-refuses-a-stance-that-is-neither-by-name
+  ;; The ballot predicate is chosen from the stance, so an unrecognized one has no
+  ;; ballot to cast.  A bare `case` fell out as an `IllegalArgumentException` naming
+  ;; nothing a caller could act on; the refusal is typed and lists the two that exist.
+  (let [atlas (join! kb 'AgentAtlas)
+        ph    (ch/assert atlas (list 'usesDatabase 'ProdCluster 'PostgreSQL14))
+        e     (is (thrown? clojure.lang.ExceptionInfo (ch/vote atlas :abstain ph)))]
+    (is (= :koinii/no-such-stance (:type (ex-data e))))
+    (is (= :abstain (:stance (ex-data e))))
+    (is (= [:for :against] (:known (ex-data e))) "the refusal names the legal directions")))
+
+;; ---- the wire poll loop's two seams are never silent ---------------------
+;;
+;; A scripted daemon: `wire-subscribe` reaches the far end only through `client/watch`,
+;; `client/poll` and `client/unwatch`, so redefining those three says exactly what the
+;; daemon does and when — no Jetty, no ring, no timing.
+
+(defn- collecting-log-fn
+  "Install a `*log-fn*` collecting `[level id]` at the ROOT, not as a thread-local: the
+  poll loop runs on its own daemon thread, which inherits no dynamic binding.  Returns
+  `[collected restore!]`."
+  []
+  (let [collected (atom [])
+        root      (.getRawRoot #'trove/*log-fn*)]
+    (alter-var-root #'trove/*log-fn*
+                    (constantly (fn [_ns _coords level id _payload]
+                                  (swap! collected conj [level id]))))
+    [collected #(alter-var-root #'trove/*log-fn* (constantly root))]))
+
+(defn- stopped?
+  "Wait up to 3s for `sub` to read stopped, and answer whether it does."
+  [sub]
+  (loop [n 300]
+    (cond (false? @(:running sub)) true
+          (zero? n)                false
+          :else                    (do (Thread/sleep 10) (recur (dec n))))))
+
+(defn- scripted-wire
+  "A `wire` medium whose daemon answers from `poll-fn` — `(fn [n] …)` on the 1-based poll
+  count, returning a reply or throwing."
+  [poll-fn]
+  (let [polls (atom 0)]
+    [(ch/wire ::scripted)
+     (fn [_conn _token _cursor _opts] (poll-fn (swap! polls inc)))]))
+
+(deftest a-wire-poll-that-fails-ends-the-subscription-and-reports-it
+  ;; The failure a subscriber cannot detect: the loop exits on a transport error and the
+  ;; subscription still reads live, so nobody resubscribes and no event ever arrives
+  ;; again.  Now the exit is recorded — `:running` false — and, with no `:on-error`, said
+  ;; out loud at `:error` rather than dropped.
+  (let [[medium poll] (scripted-wire (fn [_] (throw (ex-info "the proxy hung up" {}))))
+        [logged restore!] (collecting-log-fn)]
+    (try
+      (with-redefs [vc/watch   (fn ([_] {:token "T" :cursor 0})
+                                 ([_ _ _] {:token "T" :cursor 0}))
+                    vc/unwatch (fn [_ _] true)
+                    vc/poll    poll]
+        (let [sub (ch/-subscribe medium nil 'CxDeploy (fn [_]) nil)]
+          (is (stopped? sub) "the dead subscription reads stopped, not live")
+          (is (some #{[:error ::ch/subscription-failed]} @logged)
+              "and the failure was logged at :error rather than swallowed")))
+      (finally (restore!)))))
+
+(deftest a-caller-supplied-on-error-replaces-the-default-line
+  (let [[medium poll] (scripted-wire (fn [_] (throw (ex-info "the proxy hung up" {}))))
+        [logged restore!] (collecting-log-fn)
+        seen (atom [])]
+    (try
+      (with-redefs [vc/watch   (fn ([_] {:token "T" :cursor 0})
+                                 ([_ _ _] {:token "T" :cursor 0}))
+                    vc/unwatch (fn [_ _] true)
+                    vc/poll    poll]
+        (let [sub (ch/-subscribe medium nil 'CxDeploy (fn [_])
+                                 {:on-error #(swap! seen conj %)})]
+          (is (stopped? sub))
+          (is (= 1 (count @seen)) ":on-error was told")
+          (is (= "the proxy hung up" (ex-message (first @seen))))
+          (is (not-any? #{[:error ::ch/subscription-failed]} @logged)
+              "and the default line stood aside for it")))
+      (finally (restore!)))))
+
+(deftest a-lagged-wire-reply-is-not-dropped-in-silence
+  ;; `:lagged` is the one field a feed reader must not ignore (docs/feed.md): non-zero,
+  ;; the ring dropped events and the reader owes the KB a resync.  Unset, `:on-lagged`
+  ;; made that number disappear; it now reaches the log at `:warn`.
+  (let [[medium poll] (scripted-wire
+                       (fn [n] (if (= 1 n)
+                                 {:events [] :cursor 1 :lagged 3}
+                                 (throw (ex-info "gone" {:type :unknown-subscription})))))
+        [logged restore!] (collecting-log-fn)]
+    (try
+      (with-redefs [vc/watch   (fn ([_] {:token "T" :cursor 0})
+                                 ([_ _ _] {:token "T" :cursor 0}))
+                    vc/unwatch (fn [_ _] true)
+                    vc/poll    poll]
+        (let [sub (ch/-subscribe medium nil 'CxDeploy (fn [_]) nil)]
+          (is (stopped? sub) "the reaped subscription reads stopped too, and quietly")
+          (is (some #{[:warn ::ch/subscription-lagged]} @logged)
+              "the dropped count was reported")
+          (is (not-any? #{[:error ::ch/subscription-failed]} @logged)
+              "a reaped subscription is not an error — it is the normal end")))
+      (finally (restore!)))))
+
+(deftest a-caller-supplied-on-lagged-replaces-the-default-line
+  (let [[medium poll] (scripted-wire
+                       (fn [n] (if (= 1 n)
+                                 {:events [] :cursor 1 :lagged 3}
+                                 (throw (ex-info "gone" {:type :unknown-subscription})))))
+        [logged restore!] (collecting-log-fn)
+        drops (atom [])]
+    (try
+      (with-redefs [vc/watch   (fn ([_] {:token "T" :cursor 0})
+                                 ([_ _ _] {:token "T" :cursor 0}))
+                    vc/unwatch (fn [_ _] true)
+                    vc/poll    poll]
+        (let [sub (ch/-subscribe medium nil 'CxDeploy (fn [_])
+                                 {:on-lagged #(swap! drops conj %)})]
+          (is (stopped? sub))
+          (is (= [3] @drops) ":on-lagged was told the count")
+          (is (not-any? #{[:warn ::ch/subscription-lagged]} @logged))))
+      (finally (restore!)))))

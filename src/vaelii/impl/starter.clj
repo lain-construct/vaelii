@@ -55,6 +55,7 @@
   dropping a file in kb/upper/ or kb/middle/, no code change."
   (:require [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.seed :as seed]
             [vaelii.impl.taxonomy :as tax]))
 
@@ -67,6 +68,6 @@
   (seed/load-layer kb "middle" (seed/layer-contexts "middle")) ; every theory context
   ;; every type is a unaryPredicate — computed over the taxonomy, so it stays in code;
   ;; a predicate classification, placed with the others in CxCore
-  (doseq [t (sort-by str (tax/types (:taxonomy kb)))]
+  (doseq [t (nm/by-print-key (tax/types (:taxonomy kb)))]
     (v/assert kb (list 'unaryPredicate t) 'CxCore))
   kb)

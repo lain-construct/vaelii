@@ -29,7 +29,7 @@
   House rules: gensym'd temporaries via `tu/with-terms`; engine vocabulary
   (`equals`, `reifiableFunction`, `QuantityFn`, `Kilogram`, contexts) literal; the
   neutral fixture asserts the KB is restored.  CxCore is loaded because the NAT
-  bookkeeping (`termOfUnit`, `resultIsa`) rides real vocabulary."
+  bookkeeping (`termOfUnit`, `result`) rides real vocabulary."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
@@ -46,7 +46,7 @@
   (tu/with-terms [bornIn Obama BarackObama Honolulu]
     (v/assert kb (list bornIn Obama Honolulu) 'CxUniverse)
     (v/assert kb (list 'equals Obama BarackObama) 'CxUniverse)
-    (is (= [{'?c Honolulu}] (v/ask kb (list bornIn BarackObama '?c) '?ctx))
+    (is (= [{'?c Honolulu}] (v/ask kb (list bornIn BarackObama '?c) 'CxUniverse))
         "a fact about Obama holds of the merged BarackObama")))
 
 ;; ---- Part A: compound equality over reifiable NATs ----------------------
@@ -66,7 +66,7 @@
         (is (some? h))
         (is (every? nat/reified-nat-symbol? (rest (:sentence (v/sentex kb h))))))
       (testing "the reified NATs merge — a fact about Alice's mother holds of Bob's"
-        (is (= [{'?c NYC}] (v/ask kb (list livesIn (list MotherOf Bob) '?c) '?ctx))))
+        (is (= [{'?c NYC}] (v/ask kb (list livesIn (list MotherOf Bob) '?c) 'CxUniverse))))
       (testing "and they resolve to one class"
         (is (v/same-class? kb
                            (nat/dedup-constant kb (list MotherOf Alice))
@@ -75,7 +75,7 @@
         (v/retract! kb h)
         (is (empty? (v/ask kb (list livesIn (list MotherOf Bob) '?c) '?ctx))))
       (testing "and Alice's own fact survives"
-        (is (= [{'?c NYC}] (v/ask kb (list livesIn (list MotherOf Alice) '?c) '?ctx)))))))
+        (is (= [{'?c NYC}] (v/ask kb (list livesIn (list MotherOf Alice) '?c) 'CxUniverse)))))))
 
 (tu/deftest-kb structural-nat-compound-equality-is-refused
   ;; A structural NAT measure stays structural (never reified), so `(equals (QuantityFn …)
@@ -106,7 +106,7 @@
                                     'CxUniverse))))
     (testing "ask binds through the normal form"
       (is (= [{'?y Tom}]
-             (v/ask kb (list parentChain (list grandfatherOf '?y)) '?ctx))))))
+             (v/ask kb (list parentChain (list grandfatherOf '?y)) 'CxUniverse))))))
 
 (tu/deftest-kb schematic-rewrite-is-belief-following
   ;; Every rewrite is a JTMS-justified twin, so retracting the equation collects it and

@@ -35,14 +35,16 @@
     callback runs on the writing thread, so a slow one still slows the writer — fine
     single-process, wrong across agents, which is why `wire` exists.
 
-  `reply` / `assert` / `reply-many` and the recovery reads are shape-agnostic — they run
-  the same over either medium; only `subscribe` differs, because only the feed does.
+  `assert` / `answer` / `endorse` / `justify` / `dispute` / `vote` / `reply-many` and the
+  recovery reads are shape-agnostic — they run the same over either medium; only
+  `subscribe` differs, because only the feed does.
 
-  Additive, like the sibling koinii modules: the public core API, `vaelii.client`,
-  `sentex`, and koinii `identity`.  Every write goes through the provenance-stamping
-  `assert` path — never `bulk-assert-facts!`."
+  Additive, like the sibling koinii modules: the public core API, `vaelii.client`, koinii
+  `identity`, and Trove for the two subscription defaults.  Every write goes through the
+  provenance-stamping `assert` path — never `bulk-assert-facts!`."
   (:refer-clojure :exclude [assert])
-  (:require [vaelii.client :as c]
+  (:require [taoensso.trove :as trove]
+            [vaelii.client :as c]
             [vaelii.core :as v]
             [vaelii.impl.koinii.identity :as id]))
 
@@ -115,7 +117,19 @@
   count so the agent can resync from the KB.  A `callback` that throws loses its own event
   and nothing else (`:on-error`, then carry on), mirroring the engine's own listener
   contract.  When the subscription is dropped (`stop`, or an idle reap) the parked poll
-  wakes refused, and the loop exits quietly."
+  wakes refused, and the loop exits quietly.
+
+  **Neither seam is silent when it is left unset.**  Dropped events and a subscription
+  killed by a transport failure are the two things a reader most needs to be told, and a
+  nil handler must not be how either of them disappears — so `:on-lagged` defaults to a
+  `:warn` line naming the drop count and `:on-error` to an `:error` line naming the
+  failure.  A supplied handler replaces the line rather than adding to it: the seam is
+  the caller's, the default is only what happens when nobody takes it.
+
+  **`:running` is what the subscription's liveness is read from.**  Every exit from the
+  poll loop — `stop`, an idle reap, a bad cursor, a transport failure — resets it false,
+  so a caller can tell a live subscription from one that will never deliver again.  The
+  loop reads it too, which is how `stop` cuts a batch short mid-delivery."
   [conn goal context callback opts]
   (let [{:keys [token cursor]} (if goal (c/watch conn goal context) (c/watch conn))
         wait-ms (:wait-ms opts 20000)
@@ -126,27 +140,60 @@
              (fn []
                (loop [cur cursor]
                  (when @running
+                   ;; one arm: `ExceptionInfo` is a `RuntimeException`, so a clause of its
+                   ;; own ahead of this one filed the identical `{:err e}` and the `:type`
+                   ;; read below is a lookup either way
                    (let [step (try {:ok (c/poll conn token cur {:wait-ms wait-ms})}
-                                   (catch clojure.lang.ExceptionInfo e {:err e})
                                    (catch Exception e {:err e}))]
                      (if-let [e (:err step)]
                        ;; subscription gone (unwatch / reap / bad-cursor) -> stop quietly;
-                       ;; anything else -> surface once, then stop rather than hot-loop
+                       ;; anything else -> surface once, then stop rather than hot-loop.
+                       ;; Either way the loop is over, so `running` is made to agree with
+                       ;; it: a dead reader that still reads live is the one failure a
+                       ;; subscriber cannot detect and so cannot resubscribe from.
                        (let [ty (:type (ex-data e))]
-                         (when (and @running
-                                    (not (#{:unknown-subscription :bad-cursor} ty))
-                                    on-err)
-                           (on-err e)))
+                         (when (and @running (not (#{:unknown-subscription :bad-cursor} ty)))
+                           (if on-err
+                             (on-err e)
+                             (trove/log!
+                              {:level :error :id ::subscription-failed
+                               :msg   (str "koinii: subscription " token " stopped — the"
+                                           " feed poll failed: " (ex-message e))
+                               :data  {:token token :goal goal :context context}})))
+                         (reset! running false))
                        (let [{:keys [events lagged cursor]} (:ok step)]
-                         (when (and on-lag (pos? (long (or lagged 0)))) (on-lag lagged))
+                         (when (pos? (long (or lagged 0)))
+                           (if on-lag
+                             (on-lag lagged)
+                             (trove/log!
+                              {:level :warn :id ::subscription-lagged
+                               :msg   (str "koinii: subscription " token " dropped "
+                                           lagged " event(s) — the ring outran this"
+                                           " reader; resync from the KB")
+                               :data  {:token token :lagged lagged
+                                       :goal goal :context context}})))
+                         ;; `Throwable`, because that is what the contract above says and
+                         ;; what `core/notify-listener!` catches on the in-process side: a
+                         ;; callback rendering a deeply nested event raises
+                         ;; `StackOverflowError`, and an `Exception` catch would let it
+                         ;; kill this daemon thread mid-batch — leaving `running` true and
+                         ;; the feed silently stopped, which is the one failure a
+                         ;; subscription must not have.
                          (doseq [ev events :while @running]
                            (try (callback ev)
-                                (catch Exception e (when on-err (on-err e)))))
+                                (catch Throwable e
+                                  (if on-err
+                                    (on-err e)
+                                    (trove/log!
+                                     {:level :warn :id ::callback-threw
+                                      :msg   (str "koinii: a subscription callback threw;"
+                                                  " skipping its event: " (ex-message e))
+                                      :data  {:token token}})))))
                          (recur cursor))))))))]
     (.setName thr (str "koinii-subscribe-" token))
     (.setDaemon thr true)
     (.start thr)
-    {:token token :medium :wire :thread thr
+    {:token token :medium :wire :thread thr :running running
      :stop (fn []
              (reset! running false)
              (try (c/unwatch conn token) (catch Exception _ nil)))}))
@@ -217,21 +264,36 @@
   job — so the `targetFollowingPredicate` marks that make a reply cascade are in force."
   ([medium channel agent-id] (join medium channel agent-id nil))
   ([medium channel agent-id opts]
-   (let [actx   (id/context-for agent-id)
-         speaks (:speaks opts 'CxSpeechActs)]
-     (-assert medium (list 'genlCx channel actx)  'CxUniverse {:strength :monotonic})
-     (-assert medium (list 'genlCx actx speaks)   'CxUniverse {:strength :monotonic})
+   ;; `identity`'s placement, written through the MEDIUM rather than straight to a KB —
+   ;; for a `wire` handle that is the daemon, the single writer
+   (let [actx (id/place-agent-context #(-assert medium %1 %2 %3)
+                                      channel agent-id (:speaks opts 'CxSpeechActs))]
      {:medium medium :agent agent-id :context actx :channel channel})))
 
 (defn assert
   "Originate a claim: assert `sentence` into the agent's OWN context, stamped `:creator`
-  the agent (merged over any `opts`), through the medium — for a `wire` handle that is
-  through the daemon, the single writer.  The agent CANNOT write another agent's context
-  from here: the destination is fixed by identity.  Returns the handle."
+  the agent, through the medium — for a `wire` handle that is through the daemon, the
+  single writer.  The agent CANNOT write another agent's context from here: the destination
+  is fixed by identity.  Returns the handle.
+
+  **The creator is the agent's, and a conflicting one is refused**
+  (`:koinii/creator-mismatch`).  Ownership is load-bearing — `belief/disregard` refuses to
+  withdraw a statement whose creator is not the agent (`:koinii/not-own-statement`), and the
+  whole write boundary is 'an agent writes as itself' (D8) — so a caller passing someone
+  else's `:creator` is asking for something this door does not grant.  Dropping it silently would look like a stamp that took, and honouring
+  it would let an agent sign another's name; the refusal says which it is.  Passing the
+  agent's own id is redundant and allowed.  Every other `opts` key passes through."
   ([handle sentence] (assert handle sentence nil))
   ([handle sentence opts]
-   (-assert (:medium handle) sentence (:context handle)
-            (merge {:creator (:agent handle)} opts))))
+   (let [agent (:agent handle)]
+     (when (and (contains? opts :creator) (not= (:creator opts) agent))
+       (throw (ex-info (str "koinii: " agent " cannot assert as " (pr-str (:creator opts))
+                            " — a claim originated through an agent handle is stamped that"
+                            " agent's, which is what makes the write boundary an identity")
+                       {:type :koinii/creator-mismatch
+                        :agent agent :creator (:creator opts)})))
+     (-assert (:medium handle) sentence (:context handle)
+              (assoc opts :creator agent)))))
 
 (defn pose-query
   "Originate a query NODE `(queries agent question)` in the agent's own context — the
@@ -282,23 +344,47 @@
   context, both creator-stamped: the REBUTTING claim — the negation of the target's
   sentence, so the pair surfaces in `(contradictions kb)` for the dispute reads to scope —
   and a `disputes` meta-sentex naming the target.  Represents the challenge only;
-  adjudication is a separate policy layer.  Returns the dispute edge's handle (write 2)."
+  adjudication is a separate policy layer.  Returns the dispute edge's handle (write 2).
+
+  **A handle that names no record is refused** (`:koinii/no-such-handle`), as `deref`'s
+  `marker` refuses one.  The rebuttal is built from the target's own sentence, so a
+  missing target would assert the literal `(not nil)` in the agent's context and a
+  `disputes` edge on nothing — a challenge to a claim that does not exist, stored as
+  though it were one."
   [handle target-handle]
-  (let [s (:sentence (-sentex (:medium handle) target-handle))]
-    (assert handle (list 'not s))
+  (let [sx (-sentex (:medium handle) target-handle)]
+    (when (nil? sx)
+      (throw (ex-info (str "koinii: cannot dispute handle " (pr-str target-handle)
+                           " — it names no record on this medium")
+                      {:type :koinii/no-such-handle :handle target-handle})))
+    (assert handle (list 'not (:sentence sx)))
     (assert handle (list 'disputes (:agent handle) (v/sentex-handle target-handle)))))
 
 (defn vote
   "Cast a ballot on the claim at `target-handle`: `stance` `:for` -> `(votesFor agent
   (sentexHandle T))`, `:against` -> `(votesAgainst agent (sentexHandle T))`.  A meta-sentex
   in the agent's own context, creator stamped — a coordination move like `endorse`, but
-  one a resolution policy COUNTS rather than merely records: `adjudication/resolve-by-
-  majority!` tallies these ballots and upholds the side with strictly more, leaving a tie
-  honestly OPEN (a split house decides nobody).  Idempotent by sentence identity — one
+  one a resolution policy COUNTS rather than merely records:
+  `adjudication/resolve-by-majority` tallies these ballots and upholds the side with
+  strictly more, leaving a tie honestly OPEN (a split house decides nobody).  A ballot is
+  a response act like the rest — `targetFollowingPredicate` in `CxSpeechActs` — so
+  retracting the disputed claim withdraws the votes cast on it.  Idempotent by sentence
+  identity — one
   ballot per agent per stance; to change a vote, retract the old ballot first.  Returns the
-  ballot's handle."
+  ballot's handle.
+
+  **A stance that is neither is refused by name** (`:koinii/no-such-stance`, carrying the
+  two that exist): the ballot predicate is chosen from the stance, so an unrecognized one
+  has no ballot to cast, and the refusal says which stances there are rather than leaving
+  a bare `IllegalArgumentException` to be read as an engine fault."
   [handle stance target-handle]
-  (let [pred (case stance :for 'votesFor :against 'votesAgainst)]
+  (let [pred (case stance
+               :for     'votesFor
+               :against 'votesAgainst
+               (throw (ex-info (str "koinii: no such ballot stance " (pr-str stance)
+                                    " — a vote is cast :for or :against")
+                               {:type :koinii/no-such-stance :stance stance
+                                :known [:for :against]})))]
     (assert handle (list pred (:agent handle) (v/sentex-handle target-handle)))))
 
 ;; ---- reply-many: a multi-claim reply that validates before it commits ----
@@ -335,10 +421,13 @@
   design uses the wire feed rather than in-process `watch`, since an in-process callback
   runs on the single writer's thread and one slow agent would otherwise stall every
   writer.  `opts`: `:wait-ms` (long-poll, wire only), `:on-lagged` (fn of the dropped
-  count — resync from the KB), `:on-error` (fn of a throwable).
+  count — resync from the KB), `:on-error` (fn of a throwable).  Unset, the wire shape
+  LOGS each of those rather than dropping it — a `:warn` naming the lag, an `:error`
+  naming the failure that ended the subscription.
 
   Returns a subscription `{:token … :stop (fn []) …}`; call `:stop` to drop it (wire: it
-  also wakes the parked poll).  Decoupled in time: a subscription is FORWARD-ONLY — it
+  also wakes the parked poll, and its `:running` atom reads false from then on, however
+  the loop ended).  Decoupled in time: a subscription is FORWARD-ONLY — it
   never retroactively receives a write made before it registered.  History that predates
   it is recovered by READING the KB (`answers-to` / `sentexes-matching`), the durable half
   of the channel; the feed is the live half."

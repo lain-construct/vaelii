@@ -167,10 +167,23 @@
   ([conn goal] (call conn :provable? [goal]))
   ([conn goal context] (call conn :provable? [goal context])))
 
+(defn blocked-justifications
+  "The ids of the justifications the daemon's network holds blocked by their rule's
+  exception.  The whole set in one call, because the caller asking is rendering a proof
+  tree and a blocked justification is the one thing belief alone does not report."
+  [conn]
+  (call conn :blocked-justifications []))
+
 (defn in? [conn handle] (call conn :in? [handle]))
 (defn believed? [conn handle context] (call conn :believed? [handle context]))
 (defn belief-status [conn handle context] (call conn :belief-status [handle context]))
-(defn why [conn handle] (call conn :why [handle]))
+(defn why
+  "The proof tree behind `handle`.  `opts` is `core/why`'s — `{:max-depth n}` — and it is
+  the arity a truncated tree is re-asked with: the bound clips a branch to
+  `{:truncated? true}`, and without a way to raise it a remote reader can see that a proof
+  was clipped and never see the rest of it."
+  ([conn handle] (call conn :why [handle]))
+  ([conn handle opts] (call conn :why [handle opts])))
 
 (defn why-not
   ([conn handle] (call conn :why-not [handle]))

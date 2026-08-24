@@ -19,6 +19,7 @@
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.disk.index-snapshot :as snap]
+            [vaelii.impl.disk.lock :as lock]
             [vaelii.impl.kb :as kb])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -116,7 +117,7 @@
 (deftest an-unknown-selection-names-the-axis-it-belongs-to
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown KB backend"
                         (v/open-kb {:backend :nonesuch})))
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown record backend .* :memory, :disk or :sqlite"
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown record backend .* :memory, :disk, :sqlite or :pg"
                         (v/open-kb {:records :nonesuch :index :memory})))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
                         #"unknown index backend .* :memory, :dense, :columnar, or :disk"
@@ -194,7 +195,7 @@
   ;; once; a key left in the roster after nothing reads it is accepted and ignored, which
   ;; is the bug this whole test is about.  So the roster is pinned: it shrinks on purpose.
   (testing "and the roster is exactly the vocabulary"
-    (is (= #{:backend :records :index :space :dir :tms :recover?
+    (is (= #{:backend :records :index :space :dir :pg :tms :recover?
              :naming :constraints :base :base-stores :overlay}
            kb/opt-keys))))
 
@@ -259,22 +260,71 @@
           "since :or does not fire on a present nil, the message has to say so"))))
 
 (deftest ram-records-cannot-take-the-durable-index
-  ;; The one pairing of the eight the axes admit that is refused rather than named: the
-  ;; index is derived from the records, so persisting it over a store that empties at JVM
-  ;; exit leaves index files describing records that are gone — and the next open answers
-  ;; every query out of them.  Refused on both spellings, since `backend-axes` is the one
-  ;; place either arrives at a pair.
+  ;; The durable index is derived from the records, so persisting it over a store that
+  ;; empties at JVM exit leaves index files describing records that are gone — and the
+  ;; next open answers every query out of them.  Refused on both spellings, since
+  ;; `backend-axes` is the one place either arrives at a pair.
   (testing "spelled on the axes"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs :disk records"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs durable records"
                           (v/open-kb {:records :memory :index :disk}))))
   (testing "spelled as a half-override of a name"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs :disk records"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs durable records"
                           (v/open-kb {:backend :memory :index :disk})))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs :disk records"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs durable records"
                           (v/open-kb {:backend :disk :records :memory}))))
+  (testing "and :sqlite records, whose durable pairing is spelled :disk"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs durable records"
+                          (v/open-kb {:records :sqlite :index :disk}))))
   (testing "and no name spells it"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown KB backend"
                           (v/open-kb {:backend :memory-disk})))))
+
+(deftest the-pg-axis-needs-a-database-named
+  ;; `:pg` is the one axis whose store is not derivable from the KB's own options: a
+  ;; directory falls out of `:space`, a database does not.  Both halves of that are
+  ;; refused at the door rather than discovered from a KB whose records went somewhere
+  ;; nobody named.
+  (testing ":pg records with no :pg opt"
+    (let [e (is (thrown-with-msg? clojure.lang.ExceptionInfo #"needs :pg to name a database"
+                                  (v/open-kb {:backend :pg-memory})))]
+      (is (= [:pg] (:missing (ex-data e))))))
+  (testing "and a :pg that names none — a present nil, an empty map, an empty string"
+    ;; `:or` does not fire on a present nil, so silence here would be the default server
+    ;; this option exists to refuse.
+    (doseq [pg [nil {} ""]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"needs :pg to name a database"
+                            (v/open-kb {:backend :pg-memory :pg pg}))
+          (str "refused: " (pr-str pg)))))
+  (testing "and one that cannot be identified"
+    ;; an opaque DataSource names a database the index cannot be keyed by, and both index
+    ;; halves are keyed by which database the records are in
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"needs :pg to name a database"
+                          (v/open-kb {:backend :pg-memory
+                                      :pg (reify javax.sql.DataSource)}))))
+  (testing ":pg-disk with no :dir"
+    ;; the durable index is files on this host describing records on a server; a derived
+    ;; default directory is one two KBs over two databases would share
+    (let [e (is (thrown-with-msg? clojure.lang.ExceptionInfo #"named no :dir"
+                                  (v/open-kb {:backend :pg-disk
+                                              :pg {:dbtype "postgresql" :dbname "nope"}})))]
+      (is (= [:dir] (:missing (ex-data e))))))
+  (testing ":pg opt with records that are not :pg"
+    (let [e (is (thrown-with-msg? clojure.lang.ExceptionInfo #"nothing connects to that database"
+                                  (v/open-kb {:backend :memory :pg {:dbname "nope"}})))]
+      (is (= [:pg] (:unknown (ex-data e))))))
+  (testing "the adapter is not the engine's to carry"
+    ;; core has no JDBC dependency, so selecting :pg here reaches the lazy resolve and
+    ;; finds nothing — the missing-adapter error, not a FileNotFoundException.  The
+    ;; adapter's own suite is where a live :pg KB is exercised.
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"needs the vaelii-postgres adapter"
+                          (v/open-kb {:backend :pg-memory
+                                      :pg {:dbtype "postgresql" :dbname "nope"}})))))
+
+(deftest the-pg-pairings-name-a-records-axis-and-an-index-axis
+  (is (= {:records :pg :index :memory} (kb/backend-axes {:backend :pg-memory})))
+  (is (= {:records :pg :index :disk}   (kb/backend-axes {:backend :pg-disk})))
+  (testing "and the durable index takes :pg records, where it refuses RAM ones"
+    (is (= {:records :pg :index :disk} (kb/backend-axes {:records :pg :index :disk})))))
 
 ;; ---- records durable, index derived ---------------------------------------
 
@@ -397,3 +447,46 @@
             "and the second KB's is the RAM one it asked for")
         (is (= (observations kb1) (observations kb2))
             "which the reindex-on-open filled to say the same thing")))))
+
+(deftest one-database-keys-one-index-however-it-is-spelled
+  ;; The derived index is shared exactly when the records are, so two spellings of one
+  ;; database must key alike — otherwise two KBs over one store get two indexes and mint
+  ;; two handles for one sentence, which no reindex can merge afterwards.
+  (let [ident #'kb/pg-identity]
+    (testing "a JDBC URL and the component spelling of the same database"
+      (is (= (ident "jdbc:postgresql://db.example:5432/kb")
+             (ident {:dbtype "postgresql" :host "db.example" :port 5432 :dbname "kb"}))))
+    (testing "the default port, stated or omitted"
+      (is (= (ident {:host "h" :dbname "kb"}) (ident {:host "h" :dbname "kb" :port 5432}))))
+    (testing "and the host's case"
+      (is (= (ident {:host "DB.example" :dbname "kb"}) (ident {:host "db.example" :dbname "kb"}))))
+    (testing "but a different database, schema or server is a different key"
+      (is (not= (ident {:host "h" :dbname "kb"}) (ident {:host "h" :dbname "other"})))
+      (is (not= (ident {:host "h" :dbname "kb"}) (ident {:host "h2" :dbname "kb"})))
+      (is (not= (ident {:host "h" :dbname "kb"})
+                (ident {:host "h" :dbname "kb" :schema "prod"}))))))
+
+(deftest a-directory-does-not-make-two-record-stores-one
+  ;; `:sqlite` records and `:disk` records in one directory are two different stores, so
+  ;; the derived index each gets must be keyed apart — a shared one answers each KB out of
+  ;; records it does not hold.
+  (let [space #'kb/derived-index-space]
+    (is (not= (space :sqlite {:dir "/tmp/one"}) (space :disk {:dir "/tmp/one"})))
+    (is (= (space :sqlite {:dir "/tmp/one"}) (space :sqlite {:dir "/tmp/one"})))))
+
+(deftest a-fork-cannot-put-its-own-records-on-a-server
+  ;; Refused at the door, and the reason is what a later refusal would cost: `open-kb`
+  ;; builds a fork's own record store (a live pool) and its index half (which takes the
+  ;; directory's exclusive lock) before the overlay bookkeeping is asked for, and a throw
+  ;; after that returns no KB — so neither is closeable and the directory is unopenable for
+  ;; the life of the JVM.
+  (let [dir (tmpdir)]
+    (try
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fork's own records cannot be :pg"
+                            (v/open-kb {:backend :overlay
+                                        :base {:backend :memory :space 992}
+                                        :overlay {:records :pg :index :disk :dir dir
+                                                  :pg {:dbtype "postgresql" :dbname "nope"}}})))
+      (is (not (lock/held? (backend/canonical-dir dir)))
+          "and nothing took the directory's lock on the way out")
+      (finally (rm-rf! dir)))))

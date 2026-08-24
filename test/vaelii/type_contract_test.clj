@@ -150,13 +150,13 @@
   or renamed keyword fails the comparison below until it is added here deliberately —
   with a changelog entry, since callers discriminate on it (CONTRIBUTING.md §3.8)."
   #{:already-loaded :anti-symmetric :anti-transitive :arg-constraint-kind :arg-genl :arg-position
-    :arg-type :arity :asymmetric :bad-algebra :bad-arg
-    :bad-args :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
+    :arg-type :arg-variable :arity :asymmetric :bad-algebra :bad-arg
+    :bad-args :bad-batch :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
     :bad-level :bad-registrant :bad-reply
     :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large
     :compaction-failed :context-escape :cross-origin :daemon-error :damaged-dictionary
     :disjoint :disk-locked :duplicate-handle :duplicate-tokens :error
-    :exception-not-closed :export-busy :frozen-base :functional
+    :exception-not-closed :export-busy :frozen-base :functional :handle-ceiling
     :incomplete-racer :inter-arg-type :internal-error :irreflexive :job-busy
     :labeling-inconsistent :labeling-run-blocked
     :llm-api-error :llm-bad-credential :llm-bad-response :llm-encode
@@ -170,14 +170,14 @@
     :not-watchable :not-well-formed :quantified-conjunction :quantifier-not-local
     :quoted-arg-type
     :report-only
-    :reserved-family :reset :shape :solver-failed :solver-unavailable
-    :stacked-fork :stale-index-layout :still-exporting :still-loading :still-stopping
+    :reserved-family :reset :shape :short-transfer :solver-failed :solver-unavailable
+    :stacked-fork :stale-index-layout :stale-index-records :still-exporting :still-loading :still-stopping
     :too-many-subscriptions :too-many-waiters
     :torn-snapshot :truncated-dump :unauthorized :unbound-deferred :unforkable-index :unknown-backend
     :unknown-command :unknown-entry :unknown-frame :unknown-framing :unknown-handle
     :unknown-op :unknown-option :unknown-source :unknown-subscription :unknown-tactician
     :unparseable :unreadable :unreadable-store :unrecovered-kb :unrecovered-premise
-    :unreleased :unsupported-compression
+    :unreleased :unsupported-compression :unsupported-context
     :unsupported-format :unsupported-platform :unsupported-variant :unsupported-version})
 
 (def ^:private symbol-valued-types

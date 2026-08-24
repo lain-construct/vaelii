@@ -134,6 +134,19 @@ aggregate runs in the placement context because a census is of what that context
 believes, the comparison in the wildcard because arithmetic is not knowledge asserted
 somewhere.
 
+**A literal that answers two ways answers nothing.** Every output the placement phase
+computes reaches the conclusion — through the literals still to run, through the
+`exceptWhen` and `unknown` checks that read these bindings, and through the consequent
+itself — so taking the registry's first solution would place a *different fact*
+depending on which solution came first, and which comes first is a function of how the
+facts were stored. `chain/post-join-bindings` therefore declines a literal whose
+solutions disagree, exactly as `provers/table-agreed` declines a unit that declares two
+conversion factors: nothing is concluded, and a `:post-join-ambiguous` entry naming the
+literal and its disagreeing solutions goes into `violations`. At most two distinct
+solutions are ever realized, so the check is one extra pull off a lazy seq. A registry
+where nothing disagrees never reaches it, which is every KB whose post-join literals are
+the built-in computations — each of those answers once or not at all.
+
 **What is bound**, then, is a generator's variables *plus* what the deferred literals
 themselves write — an aggregate's `?n`, an `evaluate`'s output. A deferred literal
 reading a variable nothing in the rule writes is refused at assert time
@@ -426,8 +439,7 @@ declarations, the closure and stratification checks, the re-check maintenance.
   puts a computed value under truth maintenance and needs an invalidation story the
   JTMS does not have. Query-only here.
 * **Incremental / maintained aggregates** — a count updated on assert rather than
-  recomputed. A real optimization, and it needs the consequent case above to be worth
-  anything.
+  recomputed. It rests on the consequent case above, which is also out.
 * **`GROUP BY` as a construct.** Grouping comes from the binding discipline; syntax for
   it would be a second way to say the same thing.
 

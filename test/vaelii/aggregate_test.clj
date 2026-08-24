@@ -13,6 +13,8 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.provers :as provers]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
@@ -845,6 +847,116 @@
     (dotimes [_ 12] (v/ask kb (list 'agg/sum '?n '?v (list likesThing Ann '?v)) 'CxWell))
     (is (= 1 (count (filter #(= :aggregate (:violation %)) (v/violations kb))))
         "twelve reductions of one bad extent are one defect")))
+
+;; ---- a post-join literal that answers two ways answers nothing -----------
+;;
+;; Every output the placement phase computes reaches the conclusion — through the
+;; literals still to run, through the `exceptWhen` and `unknown` checks that read these
+;; bindings, and through the consequent itself.  So taking the registry's first solution
+;; would place a *different fact* depending on which solution came first, and which comes
+;; first is a function of how the facts were stored.  The disagreement is declined and
+;; filed, exactly as `provers/table-agreed` declines a unit that declares two conversion
+;; factors.
+;;
+;; Each built-in computation answers once or not at all, so the shape needs a registry
+;; that disagrees with itself — which `core/add-prover` is the public way to build, and
+;; which an application registering a computed relation can reach without meaning to.  The
+;; prover below answers off *stored* facts, so its solution order really is the index's:
+;; the two runs differ in nothing but which candidate was asserted first.
+
+(def ^:private post-join-ctx 'CxPostJoinAmbiguous)
+(def ^:private post-join-above 'CxPostJoinAbove)
+
+(def ^:private ambiguity-marker
+  "The constant that keeps the prover below off every other `evaluate` goal there is."
+  977)
+
+(defn- two-answer-prover
+  "A prover for `(evaluate ?out (+ ?n 977))`, answering with one solution per stored
+  `(pred ?v)` fact — in the order the index yields them.
+
+  `completeness` 100 with `est-bindings` 0 wins `provers/sole-prover` against the
+  built-in `EvaluateProver`, so this is the only prover that runs on the goal and its
+  solutions are exactly the ones below."
+  [pred]
+  (reify provers/Prover
+    (applicable? [_ _ goal _]
+      (and (sequential? goal) (= 3 (count goal)) (= 'evaluate (first goal))
+           (sequential? (nth goal 2)) (= ambiguity-marker (last (nth goal 2)))))
+    (est-bindings [_ _ _ _] 0)
+    (cost         [_ _ _ _] :lookup)
+    (completeness [_ _ _ _] 100)
+    (solve [_ kb goal _]
+      (let [out (nth goal 1)]
+        (mapv (fn [[_ b]] {out (get b '?v)})
+              (res/matches-visible kb (list pred '?v) post-join-ctx))))))
+
+(defn- post-join-run!
+  "One aggregate rule whose `evaluate` is answered by `two-answer-prover`, over
+  `candidates` — `[context value]` pairs, asserted in the order given.  Answers
+  `{:tallies … :entries …}`: what the rule concluded, and the `:post-join-ambiguous`
+  entries the run filed.
+
+  Its own KB on the isolated space, since it rebuilds one per call and registers a prover
+  on it: a registry is KB state, and leaving one on the shared KB would answer another
+  namespace's `evaluate`."
+  [candidates]
+  (tu/with-cleared-kb [kb tu/isolated-fresh]
+    (v/add-prover kb (two-answer-prover 'pjCandidate))
+    (v/assert kb (list 'genlCx post-join-ctx post-join-above) 'CxUniverse)
+    (doseq [[c val] candidates] (v/assert kb (list 'pjCandidate val) c))
+    (v/assert kb '(pjPerson PjAnn) post-join-ctx)
+    (doseq [c '[PjC1 PjC2]] (v/assert kb (list 'pjChildOf 'PjAnn c) post-join-ctx))
+    (v/clear-violations! kb)
+    (v/assert kb (list 'implies
+                       (list 'and '(pjPerson ?x)
+                             '(agg/count ?n ?c (pjChildOf ?x ?c))
+                             (list 'evaluate '?d (list '+ '?n ambiguity-marker)))
+                       '(pjTally ?x ?d))
+              post-join-ctx)
+    {:tallies (into #{} (map :sentence) (v/sentexes-matching kb '(pjTally ?x ?d) '?ctx))
+     :entries (into [] (filter #(= :post-join-ambiguous (:violation %))) (v/violations kb))}))
+
+(deftest a-post-join-literal-with-one-solution-concludes-as-it-always-did
+  (let [{:keys [tallies entries]} (post-join-run! [[post-join-ctx 'PjOnly]])]
+    (is (= #{'(pjTally PjAnn PjOnly)} tallies)
+        "one solution is not a disagreement — the firing places the fact it computed")
+    (is (empty? entries) "and nothing is filed")))
+
+(deftest post-join-solutions-that-agree-conclude-once
+  ;; Two solutions, one value: `pjCandidate` is stated of the same term in two contexts of
+  ;; one cone, so the prover answers twice with the same binding.  Agreement is what is
+  ;; asked for, not a solution count.
+  (let [{:keys [tallies entries]} (post-join-run! [[post-join-ctx 'PjSame]
+                                                   [post-join-above 'PjSame]])]
+    (is (= #{'(pjTally PjAnn PjSame)} tallies)
+        "two solutions agreeing on the variable the conclusion reads are one answer")
+    (is (empty? entries) "so nothing is declined")))
+
+(deftest post-join-solutions-that-disagree-conclude-nothing-in-either-order
+  (let [forward  (post-join-run! [[post-join-ctx 'PjLeft] [post-join-ctx 'PjRight]])
+        backward (post-join-run! [[post-join-ctx 'PjRight] [post-join-ctx 'PjLeft]])]
+    (testing "the firing is declined rather than adjudicated"
+      (is (empty? (:tallies forward))
+          "a literal answering two ways answers nothing — neither value is concluded")
+      (is (empty? (:tallies backward))))
+    (testing "and the ledger names the literal"
+      (is (= 1 (count (:entries forward))))
+      (let [e   (first (:entries forward))
+            lit (get-in e [:detail :literal])]
+        ;; the literal as the placement phase solved it — the rule is stored canonically
+        ;; numbered, so its output variable reads `?varN` rather than the author's `?d`
+        (is (= 'evaluate (first lit)))
+        (is (= '(+ 2 977) (nth lit 2))
+            "the count is substituted in: this is the literal that answered twice")
+        (is (= 2 (count (get-in e [:detail :solutions])))
+            "with both readings it could not choose between")))
+    (testing "the same outcome, entry for entry, in both assertion orders"
+      (is (= (:tallies forward) (:tallies backward)))
+      (is (= (mapv #(dissoc % :run) (:entries forward))
+             (mapv #(dissoc % :run) (:entries backward)))
+          "belief is computed from content, so an entry ordered by solution order would
+           be the arrival dependence this refusal exists to remove"))))
 
 ;; ---- the plan reports it the way the prover declares it -----------------
 

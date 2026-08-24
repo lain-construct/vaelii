@@ -91,6 +91,15 @@ and a factor from another would convert into a unit nothing said it converts to,
 `base-unit-of` — which decides the unit a computed answer is *rendered* in — would then
 disagree with the arithmetic that produced it.
 
+**Which unit a reduction renders in** is the same question one step out. An aggregate over
+several measures of one dimension reads `base-unit-of` off one of them, and the values
+reach it in solution order — so on a KB that has broken the direct-to-base contract, two
+units of one dimension naming different bases, the unit the answer came back in would be a
+function of which measure was stored first. `provers/measure-bounds` takes the
+**content-least** unit instead: still arbitrary where the KB is inconsistent, and the same
+answer whatever the arrival order. Where the contract holds, every base agrees and the
+choice never arises.
+
 ## Comparison semantics
 
 Comparisons hold only **within one dimension**. A dimension mismatch (`5 Kilogram` vs
@@ -119,6 +128,13 @@ rounding difference. `provers/*quantity-tolerance*` (default `1e-9`, absolute) i
 slack: two base magnitudes are **equal** when they differ by at most it, and strict
 `<` / `>` demand a gap **wider** than it — so exactly one of `<`, `=`, `>` holds for
 any pair. Rebind the dynamic var for a coarser or finer policy.
+
+The **rounding grid follows it**. A computed magnitude is snapped before it is rendered,
+so a sum of converted magnitudes does not come back as `2.5000000000000004`, and the
+number of decimal places that snap keeps is derived from the bound tolerance
+(`-⌊log₁₀ tol⌋`: nine places at the shipped `1e-9`, three under a `1e-3` rebinding).
+Grid and comparison are one policy, so two magnitudes the comparisons call equal are
+never snapped to two different figures.
 
 ## Check-only, and deferred in rules
 

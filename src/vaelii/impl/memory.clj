@@ -131,7 +131,18 @@
     nil)
   (premise-ids [_] (set (:premises @state)))
   (premise-strength [_ id] (or (:strength (get-in @state [:sentexes id])) :default))
-  (clear-records! [_] (reset! state empty-record-state) (reset! counter 0) nil))
+  (clear-records! [_] (reset! state empty-record-state) (reset! counter 0) nil)
+
+  ;; The tallies read the maps this store already holds, so implementing them buys
+  ;; nothing here — except that a caller then reads one number instead of copying the key
+  ;; set to count it, and that a store answering the capability is what keeps the helpers
+  ;; off the fallback on the reference backend the others are compared against.
+  p/Tallying
+  (sentex-tally        [_] (count (:sentexes @state)))
+  (justification-tally [_] (count (:justifications @state)))
+  (a-sentex-id         [_] (first (keys (:sentexes @state))))
+  (a-justification-id  [_] (first (keys (:justifications @state))))
+  (a-premise-id        [_] (first (:premises @state))))
 
 (defn memory-record-store
   "An in-memory `RecordStore`.  Only `:space` in `opts` matters: it selects the shared
@@ -152,11 +163,11 @@
   holding a transient of its map>}`.  While bound, **that** backend's *writes* land on
   the transient (`assoc!` — no per-op HAMT path copy) and the whole load is one
   `persistent!` at the end, instead of a `swap!` per fact.  nil (the default) leaves
-  every op on the persistent atom exactly as before, so nothing outside a bulk load pays
-  for it — and *reads* are left untouched in both modes (they read the backing atom), so
-  the query hot path is unchanged.  The backing atom is therefore stale for the life of
+  every op on the persistent atom, so nothing outside a bulk load pays for the binding's
+  existence — and *reads* go to the backing atom in both modes, so the query hot path
+  never branches on it.  The backing atom is therefore stale for the life of
   the load: correct only because the sole mid-load reader (`note-opposed`'s `[:false b]`
-  probe) reads the always -empty negative side, and every real read happens after the
+  probe) reads the always-empty negative side, and every real read happens after the
   closing `persistent!`.  Use `with-bulk-writes` for a positive/monotonic, distinct load;
   a corpus with `(not …)` facts must `rebuild-opposed!` after it (the atom the opposed
   set is derived from was stale during the load).
@@ -336,8 +347,8 @@
   ;; an argument-root key reads out of the `::arg` trie for every generic op too, so a
   ;; caller that still names the four-part vector — a direct test, the columnar fallback's
   ;; `kv-load` (which puts a whole posting), a snapshot round-trip — sees the same set the
-  ;; flat layout held.  `kv-get` returns the scoped set (or nil when absent), matching the
-  ;; old backend where a set key's value *was* that set.
+  ;; flat layout held.  `kv-get` returns the scoped set (or nil when absent), which is
+  ;; what a flat key→set map answers for a set key.
   (kv-get  [_ k]
     (if (arg-root-key? k)
       (let [s (arg-scoped (arg-state-key @state) (nth k 2) (nth k 3) (nth k 1))]
@@ -370,8 +381,8 @@
                                             (fn [v] (max 0 (dec (long (or v 0))))))
                                      k))))
   ;; an argument-root write folds into the `::arg` trie; everything else lands at its flat
-  ;; key exactly as before.  Both modes route, so the trie stays consistent whether a fact
-  ;; arrives through the bulk transient or the ordinary swap.
+  ;; key.  Both modes route, so the trie stays consistent whether a fact arrives through
+  ;; the bulk transient or the ordinary swap.
   (kv-add-to-set [_ k m]
     (if (arg-root-key? k)
       (let [op [:add-to-set k m]]

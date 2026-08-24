@@ -52,7 +52,8 @@
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.llm.inventory :as inventory]
-            [vaelii.impl.llm.selection :as selection]))
+            [vaelii.impl.llm.selection :as selection]
+            [vaelii.impl.naming :as nm]))
 
 ;; ---- the document as spans ----------------------------------------------
 
@@ -241,10 +242,11 @@
   context in the cone."
   [kb context]
   (let [depth  #(- (count (v/context-up kb %)))
-        cone   (sort-by (juxt depth str) (v/context-up kb context))]
+        ;; a context may be a NAT (`print-key`); a predicate is a symbol (`name-key`)
+        cone   (sort-by (juxt depth nm/print-key) (v/context-up kb context))]
     (vec (distinct
           (for [ctx cone
-                [pred n] (sort-by (comp str key) inventory/predicate-type-arities)
+                [pred n] (sort-by (comp nm/name-key key) inventory/predicate-type-arities)
                 p (sort (for [{:keys [sentence]} (v/sentexes-matching kb (list pred '?p) ctx)]
                           (nth sentence 1)))]
             [p n])))))
@@ -292,7 +294,8 @@
          up        (for [t seeds :when (all-types t)
                          g (take max-genls (nearest (disj (set (v/genls kb t)) t)))]
                      g)
-         types     (distinct (concat (filter all-types seeds) (sort-by str (distinct up))))   ; supertypes may be NATs
+         types     (distinct (concat (filter all-types seeds)
+                                     (nm/by-print-key (distinct up))))   ; supertypes may be NATs
          head-only? #(and (struct %) (not (seed-set %)))
          domain?   #(and (not (all-types %)) (not (head-only? %))
                          (not (inventory/structural-functor? %)))

@@ -55,6 +55,7 @@
   (:require [clojure.set :as set]
             [clojure.walk :as walk]
             [vaelii.impl.budget :as budget]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.plan :as plan]
             [vaelii.impl.protocols :as p]
@@ -195,14 +196,39 @@
   nil)
 
 ;; ---- the priority queue --------------------------------------------------
-;; Entries are `[estimate id]` in a sorted set, so the order is total and deterministic:
-;; a cost tie breaks on allocation order rather than on whatever the hash happened to
-;; be.  The id, not the node — a node is a value in the registry, and the queue holds
-;; only what it needs to choose.
+;; Entries are `[estimate content id]` in a sorted set, so the order is total and
+;; deterministic.  The id, not the node — a node is a value in the registry, and the
+;; queue holds only what it needs to choose.
+;;
+;; **A cost tie breaks on content**, which is the whole reason the entry carries a third
+;; thing.  An estimate is a coarse number and ties constantly, and the tie decides which
+;; node a `:node-budget` run expands before it stops — so breaking it on the id would key
+;; a bounded search's answer set on the order the nodes happened to be minted, which is
+;; the order the rules were asserted in.  `frontier-key` is what the node *is* — the
+;; residual conjunction, and the position the next rewrite resumes from — and the id
+;; stays behind it so the comparator is total: two entries that compared equal would be
+;; one entry in a sorted set, and the second node would be dropped rather than searched.
 
-(defn empty-queue [] (sorted-set))
+(defn frontier-key
+  "What the frontier orders a cost tie by: the node's residual conjunction and the literal
+  index a rewrite resumes from.  Read from the node's own content, so two searches over
+  the same knowledge fill the frontier the same way whatever order it arrived in."
+  [node]
+  [(mapv :sentence (:literals node)) (long (:from node))])
 
-(defn queue-push [q ^long est ^long id] (conj q [est id]))
+(def ^:private frontier-order
+  "Estimate first, then content (`nm/compare-form` — structural, so no key is printed),
+  then id.  A `Comparator` for the frontier's sorted set."
+  (fn [[^long e1 c1 ^long i1] [^long e2 c2 ^long i2]]
+    (let [c (Long/compare e1 e2)]
+      (if (zero? c)
+        (let [c (long (nm/compare-form c1 c2))]
+          (if (zero? c) (Long/compare i1 i2) c))
+        c))))
+
+(defn empty-queue [] (sorted-set-by frontier-order))
+
+(defn queue-push [q ^long est content ^long id] (conj q [est content id]))
 
 (defn queue-pop
   "`[entry queue']`, or **nil** when the queue is empty."
@@ -246,7 +272,8 @@
                 ;; one — the index model is right for a stored-facts leaf (`solve-inline`)
                 :est-override (:est-override opts)
                 :proof?      (boolean (:proof? opts))
-                :queue      (atom (queue-push (empty-queue) (*estimate* kb strat root) 0))
+                :queue      (atom (queue-push (empty-queue) (*estimate* kb strat root)
+                                              (frontier-key root) 0))
                 :nodes      (atom {0 root})
                 :claimed    (atom #{(node-key root)})
                 :seen       (atom #{})
@@ -490,7 +517,7 @@
   [{:keys [kb context queue nodes counter stats seen strategy leaf-solver est-override
            proof?]
     :as sess}]
-  (when-let [[[_ id] q'] (queue-pop @queue)]
+  (when-let [[[_ _ id] q'] (queue-pop @queue)]
     (reset! queue q')
     ;; One node expansion is one search step, so it is the scope the transitive-closure
     ;; memo and the resident-value pin belong to: the inline join below solves a literal
@@ -528,7 +555,8 @@
               (let [kid-id (swap! counter inc)
                     kid    (assoc kid :id kid-id :parent-id id)]
                 (swap! nodes assoc kid-id kid)
-                (swap! queue queue-push (+ (long (*estimate* kb strategy kid)) (long bias)) kid-id))
+                (swap! queue queue-push (+ (long (*estimate* kb strategy kid)) (long bias))
+                       (frontier-key kid) kid-id))
               (swap! stats update :dropped inc))))
         (swap! stats (fn [s] (-> s (update :expanded inc)
                                  (update :solutions + (count sols)))))
@@ -603,6 +631,13 @@
   only property a racer set needs."
   [:cost :depth-first :breadth-first])
 
+(defn- answer-bindings
+  "A `step!` solution's bindings, whether it came bare or wrapped beside a proof.  A
+  binding map's keys are the query's variables, so `:bindings` names a slot only the
+  wrapped shape has."
+  [s]
+  (if (and (map? s) (contains? s :bindings)) (:bindings s) s))
+
 (defn portfolio-solutions
   "Race several tacticians over `goals` and return the union of their answers.
 
@@ -634,19 +669,20 @@
        (throw (ex-info "a portfolio races complete searches only"
                        {:type :incomplete-racer :strategy base})))
      (let [runs (mapv (fn [t]
+                        ;; `tactics/with-tactician`, not `assoc`: a normalized strategy
+                        ;; carries all three signs, and `strategy` lets an explicit sign
+                        ;; win over the tactician's — so re-pointing one by `assoc` would
+                        ;; race three copies of the base ordering under three names
                         (future (run-one kb goals context
-                                         (assoc opts :strategy (assoc base :tactician t)))))
-                      racers)
-           ;; the bindings, whether the racer returned them bare or beside a proof.  A
-           ;; binding map's keys are the query's variables, so `:bindings` names a slot
-           ;; only the wrapped shape has
-           answer (fn [s] (if (and (map? s) (contains? s :bindings)) (:bindings s) s))]
+                                         (assoc opts :strategy
+                                                (tactics/with-tactician base t)))))
+                      racers)]
        ;; a racer that throws must not abandon the others mid-search: nothing would
        ;; consume their answers, and each is a complete search running to exhaustion
        ;; on the send-off pool
        (try
          (first (reduce (fn [[acc seen] s]
-                          (let [k (answer s)]
+                          (let [k (answer-bindings s)]
                             (if (contains? seen k)
                               [acc seen]
                               [(conj acc s) (conj seen k)])))
@@ -733,11 +769,6 @@
   a depth bound does; it has only stopped drawing the tree past the budget."
   2000)
 
-(defn- answer-bindings
-  "A `step!` solution's bindings, whether it came bare or wrapped beside a proof."
-  [s]
-  (if (and (map? s) (contains? s :bindings)) (:bindings s) s))
-
 (defn- node-data
   "One finished node as serializable data: its id and parent, how deep in the tree it sits,
   the itemized estimate that ordered it (`tactics/estimate-breakdown`), the one rewrite
@@ -808,7 +839,8 @@
            (finish-tree kb sess strat goals answers results :timeout)
 
            :else
-           (let [nid  (long (nth entry 1))
+           ;; a frontier entry is `[estimate content id]`, and the tree is keyed by node
+           (let [nid  (long (nth entry 2))
                  sols (step! sess)]
              (if (nil? sols)
                (finish-tree kb sess strat goals answers results :complete)

@@ -514,6 +514,31 @@
                                 (imp/import-dump target dump {:belief? false})))))
       (finally (rm-rf! dump)))))
 
+(deftest a-torn-justification-stream-is-torn-too
+  ;; The sentex stream is not the only one `meta.edn` counts, and it is not the one with
+  ;; the most to lose: a truncated `justifications.nippy.stream` reads as a clean EOF
+  ;; exactly as a truncated sentex stream does, and what it costs is *belief* — every
+  ;; conclusion whose justification was in the lost tail comes back unsupported, on a KB
+  ;; that reports a clean import.  The count is the only witness either stream leaves.
+  (let [dump (temp-dir "torn-just")]
+    (rm-rf! dump)
+    (try
+      (tu/with-cleared-kb [source memory-kb]
+        (build! source (terms))
+        (export/export! source dump {:compression :none})
+        (let [meta* (read-string (slurp (io/file dump "meta.edn")))]
+          (is (pos? (long (:justification-count meta*)))
+              "the corpus carries justifications for the check to be about")
+          (spit (io/file dump "meta.edn")
+                (pr-str (update meta* :justification-count + 5))))
+        (tu/with-cleared-kb [target memory-kb]
+          ;; `:stored` rather than `true`: the justification stream is read on both, and
+          ;; this one skips the `recover` the check is not about
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"torn or truncated"
+                                (imp/import-dump target dump {:belief? :stored}))
+              "the belief path reads it")))
+      (finally (rm-rf! dump)))))
+
 (deftest an-unknown-belief-value-is-refused-by-name
   ;; The option has three values, so a mistyped one is the quiet failure the key check
   ;; already guards against: anything truthy would otherwise mean `true` and run the
@@ -872,4 +897,42 @@
                   (is (= :strict (:naming strict)))
                   (is (seq (v/find-sentexes strict 'game-theory))))))
             (finally (backend/close-dir! (.getPath store)) (rm-rf! store)))))
+      (finally (rm-rf! dump)))))
+
+;;; ── a reader that refuses the file still gives the descriptor back ─────
+
+(defn- open-fds
+  "How many file descriptors this JVM holds, or nil where the platform bean cannot say.
+  `com.sun.management.UnixOperatingSystemMXBean` ships in `jdk.management` everywhere;
+  only the *implementation* is Unix-only, so the `instance?` is the portable gate."
+  []
+  (let [b (java.lang.management.ManagementFactory/getOperatingSystemMXBean)]
+    (when (instance? com.sun.management.UnixOperatingSystemMXBean b)
+      (.getOpenFileDescriptorCount ^com.sun.management.UnixOperatingSystemMXBean b))))
+
+(deftest a-reader-that-refuses-the-compression-closes-the-file-it-opened
+  ;; The acquisition chain: the reader opens the file and *then* builds the
+  ;; decompressor over it.  Both ways that second step refuses are ordinary — a codec
+  ;; this build has no dependency for, and a section whose bytes are not what the
+  ;; dump's `meta.edn` says they are — and a stream left holding the descriptor with
+  ;; nothing referencing it is one nothing will ever close.  A foreign dump is exactly
+  ;; where both arrive, and an importer walking sections pays it once per section.
+  (let [dump (temp-dir "codec")]
+    (try
+      (let [f (io/file dump "plain.bin")]
+        (spit f "not compressed, and not nippy either")
+        (testing "a compression this build cannot read is refused"
+          (let [e (is (thrown? clojure.lang.ExceptionInfo
+                               (doall (frames/read-window-seq f :brotli))))]
+            (is (= :unsupported-compression (:type (ex-data e))))))
+        (testing "and so is a section whose bytes are not the codec the dump names"
+          (is (thrown? java.io.IOException (doall (frames/read-window-seq f :gzip)))))
+        (testing "and neither refusal keeps the descriptor"
+          (let [before (open-fds)]
+            (dotimes [_ 300]
+              (try (doall (frames/read-window-seq f :gzip)) (catch Throwable _ nil))
+              (try (doall (frames/read-window-seq f :brotli)) (catch Throwable _ nil)))
+            (let [after (open-fds)]
+              (is (or (nil? before) (< (- (long after) (long before)) 50))
+                  (str "600 refused opens leaked descriptors: " before " -> " after))))))
       (finally (rm-rf! dump)))))

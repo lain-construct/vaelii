@@ -3,18 +3,18 @@
 ;; vocabulary, and NOTHING sees it by default: it is the one context a governed
 ;; agent may NOT write, because the governed may not write the authority that
 ;; governs them (koinii design D4).  Every fact here is written by the out-of-band
-;; admin principal through vaelii.impl.koinii.identity/register-agent! — never by an
+;; admin principal through vaelii.impl.koinii.identity/register-agent — never by an
 ;; agent about itself, so no agent can self-promote.
 ;;
-;; The three predicates are the identity substrate prompt 03 builds: a membership
+;; The three predicates are the identity substrate: a membership
 ;; mark (agent), a display name (displayNameOf), and a trust value (trustLevel).
 ;; Per-agent CONTEXTS carry "who said what"; this registry carries "who is who, and
-;; how much their word weighs" for adjudication (prompts 08 / 11) to read.
+;; how much their word weighs" for the adjudication policies to read.
 
 (genlCx CxRegistry CxCore)      ; CxRegistry speaks CxCore's vocabulary
 
 (comment agent
-         "(agent ?agent) means that ?agent is a registered koinii participant. The membership mark of the registry: an id earns a place here only by an admin register-agent!, so 'which agents exist' is the extent of this one predicate — a plain context-scoped read of CxRegistry. The id is a stable individual constant (CapitalCamelCase, e.g. AgentAtlas); its per-agent context is CxAtlas by convention (identity/context-for), so identity fixes where the agent may write.")
+         "(agent ?agent) means that ?agent is a registered koinii participant. The membership mark of the registry: an id earns a place here only by an admin register-agent, so 'which agents exist' is the extent of this one predicate — a plain context-scoped read of CxRegistry. The id is a stable individual constant (CapitalCamelCase, e.g. AgentAtlas); its per-agent context is CxAtlas by convention (identity/context-for), so identity fixes where the agent may write.")
 (genl agent thing)
 
 (comment displayNameOf
@@ -22,12 +22,12 @@
 (binaryPredicate displayNameOf)
 (instanceRelationPredicate displayNameOf)
 (arg displayNameOf 1 agent)
-(arg displayNameOf 2 character_string)
+(arg displayNameOf 2 string)
 (functional displayNameOf)
 
 ;; ---- trust: a mutable number, not a fixed rank (koinii design D3) --------
-;; trustLevel holds ONE number per agent.  It starts as an operator-assigned TIER at
-;; bootstrap and is later OVERWRITTEN by earned reputation (prompt 11) — so it is
+;; trustLevel holds ONE number per agent.  It is an operator-assigned TIER at bootstrap
+;; and is OVERWRITTEN by whatever a deployment rates an agent at thereafter — so it is
 ;; stored as an updatable value, read with trust-of and rewritten with set-trust!,
 ;; never appended to.  Declared functional to enforce single-valuedness: two
 ;; different numbers for one agent are refused, so an update must retract-then-assert
@@ -35,13 +35,13 @@
 ;;
 ;; THE SYCOPHANCY CONSTRAINT the stored value must support: an endorsement count is a
 ;; trust signal ONLY across DISTINCT principals.  Homogeneous LLM agents endorse each
-;; other, so a raw endorses-count is gameable; same-model endorsements are discounted
-;; to one signal.  The reputation MATH that updates trustLevel from that signal is
-;; prompt 11's job — here trust is only STORED, as a number this constraint can later
-;; be computed into.
+;; other, so a raw endorses-count is gameable; same-model endorsements are worth one
+;; signal between them.  No reputation math ships: nothing in the engine computes
+;; trustLevel from endorsements, and nothing reads it to resolve a dispute — here trust
+;; is only STORED and overwritten.
 
 (comment trustLevel
-         "(trustLevel ?agent ?value) means that ?agent is trusted to degree ?value — a mutable NUMBER, an operator-assigned tier at bootstrap and earned reputation thereafter (koinii D3). ?value is a plain number, so its arg is thing and constrains nothing, as birthYearOf's year is. Declared functional: one trust value to an agent at a time, so a re-rating retracts the old and asserts the new (set-trust!) rather than storing two. The value must support the sycophancy constraint — an endorsement is a trust signal only across DISTINCT principals, same-model endorsements discounted — but the reputation update that computes it is prompt 11; here it is only stored and overwritten.")
+         "(trustLevel ?agent ?value) means that ?agent is trusted to degree ?value — a mutable NUMBER, an operator-assigned tier at bootstrap and whatever a deployment re-rates it to thereafter (koinii D3). ?value is a plain number, so its arg is thing and constrains nothing, as birthYearOf's year is. Declared functional: one trust value to an agent at a time, so a re-rating retracts the old and asserts the new (set-trust!) rather than storing two. The value must support the sycophancy constraint — an endorsement is a trust signal only across DISTINCT principals, same-model endorsements worth one signal between them. Nothing in the engine computes this number and no resolution policy reads it; here it is only stored and overwritten.")
 (binaryPredicate trustLevel)
 (instanceRelationPredicate trustLevel)
 (arg trustLevel 1 agent)

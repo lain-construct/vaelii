@@ -484,6 +484,18 @@
                              (v/edit-with-consequences! kb batch {:max-depth 3})))]
           (is (= :unknown-option (:type (ex-data e))))
           (is (= [:max-depth] (:unknown (ex-data e))))))
+      (testing "a cap that is not a positive integer is refused at both doors"
+        ;; The roster's failure one level in: `:max-results` is read, so the roster
+        ;; passes — and both doors guard the cap with `pos-int?`, so a string or a zero
+        ;; reads as **no cap at all** and the diff comes back whole with `:bounded?`
+        ;; false, which is exactly the silent default the roster refuses a typo for.
+        (doseq [[label bad] [["a string" "1"] ["zero" 0] ["a negative" -1]]
+                door        [#(v/preview kb batch {:max-results bad})
+                             #(v/edit-with-consequences! kb batch {:max-results bad})]]
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (door)) label)]
+            (is (= :unknown-option (:type (ex-data e))) label)
+            (is (= bad (:limit (ex-data e))) label)
+            (is (re-find #"positive integer" (ex-message e)) label))))
       (testing "a non-map opts is refused at both doors"
         ;; The keyword is the point — the refusal is what this asserts — so the
         ;; type mismatch clj-kondo sees is the test's subject, not a defect.

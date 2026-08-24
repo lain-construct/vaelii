@@ -21,6 +21,12 @@
  vaelii.impl.llm.protocol/Provider
  {complete "[[provider request]]",
   stream "[[provider request on-event]]"},
+ vaelii.impl.protocols/BulkAnnotating
+ {mark-premise-batch "[[store id->strength]]",
+  put-provenance-batch "[[store entries]]"},
+ vaelii.impl.protocols/BulkLoading
+ {open-justification-sink "[[store opts]]",
+  open-sentex-sink "[[store opts]]"},
  vaelii.impl.protocols/IndexStore
  {children "[[store prefix]]",
   clear-index! "[[store]]",
@@ -52,6 +58,10 @@
   unindex-exception! "[[store handle preds]]",
   unindex-rule! "[[store handle ante-preds conseq-pred]]",
   unindex-sentex! "[[store sentex handle]]"},
+ vaelii.impl.protocols/Prefetching
+ {prefetch-justifications! "[[store ids]]",
+  prefetch-sentexes! "[[store ids]]"},
+ vaelii.impl.protocols/RecordSink {write-record! "[[sink rec]]"},
  vaelii.impl.protocols/RecordStore
  {clear-records! "[[store]]",
   delete-justification! "[[store id]]",
@@ -70,6 +80,12 @@
   put-sentex "[[store sentex]]",
   sentex-ids "[[store]]",
   unmark-premise! "[[store id]]"},
+ vaelii.impl.protocols/Tallying
+ {a-justification-id "[[store]]",
+  a-premise-id "[[store]]",
+  a-sentex-id "[[store]]",
+  justification-tally "[[store]]",
+  sentex-tally "[[store]]"},
  vaelii.impl.provers/Prover
  {applicable? "[[prover kb goal context]]",
   completeness "[[prover kb goal context]]",

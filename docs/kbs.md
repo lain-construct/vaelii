@@ -17,8 +17,8 @@ OpenCyc reader is in this repo. This page is the **sequence**, and what each ste
 
 | KB | comes from | to first load | once loaded |
 |---|---|---|---|
-| Starter ontology | the classpath | seconds | ~1,320 sentexes |
-| Core vocabulary | the classpath | seconds | 212 sentexes |
+| Starter ontology | the classpath | seconds | ~1,670 sentexes |
+| Core vocabulary | the classpath | seconds | 354 sentexes |
 | cyc-tiny | a test fixture in the plugin | one dependency, then seconds | 8,181 sentexes |
 | OpenCyc 4.0 | a distribution you supply | a conversion, then 670s | 1,180,300 sentexes |
 

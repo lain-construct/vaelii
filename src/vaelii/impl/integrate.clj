@@ -120,5 +120,5 @@
     ;; Run after the roster drop so the common reconcile reads the new visibility state;
     ;; report the visibility move explicitly because the exception record is already gone.
     (when except-target
-      (special/reconcile-belief-change! kb #{except-target} true))
+      (special/reconcile-belief-change kb #{except-target} true))
     (special/recheck-on-sentence kb (:sentence sentex))))

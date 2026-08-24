@@ -1,49 +1,38 @@
 name: authorship
 
-# The third contributor gate, beside `DCO` and `license/cla`, and the only one
-# that asks who the named party is rather than whether a string is present.
+# The gate that asks WHO a commit's named parties are. The other gates cannot:
+# the DCO app matches a `Signed-off-by:` string against the commit's author
+# field, and cla-assistant (where a repo runs it) reports that an account
+# completed an OAuth flow. Both are string matchers over an account and a
+# trailer, and neither can ask whether the party named is a person who can make
+# the certification. This repo's CONTRIBUTING requires exactly that.
 #
-# cla-assistant reports `license/cla` green once an account has completed an
-# OAuth flow and clicked through the ICLA. The DCO app reports `DCO` green once
-# each commit carries a `Signed-off-by:` matching its author field. Both are
-# string matchers over an account and a trailer, and neither can ask whether the
-# party named is a person who can make the certification. CONTRIBUTING.md §7
-# requires exactly that, and this workflow is what holds it.
+# THE RULES ARE NOT IN THIS REPO. `vaelii/.github/actions/authorship` carries the
+# roster reader and the matching rules for every repo in the org — one file
+# rather than one copy per repo, which is what the four copies before it had
+# already started to drift apart from. It is pinned below by SHA, as every other
+# `uses:` here is: a tag is a mutable ref whoever holds the account can repoint,
+# a SHA is the artifact, and the pin is the review point for a rule change.
 #
-# The decision is a roster, not an inspection. `.github/AUTHORS.roster` lists the
-# accounts a maintainer has admitted; every author, committer and trailer on a
-# pull request has to appear there. An account nobody has admitted fails closed,
-# whatever it is: the gate reads the roster, not the account — an admitted account
-# passes and every other one fails, on roster membership alone.
-# `scripts/check-authorship.py` also prints what a blocked
-# account looks like — its type, its bio, its age — but those signals only
-# explain the failure and never cause it.
+# WHAT IS IN THIS REPO IS THE ROSTER. `.github/AUTHORS.roster` lists the accounts
+# a maintainer has admitted HERE; every author, committer and trailer on a pull
+# request has to appear in it. An account nobody has admitted fails closed,
+# whatever it is: the gate reads the roster, not the account. Nobody is admitted
+# ahead of a contribution and no repo carries a copy of another repo's
+# contributors — a first pull request waits on one line, added before the merge.
 #
-# The roster and the script are both read from the **base** branch, never from
-# the pull request's tree: the checkout pins `base.sha`, and the script fetches
-# the roster at the base ref over the API. Otherwise a contributor could admit
-# themselves in the same change the roster exists to gate. What a pull request
-# can still edit is this file, because `pull_request` runs the workflow from the
-# merge ref — a diff touching `.github/workflows/` deserves the same suspicion
-# here as anywhere, and branch protection blocks the merge if the required check
-# stops reporting at all.
+# The action reads that roster from the pull request's **base** ref over the API,
+# never from the pull request's own tree, so a contributor cannot admit
+# themselves in the same change the roster exists to gate.
 #
-# `pull_request`, never `pull_request_target`: this job reads public metadata,
-# touches no secret and writes nothing back, so it has no privilege a fork's
-# pull request could borrow.
+# `pull_request`, never `pull_request_target`: the action reads public metadata,
+# touches no secret and writes nothing back, so it has no privilege a fork's pull
+# request could borrow.
 #
 # A RUN WITH NO PULL REQUEST IS GREEN AND MEANS NOTHING. This gate reads the
-# commits of a pull request; every other event — a push, the weekly schedule, a
-# manual dispatch — carries none, so the script says so and exits 0. That green
-# is the reading to distrust: it reports that there was nothing to check, not
-# that anything passed, and `pull_request` is the only trigger whose green is a
-# verdict. `python3 scripts/check-authorship.py --pr <n>` with a token exercises
-# it against real commits, and `--selftest` covers the rules alone, which is
-# what `lein lint` runs.
-#
-# EVERY `uses:` HERE IS A COMMIT SHA with the version in a trailing comment, as
-# in lint.yml and test.yml. Dependabot reads that comment and its bump PRs carry
-# the version the new SHA is.
+# commits of a pull request; every other event — a push, a schedule, a manual
+# dispatch — carries none, so the action says so and exits 0. That green is the
+# reading to distrust: it reports that there was nothing to check.
 
 on:
   push:
@@ -53,31 +42,23 @@ on:
     - cron: "0 8 * * 1"
   workflow_dispatch:
 
-# Least privilege. `contents: read` reaches the roster on the base branch,
-# `pull-requests: read` reaches the commit list. Nothing else, and no write.
+# Least privilege. `contents: read` and `pull-requests: read` are what the action
+# reads the roster and the commit list with. Nothing else, and no write.
 permissions:
   contents: read
   pull-requests: read
 
 jobs:
   # THE JOB NAME IS THE CHECK NAME, and the check name is what branch protection
-  # requires — the bare `authorship`, as `lint` is in lint.yml. A descriptive
-  # `name:` here would report the sentence instead, and a required context that
-  # never reports leaves every pull request at "Expected — waiting for status".
+  # requires — the bare `authorship`, as `lint` is in lint.yml. It is also why
+  # the shared half is a composite action and not a reusable workflow: a reusable
+  # workflow reports `<caller job> / <called job>`, which would move the required
+  # context out from under every repo that requires it.
   authorship:
     name: authorship
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          # The base commit, so the script that runs is the one on the protected
-          # branch rather than the copy in the pull request.
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          persist-credentials: false
-
-      # python3 is preinstalled on ubuntu-latest; the script imports only the
-      # standard library, so there is nothing to install and no cache to warm.
-      - name: check authorship against the roster
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/check-authorship.py
+      # No checkout: the action reads the commits, the profiles and the roster
+      # over the API, and the roster it reads is the base branch's rather than
+      # this pull request's.
+      - uses: vaelii/.github/actions/authorship@a973b4674126344fa7fb870c20d637c9d68b9022  # vaelii/.github@main, 2026-08-24

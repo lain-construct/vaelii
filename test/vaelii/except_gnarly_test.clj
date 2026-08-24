@@ -266,7 +266,7 @@
 ;; functor is in the special-predicate table, so it is dispatched on the sentence's
 ;; shape (`special/structural-integrate`).  The derivation path has to reach that arm
 ;; too, and the two halves of what it does there are what these pin: `recheck-except`
-;; queues the firings that used the hidden handle, and `reconcile-belief-change!` moves
+;; queues the firings that used the hidden handle, and `reconcile-belief-change` moves
 ;; the supporter-visibility generation the scoped reads are memoized on.
 ;;
 ;; Neither is visible from a cold KB, because a cold read computes rather than recalls

@@ -46,8 +46,11 @@ durable records costs only a rebuild on open.
 
 The whole test suite runs on any of them: `VAELII_TEST_BACKEND=memory-columnar lein
 test`. `backend_parity_test` runs a scripted KB session across all eight configurations
-— the seven legal record×index pairs plus the overlay decorator — in an ordinary `lein
-test`, so a divergence fails without anyone remembering to.
+the engine carries alone — the seven record×index pairs above plus the overlay decorator
+— in an ordinary `lein test`, so a divergence fails without anyone remembering to. The
+`:sqlite` and `:pg` record axes are legal too and are not here: they live in sibling
+adapters that core does not depend on, so their parity is each adapter's own suite
+([storage.md](storage.md)).
 
 `:backend` names the *storage*. The third resident structure, the truth-maintenance
 network, is orthogonal to it and is selected separately by `:tms` — `:dense`
@@ -523,9 +526,11 @@ remains a one-keyword pin for the simpler baseline.
 `int`-keyed, so a handle or justification id must fit a 32-bit int — 2^31-1 ≈ 2.1B.
 Handles allocate in assertion order and never reuse, so that bounds a KB's *cumulative*
 allocations, not its live nodes: 21× the 100M target, but a long-lived writer churning
-assert/retract can climb to it. Crossing it throws an actionable error naming the ceiling
-and the `{:tms :reference}` remedy — checked where a new id first enters, so an operator
-sees that rather than the cast's bare "integer overflow" — and never a silent truncation
+assert/retract can climb to it. Crossing it throws `:type :handle-ceiling`, an actionable
+error naming the ceiling and carrying `:remedy {:tms :reference}` — checked where a new id
+first enters, so an operator sees that rather than the cast's bare "integer overflow", and
+a supervisor discriminates on the type as it does on every other refusal — and never a
+silent truncation
 that would collide two handles and corrupt belief. A KB that expects to churn past 2^31
 pins `{:tms :reference}`, whose `Long`-keyed maps have no ceiling. The reference costs the
 RAM this page measures; that is the trade.

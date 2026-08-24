@@ -9,12 +9,15 @@
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as backend]
+            [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.disk.lock :as lock]
             [vaelii.impl.disk.record-store :as drs]
             [vaelii.test-util :as tu])
   (:import [java.io RandomAccessFile]
            [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
+           [java.nio.file.attribute FileAttribute]
+           [java.util.concurrent CountDownLatch Executors ScheduledExecutorService
+            TimeUnit]))
 
 (defn- tmpdir ^String []
   (str (Files/createTempDirectory "vaelii-disk-be-" (into-array FileAttribute []))))
@@ -30,25 +33,132 @@
     (try (f dir)
          (finally (backend/close-dir! dir) (rm-rf! dir)))))
 
-(deftest a-second-jvm-holding-the-lock-fails-fast
+(deftest an-overlapping-lock-in-this-process-is-diagnosed-as-ours
+  ;; `tryLock` **throws** `OverlappingFileLockException` rather than returning nil when
+  ;; the lock is already held by the calling JVM, so this branch says nothing at all about
+  ;; another process — and the holder tag written in the file is then ours.  Reported as
+  ;; "locked by another JVM" it sent an operator looking for a process that does not
+  ;; exist, and the holder read off the file named this JVM's own pid as the intruder.
   (with-tmp
     (fn [dir]
-      ;; stand in for another process: hold an exclusive OS FileLock on the lock file
-      ;; directly.  The store's own tryLock on the same file (a different channel) then
-      ;; conflicts, exactly as a second JVM would.
       (let [lockfile (io/file dir ".vaelii.lock")
             _        (io/make-parents lockfile)
             raf      (RandomAccessFile. lockfile "rw")
             ch       (.getChannel raf)
             other    (.tryLock ch)]
         (try
-          (is (some? other) "the test itself took the lock")
+          (is (some? other) "the test itself took the lock, through another channel")
           (testing "opening the disk KB fails fast rather than corrupting the logs"
-            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"locked by another JVM"
-                                  (v/open-kb {:backend :disk :dir dir :recover? false}))))
+            (let [e (try (v/open-kb {:backend :disk :dir dir :recover? false})
+                         nil
+                         (catch clojure.lang.ExceptionInfo t t))]
+              (is (some? e) "the open is refused")
+              (is (re-find #"already locked by this JVM" (ex-message e))
+                  (str "the diagnosis names this process: " (ex-message e)))
+              (is (= :disk-locked (:type (ex-data e))))
+              (is (true? (:same-jvm? (ex-data e))))
+              (is (re-find (re-pattern (str (.pid (java.lang.ProcessHandle/current))))
+                           (str (:holder (ex-data e))))
+                  "and the holder it reports is us, not whatever the file happens to say")))
           (finally
             (.release other)
             (.close ch)))))))
+
+(deftest the-other-process-branch-still-names-another-jvm
+  ;; The branch a `tryLock` that *returns nil* takes — a lock a different process holds,
+  ;; which no single-JVM test can stage.  Its message is pinned here so splitting the two
+  ;; diagnoses did not leave the real cross-process one saying nothing useful.
+  (let [msg (#'lock/conflict-message "/some/kb" "4321@host since 2026-01-01T00:00:00Z")]
+    (is (re-find #"locked by another JVM" msg))
+    (is (re-find #"4321@host" msg) "with the holder tag read off the lock file")))
+
+(deftest a-lock-toggled-off-after-the-acquire-is-still-released
+  ;; `vaelii.disk.lock` can be flipped at runtime, and it is read at acquire time only.
+  ;; A `release!` that consulted it instead would return without releasing while the map
+  ;; said the directory was free — an OS lock held for the life of the JVM, which is
+  ;; precisely the state the single-writer contract exists to keep out of.
+  (with-tmp
+    (fn [dir]
+      (is (= :acquired (lock/acquire! dir)))
+      (is (lock/held? dir))
+      (System/setProperty "vaelii.disk.lock" "false")
+      (try (lock/release! dir)
+           (finally (System/clearProperty "vaelii.disk.lock")))
+      (is (not (lock/held? dir)) "the entry went with the release")
+      (is (= :acquired (lock/acquire! dir)) "and the OS lock was really given back")
+      (lock/release! dir))))
+
+(deftest a-release-that-fails-keeps-the-directory-marked-held
+  ;; Dropping the entry anyway said the directory was free while this JVM still held its
+  ;; descriptor and its OS lock: the next `acquire!` here would take neither, hand the
+  ;; directory to a second writer, and report whatever holder tag the *file* carried.
+  ;; The entry stays, and re-acquisition is refused by name.
+  (with-tmp
+    (fn [dir]
+      (let [path (#'lock/canonical dir)]
+        (is (= :acquired (lock/acquire! dir)))
+        ;; close the channel out from under the entry, so `.release` throws
+        (.close ^java.nio.channels.FileChannel (:channel (get @@#'lock/held path)))
+        (lock/release! dir)
+        (is (lock/held? dir) "a failed release keeps the entry")
+        (let [e (try (lock/acquire! dir) nil (catch clojure.lang.ExceptionInfo t t))]
+          (is (some? e) "and re-acquisition is refused")
+          (is (= :unreleased (:type (ex-data e))))
+          (is (re-find #"cannot be locked" (ex-message e)))
+          (is (re-find (re-pattern (str (.pid (java.lang.ProcessHandle/current))))
+                       (ex-message e))
+              "naming this JVM as the holder rather than the file's tag"))
+        ;; the directory is this test's, and nothing else may inherit its stuck entry
+        (swap! @#'lock/held dissoc path)))))
+
+;; ---- the durability daemon's process-wide lifecycle ---------------------
+
+(deftest the-durability-singletons-are-installed-under-one-monitor
+  ;; Two `register!`s racing the first one each built a ticker over the one registry:
+  ;; every registrant fsynced twice a tick, and only one of the two reachable by `stop!`
+  ;; (the loser tickes on for the life of the process).  Holding the lifecycle monitor is
+  ;; the direct test that the create is inside it — a registration that has to build the
+  ;; scheduler waits rather than building a second one.
+  (let [prior @@#'dur/scheduler]
+    (dur/stop!)
+    (when prior
+      (.awaitTermination ^ScheduledExecutorService prior 5 TimeUnit/SECONDS))
+    (let [started (CountDownLatch. 1)
+          done    (CountDownLatch. 1)
+          id      (atom nil)
+          body    (fn []
+                    (.countDown started)
+                    (reset! id (dur/register! {:fsync (fn [_] nil)
+                                               :close (fn [] nil)
+                                               :label "lifecycle-test"}))
+                    (.countDown done))
+          t       (Thread. ^Runnable body "lifecycle-test-registrant")]
+      (try
+        (locking @#'dur/lifecycle
+          (.start t)
+          (.await started)
+          (is (not (.await done 500 TimeUnit/MILLISECONDS))
+              "a registration that must install the scheduler waits on the monitor"))
+        (is (.await done 5000 TimeUnit/MILLISECONDS) "and finishes once it is released")
+        (is (some? @@#'dur/scheduler) "with a scheduler installed")
+        (finally
+          (dur/deregister! @id)
+          (.join t 5000))))))
+
+(deftest a-refused-auto-compaction-submit-clears-the-in-flight-mark
+  ;; The id goes in flight **before** the submit, so a tick three seconds later cannot
+  ;; queue a second rewrite of a backend whose first has not started.  That makes the
+  ;; refused submit the case to handle: the task never runs, its `finally` never clears
+  ;; the id, and `maybe-compact!` skips a backend that is in flight — so one rejected
+  ;; submit barred that backend from auto-compaction for the life of the process.
+  (let [prior @@#'dur/compaction-executor
+        dead  (doto (Executors/newSingleThreadExecutor) (.shutdown))]
+    (try
+      (reset! @#'dur/compaction-executor dead)
+      (#'dur/submit-compaction! ::probe "a-refused-submit" (fn [] nil) 0.9 0.5)
+      (is (not (contains? @@#'dur/compaction-in-flight ::probe))
+          "a rejected submit leaves nothing behind to bar the next tick")
+      (finally (reset! @#'dur/compaction-executor prior)))))
 
 (deftest lock-releases-when-the-holder-goes-away
   (with-tmp

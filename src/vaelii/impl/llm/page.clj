@@ -31,6 +31,7 @@
             [vaelii.core :as v]
             [vaelii.impl.llm.inventory :as inventory]
             [vaelii.impl.llm.selection :as selection]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]))
 
@@ -105,7 +106,16 @@
                     (remove #(some (fn [f] (= 'sentexHandle f))
                                    (tree-seq sequential? seq (:sentence %))))
                     (map #(assoc % :line (line-of (:sentence %))))
-                    (sort-by :line)
+                    ;; **The context is the second half of the key, and has to be.**  One
+                    ;; sentence can be stored in two contexts, and the dedup below keeps
+                    ;; the first row of an equal-`:line` run.  Keyed on `:line` alone that
+                    ;; run is in `scanned`'s handle order, so which context survives — and
+                    ;; therefore `page-context`'s modal reading of the rows — would be a
+                    ;; function of which load allocated the lower handle.  `[line context]`
+                    ;; names a sentex uniquely, so no tie is left to fall anywhere.
+                    ;; the context is keyed through the guarded printer: a context may be
+                    ;; a NAT, and one keyed with `str` collapses under an ambient print bound
+                    (sort-by (juxt :line (comp nm/print-key :context)))
                     (partition-by :line)
                     (map first))]
      (with-meta (vec (take max-lines lines))
@@ -129,7 +139,7 @@
            (remove nil?)
            (remove #(= inventory/head-context %))
            frequencies
-           (sort-by (fn [[c n]] [(- n) (str c)]))
+           (sort-by (fn [[c n]] [(- n) (nm/print-key c)]))
            ffirst)
       'CxUniverse))
 

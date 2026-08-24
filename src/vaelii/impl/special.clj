@@ -291,11 +291,10 @@
   precisely the same trigger.
 
   Bounded by the rules mentioning the calculus at all, which is zero for every KB that
-  registered no prover.  Nil is not free there: `qkb/calculus-for` rebuilds the
-  registered-calculus list per call, so a KB that opted into nothing still pays a deref
-  of the prover registry and an `instance?` test per prover in it, once per asserted
-  sentence.  A constant in the registry's size and no store read, which is what makes it
-  affordable on this path — not an absent cost."
+  registered no prover.  Nil is close to free there: `qkb/calculus-for` memoizes the
+  registered-calculus list against the registry vector, so a KB that opted into nothing
+  pays a registry deref, a volatile read and an identity compare per asserted sentence,
+  and the per-prover `instance?` scan only when the registry itself changed."
   [kb body]
   (when-let [calc (qkb/calculus-for kb (nm/functor body))]
     (let [idx (:index kb)]
@@ -839,7 +838,8 @@
            ;; missed sweep or a missed revival
            firers   (when (symbol? pred)
                       (mapcat #(p/rules-by-antecedent (:index kb) %)
-                              (rules/trigger-keys (:taxonomy kb) (:sentence target))))
+                              (rules/trigger-keys (:taxonomy kb) (:sentence target)
+                                                  @(:rule-antecedents kb))))
            marked   (vec (into (set users) firers))]
        (mark-recheck kb marked trigger)
        marked))))
@@ -872,7 +872,7 @@
   hides. Expanding at this boundary lets callers report the event they observed
   without knowing which cache supporter it invalidates.
 
-  Gated on the `:excepted` roster, as the scan in `reconcile-belief-change!` is: the
+  Gated on the `:excepted` roster, as the scan in `reconcile-belief-change` is: the
   roster holds every stored visibility except (`kb/note-excepted!`, at the store and
   removal choke points), so while it is empty no handle in `moved` can name one and the
   region is `moved` itself — without a record fetch per member, on a set that is the
@@ -887,8 +887,12 @@
                           kb/except-target)))
           moved)))
 
-(defn reconcile-belief-change!
+(defn reconcile-belief-change
   "Reconcile every belief-derived taxonomy cache after `moved` may have changed truth.
+
+  Bare, like `recover` and every other recompute: it rebuilds caches from what the KB
+  currently believes and stores nothing of its own, so re-running it is the whole of
+  taking it back.
 
   This is the engine-level choke point above `tax/refresh-beliefs`: ordinary JTMS
   defeat/revival/supersession and visibility `except` both change whether a stored
@@ -902,9 +906,9 @@
   The two-argument form decides `visibility-moved?` by reading `moved`'s records for an
   except — behind the `:excepted` roster, so a KB storing no visibility except pays no
   fetch per moved handle (`belief-change-region` says why the gate is exact)."
-  ([kb] (reconcile-belief-change! kb nil))
+  ([kb] (reconcile-belief-change kb nil))
   ([kb moved]
-   (reconcile-belief-change!
+   (reconcile-belief-change
     kb
     moved
     (or (nil? moved)
@@ -1392,6 +1396,42 @@
               {:new [] :violations []}
               (sx/defn-companion-rules sentence)))))
 
+(defn- negative-subsumption-seeds
+  "The half of `subsumption-seeds` that a **negated** antecedent is owed, read up
+  `super`'s `genl` closure where the positive half reads down `sub`'s `spec` one.
+
+  Subsumption is contravariant under a negation (docs/inference.md, \"Under a negation
+  the fan reverses\"), so an arriving `(genl dog animal)` does not connect `dog`'s facts
+  to an `(animal ?x)` antecedent here — it connects `animal`'s *negative* facts to a
+  `(not (dog ?x))` one.  `(not (animal A))` stored, then the edge, and a rule negated on
+  `dog` should fire; without this seed the same three sentences derive a conclusion in
+  one order and not the other, which is what the positive half exists to prevent.
+
+  **Gated on some rule reading a negated antecedent under `sub`**, off the live
+  `:rule-antecedents` roster — the same roster `rules/trigger-keys` reads, and for the
+  same reason.  Sound in both directions this is reached from: for an arriving edge
+  nothing can newly match except through it, and for a departing one an edge no negated
+  antecedent could ever have climbed licensed nothing to revive.  A KB whose rules read
+  no negation, which is nearly every KB, pays one pass over the roster's keys.
+
+  Negative sentexes only, decided on the record's own `:truth`: a *positive* fact on a
+  genl of `super` newly matches nothing, since a positive antecedent fans downward and
+  the edge moved nothing above `super`."
+  [kb sub super]
+  (let [specs (tax/specs (:taxonomy kb) sub)]
+    (when (some (fn [k] (and (vector? k) (contains? specs (second k))))
+                (keys @(:rule-antecedents kb)))
+      (let [idx  (:index kb)
+            recs (:records kb)
+            tms  (:tms kb)]
+        (into [] (comp (mapcat #(p/sentexes-with-functor idx %))
+                       (distinct)
+                       (filter #(jtms/in? tms %))
+                       (filter (fn [h]
+                                 (when-let [s (p/get-sentex recs h)]
+                                   (= :false (:truth s))))))
+              (tax/genls (:taxonomy kb) super))))))
+
 (defn subsumption-seeds
   "The stored facts a new `(genl sub super)` edge newly makes matchable, as chaining
   seeds — the taxonomy twin of `lift-existing`, and there for exactly the same reason.
@@ -1411,19 +1451,24 @@
   on the ordinary load order (a hierarchy arrives before the facts under it, when the
   extent is empty).
 
+  A **negated** antecedent is answered contravariantly, so the facts an edge newly
+  offers *it* sit on the other side of the edge entirely: `negative-subsumption-seeds`
+  above reads them up `super`'s genl closure.
+
   The *removal* side is `resubsumption-seeds` below: a firing names the `genl` edges it
   subsumed through, so dropping one withdraws what it licensed — and the facts have to
   go back on the agenda when the reachability outlives the supporter that left."
   [kb sentence]
   (when (= 'genl (nm/functor sentence))
-    (let [[_ sub] sentence
+    (let [[_ sub super] sentence
           idx (:index kb)
           tms (:tms kb)]
       (when (symbol? sub)
-        (into [] (comp (mapcat #(p/sentexes-with-functor idx %))
-                       (distinct)
-                       (filter #(jtms/in? tms %)))
-              (tax/specs (:taxonomy kb) sub))))))
+        (into (into [] (comp (mapcat #(p/sentexes-with-functor idx %))
+                             (distinct)
+                             (filter #(jtms/in? tms %)))
+                    (tax/specs (:taxonomy kb) sub))
+              (when (symbol? super) (negative-subsumption-seeds kb sub super)))))))
 
 (defn visibility-seeds
   "The stored facts a new `(genlCx sub super)` edge newly makes matchable, as
@@ -1766,8 +1811,9 @@
            (filter #(tax/sees? tx % pctx))
            ;; the middle key is a taxonomy-closure read — built once per context, not
            ;; ~2·n·log n times; the tuple is `[0/1 long string]`, ordered by `compare`
-           (nm/sort-by-content-key (juxt #(if (= % pctx) 0 1) #(count (tax/context-up tx %)) str)
-                                   compare)))))
+           (nm/sort-by-content-key
+            (juxt #(if (= % pctx) 0 1) #(count (tax/context-up tx %)) nm/print-key)
+            compare)))))
 
 (defn- migrate-into
   "Restate `sentex` as `reader` sees it, and store the result there.  Returns
@@ -2260,11 +2306,20 @@
         recs    (:records kb)
         pred    (nm/functor sentence)
         b       (second (nm/args sentence))
-        ;; content-ordered, so which pair gets the explicit equality is a function
-        ;; of the values rather than of which filler was written first — it shows
-        ;; when a standing merge among the fillers is later retracted
-        clashes (nm/sort-by-content-key (comp pr-str second) compare
-                                        (checks/functional-clashes kb sentence context))]
+        ;; content-ordered, so which pair gets the explicit equality is a function of
+        ;; what the KB says rather than of which filler was written first — it shows when
+        ;; a standing merge among the fillers is later retracted.  **The whole triple is
+        ;; in the key**, the shape the antisymmetric twin below uses and for the same
+        ;; reason: `first-per-slot` dedups on `[handle value]`, so two handles can fill
+        ;; the slot with one value, and a key holding the value alone would leave them
+        ;; tied — the tie falling to `functional-clashes`' own order, which is a `for`
+        ;; over `res/matches-visible`, an answer *set*.  `oh` goes into the derived
+        ;; equality's antecedent vector, so that is not cosmetic.  Structural, so nothing
+        ;; is printed and no ambient `*print-length*` can collapse it.
+        clashes (nm/sort-by-content-key
+                 (fn [[oh v via]] (let [s (p/get-sentex recs oh)]
+                                    [v (:sentence s) (:context s) via]))
+                 (checks/functional-clashes kb sentence context))]
     (when (seq clashes)
       (reduce (fn [acc [oh v via]]
                 ;; the idempotence guard is **scoped to `context`**: skip a pair only
@@ -3007,7 +3062,7 @@
        ;; a visibility `(except (sentexHandle H))` fact: queue the firings that use H
        ;; so settle sweeps any conclusion now resting on an invisible antecedent
        (= sx/except-functor f)         (do (recheck-except kb sentex)
-                                           (reconcile-belief-change! kb #{handle}))
+                                           (reconcile-belief-change kb #{handle}))
        ;; a rule reaching the general path (e.g. rebuilt by recover, or a migrated
        ;; twin) is indexed from its own record, so it keeps the direction its wrapper
        ;; gave it
@@ -3156,7 +3211,7 @@
   roster is written at the store primitive (`kb/note-excepted!`) — while no firing that
   used H was ever queued for the sweep.
 
-  **The except arm's `reconcile-belief-change!` is called inline, mid-fixpoint, and
+  **The except arm's `reconcile-belief-change` is called inline, mid-fixpoint, and
   that is safe.**  Neither half of it re-enters chaining or settling:
   `tax/note-supporter-visibility-change!` is one `swap!` bumping a generation, and
   `tax/refresh-beliefs` is a `swap!` over the taxonomy that reads `jtms/in?` and writes

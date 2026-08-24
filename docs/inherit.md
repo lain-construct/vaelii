@@ -154,7 +154,7 @@ one. `(arg typeToInstancePred 2 instanceRelationPredicate)` requires the second
 argument to be marked, and a marked predicate takes one argument-check family for *every*
 position — `arg` throughout for an instance relation, `genlArg` throughout for a type
 one. A predicate relating one individual to a *kind* satisfies neither and is left
-unmarked, which `relationKind`'s own comment says of `resultIsa` and
+unmarked, which `relationKind`'s own comment says of `result` and
 `functionCorrespondingPredicate`. `hasCapability` is the third: one animal, one capability
 kind. So `capabilityType`/`hasCapability` are named as a pair in their comments and not by
 the predicate that exists to name pairs — declaring the mark to satisfy it would trade an
@@ -474,6 +474,21 @@ no invalidation protocol. A KB that declares no preservation reaches none of thi
 O(1) gate on the declaration functors having any extent at all sits in front of
 `positions`.
 
+The multiplier the memo removes is the one `undercut?` introduces: it compares every claim
+against every other, so a reach walked per comparison is quadratic in the claims and a
+reach walked per question is linear in them. Both readings are gated —
+`inherit_test/the-reach-walk-is-linear-in-the-claims-and-not-quadratic` counts
+`matches-visible` calls at three sizes and holds the second difference to a doubling
+rather than a quadrupling, and `lein perf`'s `inherit-reach-memo` prices 8× the claims at
+under 12× per ask, against the ~51× a lost memo reads. The comparing stays quadratic
+either way; only the walking moves.
+
+It is a *thread binding*, so the layers under it — `claims`, `surviving`,
+`solve-with-support` — realize their seqs before returning. A seq handed back
+unrealized is realized with the binding popped, and both multipliers come back with the
+answers identical, which is why nothing but a cost measurement can see it
+(`laziness_test`).
+
 `TransitiveInArgProver`'s `est-bindings` is **1**, and that is the answer count rather
 than the cost — a closed goal has at most the one empty solution. `cost :compute` is
 where the work shows.
@@ -502,7 +517,12 @@ defeat-class is what settles both whether a specific claim may undercut it and w
 `checks/asymmetry-problem` refuses. Reading that class off whichever handle the index
 happened to yield first would key an *admission* on arrival order — handles are allocated
 in assertion order — so `strongest-per-tuple` takes the maximum over the class lattice,
-and breaks the ties that leaves on the context **name**. Both are functions of content alone.
+and breaks the ties that leaves on the context **name** and then on what the claim
+**says**. All three are functions of content alone, and the last of them is printed
+through `nm/print-key`: the matcher is type-aware and fans a goal over its
+sub-predicates, so one tuple routinely carries two sentences in one context at one class,
+and a key an ambient `*print-length*` collapsed would put the admission straight back on
+the order the retrieval answered in.
 
 **A `genl` edge between two types can flip an exception stated over a predicate neither
 type appears in.** `TransitiveInArgProver` sits in the level-6 stack that `exceptWhen` and

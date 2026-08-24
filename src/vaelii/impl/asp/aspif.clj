@@ -12,12 +12,10 @@
 
    The rest of the format — projection (3), externals (5), assumptions
    (6), heuristics (7), acyclicity edges (8), and type 1's disjunctive
-   and multi-head choice heads and weight bodies — was written out here
-   once and never emitted, so nothing ever called it and no test ever
-   checked it. An encoder nobody has executed is not coverage of a
-   format; it is unverified text generation claiming to be. What the
-   engine needs, it emits and its tests exercise; another type arrives
-   with the caller that wants it.
+   and multi-head choice heads and weight bodies — has no encoder here.
+   An encoder nobody executes is not coverage of a format; it is
+   unverified text generation claiming to be. What the engine needs, it
+   emits and its tests exercise, and nothing else is written here.
 
    Wire format of what is emitted (line-oriented, space-separated):
      Line 1: `asp 1 0 0`

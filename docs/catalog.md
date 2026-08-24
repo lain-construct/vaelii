@@ -294,9 +294,9 @@ newest export job in the registry is the panel's report — which is what lets i
 the dump went after the job has finished.
 
 That report is the newest export of **any** status, which is why `cancel-export!` does not
-read it: `jobs/cancel!` answers true for any job the registry still holds, so cancelling
-the newest would report a cancellation of a dump that finished an hour ago and is already
-written. It asks the *running* set instead, and answers false when nothing is running.
+read it: cancelling the newest would ask about a dump that finished an hour ago and is
+already written. It asks the *running* set instead, and answers false when nothing is
+running — as `jobs/cancel!` itself does for a job that has already settled.
 
 That closes the loop. `classify` keys on `meta.edn` and `export!` writes it **last**, so
 the moment a dump lands under the search path it is a `:dump` source, and export-then-reload
@@ -413,9 +413,11 @@ how deep the type tree branches, how many contexts the facts spread over, and th
 
 Two properties make it a measurement rather than noise:
 
-* **Deterministic.** Everything is drawn from one seeded `java.util.Random` in a fixed
-  order, so the same parameters give the same KB. `plan` is pure — the whole KB as data,
-  nothing asserted — and `load-into` asserts it.
+* **Deterministic.** Each of `plan`'s three draw streams — memberships, rules, facts —
+  owns a `java.util.Random` seeded from the plan seed and the stream's own constant, so
+  the same parameters give the same KB whichever order a reader realizes the streams
+  in. `plan` is pure — the whole KB as data, nothing asserted — and `load-into` asserts
+  it.
 * **Stratified.** Predicates are split into layers; facts populate layer 0, and a rule
   concluding a layer-*k* predicate draws its antecedents only from below *k*. The rule set
   is acyclic, so forward chaining cascades base → derived → further-derived and
@@ -427,6 +429,12 @@ Two properties make it a measurement rather than noise:
 Individuals and predicates are Zipf-sampled, so the corpus has hot terms and a long tail
 like a real one. Generated names carry their role in their spelling, as the naming
 invariants require: `gen_type_7`, `GenInd42`, `genRel3`, `CxGenBand0`.
+
+A rule's **direction and its defeasibility are two independent draws**, each a percentage
+against the rule stream's own generator, so the four combinations all occur and the mix is
+a share rather than an exact count. Read off one rule index they would be perfectly
+correlated — at any settings where `defeasible` ≤ `forward`, every defeasible rule would
+also be a forward one, and no settings at all would produce a defeasible *backward* rule.
 
 The fact contexts are a **chain**, not a fan of siblings. Two incomparable contexts
 have no common descendant, so a rule joining a fact from each would complete with nowhere

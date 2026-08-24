@@ -53,6 +53,7 @@
             [taoensso.trove :as trove]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
@@ -332,8 +333,10 @@
                                                    " network visible from " context
                                                    " is unsatisfiable, so no goal of that"
                                                    " calculus is answered there")
-                                     :nodes (vec (sort-by str (nodes net)))}
-                              (seq bad) (assoc :pairs (vec (sort-by str bad))))}]
+                                     ;; a node may be a NAT and a pair always is a vector,
+                                     ;; so both are keyed through the guarded printer
+                                     :nodes (nm/by-print-key (nodes net))}
+                              (seq bad) (assoc :pairs (nm/by-print-key bad)))}]
       (trove/log! {:level :warn :id ::qualitative-inconsistency :data entry})
       (swap! v (fn [entries]
                  (let [e' (conj entries entry) n (count e')]
@@ -729,7 +732,8 @@
 
 (defn prover-for?
   "Is `pr` the prover of the calculus named `nm`?  How a caller asks which calculus a
-  registered prover speaks for, now that they share one record type."
+  registered prover speaks for: the calculi share one record type, so a class test says
+  only that some calculus is registered."
   [nm pr]
   (and (instance? CalculusProver pr) (= nm (:name (:calculus pr)))))
 
@@ -740,19 +744,47 @@
 ;; stored facts it rests on, and those are what the justification lists.  These three
 ;; are the seam chaining reaches through; the wiring itself is `vaelii.impl.chain`.
 
+(def ^:private registry-calculi
+  "`registered-calculi`'s last answer as `[registry answer]`, held against the prover
+  vector's IDENTITY.
+
+  Registration is opt-in and happens at setup, so the answer is constant for the life of
+  a registry value, while the callers are the engine's hottest paths — `calculus-for` is
+  asked per asserted sentence (`special/recheck-on-qualitative`) and per antecedent
+  literal (`chain/qualitative-antecedent`).  Unmemoized, a KB that registered nothing
+  still paid an `instance?` per prover in the default registry of 18, plus a fresh
+  vector, to be told nil again; at a 10M-fact bulk load that is the same nil computed
+  10M times.
+
+  **One entry, and identity rather than value.**  Every KB opens on the same
+  `provers/default-provers` vector, so a single entry answers every KB that registered
+  nothing *and* every stretch of writing on one that did — which is the whole of what is
+  being saved.  A map keyed on the registry would instead hold every vector it ever saw
+  alive for the process's life, one more per `add-prover`, and hashing such a key walks
+  the vector, which is the cost being removed.  A `swap!` on the registry produces a new
+  value, so it simply misses and recomputes.  Last write wins and the pair is written as
+  one value, so a lost race costs a recomputation and cannot answer wrongly."
+  (volatile! nil))
+
 (defn registered-calculi
   "The calculi whose prover is registered on `kb`.  Registration is the opt-in: with no
   prover, a calculus's facts are ordinary facts, matched and chained like any other.
 
-  Rebuilt per call, and the empty answer is a scan rather than an absence — an
-  `instance?` test per prover in the registry plus a fresh vector.  `calculus-for` is
-  the only caller and the paths that ask it (`chain/qualitative-antecedent` per
-  antecedent literal, `special/recheck-on-qualitative` per asserted sentence) each say
-  what that costs them."
+  Memoized against the registry's identity (`registry-calculi`); a miss is a scan rather
+  than an absence — an `instance?` test per prover in the registry plus a fresh vector.
+  `calculus-for` is the only caller and the paths that ask it
+  (`chain/qualitative-antecedent` per antecedent literal,
+  `special/recheck-on-qualitative` per asserted sentence) each say what a miss costs
+  them."
   [kb]
-  (into []
-        (comp (filter #(instance? CalculusProver %)) (map :calculus))
-        (some-> (:provers kb) deref)))
+  (if-let [pv (some-> (:provers kb) deref)]
+    (let [[reg answer] @registry-calculi]
+      (if (identical? pv reg)
+        answer
+        (let [v (into [] (comp (filter #(instance? CalculusProver %)) (map :calculus)) pv)]
+          (vreset! registry-calculi [pv v])
+          v)))
+    []))
 
 (defn calculus-for
   "The registered calculus claiming `pred`, or nil.  Predicates belong to exactly one
@@ -777,7 +809,12 @@
 
   `pairs` narrows the enumeration to those pairs (`solve-goal`), which is what a re-join
   over a delta passes.  It costs nothing here: a pair with no support was never going to
-  be answered, and a pair whose support is what changed is in the delta by construction."
+  be answered, and a pair whose support is what changed is in the delta by construction.
+
+  `goal` is a **positive** literal `(P a b)`, where `solve-goal` takes either polarity.
+  That is the seam's shape rather than a shortcut: what a *refutation* rests on is the
+  whole network rather than a support list, so a negated antecedent is not answered by
+  entailment at all and `chain/qualitative-antecedent` claims only the positive shape."
   ([calc kb goal context] (solve-with-support calc kb goal context nil))
   ([calc kb goal context pairs]
    (let [[_ a b] goal]

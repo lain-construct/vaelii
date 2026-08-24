@@ -38,7 +38,9 @@ Each descriptor carries what a reader needs to compare rows that count different
 - **`:counters`** — `:kb`, `:process`, or nil: what a row's `:hits` / `:misses` count,
   which is not always what its `:entries` count. The literal cache is the awkward case —
   per-KB entries, process-wide `AtomicLong` counters — and conflating them would bill one
-  KB for another's hits.
+  KB for another's hits. The closure neighbours are awkward the other way: the counters
+  are readable at any time and the entries only from inside the search step that holds
+  them, so that row reports a rate against a blank count.
 - **`:note`** — one line: what it holds and what retires an entry.
 
 A row whose `:entries` is nil cannot be counted from outside — it is scope-bound, alive
@@ -55,6 +57,21 @@ bump** (a taxonomy edge or context change retires every closure read at once), b
 **change clock** (a per-placement stamp, so a chaining run meets its own reads cold), or
 they are structural (the symbol pool, the compiled algebras) where dropping entries costs
 the sharing they exist for.
+
+Clearing wholesale is cheap and it is fragile in one direction, so **a scan does not get
+to fill one**. A read that asks thousands of literals *once* — a transitive closure walk
+visits each node once and asks that node's neighbour literal once — pushes the literal
+cache past its bound and clears it part-way through, discarding the entries a rule-heavy
+query really does re-ask for a pass that had no repeat of its own to serve. Measured on a
+5 000-node walk: one hit in 4 998 lookups, and the cache cleared. So the walk's neighbour
+probes read with `res/matches-visible`'s `cached?` false, and the walk keeps its repetition
+where the repetition is — the whole closure in `:closure-answers`, the neighbour sets a
+join re-walks in the search step's memo. A cache earns its eviction where the questions
+repeat; a scan is the read where they do not.
+
+It is the *probe* that opts out, not the walk: the seed read a `(P ?x ?x)` condensation
+takes is one extent literal, asked through the ordinary cached door, because one literal
+asked once is not a scan.
 
 ## Reading them
 

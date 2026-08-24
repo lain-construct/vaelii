@@ -55,10 +55,7 @@
   This is the identity substrate acts land in: 'who' comes from the edge's own context
   and provenance, never from the target it names."
   [kb channel agent]
-  (let [actx (id/context-for agent)]
-    (v/assert kb (list 'genlCx channel actx) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'genlCx actx 'CxSpeechActs) 'CxUniverse {:strength :monotonic})
-    actx))
+  (id/place-agent-context #(v/assert kb %1 %2 %3) channel agent 'CxSpeechActs))
 
 ;; ---- origination: the claim / query node plus provenance IS the act ------
 
@@ -122,11 +119,21 @@
      retracting the target sweeps the dispute edge.
 
   Represents the challenge only; adjudication is a separate layer.  Returns the dispute
-  edge's handle (write 2)."
+  edge's handle (write 2).
+
+  **A handle that names no record is refused** (`:koinii/no-such-handle`), as `deref`'s
+  `marker` refuses one.  Write 1 is built from the target's own sentence, so a missing
+  target would store the literal `(not nil)` and a `disputes` edge on nothing — a
+  challenge to a claim that does not exist, indistinguishable in the KB from one that
+  does."
   [kb agent target-handle]
   (let [ctx (id/context-for agent)
-        s   (:sentence (v/sentex kb target-handle))]
-    (v/assert kb (list 'not s) ctx {:creator agent})
+        sx  (v/sentex kb target-handle)]
+    (when (nil? sx)
+      (throw (ex-info (str "koinii: cannot dispute handle " (pr-str target-handle)
+                           " — it names no record in this KB")
+                      {:type :koinii/no-such-handle :handle target-handle})))
+    (v/assert kb (list 'not (:sentence sx)) ctx {:creator agent})
     (v/assert kb (list 'disputes agent (v/sentex-handle target-handle)) ctx {:creator agent})))
 
 ;; ---- retraction: the engine operation named as a move --------------------

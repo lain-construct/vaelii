@@ -7,7 +7,7 @@
 
   **Why these protocols and not the others.**  `boundaries.md` says `vaelii.impl.*` is
   free to change, and it is — that rule is about the *require* surface, and it stands.
-  But six of the eleven protocols in the tree are named in a doc as a seam somebody
+  But seven of the twelve protocols in the tree are named in a doc as a seam somebody
   else fills: `docs/storage.md` says a new backend *is* a new `KvBackend`,
   `docs/asp.md` calls `Solver` the seam, `docs/llm.md` calls `Provider` one, and
   `docs/qcn.md` says `add-prover` takes any `Prover`.  A doc that invites an
@@ -66,6 +66,11 @@
   the argument: a protocol is here because a page tells somebody to implement it, so the
   entry carries the page and the entry is checkable against it."
   [[#'protocols/RecordStore     "docs/storage.md"]
+   [#'protocols/Prefetching     "docs/storage.md"]
+   [#'protocols/Tallying        "docs/storage.md"]
+   [#'protocols/BulkLoading     "docs/storage.md"]
+   [#'protocols/RecordSink      "docs/storage.md"]
+   [#'protocols/BulkAnnotating  "docs/storage.md"]
    [#'protocols/IndexStore      "docs/storage.md"]
    [#'kv/KvBackend              "docs/storage.md"]
    [#'solve/Solver              "docs/asp.md"]

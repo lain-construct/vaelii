@@ -231,8 +231,17 @@
 
 (defn- section-len [src] (if (instance? IntBuffer src) (.limit ^IntBuffer src) (alength ^ints src)))
 
-(defn- open-write ^FileChannel [^String path]
-  (.getChannel (doto (RandomAccessFile. path "rw") (.setLength 0))))
+(defn- open-write
+  "A truncated `rw` channel on `path`.  The truncate is guarded rather than chained onto
+  the open: a `.setLength` that throws leaves a `RandomAccessFile` nothing holds a
+  reference to and nothing will close, and a publish that fails on a full disk is
+  exactly when the process keeps running."
+  ^FileChannel [^String path]
+  (let [raf (RandomAccessFile. path "rw")]
+    (try (.setLength raf 0) (.getChannel raf)
+         (catch Throwable t
+           (try (.close raf) (catch Throwable _ nil))
+           (throw t)))))
 
 (defn- rename! [^String from ^String to]
   (Files/move (Paths/get from (into-array String []))
@@ -358,9 +367,12 @@
   **A failed save costs the new image, never the one already there.**  Every section is
   written to a `.tmp` beside its target and the meta — the commit mark — is dropped only
   once all of them are complete, so a throw anywhere before that leaves the previous
-  image whole and readable.  The stamp is taken *first*, before a byte moves, because it
-  is the one input that lives in another component: on the shutdown path that component
-  can already be closed, and taking it late would trade a working image for none."
+  image whole and readable, **and takes the temps it had written with it**: a section is
+  the size of the index, and one left behind by a save that never committed is a file
+  nothing reads and nothing else deletes.  The stamp is taken *first*, before a byte
+  moves, because it is the one input that lives in another component: on the shutdown
+  path that component can already be closed, and taking it late would trade a working
+  image for none."
   [dir store stamp-fn]
   (let [root (snapshot-root dir)]
     (f/ensure-dir! root)
@@ -386,6 +398,15 @@
             csr   (col/csr store)
             dict  (:dict store)
             rts   (:roots store)
+            tmp   #(str % ".tmp")
+            ;; named out here so the `finally` can reach them: a save that throws
+            ;; part-way leaves the previous image whole, but it also leaves behind
+            ;; whatever `.tmp` sections it had already written — index-sized files,
+            ;; which on a KB that is never reopened sit in the directory for good.
+            ;; They are cleared on the way out unless the meta committed, and deleting
+            ;; a temp that was already renamed is a harmless false.
+            temps [(tmp (trie-path root)) (tmp (roots-path root)) (tmp (fallback-path root))]
+            done  (volatile! false)
             ;; this fn's own handle on the durable dictionary, and every step below it
             ;; can throw — a full disk mid-write, a mapped section that will not read.
             ;; It closes in a `finally`, or a failed save would leak a file handle on
@@ -402,7 +423,6 @@
                 etgt  (aclone ^ints (:edge-tgt csr))
                 _     (sort-edge-runs! (:offsets csr) etok etgt (:nodes csr))
                 cols  (roots/snapshot-columns rts remap)
-                tmp   #(str % ".tmp")
                 tstat (write-trie!  (tmp (trie-path root))
                                     (assoc csr :edge-tok etok :edge-tgt etgt))
                 rstat (write-roots! (tmp (roots-path root)) cols)
@@ -410,7 +430,7 @@
             ;; beside its target rather than over it, so the blob the previous meta
             ;; describes stays intact until the swap below
             (f/write-nippy-atomic! (tmp (fallback-path root)) fents)
-            (dtok/fsync tl true)
+            (dtok/fsync tl)
             ;; the meta is the commit point: drop it, swap the sections in, write it last
             (.delete (File. (meta-path root)))
             (rename! (tmp (trie-path root))     (trie-path root))
@@ -429,12 +449,19 @@
               :fallback     {:entries (count fents)
                              :bytes   (.length (File. (fallback-path root)))}
               :tokens       (dtok/token-count tl)})
+            (vreset! done true)
             (let [ms (/ (- (System/nanoTime) t0) 1e6)]
               (trove/log! {:level :info :id ::saved
                            :msg (format "wrote the mapped index snapshot at %s in %.0f ms (%d nodes, %d leaf handles, %d root postings)"
                                         root ms (long (:nodes tstat)) (long (:leaves tstat)) (long (:keys rstat)))})
               {:index :saved :ms ms :trie tstat :roots rstat}))
-          (finally (dtok/close! tl)))))))
+          ;; the deletes first, because `.delete` answers false where the close throws:
+          ;; a token log that will not close must not be the reason index-sized temps
+          ;; are left behind, and it is still the failure the caller reads.
+          (finally
+            (when-not @done
+              (doseq [^String p temps] (.delete (File. p))))
+            (dtok/close! tl)))))))
 
 ;; ---- reading ------------------------------------------------------------
 

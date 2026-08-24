@@ -9,7 +9,7 @@
   the composition table derives the relation between two regions from the chain of
   relations between them, and a derived predicate is entailed whenever every still
   possible relation lies inside its denotation."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.provers :as provers]
@@ -211,6 +211,32 @@
       (is (not (v/ask? kb (list 'nonTangentialProperPart A D) CxInner))))))
 
 ;; ---- registration --------------------------------------------------------
+
+(deftest the-registered-calculus-list-follows-the-registry
+  ;; `registered-calculi` is memoized against the prover registry's *identity*, because
+  ;; `calculus-for` is asked per asserted sentence and per antecedent literal.  A memo
+  ;; that outlived a registration would report a calculus's own predicates as claimed by
+  ;; nobody — silently, and for the life of the process.  Registration swaps the atom, so
+  ;; the new registry is a new identity and a miss; what this pins is that a miss is what
+  ;; happens, in both directions, since the memo holds one entry.
+  ;;
+  ;; Read straight off a `{:provers atom}` map: that is the whole of what the function
+  ;; touches, and a second KB here would clear the shared scratch space out from under
+  ;; the fixture.
+  (let [registered {:provers (atom [(space/spatial-prover)])}
+        bare       {:provers (atom [])}]
+    (testing "a registry with no calculus prover claims nothing"
+      (is (= [] (qkb/registered-calculi bare)))
+      (is (nil? (qkb/calculus-for bare 'nonTangentialProperPart))))
+    (testing "and one that registered the prover claims its calculus"
+      (is (= [space/rcc8] (qkb/registered-calculi registered)))
+      (is (= space/rcc8 (qkb/calculus-for registered 'nonTangentialProperPart))))
+    (testing "asking about either afterwards still answers about that one"
+      (is (= [] (qkb/registered-calculi bare)))
+      (is (= [space/rcc8] (qkb/registered-calculi registered))))
+    (testing "and a registration on a registry already asked about is picked up"
+      (swap! (:provers bare) conj (space/spatial-prover))
+      (is (= [space/rcc8] (qkb/registered-calculi bare))))))
 
 (tu/deftest-kb the-prover-ships-opt-in
   (testing "nothing spatial is in the default registry, so a KB pays for the network

@@ -40,8 +40,26 @@
 (defonce ^:private shutdown-hook (atom nil))
 (defonce ^:private compaction-executor (atom nil))
 (defonce ^:private compaction-in-flight (atom #{}))
-(defonce ^:private last-compact-ms (atom {}))
+(defonce ^:private last-compact-check-ms
+  ;; `{registrant-id ms}` — when each backend's dead ratio was last **asked for**, which
+  ;; is what `vaelii.disk.compact-min-interval-ms` throttles.  Asking is not free: a
+  ;; record store answers it by scanning every `.idx` in full under the kind lock
+  ;; (`record-store/kind-dead-ratio`), so a stamp taken only where a compaction *fired*
+  ;; would leave a store that never crosses the threshold paying that scan on every
+  ;; three-second tick, for the life of the process.  Stamped before the ratio is read
+  ;; and again when a compaction finishes, so the interval floors the probe and the
+  ;; rewrite alike.
+  (atom {}))
 (defonce ^:private compaction-paused (atom false))
+
+;; The monitor the three process-wide singletons above — the scheduler, the compaction
+;; executor and the shutdown hook — are created and torn down under.  A check-then-act on
+;; each atom alone is not enough: two `register!`s racing the first one would each build a
+;; ticker over the one registry, so every registrant is fsynced twice a tick and only one
+;; of the two tickers is reachable by `stop!` — the loser runs for the life of the
+;; process.  One monitor rather than one apiece, because `register!` reaches two of the
+;; three and `stop!` shuts two down, so what has to be serialized is the *set*.
+(defonce ^:private lifecycle (Object.))
 
 (defn pause-compaction!
   "Suspend the daemon's background auto-compaction across every registered backend.
@@ -66,7 +84,7 @@
   (try (thunk) (finally (resume-compaction!))))
 
 (defn- fsync-one-safely [{:keys [fsync label]}]
-  (try (fsync {:fsync? true})
+  (try (fsync {})
        (catch Throwable t
          (trove/log! {:level :error :msg (str "disk-durability fsync of " label " failed: "
                                               (.getMessage t))}))))
@@ -79,49 +97,80 @@
 
 (defn- ensure-compaction-executor! ^ExecutorService []
   (or @compaction-executor
-      (let [ex (Executors/newSingleThreadExecutor
-                (reify java.util.concurrent.ThreadFactory
-                  (newThread [_ r] (doto (Thread. r "disk-auto-compactor") (.setDaemon true)))))]
-        (reset! compaction-executor ex)
-        ex)))
+      (locking lifecycle
+        (or @compaction-executor
+            (let [ex (Executors/newSingleThreadExecutor
+                      (reify java.util.concurrent.ThreadFactory
+                        (newThread [_ r] (doto (Thread. r "disk-auto-compactor")
+                                           (.setDaemon true)))))]
+              (reset! compaction-executor ex)
+              ex)))))
 
 (defn- submit-compaction! [id label compact-fn ratio threshold]
+  ;; The id goes in flight **before** the submit, so the tick three seconds from now
+  ;; cannot queue a second rewrite of a backend whose first one has not started.  Which
+  ;; makes the refused submit the case to handle: `stop!` can shut the executor between
+  ;; the probe and here, the task then never runs, its `finally` never clears the id, and
+  ;; `maybe-compact!` skips a backend that is in flight — so that backend would go
+  ;; un-compacted for the life of the process, over one rejected submit.
   (swap! compaction-in-flight conj id)
-  (.submit (ensure-compaction-executor!)
-           ^Runnable
-           (fn []
-             (try
-               ;; The store can close between the tick that queued this and the executor
-               ;; reaching it — the executor is single-threaded, so a task waits behind
-               ;; every task before it, and `close-dir!` deregisters BEFORE closing the
-               ;; log.  This check honours that signal and skips the task with a log
-               ;; line saying why.
-               ;;
-               ;; It is the *early* skip, not the airtight one: it runs outside the
-               ;; store's own lock, so a close can still land between here and
-               ;; `compact!` acquiring it.  What closes that window is the store — the
-               ;; disk KV consults its closed flag after taking its lock
-               ;; (`vaelii.impl.disk.kv/compact!`), and the record store's compaction
-               ;; throws on its closed idx before any temp or marker is written.  A
-               ;; task already INSIDE `compact!` needs neither: it holds the store
-               ;; lock, which is exactly what `close!` blocks on.
-               (if-not (contains? @registry id)
-                 (trove/log! {:level :debug
-                              :msg (str "disk-durability skipping the queued auto-compaction of "
-                                        label " — it closed before the queue reached it")})
-                 (do
-                   (trove/log! {:level :info
-                                :msg (format "disk-durability auto-compacting %s — dead ratio %.2f ≥ %.2f"
-                                             label ratio threshold)})
-                   (compact-fn)))
-               (catch Throwable t
-                 (trove/log! {:level :error :msg (str "disk-durability auto-compact of " label
-                                                      " failed: " (.getMessage t))}))
-               (finally
-                 (swap! last-compact-ms assoc id (System/currentTimeMillis))
-                 (swap! compaction-in-flight disj id))))))
+  (try
+    (.submit
+     (ensure-compaction-executor!)
+     ^Runnable
+     (fn []
+       (try
+         ;; The store can close between the tick that queued this and the executor
+         ;; reaching it — the executor is single-threaded, so a task waits behind
+         ;; every task before it, and `close-dir!` deregisters BEFORE closing the
+         ;; log.  This check honours that signal and skips the task with a log
+         ;; line saying why.
+         ;;
+         ;; It is the *early* skip, not the airtight one: it runs outside the
+         ;; store's own lock, so a close can still land between here and
+         ;; `compact!` acquiring it.  What closes that window is the store — the
+         ;; disk KV consults its closed flag after taking its lock
+         ;; (`vaelii.impl.disk.kv/compact!`), and the record store's compaction
+         ;; throws on its closed idx before any temp or marker is written.  A
+         ;; task already INSIDE `compact!` needs neither: it holds the store
+         ;; lock, which is exactly what `close!` blocks on.
+         (if-not (contains? @registry id)
+           (trove/log! {:level :debug
+                        :msg (str "disk-durability skipping the queued auto-compaction of "
+                                  label " — it closed before the queue reached it")})
+           (do
+             (trove/log! {:level :info
+                          :msg (format "disk-durability auto-compacting %s — dead ratio %.2f ≥ %.2f"
+                                       label ratio threshold)})
+             (compact-fn)))
+         (catch Throwable t
+           (trove/log! {:level :error :msg (str "disk-durability auto-compact of " label
+                                                " failed: " (.getMessage t))}))
+         (finally
+           ;; re-stamped at the *end* of the rewrite, so the floor is measured from
+           ;; when the backend was last left alone rather than from when the probe
+           ;; that queued this ran
+           (swap! last-compact-check-ms assoc id (System/currentTimeMillis))
+           (swap! compaction-in-flight disj id)))))
+    (catch Throwable t
+      (swap! compaction-in-flight disj id)
+      (trove/log! {:level :warn
+                   :msg (str "disk-durability could not queue the auto-compaction of "
+                             label ": " (.getMessage t))})
+      nil)))
 
-(defn- maybe-compact! []
+(defn- maybe-compact!
+  "One pass over the registrants: probe each backend's dead ratio and queue a rewrite
+  where it has crossed the threshold.
+
+  **`vaelii.disk.compact-min-interval-ms` gates the probe, not just the rewrite.**  A
+  ratio is a measurement a store has to take, and the record store takes it by scanning
+  every `.idx` in full under the kind lock — so gating only the rewrite would leave a
+  store whose ratio never crosses the threshold paying that scan on every tick, which is
+  the tick that exists to fsync.  Stamping the probe makes the interval a floor on both,
+  and the cost of that is detection latency bounded by the same interval — which is
+  what the floor already promised the rewrite."
+  []
   (when (and (auto-compact?) (not @compaction-paused))
     (let [now       (System/currentTimeMillis)
           interval  (config/disk-compact-min-interval-ms)
@@ -129,7 +178,8 @@
       (doseq [[id {:keys [compact dead-ratio label]}] @registry
               :when (and compact dead-ratio
                          (not (contains? @compaction-in-flight id))
-                         (>= (- now (get @last-compact-ms id 0)) interval))]
+                         (>= (- now (get @last-compact-check-ms id 0)) interval))]
+        (swap! last-compact-check-ms assoc id now)
         (let [ratio (try (double (dead-ratio)) (catch Throwable _ 0.0))]
           (when (>= ratio threshold)
             (submit-compaction! id label compact ratio threshold)))))))
@@ -167,25 +217,33 @@
 
 (defn- start-scheduler! [interval-ms]
   (when (and (pos? interval-ms) (nil? @scheduler))
-    (let [ex (Executors/newSingleThreadScheduledExecutor
-              (reify java.util.concurrent.ThreadFactory
-                (newThread [_ r] (doto (Thread. r "disk-durability-syncer") (.setDaemon true)))))]
-      (.scheduleAtFixedRate ex ^Runnable fsync-all interval-ms interval-ms TimeUnit/MILLISECONDS)
-      (reset! scheduler ex))))
+    (locking lifecycle
+      (when (nil? @scheduler)
+        (let [ex (Executors/newSingleThreadScheduledExecutor
+                  (reify java.util.concurrent.ThreadFactory
+                    (newThread [_ r] (doto (Thread. r "disk-durability-syncer")
+                                       (.setDaemon true)))))]
+          (.scheduleAtFixedRate ex ^Runnable fsync-all interval-ms interval-ms
+                                TimeUnit/MILLISECONDS)
+          (reset! scheduler ex))))))
 
 (defn- install-shutdown-hook! []
   (when (nil? @shutdown-hook)
-    (let [t (Thread. ^Runnable close-all! "disk-durability-shutdown")]
-      (.addShutdownHook (Runtime/getRuntime) t)
-      (reset! shutdown-hook t))))
+    (locking lifecycle
+      (when (nil? @shutdown-hook)
+        (let [t (Thread. ^Runnable close-all! "disk-durability-shutdown")]
+          (.addShutdownHook (Runtime/getRuntime) t)
+          (reset! shutdown-hook t))))))
 
 (defn register!
-  "Register a disk backend with the durability manager.  Entry keys: `:fsync` (fn
-  `[{:keys [fsync?]}]`, required), `:close` (fn `[]`, required), `:label` (string,
-  required), optionally `:compact` (fn `[]`) + `:dead-ratio` (fn `[]` → double) for
-  background compaction, and optionally `:phase` (`close-phases`, `:store` by default)
-  for shutdown ordering.  Returns an id for `deregister!`; starts the scheduler and
-  installs the shutdown hook on first registration.
+  "Register a disk backend with the durability manager.  Entry keys: `:fsync` (fn of one
+  argument, required — the tick hands it an options map, which it passes empty), `:close`
+  (fn `[]`, required), `:label` (string, required), optionally `:compact` (fn `[]`) +
+  `:dead-ratio` (fn `[]` → double) for background compaction, and optionally `:phase`
+  (`close-phases`, `:store` by default) for shutdown ordering.  Returns an id for
+  `deregister!`; starts the scheduler and installs the shutdown hook on first
+  registration, both under `lifecycle` so concurrent first registrations install one
+  apiece rather than one each.
 
   The shape check is an `ex-info` rather than an `assert` because `clojure.core/assert`
   is **elidable**: with `*assert*` false a registrant with no `:close` would register
@@ -216,7 +274,14 @@
   (when id (swap! registry dissoc id)))
 
 (defn stop!
-  "Stop the schedulers (REPL/test teardown).  Leaves the shutdown hook installed."
+  "Stop the schedulers (REPL/test teardown).  Leaves the shutdown hook installed.  Under
+  the same monitor the starts take, so a `register!` racing this either installs before it
+  or re-installs after it, never half-way through it."
   []
-  (when-let [ex @scheduler] (.shutdown ^ScheduledExecutorService ex) (reset! scheduler nil))
-  (when-let [cx @compaction-executor] (.shutdown ^ExecutorService cx) (reset! compaction-executor nil)))
+  (locking lifecycle
+    (when-let [ex @scheduler]
+      (.shutdown ^ScheduledExecutorService ex)
+      (reset! scheduler nil))
+    (when-let [cx @compaction-executor]
+      (.shutdown ^ExecutorService cx)
+      (reset! compaction-executor nil))))

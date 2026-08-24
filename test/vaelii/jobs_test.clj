@@ -150,11 +150,117 @@
           "an interrupt reads as a cancellation, not as a failure")
       (is (nil? (:summary j))))))
 
-(deftest cancelling-a-settled-job-changes-nothing-and-an-unknown-one-answers-nil
-  (let [id (settled (jobs/submit {:label "Quick" :kind :test} (constantly {:ok true})))]
-    (is (true? (jobs/cancel! (:id id))) "there was a job to ask")
-    (is (= :done (:status (jobs/job (:id id)))) "and asking did not un-finish it")
-    (is (nil? (jobs/cancel! "no-such-job")))))
+(defn- deref-hook
+  "An atom façade over `real` that answers **one** deref — the first taken by the thread
+  in `armed` — with `(on-deref)`, and delegates everything else, writes included.  The
+  registry is a `defonce` atom read through a var, so a façade in that var is how a test
+  gets between `cancel!`'s single read of a job and what it does with what it read.  A
+  race forced this way is a race that happens every run: the pre-state is snapshotted
+  before the barrier and handed back afterwards, rather than raced for."
+  [real armed on-deref]
+  (reify
+    clojure.lang.IDeref
+    (deref [_] (if (compare-and-set! armed (Thread/currentThread) nil) (on-deref) @real))
+    clojure.lang.IAtom
+    (swap [_ f] (swap! real f))
+    (swap [_ f a] (swap! real f a))
+    (swap [_ f a b] (swap! real f a b))
+    (swap [_ f a b args] (apply swap! real f a b args))
+    (compareAndSet [_ o n] (compare-and-set! real o n))
+    (reset [_ v] (reset! real v))))
+
+(deftest a-cancel-that-lost-the-race-sends-no-interrupt-at-all
+  ;; `cancel!` decides from one read of the registry, and the job can settle between that
+  ;; read and the interrupt.  Past the body's unwind the thread belongs to the pool, so an
+  ;; interrupt sent then lands on whatever runs next — a task nobody cancelled, unwinding
+  ;; on somebody else's request.  The stale read is forced rather than waited for: the hook
+  ;; hands `cancel!` the registry as it stood a moment ago, having in the meantime released
+  ;; the work and waited for its future, so the job is genuinely finished by the time that
+  ;; read is acted on.
+  ;;
+  ;; The witness is a thread of the test's own, standing for the pool thread running the
+  ;; next task, because that thread's own flag is not a witness: a worker back in `getTask`
+  ;; clears a stray interrupt when it wakes.  What is observable, and what the fence
+  ;; promises, is that no interrupt is sent at all.
+  (let [release  (promise)
+        id       (jobs/submit {:label "Finishes first" :kind :test :interruptible? true}
+                              (fn [_] @release {:ok true}))
+        seen     (promise)
+        stand-in (doto (Thread. ^Runnable
+                        (fn []
+                          (try (.await (java.util.concurrent.CountDownLatch. 1))
+                               (catch InterruptedException _
+                                 (deliver seen :interrupted)))))
+                   (.setDaemon true)
+                   (.start))
+        real     @#'jobs/state
+        armed    (atom (Thread/currentThread))
+        stale    (fn []
+                   (let [s @real]
+                     (deliver release true)
+                     (is (not= :timeout (deref (:future (get-in s [:jobs id])) 30000 :timeout))
+                         "the work has unwound, and its thread is the pool's again")
+                     (assoc-in s [:jobs id :thread] (doto (promise) (deliver stand-in)))))]
+    (with-redefs-fn {#'jobs/state (deref-hook real armed stale)}
+      (fn [] (is (true? (jobs/cancel! id)))))
+    (is (= :done (:status (jobs/job id))) "the job had already finished")
+    (is (= :still-waiting (deref seen 250 :still-waiting))
+        "and nothing was interrupted on its behalf, the thread no longer being its own")
+    (.interrupt stand-in)))
+
+(deftest an-interrupted-canceller-restores-its-own-flag
+  ;; The other side of the same bounded wait: it is interruptible, and it clears the
+  ;; *caller's* flag on the way out.  Left cleared, an `InterruptedException` propagates
+  ;; out of `cancel!` into the handler that called it and the interrupt is lost with it.
+  ;; The hook hands the canceller a job that has not published its thread, so the wait
+  ;; really waits, and the interrupt lands there.
+  (let [release     (promise)
+        id          (jobs/submit {:label "Never noticed" :kind :test :interruptible? true}
+                                 (fn [_] @release {}))
+        real        @#'jobs/state
+        armed       (atom nil)
+        waiting     (promise)
+        outcome     (promise)
+        unpublished (fn []
+                      (let [s @real]
+                        (deliver waiting true)
+                        (assoc-in s [:jobs id :thread] (promise))))]
+    (with-redefs-fn {#'jobs/state (deref-hook real armed unpublished)}
+      (fn []
+        (let [canceller (Thread. ^Runnable
+                         (fn []
+                           (let [answer (try (jobs/cancel! id)
+                                             (catch Throwable t t))]
+                             ;; reading the flag is also what clears it, so this
+                             ;; thread dies as clean as it would have started
+                             (deliver outcome [answer (Thread/interrupted)]))))]
+          (reset! armed canceller)
+          (.start canceller)
+          (is (deref waiting 30000 nil))
+          (.interrupt canceller)
+          (.join canceller 30000))))
+    (let [[answer flag] (deref outcome 30000 [::none ::none])]
+      (is (true? answer) "the interrupt did not propagate out of `cancel!`")
+      (is (true? flag) "and the flag that wait cleared was put back for the caller to read"))
+    (deliver release true)
+    (is (= :done (:status (settled id))))))
+
+(deftest cancelling-a-settled-job-changes-nothing-and-answers-false
+  ;; the answer is about the *run*, not about the registry: a settled job keeps its report
+  ;; there for an hour, so "is the id still listed" and "was there anything to stop" are
+  ;; different questions, and a caller that cannot tell them apart reports a cancellation
+  ;; over a load that finished or a dump already written
+  (testing "a run in progress is one to stop"
+    (let [id (jobs/submit {:label "Sleep" :kind :test :interruptible? true}
+                          (fn [_] (Thread/sleep 60000) {:woke true}))]
+      (is (true? (jobs/cancel! id)))
+      (is (= :cancelled (:status (settled id))))))
+  (testing "a job that has already settled is not, though the registry still holds it"
+    (let [id (settled (jobs/submit {:label "Quick" :kind :test} (constantly {:ok true})))]
+      (is (false? (jobs/cancel! (:id id))))
+      (is (= :done (:status (jobs/job (:id id)))) "and asking did not un-finish it")))
+  (testing "and neither is an id the registry never held"
+    (is (false? (jobs/cancel! "no-such-job")))))
 
 ;; ---- the report outlives the job; a running job outlives every deadline -----
 

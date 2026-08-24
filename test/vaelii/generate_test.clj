@@ -40,14 +40,39 @@
     (is (not= (vec (:facts (gen/plan small)))
               (vec (:facts (gen/plan (assoc small :seed 6))))))))
 
+(deftest a-plan-is-the-same-whatever-order-its-streams-are-realized-in
+  ;; The three seqs are lazy and *whoever holds the plan* decides the order they are
+  ;; realized in: `load-into` takes memberships, then rules, then facts; a reader of the
+  ;; map takes whichever it asks for first.  Drawn from one shared `Random` each stream's
+  ;; values are a function of that order, so "the same numbers describe the same KB"
+  ;; would hold only between two callers that happened to read them the same way — and
+  ;; the corpus `load-into` asserts would not be the one `plan` was inspected as.  The
+  ;; test above cannot see it, because it realizes both plans in one order.
+  (let [a  (gen/plan small)
+        b  (gen/plan small)
+        ;; a, read facts-first; b, in `load-into`'s order
+        af (vec (:facts a))
+        ar (vec (:rules a))
+        am (vec (:memberships a))
+        bm (vec (:memberships b))
+        br (vec (:rules b))
+        bf (vec (:facts b))]
+    (is (= am bm) "memberships")
+    (is (= ar br) "rules")
+    (is (= af bf) "facts")))
+
 (deftest plan-counts-are-what-was-asked-for
-  (let [{:keys [genls memberships facts rules units]} (gen/plan small)]
+  (let [{:keys [genls memberships facts rules units context-edges]} (gen/plan small)]
     (is (= (:types small) (count genls)))
     (is (= (:individuals small) (count memberships)))
     (is (= (:facts small) (count facts)))
     (is (= (:rules small) (count rules)))
-    (testing "units is the assertion count a progress bar divides by"
-      (is (= units (+ (:contexts small) (:types small) (:individuals small)
+    (testing "the context chain is one edge longer than the context list — the schema
+              context's own edge under CxCore, which no band names"
+      (is (= (inc (:contexts small)) (count context-edges))))
+    (testing "units is the assertion count a progress bar divides by, and it counts the
+              *edges* rather than the contexts, which is what `load-into` asserts"
+      (is (= units (+ (count context-edges) (:types small) (:individuals small)
                       (:facts small) (:rules small)))))))
 
 (deftest generated-names-satisfy-the-naming-invariants
@@ -93,14 +118,20 @@
 
 (deftest loading-a-generated-kb-produces-the-shape-asked-for
   (tu/with-cleared-kb [kb tu/fresh]
-    (let [phases (atom [])
-          r (gen/load-into kb small {:on-progress #(swap! phases conj (:phase %))})]
+    (let [events (atom [])
+          r (gen/load-into kb small {:on-progress #(swap! events conj %)})
+          phases (mapv :phase @events)]
       (testing "the summary reports what landed"
         (is (pos? (:stored r)))
         (is (= (merge gen/defaults small) (:params r))))
       (testing "progress runs through the phases in load order and ends at :done"
         (is (= [:vocabulary :contexts :types :individuals :rules :facts :done]
-               (vec (distinct @phases)))))
+               (vec (distinct phases)))))
+      (testing "and the phases count exactly the units the plan promised, so the bar
+                reaches its end rather than overrunning it"
+        (let [final (last @events)]
+          (is (= (:units r) (:total final)))
+          (is (= (:total final) (:done final)))))
       (testing "the type hierarchy is rooted at thing"
         (is (contains? (v/genls kb 'gen_type_11) 'thing))
         (is (contains? (v/specs kb 'thing) 'gen_type_0)))
@@ -108,11 +139,61 @@
                 a rule joins have a common descendant to put its conclusion in"
         (is (v/sees? kb 'CxGenBand1 'CxGenBand0))
         (is (v/sees? kb 'CxGenBand0 'CxGenerated)))
-      (testing "the rules are there, in the mix that was asked for"
-        (let [rules (filter :antecedent (v/sentexes-in-context kb 'CxGenerated))]
-          (is (= (:rules small) (count rules)))
-          (is (= 4 (count (filter #(= :forward (:direction %)) rules))))
-          (is (= 2 (count (filter :defeasible rules)))))))))
+      (testing "the rules are there, in the mix the plan drew — the load spells direction
+                and defeasibility into the sentence and both canonicalize back out"
+        ;; Counted against the plan's **distinct sentences** rather than its rule count: a
+        ;; draw can repeat a rule, and two identical sentences are one sentex.  Direction
+        ;; and defeasibility ride the sentence (`set/forwardRule`, `set/defaultRule`), so
+        ;; the survivor of a repeat carries the same pair and the mix follows exactly.
+        (let [rules  (filter :antecedent (v/sentexes-in-context kb 'CxGenerated))
+              wanted (vals (into {} (map (juxt #(#'gen/rule-sentence %) identity))
+                                 (:rules (gen/plan small))))]
+          (is (= (count wanted) (count rules)))
+          (is (= (count (filter #(= :forward (:direction %)) wanted))
+                 (count (filter #(= :forward (:direction %)) rules))))
+          (is (= (count (filter :defeasible? wanted))
+                 (count (filter :defeasible rules)))))))))
+
+(deftest direction-and-defeasibility-are-independent-draws
+  ;; Read off one rule index they were two thresholds on the same number, so at any
+  ;; settings where `:defeasible` ≤ `:forward` every defeasible rule was also a forward
+  ;; one — and no settings at all produced a defeasible *backward* rule, a shape the
+  ;; corpus therefore could not exercise however the knobs were turned.
+  (let [rules (:rules (gen/plan (assoc small :rules 2000 :forward 50 :defeasible 50)))
+        cell  (fn [def? fwd?]
+                (count (filter #(and (= def? (boolean (:defeasible? %)))
+                                     (= fwd? (= :forward (:direction %))))
+                               rules)))]
+    (testing "all four combinations of the two are drawn"
+      (doseq [[def? fwd?] [[true true] [true false] [false true] [false false]]]
+        (is (pos? (cell def? fwd?))
+            (str "defeasible? " def? " forward? " fwd?))))
+    (testing "and each share is near the percentage that was asked for"
+      (is (< 800 (count (filter #(= :forward (:direction %)) rules)) 1200))
+      (is (< 800 (count (filter :defeasible? rules)) 1200)))))
+
+(deftest a-fact-repeated-in-a-second-context-is-a-second-sentex
+  ;; The load dedups so `bulk-assert-facts!`'s precondition holds, and that precondition
+  ;; is "no two the same sentence **in the same context**".  Keyed on the sentence alone
+  ;; the dedup drops every repeat past the first, so `:contexts` spreads the facts over
+  ;; more contexts without the KB holding any more of them — a corpus short of the number
+  ;; that was asked for, with nothing in the summary to say so.
+  (tu/with-cleared-kb [kb tu/fresh]
+    ;; three individuals over two base predicates is an 18-sentence space, so 200 draws
+    ;; repeat a sentence in both contexts many times over
+    (let [params (assoc small :facts 200 :individuals 3 :predicates 4 :layers 2
+                        :rules 0 :contexts 2)
+          dup    (->> (group-by first (:facts (gen/plan params)))
+                      (keep (fn [[s es]]
+                              (let [cs (distinct (map second es))]
+                                (when (< 1 (count cs)) [s (vec cs)]))))
+                      first)]
+      (is (some? dup) "the corpus repeats a sentence across the two contexts")
+      (gen/load-into kb params)
+      (when-let [[s cs] dup]
+        (let [hs (mapv #(v/handle-of kb s %) cs)]
+          (is (every? some? hs) "every context that holds it has its own sentex")
+          (is (apply distinct? hs) "and they are distinct handles"))))))
 
 (deftest ^:slow a-generated-kb-derives-cleanly
   (testing "chaining over a generated corpus drops nothing: every firing has a placement

@@ -55,12 +55,6 @@
             ;; run.  Process state rather than a KB read, so it is not a hole in the ledger
             ;; below: it reads no KB and writes none.
             [vaelii.impl.jobs :as jobs]
-            ;; one read, `blocked`: which justifications the truth-maintenance network has
-            ;; ruled *blocked* — their rule's `exceptWhen` exception holds, so they support
-            ;; nothing even with every argument IN.  The proof tree cannot see this from
-            ;; belief alone, and there is no public read op for it, so the browser asks the
-            ;; in-process network directly (a nil on a remote target, handled below)
-            [vaelii.impl.jtms :as jtms]
             ;; one read, `write-hazards`: whether the KB on screen is one whose belief was
             ;; never built, which the write guard below refuses on and `active-caveat`
             ;; already reports the read half of
@@ -75,8 +69,17 @@
             [vaelii.impl.llm.selection :as selection]
             [vaelii.impl.llm.session :as llm]
             [vaelii.impl.llm.verdict :as verdict]
+            ;; one read, `query-contexts`: the three reading modes that wear a context's
+            ;; spelling, so the refusal a page owes for one names them off the roster
+            ;; rather than restating it.  A spelling roster and no KB read, so it is not
+            ;; a hole in the ledger below either
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.sandbox :as sandbox]
             [vaelii.impl.starter :as starter]
+            ;; one read, `assertable?`: the strength class the assert form's control is
+            ;; held to, so the page refuses what `core/assert` would refuse rather than
+            ;; reading any value at all as "known-true"
+            [vaelii.impl.strength :as strength]
             ;; the inline-SVG primitives the term page's concept graph is drawn with.
             ;; Pure geometry — it takes no KB and reads nothing, so it is not a hole in
             ;; the ledger below either.
@@ -387,22 +390,34 @@
 (defn- blocked-justifications
   "The justifications the truth-maintenance network currently holds *blocked*: their
   rule's `exceptWhen` exception holds, so the JTMS has ruled them invalid and they
-  confer nothing — even with every argument IN (`jtms/blocked`).
+  confer nothing — even with every argument IN (`v/blocked-justifications`).
 
   This is a *different* condition from an argument being OUT, and the one the proof tree
   cannot read from belief alone: a blocked justification's arguments can all be believed,
   so an argument-only reading calls it supporting when it supports nothing.  Every
   `supporting`/`valid` verdict below `and`s membership here in.
 
-  Read from the in-process network.  A remote target keeps it out of reach
-  (`v/local-kb` is nil), so the set reads empty and the argument-only reading stands —
-  the one blocked case the wire cannot carry."
+  Read through `access`, so an attached browser reads the daemon's network rather than
+  the empty set an in-process-only read would answer with: the argument-only reading is
+  not a degraded rendering but a wrong one, drawing a blocked justification as
+  supporting."
   [{:keys [kb]}]
-  (if-let [tms (some-> (v/local-kb kb) :tms)]
-    (jtms/blocked tms)
-    #{}))
+  (set (v/blocked-justifications kb)))
 
 (defn- commas [n] (when (number? n) (format "%,d" (long n))))
+
+(defn- css-percent
+  "A fraction as the percentage a `width:` declaration takes, to one decimal.
+
+  `clojure.core/format` renders in the **default locale**, and a comma-decimal one
+  (`fr-FR`, `de-DE`, most of Europe) writes `12,5` — which is not a CSS number, so the
+  declaration is dropped and the bar draws at whatever width the stylesheet gave it.  The
+  locale of the machine the daemon happens to run on decides that, and nothing on the page
+  says so.  Every number that lands in markup rather than in prose goes through this;
+  `commas` above deliberately does not, since a thousands separator is display text and
+  reads in the reader's own convention."
+  [frac]
+  (String/format java.util.Locale/ROOT "%.1f" (object-array [(* 100.0 frac)])))
 
 (defn- progress-bar
   "Where a running load has got to.  A corpus knows its own total (its `report.edn` /
@@ -413,7 +428,7 @@
   (let [frac (when (and total (pos? total) done) (min 1.0 (/ (double done) (double total))))]
     [:div.kb-progress
      [:div.bar (if frac
-                 [:span.bar-fill {:style (str "width:" (format "%.1f" (* 100.0 frac)) "%")}]
+                 [:span.bar-fill {:style (str "width:" (css-percent frac) "%")}]
                  [:span.bar-fill.indeterminate])]
      [:p.muted
       [:b (some-> phase name)] " · " (or (commas done) 0)
@@ -966,11 +981,42 @@
         [{:label "Nested elsewhere" :idx (str "[:term-index " text "]")
           :count (count nested) :sentexes nested}])))))
 
+;; ---- ordering what a page lists ------------------------------------------
+;;
+;; A term the browser lists may be a **NAT** — a compound, not a symbol — so a page's order
+;; is taken off the printed form rather than off `compare`.  `str` on a compound honours
+;; `*print-length*` / `*print-level*` exactly as `pr-str` does, so under an ambient bound
+;; two long terms print to one prefix, the key collapses, and the order falls back to
+;; whatever the KB enumerated.  These two release the bounds around the printing.
+;;
+;; Written here rather than reached for: `naming/print-key` holds the same guard for the
+;; engine, and this namespace holds no engine require by design — see the ledger above.
+
+(defn- print-key
+  "`x` printed as an ordering key, with the print bounds released."
+  ^String [x]
+  (binding [*print-length* nil *print-level* nil *print-meta* false]
+    (pr-str x)))
+
+(defn- by-print-key
+  "`coll` as a vector ordered by its elements' printed form.  Decorate-sort-undecorate, so
+  the key is built once per element and one binding frame covers the whole sort."
+  [coll]
+  (binding [*print-length* nil *print-level* nil *print-meta* false]
+    (mapv second (sort-by first (mapv (fn [x] [(pr-str x) x]) coll)))))
+
 (defn- group-order
-  "A group's sentexes in display order — by context, then handle — so a page of rows is
-  a stable slice of one sequence however often it is re-sliced."
+  "A group's sentexes in display order — by context, then handle.
+
+  **Handle order is allocation order, and that is the ordering by design.**  Paging is a
+  re-slice of this sequence at an offset, so the order has to be one a later request
+  reproduces exactly; a content ordering moves under every write, and a reader who scrolled
+  past an offset would then see a row twice or not at all.  Two things it is not: a
+  *ranking* — the earliest-asserted sentex is not the most important one — and a *cap*.
+  Nothing is dropped by it.  `group-rows`' sentinel walks the whole group a page at a time,
+  and the count beside the heading is the group's stored total rather than the page's."
   [sentexes]
-  (sort-by (juxt (comp str :context) :id) sentexes))
+  (sort-by (juxt (comp print-key :context) :id) sentexes))
 
 (defn- group-rows
   "One page of a group's rows, plus the sentinel that fetches the next page when it is
@@ -1085,6 +1131,7 @@
   exists to prevent — it is the one thing that cannot be scanned."
   {:naming               "naming"
    :not-ground           "open"
+   :unsupported-context  "not a place"
    :not-well-formed      "malformed"
    :not-range-restricted "unbound"
    :not-indexable        "var predicate"
@@ -1101,6 +1148,7 @@
    :quoted-arg-type      "quoted arg"
    :arg-position         "arg slot"
    :arg-constraint-kind  "arg kind"
+   :arg-variable         "arg var"
    :arity                "arity"
    :disjoint             "disjoint"
    :asymmetric           "both ways"
@@ -1354,9 +1402,14 @@
         (line-gloss (v/local-kb (:kb view)) chosen)))
      ;; what the row posts back: the original and its position (so a shape choice is
      ;; re-derived, never trusted) and, only when there is something to store, the line
-     ;; the commit would write
-     [:input {:type "hidden" :name "from" :value (pr-str from)}]
-     [:input {:type "hidden" :name "ctx" :value (pr-str context)}]
+     ;; the commit would write.  Print vars bound off on the two that carry a form: both
+     ;; are read back as EDN by `propose-line-post`, and an elided sentence — or an elided
+     ;; context NAT — is legal EDN naming something else, so the round trip would
+     ;; re-derive the shape of a form the reader never saw
+     (let [edn (fn [x] (binding [*print-length* nil *print-level* nil] (pr-str x)))]
+       (list
+        [:input {:type "hidden" :name "from" :value (edn from)}]
+        [:input {:type "hidden" :name "ctx" :value (edn context)}]))
      [:input {:type "hidden" :name "i" :value i}]
      (when storable?
        ;; print vars bound off — the value is read back as EDN, and an elided
@@ -1816,8 +1869,11 @@
           :let  [[t x :as s] (:sentence sx)]
           :when (and (= 2 (count s)) (symbol? t) (not (coll? x)))
           ;; nearest first: a nearer supertype has the *larger* up-closure of its own,
-          ;; since everything above it is above the further one too
-          super (sort-by #(- (count (v/genls kb %))) (v/genls kb t))
+          ;; since everything above it is above the further one too — then the name, so
+          ;; two supertypes the same distance up are ordered by something a reader can
+          ;; account for rather than by where the closure set happens to hold them.  The
+          ;; list is capped, so the tie decides which claims are shown
+          super (sort-by (juxt #(- (count (v/genls kb %))) print-key) (v/genls kb t))
           :let  [claim (list super x)]
           :when (and (not= super t) (not= 'thing super) (not (stated claim)))]
       {:sentence claim :context (:context sx) :type t :individual x})))
@@ -1883,30 +1939,42 @@
   Everything up to here proposes; this applies, and it applies the way the editor does:
   `check-edit` over the whole batch first, and **`v/edit!` once** so the adds land in one
   settle rather than settling per line.  A batch with any problem stores nothing, since a
-  partial commit of a reviewed set is the outcome nobody chose."
+  partial commit of a reviewed set is the outcome nobody chose.
+
+  **A remote target is refused here as it is at every other door on this path** — the
+  panel, the turn and the preview all say the proposal needs the KB in process.  This is
+  the one that writes, and it is the one that must not be the exception: the
+  report-only check is a KB read, so without an in-process KB it does not run, and the
+  line it exists to hold back would be stored instead.  A check that does not run is not
+  a check, which is the reason the check is on this side at all."
   [{:keys [kb] :as view} lines]
   (frag
-   (let [local (v/local-kb kb)
-         {:keys [entries problems]} (accepted-entries lines)
-         batch {:add entries :remove []}
-         refusals (concat problems
-                          (when local (report-only-problems local entries))
-                          (when (seq entries) (map #(select-keys % [:type :message])
-                                                   (v/check-edit kb batch))))]
-     (cond
-       (empty? entries)
-       [:div.propose-answer [:p.muted "Nothing was accepted, so nothing was stored."]]
+   ;; the target question **before** the batch is read, since the reads below are the
+   ;; ones that would go over the wire
+   (if-let [local (v/local-kb kb)]
+     (let [{:keys [entries problems]} (accepted-entries lines)
+           batch {:add entries :remove []}
+           refusals (concat problems
+                            (report-only-problems local entries)
+                            (when (seq entries) (map #(select-keys % [:type :message])
+                                                     (v/check-edit kb batch))))]
+       (cond
+         (empty? entries)
+         [:div.propose-answer [:p.muted "Nothing was accepted, so nothing was stored."]]
 
-       (seq refusals)
-       [:div.propose-answer
-        [:h4 "Nothing was stored"]
-        [:ul.edit-errors (for [p refusals]
-                           [:li [:span.tag (name (:type p :error))] " " (:message p)])]
-        [:p.hint "The batch is applied whole or not at all. Propose again, or write the "
-         "line yourself on the " [:a {:href "/assert"} "assert form"] "."]]
+         (seq refusals)
+         [:div.propose-answer
+          [:h4 "Nothing was stored"]
+          [:ul.edit-errors (for [p refusals]
+                             [:li [:span.tag (name (:type p :error))] " " (:message p)])]
+          [:p.hint "The batch is applied whole or not at all. Propose again, or write the "
+           "line yourself on the " [:a {:href "/assert"} "assert form"] "."]]
 
-       :else
-       (applied-result view (v/edit-with-consequences! kb batch))))))
+         :else
+         (applied-result view (v/edit-with-consequences! kb batch))))
+     [:div.propose-answer
+      [:p.muted "A proposal is applied through the KB in this process, and the browser "
+       "is attached to a daemon. Nothing was stored."]])))
 
 ;; ---- the hierarchy trees, one level at a time ---------------------------
 ;;
@@ -1988,7 +2056,7 @@
         ;; `core/count-with-arg` states), paid once per rendered child by `expandable?`
         width    (v/count-with-arg kb 2 node)
         sortable (<= width sortable-cap)
-        kids     (cond->> (child-terms kb pred node) sortable (sort-by str))
+        kids     (cond->> (child-terms kb pred node) sortable by-print-key)
         shown    (into [] (comp (drop offset) (take (inc tree-cap))) kids)
         ;; a child's disclosure asks for *its own* children; the sentinel asks for more
         ;; of this level, which is the one place `node` is the right node
@@ -2023,7 +2091,7 @@
   [kb]
   (when (<= (v/count-with-functor kb 'genlCx) lattice-cap)
     (let [es (edges-of kb 'genlCx)]
-      (sort-by str (set/difference (set (map second es)) (set (map first es)))))))
+      (by-print-key (set/difference (set (map second es)) (set (map first es)))))))
 
 (defn- elided
   "The line a bounded list ends with when it did not show everything: what was shown, out
@@ -2056,8 +2124,14 @@
   is one posting set, and a page out of it costs a page."
   [{:keys [kb] :as view} offset]
   (let [total (v/count-with-functor kb 'comment)
+        ;; the term, then the text: a term carrying two comments — the shipped ontology
+        ;; gives each one, a KB adding a gloss of its own gives two — ties on the term
+        ;; alone, and the tie falls to the functor root's own order, which is ascending
+        ;; handle.  `core-context/comment-of` keys the same pair for the same reason
         rows  (cond->> (v/sentexes-with-functor kb 'comment)
-                (<= total sortable-cap) (sort-by (comp str second :sentence)))
+                (<= total sortable-cap)
+                (sort-by (juxt (comp print-key second :sentence)
+                               (comp print-key #(nth (:sentence %) 2 nil)))))
         shown (into [] (comp (drop offset) (take (inc front-cap))) rows)
         page  (take front-cap shown)]
     ;; the root is what is *stored*; belief is the page's own question, asked in one read
@@ -2081,7 +2155,7 @@
   both halves are bounded by the separations an ontology declares rather than by its
   size."
   [view pairs offset]
-  (let [ordered (sort-by str pairs)
+  (let [ordered (by-print-key pairs)
         shown   (into [] (comp (drop offset) (take (inc front-cap))) ordered)]
     (list
      (for [[a b] (take front-cap shown)]
@@ -2132,7 +2206,7 @@
       (->> cs
            (map (fn [c] [c (v/count-in-context kb c)]))
            (filter (comp pos? second))
-           (sort-by (juxt (comp - second) (comp str first)))))))
+           (sort-by (juxt (comp - second) (comp print-key first)))))))
 
 (defn- separating-types
   "How many types are separated from anything, and the ones separated from the most.  At a
@@ -2145,7 +2219,7 @@
   [pairs]
   (let [freq (frequencies (into [] cat pairs))]
     {:distinct (count freq)
-     :top      (take summary-cap (sort-by (juxt (comp - val) (comp str key)) freq))}))
+     :top      (take summary-cap (sort-by (juxt (comp - val) (comp print-key key)) freq))}))
 
 (defn- stat-card
   "One headline number: a big count over a small label.  `cls` tags a card by state
@@ -2619,7 +2693,7 @@
         read (if (= :up dir) parent-terms child-terms)
         got  (into [] (take (inc cap)) (read kb pred node))]
     (if (<= (count got) cap)
-      {:terms (sort-by str got) :total (count got) :exact? true}
+      {:terms (by-print-key got) :total (count got) :exact? true}
       {:terms (into [] (take cap) got) :total (v/count-with-arg kb pos node) :exact? false})))
 
 (defn- fresh-neighbours
@@ -2695,12 +2769,28 @@
     (when (or (seq gls) (seq sps))
       {:rel 'genl :up? (boolean (seq gls)) :down? (boolean (seq sps))})))
 
+(defn- flank-scan
+  "The window of a group's sentexes the ego edges are read out of: its **earliest**
+  `graph-flank-scan`, by handle.
+
+  A group comes off a *set* of handles, so a fixed window taken off it as it arrives is a
+  sample by hash — an order no reader can name, that moves with the index's representation,
+  and that draws a different picture for two assertion orders of the same knowledge.
+  Sorting first makes the window the term's earliest mentions, which is one answer per
+  knowledge base on every backend, and is what the caption below says the sample is.
+  `llm/page`'s `scanned` treats its own scan the same way and for the same reason.
+
+  The records are already in hand — `term-index-groups` fetched them for the rows — so the
+  order costs a sort over handles rather than a read."
+  [sentexes]
+  (take graph-flank-scan (sort-by :id sentexes)))
+
 (defn- flank-handles
   "The handles the ego edges will ask the belief of, so the graph rides the page's **one**
   batched belief read instead of adding a read per node."
   [groups]
   (for [{:keys [pos sentexes]} groups :when pos
-        s (take graph-flank-scan sentexes)]
+        s (flank-scan sentexes)]
     (:id s)))
 
 (defn- flank-edges
@@ -2728,7 +2818,7 @@
   [view term groups]
   (for [{:keys [pos sentexes]} groups
         :when (and pos (<= pos 2))
-        s     (take graph-flank-scan sentexes)
+        s     (flank-scan sentexes)
         :when (and (nil? (:antecedent s)) (= :true (:truth s)) (believed? view (:id s)))
         :let  [sent (:sentence s)]
         :when (and (sequential? sent) (= 3 (count sent)))
@@ -2792,7 +2882,14 @@
   every functor — a union of the scoped roots over `[:argument-slot 1 T]` — so `query`
   answers it with no functor to intersect (docs/indexing.md).  Believed, because that is what `query` means; binary, because the
   pattern has two argument slots and unification is arity-exact; positive, because a
-  negative fact is stored as `(not …)` and does not unify with it either."
+  negative fact is stored as `(not …)` and does not unify with it either.
+
+  **Ordered by handle before the cap cuts**, for `flank-scan`'s reason: a read that
+  promises a set promises nothing about which of it comes first, so a window off it as it
+  arrives draws one picture for a KB and another for the same knowledge asserted in another
+  order.  The order is paid for by realizing the match rather than a prefix of it, which is
+  what keeps this a claim about the *term* — the radial view expands `graph-ego-expand`
+  neighbours, so it is that many matches, each the neighbour's own extent."
   [kb t cap]
   (let [pull (fn [pattern out?]
                (into []
@@ -2804,7 +2901,7 @@
                                                 (not= :variable (v/term-role other)))
                                        {:term other :pred p :out? out?}))))
                            (take cap))
-                     (take (* 4 cap) (v/sentexes-matching kb pattern '?ctx))))]
+                     (sort-by :id (v/sentexes-matching kb pattern '?ctx))))]
     (concat (pull (list '?p t '?y) true)
             (pull (list '?p '?y t) false))))
 
@@ -2907,16 +3004,25 @@
   (when (and total (> total shown))
     (str "showing " shown " of " (when-not exact? "up to ") (commas total) " " what)))
 
+(def ^:private flank-sample-note
+  "What the caption says a partial flank *is*.  A picture drawing eight of forty
+  neighbours has sampled, and a sample a reader can name — the term's earliest mentions,
+  by handle (`flank-scan`) — is the difference between a bound that can be reasoned about
+  and an arbitrary one."
+  "the related terms shown are the term's earliest mentions")
+
 (defn- graph-notes
-  "The captions under the picture: what was elided, and whether the read budget rather
-  than the term's own shape is what stopped it."
+  "The captions under the picture: what was elided, which of it was drawn, and whether the
+  read budget rather than the term's own shape is what stopped it."
   [{:keys [up down flank]} plan]
   (let [word (fn [dir] (if (= 'genlCx (:rel plan))
                          (if (= :up dir) "contexts it sees" "contexts that see it")
-                         (if (= :up dir) "direct supertypes" "direct subtypes")))]
+                         (if (= :up dir) "direct supertypes" "direct subtypes")))
+        near (elision-note "related terms" flank)]
     (->> [(some->> (:direct up) (elision-note (word :up)))
           (some->> (:direct down) (elision-note (word :down)))
-          (elision-note "related terms" flank)
+          near
+          (when near flank-sample-note)
           (when (or (:deeper? up) (:deeper? down))
             "deeper rows are sampled, not complete")
           (when (or (:truncated? up) (:truncated? down))
@@ -2958,9 +3064,10 @@
                           "arrows point at the more general context; relations flank it · believed edges only"
                           "arrows point at the more general type; relations flank it · believed edges only")))
         (when (seq near)
-          (let [scene (ego-scene view term near)]
+          (let [scene (ego-scene view term near)
+                note  (elision-note "related terms" (assoc reach :shown (:inner scene)))]
             (graph-figure (term-text view term) scene
-                          (elision-note "related terms" (assoc reach :shown (:inner scene)))
+                          [note (when note flank-sample-note)]
                           "relations of the term, two hops out; an arrow runs subject to object")))))
     (catch Throwable t
       (trove/log! {:level :warn :id ::graph-failed :data {:term term :error (ex-message t)}})
@@ -3002,7 +3109,7 @@
   [kb-set]
   (let [total  (count kb-set)
         sorted (<= total sortable-cap)]
-    {:terms  (cond->> kb-set sorted (sort-by str))
+    {:terms  (cond->> kb-set sorted by-print-key)
      :total  total
      :exact? true
      :sorted? sorted}))
@@ -3041,31 +3148,31 @@
                        y     ms
                        :when (not (contains? up y))]
                    y)
-        ;; `sort-by str`, never bare `sort`: a type node need not be a symbol.  A NAT — a
+        ;; `by-print-key`, never bare `sort`: a type node need not be a symbol.  A NAT — a
         ;; function term used as a collection, which is how an imported ontology names a
         ;; type it has no atomic name for — is a `PersistentList`, and `compare` throws on
         ;; one rather than ordering it.  Names are what this list is read in anyway, and
         ;; it is the ordering every other list on the page uses.
-        partners (sort-by str (into #{} (concat declared induced)))
+        partners (by-print-key (into #{} (concat declared induced)))
         ;; the sum of the partners' closure sizes is an upper bound on their union (it
         ;; counts an overlap twice), and it decides whether building the union is
         ;; affordable.  Taking the bound is what *makes* the closures cached, not a read
         ;; of ones already cached: `tax/specs` walks the subtree on the first read of a
         ;; node per taxonomy generation, so the 43 partners spanning 290,000 subtypes —
         ;; one real term of one imported ontology — are walked here whatever the cap then
-        ;; says.  What the cap saves is the `distinct` and the `sort-by str` over the
+        ;; says.  What the cap saves is the `distinct` and the ordering over the
         ;; union, which is why the branch below can be O(cap)
         bound    (reduce + 0 (map #(count (v/specs kb %)) partners))
         walk     (comp (mapcat #(v/specs kb %)) (filter @types) (distinct))]
     (if (<= bound sortable-cap)
       (let [all (into [] walk partners)]
-        {:terms (sort-by str all) :total (count all) :exact? true :sorted? true})
+        {:terms (by-print-key all) :total (count all) :exact? true :sorted? true})
       ;; one past the cap, in partner-name order: enough to know whether there is more,
       ;; and O(cap) rather than O(union) because the closures are already in memory and
       ;; nothing past the window is touched
       (let [win (into [] (comp walk (take (inc type-line-cap))) partners)]
         (if (<= (count win) type-line-cap)
-          {:terms (sort-by str win) :total (count win) :exact? true :sorted? true}
+          {:terms (by-print-key win) :total (count win) :exact? true :sorted? true}
           {:terms (into [] (take type-line-cap) win) :total bound
            :exact? false :sorted? false})))))
 
@@ -3238,7 +3345,7 @@
               [:h3 "Dependents " [:span.muted "(justifications using it as an argument)"]]
               (justification-list view (v/dependent-justifications kb h))
               [:h3 "Subterms " [:span.muted "(each findable individually)"]]
-              [:p (interpose " · " (map #(term-link view %) (sort-by str (v/indexable-terms s))))]
+              [:p (interpose " · " (map #(term-link view %) (by-print-key (v/indexable-terms s))))]
               [:p [:a {:href (str "/levels?q=" (url-enc (pr-str (readable s)))
                                   "&ctx=" (url-enc (pr-str (:context s))))}
                    "Trace through the stack"]
@@ -3268,7 +3375,7 @@
                       "&level=" lvl "&offset=" (+ offset result-cap))))))
 
 (defn- bindings-str [view b]
-  (interpose ", " (for [[k val] (sort-by str b)]
+  (interpose ", " (for [[k val] (by-print-key b)]
                     [:span (render-form view k) " = " (render-form view val)])))
 
 (defn- result-item
@@ -3368,7 +3475,7 @@
          [:td.num est-prefix]
          [:td.num (if block (inc (long block)) [:span.muted "—"])]
          [:td (if (seq bound-before)
-                (interpose ", " (for [b (sort-by str bound-before)] (render-form view b)))
+                (interpose ", " (for [b (by-print-key bound-before)] (render-form view b)))
                 [:span.muted "—"])]
          [:td (cond
                 deferred?  [:span.tag {:title "consumes bindings rather than producing them"}
@@ -3489,6 +3596,12 @@
 ;; `--attach` exactly like every other read here.
 
 (def ^:private debug-depth-default 3)
+(def ^:private debug-depth-max
+  "The deepest rule expansion the search page will run.  The form's `max` and the route's
+  bound are the *same* number rather than two: a form that offers 12 beside a route that
+  accepts any depth is a control that describes nothing, and a hand-edited URL is how a
+  reader finds out."
+  12)
 (def ^:private debug-max-ms 4000)
 (def ^:private tree-render-cap
   "How many nodes the tree draws before it stops and says so.  The *search* is bounded by
@@ -3676,7 +3789,8 @@
                     :value (when goal (pr-str goal))}]
            [:input {:type "text" :name "ctx" :size 14 :placeholder "?ctx"
                     :value (when (and ctx (not= '?ctx ctx)) (pr-str ctx))}]
-           [:input {:type "number" :name "d" :min 1 :max 12 :value depth :title "depth bound"}]
+           [:input {:type "number" :name "d" :min 1 :max debug-depth-max :value depth
+                    :title "depth bound"}]
            [:button {:type "submit"} "search"]]
           (cond
             (nil? goal)
@@ -3781,7 +3895,7 @@
   "The pairs path consistency pinned to a single relation — the matrix's content when
   the matrix itself would be too wide to read."
   [view {:keys [constraints]}]
-  (let [pinned (sort-by (comp str key)
+  (let [pinned (sort-by (comp print-key key)
                         (filter (fn [[_ rels]] (= 1 (count rels))) constraints))]
     (if (seq pinned)
       [:ul (for [[[a b] rels] pinned]
@@ -3885,8 +3999,8 @@
                         "\"nothing rules this out\" and \"here is a world\"."]
                        (if (seq scen)
                          [:ul.qcn-scenario
-                          (for [[[a b] rel] (sort-by (comp str key) scen)
-                                :when (neg? (compare (str a) (str b)))]
+                          (for [[[a b] rel] (sort-by (comp print-key key) scen)
+                                :when (neg? (compare (print-key a) (print-key b)))]
                             [:li (term-link view a) " " [:b (name rel)] " "
                              (term-link view b)])]
                          [:p.muted "Nothing to arrange."])]))])]))))
@@ -4730,8 +4844,12 @@
                    freed   (- (count refusals) (count blocked))
                    by      (frequencies (keep #(or (:reason %) :blocked) blocked))]
                [:span
+                ;; the count, then the reason's own name: two reasons a rule refused
+                ;; equally often tie on the count alone, and the tie would fall to the
+                ;; `frequencies` map's iteration order — hash order, or the refusal
+                ;; ledger's arrival order below eight entries
                 (interpose ", "
-                           (for [[reason n] (sort-by (comp - val) by)]
+                           (for [[reason n] (sort-by (juxt (comp - val) (comp print-key key)) by)]
                              [:span (commas n) " " [:span.tag (name reason)]]))
                 (when (seq excepts)
                   [:span.muted " by "
@@ -4779,10 +4897,23 @@
   [{:keys [kb] :as view}]
   (let [rows   (v/chain-report kb)
         viols  (group-by :rule (v/violations kb))
-        ranked (sort-by (juxt #(if (pos? (long (:placed %))) 1 0)
-                              #(- (funnel-refused-rank %))
-                              :rule)
-                        rows)
+        ;; **The last key is what the rule says, never its handle.**  Every silent rule
+        ;; placed nothing and refused nothing, so the first two keys tie across the whole
+        ;; silent block — and the list is capped at `funnel-render-cap`, which turns that
+        ;; tie from a cosmetic order into *which rules a reader is shown*.  A handle is
+        ;; allocated in assertion order, so the page would answer "which rules were
+        ;; written first".  Keyed once per row rather than once per comparison (the row
+        ;; already carries its `:sentence`, so this costs no fetch), and printed with the
+        ;; print bounds released so no ambient `*print-length*` collapses two long rules
+        ;; to one prefix and drops the tie back where it came from.
+        ranked (binding [*print-length* nil *print-level* nil]
+                 (->> rows
+                      (mapv (fn [r] [[(if (pos? (long (:placed r))) 1 0)
+                                      (- (funnel-refused-rank r))
+                                      (pr-str (:sentence r))]
+                                     r]))
+                      (sort-by first)
+                      (mapv second)))
         shown  (into [] (take funnel-render-cap) ranked)
         freq   (frequencies (map :status rows))]
     (prime-belief! view (map :rule shown))
@@ -5170,7 +5301,7 @@
   "A proportion bar — the heap's own, drawn like a load's progress bar so the page has one
   visual language for \"how full is this\"."
   [frac]
-  [:div.bar [:span.bar-fill {:style (str "width:" (format "%.1f" (* 100.0 (min 1.0 frac))) "%")}]])
+  [:div.bar [:span.bar-fill {:style (str "width:" (css-percent (min 1.0 frac)) "%")}]])
 
 (defn- memory-panel
   "The memory strip that heads the loaded list, collapsed or expanded.  Two htmx requests
@@ -5563,9 +5694,9 @@
   (try (requiring-resolve 'clj-async-profiler.core/serve-ui)
        (catch Throwable _ nil)))
 
-;; `{:port n}` once the profiler UI is up, else nil.  A `defonce` so a namespace reload
-;; does not forget a server that is still listening — and so `start-profiler` cannot
-;; start a second one on a port the first still holds.
+;; `{:port n}` once the profiler UI is up, `::starting` while a caller holds the claim to
+;; start one, else nil.  A `defonce` so a namespace reload does not forget a server that is
+;; still listening.
 (defonce ^:private profiler-state (atom nil))
 
 (defn start-profiler
@@ -5574,12 +5705,19 @@
   and it is absent — a switch that reads as set and does nothing is the failure the
   `config` namespace exists to prevent.
 
+  **One UI, whoever asks.**  The claim is a `compare-and-set!` onto `::starting`, so the
+  two ways a second one could be started are both closed: a namespace reload calling this
+  again (the `defonce` remembers the running server across it) and two threads calling it
+  at once (a test-then-act on the same state would let both past the test and race for the
+  port).  A start that *fails* puts the state back, since nothing then holds the port and a
+  later call should be free to try again.
+
   Bare, not `!`: it starts a server and destroys nothing.  Called by both entry points,
   so the variable means the same thing to `lein browser` as to `lein run -m
   vaelii.impl.web`; only the first has the dependency, which is what the second one's
   log line says."
   []
-  (when (and (config/profiler?) (nil? @profiler-state))
+  (when (and (config/profiler?) (compare-and-set! profiler-state nil ::starting))
     (if-let [serve-ui (profiler-serve-ui)]
       (let [port (config/profiler-port)]
         (try
@@ -5588,13 +5726,16 @@
           (trove/log! {:level :info :id ::profiler
                        :msg (str "profiler UI on http://localhost:" port)})
           (catch Throwable t
+            (reset! profiler-state nil)
             (trove/log! {:level :warn :id ::profiler
                          :msg (str "profiler UI would not start on port "
                                    (config/profiler-port) ": " (.getMessage t))}))))
-      (trove/log! {:level :warn :id ::profiler
-                   :msg (str "VAELII_PROFILER is set and clj-async-profiler is not on "
-                             "the classpath — it ships in the :repl profile, which "
-                             "`lein browser` activates and `lein run` does not")}))))
+      (do
+        (reset! profiler-state nil)
+        (trove/log! {:level :warn :id ::profiler
+                     :msg (str "VAELII_PROFILER is set and clj-async-profiler is not on "
+                               "the classpath — it ships in the :repl profile, which "
+                               "`lein browser` activates and `lein run` does not")})))))
 
 (defn- profiler-section
   "What the profiler is doing, in one of three states, and never a link to a port nothing
@@ -5765,6 +5906,10 @@
   "Start loading source `id` with the options the form submitted."
   [id params]
   (when-let [src (catalog/source id)]
+    ;; the one KB write that does not go through this namespace's write monitor, and
+    ;; deliberately: a loader opens brand-new stores nothing else can name yet, so there is
+    ;; no KB on screen for it to interleave with.  Its `:writes` claim in the job registry
+    ;; is what keeps it the only writing job, which is the exclusion that actually matters
     (catalog/load-source id (option-params src params))))
 
 (defn- export-opts
@@ -5800,6 +5945,95 @@
   {:status  413
    :headers {"Content-Type" "text/plain; charset=utf-8"}
    :body    (str "request body exceeds " guard/max-body-bytes " bytes")})
+
+(defn- bad-parameter
+  "The 400 a request carrying a parameter this page cannot read gets: the parameter named,
+  the value quoted, and what would have been legal.
+
+  A rendered page rather than the plain text the two refusals above answer with, because
+  the caller *is* one of our own readers — a `?d=` that does not parse is a URL somebody
+  edited by hand, and the chrome is how they get back to a page that works.
+
+  A refusal rather than a fallback, which is the whole point.  Every silent reading of an
+  unreadable parameter is worse than a stop: a bound that does not parse runs the work
+  **unbounded**, a depth that does not parse takes the default, and a calculus name
+  nothing answers to draws a *different* calculus — each of them a page that looks
+  exactly like the one that was asked for."
+  [view param value legal]
+  (assoc (render view "bad request"
+                 [:h2 "Bad request"]
+                 [:p "The " [:code param] " parameter is not readable: "
+                  [:code (pr-str value)] "."]
+                 [:p.muted legal])
+         :status 400))
+
+(defn- unsupported-context
+  "The 400 a page owes for a `?ctx=` naming a **query context** it cannot resolve.
+
+  `CxEverything` / `CxInference` / `CxNothing` are readings rather than places
+  (docs/contexts.md), and only the four reads that resolve one take them — the
+  levels and the plan above them go through doors that do not, so the engine refuses with
+  `:unsupported-context` where this handler stack has no exception middleware to make a
+  page of it.  That is a 500 on a value the page's *own* context box will send, which is
+  why it is checked here rather than caught.
+
+  `bad-parameter`'s shape and its reason, in different words: the parameter reads
+  perfectly well, it just names something this page cannot ask about, and answering for a
+  context nobody asked about would look exactly like the page that was asked for."
+  [view ctx]
+  (assoc (render view "bad request"
+                 [:h2 "Bad request"]
+                 [:p "The " [:code "ctx"] " parameter names a reading rather than a place: "
+                  [:code (pr-str ctx)] "."]
+                 [:p.muted "This page asks what a context holds, so it needs a context that "
+                  "holds something. " (str/join ", " (sort (map str nm/query-contexts)))
+                  " are the three that do not: each is a way of reading the whole KB, and "
+                  "only " [:code "query"] ", " [:code "ask"] ", " [:code "prove"] " and "
+                  [:code "sentexes-matching"] " resolve one. Leave it blank for "
+                  [:code "?ctx"] ", which asks every context at once."])
+         :status 400))
+
+(def ^:private derivations-legal
+  "What a legal `max-derivations` looks like, in the words the refusal uses.  One string,
+  because `/chain` and `/funnel` submit the same control and a bound that reads differently
+  on the two pages would be two promises."
+  (str "a whole number of derivations, at least 1 — or leave it out to chain to a "
+       "fixpoint. It is the one parameter whose absence is unbounded work, so a value "
+       "that does not read as a number is refused rather than dropped."))
+
+(def ^:private unreadable
+  "What `param-long` and `param-strength` answer for a parameter that **was** given and is
+  not one this page can read.  Distinct from nil, which is a parameter that was not given
+  at all: the two differ by whether the route falls back to its default or refuses, and
+  collapsing them is what makes a typo indistinguishable from an omission."
+  ::unreadable)
+
+(defn- param-long
+  "A request parameter as a long in `[lo hi]`: nil when it was not given, `unreadable`
+  when it was given as something else.
+
+  `->long` answers nil for both, and the two callers here read nil as \"not given\" — so a
+  mistyped bound runs the work with no bound and a mistyped depth takes the default, with
+  nothing on the resulting page to say either happened."
+  [raw lo hi]
+  (if (or (nil? raw) (str/blank? (str raw)))
+    nil
+    (let [n (when (string? raw) (->long raw))]
+      (if (and n (<= (long lo) (long n) (long hi))) n unreadable))))
+
+(defn- param-strength
+  "The `strength` a form sent, as the keyword `assert` takes: nil when the control was not
+  submitted, `unreadable` for a value the strength class does not name
+  (`strength/assertable`, what `core/assert` and the CLI hold a caller to).
+
+  Read for *presence* alone — the shape a checkbox invites — any value at all asserts
+  `{:strength :monotonic}`, `strength=default` included, which is the one value a reader
+  could reasonably send meaning the opposite."
+  [raw]
+  (cond
+    (nil? raw)                                                nil
+    (and (string? raw) (strength/assertable? (keyword raw)))  (keyword raw)
+    :else                                                     unreadable))
 
 (defonce ^:private ^Object write-monitor
   ;; Jetty serves the write routes on a thread pool, so two POSTs are two writers, and
@@ -5993,11 +6227,25 @@
       ([req] (some-> (handler req) stamp))
       ([req respond raise] (handler req #(respond (some-> % stamp)) raise)))))
 
+(def ^:private offset-cap
+  "The largest `&offset=` any continuation is read at.  A billion rows past the start of
+  a list nobody scrolled to, so it truncates no cursor this page ever writes — every one
+  of them is a multiple of a page cap and bounded by what the KB holds.
+
+  It exists because the offset is *arithmetic*: `find-rows-page` asks the term roster for
+  `offset + find-cap + 1` names, and `Long/MAX_VALUE` — which a hand-edited URL may
+  perfectly well carry — overflows that addition into an `ArithmeticException` the handler
+  stack has no exception middleware to make a page of.  Capped rather than refused,
+  because an offset past the end is not a bad request: it is a cursor pointing past the
+  last row, and the honest answer to that is the empty page it already gives."
+  1000000000)
+
 (defn- ->offset
-  "An `&offset=` param as a non-negative long — a continuation cursor arrives in a URL,
-  so anything unreadable is the start."
+  "An `&offset=` param as a non-negative long in `[0 offset-cap]` — a continuation cursor
+  arrives in a URL, so anything unreadable is the start and anything past the ceiling is
+  the ceiling."
   [s]
-  (max 0 (or (->long s) 0)))
+  (-> (or (->long s) 0) (max 0) (min offset-cap)))
 
 (defn- ->seq
   "A repeated form field.  Ring hands back a bare string for one occurrence and a vector
@@ -6038,42 +6286,58 @@
          ;; a corpus is watchable and stoppable rather than a request nobody can see
          ;; inside.  A run that settles inside the fast path answers with the stats page it
          ;; changed, exactly as it did when it was synchronous.
+         ;; the job is labelled `(kb-name kb)` and not `(active-kb-name)`, for the reason
+         ;; `write-refusal` names its arms that way: `writing-job` resolved the holder
+         ;; once and `/kbs/activate` may have re-pointed it since, so the active entry is
+         ;; the one KB this job can be sure it is *not* writing — and the label is what a
+         ;; reader on the jobs screen decides to cancel from
          ["/chain"      {:post (fn [req]
-                                 (writing-job
-                                  target req
-                                  (fn [kb in-monitor]
-                                    (job-answer
-                                     (view kb req)
-                                     #(chain-job kb (active-kb-name)
-                                                 (->long (get-in req [:params "max-derivations"]))
-                                                 in-monitor)
-                                     #(stats-page (view kb req)
-                                                  (chain-note (:summary %)))))))}]
+                                 (let [raw (get-in req [:params "max-derivations"])
+                                       cap (param-long raw 1 Long/MAX_VALUE)]
+                                   (if (= unreadable cap)
+                                     (bad-parameter (view (current target) req)
+                                                    "max-derivations" raw derivations-legal)
+                                     (writing-job
+                                      target req
+                                      (fn [kb in-monitor]
+                                        (job-answer
+                                         (view kb req)
+                                         #(chain-job kb (kb-name kb) cap in-monitor)
+                                         #(stats-page (view kb req)
+                                                      (chain-note (:summary %)))))))))}]
          ;; the per-rule breakdown behind the chain headline: which forward rules placed,
          ;; which refused (and why), which never fired.  GET reads the standing ledger;
          ;; POST runs the same chaining job as /chain but lands back here, so the funnel
          ;; fills in front of the reader
          ["/funnel"     {:get  (fn [req] (funnel-page (view (current target) req)))
                          :post (fn [req]
-                                 (writing-job
-                                  target req
-                                  (fn [kb in-monitor]
-                                    (job-answer
-                                     (view kb req)
-                                     #(chain-job kb (active-kb-name)
-                                                 (->long (get-in req [:params "max-derivations"]))
-                                                 in-monitor "/funnel")
-                                     (fn [_] (funnel-page (view kb req)))))))}]
+                                 (let [raw (get-in req [:params "max-derivations"])
+                                       cap (param-long raw 1 Long/MAX_VALUE)]
+                                   (if (= unreadable cap)
+                                     (bad-parameter (view (current target) req)
+                                                    "max-derivations" raw derivations-legal)
+                                     (writing-job
+                                      target req
+                                      (fn [kb in-monitor]
+                                        (job-answer
+                                         (view kb req)
+                                         #(chain-job kb (kb-name kb) cap in-monitor "/funnel")
+                                         (fn [_] (funnel-page (view kb req)))))))))}]
          ;; what this process is holding beside the store: the caches, the heap strip
          ;; `/kbs` already draws, and the profiler.  The clear is origin-checked like
          ;; every other POST and is deliberately **not** behind `writing`: it changes no
-         ;; belief, holds no writer, and a reader most wants it while a load runs
+         ;; belief, holds no writer, and a reader most wants it while a load runs.  The
+         ;; holder is dereferenced **once** all the same, for `write-refusal`'s reason:
+         ;; `/kbs/activate` re-points it between two derefs and takes no monitor, so a
+         ;; page rendered off a second one would report a clear of one KB over another
+         ;; KB's rows
          ["/caches"       {:get (fn [req] (caches-page (view (current target) req)))}]
          ["/caches/rows"  {:get (fn [_] (frag (caches-panel (v/caches (current target)))))}]
          ["/caches/clear" {:post (fn [req]
                                    (if (same-origin? req)
-                                     (let [r (v/clear-caches (current target))]
-                                       (caches-page (view (current target) req)
+                                     (let [kb (current target)
+                                           r  (v/clear-caches kb)]
+                                       (caches-page (view kb req)
                                                     (caches-clear-note r)))
                                      (cross-origin-refusal)))}]
          ;; the jobs screen: every long run this process has made recently, and the one
@@ -6083,13 +6347,19 @@
          ;; behind `writing` (cancelling a job has to stay reachable *because* one runs)
          ["/jobs"        {:get (fn [req] (jobs-page (view (current target) req)))}]
          ["/jobs/rows"   {:get (fn [_] (frag (jobs-panel true)))}]
+         ;; `cancel!` answers whether there was a run to stop, which is not the same as
+         ;; whether the registry still holds the id: a settled job keeps its report for an
+         ;; hour, and the reader who clicks stop the moment it finishes is owed "nothing
+         ;; happened" rather than a cancellation over work already done.  Both falses read
+         ;; the same way, so the note names both
          ["/jobs/cancel" {:post (fn [req]
                                   (if (same-origin? req)
                                     (let [id (get-in req [:params "id"])]
                                       (jobs-page (view (current target) req)
                                                  (when-not (jobs/cancel! id)
-                                                   (str "No job " id " — it has finished and "
-                                                        "its report has aged out."))))
+                                                   (str "No job " id " to stop — it has "
+                                                        "already finished, or its report has "
+                                                        "aged out of the registry."))))
                                     (cross-origin-refusal)))}]
          ;; the knowledge bases themselves: what is loaded, what can be, and which one
          ;; every other page is reading.  The three writes change this process's state
@@ -6204,34 +6474,67 @@
                                 (stats-rows-page (view (current target) req)
                                                  (get-in req [:query-params "section"])
                                                  (->offset (get-in req [:query-params "offset"]))))}]
+         ;; the one page whose context box can send a value the engine refuses: the levels
+         ;; and the plan read through doors that do not resolve a query context, so
+         ;; `CxEverything` typed into that box would leave `:unsupported-context` for Jetty
+         ;; to answer as a 500.  Checked before the read, in the shape `bad-parameter`
+         ;; answers a `?d=` that does not parse
          ["/levels"     {:get (fn [req]
                                 (let [q   (get-in req [:query-params "q"])
-                                      ctx (get-in req [:query-params "ctx"])]
-                                  (levels-page (view (current target) req)
-                                               (when (seq q) (->form q))
-                                               (or (when (seq ctx) (->form ctx)) '?ctx))))}]
+                                      ctx (or (when-let [c (get-in req [:query-params "ctx"])]
+                                                (when (seq c) (->form c)))
+                                              '?ctx)]
+                                  (if (nm/query-context? ctx)
+                                    (unsupported-context (view (current target) req) ctx)
+                                    (levels-page (view (current target) req)
+                                                 (when (seq q) (->form q))
+                                                 ctx))))}]
          ["/network"    {:get (fn [req]
-                                (let [ctx  (get-in req [:query-params "ctx"])
-                                      calc (get-in req [:query-params "calc"])]
-                                  (network-page (view (current target) req)
-                                                (when (seq ctx) (->form ctx))
-                                                (when (seq calc) (keyword calc)))))}]
+                                (let [ctx   (get-in req [:query-params "ctx"])
+                                      calc  (get-in req [:query-params "calc"])
+                                      known (into #{} (map :calculus) (v/calculi))]
+                                  (if (and (seq calc) (not (known (keyword calc))))
+                                    ;; checked rather than fallen back from: the fallback
+                                    ;; below picks the first calculus with a populated
+                                    ;; network, and reaching it on a name no algebra
+                                    ;; answers to draws a *different* matrix with nothing
+                                    ;; on the page to say it is not the one asked for
+                                    (bad-parameter (view (current target) req) "calc" calc
+                                                   (str "one of "
+                                                        (str/join ", " (sort (map name known)))))
+                                    (network-page (view (current target) req)
+                                                  (when (seq ctx) (->form ctx))
+                                                  (when (seq calc) (keyword calc))))))}]
+         ;; the same refusal, since the continuation reads through the same doors.  A 400
+         ;; rather than the empty fragment an unreadable goal gets: htmx swaps only a 2xx,
+         ;; so the reader keeps the list they were scrolling instead of watching it blank
          ["/levels/rows" {:get (fn [req]
                                  (let [q   (->form (get-in req [:query-params "q"]))
-                                       ctx (->form (get-in req [:query-params "ctx"]))
+                                       ctx (or (->form (get-in req [:query-params "ctx"])) '?ctx)
                                        lvl (->long (get-in req [:query-params "level"]))]
-                                   (if (and (sequential? q) (some? lvl))
-                                     (levels-rows-page (view (current target) req) q (or ctx '?ctx) lvl
+                                   (cond
+                                     (nm/query-context? ctx)
+                                     (unsupported-context (view (current target) req) ctx)
+
+                                     (and (sequential? q) (some? lvl))
+                                     (levels-rows-page (view (current target) req) q ctx lvl
                                                        (->offset (get-in req [:query-params "offset"])))
-                                     (frag ""))))}]
+
+                                     :else (frag ""))))}]
          ["/inference"  {:get (fn [req]
                                 (let [q   (get-in req [:query-params "q"])
                                       ctx (get-in req [:query-params "ctx"])
-                                      d   (->long (get-in req [:query-params "d"]))]
-                                  (inference-page (view (current target) req)
-                                                  (when (seq q) (->form q))
-                                                  (or (when (seq ctx) (->form ctx)) '?ctx)
-                                                  (or (when (and d (pos? (long d))) d) debug-depth-default))))}]
+                                      raw (get-in req [:query-params "d"])
+                                      d   (param-long raw 1 debug-depth-max)]
+                                  (if (= unreadable d)
+                                    (bad-parameter (view (current target) req) "d" raw
+                                                   (str "a depth bound from 1 to "
+                                                        debug-depth-max ", the range the "
+                                                        "form on this page offers"))
+                                    (inference-page (view (current target) req)
+                                                    (when (seq q) (->form q))
+                                                    (or (when (seq ctx) (->form ctx)) '?ctx)
+                                                    (or d debug-depth-default)))))}]
          ["/sentex/:id" {:get (fn [req] (sentex-page (view (current target) req)
                                                      (->long (get-in req [:path-params :id]))))}]
          ["/why/:id"    {:get (fn [req] (why-page (view (current target) req)
@@ -6262,12 +6565,19 @@
                                               (seq ctx) (assoc :ctx ctx))
                                             nil)))
                      :post (fn [req]
-                             (writing target req
-                                      (fn [kb]
-                                        (assert-post (view kb req)
-                                                     {:text       (get-in req [:params "text"])
-                                                      :ctx        (get-in req [:params "ctx"])
-                                                      :monotonic? (some? (get-in req [:params "strength"]))}))))}]
+                             (let [raw (get-in req [:params "strength"])
+                                   s   (param-strength raw)]
+                               (if (= unreadable s)
+                                 (bad-parameter (view (current target) req) "strength" raw
+                                                (str "one of "
+                                                     (str/join ", " (sort (map name strength/assertable)))
+                                                     " — the classes an assertion may carry"))
+                                 (writing target req
+                                          (fn [kb]
+                                            (assert-post (view kb req)
+                                                         {:text       (get-in req [:params "text"])
+                                                          :ctx        (get-in req [:params "ctx"])
+                                                          :monotonic? (= :monotonic s)}))))))}]
          ;; the non-monotonicity walkthrough: GET renders where the reader's sandbox
          ;; stands, POST runs one step.  Every step writes, so every step is a POST and
          ;; origin-checked; the answer is rendered from a view taken *after* the write,
@@ -6349,11 +6659,22 @@
          ["/propose/level" {:post (fn [req]
                                     (if (same-origin? req)
                                       (let [vw    (view (current target) req)
-                                            froms (->seq (get-in req [:params "from"]))
-                                            ctxs  (->seq (get-in req [:params "ctx"]))
+                                            froms (map ->form (->seq (get-in req [:params "from"])))
+                                            ctxs  (map ->form (->seq (get-in req [:params "ctx"])))
                                             lvl   (level-of vw (get-in req [:params "level"]) nil)]
-                                        (propose-level-post vw (map ->form froms)
-                                                            (map ->form ctxs) lvl))
+                                        ;; the sibling's guard, over a list: a sentence
+                                        ;; that does not read and a context that is not a
+                                        ;; symbol are refused here rather than reviewed.
+                                        ;; The counts are checked too, because the two
+                                        ;; fields are zipped — a list posted with fewer
+                                        ;; contexts than sentences would re-render the
+                                        ;; shorter of them and drop the rest silently,
+                                        ;; which reads as a proposal that lost lines
+                                        (if (and (= (count froms) (count ctxs))
+                                                 (every? some? froms)
+                                                 (every? symbol? ctxs))
+                                          (propose-level-post vw froms ctxs lvl)
+                                          (frag "")))
                                       (cross-origin-refusal)))}]
          ;; what accepting would do, before it is done.  `v/preview` hands the KB back at
          ;; the same handles, but it gets there by really asserting and rolling back — so

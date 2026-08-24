@@ -169,7 +169,7 @@
     (reset! rev [])
     nil))
 
-(defn fsync [{:keys [log lock]} fsync?]
-  (when fsync? (locking lock (f/force! log false))))
+(defn fsync [{:keys [log lock]}]
+  (locking lock (f/force! log false)))
 
 (defn close! [{:keys [log lock]}] (locking lock (f/close! log)))

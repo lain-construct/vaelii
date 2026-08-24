@@ -56,6 +56,16 @@
     (not= 3 (count s))        (conj "genlCx takes two arguments")
     (not (nm/context? sub))   (conj (str sub " is not a context (must start with Cx)"))
     (not (nm/context? super)) (conj (str super " is not a context (must start with Cx)"))
+    ;; A **query context** spells like a context and is not one: it names a way of
+    ;; reading, is resolved at the read door and never reaches the engine
+    ;; (`nm/query-contexts`).  An edge naming one would be the only way to give it a
+    ;; place in the lattice, which is exactly what must not exist — `CxNothing` sees
+    ;; nothing *because* nothing wires it, and `CxEverything` / `CxInference` would
+    ;; start inheriting facts they are supposed to read past rather than from.
+    (nm/query-context? sub)   (conj (str sub " is a query context, not a place in the "
+                                         "hierarchy — nothing may genlCx it"))
+    (nm/query-context? super) (conj (str super " is a query context, not a place in the "
+                                         "hierarchy — nothing may genlCx it"))
     ;; a self-edge is refused because it claims nothing: the closure is reflexive, so
     ;; the edge was already true before it arrived.  A longer cycle *is* a claim
     ;; (mutual visibility) and is admitted — see the note above.
@@ -97,7 +107,7 @@
   **The constrained relation is not held to a spelling.**  A *function* has argument
   positions exactly as a predicate does — `(arg Milli 1 unit_of_measure_no_prefix)`
   says what the argument of a NAT `(Milli Meter)` must be, which is the same kind of
-  claim `resultIsa` makes about its result — and a function is CapitalCamelCase, which
+  claim `result` makes about its result — and a function is CapitalCamelCase, which
   is also how an individual is spelled.  So no spelling test can separate the relation
   this check wants to admit from the term it would want to refuse, and refusing on the
   capital costs the whole vocabulary of function argument types.  The position and the

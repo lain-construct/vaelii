@@ -309,7 +309,7 @@
         ;; having destroyed a file — which is how this failed on one backend and no
         ;; other, the backend deciding only how long the preceding namespaces took and
         ;; hence where the snapshot fell against the tick.  Neither file is one a reopen
-        ;; needs: `compact!` deletes both on the way out, and `recover-log-compaction!`
+        ;; needs: `compact!` deletes both on the way out, and `recover-compaction!`
         ;; deletes any a crash left behind, before the log opens.
         (let [data   (fn [] (set (->> (file-seq (io/file dir))
                                       (filter #(.isFile ^java.io.File %))

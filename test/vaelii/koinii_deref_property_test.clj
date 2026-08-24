@@ -26,9 +26,12 @@
     *set*, so order does not move it and a superset does.
   - `commit-id-is-knowledge-and-state-root-is-snapshot` — content vs. provenance:
     same facts under different provenance share a `commit-id` but not a `state-root`.
-  - `inclusion-proofs-are-sound-and-complete` — every stored locator's proof
+  - `inclusion-proofs-are-sound-and-complete` — every believed locator's proof
     verifies against the real root and is rejected against a wrong root, a tampered
     sibling, or when the locator is absent.
+  - `the-commit-identity-is-belief-not-storage` — a stored-but-defeated record is no
+    leaf: a seat holding it and a seat that never heard of it compute one commit id,
+    one state root, and no inclusion proof for it.
   - `markers-are-untrusted` — an honest marker resolves to its asserting creator; a
     tampered locator is `:locator-mismatch`; an unreceived sentence is `:not-received`.
 
@@ -77,7 +80,7 @@
 ;; that happens to open the same derived space.
 (def ^:private seat-tags
   [:loc-a :loc-b :inj :enc :cid-a :cid-b :split-a :split-b :split-c :split-d
-   :proof :marker])
+   :proof :marker :belief-a :belief-b])
 
 (use-fixtures :once
   (fn [f]
@@ -317,3 +320,37 @@
                              (= :not-received
                                 (:reason (d/dereference seat (assoc mk :sentence af :context ac))))
                              true)))))))
+
+;;; ── 8. the commit identity is belief, not storage ────────────────────────
+;;; Seat A stores a defeated default for every generated fact; seat B never heard of one.
+;;; Same belief, different stores — so the same commit id, the same state root, and no
+;;; inclusion proof for a leaf that is not in the tree.
+
+(defspec the-commit-identity-is-belief-not-storage 40
+  (prop/for-all [pairs gen-distinct-pairs]
+                (with-two-seats :belief-a :belief-b
+                  (fn [a b]
+                    ;; identical provenance on the believed half, so `state-root` compares
+                    (binding [v/*clock* (constantly 1000)]
+                      (doseq [seat [a b] [f c] pairs]
+                        (v/assert seat (list 'not f) c {:strength :monotonic
+                                                        :creator 'AgentA})))
+                    (let [cid  (d/commit-id a)
+                          root (d/state-root a)
+                          ;; each positive is beaten by the monotonic negative beside it
+                          defeated (doall (for [[f c] pairs]
+                                            (v/assert a f c {:creator 'AgentB})))]
+                      (and (every? #(and (some? (v/sentex a %)) (false? (v/in? a %))) defeated)
+                           (= cid (d/commit-id a))                 ; the store grew, belief did not
+                           (= root (d/state-root a))
+                           (= (d/commit-id a) (d/commit-id b))     ; and the seats still agree
+                           (= (d/state-root a) (d/state-root b))
+                           (every? #(nil? (d/inclusion-proof a (d/locator-of a %))) defeated)
+                           ;; the resolvers read the same set the proof does: whatever has
+                           ;; no leaf resolves nowhere, by locator or by marker
+                           (every? (fn [h]
+                                     (let [loc (d/locator-of a h)]
+                                       (= (some? (d/inclusion-proof a loc))
+                                          (boolean (:resolved? (d/resolve-by-locator a loc)))
+                                          (boolean (:resolved? (d/dereference a (d/marker a h)))))))
+                                   (concat defeated (filter #(v/in? a %) (v/handles a))))))))))

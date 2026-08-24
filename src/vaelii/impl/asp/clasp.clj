@@ -50,12 +50,9 @@
           (catch java.io.IOException e
             (throw (ex-info (str "clasp binary not found: " *clasp-binary*)
                             {:type :solver-unavailable :binary *clasp-binary*} e))))]
-    (cond
-      (str/blank? out)
+    (if (str/blank? out)
       (throw (ex-info (str "clasp produced no output (exit " exit ")")
                       {:type :solver-failed :exit exit :err err :argv argv}))
-
-      :else
       (try
         (json/parse-string out true)
         (catch Exception e
@@ -108,11 +105,11 @@
 (defn- optimal-witnesses
   "Witnesses whose FULL cost vector equals the reported optimum. clasp may
    emit intermediate non-optimal witnesses during the search; we filter
-   them. Comparing the whole `:Costs` vector (not just the first level) is
-   required for multi-priority lexicographic programs — the old
-   single-level compare (`[cost]` vs the witness `:Costs`) matched nothing
-   once more than one minimize tier was present, so `:label` / `:all-optima`
-   came back with no witness."
+   them. The whole `:Costs` vector is compared rather than its first level,
+   because a multi-priority lexicographic program reports one cost per
+   level: a single-level compare (`[cost]` against the witness's `:Costs`)
+   matches no witness at all once more than one minimize tier is present,
+   and `:label` / `:all-optima` then have none to read."
   [parsed]
   (let [costs (optimum-costs parsed)]
     (if (nil? costs)

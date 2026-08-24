@@ -180,8 +180,13 @@ answers which pair was typed first on a call whose every other reading is
 order-independent; a firing seeded by whichever antecedent triggered it would store `[h_b2
 h_b1 rule]` one way round and `[h_b1 h_b2 rule]` the other. What a sentex *says* is the same
 whenever it is asserted, so `solve/content-key`, `kb/antecedent-order` and
-`kb/justification-content-key` sort by printed sentence, then context, then — only for a
-pair a reader cannot otherwise tell apart — the handle. That last step does not undo the
+`kb/justification-content-key` sort by sentence, then context. The two `kb` keys stop
+there, and they are **structural** — `nm/compare-form` walks the two forms in place, so
+nothing is printed and no ambient `*print-length*` can elide two long sentences to one
+prefix, collapse the key and drop the tie back onto arrival. `solve/content-key` is the
+one printed key of the three, with the print vars bound off, and it alone appends the
+handle — only for a pair a reader cannot otherwise tell apart, since the solver needs a
+*total* order to name atoms stably across runs. That last step does not undo the
 rule: two beliefs with an identical content key *say the same thing*, so which one sorts
 first is unobservable, and the handle separates only beliefs that are interchangeable —
 never two that differ. Content decides between different beliefs; the handle only sequences
@@ -341,8 +346,8 @@ actually is: the record store to durability, the index store to representation.
 
 ### RAM records under a durable index is refused
 
-Of the eight `:records` × `:index` pairings, RAM records under a durable index is
-the one `open-kb` refuses. The index is derived from the records, so persisting it
+The durable `:disk` index needs durable records, and RAM records under it is the
+pairing `open-kb` refuses. The index is derived from the records, so persisting it
 over a record store that empties at JVM exit would leave index files on disk
 describing records that no longer exist once the process ends. The next open of
 that directory would find a populated-looking index and answer every query out of
@@ -434,6 +439,34 @@ on every open, and the certificate only lets the closing settle skip the constra
 scan whose result a clean close already proved. Any fingerprint mismatch discards it, so the
 worst a wrong certificate can do is make an open redo the scan it always did — never believe
 something no derivation produced.
+
+### The bulk seam is a sink, not a batched put
+
+A store that can write many records at once — `COPY` on a server, one packed append on the
+disk log — needs the engine to hand it many records, and the obvious seam is a `put-many`
+taking a batch. It does not fit what the loader does. `import!` indexes each record from
+the copy it holds and needs that record's **handle now**, before the next one is read: a
+batched put decides the handles inside the store and answers them afterwards, so the loader
+would have to hold the whole batch's frames a second time and re-walk them to index. So the
+handle is decided caller-side and the sink is told, which is also what preserves a dump's
+own numbering through a load. What that costs is one restriction stated rather than
+discovered: a record written to a sink is not readable until the sink closes, since a store
+buffering a copy stream has nothing to answer a `get-sentex` with. A loader reads its own
+input, not the store it is filling, so nothing in the engine asks.
+
+### The enumerations promise a Set, not a Clojure set
+
+`sentex-ids`, `justification-ids` and `premise-ids` say a caller may `contains?`, `count`,
+`seq`, `sort` and `=` the answer — the `java.util.Set` contract — rather than that it is an
+`IPersistentSet`. The narrower promise is the point: the shape is what costs at scale. A
+`PersistentHashSet<Long>` retains 48–75 bytes a handle, so 4.5–7.0 GB at 100M records, held
+while `recover` walks the premises and the justifications on top of it; the same set as a
+`Roaring64Bitmap` behind a `java.util.Set` retains 0.13–0.26 bytes a handle over the
+near-contiguous run `next-id` mints, and answers `contains?` faster than the hash set rather
+than slower. Promising `IPersistentSet` would make that substitution a breaking change for
+every store rather than a choice each one makes. A caller wanting `conj` / `disj` /
+`clojure.set` converts with `(set …)` at the site that wants them, which is the site that
+can afford it.
 
 ## Indexing and retrieval
 
@@ -560,6 +593,96 @@ declarations are three or four. The answer is read off `a`'s own declarations in
 sized by what `a` actually declares rather than by everything the KB knows (see
 [taxonomy.md](taxonomy.md) for `tax/separating-partners`).
 
+## Contexts and placement
+
+Defends [contexts.md](contexts.md).
+
+### A goal every literal of which is computed names no context
+
+A variable context is the **joint** reading: the answer must hold from some one reader's
+`genlCx` cone, and that reader is unified into the variable. Reading the union instead is
+unsound for the reason [the QCN prover fans](#a-variable-context-goal-fans-over-readers-rather-than-reading-one-unioned-network)
+rather than unioning — a conjunctive read would join a fact in `CxA` to a fact in `CxB`
+when no context sees both, which is an answer no reader of the KB has.
+
+One shape is exempt, and it is exempt because the joint reading has nothing to say about
+it. A goal whose every literal is *computed* rather than matched — `different`, `evaluate`,
+`unknown` — rests on no stored fact, so there is no witness to pick and no reader that
+could be the one that answers. Fanning it over the readers would be existential over them,
+and a fanned `(unknown X)` is then satisfied by the most ignorant reader in the KB: the
+one context that happens to know nothing about `X` answers for all of them, which turns a
+negation-as-failure question into a search for somebody who has not heard the news. Such a
+goal is read whole-KB. A *mixed* goal needs no exception and gets none: its matched
+literals decide which readers can answer, and the computed ones are evaluated at those.
+
+### Post-hoc placement is the default because it is bounded
+
+`CxInference` and a variable context are answered either by fanning over the readers and
+asking each the ordinary scoped question, or by asking once unscoped and placing each
+answer by what it rested on. The two owe the same answers, so the choice is pure cost — and
+the tempting thing is to predict it: read the lattice, guess which will win, dispatch.
+
+That does not work, and the measurement is what says so: which strategy wins is a fact
+about the **data**, not about the lattice. A predictor fitted to lattice shape (reader
+count, average cone depth) called it right five times in fourteen. Post-hoc's edge is on
+small joins, and it loses on large ones two different ways — a wide flat lattice discards
+most of what the join builds, while a deep one discards nothing and still loses, because a
+quadratic join costs less partitioned across readers than done whole. Only the first is
+visible as waste, which is why the meter counts rows *built* rather than rows discarded:
+size is the signal both failures share.
+
+So post-hoc runs by default and is **measured out** rather than predicted out. It prunes a
+partial solution whose ingredients already have no common descendant — a later literal only
+adds contexts, so a dead row stays dead — and it abandons past a row budget sized off the
+lattice, mid-stage rather than between literals, because the cost is in the rows. The fan
+then answers whatever was abandoned. What is left is a strategy that wins by multiples in
+its regime and costs about 1.5× outside it, the extra being the bounded probe; on a store
+where every join outgrows the budget it simply *is* the fan, reached after that probe. The
+budget is sized off the lattice rather than off the readers for the same reason the bail
+exists: enumerating the readers costs O(the goal's match set), which would put that scan on
+the one path that never needs it.
+
+## Argument types
+
+Defends [argtypes.md](argtypes.md).
+
+### A literal is typed by its kind, and the openness moves to the declared type
+
+A type membership cannot be *asserted* of a literal — there is no `(dog "Bob")` to store —
+and the tempting conclusion is the one the checks originally drew: exempt every non-symbol
+from the argument constraints, since nothing could ever satisfy them. That reads a missing
+assertion as an unanswerable question. It is answerable: a literal's EDN kind is knowable
+from the literal itself, and those kinds sit in the `genl` lattice precisely so the
+comparison can be made. A string is a `string`, a `string` is not a `dog`, and a
+declaration that admitted `(P "Bob")` was constraining only the half of the position
+somebody happened to spell with a name.
+
+The openness does not disappear, it moves — to the **declared type**. A `t` the lattice
+cannot place the kind against exempts, which is the imported-constraint case; a **symbol**
+stays open-world, violating nothing until it holds a membership. That is what keeps the
+check from turning an incomplete ontology into a wall of refusals: what is unknown is the
+declaration's reach, not the literal's kind.
+
+A **compound** is the one leaf shape no *kind* answers for, and it is answered from the
+other side. What `(QuantityFn 5 Meter)` denotes is its function's business, so no syntactic
+answer would be the right one — `result` and `genlResult` are the declarations that say
+it, and the checks read them from the asking context. A *reifiable* application never
+reaches that arm: it is minted first, and its constant carries the same declarations
+materialized as `(T K)`, which the symbol reading picks up. So one declaration gives one
+verdict whichever kind of function wrote it, and the two paths differ only in where the
+type is stored.
+
+**Why a result declaration does not join the disjointness check.** `args-problem` and
+`genls-problem` state a *demand* and convict on an absence, which is what a claim about a
+function can answer. `disjoint-problems` is a different shape: it names an
+`:opposing-handle` — the conflicting membership's own sentex — so `settle` can weigh the
+two and defeat one. A structural application holds no membership sentex, so the only pair
+available is *the fact and the function's declaration*, and letting one application's
+assertion defeat that declaration would unbind every other application of the same
+function. Naming no opposing handle instead would make it a hard door refusal, harsher
+than the reifiable case it mirrors. So the demand-shaped checks read the result
+declaration and the pair-shaped one does not.
+
 ## Inference and chaining
 
 Defends [inference.md](inference.md).
@@ -638,6 +761,16 @@ Both shipped leaf solvers — the stored facts and the registry — expand no ru
 is what keeps either one level with `ask`. A leaf that searches is the one leaf shape
 the design excludes.
 
+### A generator cycle is refused, not depth-capped
+
+A rule that concludes a rule stamps out new rules as it fires, so two generators that feed
+each other mint without end. The tempting bound is a depth cap: let the cycle run *n*
+rounds and stop. That makes the KB's contents a function of how long the chainer ran — the
+same knowledge loaded twice holds different rules, and reloading it from nothing does not
+reproduce it, which is [order independence](nmtms.md) spent on a shape nobody asked for. A
+cycle is refused where it is written instead, beside the four other shapes a generator
+cannot have. A refusal is a fact about the rule, and it reads the same on every load.
+
 ## Exceptions
 
 Defends [exceptions.md](exceptions.md).
@@ -709,6 +842,17 @@ some fixed pick of stable model. Refusing the assert is what keeps every stored 
 set stratified, which is what lets the exception evaluator stay within one settle
 pass instead of hosting its own model-selection machinery.
 
+
+### A conjunction under a quantifier is refused rather than read flat
+
+`(unknown (and A B))` is a guard over two conditions, and under a quantifier the flat
+reading is the wrong one: each conjunct would be free to find its own witness, so "has a
+sick child" would hold of anyone with a child as long as anybody at all is sick. Reading it
+the way its author means requires binding one witness across both conjuncts — a quantifier
+scope the NAF goal does not carry, and cannot acquire without the guard becoming a query
+language of its own. So the shape is refused where it is written, and what the author meant
+is said by binding the witness with a generator antecedent and leaving one literal under
+the `unknown` ([naf.md](naf.md)).
 
 ## Anytime inference
 

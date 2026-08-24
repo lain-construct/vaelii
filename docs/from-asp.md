@@ -165,9 +165,11 @@ a solve answers something surprising. → [asp.md](asp.md)
 
 - Whole-program semantics. A solve sees the assumption rules of one region
 - Disjunctive heads
-- `#count` and `#sum` **in a rule body**. The five reductions exist, but as *query*
-  operators — `(agg/count ?n ?v Body)` — and GROUP BY falls out of which variable an
-  antecedent binds → [aggregate.md](aggregate.md)
+- `#count` and `#sum` as part of the **model**. The five reductions work in a rule body —
+  `(agg/count ?n ?v Body)` after the generator antecedent that binds the group, re-checked
+  as the census moves — but they are *query* operators a prover computes rather than atoms
+  a solve reasons over, and none may be a rule's consequent. GROUP BY falls out of which
+  variable an antecedent binds → [aggregate.md](aggregate.md)
 - Multi-shot solving. A solve is one program, built from one region, answered once
 - Theory atoms and any constraint layer over integers
 

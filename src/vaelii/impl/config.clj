@@ -345,6 +345,7 @@
   (disk-compact-min-interval-ms)
   (disk-lock?)
   (index-snapshot?)
+  (belief-snapshot?)
   (arbitrate-constraints?)
   (assertive-arg-types?)
   (web-dev?)

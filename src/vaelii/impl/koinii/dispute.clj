@@ -54,13 +54,23 @@
   [entry]
   (vec (sort (:handles entry))))
 
+(defn dispute-key
+  "`id` in the ONE spelling every reader compares — the sorted handle pair `dispute-id`
+  builds.  The single home for that sort, and the reason there is one: a caller may hold
+  the pair either way round (`dispute-id` sorts, but its contract accepts any two-handle
+  seq and `disputes-in` hands the entries out), and a mark or a provenance tag written
+  under `[479 478]` is invisible to a read for `[478 479]` — a standing ruling no guard
+  can see.  A non-sequential id passes through unchanged."
+  [id]
+  (if (sequential? id) (vec (sort id)) id))
+
 (defn dispute-term
   "The reified term naming a dispute by its id, for the stored lifecycle marks:
-  `(dispute (sentexHandle lo) (sentexHandle hi))`, handles sorted so the term is a
-  function of the clash and not of argument order.  `id` is a `dispute-id` (a handle
-  pair) or any two-handle seq."
+  `(dispute (sentexHandle lo) (sentexHandle hi))`, handles sorted (`dispute-key`) so the
+  term is a function of the clash and not of argument order.  `id` is a `dispute-id` (a
+  handle pair) or any two-handle seq."
   [id]
-  (let [[lo hi] (sort id)]
+  (let [[lo hi] (dispute-key id)]
     (list 'dispute (v/sentex-handle lo) (v/sentex-handle hi))))
 
 ;; ---- disputes-in: the whole surface, scoped to what a context sees -------
@@ -175,10 +185,14 @@
   and the reason those states are stored rather than derived: retract the ruling and the
   dispute reopens.  Returns the number of marks retracted."
   [kb id]
-  (reduce (fn [n sx] (v/retract! kb (:id sx)) (inc n))
-          0
-          (concat (marks-of kb 'disputeNotified id ['?at])
-                  (marks-of kb 'disputeStale id ['?at '?reason]))))
+  ;; the whole mark set is realized BEFORE the first retract.  `marks-of` is a live read
+  ;; of the index and `concat` is lazy, so retracting while walking it would run the
+  ;; second read against a store the first retracts have already moved — the stale marks
+  ;; enumerated against a KB that no longer holds the notified ones.
+  (let [marks (into [] (concat (marks-of kb 'disputeNotified id ['?at])
+                               (marks-of kb 'disputeStale id ['?at '?reason])))]
+    (doseq [sx marks] (v/retract! kb (:id sx)))
+    (count marks)))
 
 (defn- live-ids
   "The ids of every clash currently on the whole-KB surface — `contradictions` +
@@ -207,10 +221,12 @@
 
   For an `id` obtained from `disputes-in` (the contract), `:resolved` means 'was a
   dispute, now settled'; an id that was never a clash also reads `:resolved` (absent = not
-  an open dispute here).  Reading state runs a whole-KB liveness scan — fine for the
-  driver, which is not the loop `disputed?` serves."
+  an open dispute here).  Reading state runs a whole-KB liveness scan — `contradictions`
+  plus `conflicts` — so a caller holding entries that are already live by construction
+  (everything `disputes-in` hands back) reads the marks instead (`notified?` / `stale?`)
+  and pays no scan at all."
   [kb id]
-  (if (contains? (live-ids kb) (vec (sort id)))
+  (if (contains? (live-ids kb) (dispute-key id))
     (mark-state kb id)
     :resolved))
 

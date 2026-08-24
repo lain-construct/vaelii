@@ -196,13 +196,25 @@ firings are filtered before a single query is paid for:
   history in the refusal record rather than as justifications. Both populations are
   filtered the same way and both peel.
 - A triggering fact can only answer a ground exception literal when their argument
-  lists agree **and** the fact's predicate lies in the exception predicate's `specs`
-  closure. That closure is the in-memory taxonomy, not the stored index. The `specs` half is
-  load-bearing rather than defensive: an exception on `flightless` is satisfied by a
-  stored `(penguin Opus)` when `(genl penguin flightless)`, so comparing the two
-  predicates for equality would miss the case the taxonomy exists for. It is also
-  exactly the test the index itself is keyed on, read in the other direction, so the
-  filter narrows *within* what the index selected and never past it.
+  lists agree **and** the fact's predicate lies in the closure that literal's polarity
+  names. That closure is the in-memory taxonomy, not the stored index, and for a
+  **positive** conjunct it is `specs`. That half is load-bearing rather than defensive:
+  an exception on `flightless` is satisfied by a stored `(penguin Opus)` when
+  `(genl penguin flightless)`, so comparing the two predicates for equality would miss
+  the case the taxonomy exists for. It is also exactly the test the index itself is
+  keyed on, read in the other direction, so the filter narrows *within* what the index
+  selected and never past it.
+- A **negated** conjunct takes `specs` **and** `genls`, because two different things
+  move it and they run in opposite directions. A negative trigger answers it directly,
+  and matching under a negation is contravariant — `(not (flightless Opus))` is answered
+  by a stored `(not (animal Opus))` when `flightless ⊑ animal`
+  ([inference.md](inference.md), "Under a negation the fan reverses") — which is the
+  `genls` half. A positive trigger moves it the other way, by contradicting the negative
+  sentex the conjunct reads and flipping its belief, and a positive fact on a spec is
+  what does that. The shape test drops polarity, so a trigger of either kind arrives
+  under one shape and the union is what covers both; over-approximating is the safe
+  direction here as it is everywhere in this filter, an extra candidate being a re-check
+  that changes nothing and a missing one a lost withdrawal.
 - Arguments are compared as a **multiset**, so a symmetric predicate's mirrored fact
   still matches — level 6 probes both orders, and so must this.
 - Both sides are read under the **equality-class representative** when the KB has merged
@@ -447,14 +459,13 @@ an answer differently.
   A **negated** conjunct is the third case, and it is keyed at the edge's other end. It
   registers under the functor `not` — that is what `(exceptWhen (not (hasWings ?x)) …)`
   puts in the index — so the registration hides the predicate the conjunct is about and
-  the `genls(super)` walk has nothing to decide it with. A ground negation is answered
-  from stored negative sentexes with no `genl` fan-out, so no edge flips one; the roster
-  is kept anyway, against a contravariant negative match, which would read
-  `(not (dog X))` off a stored `(not (animal X))` by walking the **up**-closure of the
-  conjunct's own predicate. An edge `[sub super]` moves that closure for exactly the
-  predicates at or below `sub`, so `specs(sub)` is the keying — the contravariant twin of
-  the covariant walk above it, on the one functor whose registration says nothing about
-  its subject. Reading the conjunct costs one record fetch per rule carrying a negated
+  the `genls(super)` walk has nothing to decide it with. What decides it is that a
+  negative match is **contravariant**: `(not (dog X))` is read off a stored
+  `(not (animal X))` by walking the **up**-closure of the conjunct's own predicate
+  ([inference.md](inference.md), "Under a negation the fan reverses"). An edge
+  `[sub super]` moves that closure for exactly the predicates at or below `sub`, so
+  `specs(sub)` is the keying — the contravariant twin of the covariant walk above it, on
+  the one functor whose registration says nothing about its subject. Reading the conjunct costs one record fetch per rule carrying a negated
   condition and nothing at all for a KB carrying none, and anything it cannot read — a
   body whose functor is a variable, a compound, or a connective frame — answers keep.
   What the keying is worth is the alternative: queued on the functor alone, such a rule
@@ -608,6 +619,16 @@ moved. `jtms/set-blocked` **replaces** the blocked set rather than adding to it,
 the fixpoint test is set equality and the loop iterates only while the blocked set
 keeps moving. **Stratification is what makes that terminate** (see below); the loop
 is bounded at **16 passes** regardless, so a bug cannot hang the engine.
+
+`core/blocked-justifications` is that set, read: the ids blocked as of the last settle.
+It is the one property of a justification that **belief alone does not report** — a
+blocked justification's antecedents can all be IN, so a reader judging support from belief
+calls it supporting when it supports nothing. Hence a whole-set read rather than a
+per-id question: the reader asking is usually rendering a proof tree, and wants one read
+per page rather than one per justification. It is served (`:blocked-justifications`) and
+reachable from `vaelii.client` and the access facade, so an **attached** browser draws the
+same pills as an in-process one; the network is not a record, and without the op there is
+nothing over the wire to ask.
 
 ## Garbage collection, not defeat
 

@@ -42,10 +42,10 @@
   measurements — and the difference is large enough to reverse a verdict.**  Where a
   reading is `a + b·n`, the ratio is decided by how big the n-independent `a` is at the
   baseline, and `a` is mostly JIT warmth: by the twentieth check of a run the JVM is far
-  warmer than it is on the first.  `negation-arbitration` reads **5.40x under `--only`
-  and 10.02x in the full run** on the same tree, and the split is entirely in the
-  denominator — its n=25 baseline is 0.224 ms alone against 0.123 in place, while n=800
-  barely moves (1.212 against 1.234).  So
+  warmer than it is on the first.  `negation-arbitration` reads **5.70x under `--only`
+  and 6.63x in the full run** on the same tree, and the split is entirely in the
+  denominator — its n=100 baseline is 0.347 ms alone against 0.208 in place, while n=800
+  barely moves (1.978 against 1.377).  So
   **`--only <name>` cannot clear a failure the full run reported**: it is a quicker way to
   iterate, not a second opinion, and a check that fails in the gate and passes alone has
   said where its baseline is rather than that the gate was wrong.  Judge a check where it
@@ -107,6 +107,7 @@
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.settle :as settle]
+            [vaelii.impl.space :as space]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.wiring :as wiring]))
 
@@ -1361,6 +1362,90 @@
        (nanos (dotimes [_ reads-per-clash-reading]
                 (count (v/contradictions kb))))))))
 
+(def ^:private inherit-chain-depth
+  "How far above the claim-holders the preserved relation runs, so that **one reach walk
+  is a real cost** rather than a lookup: `fact-reach` reads the store once per node it
+  walks, and a reach thirty-three nodes long is what puts the walking above the comparing
+  in the reading below.  With a one-node reach the cross-product would dominate at both
+  sizes and the check would read the same number whether the memo was there or not."
+  32)
+
+(defn- inherit-reach-memo
+  "`ask?` on a preserved goal about a term that n incomparable claims reach, each of them
+  holding a reach thirty-two hops long.
+
+  `undercut?` compares every claim against every other and each comparison asks for a
+  claim's reach, so the **walks** are quadratic in the claims unless something remembers
+  them.  `inherit/*memo*` is what does, for the length of one question: n distinct reaches
+  are walked once each, and the n² comparisons that follow are set lookups.  So the cost
+  is the walking — linear in the claims — plus a cross-product that stays cheap, and 8x
+  the claims must land near 8x rather than near the 64x a lost memo reads.
+
+  The counted companion is `inherit_test/the-reach-walk-is-linear-in-the-claims-and-not
+  -quadratic`, which reads the same claim off `matches-visible` call counts rather than off
+  a clock, and can see it at any depth."
+  [n]
+  (let [kb    (fresh-kb)
+        base  'PiPart
+        above (mapv #(symbol (str "PiAbove" %)) (range inherit-chain-depth))]
+    (v/with-deferred-settle kb
+      (v/assert kb '(transitive piPartOf) 'CxPerf {:strength :monotonic})
+      (v/assert kb '(transitiveInArg piNeedsWork 1 piPartOf) 'CxPerf {:strength :monotonic})
+      ;; the shared chain every claim-holder's reach runs up
+      (doseq [[a b] (partition 2 1 above)]
+        (v/assert kb (list 'piPartOf a b) 'CxPerf {}))
+      (doseq [i (range n)
+              :let [o (symbol (str "PiWhole" i))]]
+        (v/assert kb (list 'piPartOf base o) 'CxPerf {})
+        (v/assert kb (list 'piPartOf o (first above)) 'CxPerf {})
+        (v/assert kb (list 'piNeedsWork o) 'CxPerf {})))
+    (let [goal (list 'piNeedsWork base)]
+      (doall (for [_ (range 60)]
+               (nanos (v/ask? kb goal 'CxPerf)))))))
+
+(defn- qcn-network-residency
+  "A `possible-relations` call on a fixed six-region containment chain, asked repeatedly,
+  on a KB holding n *more* facts of the same spatial predicate in a context the asker
+  cannot see.
+
+  The network the call reads is the same size at both n — six regions, one closure — so
+  what the reading tracks is the **read**, never the pass.  A resident network is taken
+  off the KB's `:qcn` atom and rebuilt only when the change clock moves
+  (`observe/cached`), so a repeat costs a map lookup; reading the KB again per call would
+  walk the predicate's whole extent, which is exactly the n that grows here.
+  docs/qcn.md counts that difference as seventeen thousand reads against thirty-nine
+  asserts, taken down to seventy-eight.
+
+  **The extra facts sit in a sibling context on purpose.**  A check whose visible network
+  grew with n would be measuring the path-consistency pass, which is superquadratic by
+  design and is nobody's claim to hold flat — the growth would swamp the read and the
+  bound would have to be loose enough to see nothing.  A sibling context is invisible from
+  the asking one, so the pass is identical at both sizes and the extent a rebuild would
+  walk is the only thing that moved.
+
+  The counted companion is `qcn_chain_test/network-reads-grow-with-the-calls-and-not-with
+  -the-asserts`, which holds the *number* of builds where this holds their cost."
+  [n]
+  (let [kb    (fresh-kb)
+        chain (mapv #(symbol (str "PqRegion" %)) (range 6))]
+    (v/add-prover kb (space/spatial-prover))
+    (v/assert kb '(genlCx CxPerfQcn CxUniverse) 'CxUniverse {:strength :monotonic})
+    (v/assert kb '(genlCx CxPerfQcnSide CxUniverse) 'CxUniverse {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (doseq [[a b] (partition 2 1 chain)]
+        (v/assert kb (list 'nonTangentialProperPart a b) 'CxPerfQcn {:strength :monotonic}))
+      (doseq [i (range n)]
+        (v/assert kb (list 'nonTangentialProperPart
+                           (symbol (str "PqOtherA" i)) (symbol (str "PqOtherB" i)))
+                  'CxPerfQcnSide {:strength :monotonic})))
+    ;; build and close once, outside the loop: the first read is the pass, and timing it
+    ;; would gate the closure's cost instead of the repeat's
+    (v/possible-relations kb :rcc8 'CxPerfQcn (first chain) (peek chain))
+    (doall
+     (for [_ (range 60)]
+       (nanos (dotimes [_ 200]
+                (v/possible-relations kb :rcc8 'CxPerfQcn (first chain) (peek chain))))))))
+
 ;; ---- the one check that writes to a disk ---------------------------------
 ;;
 ;; Every check above runs on `fresh-kb`, which is `:backend :memory`, so nothing in this
@@ -1519,14 +1604,33 @@
    ;; holds flat.  Neither check subsumes the other, and only both together say the pass is
    ;; not paying for the standing set (see docs/nmtms.md).
    ;;
-   ;; This is the check the header's cold/warm gap was measured on, and the one most
-   ;; exposed to it: 25 standing dilemmas is ~0.02 ms of per-pair cost under ~0.10 ms of
-   ;; constant, so the baseline is four-fifths a reading of the constant.  Read a passing
-   ;; `--only` here as a cold reading and nothing more.
+   ;; **The baseline is 100 and not 25, and the bound sits above the size ratio, because
+   ;; that combination is the only one a constant-term win cannot break.**  Reading
+   ;; `a + b·n`, the ratio is `(a + 800b) / (a + 100b)`, which is strictly *below* 8 for
+   ;; every positive `a` and approaches 8 as `a` falls.  So no improvement to the fixed cost
+   ;; of a settle can walk this check upward, however far that cost falls: what is left to
+   ;; cross the bound is the per-pair term going super-linear, which is what the claim is
+   ;; about.  That argument bounds the *constant's* contribution and not the whole reading,
+   ;; so the bound is set from measurement rather than from the model: four full runs read
+   ;; 6.63x, 7.58x, 7.74x and 8.36x, the last of them above the model's own ceiling.  The
+   ;; spread is the large end — n=800 moves ten percent and more between runs where n=100
+   ;; moves one — so 11 is the worst of those with room, and a re-derivation regression
+   ;; reads several times it rather than a few percent over.
+   ;;
+   ;; A baseline of 25 gave the ratio an asymptote of 32 against a bound of 12, which is
+   ;; 20x of room for a constant-term win to spend: the fixed cost is ~0.04 ms against
+   ;; ~0.0017 ms a pair, so at 25 pairs the reading is mostly constant, and shaving it walks
+   ;; the ratio from 10x toward 17x while every absolute number improves.  A check that
+   ;; reddens *because* the code got faster is measuring the wrong thing.
+   ;;
+   ;; Still the check most exposed to the header's cold/warm gap, though a narrower one at
+   ;; this baseline: 5.70x under `--only` against 6.63x in place, the split being in the
+   ;; denominator as it is everywhere.  Read a passing `--only` here as a cold reading and
+   ;; nothing more.
    {:name      :negation-arbitration
-    :claim     "32x the standing P/¬P dilemmas costs under 12x per assert — bookkeeping, not a re-derivation each"
-    :sizes     [25 800]
-    :max-ratio 12.0
+    :claim     "8x the standing P/¬P dilemmas costs under 11x per assert — linear in the set, not a re-derivation of it each"
+    :sizes     [100 800]
+    :max-ratio 11.0
     :run       negation-arbitration}
 
    {:name      :negation-load
@@ -1894,7 +1998,7 @@
    ;; *constant* factor — one metadata read per comparison in place of four `pr-str`s —
    ;; and both shapes are n log n, so this is blind to losing it.  And the regression that
    ;; puts the ordering back on the settle path is a **write**-path cost: it lands on
-   ;; `negation-arbitration`, whose 12x bound it exceeds, and not here.
+   ;; `negation-arbitration` and not here.
    {:name      :standing-clash-reading
     :claim     "a reading of the standing dilemmas costs what it returns — an ordering of the standing set, not a re-derivation of it"
     :sizes     [25 800]
@@ -1953,7 +2057,29 @@
     :claim     "a fact reaching the durable log is flat in what the log already holds — the index WAL logs the op, not the grown value"
     :sizes     [1000 8000]
     :max-ratio 2.0
-    :run       durable-fact-append}])
+    :run       durable-fact-append}
+
+   ;; The pair of claims docs/qcn.md's cost section opens with, and the one this file can
+   ;; hold: **the read is not the pass**.  The pass is superquadratic and says so; what
+   ;; residency promises is that a *repeat* consultation costs what the answer costs and
+   ;; not what the KB holds.  8x the stored extent of the calculus predicate, none of it
+   ;; visible from the asking context, and the reading may not follow it.
+   {:name      :qcn-network-residency
+    :claim     "a repeated qualitative consultation is flat in the stored extent of the calculus it is not about"
+    :sizes     [250 2000]
+    :max-ratio 2.0
+    :run       qcn-network-residency}
+
+   ;; Not a flat claim, and the bound says which claim it is instead.  `undercut?` is a
+   ;; cross-product over the claims however the reaches are answered, so the comparing is
+   ;; quadratic in n whatever happens — what the memo makes linear is the *walking*, and 8x
+   ;; the claims at 64x the cost is what a lost memo reads.  12x sits between the two, the
+   ;; same reasoning `membership-under-depth` picks its bound by.
+   {:name      :inherit-reach-memo
+    :claim     "8x the claims reaching one term costs under 12x per ask — one reach walk per question, not one per pair of claims"
+    :sizes     [8 64]
+    :max-ratio 12.0
+    :run       inherit-reach-memo}])
 
 ;; ---- the runner ---------------------------------------------------------
 

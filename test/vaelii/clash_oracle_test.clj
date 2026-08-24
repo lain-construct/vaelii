@@ -548,3 +548,31 @@
       (is (some (fn [[_ js]] (= 2 (count js))) (first fwd))
           "and one side of it is derived twice — else there is no list to order")
       (is (= fwd rev) "every assertion order publishes one reading"))))
+
+;; ---- the argument-root readers are total --------------------------------
+
+(deftest a-sentence-with-no-arity-on-an-argument-root-is-skipped-not-counted
+  ;; `holds-two-members?` walks the postings at a term's own argument-1 root and asks each
+  ;; sentence its arity.  Its three siblings on the same walk guard that with `sequential?`;
+  ;; a sentence with no arity reaches `count` otherwise and throws
+  ;; `UnsupportedOperationException` out of the settle, which is a mutation refused by
+  ;; exception rather than a posting declined.
+  ;;
+  ;; Driven through `reify` stores rather than a redef, because a protocol-method redef
+  ;; never intercepts a compiled `(p/method inst …)` call (testing.md).
+  (let [tms (jtms/create-tms)
+        recs #_{:clj-kondo/ignore [:missing-protocol-method]}
+        (reify p/RecordStore
+          (get-sentex [_ id]
+            (case (long id)
+              1 {:id 1 :sentence 'clshArityless    :truth :true :context 'CxUniverse}
+              2 {:id 2 :sentence '(clshMember CK)  :truth :true :context 'CxUniverse}
+              nil)))
+        idx #_{:clj-kondo/ignore [:missing-protocol-method]}
+        (reify p/IndexStore
+          (sentexes-with-arg [_ _pos _term] [1 2]))
+        fake {:records recs :index idx :tms tms}]
+    (jtms/add-premise tms 1 :monotonic)
+    (jtms/add-premise tms 2 :monotonic)
+    (is (false? (@#'settle/holds-two-members? fake '{clshMember #{clshMember}} 'CK))
+        "the arity-less posting is skipped, and one real membership is not two members")))

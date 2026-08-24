@@ -220,14 +220,27 @@
 ;; ---- structure: the queue, the claim, the tree ---------------------------
 
 (tu/deftest-kb the-frontier-pops-the-lowest-estimate-first
-  (let [q (-> (inf/empty-queue) (inf/queue-push 90 1) (inf/queue-push 10 2)
-              (inf/queue-push 50 3))]
+  (let [k  (fn [n] [[(list 'p n)] 0])
+        q  (-> (inf/empty-queue) (inf/queue-push 90 (k 1) 1) (inf/queue-push 10 (k 2) 2)
+               (inf/queue-push 50 (k 3) 3))]
     (is (nil? (inf/queue-pop (inf/empty-queue))) "an empty queue must pop nil")
     (let [[e1 q1] (inf/queue-pop q)
           [e2 q2] (inf/queue-pop q1)
           [e3 q3] (inf/queue-pop q2)]
-      (is (= [[10 2] [50 3] [90 1]] [e1 e2 e3]))
+      (is (= [[10 (k 2) 2] [50 (k 3) 3] [90 (k 1) 1]] [e1 e2 e3]))
       (is (nil? (inf/queue-pop q3))))))
+
+(tu/deftest-kb a-cost-tie-on-the-frontier-breaks-on-content-and-not-on-the-id
+  ;; The estimate is coarse and ties constantly, and the tie decides which node a
+  ;; `:node-budget` run expands before it stops.  Breaking it on the id would key a
+  ;; bounded search's answer set on the order the nodes were minted, which is the order
+  ;; the rules were asserted in.
+  (let [early [[(list 'zLater 'A)] 0]        ; minted first, content-greater
+        late  [[(list 'aSooner 'A)] 0]       ; minted second, content-lesser
+        q     (-> (inf/empty-queue) (inf/queue-push 7 early 1) (inf/queue-push 7 late 2))
+        [[_ c _]] (inf/queue-pop q)]
+    (is (= late c) "the content-lesser node pops first, though its id is the later one")
+    (is (= 2 (count q)) "and neither is dropped — equal costs are still two entries")))
 
 (tu/deftest-kb a-key-is-claimed-once-and-the-claim-is-what-stops-a-re-arrival
   (tu/with-terms [parentOf anc CxKey]

@@ -253,7 +253,7 @@ only adds.
 
 ## Status
 
-`labeling_test` covers this channel in 13 tests: the `do/` channel itself, the
+`labeling_test` covers this channel in 14 tests: the `do/` channel itself, the
 dilemma-to-`Program` bridge (`label/dilemma-program`), the solve-sourced labeling, and
 `label/label-dilemmas`. `label/classify-program`, `label/label-context`,
 `edge/edge-solver` and the clingo/clasp backends are `asp_label_test` /

@@ -137,7 +137,7 @@
         (is (= :monotonic (:defeat-class w))))
       ;; `:dispute-ids` is a set: one sentex is the standing ruling of every dispute
       ;; whose ruling dedups onto it, and a single-valued tag kept only the last
-      (is (= {:arbiter 'AgentArbiter :dispute-ids #{(adj/dispute-key did)} :at t-rule}
+      (is (= {:arbiter 'AgentArbiter :dispute-ids #{(d/dispute-key did)} :at t-rule}
              (adj/who-ruled kb rh))))))
 
 (tu/deftest-kb an-arbiter-can-rule-for-the-negative-side
@@ -417,7 +417,7 @@
       (testing "and it is the standing ruling of each, not only the last"
         (is (= [h1] (adj/standing-rulings kb 'AgentArbiter d1)))
         (is (= [h1] (adj/standing-rulings kb 'AgentArbiter d2)))
-        (is (= #{(adj/dispute-key d1) (adj/dispute-key d2)}
+        (is (= #{(d/dispute-key d1) (d/dispute-key d2)}
                (:dispute-ids (adj/who-ruled kb h1)))))
       (testing "so ruling the first the other way supersedes rather than doubling"
         (let [h3 (adj/rule kb 'AgentArbiter d1 not-P 'CxDeploy)]
@@ -450,6 +450,104 @@
       (is (v/ask? kb P (id/context-for 'AgentAtlas))))
     (testing "an uninvolved arbiter still rules it"
       (is (some? (adj/rule kb 'AgentArbiter did P 'CxDeploy))))))
+
+;; ---- the reads follow BELIEF, not storage --------------------------------
+;; A defeated sentex stays stored on purpose (it can revive), so an adjudication read that
+;; enumerates a context unfiltered sees claims and rulings the agent no longer holds.
+
+(tu/deftest-kb a-ruling-the-house-no-longer-believes-is-not-a-standing-one
+  ;; The tie arm of `resolve-by-majority` retracts every standing ruling as stale, so a
+  ;; defeated one read back as standing would be DESTROYED — a ruling that had already lost
+  ;; its force deleted rather than left to revive.
+  (let [did  (clash! kb)
+        k    (d/dispute-key did)
+        mctx (id/context-for adj/majority-arbiter)
+        ;; a tagged ruling the house holds defeasibly
+        soft (v/assert kb P mctx {:creator adj/majority-arbiter :strength :default
+                                  :provenance {:adjudication #{k}}})]
+    (is (= [soft] (adj/standing-rulings kb adj/majority-arbiter did))
+        "believed, so it is the house's standing word")
+    ;; something known-true says otherwise, and the default loses
+    (v/assert kb not-P mctx {:creator adj/majority-arbiter :strength :monotonic})
+    (is (false? (v/in? kb soft)) "the ruling is stored and defeated")
+    (testing "a defeated ruling is not a standing one"
+      (is (= [] (adj/standing-rulings kb adj/majority-arbiter did))))
+    (testing "so a tie does not withdraw it as stale, and does not destroy it"
+      (let [ph (v/handle-of kb P (id/context-for 'AgentAtlas))
+            r  (adj/resolve-by-majority kb did ph 'CxDeploy)]   ; no ballots cast: a tie
+        (is (= :tie (:outcome r)))
+        (is (= [] (:withdrawn r)))
+        (is (some? (v/sentex kb soft)) "still stored, still able to revive")))))
+
+(tu/deftest-kb an-arbiter-whose-own-claim-is-defeated-is-not-a-party
+  ;; Being a party means HOLDING a side.  Dora's context derived P from a default that a
+  ;; known-true fact then beat, so P is stored there with no support — a claim she has
+  ;; stepped out of, and no reason to refuse her the ruling.
+  (let [did  (clash! kb)
+        dctx (id/context-for 'AgentDora)]
+    (v/assert-rule kb ['(green ?x)] '(reliable ?x) dctx
+                   {:direction :forward :strength :default :creator 'AgentDora})
+    (v/assert kb '(green ProdCluster) dctx {:creator 'AgentDora})
+    (let [derived (v/handle-of kb P dctx)]
+      (is (some? derived) "the rule fired, so Dora's context holds P")
+      (is (true? (v/in? kb derived)) "and believes it, for now")
+      (v/assert kb '(not (green ProdCluster)) dctx
+                {:creator 'AgentDora :strength :monotonic})
+      (is (some? (v/sentex kb derived)) "P is still stored")
+      (is (false? (v/in? kb derived)) "and no longer believed — its support was beaten")
+      (testing "a claim the arbiter does not believe is not a side they hold"
+        (is (some? (adj/rule kb 'AgentDora did not-P 'CxDeploy))
+            "so the ruling is allowed")
+        (is (= :false (:verdict (v/argue kb P 'CxDeploy))) "and it settled the clash")))))
+
+;; ---- contested-premises is content-ordered, not handle-ordered -----------
+
+(defn- contested-kb
+  "This namespace's shape on the **isolated** space: the ordering test below builds one KB
+  per assertion order, which would clear the shared space out from under another
+  namespace's `:once` fixture."
+  []
+  (doto (tu/isolated-fresh) (core-context/load-into)))
+
+(def ^:private contested-premise-preds
+  "Five predicates whose alphabetical order is not the order the fixture asserts them in,
+  so a result that merely echoed arrival order would read differently per run."
+  '[whirs echoes alpha rumbles corks])
+
+(defn- contested-fixture!
+  "Atlas holds `(pred ProdCluster)` for each of `preds` and Boreas holds each negation, so
+  every one of them is contested in `CxDeploy`; a forward rule over all five concludes
+  `(deployable ProdCluster)`.  `preds` is the assertion order — the free choice."
+  [kb preds]
+  (binding [v/*clock* (constantly t0)]
+    (doseq [p preds]
+      (holds! kb 'AgentAtlas (list p 'ProdCluster))
+      (holds! kb 'AgentBoreas (list 'not (list p 'ProdCluster))))
+    (doseq [a '[AgentAtlas AgentBoreas]]
+      (v/assert kb (list 'genlCx 'CxDeploy (id/context-for a)) 'CxUniverse
+                {:strength :monotonic})))
+  (v/assert-rule kb (mapv #(list % '?x) contested-premise-preds) '(deployable ?x) 'CxDeploy
+                 {:direction :forward}))
+
+(deftest contested-premises-reads-the-same-in-any-assertion-order
+  ;; `support-handles` walks a graph into a SET, and the handles in it are allocated in
+  ;; assertion order — so a result ranked on either is a fact about how the KB was loaded.
+  (let [readings (into {}
+                       (for [order [contested-premise-preds
+                                    (vec (reverse contested-premise-preds))
+                                    (vec (sort contested-premise-preds))]]
+                         [order
+                          (tu/with-cleared-kb [kb contested-kb]
+                            (contested-fixture! kb order)
+                            (is (v/ask? kb '(deployable ProdCluster) 'CxDeploy)
+                                "the rule fired over all five contested premises")
+                            (let [hs (adj/contested-premises kb '(deployable ProdCluster)
+                                                             'CxDeploy)]
+                              (is (= 5 (count hs)) "all five premises are contested")
+                              (mapv #(:sentence (v/sentex kb %)) hs)))]))]
+    (is (= 1 (count (set (vals readings))))
+        (str "the same contested set read back in a different order — "
+             (pr-str (into (sorted-map) readings))))))
 
 ;; ---- and every order of the same rulings, not the one written out above ----
 
@@ -561,3 +659,75 @@
           (is (zero? (:conflicts r)))
           (is (= [1 1] (:standing r))
               "one ruling settles both disputes, and is found again for each"))))))
+
+;; ---- a refused ruling ends no episode ------------------------------------
+
+(tu/deftest-kb a-refused-ruling-leaves-the-dispute-marks-intact
+  ;; `rule` clears the dispute's lifecycle marks because a ruling ENDS the episode.  Clear
+  ;; them before the ruling has landed and a refused `edit!` leaves the dispute reopened
+  ;; and un-notified with nothing ruled on it — the driver then re-announcing a clash whose
+  ;; ruling never happened.
+  (let [did (clash! kb)]
+    (adj/notify-disputes kb 'CxDeploy)
+    (is (= :notified (d/dispute-state kb did)) "the episode is under way")
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (adj/rule kb 'AgentArbiter did '(reliable ?x) 'CxDeploy)))]
+      (is (= :not-ground (:type (ex-data e))) "a non-ground ruling is inadmissible"))
+    (testing "nothing landed, so nothing ended"
+      (is (= :notified (d/dispute-state kb did)))
+      (is (empty? (adj/standing-rulings kb 'AgentArbiter did))
+          "and the arbiter holds no ruling either"))))
+
+;; ---- the withdrawn list is content-ordered, not print-ordered ------------
+
+(deftest a-withdrawn-list-reads-the-same-in-any-assertion-order
+  ;; `resolve-by-majority`'s tie arm retracts every standing ruling and NAMES them in
+  ;; `:withdrawn`, so `standing-rulings`' order is caller-visible.  Two rulings whose
+  ;; numeric content orders one way and whose printed forms order the other are what tells
+  ;; a structural order from a lexicographic one: 9 precedes 10 as a number and follows it
+  ;; as a string.
+  (let [rulings '[(rated ProdCluster 9) (rated ProdCluster 10)]
+        reading (fn [order]
+                  (tu/with-cleared-kb [kb ruling-kb]
+                    (let [did   (clash! kb)
+                          k     (d/dispute-key did)
+                          mctx  (id/context-for adj/majority-arbiter)
+                          named (into {} (for [s order]
+                                           [(v/assert kb s mctx
+                                                      {:creator adj/majority-arbiter
+                                                       :provenance {:adjudication #{k}}})
+                                            s]))
+                          ph    (v/handle-of kb P (id/context-for 'AgentAtlas))
+                          r     (adj/resolve-by-majority kb did ph 'CxDeploy)]
+                      (is (= :tie (:outcome r)) "nobody voted, so nothing is upheld")
+                      (is (= 2 (count (:withdrawn r))) "and both standing rulings retire")
+                      (mapv named (:withdrawn r)))))
+        forward (reading rulings)
+        reverse (reading (vec (rseq rulings)))]
+    (is (= forward reverse)
+        (str "the withdrawn list turned on the order the rulings were asserted in — "
+             (pr-str {:forward forward :reverse reverse})))
+    (is (= '[(rated ProdCluster 9) (rated ProdCluster 10)] forward)
+        "and the one reading is the structural content order, which reads 9 before 10")))
+
+;; ---- the stale sweep does not re-scan the KB per dispute -----------------
+
+(tu/deftest-kb the-stale-sweep-reads-the-mark-rather-than-the-whole-state
+  ;; Every entry `disputes-in` hands back is live BY CONSTRUCTION — the enumeration is the
+  ;; whole-KB scan.  Asking `dispute-state` per entry re-establishes that liveness with a
+  ;; fresh `contradictions` + `conflicts` scan apiece, so the sweep's cost grew with the
+  ;; number of open disputes for an answer it already had.
+  (binding [v/*clock* (constantly t0)] (two-disputes! kb))
+  (let [real  v/contradictions
+        scans (atom 0)]
+    (binding [adj/*timeout-ms* 1000
+              v/*clock*        (constantly (+ t0 2000))]
+      (with-redefs [v/contradictions (fn [k] (swap! scans inc) (real k))]
+        (is (= 2 (count (adj/sweep-stale kb 'CxDeploy))) "both aged-out disputes are swept")))
+    (is (= 1 @scans)
+        (str "the sweep ran " @scans " whole-KB contradiction scans over two disputes; one"
+             " enumeration is all it needs, and the skip is a stored-mark read"))
+    (testing "and the sweep is still idempotent — a second pass finds nothing to do"
+      (binding [adj/*timeout-ms* 1000
+                v/*clock*        (constantly (+ t0 2000))]
+        (is (empty? (adj/sweep-stale kb 'CxDeploy)))))))

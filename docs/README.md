@@ -95,7 +95,7 @@ rather than a compatibility claim.
 - [exceptions.md](exceptions.md) — `exceptWhen`: how a rule states its own exception, and why the exception is never stored.
 - [naf.md](naf.md) — negation as failure: `unknown` / `thereExists`, evaluated at level 6, storing nothing (and why the JTMS `out` slot stays reserved).
 - [aggregate.md](aggregate.md) — aggregation as a query operator: the five reductions over a query's solutions, where GROUP BY comes from, and how a firing that rests on a count is maintained.
-- [belief.md](belief.md) — modal belief projection: `(believes Agent P)` answered by proving `P` in the agent's own context, `modalPredicate` / `register-modal-predicate!` to open the same machinery to `knows` / `desires` / `intends`, and why contradictory agents coexist without a contradiction.
+- [belief.md](belief.md) — modal belief projection: `(believes Agent P)` answered by proving `P` in the agent's own context, `modalPredicate` / `register-modal-predicate` to open the same machinery to `knows` / `desires` / `intends`, why contradictory agents coexist without a contradiction, and the opacity of the proposition — whose merges may rewrite a term inside a belief.
 - [nmtms.md](nmtms.md) — the non-monotonic TMS: assumption strengths, soft prioritized contradictions, the solver seam.
 - [defenses.md](defenses.md) — the design defenses: why a non-obvious decision across the engine is shaped the way it is and why the tempting alternative is worse, collected out of the subsystem docs so each states the mechanism and links the argument.
 - [preview.md](preview.md) — `preview`: the belief a batch would add and take away, read off and then rolled back at the same handles.

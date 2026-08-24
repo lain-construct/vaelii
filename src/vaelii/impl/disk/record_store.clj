@@ -172,7 +172,7 @@
                    (catch Throwable t (f/close! log) (throw t)))]
       (try
         (f/truncate-log! log (first (f/log-tail-offset-from log clean-length)))
-        (f/validate-idx-tail! idx log (f/slot-count idx))     ; tombstone slots past EOF
+        (f/validate-idx-tail! idx log)                        ; tombstone slots past EOF
         (let [live  (java.util.HashSet.)
               {:keys [enc dec]} (codecs name)]
           (f/scan-idx! idx (fn [id _ _ flags]
@@ -209,6 +209,39 @@
    ;; re-store (mark-premise) replaces an id's record with a different value
    (when-let [^java.util.Map c (:cache k)] (.put c id rec))
    id))
+
+(defn- store-batch!
+  "Append every record of `batch` to kind `k` and point its slot at the frame — **one log
+  write and one idx write per run of consecutive handles**, where `store!` is two
+  syscalls per record on an unbuffered `RandomAccessFile`.  `batch` is `[id rec
+  premise?]` triples; the lock is taken once for the whole batch.
+
+  The written records are **evicted** from the hot cache rather than installed in it.
+  A bulk load is a stream nobody is reading back, so filling the LRU with its tail
+  evicts what a later query wants; and the eviction is what keeps a re-store honest,
+  which is the half of `store!`'s cache put that is about correctness rather than speed.
+
+  All-or-nothing on the log (`f/append-records-sized!`), so a batch is never half a frame
+  on disk.  It is **not** a transaction across the two files: the write ordering is the
+  same one a single `store!` relies on — the frames land, then the slots point at them —
+  so a crash between them leaves frames no slot names, which is what the log already
+  tolerates."
+  [k batch]
+  (when (seq batch)
+    (locking (:lock k)
+      (usable! k)
+      (let [offs (f/append-records-sized! (:log k) (map (fn [[_ rec _]] ((:enc k) rec)) batch))]
+        (f/write-slots! (:idx k)
+                        (map (fn [[id rec premise?] [off plen]]
+                               [id off plen
+                                (f/premise-flags premise? (strength/rank-of (:strength rec)))
+                                0])
+                             batch offs)))
+      (doseq [[id] batch] (track-touched k id)))
+    (swap! (:live-ids k) #(into % (map first) batch))
+    (when-let [^java.util.Map c (:cache k)]
+      (doseq [[id] batch] (.remove c id))))
+  nil)
 
 (defn- fetch
   "The record at handle `id` in kind `k`, or nil — from the hot cache, else paged from
@@ -261,7 +294,63 @@
   (swap! counter max (inc (long id)))
   id)
 
-(defrecord DiskRecordStore [dir kinds counter premises dict]
+(def ^:private default-batch
+  "Records buffered before one log write and one idx write.  The unit is a packed byte
+  buffer, so it trades peak heap against syscalls and neither end is delicate."
+  10000)
+
+(defn- disk-sink
+  "A `RecordSink` over kind `kind-key` of `store`, landing `batch` records per pair of
+  writes.
+
+  **`:premises? false` is not honoured here, deliberately.**  This store's `put-sentex`
+  rosters a premise from the record's own `:strength` whatever a caller does next — the
+  strength rides the idx slot's flags so the next open reads the premise set off the slot
+  walk — so a sink that dropped the mark would leave a store the loop it replaces would
+  not have left, and a sink must be equal to that loop or it is not a sink.  The option is
+  about what a sink *adds*; on this store the put already did it."
+  [store kind-key batch]
+  (when-not (pos? (long batch))
+    (throw (ex-info (str "a bulk :batch must be a positive number of records, got "
+                         (pr-str batch))
+                    {:type :bad-batch :batch batch})))
+  (let [k        (get (:kinds store) kind-key)
+        counter  (:counter store)
+        premises (:premises store)
+        sentexes? (= kind-key :sentexes)
+        pending  (java.util.ArrayList.)
+        ;; The premise roster is joined **after** the write, which is the order
+        ;; `put-sentex` takes and therefore the order a sink standing in for it owes: a
+        ;; `store-batch!` that throws (a full disk) must not leave up to `batch` handles
+        ;; in `premise-ids` whose `get-sentex` is nil for the rest of the session.  The
+        ;; flag rides `pending`'s triple, so nothing extra is held to do it.
+        flush!   (fn []
+                   (when-not (.isEmpty pending)
+                     (let [recs (vec pending)]
+                       (store-batch! k recs)
+                       (when sentexes?
+                         (let [ps (into [] (comp (filter (fn [[_ _ p?]] p?)) (map first))
+                                        recs)]
+                           (when (seq ps) (swap! premises into ps))))
+                       (.clear pending))))]
+    (reify
+      p/RecordSink
+      (write-record! [_ rec]
+        (let [id  (clear-counter! counter (or (:id rec) (p/next-id store)))
+              rec (assoc rec :id id)]
+          (.add pending [id rec (and sentexes? (some? (:strength rec)))])
+          (when (>= (.size pending) (long batch)) (flush!))
+          id))
+
+      java.io.Closeable
+      (close [_] (flush!) nil))))
+
+;; `synced-seq` is what the `counters.nippy` blob was last left holding, so `fsync` can
+;; tell an idle tick from one with a handle to persist (its docstring says why that
+;; matters).  nil until the first tick writes it, which is what makes that first tick
+;; unconditional: the blob on disk is whatever the previous session left, and only a write
+;; establishes what it says now.
+(defrecord DiskRecordStore [dir kinds counter synced-seq premises dict]
   p/RecordStore
   (next-id [_] (long (dec (swap! counter inc))))
 
@@ -368,8 +457,8 @@
         ;; them is undone by that open, which replays the pre-wipe records over the
         ;; truncated files.  The wipe supersedes the install: drop the marker and the
         ;; temps under the same lock, and the kind is usable again.
-        (let [{:keys [log-tmp idx-tmp marker]} (f/compact-temp-paths (:log-path k) (:idx-path k))]
-          (f/delete-compact-temps! marker log-tmp idx-tmp))
+        (let [{:keys [temps marker]} (f/compact-temp-paths (:log-path k) (:idx-path k))]
+          (f/delete-compact-temps! marker temps))
         (reset! (:failed k) nil)))
     (reset! premises #{})
     (reset! counter 1)
@@ -377,6 +466,58 @@
     ;; ids would leave a wiped store carrying its predecessor's whole vocabulary
     (when dict (dtok/clear! dict))
     (f/write-nippy-atomic! (counters-path dir) {:seq 1})
+    (reset! synced-seq 1)
+    nil)
+
+  ;; Both live-id sets and the premise set are resident already (the namespace docstring
+  ;; says why), so a tally is a read of one of them rather than the `set` copy the
+  ;; enumeration takes.  Cheap either way here; on the seam it is the difference between
+  ;; one number and a table.
+  p/Tallying
+  (sentex-tally        [_] (count @(:live-ids (:sentexes kinds))))
+  (justification-tally [_] (count @(:live-ids (:justifications kinds))))
+  (a-sentex-id         [_] (first @(:live-ids (:sentexes kinds))))
+  (a-justification-id  [_] (first @(:live-ids (:justifications kinds))))
+  (a-premise-id        [_] (first @premises))
+
+  ;; A record at a time here is two syscalls on an unbuffered `RandomAccessFile` — the log
+  ;; append and the 24-byte slot write — plus a lock, and a bulk load pays both per record
+  ;; for nothing: the frames are known before any of them is written, and handles arrive in
+  ;; the consecutive run `next-id` mints, which the idx holds as one contiguous range.
+  p/BulkLoading
+  (open-sentex-sink [this {:keys [batch] :or {batch default-batch}}]
+    (disk-sink this :sentexes batch))
+  (open-justification-sink [this {:keys [batch] :or {batch default-batch}}]
+    (disk-sink this :justifications batch))
+
+  ;; **Both are chunked here, not by the caller.**  `store-batch!` materializes what it is
+  ;; handed — a frozen frame per record and one contiguous `byte-array` over the lot — so
+  ;; the bound is a property of the write path and belongs where the write path is.  A
+  ;; corpus import calls each of these once with every handle it loaded, and an unchunked
+  ;; call would hold a record, a frame and a copy of the packed buffer for all of them at
+  ;; once, failing outright past two gigabytes of frames.  `disk-sink` bounds itself at
+  ;; `default-batch` for the same reason, and these are the same write underneath it.
+  p/BulkAnnotating
+  (mark-premise-batch [_ id->strength]
+    ;; The fetch per handle stays — the guard against a phantom premise is that the
+    ;; record exists, and only the record says what strength it already carries.  What
+    ;; batches is the *writing*: the marks that actually change a record become one log
+    ;; write and one idx range instead of a re-store apiece.  Most of them change nothing
+    ;; on an import, because the records were written carrying their strength.
+    (let [k (:sentexes kinds)]
+      (doseq [chunk (partition-all default-batch id->strength)]
+        (let [have (into [] (keep (fn [[id strength]]
+                                    (when-let [sx (fetch k id)] [id sx (or strength :default)])))
+                         chunk)]
+          (store-batch! k (into [] (keep (fn [[id sx want]]
+                                           (when-not (= want (:strength sx))
+                                             [id (assoc sx :strength want) true])))
+                                have))
+          (swap! premises #(into % (map first) have)))))
+    nil)
+  (put-provenance-batch [_ entries]
+    (doseq [chunk (partition-all default-batch entries)]
+      (store-batch! (:provenance kinds) (mapv (fn [[id prov]] [id prov false]) chunk)))
     nil))
 
 (defn slot-fingerprint
@@ -403,24 +544,35 @@
     (acc)))
 
 (defn fsync
-  "fsync every kind's log + idx and persist the counter.  `fsync?` false drains
-  writes to the page cache without the fsync (the durability daemon's non-durable tick).
+  "fsync every kind's log + idx, and rewrite the counters blob when the handle counter has
+  moved since the last tick.
 
   The token dictionary is fsynced **first, under the sentexes kind lock** — that lock is
   what stops a record being appended between the two fsyncs, and so is what makes every
-  record durable after this tick one whose tokens are durable too."
-  [{:keys [dir kinds counter dict]} fsync?]
+  record durable after this tick one whose tokens are durable too.
+
+  **The counters blob is written only when it changed.**  Persisting it is a whole-file
+  rewrite — a temp, an fsync of it, an `ATOMIC_MOVE` and an fsync of the directory — and
+  the durability daemon ticks every three seconds for the life of the process, so writing
+  it unconditionally charges a KB nobody is writing to those four operations a tick
+  forever.  `synced-seq` holds what the file was last left holding; equal to the counter
+  means the file already says what there is to say.  A skip can never cost a handle:
+  `recover-next-id` takes the max of the blob and one past the highest slot in the idx, so
+  a blob behind the counter is behind only on handles that were minted and never stored."
+  [{:keys [dir kinds counter synced-seq dict]}]
   (locking (:lock (:sentexes kinds))
-    (when dict (dtok/fsync dict fsync?))
-    (when fsync?
-      (f/force! (:log (:sentexes kinds)) false)
-      (f/force! (:idx (:sentexes kinds)) true)))
+    (when dict (dtok/fsync dict))
+    (f/force! (:log (:sentexes kinds)) false)
+    (f/force! (:idx (:sentexes kinds)) true))
   (doseq [[kind k] kinds :when (not= kind :sentexes)]
     (locking (:lock k)
-      (when fsync?
-        (f/force! (:log k) false)
-        (f/force! (:idx k) true))))
-  (f/write-nippy-atomic! (counters-path dir) {:seq @counter}))
+      (f/force! (:log k) false)
+      (f/force! (:idx k) true)))
+  (let [want @counter]
+    (when-not (= want @synced-seq)
+      (f/write-nippy-atomic! (counters-path dir) {:seq want})
+      (reset! synced-seq want)))
+  nil)
 
 (defn- close-quietly!
   "Run one close step, logging rather than throwing.  A single file that will not close
@@ -451,7 +603,7 @@
   to record."
   [{:keys [dir kinds dict] :as store}]
   (try
-    (fsync store true)
+    (fsync store)
     (f/write-clean-marker! dir (into {} (map (fn [[kind k]]
                                                [(clojure.core/name kind)
                                                 (locking (:lock k) (f/log-length (:log k)))]))
@@ -601,7 +753,7 @@
                counter (atom (recover-next-id root kinds))
                prem    (atom (rebuild-premises! (:sentexes kinds) root dict marked unsaid dirty?))]
            (f/create-dirty-marker! root)
-           (->DiskRecordStore root kinds counter prem dict))
+           (->DiskRecordStore root kinds counter (atom nil) prem dict))
          (catch Throwable t
            (doseq [c closers] (close-quietly! "a half-opened record store" c))
            (throw t)))))))
@@ -656,9 +808,18 @@
   reconcile needs has succeeded, so a crash (or a `close!`) before it leaves the
   complete originals authoritative and the temps discarded, and one after it replays
   the fsynced temps.  A `clear-records!` that lands mid-rewrite sets `:aborted`, and the
-  reconcile discards the temps rather than resurrecting the wiped state."
-  [k]
-  (let [{:keys [log-tmp idx-tmp marker]} (f/compact-temp-paths (:log-path k) (:idx-path k))
+  reconcile discards the temps rather than resurrecting the wiped state.
+
+  **A slot whose frame the log cannot give back is dropped, not carried.**  It is what a
+  truncated tail leaves under a slot the truncation did not reach, and a rewrite that
+  re-froze the nil would put the handle back as a live record fetching to nothing.  Such
+  a slot is tombstoned in the temp and the handle taken out of the live set, the premise
+  set and the record cache once the install lands — with a `:warn` per handle, since a
+  record disappearing is something an operator has to be told rather than shown by a
+  later count."
+  [k premises]
+  (let [{:keys [temps marker]} (f/compact-temp-paths (:log-path k) (:idx-path k))
+        [[_ log-tmp] [_ idx-tmp]] temps
         ;; snapshot (brief lock) — the live slots as of now; everything so far sits at
         ;; offset < cutoff (immutable), so the rewrite can read it lock-free.
         snapshot (locking (:lock k)
@@ -670,7 +831,29 @@
                      (vec live)))
         [rlog tlog tidx] (open-compaction-handles! (:log-path k) log-tmp idx-tmp)
         ;; the commit point, read by the failure path — see its comment
-        committed? (volatile! false)]
+        committed? (volatile! false)
+        ;; Slots whose frame the log could not give back — a tail a recovery truncated
+        ;; under a slot that survived it.  They are tombstoned in the temp rather than
+        ;; carried across: re-freezing the nil would put the handle back as a *live*
+        ;; record whose fetch is nil, an id `sentex-ids` names and `get-sentex` answers
+        ;; nothing for, and every walk over the ids trips on that one.
+        lost       (volatile! #{})
+        drop-lost! (fn []
+                     ;; only where the install landed, since only then is the tombstoned
+                     ;; idx the one the store is reading; the resident sets follow it
+                     (when (seq @lost)
+                       (swap! (:live-ids k) #(reduce disj % @lost))
+                       (swap! premises #(reduce disj % @lost))
+                       (when-let [^java.util.Map c (:cache k)]
+                         (doseq [id @lost] (.remove c id)))))
+        drop-slot! (fn [tidx id]
+                     (vswap! lost conj id)
+                     (trove/log! {:level :warn :id ::unreadable-frame
+                                  :msg (str "disk record store: compacting "
+                                            (:log-path k) " found no frame for handle "
+                                            id " — dropping the handle rather than "
+                                            "storing it empty")})
+                     (f/tombstone-slot! tidx id))]
     (try
       ;; the expensive rewrite — no lock held; reads the immutable region via `rlog`.
       ;; The flags are carried across from the source slot rather than re-derived: a
@@ -678,26 +861,34 @@
       ;; knows whether its record is a premise.  Losing them would not lose a premise
       ;; — an unannotated slot is answered from its record — but it would quietly put
       ;; every later open back to decoding the whole store.
-      (doseq [[id off _len flags] snapshot]
-        (let [rec         (f/read-record rlog off)
-              [noff plen] (f/append-record-sized! tlog rec)]
-          (f/write-slot! tidx id noff plen flags 0)))
+      ;; `read-record-sized`, because the snapshot tuple already carries the payload
+      ;; length: `read-record` would read the 4-byte header back off the log to learn a
+      ;; number the slot recorded, doubling the positional reads of a walk that is
+      ;; O(live records) by construction.
+      (doseq [[id off len flags] snapshot]
+        (if-let [rec (f/read-record-sized rlog off len)]
+          (let [[noff plen] (f/append-record-sized! tlog rec)]
+            (f/write-slot! tidx id noff plen flags 0))
+          (drop-slot! tidx id)))
       (f/close! rlog)
       ;; reconcile + swap (brief lock)
       (locking (:lock k)
         (let [{:keys [touched aborted]} @(:compacting k)]
           (if aborted
             (do (f/close! tlog) (f/close! tidx)
-                (f/delete-compact-temps! marker log-tmp idx-tmp))
+                (f/delete-compact-temps! marker temps))
             (do
               ;; fold in everything stored/killed during the rewrite: copy the current
               ;; frame of a still-live id, tombstone one that is gone.
               (doseq [id touched]
                 (let [slot (f/read-slot (:idx k) id)]
                   (if (and slot (not (:tombstone? slot)))
-                    (let [rec         (f/read-record (:log k) (:offset slot))
-                          [noff plen] (f/append-record-sized! tlog rec)]
-                      (f/write-slot! tidx id noff plen (:flags slot) 0))
+                    ;; the slot is in hand, so its length is too — one read, not two
+                    (if-let [rec (f/read-record-sized (:log k) (:offset slot)
+                                                      (:length slot))]
+                      (let [[noff plen] (f/append-record-sized! tlog rec)]
+                        (f/write-slot! tidx id noff plen (:flags slot) 0))
+                      (drop-slot! tidx id))
                     (f/tombstone-slot! tidx id))))
               ;; preserve the high-water mark so `next-id` (1 + max-slot) never reissues
               ;; a handle: if the highest live-idx slot (a deleted id keeps its slot) is
@@ -711,19 +902,25 @@
               (vreset! committed? true)
               (f/replay-temp-onto-raf! (:log k) log-tmp)
               (f/replay-temp-onto-raf! (:idx k) idx-tmp)
-              (f/delete-compact-temps! marker log-tmp idx-tmp)))
+              (f/delete-compact-temps! marker temps)
+              (drop-lost!)))
           (reset! (:compacting k) nil)))
       (catch Throwable t
         ;; A failure **before the marker** takes the temps with it.  No marker was
         ;; written, so the originals stay authoritative and a *later open* would drop
-        ;; them via `recover-log-compaction!` — but the next compaction **in this
+        ;; them via `recover-compaction!` — but the next compaction **in this
         ;; session** never goes through recovery, and `f/open-log` seeks to `.length`
         ;; while `f/open-idx` does not truncate.  It would open these and append, and the
         ;; reconcile would replay a temp holding this run's slots over the live index,
         ;; resurrecting records deleted in between.
-        (f/close! tlog) (f/close! tidx)
+        ;; quietly: the two temps have to be shut before the branch below deletes or
+        ;; replays them, and a close that threw here would replace `t` — the cause a
+        ;; caller needs — with an IOException about a temp file, and skip the recovery
+        ;; the branch exists to make.
+        (close-quietly! "the compaction temp log" #(f/close! tlog))
+        (close-quietly! "the compaction temp idx" #(f/close! tidx))
         (if-not @committed?
-          (do (f/delete-compact-temps! marker log-tmp idx-tmp)
+          (do (f/delete-compact-temps! marker temps)
               (throw t))
           ;; A failure **after** the marker leaves the temps: it is the commit point,
           ;; the fsynced temps are the truth, and `replay-temp-onto-raf!` truncates
@@ -736,7 +933,7 @@
           (let [again (try (locking (:lock k)
                              (f/replay-temp-onto-raf! (:log k) log-tmp)
                              (f/replay-temp-onto-raf! (:idx k) idx-tmp)
-                             (f/delete-compact-temps! marker log-tmp idx-tmp))
+                             (f/delete-compact-temps! marker temps))
                            nil
                            (catch Throwable t2 (.addSuppressed t2 t) t2))]
             (if again
@@ -748,21 +945,31 @@
                                          " until it is reopened")
                                :error again})
                   (throw again))
-              (trove/log! {:level :warn :id ::compaction-retried
-                           :msg (str "disk record store: installing the compacted "
-                                     (:log-path k) " failed after its commit point and"
-                                     " succeeded on retry")
-                           :error t})))))
+              (do (drop-lost!)
+                  (trove/log! {:level :warn :id ::compaction-retried
+                               :msg (str "disk record store: installing the compacted "
+                                         (:log-path k) " failed after its commit point"
+                                         " and succeeded on retry")
+                               :error t}))))))
       (finally
         ;; stop delta tracking even if the rewrite threw
         (reset! (:compacting k) nil)
-        (f/close! rlog) (f/close! tlog) (f/close! tidx)))))
+        ;; and give the three handles back one at a time, quietly: a close that threw
+        ;; here would take the handles after it with it — leaving RAFs open over a
+        ;; directory `close-dir!` unlocks regardless — and would mask whatever the body
+        ;; was throwing, which is the thing the caller has to read.  Each is already
+        ;; closed on the paths that got that far; `RandomAccessFile.close` is idempotent.
+        (close-quietly! "the compaction read handle" #(f/close! rlog))
+        (close-quietly! "the compaction temp log"    #(f/close! tlog))
+        (close-quietly! "the compaction temp idx"    #(f/close! tidx))))))
 
 (defn compact!
   "Compact every kind's log (reclaim the dead frames left by deletes and premise
-  re-stores).  Preserves all live records and their handles."
-  [{:keys [kinds]}]
-  (doseq [k (vals kinds)] (compact-kind! k)))
+  re-stores).  Preserves every live record and its handle — except a handle whose frame
+  the log cannot give back, which is dropped rather than re-stored empty
+  (`compact-kind!`)."
+  [{:keys [kinds premises]}]
+  (doseq [k (vals kinds)] (compact-kind! k premises)))
 
 ;; ---- what a paged store holds, declared ---------------------------------
 ;;

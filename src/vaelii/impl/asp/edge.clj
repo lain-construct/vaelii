@@ -163,9 +163,10 @@
          ;; different first-found optima for one KB.  The key is a COMPARABLE STRUCTURE
          ;; (a vector `compare` orders directly), not a printed string, and it is built
          ;; ONCE per nogood here — not by the sort's key fn, which `sort-by` re-invokes
-         ;; on every comparison.  The old key `(pr-str [ … ])` did both: it re-rendered
-         ;; the whole nogood, re-`content-key`'d every member, O(n log n) times over the
-         ;; nogood set, grounding the w7 3-colouring ~12× slower than arrival order did.
+         ;; on every comparison.  A printed key computed in the sort would do both: it
+         ;; re-renders the whole nogood and re-`content-key`s every member, O(n log n)
+         ;; times over the nogood set, which measures ~12× slower to ground a large
+         ;; 3-colouring than leaving the nogoods in arrival order does.
          contradictions (let [ck #(solve/content-key program %)]
                           (->> contradictions
                                (map (fn [ng]

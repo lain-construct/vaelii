@@ -302,6 +302,17 @@ locates a term at **any nesting depth**, and migration rewrites it there, so
 merging performs congruence closure eagerly over all ground content. No congruence
 algorithm is written, because the index already answers the question it would ask.
 
+**One position is exempt: a mention.** A term named as *syntax*, rather than one the
+sentence refers with, does not fold onto its referent's class — a `quotingFunction`'s arguments, and the
+proposition a `modalPredicate` attributes to its agent. `(believes Oedipus (marriedTo
+Oedipus Jocasta))` is not rewritten by a `sameAs` the *asker* holds, because an attitude is
+opaque and the asker's identities are not the agent's; the agent's own merges do rewrite
+it, where the projection reads them. A `rewriteOf` **spelling** rename reaches into a
+mention either way, since it retires a name rather than merging referents. The rule and
+both halves of what it buys are [belief.md](belief.md), "Opacity: the proposition is a
+mention"; the exemption is in the congruence walk itself, so migration and query hold it
+alike.
+
 ## `functional` infers equality instead of throwing
 
 `(functional P)` plus two different **symbols** for the same first argument

@@ -26,7 +26,8 @@
   Pure — no store, no fixture: a TMS is a graph of integers and needs neither."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.impl.dense-jtms :as dense]
-            [vaelii.impl.jtms :as jtms]))
+            [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.observe :as observe]))
 
 ;; ---- comparison ---------------------------------------------------------
 
@@ -516,6 +517,8 @@
             ex (try (jtms/add-premise t over :default) nil
                     (catch clojure.lang.ExceptionInfo e e))]
         (is (some? ex) "must throw rather than silently truncate")
+        (is (= :handle-ceiling (:type (ex-data ex)))
+            "on the refusal vocabulary a supervisor discriminates on (type_contract_test)")
         (is (= {:tms :reference} (:remedy (ex-data ex))) "carries the pin as the remedy")
         (is (= over (:value (ex-data ex))))
         (is (re-find #"reference" (.getMessage ^Throwable ex)))))
@@ -526,8 +529,75 @@
         (let [ex (try (jtms/add-justification
                        t (jtms/->Justification over :rule [1] 2 nil :default #{}))
                       nil (catch clojure.lang.ExceptionInfo e e))]
-          (is (= "justification id" (:kind (ex-data ex)))))))
+          (is (= "justification id" (:kind (ex-data ex))))
+          (is (= :handle-ceiling (:type (ex-data ex))) "one type for both entry points")
+          (is (= {:tms :reference} (:remedy (ex-data ex)))))))
     (testing "the reference network has no such ceiling"
       (let [t (jtms/create-tms)]
         (jtms/add-premise t over :default)
         (is (jtms/in? t over) "the Long-keyed reference holds a handle past 2^31")))))
+
+;; ---- the two places the dense network is not a line-for-line rewrite ------
+
+(deftest a-large-sweep-drops-every-swept-supersession-and-keeps-the-rest
+  ;; `superseded` is the one persistent map the dense network keeps, and a sweep drops the
+  ;; swept region from it in a single transient pass (`jtms/dissoc-all`).  A transient
+  ;; rewrite is exactly the shape that loses an entry at a boundary, so the region is made
+  ;; big enough to have boundaries and the answer is compared against the naive
+  ;; `apply dissoc` it stands in for — plus survivors, since a map emptied wholesale would
+  ;; pass a comparison against `{}` however it got there.
+  (let [swept    (range 1 151)                       ; derived from premise 0, all collected
+        survivor (range 200 220)                     ; premises of their own, never swept
+        sup      (into {} (map (fn [d] [(long d) {:rep (long (+ 1000 d))}]))
+                       (concat swept survivor))
+        expect   (apply dissoc sup swept)
+        build    (fn [t]
+                   (jtms/add-premise t 0 :default)
+                   (doseq [d swept]
+                     (jtms/ensure-node t d 1)
+                     (jtms/add-justification t (jtms/->just (+ 5000 d) 'r [0] d {} :monotonic)))
+                   (doseq [d survivor] (jtms/add-premise t d :default))
+                   (jtms/supersede t sup))]
+    (is (= (count survivor) (count expect)) "the naive answer keeps the survivors and nothing else")
+    (is (= expect
+           (both build
+                 (fn [t]
+                   (let [r (jtms/retract! t 0)]
+                     ;; the retracted premise goes with what it solely supported
+                     (is (= (inc (count swept)) (count (:removed-sentexes r)))
+                         "the whole derived region was swept")
+                     (jtms/superseded t)))))
+        "the swept region leaves the supersession map, and only it does")))
+
+(deftest ensuring-a-node-already-deep-enough-takes-no-write
+  ;; `-ensure-node` runs once per placement and the placement path calls it on nodes that
+  ;; already exist, so the exclusive write stamp is taken only where the write would change
+  ;; something.  Counting `ensure!` counts exactly the stamps taken: `with-write` wraps that
+  ;; call and nothing else in the method.
+  (let [t     (dense/create-dense-tms)
+        orig  @#'dense/ensure!
+        calls (atom 0)]
+    (with-redefs-fn {#'dense/ensure! (fn [& args] (swap! calls inc) (apply orig args))}
+      (fn []
+        (jtms/ensure-node t 1 3)
+        (is (= 1 @calls) "the first placement creates the node and writes")
+        (dotimes [_ 50] (jtms/ensure-node t 1 3))
+        (dotimes [_ 50] (jtms/ensure-node t 1 9))
+        (is (= 1 @calls)
+            "a node already at or below the asked depth is what `ensure!` would leave — no stamp")
+        (jtms/ensure-node t 1 0)
+        (is (= 2 @calls) "a shallower depth is a real write, and is taken")
+        (testing "the skip is under the fast-path switch, like the reference's"
+          (binding [observe/*chain-fast-paths* false]
+            (dotimes [_ 10] (jtms/ensure-node t 1 7))
+            (is (= 12 @calls) "the reference path writes every time")))))
+    (is (= 0 (jtms/depth t 1)) "and the depth the network holds is the shallowest asked")))
+
+(deftest re-ensuring-a-node-keeps-the-shallowest-depth
+  ;; The semantics the skip must not move: `ensure!` stores `(min stored asked)`, so a
+  ;; deeper ask is a no-op and a shallower one lowers the node — in both networks.
+  (is (= [3 3 0]
+         (both (fn [t] (jtms/ensure-node t 1 3))
+               (fn [t] [(jtms/depth t 1)
+                        (do (jtms/ensure-node t 1 9) (jtms/depth t 1))
+                        (do (jtms/ensure-node t 1 0) (jtms/depth t 1))])))))

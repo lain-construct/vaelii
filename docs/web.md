@@ -23,8 +23,11 @@ VAELII_WEB_PORT=3010 lein browser
 VAELII_WEB_PORT=3010 lein run -m vaelii.web            # the variable moves either one
 ```
 
-`VAELII_WEB_PORT` is the default rather than an override: an explicit `--port` wins, and
-a value that does not parse falls back to 3000 rather than refusing to start.
+`VAELII_WEB_PORT` is the default rather than an override: an explicit `--port` wins. Three
+sources are read in order — the variable, the `vaelii.web.port` system property (what a
+test sets, a JVM being unable to change its own environment), then 3000 — and a value that
+does not parse falls through to the next one rather than refusing to start
+([operations.md](operations.md) tabulates both).
 
 `--listen` and `--attach` are independent axes: `--listen` says who may reach the
 browser, `--attach` says whose KB it shows. The startup log names the interface it
@@ -436,13 +439,19 @@ silent no-op the whole page shape exists to avoid. So every route that changes a
 content goes through **`writing`**: `/assert`,
 `/edit`, `/retract`, `/demo`, `/reasoning`, `/sandbox/reset`, `/propose/apply` — and
 `/propose/preview`, which reads by really asserting and rolling back, and is therefore a
-writer for the duration. `/chain` goes through **`writing-job`**, the same guard for a
-write that *is* a job (below). `/kbs/load`, `/kbs/unload`, `/kbs/activate` and
+writer for the duration. `/chain` and POST `/funnel` go through **`writing-job`**, the same
+guard for a write that *is* a job (below); the two submit the same chaining run and differ
+only in the page it lands on. `/kbs/load`, `/kbs/unload`, `/kbs/activate` and
 `/jobs/cancel` are **not** guarded: they write this process's registry rather than a KB,
 and cancelling a job has to stay reachable precisely *because* one is running. `/kbs/unload`
 still hands `catalog/unload!` the write monitor, because *releasing* an entry is the end of
 a KB's stores: a synchronous write already past the write doors has to drain before they go
 rather than interleave with the clear, exactly as the export route's does.
+
+`/kbs/load` is the one KB write that runs outside this monitor altogether, and that is
+deliberate: a loader opens brand-new stores nothing else can name yet, so there is no KB on
+screen for it to interleave with, and its `:writes` claim in the job registry is what keeps
+it the only writing job for as long as it runs.
 
 The refusal renders as a **page**, not an error status, for the reason a catalog refusal
 does: an error status leaves htmx not swapping at all, so the write would look like it
@@ -475,6 +484,41 @@ write that slipped past a door in the moment before the job was submitted. Holdi
 across the walk instead parks every later `/kbs/unload` on a Jetty worker for the length
 of a multi-minute dump, with no page and no progress, on ring-jetty's default pool of 50.
 
+### A parameter the page cannot read is a 400, not a default
+
+A request parameter arrives as a string, and reading an unreadable one as "absent" gives
+every route a *second* meaning for a typo — one it then acts on without saying so.
+`?max-derivations=abc` is the sharp case: absent, that parameter means **no bound**, so a
+mistyped one ran the fixpoint unbounded. `?d=abc` took the search page's default depth,
+`?calc=rcc9` drew a different algebra's matrix under the name that was asked for, and the
+assert form's `strength` was tested for presence alone, so any value at all — including
+`default`, which a caller could send meaning the opposite — asserted `{:strength
+:monotonic}`.
+
+So each is validated and each refusal is `bad-parameter`: **400**, rendered as a page (the
+chrome is how a reader who hand-edited a URL gets back), naming the parameter, quoting the
+value and saying what would have been legal. `?d=` is held to the range its own form
+declares — `debug-depth-max`, the number the `<input max>` is written from — because a form
+offering 12 beside a route accepting any depth is a control that describes nothing. An
+*empty* control is the control not being submitted, and still takes the default: what is
+refused is a value, never an absence.
+
+`/levels` and `/levels/rows` refuse one more thing, and it is a value their own context box
+will send: a **query context**. `CxEverything`, `CxInference` and `CxNothing` are readings
+rather than places ([contexts.md](contexts.md)), and the levels read through doors that do
+not resolve one — so the engine answers `:unsupported-context`, which this handler stack
+has no exception middleware to render, and Jetty answers 500. Checked before the read, it
+is the same 400 page, naming the context and the three that are not places. The fragment
+route answers it too rather than an empty list: htmx swaps only a 2xx, so a reader
+scrolling keeps the rows they had.
+
+`&offset=` is the other one, and it is capped rather than refused. A continuation cursor is
+*arithmetic* — `/find/rows` asks the term roster for `offset + find-cap + 1` names — so an
+unbounded one overflows that addition into an `ArithmeticException` and the same 500. One
+ceiling in `->offset` covers all six continuation routes, a billion rows past anything a
+sentinel writes. An offset past the end is not a bad request but a cursor pointing past the
+last row, and the honest answer to that is the empty page it already gives.
+
 ## Long work as jobs
 
 Three things here take minutes rather than milliseconds — filling a KB from a corpus,
@@ -490,6 +534,11 @@ of anything.
 at its next progress report, which for a phase that reports none (opening a large store
 scans its whole record log before it says anything) can be a while. An entry on `/kbs`
 wears its load's status, so the two never disagree about what a load is doing.
+
+It answers **whether there was a run to stop**, which is not the same question as whether
+the registry still holds the id: a settled job keeps its report there for an hour, so the
+reader who clicks stop the moment a run finishes gets false, and `/jobs/cancel` says
+nothing happened rather than reporting a cancellation over work already done.
 
 **The 250 ms fast path is the detail that makes this usable.** A job that settles inside
 `jobs/fast-path-ms` is answered with its *result* — `/chain` on the shipped schema still
@@ -519,6 +568,16 @@ stops two jobs interleaving is the claim.
 **Cancellation never interrupts a job that writes a KB.** A thread interrupt landing
 mid-cascade on a durable store surfaces as `ClosedByInterruptException` and can leave a
 torn write, so a KB-writing job is flagged and left to notice, however long that takes.
+
+Where a job *is* interruptible — one that writes nothing and says so — the interrupt is
+fenced at both ends, because a job runs on a **pooled** thread and `cancel!` decides from
+one read of the registry. The job's body publishes `:released` under the job's own monitor
+as it unwinds, and `cancel!` re-reads it there: past that point the thread belongs to the
+pool, and an interrupt sent then would land on whatever ran next — a task nobody cancelled,
+unwinding on somebody else's request. The other end is the caller's: the bounded wait for a
+job to publish its thread is itself interruptible, and clears the *canceller's* flag on the
+way out, so `cancel!` restores it and answers rather than letting an
+`InterruptedException` out into the handler that asked.
 What a stopped run leaves is stated where the run is started: a cancelled chaining run
 leaves the conclusions it had already placed, a cancelled load leaves the sentexes that
 had already landed, and neither is a corrupt KB — it is the ordinary open-world prefix.
@@ -599,8 +658,9 @@ than by hard-coding them.
 a rendering question: a row whose rates belong to the process keeps them through a clear —
 the entries dropped are this KB's alone, and the hit and miss counters every other KB's
 page is reading keep running, since they are a measurement a second reader may be partway
-through. The literal cache is that row — its entries go for this KB alone, its counters
-belong to all of them — and no other KB loses an entry, a counter or a belief. Zeroing
+through. The literal cache and the closure neighbours are those rows — their entries go for
+this KB alone (or for the step holding them), their counters belong to every KB — and no
+other KB loses an entry, a counter or a belief. Zeroing
 the process-wide rates is `clear-caches`' `:counters?` option, which the button does not
 pass. The page says which rows those are the same way it says which are left alone, by
 asking the rows for `:clearable?` and `:counters` rather than by naming a cache in prose
@@ -626,6 +686,12 @@ this KB. `VAELII_PROFILER` starts `clj-async-profiler`'s UI with the browser and
 `VAELII_PROFILER_PORT` moves it off 8080; the call site is a `requiring-resolve`, so it
 exists without the dependency, which ships in the `:repl` profile. With the class absent
 the page says so plainly instead of rendering a link to a port nothing is listening on.
+
+**One UI, whoever asks.** Both entry points call `start-profiler` and a namespace reload
+calls it again, so the state is a `defonce` — and the claim on it is a
+`compare-and-set!` rather than a read followed by a start, since two callers at once both
+pass a read and then race for the port. A start that *fails* puts the state back: nothing
+holds the port, so a later call is free to try again.
 
 **Something links to it.** A diagnostics page with no anchor pointing at it is a page
 nobody reads, so `/stats`, `/kbs` and `/jobs` each carry a line here — the three places a
@@ -791,10 +857,11 @@ Clear.
   name — a reverse proxy preserving the original `Host`, a local alias. A request
   with **no** `Host` header passes: every browser sends one, so its absence marks a
   non-browser client with no ambient browser context to ride.
-  The second layer is the write guard. Nine routes go through
-  `writing` above: `/edit`, `/assert`, `/retract`, `/chain`, `/demo`, `/reasoning`,
+  The second layer is the write guard. Ten routes go through it: eight through
+  `writing` above — `/edit`, `/assert`, `/retract`, `/demo`, `/reasoning`,
   `/sandbox/reset`, `/propose/apply` and `/propose/preview` (a writer for the length of
-  the rollback it does). Nothing authenticates them, so each compares the request's
+  the rollback it does) — and `/chain` and POST `/funnel` through `writing-job`, which
+  submits the same run from either page. Nothing authenticates them, so each compares the request's
   `Origin` (falling back to `Referer`) to its own `Host` and answers 403 on a mismatch.
   A browser stamps that header on a form or fetch
   POST and a page on another site cannot forge it, so another tab cannot drive the
@@ -1262,7 +1329,19 @@ KB on top of that. The bounded page holds at ~15–22 KB throughout.
 **This is the only pagination there is**, so it has to hold at any size — a term with
 thousands of sentexes is walkable one sentinel at a time, every row reachable, none
 served twice, and the walk terminates. `web_test` proves it over 2400 sentexes on one
-predicate: 40 pages of 60, then the sentinel stops.
+predicate: 40 pages of 60, then the sentinel stops, and the handles the walk yields are
+compared as a *set* against the group's extent rather than counted.
+
+**A listing is ordered by handle, and that is the ordering by design.** Handle order is
+allocation order, so a listing reads oldest-first; the sentex lists, the justification
+lists and every index group on a term page share it (`group-order`). It is chosen for
+exactly one property — paging is a re-slice of the same sequence at an offset, so the
+order has to be one a later request reproduces exactly, and a content ordering moves under
+every write, which would show a reader who scrolled past an offset a row twice or not at
+all. Two things it is not. It is not a **ranking**: the previous section is where the page
+ranks, and nothing about being asserted first makes a sentex more interesting. And it is
+not a **cap**: nothing is dropped by it, the sentinel walks the whole group, and the count
+beside a group's heading is its stored total rather than the page's.
 
 ## Rendering sentences
 

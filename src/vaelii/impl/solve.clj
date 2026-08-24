@@ -20,9 +20,9 @@
     invariant (docs/nmtms.md): the same knowledge, given in any order, must yield
     the same beliefs.
 
-  A `Program` is a self-contained description a real backend renders to ASP.  This
-  namespace ships only a deterministic local *stub* solver; a real backend is a
-  future plug-in registered with `core/set-solver`."
+  A `Program` is a self-contained description a backend renders to ASP.  This namespace
+  holds the seam and one deterministic local solver behind it; the answer-set backend is
+  `vaelii.impl.asp.edge/edge-solver`, installed with `core/set-solver` (docs/asp.md)."
   (:require [clojure.set :as set]
             [vaelii.impl.naming :as nm]))
 
@@ -125,7 +125,9 @@
               ;; three-member nogood with one member already defeated still has two
               ;; live, so it would be decided a second time and a second datum
               ;; disbelieved to satisfy a constraint that already holds.  The engine
-              ;; only builds pairs today, which is why this was invisible.
+              ;; builds only pairs, so no sequence of `assert`s reaches the wider case;
+              ;; `solve_test`'s `a-wider-nogood-is-satisfied-by-one-defeated-member`
+              ;; hands it a three-member nogood at the `Program` level instead.
               (< (count live) (count nogood)) (recur defeated violated (rest ngs))
               ;; The `:neg` half is an at-least-one: any member still believed
               ;; satisfies it, a fixed member (outside `assumptions`) permanently so.

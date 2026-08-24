@@ -486,11 +486,16 @@
 
 ;; ---- retraction ---------------------------------------------------------
 
-(defn- dissoc-all
+(defn dissoc-all
   "`(apply dissoc m ks)` in one transient pass.  `apply dissoc` walks the map once per
-  key with a full HAMT path copy each time, and `dead` here is the whole swept region of
+  key with a full HAMT path copy each time, and `ks` here is the whole swept region of
   a retraction — which is a routine path rather than a rare one, since an `exceptWhen`
-  block runs the sweep on ordinary fact arrival."
+  block runs the sweep on ordinary fact arrival.
+
+  Public because the dense network sweeps the same region out of the same shape: its
+  `superseded` is the one persistent map it keeps (docs/density.md), so
+  `vaelii.impl.dense-jtms` drops a swept region from it through this rather than
+  through a second copy of the reasoning."
   [m ks]
   (if (seq ks) (persistent! (reduce dissoc! (transient (or m {})) ks)) (or m {})))
 

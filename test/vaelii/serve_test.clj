@@ -513,6 +513,20 @@
           (testing "why over the wire returns a proof tree"
             (let [h (client/handle-of conn (list flies Tweety) CxWire)]
               (is (map? (client/why conn h)))))
+          (testing "and a truncated one is re-askable deeper, which is what the opts
+                    arity is for: the bound clips a branch to `{:truncated? true}`, and a
+                    remote reader with no way to raise it sees that a proof was clipped
+                    and never sees the rest of it"
+            (let [h     (client/handle-of conn (list flies Tweety) CxWire)
+                  clipped? (fn clipped? [node]
+                             (boolean (or (:truncated? node)
+                                          (some (fn [j] (some clipped? (:because j)))
+                                                (:support node)))))]
+              (is (clipped? (client/why conn h {:max-depth 1})))
+              (is (not (clipped? (client/why conn h {:max-depth 32}))))
+              (is (thrown? clojure.lang.ExceptionInfo (client/why conn h {:max-dpeth 32}))
+                  "and the daemon holds the opts to the same roster the in-process door
+                   does, rather than taking a default in silence")))
           (testing "a remote refusal surfaces as an ex-info carrying the daemon error"
             (is (thrown? clojure.lang.ExceptionInfo
                          (client/assert! conn (list bird '?anything) CxWire))))

@@ -330,6 +330,42 @@ both directions (it is one-way — a sub-predicate satisfies a super, not the re
 forward chaining and `ask` reaching through it, belief-following on retract, and that
 `match-pattern` equals exactly the union of raw matches over the spec closure.
 
+**Under a negation the fan reverses.** A `genl` edge carries the other way through
+one: `dog ⊑ animal` puts a stored `(dog Muffet)` under the pattern `(animal ?x)`, and
+puts a stored `(not (animal Muffet))` under the pattern `(not (dog ?x))`, because
+`¬animal ⊑ ¬dog` is the contrapositive of the same edge. So a negative literal fans its
+**body's** functor over `genls` where a positive one fans over `specs` — `res/super-predicates`
+beside `res/sub-predicates`, one definition each so the reference matcher and the rete
+alpha matcher cannot drift. The `not` itself heads nothing and has no closure, so the fan
+reads inside it and rebuilds the negation around each member.
+
+The two directions are exclusive, and the wrong one is what `negative_subsumption_test`
+pins hardest: `(not (dog Muffet))` does **not** satisfy `(not (animal ?x))`, since a
+non-dog may be any other animal. Polarity does not cross either, in either direction. The
+up set is bounded by the hierarchy's depth where the down set is a whole subtree, so the
+negative fan is the cheaper of the two per pattern; the cost lands on the other side
+instead, in which rules an arriving negation reaches. There `rules/trigger-keys`
+enumerates from the **rule roster** rather than from the spec closure: a negation triggers
+the `[:not q]` keys for the specs `q` of its body's predicate, and reading them off
+`:rule-antecedents` (the live map of keys some rule reads) costs one `genls` test per such
+key instead of one index probe per type under the predicate — an arriving `(not (thing X))`
+would otherwise probe once per type in the KB. A KB whose rules read no negation pays a
+map read.
+
+**The two things a subsumption match owes beyond the match reverse with it.** A firing
+that climbed an edge names a witness for the path it climbed, and under a negation that
+path runs from the *antecedent's* body up to the fact's rather than the other way — so
+`chain/subsumption-links` pairs each matched fact with the antecedent **key** it satisfied
+(`rules/antecedent-key`: a functor, or `[:not functor]`) instead of with a bare functor,
+which is `not` for every negation there is, and reads the direction off that key's
+polarity. And an edge arriving *after* the facts owes a re-seeding of what it newly makes
+matchable, which for a negated antecedent sits on the far side of the edge:
+`special/subsumption-seeds` reads a positive antecedent's new facts down `sub`'s spec
+subtree and a negated one's negative facts up `super`'s genl closure, the latter gated on
+some rule actually reading a negation under `sub` so that a KB with none pays one pass
+over the antecedent roster. Without either half, retracting the edge leaves the conclusion
+standing and the same three sentences derive it in one arrival order and not the other.
+
 **What already fired follows the edge too.** A subsumption match is a use of the edge,
 so the firing's justification names a witness for the `genl` path it climbed
 (`taxonomy/reach-support`, one supporter per edge, drawn from what the conclusion's
@@ -353,7 +389,13 @@ bounded by the number of concluding rules, never the taxonomy), and both chainer
 `res/subsuming-unify` — `match1` with the roles swapped, binding the goal variable to
 the subtype instance. Exact-functor and inert cases still degenerate to a plain
 `unify`. A supertype-concluding rule does **not** answer a subtype goal (the
-one-wayness again), and the whole thing follows belief through the same closure. In the
+one-wayness again), and the whole thing follows belief through the same closure. The
+negative mirror holds here too: a rule concluding `(not (animal ?x))` answers the goal
+`(not (dog A))`, `subsuming-unify` reading `genls` where the polarity is negative and
+`specs` where it is positive. No index change carries it, because every negated
+conclusion is already filed under one `not` bucket (`rules/consequent-predicate` reads
+the functor root), so the candidate set was always the coarse one and it is
+`subsuming-unify` that decides. In the
 default assert-then-query flow a forward-capable rule has already materialized the
 subtype conclusion, so this only *adds* answers where forward has not run it — a
 backward-only rule, `{:chain? false}`, or a goal past the forward run's depth.
@@ -966,6 +1008,15 @@ answer set, the same claim `plan/*enabled*` makes and the same way it is checked
 suite is a gate in both positions. `stats` reports `{:size :hits :misses :clock}` and
 `clear-cache` drops a KB's entries.
 
+One reader opts out of it, and it is the reader with no repeat to serve: a transitive
+closure walk visits each node once and so asks each neighbour literal once, while its
+insertion per node would push the cache past its bound and clear it part-way through —
+evicting the metadata literals a rule-heavy query really does re-ask. It opts out by
+passing `matches-visible` a false `cached?` rather than by rebinding the toggle, so the exemption
+reaches the neighbour probe and not everything under the walk. A walk's repetition is
+held where it is instead, in the closure answers and the search step's reach memo
+([caches.md](caches.md)).
+
 ## Conjunctive query planning (`vaelii.impl.plan`)
 
 A conjunction is commutative — `[(parentOf Tom ?y) (dog ?y)]` and its reverse have
@@ -1373,7 +1424,7 @@ functor — but a computed literal must not draw support from a stored twin, or 
 conclusion would carry two justifications disagreeing about what supports it.
 
 **The starter's `olderThan` rule is not an example of this**, despite joining
-`birthYearOf` with `(lessThan ?bx ?by)`: it is asserted `{:direction :backward}` on
+`birthYearOf` with `(lessThan ?bx ?by)`: it is wrapped `set/backwardRule` on
 purpose, so that the O(n²) ordered pairs are never materialized. It derives nothing
 forward, and correctly so — `query` at a depth answers it by backward chaining.
 Restating the same antecedents as a forward rule is what shows the deferred join at
@@ -1476,7 +1527,7 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   both jobs: it maintains its taxonomy property (canonicalization, the generic provers)
   **and**, through `(genl symmetric binaryPredicate)` in CxCore, is a queryable
   `binaryPredicate` type. There is no derived `…Predicate` twin. So `(symmetric ?p)` is
-  answered by ordinary retrieval of the stored mark (the `MatchProver`), scoped to the
+  answered by ordinary retrieval of the stored mark (the `FactProver`), scoped to the
   asking vantage like every read; `isa? siblingOf symmetric` and `isa? siblingOf
   binaryPredicate` follow the genl closure from that same stored membership. The shipped
   marks are `decontextualizedPredicate`s lifted into CxUniverse, so on a real KB every
@@ -1532,9 +1583,20 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   **constraint** when asserting, and an **inference** when querying (Muffet eats
   Bone1 and eat's 2nd argument is food ⇒ Bone1 is food). On-demand, never
   materialized. Partial (50).
+- **BeliefProjectionProver** — a registered `(modalPredicate P)` of arity 2 with a ground
+  agent: `(believes A P)` is answered by running `P` through the registry in the agent's
+  own context rather than the asker's. `:compute`, partial (50) — `believes` stays an
+  ordinary assertible relation, so a stored belief and a projected one are unioned. See
+  [belief.md](belief.md).
+- **MetaConstraintProver** — the argument-type meta-predicates read up the `genl`
+  closure, so `(arg petMammal 1 animal)` succeeds off a stored
+  `(arg petMammal 1 mammal)`. A bounded closure walk rather than a preservation
+  declaration, which would route every `arg` lookup in the KB through the general
+  machinery. `:compute`, partial (50) — it augments the stored declaration `FactProver`
+  already answers. See [argtypes.md](argtypes.md).
 - **FactProver** — index matches (`matches-visible`). Partial (50).
 
-Seventeen in all, and `provers/registry` is the live list — an application's own
+Eighteen in all, and `provers/registry` is the live list — an application's own
 provers sit beside them in the same atom.
 
 **No prover expands a rule.** Rule search is `core/query`'s, at a depth the caller

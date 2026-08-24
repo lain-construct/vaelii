@@ -135,7 +135,7 @@
                      "BeliefProjectionProver"))
       "an unregistered predicate is not the projector's")
   ;; grant it, and the same projection now answers it
-  (v/register-modal-predicate! kb 'knows)
+  (v/register-modal-predicate kb 'knows)
   (is (runs? kb '(knows Alice (dreamsOf Alice Wonderland)) "BeliefProjectionProver")
       "a registered predicate projects like believes")
   (is (v/ask? kb '(knows Alice (dreamsOf Alice Wonderland)) ask-ctx)))
@@ -196,7 +196,7 @@
 (tu/deftest-kb a-modal-grant-is-a-policy-of-the-context-that-holds-it
   (believe! kb 'Alice '(sings Lark))
   (v/assert kb '(binaryPredicate deems) 'CxPsych)     ; a predicate CxPsych can see
-  (v/register-modal-predicate! kb 'deems 'CxPsych)    ; granted modal *only* in CxPsych
+  (v/register-modal-predicate kb 'deems 'CxPsych)     ; granted modal *only* in CxPsych
   (let [goal '(deems Alice (sings Lark))]
     (testing "asked from the granting context, the projector runs and answers"
       (is (some #(and (= "BeliefProjectionProver" (:prover %)) (:runs? %))
@@ -217,7 +217,7 @@
     (is (not (v/ask? kb '(believes Cara (runs Bolt)) ask-ctx))))
   (testing "retracting the modalPredicate grant ends projection for that predicate"
     (v/assert kb '(binaryPredicate hopes) 'CxUniverse)
-    (v/register-modal-predicate! kb 'hopes)           ; granted in CxCore
+    (v/register-modal-predicate kb 'hopes)            ; granted in CxCore
     (believe! kb 'Cara '(wins Race))
     (is (runs? kb '(hopes Cara (wins Race)) "BeliefProjectionProver"))
     (v/retract! kb (v/handle-of kb '(modalPredicate hopes) 'CxCore))
@@ -260,7 +260,7 @@
   ;; `believes` grant and a runtime-registered one.
   (believe! kb 'Alice '(flies Tweety))
   (v/assert kb '(binaryPredicate knows) 'CxUniverse)
-  (v/register-modal-predicate! kb 'knows)                 ; a runtime grant, stored in CxCore
+  (v/register-modal-predicate kb 'knows)                  ; a runtime grant, stored in CxCore
   (believe! kb 'Alice '(dreamsOf Alice Wonderland))
   (testing "both the shipped and the runtime grant project before the rebuild"
     (is (runs? kb '(believes Alice (flies Tweety)) "BeliefProjectionProver"))

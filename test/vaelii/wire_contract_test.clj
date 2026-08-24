@@ -128,3 +128,37 @@
         (doseq [[label _ _ reply] (conj pinned ["an engine refusal" nil nil engine])]
           (is (false? (:ok reply)) label)
           (is (keyword? (:type reply)) label))))))
+
+(tu/deftest-kb a-refusal-from-any-served-door-is-a-400
+  ;; `client-error-types` is a roster written by hand, and its failure mode is quiet: a
+  ;; refusal type born at one door and never added to it answers **500**, which every
+  ;; reverse proxy and 5xx alarm between the caller and the daemon counts as a backend
+  ;; fault — for a request the caller wrote.  `assert`'s own vocabulary is pinned above;
+  ;; these are the doors beside it, one refusal each, driven through the same handler.
+  (tu/with-terms [before Alice atOrAbove dog Rex]
+    (let [handler (open-app kb)
+          op!     (fn [op args] (post-raw handler edn-headers (op-body op args)))
+          ;; a directory no export ever reaches: both refusals below run before the
+          ;; destination is touched, so nothing is created and nothing needs cleaning up
+          nowhere "/vaelii-export-that-is-never-written"]
+      (op! :assert [(list 'irreflexive before) 'CxUniverse])
+      (op! :assert [(list 'antiSymmetric atOrAbove) 'CxUniverse])
+      (op! :assert [(list atOrAbove 1 2) 'CxUniverse])
+      (doseq [[label ty reply]
+              [["a self tuple of an irreflexive predicate" :irreflexive
+                (op! :assert [(list before Alice Alice) 'CxUniverse])]
+               ["a converse no equality could merge" :anti-symmetric
+                (op! :assert [(list atOrAbove 2 1) 'CxUniverse])]
+               ;; the read doors that do not resolve a query context refuse it rather
+               ;; than answering empty (docs/contexts.md); over the wire that refusal is
+               ;; the caller naming a reading this op does not offer
+               ["a query context at a read that does not resolve one" :unsupported-context
+                (op! :why-not [(list dog Rex) 'CxEverything])]
+               ["a dump variant this build does not write" :unsupported-variant
+                (op! :export [nowhere {:variant :everything}])]
+               ["a codec this build does not write" :unsupported-compression
+                (op! :export [nowhere {:compression :zstd}])]]]
+        (testing label
+          (is (false? (:ok reply)) label)
+          (is (= ty (:type reply)) label)
+          (is (= 400 (:status reply)) label))))))

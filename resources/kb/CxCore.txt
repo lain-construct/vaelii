@@ -72,13 +72,44 @@
 (arg quotedArg 2 integer)
 (genlArg quotedArg 3 thing)
 
-;; The syntactic types quotedArg constrains against — the EDN kinds a literal argument can
-;; carry, placed in the genl lattice so (quotedArg p n number) admits an integer and a bare
-;; type reaches thing.  A quoted argument is classified by kind (checks/literal-type), not by
-;; any stored membership, so these need only their place in the hierarchy.
+;; The literal types — the EDN kinds a literal argument can carry, placed in the genl
+;; lattice so (quotedArg p n number) admits an integer and a bare type reaches thing.  A
+;; quoted argument is classified by kind (checks/literal-type), not by any stored
+;; membership, so these need only their place in the hierarchy.
+;;
+;; These are the KB's ONLY names for the kinds a literal argument can carry, and there is
+;; deliberately no parallel domain vocabulary beside them.  The use/mention distinction is
+;; carried by the DECLARATION — arg types what an argument denotes, quotedArg types the
+;; term written there — and not by a second set of type names: a string literal denotes
+;; itself, so both questions are asked of one set, and (arg comment 2 string) and
+;; (quotedArg p n string) name the same type for the same reason.  A second spelling buys
+;; nothing and costs a trap, quotedArg reading a type outside this lattice open-world
+;; (checks/syntactic-type?): a declaration naming the other spelling is silently inert.
+;;
+;; symbol is the exception, and is mention-only.  A symbol does not denote itself, so the
+;; set of names and the set of things named are not one set — parentOf is written as a
+;; symbol and denotes a predicate.  So symbol gets no domain placement and no
+;; disjointness below; a use-level claim about it would be false of every predicate name.
+;; One name per leaf kind a sentence can carry, and the set is complete on purpose.  A
+;; literal is typed by what it IS rather than by what somebody asserted, so a kind with no
+;; name here is one the argument checks cannot place and must wave through — which is a
+;; hole in a declaration rather than a policy.  A COMPOUND is the one exception and gets
+;; no name here: what (QuantityFn 5 Meter) denotes is its function's business, so the
+;; argument checks read it off result / genlResult instead and no kind would be the
+;; right answer.
+(comment string  "A run of text. The EDN string kind, and what a text-valued argument position holds — either as the literal written there (quotedArg) or as what the term written there denotes (arg).")
+(comment number  "A number, with integer below it. The EDN numeric kinds.")
+(comment integer "A whole number.")
+(comment keyword "An EDN keyword, :like_this. A term that names itself and carries no denotation the KB reasons about.")
+(comment boolean "True or false, written as the literal.")
+(comment character "A single character, written \\a. Not a one-letter string: the two are separate EDN kinds and neither is below the other.")
+(comment symbol  "A name — the term written in an argument position, whatever that term denotes. Mention-only: see the note above its declaration.")
 (genl string thing)
 (genl number thing)
 (genl integer number)
+(genl keyword thing)
+(genl boolean thing)
+(genl character thing)
 (genl symbol thing)
 
 (comment interArg
@@ -129,7 +160,7 @@
 (binaryPredicate comment)
 (instanceRelationPredicate comment)
 (arg comment 1 thing)
-(arg comment 2 character_string)
+(arg comment 2 string)
 
 (comment contradicts
          "(contradicts ?sentence (not ?sentence)) means that the two sides are a contradiction among known-true beliefs that could not be resolved. The report form (conflicts kb) returns, so it is the result of a solve rather than a fact anyone asserts.")
@@ -158,9 +189,10 @@
 ;; ?x, each expanded into ordinary forward rules at assert (docs/defns.md).  The fact is
 ;; stored like any other — so it retracts and belief-follows — and its condition argument
 ;; is a sentence carrying ?x, which is why arg 2 is typed as a thing (a compound term is
-;; not classified) and arg 1 with genlArg (the collection names a kind, like disjoint's).
+;; typed by what its function is declared to yield, and nothing declared fails to reach
+;; thing) and arg 1 with genlArg (the collection names a kind, like disjoint's).
 ;; Neither relationKind: they relate a kind to a sentence, so they are honestly mixed and
-;; left unmarked, as resultIsa is.
+;; left unmarked, as result is.
 
 (comment defnNecessary
          "(defnNecessary ?collection ?condition) means that every instance of ?collection satisfies ?condition — a necessary condition on membership, written over the member ?x. Expands to the forward rule (implies (?collection ?x) ?condition), so an instance's membership entails the condition of it. Open-world: it says what members must satisfy, never that satisfying it makes a member (that is defnSufficient), and never that a non-member fails it.")
@@ -214,23 +246,29 @@
 ;; cannot satisfy: genl is irreflexive here, so (genl thing thing) is refused as
 ;; not-well-formed. Under the assertive reading the declaration would therefore entail
 ;; a conclusion the KB drops, once per genl edge naming thing. A constraint the root
-;; fails is the wrong constraint, not a missing one.
+;; fails is the wrong constraint, not a missing one. The position is not thereby
+;; unconstrained: genl is a typeRelationPredicate, which says of every one of its
+;; positions what genlArg says of one, and the rule-variable check reads it that way.
 
 (comment reifiableFunction
-         "(reifiableFunction ?function) means that ?function denotes an object. A ground application of it is a non-atomic term, and reifies to an opaque nat/-namespaced constant before it reaches the index, so it autoindexes like an atomic symbol while every page still renders it as the expression it was minted from. See docs/nat.md.")
+         "(reifiableFunction ?function) means that ?function denotes an object. A ground application of it is a non-atomic term, and reifies to an opaque nat/-namespaced constant before it reaches the index, so it autoindexes like an atomic symbol while every page still renders it as the expression it was minted from. Declare it when the applications are BOUNDED — one value per argument tuple, over a domain that does not run away: (FatherFn Muffet) is one constant per animal, and an AdultFn one per individual. That is the criterion the two marks are chosen by, reification storing a constant per distinct application and keeping it. Also a type: (reifiableFunction F) classifies F as a function, so a KB can be queried for the functions it holds. See docs/nat.md.")
 (unaryPredicate reifiableFunction)
+(genl reifiableFunction function)
 
 (comment unreifiableFunction
-         "(unreifiableFunction ?function) means that ?function is evaluated rather than denoting an object. Its application stays structural and is computed by a prover instead of being minted into a constant, so (QuantityFn 5 Meter) keeps its magnitude and its unit readable inside the sentence.")
+         "(unreifiableFunction ?function) means that ?function is evaluated rather than denoting an object. Its application stays structural and is computed by a prover instead of being minted into a constant, so (QuantityFn 5 Meter) keeps its magnitude and its unit readable inside the sentence. The mark to reach for whenever the applications are UNBOUNDED, which is the other half of reifiableFunction's criterion: (QuantityFn 5 Meter), (QuantityFn 5.001 Meter) and every magnitude between them run over the reals, and a minted constant apiece is a store nothing bounds. A measure function is the standing example, and is never reifiable however atomic its value reads. Also a type: (unreifiableFunction F) classifies F as a function. See docs/nat.md.")
 (unaryPredicate unreifiableFunction)
+(genl unreifiableFunction function)
 
 (comment quotingFunction
          "(quotingFunction ?function) means that ?function's arguments are a mention — a term named as syntax rather than used. They are held opaque to identity congruence: an equality merge rewrites them by a rewriteOf spelling rename only, never by a sameAs or equals coreference, so a quoted term does not fold onto its referent's class. Orthogonal to reifiableFunction/unreifiableFunction, which decide whether the application is minted: Quote is reifiable and quoting, Quasiquote is unreifiable and quoting. Declared before use, like reifiableFunction: opacity is applied when a mention is reified and again in the equality congruence, each gated on the mark being present then. So mark ?function quoting before the mentions it governs are asserted and before any identity merge over their referents: a reify or merge processed while the mark is absent — before it is declared, or after it is retracted — is not held opaque and folds the mention onto its referent's class. See docs/nat.md.")
 (unaryPredicate quotingFunction)
+(genl quotingFunction function)
 
 (comment contextDenotingFunction
          "(contextDenotingFunction ?function) means that ?function denotes a context. A ground application of it — a Cx*Fn like (CxTimeFn CxMonad (DatetimeFn \"2000\")) — reifies to an opaque cx/-namespaced constant that classifies as a context, so a sentex can be stored in it and it can be a genlCx node, while its structural (unreifiable) argument stays readable inside the termOfUnit map. Reification decides term identity, so it is read context-independently and belief-following, like reifiableFunction. See docs/context-nat.md.")
 (unaryPredicate contextDenotingFunction)
+(genl contextDenotingFunction function)
 
 (comment contextArgSubrelation
          "(contextArgSubrelation ?function ?position ?subrelation) means that two contexts denoted by ?function and identical except at argument ?position are ordered by ?subrelation on that argument: the context whose argument is ?subrelation-below the other's is a spec (sub)context of it, and the producer materializes the genlCx edge. So (contextArgSubrelation CxTimeFn 2 subintervalOf) makes (CxTimeFn CxMonad (DatetimeFn \"2000-01\")) a subcontext of (CxTimeFn CxMonad (DatetimeFn \"2000\")) because January 2000 is a subinterval of 2000 — with nobody asserting that genlCx edge. ?position is 1-based over ?function's arguments. See docs/context-nat.md.")
@@ -249,17 +287,17 @@
 (arg rewriteOf 1 thing)
 (arg rewriteOf 2 thing)
 
-(comment resultIsa
-         "(resultIsa ?function ?type) means that the output of the reifiable ?function is an instance of ?type. Materialized as (?type K) on each freshly minted constant K whose function is ?function, so the membership is a real sentex with a justification rather than a rule that would have to run at read time.")
-(binaryPredicate resultIsa)
-(arg resultIsa 1 function)
-(genlArg resultIsa 2 thing)
+(comment result
+         "(result ?function ?type) means that the output of ?function is an instance of ?type. Read for both kinds of function, and where the type is held is what the reifiability mark decides: a REIFIABLE function's application is minted, so the membership is materialized as (?type K) on the freshly minted constant K — a real sentex with a justification, rather than a rule that would have to run at read time — and an UNREIFIABLE one has no constant to hang it on, so its applications are typed from this declaration at check time instead. One declaration, one verdict, whichever kind of function wrote it. Named for what it says rather than for the check that reads it, as arg is: the instance reading, with genlResult one level up.")
+(binaryPredicate result)
+(arg result 1 function)
+(genlArg result 2 thing)
 
-(comment resultGenl
-         "(resultGenl ?function ?type) means that the output of the reifiable ?function is a subtype of ?type. Materialized as (genl K ?type) on each freshly minted constant K whose function is ?function.")
-(binaryPredicate resultGenl)
-(arg resultGenl 1 function)
-(genlArg resultGenl 2 thing)
+(comment genlResult
+         "(genlResult ?function ?type) means that the output of ?function is a subtype of ?type. The subtype reading of result, the way genlArg is arg's: materialized as (genl K ?type) on each freshly minted constant K for a reifiable function, and read at check time for an unreifiable one whose applications never mint.")
+(binaryPredicate genlResult)
+(arg genlResult 1 function)
+(genlArg genlResult 2 thing)
 
 (comment genlCx
          "(genlCx ?subcontext ?supercontext) means that ?subcontext inherits from and sees everything asserted in ?supercontext. Transitive, and what places every derived conclusion: a firing lands in the most general contexts that see the rule, the facts and the taxonomy edges it used. Stored in CxUniverse by force, so the topology has one canonical home. A cycle is admitted, mutual visibility being a claim an ontology may fairly make.")
@@ -330,6 +368,13 @@
 
 (comment predicate           "The type of all predicates — the relations and types used in sentences. A predicate is a thing.")
 (genl predicate thing)
+;; What function's comment states in prose, as a fact the engine reads: the two are
+;; separate kinds of thing. Every type is a unaryPredicate and so a predicate, which is
+;; what gives the separation its reach — a rule variable standing in a function-valued
+;; position and a type-level one at once is refused at the door rather than stored and
+;; convicted one conclusion at a time. (implies (result ?f ?t) (genl ?f ?t)) is the
+;; shape it catches.
+(disjoint function predicate)
 
 (comment reflexive
          "(reflexive ?predicate) means that ?predicate is reflexive, so (?predicate a a) holds for every a in its domain. Answered by a generic prover rather than materialized, the reflexive pairs of a large domain being a great many facts nobody wrote. Also a type: (reflexive P) classifies P as a binaryPredicate.")
@@ -344,7 +389,7 @@
 (genl irreflexive binaryPredicate)
 
 (comment relationKind
-         "(relationKind ?predicate) means that ?predicate is one of the two relation kinds. The disjointMetatype grouping instanceRelationPredicate and typeRelationPredicate, so a binary predicate is at most one of the two: it either relates individuals or relates kinds, and letting the readings mix is how a claim about kinds quietly becomes a claim about their members. At most, not exactly — a few predicates are honestly neither, and are left unmarked rather than forced: implies is a connective and relates no things at all, rewriteOf takes either role so long as its two sides agree with each other, resultIsa and resultGenl relate a function to a type and so are mixed, and functionCorrespondingPredicate relates a function to a predicate. Marking one of those would make the metatype say something false, which costs more than the gap.")
+         "(relationKind ?predicate) means that ?predicate is one of the two relation kinds. The disjointMetatype grouping instanceRelationPredicate and typeRelationPredicate, so a binary predicate is at most one of the two: it either relates individuals or relates kinds, and letting the readings mix is how a claim about kinds quietly becomes a claim about their members. At most, not exactly — a few predicates are honestly neither, and are left unmarked rather than forced: implies is a connective and relates no things at all, rewriteOf takes either role so long as its two sides agree with each other, result and genlResult relate a function to a type and so are mixed, and functionCorrespondingPredicate relates a function to a predicate. Marking one of those would make the metatype say something false, which costs more than the gap.")
 (unaryPredicate relationKind)
 (disjointMetatype relationKind)
 (relationKind instanceRelationPredicate)

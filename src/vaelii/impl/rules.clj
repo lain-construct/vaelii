@@ -58,15 +58,14 @@
   "The antecedent-index key an antecedent `literal` files under: its functor, or
   `[:not f]` for a negation whose body has functor `f`.
 
-  A negated antecedent is satisfied by a negative datum on the **same** predicate and
-  nothing else — `match1` unifies the two bodies whole, so `(not (animal ?x))` is not met
-  by `(not (dog Muffet))`, negation running against the subsumption the positive side
-  fans over.  Keyed under the bare `not` every negated antecedent of every rule shares one
-  bucket, and each arriving negation builds the view of, and tries to match, every one of
-  them; keyed by the body's predicate an arriving `(not (p a))` reaches the rules with a
-  negated antecedent on `p`.  A vector, so the key can never collide with a predicate,
-  which is always a symbol.  The same spelling on the index side
-  (`antecedent-predicates`, every writer) and the trigger side (`trigger-keys`)."
+  Keyed under the bare `not` every negated antecedent of every rule shares one bucket,
+  and each arriving negation builds the view of, and tries to match, every one of them;
+  keyed by the body's predicate an arriving `(not (p a))` reaches the rules with a
+  negated antecedent on `p` — and, through `trigger-keys`' genl walk, those on a genl of
+  `p`, which is the direction subsumption runs in under a negation.  A vector, so the key
+  can never collide with a predicate, which is always a symbol.  The same spelling on the
+  index side (`antecedent-predicates`, every writer) and the trigger side
+  (`trigger-keys`)."
   [literal]
   (let [f (nm/functor literal)]
     (if (and (= sx/not-functor f) (= 2 (count literal)))
@@ -102,16 +101,33 @@
   (map #(if (vector? %) sx/not-functor %) (antecedent-predicates sentence)))
 
 (defn trigger-keys
-  "The antecedent-index keys an arriving fact `sentence` triggers rules through: a
-  positive fact's predicate and its supertypes — a fact on a spec satisfies an antecedent
-  on its genl, `match1`'s subsumption — and, for a negative fact, the one `[:not pred]`
-  key its body's predicate names, since negation takes no subsumption fan.  The trigger
-  side of `antecedent-key`."
-  [tax sentence]
-  (let [f (nm/functor sentence)]
-    (if (= sx/not-functor f)
-      [(antecedent-key sentence)]
-      (tax/genls tax f))))
+  "The antecedent-index keys an arriving fact `sentence` triggers rules through, and the
+  trigger side of `antecedent-key`.
+
+  A **positive** fact's predicate and its supertypes: a fact on a spec satisfies an
+  antecedent on its genl, which is `match1`'s subsumption.  A **negative** fact is the
+  mirror, because a `genl` edge carries the other way through a negation — `(not (p a))`
+  entails `(not (q a))` for every *spec* `q` of `p` — so it triggers `[:not q]` for each
+  spec of its body's predicate.
+
+  **Enumerated from `roster` rather than from the spec closure**, `roster` being the live
+  `:rule-antecedents` map of keys some stored rule reads.  The two sides of the mirror
+  are not the same size: the positive fan walks the *up* set, which a hierarchy bounds by
+  its depth, while the negative one walks the *down* set, which on a broad ontology is
+  most of it — an arriving `(not (thing X))` would cost one index probe per type in the
+  KB.  Keeping the negated keys some rule actually reads costs one `genls` membership
+  test per such key, and rules reading a negation are few; a KB with none pays a map
+  read.  Complete because the roster is bumped from `antecedent-predicates` at the same
+  choke point that files the index keys (`special/index-rule-sentex`), so the keys a rule
+  is filed under are exactly the keys the roster holds."
+  [tax sentence roster]
+  (let [k (antecedent-key sentence)]
+    (if (vector? k)
+      (let [g (second k)]
+        (into [] (comp (filter vector?)
+                       (filter #(contains? (tax/genls tax (second %)) g)))
+              (keys roster)))
+      (tax/genls tax k))))
 
 (defn consequent-predicate
   "The predicate a rule concludes.  A consequent of the form `(ist Ctx S)` (place S
@@ -420,9 +436,12 @@
 (defn rewrap
   "Put the direction / default / assumption / constraint wrappers a rule was written
   with back around `sentence` — the inverse of `sx/peel-rule-wrapper`, since the
-  wrappers ride the record, not the stored sentence.  Two callers: a polycanonicalized
-  conjunct keeps the mode of the rule it came from, and an equality merge's migrated
-  rule twin keeps the mode of the rule it restates (`special/migrate-sentex`).  An
+  wrappers ride the record, not the stored sentence.  Four callers: a polycanonicalized
+  conjunct keeps the mode of the rule it came from, `split-exceptWhen` restores the
+  qualified rule's other wrappers after stripping the exception, an equality merge's
+  migrated rule twin keeps the mode of the rule it restates (`special/migrate-sentex`),
+  and an imported rule record is rebuilt around the modes its frame carries
+  (`io.import`).  An
   exceptWhen is not among them — it is split off before this runs and stored as a
   meta-sentex against each conjunct's handle (`split-exceptWhen`)."
   [sentence direction defeasible assumption constraint]

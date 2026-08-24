@@ -215,7 +215,12 @@ A tie between equally-good answer sets has no principled winner, but it must not
 depend on the order the knowledge arrived — the engine-wide invariant in
 [nmtms.md](nmtms.md). Three things enforce it:
 
-- Atom ids are allocated in `solve/content-key` order, not handle order.
+- Atom ids are allocated over the ground heads sorted by what each head **says**
+  (`solve-context/build`, through `nm/print-key` — printed with the bounds released, so
+  no ambient `*print-length*` can collapse the key and drop the allocation back onto the
+  answer set the heads were ground from), never in handle order. Every head of one
+  program sits in the same context, so this is `solve/content-key`'s order without the
+  part that separates two contexts.
 - Rule bodies are sorted by atom id; `:nogood` is a set, and an unsorted body would
   render in hash order.
 - Level 0 makes defeating the greatest content-key cheapest, mirroring the stub.
@@ -306,6 +311,13 @@ be built as sibling contexts and compared.
 The labeling is read from the **TMS**, not from a fresh solve — it records what the
 engine committed to, rather than what a second solve might independently choose. A
 re-solve would usually agree, and "usually" is not a property to build on.
+
+The context is minted whether or not there was a tie. With no recorded `Program` — a
+KB the engine never arbitrated in, or a dilemma it declined — the `genlCx` edge is
+written and `:handles` comes back empty, which is what "the engine committed to
+nothing" materializes as. `label-dilemmas` ([labeling.md](labeling.md)) is the other
+way round on purpose: it *makes* the choice rather than reporting one, so it mints no
+context when there is nothing contested.
 
 ### It entrenches what it records
 

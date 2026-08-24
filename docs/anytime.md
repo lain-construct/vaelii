@@ -134,15 +134,16 @@ for?* (`vaelii.impl.provers/cost-tiers`):
 
 - `:lookup` — a bounded single-step retrieval: an O(1) ground test (reflexive,
   `evaluate`, `different`, the evaluable and quantity comparisons), a cached closure /
-  metadata read (genl/genlCx transitivity, disjointness, predicate-type,
-  arg-type), or one index hit (facts, symmetric, inverse). All three are one bounded
+  metadata read (genl/genlCx transitivity, disjointness, arg-type), or one index hit
+  (facts, symmetric, inverse). All three are one bounded
   step, lazy to the first result, and no decision turns on which of the three it is, so
-  they fold into one tier. Twelve of the shipped provers sit here.
-- `:compute` — work over stored facts before the first answer, and five provers claim
+  they fold into one tier. Eleven of the shipped provers sit here.
+- `:compute` — work over stored facts before the first answer, and seven provers claim
   it: a declared-`transitive` predicate walking its closure, `transitiveInArg`, `unknown`,
-  `thereExists`, and the aggregates. Those last three are the ones `{:max-cost :lookup}`
-  is really about, since a `count` is a census of a whole extent and closed-world
-  negation is a query run to exhaustion.
+  `thereExists`, the aggregates, a modal belief projection, and the argument-type
+  meta-predicates read up `genl`. `unknown`, `thereExists` and the aggregates are the
+  ones `{:max-cost :lookup}` is really about, since a `count` is a census of a whole
+  extent and closed-world negation is a query run to exhaustion.
 - `:search` — recursive backward chaining, open-ended proof search. **Unoccupied**, and
   by construction: no member of the registry expands a rule, so nothing `ask` dispatches
   opens a proof search — an application prover added through `add-prover` can claim it

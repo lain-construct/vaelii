@@ -5,6 +5,7 @@
   whole engine surface the shell and REPL both call, so testing it (plus the arg/option
   parsing that feeds it) covers the CLI without spawning a process."
   (:require [clojure.java.io :as io]
+            [clojure.pprint :as pp]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.catalog :as catalog]
@@ -51,6 +52,42 @@
       (let [h (cli/dispatch kb "handle-of" [(list dog Muffet) CxCli] {})]
         (cli/dispatch kb "retract" [h] {})
         (is (empty? (cli/dispatch kb "match" [(list dog Muffet) CxCli] {})))))))
+
+(deftest an-answer-set-prints-the-same-however-the-knowledge-arrived
+  ;; `match`, `query` and `ask` answer sets, and a set has no order of its own — so what
+  ;; reached stdout was whichever order the retrieval enumerated, and two loads of one KB
+  ;; printed the same knowledge differently.  A script diffing two runs read that as a
+  ;; change in the KB.  `types` and `contexts` in the same table were already sorted.
+  (let [facts   (for [n ["Ann" "Bob" "Cid" "Dee" "Eve" "Fay" "Gus" "Hal" "Ivy" "Jo"]]
+                  (list 'dog (symbol n)))
+        run     (fn [order]
+                  (tu/with-cleared-kb [kb tu/isolated-fresh]
+                    (doseq [f order] (v/assert kb f 'CxCliOrder))
+                    (mapv #(with-out-str (pp/pprint
+                                          (cli/dispatch kb % [(list 'dog '?x) 'CxCliOrder] {})))
+                          ["match" "query" "ask"])))
+        forward (run facts)
+        reverse* (run (reverse facts))]
+    (is (= 10 (count facts)) "ten distinct facts, so an order has something to differ about")
+    (is (= forward reverse*)
+        "the three set-answering commands print identically for the two arrival orders")
+    (testing "and what they print is the whole answer, not a sorted prefix of it"
+      ;; `match` prints sentences and the other two print binding maps, so the thing every
+      ;; answer carries once is the individual it is about
+      (doseq [out forward]
+        (is (= 10 (count (re-seq #"Ann|Bob|Cid|Dee|Eve|Fay|Gus|Hal|Ivy|Jo" out))))))))
+
+(tu/deftest-kb prove-keeps-the-order-its-derivations-were-found-in
+  ;; The exception to the rule above, and stated so it is not tidied away later: `prove`
+  ;; answers one solution per derivation, and which derivation came first is a reading of
+  ;; the search rather than an artifact of storage.
+  (tu/with-terms [dog animal Muffet CxCliProve]
+    (v/assert kb (list dog Muffet) CxCliProve)
+    (v/assert kb (list 'genl dog animal) CxCliProve)
+    (let [sols (cli/dispatch kb "prove" [(list animal '?x) CxCliProve] {})]
+      (is (seq sols))
+      (is (= (vec (v/prove kb (list animal '?x) CxCliProve)) (vec sols))
+          "handed back in the order the search produced, not re-ordered into a set answer"))))
 
 (tu/deftest-kb quality-answers-in-prose-because-four-distributions-are-not-a-value-to-read
   ;; the one command whose answer is a document rather than data — and the consumer that

@@ -52,6 +52,7 @@
   (:require [taoensso.trove :as trove]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.interval :as iv]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
@@ -125,57 +126,96 @@
                     (when (unsatisfiable-as-given? entry) pair)))
         net))
 
-(defn- distance-graph
-  "The network as a weighted digraph `{[p q] → w}`, `w` an upper bound on `t(q) − t(p)`.
-  Only finite weights are edges: an unbounded side constrains nothing and is the absence of
-  an edge, which is also what keeps infinities out of the arithmetic.  The diagonal is zero,
-  so a self-distance that ends up negative is a cycle and nothing else."
-  [net node-vec]
-  (reduce (fn [d [[p q] [_ hi]]]
-            (if (or (= p q) (not (Double/isFinite (double hi))))
-              d
-              (let [cur (get d [p q])]
-                (if (or (nil? cur) (< hi cur)) (assoc d [p q] hi) d))))
-          (into {} (map (fn [n] [[n n] 0])) node-vec)
-          net))
+;; ---- the closure, over a matrix ------------------------------------------
+;; The distance graph is a **`double[]` of n², row-major over `node-vec`'s positions**,
+;; and the three functions below share that representation: `d[p·n + q]` is the current
+;; upper bound on `t(q) − t(p)`, `##Inf` is the absence of an edge, and the diagonal
+;; starts at zero so a self-distance that ends up negative is a cycle and nothing else.
+;;
+;; A persistent map keyed `[p q]` says the same thing and costs a two-element vector per
+;; probe: Floyd–Warshall reads and writes n³ of them, which at a hundred instants is two
+;; million allocations for one closure.  The array is read and written in place, so the
+;; pass allocates nothing at all — and it is *inside* the memo either way
+;; (`closure`, keyed on the network value), so what this changes is the cost of a cache
+;; miss and never how often one happens.
 
-(defn- shortest-paths
-  "Floyd–Warshall over `node-vec`: `d[p][q]` becomes the least total weight of any path from
-  p to q, which is the tightest upper bound on `t(q) − t(p)` the constraints entail.  A
-  missing entry is an unbounded gap and takes no part.
+(defn- node-index
+  "`{node → position}` over `node-vec` — how a pair reaches its cell."
+  [node-vec]
+  (into {} (map-indexed (fn [i x] [x i])) node-vec))
 
-  The result does not depend on the order of `node-vec`: a shortest path is a property of
+(defn- distance-matrix
+  "The network as the `n×n` matrix above.  Only finite weights are edges: an unbounded side
+  constrains nothing and is the absence of an edge, which is also what keeps infinities out
+  of the arithmetic.  A pair naming an instant outside `node-vec` is dropped — no path is
+  ever composed through it and no read-back ever reaches it, so passing every node the
+  network mentions is the caller's obligation (`close`)."
+  ^doubles [net node-vec]
+  (let [n   (long (count node-vec))
+        idx (node-index node-vec)
+        ^doubles d (double-array (* n n) ##Inf)]
+    (dotimes [i n] (aset d (+ (* i n) i) 0.0))
+    (doseq [[[p q] [_ hi]] net]
+      (let [ip (idx p), iq (idx q), w (double hi)]
+        (when (and ip iq (not= ip iq) (Double/isFinite w))
+          (let [k (+ (* (long ip) n) (long iq))]
+            (when (< w (aget d k)) (aset d k w))))))
+    d))
+
+(defn- shortest-paths!
+  "Floyd–Warshall in place over `d`: `d[p·n + q]` becomes the least total weight of any path
+  from p to q, which is the tightest upper bound on `t(q) − t(p)` the constraints entail.
+  An `##Inf` entry is an unbounded gap and takes no part — the guards skip it rather than
+  letting `∞ + ∞` into the sum.  Answers `d`, which it has mutated.
+
+  The result does not depend on the order of the nodes: a shortest path is a property of
   the graph, and the loop is the textbook triple that computes it in one O(n³) pass."
-  [d node-vec]
-  (reduce
-   (fn [d k]
-     (reduce
-      (fn [d p]
-        (if-let [dpk (get d [p k])]
-          (reduce (fn [d q]
-                    (if-let [dkq (get d [k q])]
-                      (let [w (+ dpk dkq), cur (get d [p q])]
-                        (if (or (nil? cur) (< w cur)) (assoc d [p q] w) d))
-                      d))
-                  d node-vec)
-          d))
-      d node-vec))
-   d node-vec))
+  ^doubles [^doubles d ^long n]
+  (dotimes [k n]
+    (let [kn (* k n)]
+      (dotimes [p n]
+        (let [pn  (* p n)
+              dpk (aget d (+ pn k))]
+          (when (Double/isFinite dpk)
+            (dotimes [q n]
+              (let [dkq (aget d (+ kn q))]
+                (when (Double/isFinite dkq)
+                  (let [w (+ dpk dkq)]
+                    (when (< w (aget d (+ pn q)))
+                      (aset d (+ pn q) w)))))))))))
+  d)
+
+(def ^:private ^:const exact-long-double
+  "The largest magnitude a `double` still holds every integer below — 2⁵³.  Past it the
+  narrowing in `magnitude` would invent digits, so it hands the double back."
+  9007199254740992.0)
+
+(defn- magnitude
+  "A closed bound read out of the matrix: a **long** where the arithmetic came out whole,
+  the double otherwise — the convention `provers/round-magnitude` already renders every
+  measure by, so a gap of fifteen seconds reads `15` here and `(QuantityFn 15 Second)`
+  there.  An infinite bound is unbounded and stays a double."
+  [^double x]
+  (if (and (== x (Math/rint x)) (< (- exact-long-double) x exact-long-double))
+    (long x)
+    x))
 
 (defn- read-back
-  "The closed distance graph as a network again: the bound on `t(q) − t(p)` is `d[p][q]`
+  "The closed distance matrix as a network again: the bound on `t(q) − t(p)` is `d[p][q]`
   above and `−d[q][p]` below, and a pair bounded on neither side is left unrecorded."
-  [d node-vec]
-  (into {}
-        (for [p node-vec q node-vec
-              :when (not= p q)
-              :let  [hi (get d [p q] ##Inf)
-                     lo (if-let [w (get d [q p])] (- w) ##-Inf)]
-              :when (or (Double/isFinite (double lo)) (Double/isFinite (double hi)))]
-          [[p q] [lo hi]])))
+  [^doubles d node-vec]
+  (let [n (long (count node-vec))]
+    (into {}
+          (for [ip    (range n)
+                iq    (range n)
+                :when (not= ip iq)
+                :let  [hi (aget d (+ (* (long ip) n) (long iq)))
+                       lo (- (aget d (+ (* (long iq) n) (long ip))))]
+                :when (or (Double/isFinite lo) (Double/isFinite hi))]
+            [[(nth node-vec ip) (nth node-vec iq)] [(magnitude lo) (magnitude hi)]]))))
 
 (defn negative-cycle-nodes
-  "The instants lying on some negative cycle of the closed distance graph `d` — exactly
+  "The instants lying on some negative cycle of the closed distance matrix `d` — exactly
   those whose distance to themselves came out below zero.  What a report can name when the
   contradiction is derived rather than written.
 
@@ -184,9 +224,14 @@
   exactly can arrive back a sliver short — ten tenths of a second sum to
   0.9999999999999999, and against a stated second that is a cycle of −1.1e-16.  The band
   is the same one every other magnitude comparison here reads."
-  [d node-vec]
-  (let [eps provers/*quantity-tolerance*]
-    (into #{} (filter (fn [n] (when-let [w (get d [n n])] (< w (- eps))))) node-vec)))
+  [^doubles d node-vec]
+  (let [eps (double provers/*quantity-tolerance*)
+        n   (long (count node-vec))]
+    (into #{}
+          (comp (map-indexed vector)
+                (keep (fn [[i x]]
+                        (when (< (aget d (+ (* (long i) n) (long i))) (- eps)) x))))
+          node-vec)))
 
 (defn close
   "All-pairs shortest paths over `net` across `nodes`, returning the tightest network the
@@ -210,8 +255,8 @@
   [net nodes]
   (if (some unsatisfiable-as-given? net)
     :inconsistent
-    (let [node-vec (vec (sort-by str nodes))
-          closed   (shortest-paths (distance-graph net node-vec) node-vec)]
+    (let [node-vec (nm/by-print-key nodes)
+          closed   (shortest-paths! (distance-matrix net node-vec) (count node-vec))]
       (if (seq (negative-cycle-nodes closed node-vec))
         :inconsistent
         (read-back closed node-vec)))))
@@ -389,8 +434,11 @@
                :detail    {:message    (str "the temporalDistance constraints visible from "
                                             context " span more than one dimension, so no"
                                             " metric temporal goal is answered there")
-                           :dimensions (vec (sort-by str (map first dims)))
-                           :units      (vec (sort-by str (map second dims)))}}]
+                           ;; a dimension is whatever `dimensionOf` names and may be a NAT;
+                           ;; a unit is a symbol by `measure?`'s own check, so it takes the
+                           ;; cheaper scalar key
+                           :dimensions (nm/by-print-key (map first dims))
+                           :units      (into [] (sort-by nm/name-key (map second dims)))}}]
     (trove/log! {:level :warn :id ::metric-temporal-mixed-dimensions :data entry})
     (file-violation! kb entry)))
 
@@ -440,9 +488,10 @@
 (def ^:private closure-cache-limit 256)
 
 (def ^:private closure-cache
-  "The closed network, keyed on the network *value*.  Sound across queries because the
-  network is derived from the believed facts: any change to them yields a different map and
-  so a different key.  Bounded and cleared wholesale when full, like the other caches here."
+  "The closed network, keyed on the network *value* and the tolerance its verdict was read
+  to (`closure`).  Sound across queries because the network is derived from the believed
+  facts: any change to them yields a different map and so a different key.  Bounded and
+  cleared wholesale when full, like the other caches here."
   (atom {}))
 
 (defn- report-inconsistency!
@@ -475,9 +524,9 @@
                                                  " satisfied, so no metric temporal goal"
                                                  " is answered there")
                                    :unit  unit
-                                   :nodes (vec (sort-by str (nodes net)))}
-                            (seq bad)         (assoc :pairs (vec (sort-by str bad)))
-                            (seq cycle-nodes) (assoc :cycle (vec (sort-by str cycle-nodes))))}]
+                                   :nodes (nm/by-print-key (nodes net))}
+                            (seq bad)         (assoc :pairs (nm/by-print-key bad))
+                            (seq cycle-nodes) (assoc :cycle (nm/by-print-key cycle-nodes)))}]
     (trove/log! {:level :warn :id ::metric-temporal-inconsistency :data entry})
     (file-violation! kb entry)))
 
@@ -486,8 +535,9 @@
   out of `close`, which answers a verdict and not a diagnosis; it runs once per *newly*
   inconsistent network, never on the answering path."
   [net]
-  (let [node-vec (vec (sort-by str (nodes net)))]
-    (negative-cycle-nodes (shortest-paths (distance-graph net node-vec) node-vec) node-vec)))
+  (let [node-vec (nm/by-print-key (nodes net))]
+    (negative-cycle-nodes (shortest-paths! (distance-matrix net node-vec) (count node-vec))
+                          node-vec)))
 
 (defn closure
   "The closed network of `prob`, memoized on the network value.  `:inconsistent` when the
@@ -501,12 +551,22 @@
   recorded.  So one caller's answer is another's, and the pass runs once per network rather
   than once per shape of question.
 
+  The **tolerance rides in the key** beside the network, because both of `close`'s
+  verdicts are read to `provers/*quantity-tolerance*` and it is a dynamic var a caller may
+  rebind for a coarser or finer policy.  The magnitudes are already on the grid by then
+  (`stated-constraints` snaps them at a fixed scale), so the network alone does not record
+  which band the cycle check was made in — and a run under a rebound tolerance would
+  otherwise be answered with the verdict reached under the ambient one.  It is one number
+  in the key and constant for a whole query loop, so it costs nothing that the sharing
+  below is for.
+
   The **report** is deliberately not on that path.  Two KBs, or two contexts of one KB,
   reaching the same network share the pass — and a ledger entry is a claim about a KB and a
   context, so it hangs off `observe/newly-seen?` instead: this KB, this context, this
   network.  A cache hit still reports if the KB has not said it yet."
   [kb context {:keys [net] :as prob} extra-nodes]
-  (let [result (caches/read-through closure-cache closure-cache-limit net
+  (let [result (caches/read-through closure-cache closure-cache-limit
+                                    [net provers/*quantity-tolerance*]
                                     #(close net (into (nodes net) extra-nodes)))]
     (when (and (= :inconsistent result)
                (observe/newly-seen? (:qcn kb) [::reported context] net))
@@ -694,7 +754,8 @@
   :limit    closure-cache-limit
   :counters nil
   :note     (str "The all-pairs shortest-path closure of a metric network, keyed on the "
-                 "network value — so two contexts stating the same durations share one "
-                 "closure, and any change to the believed facts is a different key.")
+                 "network value and the measure tolerance the verdict was read to — so "
+                 "two contexts stating the same durations share one closure, and any "
+                 "change to the believed facts is a different key.")
   :read     (fn [_] {:entries (count @closure-cache)})
   :clear    (fn [_] (let [n (count @closure-cache)] (reset! closure-cache {}) n))})

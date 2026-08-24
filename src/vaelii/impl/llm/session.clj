@@ -563,6 +563,7 @@
         system   selection/system-prompt
         user     (selection/user-turn kb rows message (or prompt-opts {}))
         bdg      (selection/budget system user (count rows) num-ctx)
+        problem  (selection/budget-problem bdg (count rows))
         elapsed  #(- (System/currentTimeMillis) started)
         base     {:selection (mapv #(select-keys % [:handle :line]) rows)
                   :budget bdg}]
@@ -571,9 +572,8 @@
       (assoc base :status :empty-selection :elapsed-ms (elapsed)
              :text "no selected handle names a stored sentex")
 
-      (selection/budget-problem bdg (count rows))
-      (assoc base :status :too-large :elapsed-ms (elapsed)
-             :text (selection/budget-problem bdg (count rows)))
+      problem
+      (assoc base :status :too-large :elapsed-ms (elapsed) :text problem)
 
       :else
       (let [request (cond-> {:system [{:text system}]
@@ -589,75 +589,80 @@
                turns    0
                attempts 0
                usage    nil]
-          (cond
-            (>= turns max-turns)
-            (assoc base :status :exhausted :messages messages :turns turns
-                   :attempts attempts :usage usage :elapsed-ms (elapsed)
-                   :text (str "gave up after " max-turns " turns"))
+          ;; Sized once and held.  The re-check below reads its headroom and the refusal
+          ;; reports the whole budget, and estimating it joins every message in the
+          ;; conversation — so a delay, which also keeps an exhausted loop from sizing a
+          ;; conversation it is about to abandon.
+          (let [convo (delay (convo-budget messages))]
+            (cond
+              (>= turns max-turns)
+              (assoc base :status :exhausted :messages messages :turns turns
+                     :attempts attempts :usage usage :elapsed-ms (elapsed)
+                     :text (str "gave up after " max-turns " turns"))
 
-            ;; A repair carries the whole conversation back, so the window has to be
-            ;; re-checked: the first turn fitting says nothing about the third.
-            (neg? (:headroom (convo-budget messages)))
-            (assoc base :status :too-large :messages messages :turns turns
-                   :attempts attempts :usage usage :elapsed-ms (elapsed)
-                   :budget (convo-budget messages)
-                   :text (str "the conversation outgrew the model's context window after "
-                              turns " turns — select fewer sentexes, or raise :num-ctx"))
+              ;; A repair carries the whole conversation back, so the window has to be
+              ;; re-checked: the first turn fitting says nothing about the third.
+              (neg? (:headroom @convo))
+              (assoc base :status :too-large :messages messages :turns turns
+                     :attempts attempts :usage usage :elapsed-ms (elapsed)
+                     :budget @convo
+                     :text (str "the conversation outgrew the model's context window after "
+                                turns " turns — select fewer sentexes, or raise :num-ctx"))
 
-            :else
-            (let [response (run-turn provider (assoc request :messages messages) on-event)
-                  turns    (inc turns)
-                  usage    (or (:usage response) usage)
-                  messages (conj messages {:role "assistant" :content (:content response)})
-                  out      (assoc base :messages messages :turns turns :usage usage)]
-              (cond
-                (proto/refused? response)
-                (assoc out :status :refused :attempts attempts :elapsed-ms (elapsed)
-                       :stop-details (:stop-details response) :text (proto/text response))
+              :else
+              (let [response (run-turn provider (assoc request :messages messages) on-event)
+                    turns    (inc turns)
+                    usage    (or (:usage response) usage)
+                    messages (conj messages {:role "assistant" :content (:content response)})
+                    out      (assoc base :messages messages :turns turns :usage usage)]
+                (cond
+                  (proto/refused? response)
+                  (assoc out :status :refused :attempts attempts :elapsed-ms (elapsed)
+                         :stop-details (:stop-details response) :text (proto/text response))
 
-                ;; Before the diff, which is the whole point: `diff-batch` reads absence
-                ;; as intent, so a cut-off line set would propose retracting every row
-                ;; the model never got to.
-                (truncated? response)
-                (assoc out :status :truncated :attempts attempts :elapsed-ms (elapsed)
-                       :stop-reason (:stop-reason response) :text (proto/text response))
+                  ;; Before the diff, which is the whole point: `diff-batch` reads absence
+                  ;; as intent, so a cut-off line set would propose retracting every row
+                  ;; the model never got to.
+                  (truncated? response)
+                  (assoc out :status :truncated :attempts attempts :elapsed-ms (elapsed)
+                         :stop-reason (:stop-reason response) :text (proto/text response))
 
-                :else
-                (let [text (proto/text response)
-                      {proposed :rows :keys [errors notes]} (parse-lines text)
-                      attempts (inc attempts)
-                      repairs-left (- max-repairs (dec attempts))
-                      out (assoc out :attempts attempts :notes notes :text text)]
-                  (cond
-                    (seq errors)
-                    (if (pos? repairs-left)
-                      (recur (conj messages {:role "user" :content (repair-lines-prompt errors)})
-                             turns attempts usage)
-                      (assoc out :status :unparseable :elapsed-ms (elapsed)
-                             :rejections (mapv (fn [e] {:in :lines :index 0 :entry nil
-                                                        :type :unparseable :message e})
-                                               errors)))
-
-                    :else
-                    (let [batch      (diff-batch rows proposed)
-                          rejections (check-batch kb batch)
-                          out        (merge (assoc out :batch batch :edn (pr-str batch)
-                                                   :lines (lines-text proposed)
-                                                   :summary (edit-summary rows proposed batch))
-                                            (coined kb batch))]
-                      (cond
-                        (empty? rejections)
-                        (assoc out :status :ok :rejections [] :elapsed-ms (elapsed))
-
-                        (pos? repairs-left)
-                        (recur (conj messages
-                                     {:role "user"
-                                      :content (repair-lines-prompt (map rejection-line rejections))})
+                  :else
+                  (let [text (proto/text response)
+                        {proposed :rows :keys [errors notes]} (parse-lines text)
+                        attempts (inc attempts)
+                        repairs-left (- max-repairs (dec attempts))
+                        out (assoc out :attempts attempts :notes notes :text text)]
+                    (cond
+                      (seq errors)
+                      (if (pos? repairs-left)
+                        (recur (conj messages {:role "user" :content (repair-lines-prompt errors)})
                                turns attempts usage)
+                        (assoc out :status :unparseable :elapsed-ms (elapsed)
+                               :rejections (mapv (fn [e] {:in :lines :index 0 :entry nil
+                                                          :type :unparseable :message e})
+                                                 errors)))
 
-                        :else
-                        (assoc out :status :invalid :rejections rejections
-                               :elapsed-ms (elapsed))))))))))))))
+                      :else
+                      (let [batch      (diff-batch rows proposed)
+                            rejections (check-batch kb batch)
+                            out        (merge (assoc out :batch batch :edn (pr-str batch)
+                                                     :lines (lines-text proposed)
+                                                     :summary (edit-summary rows proposed batch))
+                                              (coined kb batch))]
+                        (cond
+                          (empty? rejections)
+                          (assoc out :status :ok :rejections [] :elapsed-ms (elapsed))
+
+                          (pos? repairs-left)
+                          (recur (conj messages
+                                       {:role "user"
+                                        :content (repair-lines-prompt (map rejection-line rejections))})
+                                 turns attempts usage)
+
+                          :else
+                          (assoc out :status :invalid :rejections rejections
+                                 :elapsed-ms (elapsed)))))))))))))))
 
 ;; ---- the page-scoped generation loop ------------------------------------
 ;; The same critic, the same coining flag, the same bounds — over a *term page* instead
@@ -674,10 +679,21 @@
 (defn unescape
   "A JSON string's escapes undone, in one pass.  The incremental scanner reads
   s-expressions straight out of the raw response text, so a sentence carrying a Clojure
-  string arrives with the JSON layer's backslashes still in it."
+  string arrives with the JSON layer's backslashes still in it.
+
+  `\\uXXXX` is the escape that matters here and the one a single-character pattern cannot
+  read: a host that encodes non-ASCII — and several do, for every character above 127 —
+  sends `caf\\u00e9`, so dropping the backslash alone leaves `cafu00e9` inside the
+  sentence.  The four hex digits are read as a code unit, and a surrogate pair reassembles
+  because both halves land in the same output string.  The alternation is ordered so
+  `\\\\u0041` stays a backslash followed by a literal `u0041`, not the letter A."
   [s]
-  (str/replace (str s) #"\\(.)"
-               (fn [[_ c]] (case c "n" "\n" "t" "\t" "r" "\r" "\"" "\"" "\\" "\\" c))))
+  (str/replace (str s) #"\\u([0-9a-fA-F]{4})|\\(.)"
+               (fn [[_ hex c]]
+                 (if hex
+                   (str (char (Integer/parseInt hex 16)))
+                   (case c "n" "\n" "t" "\t" "r" "\r" "b" "\b" "f" "\f"
+                         "\"" "\"" "\\" "\\" c)))))
 
 (defn read-sentence
   "One s-expression's text -> the sentence, or nil when it is not one.  Read with
@@ -950,6 +966,7 @@
             system  page/system-prompt
             user    (page/user-turn kb term rows ctx message popts)
             bdg     (selection/budget system user max-assertions num-ctx)
+            problem (selection/budget-problem bdg max-assertions)
             base    {:term term :context ctx :budget bdg
                      :page (mapv #(select-keys % [:handle :line]) rows)
                      :page-found (:found (meta rows))
@@ -964,82 +981,84 @@
                        (selection/budget system
                                          (str/join "\n" (map message-text messages))
                                          max-assertions num-ctx))]
-        (if (selection/budget-problem bdg max-assertions)
-          (assoc base :status :too-large :elapsed-ms (elapsed)
-                 :text (selection/budget-problem bdg max-assertions))
+        (if problem
+          (assoc base :status :too-large :elapsed-ms (elapsed) :text problem)
           (loop [messages [{:role "user" :content user}]
                  turns    0
                  attempts 0
                  usage    nil]
-            (cond
-              (>= turns max-turns)
-              (assoc base :status :exhausted :messages messages :turns turns
-                     :attempts attempts :usage usage :elapsed-ms (elapsed)
-                     :text (str "gave up after " max-turns " turns"))
+            ;; sized once and held, as on the selection path: the re-check reads its
+            ;; headroom and the refusal reports the whole budget
+            (let [sized (delay (convo messages))]
+              (cond
+                (>= turns max-turns)
+                (assoc base :status :exhausted :messages messages :turns turns
+                       :attempts attempts :usage usage :elapsed-ms (elapsed)
+                       :text (str "gave up after " max-turns " turns"))
 
-              (neg? (:headroom (convo messages)))
-              (assoc base :status :too-large :messages messages :turns turns
-                     :attempts attempts :usage usage :elapsed-ms (elapsed)
-                     :budget (convo messages)
-                     :text (str "the conversation outgrew the model's context window after "
-                                turns " turns — raise :num-ctx"))
+                (neg? (:headroom @sized))
+                (assoc base :status :too-large :messages messages :turns turns
+                       :attempts attempts :usage usage :elapsed-ms (elapsed)
+                       :budget @sized
+                       :text (str "the conversation outgrew the model's context window after "
+                                  turns " turns — raise :num-ctx"))
 
-              :else
-              (let [response (page-turn kb provider (assoc request :messages messages)
-                                        {:context ctx :on-event on-event :started started
-                                         :first-ms first-ms :index index})
-                    turns    (inc turns)
-                    usage    (or (:usage response) usage)
-                    messages (conj messages {:role "assistant" :content (:content response)})
-                    ;; a flag rather than a status, unlike the two paths that diff: an
-                    ;; additive answer cut at the token limit is short, not wrong, so the
-                    ;; assertions that did arrive stay applicable and the caller is told
-                    ;; they are a prefix
-                    out      (assoc base :messages messages :turns turns :usage usage
-                                    :first-assertion-ms @first-ms
-                                    :answer-truncated? (truncated? response))]
-                (if (proto/refused? response)
-                  (assoc out :status :refused :attempts attempts :elapsed-ms (elapsed)
-                         :stop-details (:stop-details response) :text (proto/text response))
-                  (let [text (proto/text response)
-                        {:keys [sentences errors notes problems]} (parse-assertions text)
-                        attempts (inc attempts)
-                        repairs-left (- max-repairs (dec attempts))
-                        out (assoc out :attempts attempts :notes notes :text text
-                                   :problems (vec problems))]
-                    (cond
-                      (seq errors)
-                      (if (pos? repairs-left)
-                        (recur (conj messages {:role "user"
-                                               :content (repair-assertions-prompt errors)})
-                               turns attempts usage)
-                        (assoc out :status :unparseable :elapsed-ms (elapsed)
-                               :rejections (mapv (fn [e] {:in :assertions :index 0 :entry nil
-                                                          :type :unparseable :message e})
-                                                 errors)))
-
-                      :else
-                      (let [split      (new-assertions kb ctx sentences)
-                            batch      {:add (:entries split) :remove []}
-                            rejections (check-batch kb batch)
-                            out        (merge (assoc out :batch batch :edn (pr-str batch)
-                                                     :lines (str/join "\n" (map pr-str (:add batch)))
-                                                     :summary (assertion-summary sentences split))
-                                              (coined kb batch))]
-                        (cond
-                          (empty? rejections)
-                          (assoc out :status :ok :rejections [] :elapsed-ms (elapsed))
-
-                          (pos? repairs-left)
-                          (recur (conj messages
-                                       {:role "user"
-                                        :content (repair-assertions-prompt
-                                                  (map rejection-line rejections))})
+                :else
+                (let [response (page-turn kb provider (assoc request :messages messages)
+                                          {:context ctx :on-event on-event :started started
+                                           :first-ms first-ms :index index})
+                      turns    (inc turns)
+                      usage    (or (:usage response) usage)
+                      messages (conj messages {:role "assistant" :content (:content response)})
+                      ;; a flag rather than a status, unlike the two paths that diff: an
+                      ;; additive answer cut at the token limit is short, not wrong, so the
+                      ;; assertions that did arrive stay applicable and the caller is told
+                      ;; they are a prefix
+                      out      (assoc base :messages messages :turns turns :usage usage
+                                      :first-assertion-ms @first-ms
+                                      :answer-truncated? (truncated? response))]
+                  (if (proto/refused? response)
+                    (assoc out :status :refused :attempts attempts :elapsed-ms (elapsed)
+                           :stop-details (:stop-details response) :text (proto/text response))
+                    (let [text (proto/text response)
+                          {:keys [sentences errors notes problems]} (parse-assertions text)
+                          attempts (inc attempts)
+                          repairs-left (- max-repairs (dec attempts))
+                          out (assoc out :attempts attempts :notes notes :text text
+                                     :problems (vec problems))]
+                      (cond
+                        (seq errors)
+                        (if (pos? repairs-left)
+                          (recur (conj messages {:role "user"
+                                                 :content (repair-assertions-prompt errors)})
                                  turns attempts usage)
+                          (assoc out :status :unparseable :elapsed-ms (elapsed)
+                                 :rejections (mapv (fn [e] {:in :assertions :index 0 :entry nil
+                                                            :type :unparseable :message e})
+                                                   errors)))
 
-                          :else
-                          (assoc out :status :invalid :rejections rejections
-                                 :elapsed-ms (elapsed)))))))))))))))
+                        :else
+                        (let [split      (new-assertions kb ctx sentences)
+                              batch      {:add (:entries split) :remove []}
+                              rejections (check-batch kb batch)
+                              out        (merge (assoc out :batch batch :edn (pr-str batch)
+                                                       :lines (str/join "\n" (map pr-str (:add batch)))
+                                                       :summary (assertion-summary sentences split))
+                                                (coined kb batch))]
+                          (cond
+                            (empty? rejections)
+                            (assoc out :status :ok :rejections [] :elapsed-ms (elapsed))
+
+                            (pos? repairs-left)
+                            (recur (conj messages
+                                         {:role "user"
+                                          :content (repair-assertions-prompt
+                                                    (map rejection-line rejections))})
+                                   turns attempts usage)
+
+                            :else
+                            (assoc out :status :invalid :rejections rejections
+                                   :elapsed-ms (elapsed))))))))))))))))
 
 ;; ---- the document-scoped reading loop -----------------------------------
 ;; The same critic, the same coining flag, the same bounds — over **English text** instead
@@ -1204,6 +1223,7 @@
             system   text/system-prompt
             user     (text/user-turn kb segs resolved context instruction popts)
             bdg      (selection/budget system user max-candidates num-ctx)
+            problem  (selection/budget-problem bdg max-candidates)
             base     {:context context :segments (mapv #(dissoc % :index) segs)
                       :resolved resolved :budget bdg}
             request  (cond-> {:system [{:text system}] :num-ctx num-ctx}
@@ -1214,90 +1234,91 @@
                        (selection/budget system
                                          (str/join "\n" (map message-text messages))
                                          max-candidates num-ctx))]
-        (if (selection/budget-problem bdg max-candidates)
-          (assoc base :status :too-large :elapsed-ms (elapsed)
-                 :text (selection/budget-problem bdg max-candidates))
+        (if problem
+          (assoc base :status :too-large :elapsed-ms (elapsed) :text problem)
           (loop [messages [{:role "user" :content user}]
                  turns    0
                  attempts 0
                  usage    nil]
-            (cond
-              (>= turns max-turns)
-              (assoc base :status :exhausted :messages messages :turns turns
-                     :attempts attempts :usage usage :elapsed-ms (elapsed)
-                     :text (str "gave up after " max-turns " turns"))
+            ;; sized once and held, as on the other two paths
+            (let [sized (delay (convo messages))]
+              (cond
+                (>= turns max-turns)
+                (assoc base :status :exhausted :messages messages :turns turns
+                       :attempts attempts :usage usage :elapsed-ms (elapsed)
+                       :text (str "gave up after " max-turns " turns"))
 
-              (neg? (:headroom (convo messages)))
-              (assoc base :status :too-large :messages messages :turns turns
-                     :attempts attempts :usage usage :elapsed-ms (elapsed)
-                     :budget (convo messages)
-                     :text (str "the conversation outgrew the model's context window after "
-                                turns " turns — send a shorter document, or raise :num-ctx"))
+                (neg? (:headroom @sized))
+                (assoc base :status :too-large :messages messages :turns turns
+                       :attempts attempts :usage usage :elapsed-ms (elapsed)
+                       :budget @sized
+                       :text (str "the conversation outgrew the model's context window after "
+                                  turns " turns — send a shorter document, or raise :num-ctx"))
 
-              :else
-              (let [response (run-turn provider (assoc request :messages messages) on-event)
-                    turns    (inc turns)
-                    usage    (or (:usage response) usage)
-                    messages (conj messages {:role "assistant" :content (:content response)})
-                    ;; a flag, for the page path's reason: the reading is additive, so a
-                    ;; turn cut at the token limit costs candidates rather than proposing
-                    ;; a retraction — and the document's uncovered spans then say where
-                    out      (assoc base :messages messages :turns turns :usage usage
-                                    :answer-truncated? (truncated? response))]
-                (if (proto/refused? response)
-                  (assoc out :status :refused :attempts attempts :elapsed-ms (elapsed)
-                         :stop-details (:stop-details response) :text (proto/text response))
-                  (let [answer (proto/text response)
-                        {:keys [candidates errors notes problems untranslated]}
-                        (parse-candidates answer)
-                        attempts (inc attempts)
-                        repairs-left (- max-repairs (dec attempts))
-                        out (assoc out :attempts attempts :notes notes :text answer)]
-                    (if (seq errors)
-                      (if (pos? repairs-left)
-                        (recur (conj messages {:role "user"
-                                               :content (repair-candidates-prompt errors)})
-                               turns attempts usage)
-                        (assoc out :status :unparseable :elapsed-ms (elapsed)
-                               :problems (vec problems)
-                               :rejections (mapv (fn [e] {:in :candidates :index 0 :entry nil
-                                                          :type :unparseable :message e})
-                                                 errors)))
-                      (let [split (new-assertions kb context candidates
-                                                  #(text/candidate-entry % context src segs))
-                            {:keys [add repairs]} (split-admissible kb (:entries split))
-                            batch   {:add add :remove []}
-                            coining (coined kb batch)
-                            fixes   (:corrections (correct/corrections kb add))
-                            flagged (into #{} (concat (map :index (:coined coining))
-                                                      (map :index fixes)))
-                            ;; `:invalid` means the critic refused everything it was
-                            ;; shown — not that nothing was left to show it.  A document
-                            ;; whose every claim the KB already stores read *correctly*
-                            ;; and proposes an empty batch, and `apply-proposal!` refuses
-                            ;; anything but `:ok`, so calling that invalid would block an
-                            ;; apply that would rightly do nothing.
-                            all-refused? (and (seq (:entries split)) (empty? add))]
-                        (assoc (merge out coining)
-                               :status (if all-refused? :invalid :ok)
-                               :batch batch
-                               :edn (pr-str batch)
-                               :lines (str/join "\n" (map pr-str add))
-                               :candidates (vec candidates)
-                               :repairs repairs
-                               :corrections (vec fixes)
-                               :problems (vec problems)
-                               :coverage (text/coverage segs candidates untranslated)
-                               :queue (text/review-queue add flagged)
-                               :summary (assoc (assertion-summary candidates split)
-                                               :applicable (count add)
-                                               :repairs (count repairs)
-                                               :corrections (count fixes))
-                               :rejections (mapv (fn [{:keys [index entry problem]}]
-                                                   (assoc problem :in :candidates
-                                                          :index index :entry entry))
-                                                 repairs)
-                               :elapsed-ms (elapsed))))))))))))))
+                :else
+                (let [response (run-turn provider (assoc request :messages messages) on-event)
+                      turns    (inc turns)
+                      usage    (or (:usage response) usage)
+                      messages (conj messages {:role "assistant" :content (:content response)})
+                      ;; a flag, for the page path's reason: the reading is additive, so a
+                      ;; turn cut at the token limit costs candidates rather than proposing
+                      ;; a retraction — and the document's uncovered spans then say where
+                      out      (assoc base :messages messages :turns turns :usage usage
+                                      :answer-truncated? (truncated? response))]
+                  (if (proto/refused? response)
+                    (assoc out :status :refused :attempts attempts :elapsed-ms (elapsed)
+                           :stop-details (:stop-details response) :text (proto/text response))
+                    (let [answer (proto/text response)
+                          {:keys [candidates errors notes problems untranslated]}
+                          (parse-candidates answer)
+                          attempts (inc attempts)
+                          repairs-left (- max-repairs (dec attempts))
+                          out (assoc out :attempts attempts :notes notes :text answer)]
+                      (if (seq errors)
+                        (if (pos? repairs-left)
+                          (recur (conj messages {:role "user"
+                                                 :content (repair-candidates-prompt errors)})
+                                 turns attempts usage)
+                          (assoc out :status :unparseable :elapsed-ms (elapsed)
+                                 :problems (vec problems)
+                                 :rejections (mapv (fn [e] {:in :candidates :index 0 :entry nil
+                                                            :type :unparseable :message e})
+                                                   errors)))
+                        (let [split (new-assertions kb context candidates
+                                                    #(text/candidate-entry % context src segs))
+                              {:keys [add repairs]} (split-admissible kb (:entries split))
+                              batch   {:add add :remove []}
+                              coining (coined kb batch)
+                              fixes   (:corrections (correct/corrections kb add))
+                              flagged (into #{} (concat (map :index (:coined coining))
+                                                        (map :index fixes)))
+                              ;; `:invalid` means the critic refused everything it was
+                              ;; shown — not that nothing was left to show it.  A document
+                              ;; whose every claim the KB already stores read *correctly*
+                              ;; and proposes an empty batch, and `apply-proposal!` refuses
+                              ;; anything but `:ok`, so calling that invalid would block an
+                              ;; apply that would rightly do nothing.
+                              all-refused? (and (seq (:entries split)) (empty? add))]
+                          (assoc (merge out coining)
+                                 :status (if all-refused? :invalid :ok)
+                                 :batch batch
+                                 :edn (pr-str batch)
+                                 :lines (str/join "\n" (map pr-str add))
+                                 :candidates (vec candidates)
+                                 :repairs repairs
+                                 :corrections (vec fixes)
+                                 :problems (vec problems)
+                                 :coverage (text/coverage segs candidates untranslated)
+                                 :queue (text/review-queue add flagged)
+                                 :summary (assoc (assertion-summary candidates split)
+                                                 :applicable (count add)
+                                                 :repairs (count repairs)
+                                                 :corrections (count fixes))
+                                 :rejections (mapv (fn [{:keys [index entry problem]}]
+                                                     (assoc problem :in :candidates
+                                                            :index index :entry entry))
+                                                   repairs)
+                                 :elapsed-ms (elapsed)))))))))))))))
 
 ;; ---- the explicit apply step -------------------------------------------
 

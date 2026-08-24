@@ -13,6 +13,7 @@
             [vaelii.impl.checks :as checks]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.kb :as kb]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.nat :as nat]
             [vaelii.test-util :as tu]))
 
@@ -28,7 +29,7 @@
 (tu/deftest-kb round-trip-stores-an-opaque-constant
   (tu/with-terms [FruitFn AppleTree fruit]
     (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse)
+    (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
       (testing "the stored sentence holds an opaque constant, not the compound"
@@ -38,7 +39,7 @@
       (testing "the materialized result type holds"
         (is (seq (v/sentexes-matching kb (list fruit k) '?ctx))))
       (testing "a NAT-bearing query resolves to the stored constant"
-        (is (= [{'?c 'Red}] (v/ask kb (list 'color (list FruitFn AppleTree) '?c) '?ctx))))
+        (is (= [{'?c 'Red}] (v/ask kb (list 'color (list FruitFn AppleTree) '?c) 'CxUniverse))))
       (testing "display expands the constant back to its functional expression"
         (is (= (list 'color (list FruitFn AppleTree) 'Red)
                (nat/expand-expression kb (:sentence (v/sentex kb h))))))
@@ -157,12 +158,63 @@
                           (nat/colliding-constant-groups kb))))
             (str what ": and the read named the survivor the repair elects"))))))
 
+(tu/deftest-kb one-constant-mapped-to-two-expressions-is-swept-against-one-of-them
+  ;; The collision running the other way: one constant, two expressions, the 1:1 invariant
+  ;; not yet restored.  Two readers consult that map and they have to agree — `orphan?`
+  ;; decides whether `k` is collectable, and `bookkeeping-handles` computes what the sweep
+  ;; then retracts.  Reading it two different ways lets the sweep call `k` orphaned on
+  ;; expression E₁ and retract the bookkeeping it computed for E₂: a materialized type of
+  ;; the *other* expression is left stored, naming a constant that has been collected.
+  ;;
+  ;; Both readers take the **content-least** expression, so the answer is one whichever
+  ;; order the two maps arrived in — which is what the two arms below compare.  Each arm
+  ;; stores one materialized result type, once belonging to the authoritative expression's
+  ;; function and once to the other's, since that is what makes the two verdicts differ.
+  (doseq [type-of-least? [true false]]
+    (tu/with-terms [FruitFn SeedFn AppleTree fruit seed]
+      (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+      (v/assert kb (list 'reifiableFunction SeedFn) 'CxUniverse)
+      (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
+      (v/assert kb (list 'result SeedFn seed) 'CxUniverse)
+      (let [Es      (nm/sort-by-content-key identity
+                                            [(list FruitFn AppleTree) (list SeedFn AppleTree)])
+            least   (first Es)
+            ;; the result type the mint would have written for one expression or the other
+            typ     (fn [E] (if (= FruitFn (first E)) fruit seed))
+            ;; one arm per arrival order of the two maps, each read back the same way
+            reading (fn [order]
+                      (let [k (nat/fresh-constant)]
+                        (doseq [E order]
+                          (v/assert kb (list 'termOfUnit k E) 'CxUniverse {:strength :monotonic}))
+                        (v/assert kb (list (typ (if type-of-least? least (second Es))) k)
+                                  'CxUniverse {:strength :monotonic})
+                        (let [stored (set (map :id (kb/find-sentexes kb k)))]
+                          {:expression (nat/nat-expression kb k)
+                           :orphan?    (nat/orphan? kb k)
+                           :retracts   (count (nat/bookkeeping-handles kb k))
+                           :stored     (count stored)
+                           ;; the contract the two readers exist to keep together
+                           :coherent?  (or (not (nat/orphan? kb k))
+                                           (= stored (set (nat/bookkeeping-handles kb k))))})))
+            fwd     (reading Es)
+            rev     (reading (reverse Es))
+            what    (str "the result type belongs to the " (if type-of-least? "least" "other")
+                         " expression")]
+        (is (= 3 (:stored fwd) (:stored rev))
+            (str what ": two maps and one materialized type name the constant"))
+        (is (= least (:expression fwd) (:expression rev))
+            (str what ": the content-least expression answers, in either arrival order"))
+        (is (:coherent? fwd) (str what ": an orphan's whole record set is what the sweep retracts"))
+        (is (:coherent? rev) (str what ": and in the other arrival order too"))
+        (is (= (dissoc fwd :expression) (dissoc rev :expression))
+            (str what ": the sweep outcome does not depend on which map arrived first"))))))
+
 ;; ---- 5. remove -----------------------------------------------------------
 
 (tu/deftest-kb removing-the-last-use-collects-the-orphaned-reified-nat
   (tu/with-terms [FruitFn AppleTree fruit]
     (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse)
+    (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
       (is (some? (nat/nat-expression kb k)))
@@ -212,7 +264,7 @@
   ;; happens two lines later.
   (tu/with-terms [FruitFn AppleTree fruit_t stone_t color]
     (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
-    (v/assert kb (list 'resultIsa FruitFn fruit_t) 'CxUniverse)
+    (v/assert kb (list 'result FruitFn fruit_t) 'CxUniverse)
     (let [h (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
       ;; the claim first, the separation over it after — the retroactive case, and the
@@ -264,7 +316,7 @@
 (tu/deftest-kb the-declaration-is-what-separates-a-materialized-type-from-a-claim
   (tu/with-terms [FruitFn AppleTree fruit ripe color]
     (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse)
+    (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (let [h  (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k  (k-of kb h)
           hr (v/assert kb (list ripe k) 'CxUniverse)]
@@ -292,7 +344,7 @@
   ;; witness it only in some retrieval orders; this one pins the property instead.
   (tu/with-terms [FruitFn AppleTree fruit color]
     (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse)
+    (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (let [h  (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k  (k-of kb h)
           hs (nat/bookkeeping-handles kb k)]
@@ -341,7 +393,7 @@
     ;; constant is the constant's own materialized type — one sentex, and bookkeeping.
     ;; The exception is about the weather rather than about the fruit, so the rule's
     ;; conclusion is the only sentence in the whole test that names the constant.
-    (v/assert kb (list 'resultIsa FruitFn fruity) 'CxUniverse)
+    (v/assert kb (list 'result FruitFn fruity) 'CxUniverse)
     (let [h (v/assert kb (list fruity (list FruitFn AppleTree)) 'CxUniverse)
           k (k-of kb h)]
       (v/assert kb (list weather Sunny) 'CxUniverse)
@@ -440,13 +492,13 @@
                   (v/prove kb (list flies '?x) 'CxUniverse)))
         "and neither does the node engine")))
 
-;; ---- resultGenl + rewriteOf-to-real-term ---------------------------------
+;; ---- genlResult + rewriteOf-to-real-term ---------------------------------
 
 (tu/deftest-kb result-genl-materializes-a-subtype-edge
   (tu/with-terms [SubtypeFn Base super]
     (v/assert kb (list 'reifiableFunction SubtypeFn) 'CxUniverse)
     (v/assert kb (list 'genl super 'thing) 'CxUniverse)
-    (v/assert kb (list 'resultGenl SubtypeFn super) 'CxUniverse)
+    (v/assert kb (list 'genlResult SubtypeFn super) 'CxUniverse)
     (let [h (v/assert kb (list 'studies 'Alice (list SubtypeFn Base)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (testing "the minted constant is a subtype of the result type"
@@ -489,7 +541,7 @@
   ;; sentex), so the fixture's net-neutral teardown still restores the baseline.
   (tu/with-terms [FruitFn AppleTree fruit]
     (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
-    (v/assert kb (list 'resultIsa FruitFn fruit) 'CxUniverse)
+    (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
       (v/recover kb)
@@ -522,7 +574,7 @@
         (is (empty? (v/sentexes-matching kb (list 'termOfUnit '?k (list MotherFn Muffet))
                                          'CxUniverse))))
       (testing "a query written with the application still finds it"
-        (is (= [{'?w Bob}] (v/ask kb (list caresFor '?w (list MotherFn Muffet)) '?ctx)))))))
+        (is (= [{'?w Bob}] (v/ask kb (list caresFor '?w (list MotherFn Muffet)) 'CxUniverse)))))))
 
 (tu/deftest-kb an-application-with-no-value-mints-a-constant-that-answers-the-predicate
   (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
@@ -533,7 +585,7 @@
       (testing "no value is known, so the expression mints a placeholder"
         (is (nat/reified-nat-symbol? k)))
       (testing "and the placeholder is projected onto the corresponding predicate"
-        (is (= [{'?m k}] (v/ask kb (list motherOf Muffet '?m) '?ctx)))))))
+        (is (= [{'?m k}] (v/ask kb (list motherOf Muffet '?m) 'CxUniverse)))))))
 
 (tu/deftest-kb a-value-arriving-after-the-mint-retires-the-placeholder
   ;; the order-independence case.  The fact and the application say the same thing, so
@@ -546,7 +598,7 @@
       (is (nat/reified-nat-symbol? k))
       (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
       (testing "one value, and it is the one somebody named"
-        (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) '?ctx))))
+        (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) 'CxUniverse))))
       (testing "the use of the placeholder migrated onto it"
         (is (seq (v/sentexes-matching kb (list caresFor Bob Mary) '?ctx))))
       (testing "and the expression still resolves — to the real term now"
@@ -575,7 +627,7 @@
         (is (= k (nat/dedup-constant kb (list MotherFn Muffet)))))
       (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
       (testing "declaring it last reaches the state declaring it first would have"
-        (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) '?ctx)))
+        (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) 'CxUniverse)))
         (is (seq (v/sentexes-matching kb (list caresFor Bob Mary) '?ctx)))
         (is (= Mary (nat/dedup-constant kb (list MotherFn Muffet))))))))
 
@@ -587,7 +639,7 @@
       (is (empty? (v/ask kb (list motherOf Muffet '?m) '?ctx)))
       (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
       (testing "the constant minted before the declaration is projected by it"
-        (is (= [{'?m k}] (v/ask kb (list motherOf Muffet '?m) '?ctx)))))))
+        (is (= [{'?m k}] (v/ask kb (list motherOf Muffet '?m) 'CxUniverse)))))))
 
 (tu/deftest-kb two-declarations-for-one-function-decide-nothing
   ;; Two correspondences are two different claims about what `(F a…)` denotes.  Choosing
@@ -604,7 +656,7 @@
       (is (not= Mary k))
       (testing "and neither predicate is projected onto"
         (is (empty? (v/ask kb (list parentOf Muffet '?m) '?ctx)))
-        (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) '?ctx)))))))
+        (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) 'CxUniverse)))))))
 
 (tu/deftest-kb retracting-the-declaration-stops-the-application-resolving
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor sees]

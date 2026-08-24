@@ -143,3 +143,21 @@
       (is (empty? (rw/non-joining-pairs p1 [r1 p1]))))
     (testing "a lone rule reports nothing — self-overlaps are excluded"
       (is (empty? (rw/non-joining-pairs r1 [r1]))))))
+
+(deftest an-overlap-only-in-functor-position-is-not-a-critical-pair
+  ;; `normalize` rebuilds a compound as `(apply list (first term) (map normalize (rest
+  ;; term)))` — it descends into the arguments and never into the head — so a rule whose
+  ;; LHS unifies with another's *functor* can never fire there, and a critical pair
+  ;; reported over that overlap warns about a reduction the engine does not perform.
+  (let [head-only {:handle 1 :lhs '((g ?x) ?y) :rhs '(one ?y)}
+        inner     {:handle 2 :lhs '(g ?z)      :rhs '(two ?z)}
+        arg       {:handle 3 :lhs '(f (g ?x))  :rhs '(three ?x)}]
+    (testing "the overlap sits in functor position, so nothing is reported either way"
+      (is (empty? (rw/non-joining-pairs head-only [head-only inner])))
+      (is (empty? (rw/non-joining-pairs inner [head-only inner]))))
+    (testing "the same two rules overlapping in an argument still report"
+      ;; `(f (g ?x))` and `(g ?z)` overlap at argument 1, which `normalize` does reduce:
+      ;; `(f (two ?x))` one way and `(three ?x)` the other, and those do not join
+      (let [njs (rw/non-joining-pairs arg [arg inner])]
+        (is (seq njs) "a real overlap is still a critical pair")
+        (is (every? #(= 2 (:with %)) njs))))))

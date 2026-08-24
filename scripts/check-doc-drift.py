@@ -129,7 +129,9 @@ ALIASES = {
     "clasp": "vaelii.impl.asp.clasp", "clingo": "vaelii.impl.asp.clingo",
     "edge": "vaelii.impl.asp.edge", "label": "vaelii.impl.asp.label",
     "solver": "vaelii.impl.asp.solver",
-    "budget": "vaelii.impl.budget", "chain": "vaelii.impl.chain",
+    "budget": "vaelii.impl.budget",
+    "cap": "vaelii.impl.capabilities", "capabilities": "vaelii.impl.capabilities",
+    "chain": "vaelii.impl.chain",
     "checks": "vaelii.impl.checks", "core-context": "vaelii.impl.core-context",
     "backend": "vaelii.impl.disk.backend", "disk": "vaelii.impl.disk.backend",
     "dur": "vaelii.impl.disk.durability", "f": "vaelii.impl.disk.files",
@@ -749,8 +751,9 @@ for path in repo_text_files():
 #     the public way to ask for a subsystem, and naming one must not load eight.
 #   - an optional dependency whose entire point is not being loaded — the dense TMS
 #     (RoaringBitmap, fastutil), the clingo bridge (JNA, libclingo), the
-#     embedded-SQLite record store (the Apache-2.0 `com.vaelii/sqlite` sibling the
-#     SSPL engine does not depend on), the sampling profiler, and ring-devel's
+#     embedded-SQLite and Postgres record stores (the Apache-2.0 `com.vaelii/sqlite`
+#     and `com.vaelii/postgres` siblings the SSPL engine does not depend on), the
+#     sampling profiler, and ring-devel's
 #     `wrap-reload` for the hot-reload dev server — the last two shipping in the
 #     `:repl`/`:dev` profiles and therefore absent from a served process by design.  A
 #     require of one of those is not a layering cut this repo could straighten out:
@@ -768,6 +771,7 @@ for path in repo_text_files():
 E8_OK_FILES = {"src/vaelii/impl/wiring.clj"}
 E8_OK_TARGETS = {"vaelii.impl.dense-jtms/create-dense-tms",
                  "vaelii.sqlite.record-store/sqlite-record-store",
+                 "vaelii.postgres.record-store/pg-record-store",
                  "vaelii.impl.asp.clingo/solve",
                  "vaelii.impl.asp.clingo/classify-both",
                  "vaelii.impl.asp.clingo/available?",

@@ -220,3 +220,23 @@
     (testing "reopen! clears it too"
       (is (= 1 (d/reopen! kb did)))
       (is (= :open (d/dispute-state kb did))))))
+
+(tu/deftest-kb reopen-clears-both-mark-kinds-in-one-pass
+  ;; The reopen walks two mark reads and retracts as it goes.  Both kinds present is the
+  ;; case that has the second read running after the first retracts have landed, so the
+  ;; whole mark set is realized before anything is torn down — a live index read is not a
+  ;; snapshot, and a retract in the middle of one is a read of a KB that has moved.
+  (cross-agent-clash! kb)
+  (let [did (:dispute-id (first (d/disputes-in kb 'CxDeploy)))]
+    (d/mark-notified kb did 1750000000000)
+    (d/mark-stale kb did 1750000009999 'TimedOut)
+    (is (d/notified? kb did))
+    (is (d/stale? kb did))
+    (is (= :stale (d/dispute-state kb did)) "stale outranks notified while both stand")
+    (testing "one reopen takes both, and counts both"
+      (is (= 2 (d/reopen! kb did)))
+      (is (not (d/notified? kb did)))
+      (is (not (d/stale? kb did)))
+      (is (= :open (d/dispute-state kb did)) "the still-live clash is back at :open"))
+    (testing "and it is idempotent — a second reopen finds nothing"
+      (is (zero? (d/reopen! kb did))))))

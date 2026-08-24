@@ -590,14 +590,11 @@
 ;; ---- the live tier: the score in docs/reading.md ------------------------
 
 (deftest ^:llm the-four-fables-scored-against-their-hand-written-selves
-  (cond
-    (not (tu/live-llm?))
-    (println "\nSKIP live reading score — set VAELII_LLM_LIVE=1 to opt in")
-
-    (not (ollama/available?))
-    (println "\nSKIP live reading score — no Ollama host reachable")
-
-    :else
+  ;; a document turn runs on the generation model, so that is the one whose presence the
+  ;; gate asks about
+  (when (tu/live-model "live reading score"
+                       {:model (ollama/configured-generation-model)
+                        :env "VAELII_OLLAMA_GENERATION_MODEL"})
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (starter/load-into kb)
       (world/load-into kb)

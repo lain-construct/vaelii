@@ -100,8 +100,12 @@
 
 (defn- edge [actx base] (list 'genlCx actx base))
 
-(defn- open!
+(defn- open
   "Mint a fresh abduction context below `base` and answer it.
+
+  Bare, not `open!`: it adds one `genlCx` edge and nothing else, and `discard!` beside it
+  is what takes the context back — the `!` is reserved for the operation that cannot be
+  undone.
 
   `:monotonic`, because the *edge* is not a hypothesis: which context sees which is a
   fact about the scratch space, and a defeasible one would let a contradiction among the
@@ -226,16 +230,31 @@
   traversal — the same reason belief never tie-breaks on a handle (docs/nmtms.md).
 
   One pass, because the gate runs the full admissibility triple per candidate and the
-  refusals are wanted for reporting: asking twice would double the checking."
+  refusals are wanted for reporting: asking twice would double the checking.
+
+  And **deduplicated ahead of the gate**, not only in `clean` behind it.  A search
+  reports a dead end per *arrival*, so one subgoal a converging rule graph reaches a
+  thousand times is a thousand entries, and the gate — `special/inadmissible` plus a
+  `matches-visible` probe — would run once each to produce one candidate.  The gate is a
+  function of the `[goal depth]` pair alone, so collapsing equal pairs first changes
+  nothing but what it costs."
   [kb actx opts minted dead-ends]
   (let [{yes true no false}
-        (group-by (fn [[g depth]] (some? (maybe-abduce kb g actx opts depth))) dead-ends)
+        (group-by (fn [[g depth]] (some? (maybe-abduce kb g actx opts depth)))
+                  (distinct dead-ends))
+        ;; `nm/print-key`, not a bare `pr-str`: the keys are whole dead-end goal
+        ;; sentences, so an ambient `*print-length*` elides two of them to one prefix and
+        ;; the cap below falls back to `dead-ends`' own order — DFS arrival, the exact
+        ;; dependence the paragraph above rules out
         clean (fn [pairs] (->> pairs (map first) (remove minted) distinct
-                               (nm/sort-by-content-key pr-str compare)))]
+                               (nm/sort-by-content-key nm/print-key compare)))]
     {:candidates (clean yes) :refused (clean no)}))
 
-(defn- mint!
+(defn- mint
   "Assert one hypothesis in the abduction context and answer its handle.
+
+  Bare, not `mint!`: it is one `assert` of one sentence, retracted by the ordinary
+  teardown `minimize!` and `discard!` run.
 
   `:default` — the arbitration invariant, and the only strength a hypothesis may carry.
   The provenance says what it is: a reader of the record must be able to tell an
@@ -247,8 +266,12 @@
                   :creator    ::hypothesis
                   :provenance {:abduced true :abduced-for goal}}))
 
-(defn- minimize
+(defn- minimize!
   "Drop the hypotheses the answer does not need, and answer the set that is left.
+
+  `!`, because every round runs a real `:remove` edit: the retraction and its dependency
+  sweep are what decide the question, so this destroys stored knowledge whatever it
+  answers.
 
   Greedy and one at a time: retract a hypothesis, re-prove, and put it back only if the
   goal stopped following.  What that yields is an **irredundant** set — no single member
@@ -264,9 +287,12 @@
      ((:edit ops) kb {:remove [(get kept sentence)]})
      (if (seq (:solutions (attempt kb goals actx ops)))
        (dissoc kept sentence)
-       (assoc kept sentence (mint! kb sentence actx goal ops))))
+       (assoc kept sentence (mint kb sentence actx goal ops))))
    minted
-   (sort-by pr-str (keys minted))))
+   ;; `(keys minted)` is a map's key seq, so a collapsed key would drop the choice onto
+   ;; hash order; `nm/print-key` cannot collapse, and the key is built once per
+   ;; hypothesis rather than once per comparison
+   (nm/sort-by-content-key nm/print-key compare (keys minted))))
 
 (defn- reported-hypotheses
   "The hypothesis set as the caller sees it: sentence, context, handle.  `handle` is nil
@@ -276,7 +302,7 @@
   [minted actx keep?]
   (mapv (fn [sentence] {:sentence sentence :context actx
                         :handle   (when keep? (get minted sentence))})
-        (nm/sort-by-content-key pr-str compare (keys minted))))
+        (nm/sort-by-content-key nm/print-key compare (keys minted))))
 
 (defn run
   "Prove `goals` in `context`, hypothesizing what the proof needs and cannot find.
@@ -319,7 +345,7 @@
         keep? (boolean (:keep? opts))
         cap   (:max-hypotheses opts)
         for-  (if (= 1 (count goals)) (first goals) (vec goals))
-        actx  (open! kb context ops)
+        actx  (open kb context ops)
         ;; the candidate chooser bound to this run's scratch context, added to the seam so
         ;; every stage below takes `ops` alone and nothing threads a function beside it
         ops   (assoc ops :rules (fn [g] ((:rules-fn ops) kb g actx)))]
@@ -336,13 +362,13 @@
                     (if (empty? fresh)
                       {:minted    minted :solutions [] :refused refused
                        :status    (if (seq candidates) :capped :complete)}
-                      (recur (reduce (fn [m s] (assoc m s (mint! kb s actx for- ops)))
+                      (recur (reduce (fn [m s] (assoc m s (mint kb s actx for- ops)))
                                      minted fresh)))))))
             ;; Worth the retract-and-retest only when there is something to drop: a lone
             ;; hypothesis that produced a solution was necessary by construction, since
             ;; the round before it minted found none.
             kept  (if (and (seq solutions) (> (count minted) 1))
-                    (minimize kb goals actx for- minted ops)
+                    (minimize! kb goals actx for- minted ops)
                     minted)
             ;; Minimization re-runs the proof, so the solutions handed over must be the
             ;; ones the surviving hypotheses actually license — not the ones a larger set

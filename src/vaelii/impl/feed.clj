@@ -116,10 +116,14 @@
   already dropped, or one from another KB, removes nothing and says so."
   [kb token]
   (if-let [a (:feed kb)]
-    (let [had? (boolean (some #(= token (:token %)) (:listeners @a)))]
-      (when had?
-        (swap! a update :listeners #(into [] (remove (fn [l] (= token (:token l)))) %)))
-      had?)
+    ;; one `swap-vals!`, for `claim!`'s reason turned the other way round: the answer is
+    ;; read off the CAS that did the removal, so exactly one of two concurrent unwatches of
+    ;; one token can say it removed something.  Read-then-swap, both would see the listener
+    ;; present, both would answer true, and a caller counting on the boolean to tell it
+    ;; whether it was the one that closed the subscription would be told wrongly.
+    (let [[old new] (swap-vals! a update :listeners
+                                #(into [] (remove (fn [l] (= token (:token l)))) %))]
+      (not= (count (:listeners old)) (count (:listeners new))))
     false))
 
 (defn listeners
@@ -237,8 +241,21 @@
   The delivery runs even when `body` **throws**, so a half-applied batch still reports the
   belief it did move.  Often that is nothing: `core/edit!` throws during its deferred
   phase, before any settle, so no region was ever filed — and nothing is lost, because the
-  touched set is still uncleared and the next settle reports it."
+  touched set is still uncleared and the next settle reports it.
+
+  **It is not a `finally`, and the difference is which exception the caller sees.**  A
+  delivery that throws on the failure path — anything outside `notify-listener!`'s own
+  guard, since a listener is already caught and logged there — would out of a `finally`
+  replace the refusal `body` raised, and the refusal is the news: the caller asked to
+  write and was told no.  So the failure path rethrows what `body` threw and hangs the
+  delivery's failure off it as a suppressed exception, where a reader finds both."
   [kb & body]
   `(let [kb# ~kb]
-     (try (binding [*held?* true] ~@body)
-          (finally (deliver! kb#)))))
+     (try
+       (let [v# (binding [*held?* true] ~@body)]
+         (deliver! kb#)
+         v#)
+       (catch Throwable t#
+         (try (deliver! kb#)
+              (catch Throwable d# (.addSuppressed t# d#)))
+         (throw t#)))))

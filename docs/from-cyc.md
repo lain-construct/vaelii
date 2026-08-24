@@ -122,10 +122,51 @@ The content constraints above are a separate stage. `check` runs both.
 | `CoreCycLMt` | `CxCore` | the spindle head: the vocabulary code interprets |
 | `UniversalVocabularyMt` / `BaseKB` | `CxUniverse` | the mid anchor, and where a decontextualized claim lands |
 | `CurrentWorldDataCollectorMt` | `CxWell` | the collector — sees the whole shipped ontology |
-| `InferencePSC` / `EverythingPSC` | `?ctx` | **not a context at all**: omit the argument or pass a variable to read unscoped |
+| `InferencePSC` | `CxInference` | a **reading**, not a place: what one reader's cone sees whole |
+| `EverythingPSC` | `CxEverything` | likewise, and blind to belief — a syntactic read of the store |
 
-That last row is the one that catches people. There is no everything-context to assert
-into; scope is a property of the read.
+Those last two rows are the ones that catch people. Both spell like contexts and neither
+is one: **there is no everything-context to assert into**, and asserting into either is
+refused, as is any `genlCx` edge naming one. Scope is a property of the read, and these
+are names for readings rather than places to stand.
+
+A **variable** context — `?ctx`, the default of every short arity, or any name you
+choose — is the joint reading too, so `?ctx` and `CxInference` are one reading with two
+spellings, differing only in where the witness lands:
+
+| you pass | belief | whose view must hold the answer | where the witness goes |
+|---|---|---|---|
+| `CxEverything` | **ignored** | — *(the store, not a view)* | — |
+| `?var` (incl. the default `?ctx`) | followed | every literal in **one** view | unified into that variable |
+| `CxInference` | followed | every literal in **one** view | `:context`, beside the bindings |
+| a real `Cx…` | followed | every literal in **this** view | — |
+| `CxNothing` | followed (vacuously) | the empty view — the provers alone | — |
+
+Two axes, not a ladder. `CxEverything` is the odd one out and not by a degree: it is a
+named opt-out of the fourth invariant, so its answers are not belief claims and say a
+derivation is *spelled* in the store rather than held. Everything else asks what the KB
+holds, and differs only in whose view has to hold it. That is the row Cyc has no equivalent
+of, because an `Mt` there is always somewhere to stand.
+
+**Not naming a context does not mean the union.** A conjunctive read will not join a fact
+in `CxA` to a fact in `CxB` when no context sees both, because that is an answer no reader
+of the KB actually has; the union is `CxEverything`, and you ask for it by name. The
+difference is not exotic in the shipped layout: data contexts hang as *siblings* below
+`CxWell`, so nothing sees two of them and a join across `CxNaturalWorld` and
+`CxSocialWorld` has no reader at all. It is the read-side face of the `(owns Tom Engine1)`
+non-derivation in [contexts.md](contexts.md).
+
+One exception, and `unknown` is why. A goal every literal of which is *computed* rather than
+matched — `different`, `evaluate`, `unknown` — names no context, so there is no witness to
+pick and it is read whole-KB. Fanning over readers is existential over them, and negation as
+failure is not monotone, so a fanned `(unknown X)` would be satisfied by the most ignorant
+reader in the KB. A *mixed* goal needs no exception: its monotone literals decide which
+readers can answer, and the `unknown` is evaluated at those and nowhere else.
+
+`CxNothing` answers to no Cyc name at all. It is the vantage that sees nothing — no fact,
+no inherited vocabulary, not one `genl` edge — leaving whatever the provers can compute:
+arithmetic, an evaluable, `different`. What it is for is asking what a goal owes to the
+KB rather than to the engine.
 
 ## The call you would have made
 

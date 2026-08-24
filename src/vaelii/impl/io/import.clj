@@ -80,6 +80,7 @@
             [clojure.walk :as walk]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
+            [vaelii.impl.capabilities :as cap]
             [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.foreign :as foreign]
             [vaelii.impl.io.fingerprint :as fp]
@@ -240,7 +241,7 @@
                       {:type :unsupported-version :found vn :supported supported})))))
 
 (defn- assert-empty-destination! [kb]
-  (let [n (count (p/sentex-ids (:records kb)))]
+  (let [n (cap/count-sentexes (:records kb))]
     (when (pos? n)
       (throw (ex-info (str "destination KB is not empty (" n " sentexes); import expects "
                            "a fresh KB to avoid id collisions — clear the store first")
@@ -375,60 +376,71 @@
         naming    (volatile! nm/empty-tally)
         refused   (volatile! empty-refusals)
         fprint    (fp/accumulator)]
-    (doseq [frame frames]
-      (tick!)
-      (vswap! frames-n inc)
-      (let [fm    (decode frame)
-            _     (vswap! naming nm/tally (:sentence fm) (:context fm))
-            did   (:id fm)
-            ;; born carrying its strength, so the premise pass below has nothing to
-            ;; re-store: a premise **is** a sentex whose `:strength` is non-nil, and
-            ;; storing it strength-less and marking it after is two record writes per
-            ;; premise — 1.14M of them on OpenCyc, the first dead as the second lands.
-            ;; **Ours only**: in a foreign dump a frame's `:strength` is not the premise
-            ;; mark — that dialect's own account of what rests on what decides, and its
-            ;; reader applies it — so carrying it onto the record here would make every
-            ;; imported *derivation* a premise.
-            ;;
-            ;; A sentence this build's structural checks refuse yields no record at all,
-            ;; so the frame is counted and skipped rather than taking the load down with
-            ;; it.  Only around the construction, and only a refusal carrying a `:type`:
-            ;; a failure to *store* is this build's problem rather than the dump's, and
-            ;; so is any exception nobody chose to raise.
-            rec   (try
-                    (cond-> (res/kb-sentex kb (:sentence fm) (:context fm)) ; id nil
-                      (and ours? (:strength fm))
-                      (assoc :strength (strength-class (:strength fm))))
-                    (catch clojure.lang.ExceptionInfo e
-                      (if-let [ty (dump-disagreement e)]
-                        (do (vswap! refused tally-refusal ty) nil)
-                        (throw e))))]
-        (when rec
-          (let [k [(:sentence rec) (:context rec)]
-                h (if-let [prior (get @seen k)]
-                    (do (vswap! collapsed inc) prior)
-                    (let [hh (if (and ours? did)
-                               (do
-                                 ;; a handle is an identity, so a second frame claiming
-                                 ;; one already stored is a broken dump — and writing it
-                                 ;; would destroy the first record with nothing to show
-                                 ;; for it.  Equal content never reaches here; `seen`
-                                 ;; has already collapsed it.
-                                 (when (contains? @sx-meta did)
-                                   (throw (ex-info (str "dump names handle " did " twice, "
-                                                        "with different content")
-                                                   {:type :duplicate-handle :handle did})))
-                                 (p/put-sentex records (assoc rec :id did)))
-                               (do (when ours? (vswap! minted inc))
-                                   (p/put-sentex records rec)))]
-                      (vswap! seen assoc k hh)
-                      (fprint hh rec)                  ; only what actually got stored
-                      hh))]
-            (when (embeds-handle? (:sentence rec)) (vswap! embed conj h))
-            (when did
-              (vswap! sx-meta assoc did {:handle   h
-                                         :rule?    (some? (:antecedent rec))
-                                         :strength (:strength fm)}))))))
+    ;; `:premises? false`: the marks are not the records' own strengths on this path.
+    ;; A dump id that collapses onto a handle already stored keeps the **strongest** of
+    ;; the strengths that landed there (`mark-premises-by-strength`, once the whole
+    ;; stream is read), where the record carries the first frame's — so the mark is an
+    ;; aggregate this write cannot know, and the sink is told not to make it.
+    ;;
+    ;; The frame stream is closed beside the sink (`frames/closer`): `tick!` throws when a
+    ;; caller cancels and a duplicate handle throws below, and a frame seq only closes its
+    ;; file when it is consumed to the end or raises the failure itself.
+    (with-open [^java.io.Closeable sink   (cap/sentex-sink records {:premises? false})
+                ^java.io.Closeable _stream (frames/closer frames)]
+      (doseq [frame frames]
+        (tick!)
+        (vswap! frames-n inc)
+        (let [fm    (decode frame)
+              _     (vswap! naming nm/tally (:sentence fm) (:context fm))
+              did   (:id fm)
+              ;; born carrying its strength, so the premise pass below has nothing to
+              ;; re-store: a premise **is** a sentex whose `:strength` is non-nil, and
+              ;; storing it strength-less and marking it after is two record writes per
+              ;; premise — 1.14M of them on OpenCyc, the first dead as the second lands.
+              ;; **Ours only**: in a foreign dump a frame's `:strength` is not the premise
+              ;; mark — that dialect's own account of what rests on what decides, and its
+              ;; reader applies it — so carrying it onto the record here would make every
+              ;; imported *derivation* a premise.
+              ;;
+              ;; A sentence this build's structural checks refuse yields no record at all,
+              ;; so the frame is counted and skipped rather than taking the load down with
+              ;; it.  Only around the construction, and only a refusal carrying a `:type`:
+              ;; a failure to *store* is this build's problem rather than the dump's, and
+              ;; so is any exception nobody chose to raise.
+              rec   (try
+                      (cond-> (res/kb-sentex kb (:sentence fm) (:context fm)) ; id nil
+                        (and ours? (:strength fm))
+                        (assoc :strength (strength-class (:strength fm))))
+                      (catch clojure.lang.ExceptionInfo e
+                        (if-let [ty (dump-disagreement e)]
+                          (do (vswap! refused tally-refusal ty) nil)
+                          (throw e))))]
+          (when rec
+            (let [k [(:sentence rec) (:context rec)]
+                  h (if-let [prior (get @seen k)]
+                      (do (vswap! collapsed inc) prior)
+                      (let [hh (if (and ours? did)
+                                 (do
+                                   ;; a handle is an identity, so a second frame claiming
+                                   ;; one already stored is a broken dump — and writing it
+                                   ;; would destroy the first record with nothing to show
+                                   ;; for it.  Equal content never reaches here; `seen`
+                                   ;; has already collapsed it.
+                                   (when (contains? @sx-meta did)
+                                     (throw (ex-info (str "dump names handle " did " twice, "
+                                                          "with different content")
+                                                     {:type :duplicate-handle :handle did})))
+                                   (p/write-record! sink (assoc rec :id did)))
+                                 (do (when ours? (vswap! minted inc))
+                                     (p/write-record! sink rec)))]
+                        (vswap! seen assoc k hh)
+                        (fprint hh rec)                  ; only what actually got stored
+                        hh))]
+              (when (embeds-handle? (:sentence rec)) (vswap! embed conj h))
+              (when did
+                (vswap! sx-meta assoc did {:handle   h
+                                           :rule?    (some? (:antecedent rec))
+                                           :strength (:strength fm)})))))))
     {:sx-meta @sx-meta :embedding @embed :collapsed @collapsed :minted @minted
      :frames @frames-n
      :refused (assoc @refused :checked @frames-n)
@@ -558,21 +570,28 @@
   `justifications.nippy.stream` and buys a refusal the caller can act on.
 
   Called by `import-dump` for a dump of ours on the belief path — the only path that
-  reads this file at all."
+  reads this file at all.
+
+  **The stream is closed here**, refusal or not.  This pass exists to throw out of the
+  middle of a walk, and a frame seq only closes its file when it is consumed to the end
+  or raises the failure itself — so the one exit this function is written for is exactly
+  the one that would leave the descriptor open."
   [frames]
-  (doseq [frame frames]
-    (when (seq (:out frame))
-      (throw (ex-info (str "the dump names a justification with a non-empty :out "
-                           (pr-str (vec (:out frame))) " — the negation-as-failure antecedent"
-                           " slot is reserved and empty, nothing in the engine writes"
-                           " one, and the relabel reads it as empty rather than"
-                           " reading it: the semi-naive fixpoint would skip the"
-                           " justification an arriving datum invalidates, and the"
-                           " sweep would tear down a valid one.  Re-export from a KB"
-                           " whose justifications carry no :out, or drop the slot from"
-                           " the frame")
-                      {:type :naf-justification :out (vec (:out frame))
-                       :consequence (:consequence frame) :justification (:id frame)})))))
+  (try
+    (doseq [frame frames]
+      (when (seq (:out frame))
+        (throw (ex-info (str "the dump names a justification with a non-empty :out "
+                             (pr-str (vec (:out frame))) " — the negation-as-failure antecedent"
+                             " slot is reserved and empty, nothing in the engine writes"
+                             " one, and the relabel reads it as empty rather than"
+                             " reading it: the semi-naive fixpoint would skip the"
+                             " justification an arriving datum invalidates, and the"
+                             " sweep would tear down a valid one.  Re-export from a KB"
+                             " whose justifications carry no :out, or drop the slot from"
+                             " the frame")
+                        {:type :naf-justification :out (vec (:out frame))
+                         :consequence (:consequence frame) :justification (:id frame)}))))
+    (finally (frames/close-frames! frames))))
 
 (defn- import-justifications!
   "Stream the `Justification` frames against the old→new id map.  Every handle a
@@ -610,7 +629,13 @@
   the frame that would have resolved whole had those records stayed.  Counting a frame
   that merely *names* an orphan hands the load every frame the dump had already lost for a
   reason of its own, which on a dump that hangs deductions off sentexes it never carried
-  is several times the number the load is answerable for."
+  is several times the number the load is answerable for.
+
+  `:frames` is what the **stream yielded**, which is a different number from `:stored`
+  and from `:dropped` and is the only one a torn-file check can read: a truncated chunk
+  reads as a clean EOF, so what `meta.edn` states is the sole witness
+  (`check-frame-count!`), and a frame this load dropped for an unresolvable reference is
+  not a torn file."
   [kb frames old->new orphaned preserve? tick!]
   (let [records (:records kb)
         remap   (fn [id] (if (integer? id) (get old->new id) id))
@@ -619,30 +644,38 @@
         lost    (fn [informant antecedents consequence]
                   (into [] (comp (filter integer?) (filter #(nil? (get old->new %))))
                         (cons consequence (cons informant antecedents))))
-        stored  (volatile! 0)
-        dropped (volatile! 0)
-        orphans (volatile! 0)
-        ids     (volatile! {})]
-    (doseq [frame frames]
-      (tick!)
-      (let [{:keys [informant antecedents consequence bindings strength]} frame
-            conseq (get old->new consequence)
-            antes  (mapv remap antecedents)
-            inf    (remap informant)]
-        (if (or (nil? conseq) (nil? inf) (some nil? antes))
-          (do (vswap! dropped inc)
-              (let [gone (lost informant antecedents consequence)]
-                (when (and (seq gone) (every? #(contains? orphaned %) gone))
-                  (vswap! orphans inc))))
-          (let [jid  (or (when preserve? (:id frame)) (p/next-id records))
-                just (jtms/->just jid inf antes conseq (or bindings {})
-                                  (strength-class strength))]
-            (p/put-justification records just)
-            (when-let [did (:id frame)] (vswap! ids assoc did jid))
-            (vswap! stored inc)))))
-    {:stored @stored :dropped @dropped :dropped-orphaned @orphans :ids @ids}))
+        stored   (volatile! 0)
+        dropped  (volatile! 0)
+        orphans  (volatile! 0)
+        frames-n (volatile! 0)          ; what the stream yielded, for the torn check
+        ids      (volatile! {})]
+    ;; the frame stream closed beside the sink (`frames/closer`): `tick!` throws when a
+    ;; caller cancels, and a frame seq only closes its file when it is consumed to the end
+    ;; or raises the failure itself
+    (with-open [^java.io.Closeable sink   (cap/justification-sink records {})
+                ^java.io.Closeable _stream (frames/closer frames)]
+      (doseq [frame frames]
+        (tick!)
+        (vswap! frames-n inc)
+        (let [{:keys [informant antecedents consequence bindings strength]} frame
+              conseq (get old->new consequence)
+              antes  (mapv remap antecedents)
+              inf    (remap informant)]
+          (if (or (nil? conseq) (nil? inf) (some nil? antes))
+            (do (vswap! dropped inc)
+                (let [gone (lost informant antecedents consequence)]
+                  (when (and (seq gone) (every? #(contains? orphaned %) gone))
+                    (vswap! orphans inc))))
+            (let [jid  (or (when preserve? (:id frame)) (p/next-id records))
+                  just (jtms/->just jid inf antes conseq (or bindings {})
+                                    (strength-class strength))]
+              (p/write-record! sink just)
+              (when-let [did (:id frame)] (vswap! ids assoc did jid))
+              (vswap! stored inc))))))
+    {:stored @stored :dropped @dropped :dropped-orphaned @orphans :ids @ids
+     :frames @frames-n}))
 
-(defn- mark-premises-by-strength!
+(defn- mark-premises-by-strength
   "Mark the premises of a dump of ours: a premise **is** a sentex whose `:strength` is
   non-nil — the mark rides on the record in both backends, which is why the format needs
   no premise stream.  Aggregated by handle (dedup can merge several dump ids onto one),
@@ -654,9 +687,17 @@
                               (update acc handle stronger (strength-class strength))
                               acc))
                           {} sx-meta)]
-    (doseq [[handle s] by-handle]
-      (p/mark-premise records handle s))
+    ;; through `cap/mark-premises`, which on a store that can mark many at once is a
+    ;; statement rather than a write per handle.  The aggregate is why this is a *batch*
+    ;; and not something the record write could have carried: which strength a handle
+    ;; ends at is not known until the whole stream is read.
+    (cap/mark-premises records by-handle)
     (count by-handle)))
+
+(def ^:private provenance-chunk
+  "Provenance pairs per bulk write.  The stream is read a chunk at a time rather than
+  whole, since a dump of a corpus carries one of these per record."
+  1000)
 
 (defn- import-provenance-frames!
   "Replay the `provenance.nippy.stream` — `[handle map]` frames, the handle remapped.
@@ -671,15 +712,27 @@
   (let [^java.io.File f (io/file dir provenance-file)]
     (if-not (.exists f)
       0
+      ;; Written a chunk at a time through `cap/put-all-provenance` — one statement per
+      ;; chunk on a store that can write many at once, and the same `put-provenance` per
+      ;; pair on one that cannot.  The stream stays streaming: a chunk is what is held,
+      ;; never the whole file, which on a corpus dump is a provenance map per record.
       (let [records (:records kb)
-            n       (volatile! 0)]
-        (doseq [frame (read-fn f compression)]
-          (when (and (sequential? frame) (= 2 (count frame)))
-            (let [[did prov] frame
-                  h (get handles did)]
-              (when (and h (map? prov))
-                (p/put-provenance records h prov)
-                (vswap! n inc)))))
+            n       (volatile! 0)
+            ;; bound before the walk, so the file is closed on the way out whether the
+            ;; stream ran to its end or a write threw part-way through it
+            fs      (read-fn f compression)]
+        (try
+          (doseq [chunk (partition-all provenance-chunk fs)]
+            (let [entries (into []
+                                (comp (filter #(and (sequential? %) (= 2 (count %))))
+                                      (keep (fn [[did prov]]
+                                              (let [h (get handles did)]
+                                                (when (and h (map? prov)) [h prov])))))
+                                chunk)]
+              (when (seq entries)
+                (cap/put-all-provenance records entries)
+                (vswap! n + (count entries)))))
+          (finally (frames/close-frames! fs)))
         @n))))
 
 ;;; ── the index: replay it, or rebuild it ───────────────────────────────
@@ -732,26 +785,31 @@
   caller's fallback is `reindex`, which clears before it rebuilds — so the check is
   allowed to come after the writes, and what it has to catch is a stream that ends early
   or does not read at all.  It cannot be a checksum of the entries themselves: they are
-  the thing being validated, and `index.edn` is what vouches for them."
+  the thing being validated, and `index.edn` is what vouches for them.
+
+  The install itself is `snapshot/install-entries!` — the same one the mapped image's
+  `load-index!` runs, because a dump's index stream and a snapshot's index section are
+  the same install and two copies of it could refuse a different frame or count a
+  different number.  The file behind the stream is closed on the way out **however this
+  leaves**: a refused frame throws out of the middle of the walk, and the seq only
+  auto-closes on a failure it raises itself or on being consumed to the end."
   [kb dir compression read-fn expected]
-  (let [n (volatile! 0)]
+  (let [frames (volatile! nil)]
     (try
-      (doseq [batch (partition-all 10000
-                                   (read-fn (io/file dir index-dir index-entry-file) compression))]
-        (when-not (every? #(and (sequential? %) (= 2 (count %))) batch)
-          (throw (ex-info "index entry stream holds something that is not a [key value] pair"
-                          {:type :malformed-entry})))
-        (vswap! n + (count batch))
-        (p/index-load (:index kb) batch))
-      (when-not (= (long @n) (long expected))
-        (trove/log! {:level :warn :id ::index-short
-                     :msg (str "index entry stream holds " @n " entries, index.edn says "
-                               expected)})
-        :entries-truncated)
+      (let [n (snapshot/install-entries!
+               (:index kb)
+               (vreset! frames (read-fn (io/file dir index-dir index-entry-file)
+                                        compression)))]
+        (when-not (= (long n) (long expected))
+          (trove/log! {:level :warn :id ::index-short
+                       :msg (str "index entry stream holds " n " entries, index.edn says "
+                                 expected)})
+          :entries-truncated))
       (catch Exception e
         (trove/log! {:level :warn :id ::index-unreadable
                      :msg (str "index entry stream unreadable: " (ex-message e))})
-        :entries-truncated))))
+        :entries-truncated)
+      (finally (frames/close-frames! @frames)))))
 
 (defn- install-index!
   "Put the index in place: replay the dump's entries when they can be proved to describe
@@ -788,7 +846,13 @@
   "The `{:belief? false}` inline pass: for each sentex frame, re-canonicalize, store it,
   and index it **in the same pass** — indexing the record already in hand rather than
   storing everything and then re-reading it back through `reindex`, which on the `:disk`
-  backend re-pages every record from disk.  Wrapped in `with-bulk-writes` so a `:memory`
+  backend re-pages every record from disk.
+
+  The records go through a `capabilities/sentex-sink`, which is that same `put-sentex` on
+  every store the engine ships and a bulk write on one that has one (`COPY`, over
+  Postgres).  It can be a *sink* rather than a batched put precisely because of the
+  sentence above: the handle is decided here and the sink is told it, so the index build
+  never waits for a batch to land.  Wrapped in `with-bulk-writes` so a `:memory`
   index build is one `persistent!` instead of a `swap!` per fact (a no-op on `:disk`,
   which runs its own batched WAL path).
 
@@ -836,52 +900,61 @@
         ;; record silently — the same refusal `import-sentexes!` makes, kept a BitSet
         ;; (a bit per handle) so the streaming path stays streaming
         ids     (java.util.BitSet.)]
-    (mem/with-bulk-writes (:backend index)
-      (doseq [frame frames]
-        (vswap! seen-n inc)
-        (let [fm  (decode frame)
-              _   (vswap! naming nm/tally (:sentence fm) (:context fm))
-              ;; born carrying its strength, ours only, exactly as the belief path
-              ;; stores it: the premise mark rides on the record, and `recover` is
-              ;; what turns this corpus into a believing KB later — a record stored
-              ;; strength-less here would recover with **nothing** believed, every
-              ;; handle a derivation with no justification to ground it
-              ;;
-              ;; Counted and skipped when this build's structural checks refuse the
-              ;; sentence, exactly as on the belief path — the same door, and a bulk
-              ;; path is the last place an all-or-nothing refusal earns its keep.
-              rec (try
-                    (cond-> (res/kb-sentex kb (:sentence fm) (:context fm))
-                      (and preserve? (:strength fm))
-                      (assoc :strength (strength-class (:strength fm))))
-                    (catch clojure.lang.ExceptionInfo e
-                      (if-let [ty (dump-disagreement e)]
-                        (do (vswap! refused tally-refusal ty) nil)
-                        (throw e))))]
-          (when rec
-            (let [h (if (and preserve? (:id fm))
-                      (let [did (long (:id fm))]
-                        (when (and (<= 0 did) (< did Integer/MAX_VALUE))
-                          (when (.get ids (int did))
-                            (throw (ex-info (str "dump names handle " did " twice")
-                                            {:type :duplicate-handle :handle did})))
-                          (.set ids (int did)))
-                        (p/put-sentex records (assoc rec :id did)))
-                      (do (when preserve? (vswap! minted inc))
-                          (p/put-sentex records rec)))
-                  ;; the stores also keep the premise set as its own roster, and
-                  ;; `recover` walks that roster — the record already holds this
-                  ;; strength, so the mark is the set-add and no second record write
-                  _ (when (:strength rec) (p/mark-premise records h (:strength rec)))
-                  c (vswap! n inc)]
-              (fprint h rec)
-              (if index?
-                (when (reindex/index-one! index rec h) (vswap! rules inc))
-                (when (rules/rule? rec) (vswap! rules inc)))
-              (when (zero? (mod (long c) (long report-every)))
-                (on-progress {:phase :sentexes :done c :total total})
-                (trove/log! {:level :info :id ::store-progress
-                             :msg (str "  loaded " c " sentexes…")})))))))
+    ;; the frame stream closed beside the sink (`frames/closer`): a duplicate handle
+    ;; throws out of the middle of the walk, and a frame seq only closes its file when it
+    ;; is consumed to the end or raises the failure itself
+    (with-open [^java.io.Closeable sink   (cap/sentex-sink records {:premises? true})
+                ^java.io.Closeable _stream (frames/closer frames)]
+      (mem/with-bulk-writes (:backend index)
+        (doseq [frame frames]
+          (vswap! seen-n inc)
+          (let [fm  (decode frame)
+                _   (vswap! naming nm/tally (:sentence fm) (:context fm))
+                ;; born carrying its strength, ours only, exactly as the belief path
+                ;; stores it: the premise mark rides on the record, and `recover` is
+                ;; what turns this corpus into a believing KB later — a record stored
+                ;; strength-less here would recover with **nothing** believed, every
+                ;; handle a derivation with no justification to ground it
+                ;;
+                ;; Counted and skipped when this build's structural checks refuse the
+                ;; sentence, exactly as on the belief path — the same door, and a bulk
+                ;; path is the last place an all-or-nothing refusal earns its keep.
+                rec (try
+                      (cond-> (res/kb-sentex kb (:sentence fm) (:context fm))
+                        (and preserve? (:strength fm))
+                        (assoc :strength (strength-class (:strength fm))))
+                      (catch clojure.lang.ExceptionInfo e
+                        (if-let [ty (dump-disagreement e)]
+                          (do (vswap! refused tally-refusal ty) nil)
+                          (throw e))))]
+            (when rec
+              ;; through a `sentex-sink`, which on every store the engine ships is
+              ;; `put-sentex` and the premise mark — the loop this was — and on a store
+              ;; that bulk-loads is its bulk path.  The handle is decided *here* either
+              ;; way, which is what lets the index build below stay inline: a sink is
+              ;; told the handle rather than asked for it.  `:premises? true`, since the
+              ;; stores keep the premise set as its own roster and `recover` walks it —
+              ;; the record already holds the strength, so the mark is the set-add and
+              ;; never a second record write.
+              (let [h (if (and preserve? (:id fm))
+                        (let [did (long (:id fm))]
+                          (when (and (<= 0 did) (< did Integer/MAX_VALUE))
+                            (when (.get ids (int did))
+                              (throw (ex-info (str "dump names handle " did " twice")
+                                              {:type :duplicate-handle :handle did})))
+                            (.set ids (int did)))
+                          (p/write-record! sink (assoc rec :id did)))
+                        (do (when preserve? (vswap! minted inc))
+                            (p/write-record! sink rec)))
+                    c (vswap! n inc)]
+                (fprint h rec)
+                (if index?
+                  (when (reindex/index-one! index rec h) (vswap! rules inc))
+                  (when (rules/rule? rec) (vswap! rules inc)))
+                (when (zero? (mod (long c) (long report-every)))
+                  (on-progress {:phase :sentexes :done c :total total})
+                  (trove/log! {:level :info :id ::store-progress
+                               :msg (str "  loaded " c " sentexes…")}))))))))
     {:sentexes @n :frames @seen-n :rules @rules :minted @minted
      :refused (assoc @refused :checked @seen-n)
      :fingerprint (fprint) :naming @naming}))
@@ -947,8 +1020,7 @@
             :rules             (:rules result)
             :justifications        0
             :naming            (:naming result)
-            :refused           (:refused result)
-            :source-store-mode (:source-store-mode meta)}
+            :refused           (:refused result)}
            idx)))
 
 ;;; ── the entry point ───────────────────────────────────────────────────
@@ -1172,12 +1244,18 @@
                   (if ours?
                     ;; ours says it directly: justifications are justifications, and a
                     ;; premise is a sentex carrying a strength
-                    (let [{:keys [dropped dropped-orphaned ids]}
+                    (let [{:keys [dropped dropped-orphaned ids frames]}
                           (import-justifications!
                            kb (read-fn (io/file dir justification-file) compression) old->new
                            orphaned kept?
-                           (tick :justifications (:justification-count meta)))]
-                      {:premises   (mark-premises-by-strength! kb sx-meta)
+                           (tick :justifications (:justification-count meta)))
+                          ;; the same witness the sentex stream gets, and the stream that
+                          ;; most needs it: a torn justification file reads as a clean EOF,
+                          ;; and what it loses is belief — a KB that recovers to fewer
+                          ;; conclusions than it was exported with, silently
+                          _ (check-frame-count! :justifications frames
+                                                (:justification-count meta))]
+                      {:premises   (mark-premises-by-strength kb sx-meta)
                        ;; both kinds' handles, since a provenance frame can name either
                        ;; and the two draw from one counter, so nothing collides
                        :provenance (import-provenance-frames!
@@ -1217,9 +1295,9 @@
                                 :handle-policy      (if kept? :preserved :remapped)
                                 :collapsed          collapsed
                                 :belief?            belief?
-                                :sentexes           (count (p/sentex-ids (:records kb)))
+                                :sentexes           (cap/count-sentexes (:records kb))
                                 :frames             frames
-                                :justifications     (count (p/justification-ids (:records kb)))
+                                :justifications     (cap/count-justifications (:records kb))
                                 :premises           premises
                                 :provenance-entries provenance
                                 :dropped-justifications dropped
@@ -1228,8 +1306,7 @@
                                 :dropped-meta-sentexes (:dropped rewrite)
                                 :orphaned-ids       (count orphaned)
                                 :naming             naming
-                                :refused            refused
-                                :source-store-mode  (:source-store-mode meta)}
+                                :refused            refused}
                                idx)]
                   (trove/log! {:level :info :id ::import-complete
                                :msg   (str "import-dump complete: " (:sentexes summary)

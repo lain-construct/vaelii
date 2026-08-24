@@ -295,7 +295,8 @@
         (dotimes [i 12] (kv/kv-put b [:v :k] i))
         (kv/kv-put b [:v :other] :x)
         (dkv/close! b)
-        (let [{:keys [tmp marker]} (f/log-compact-paths (:log-path b))]
+        (let [{:keys [temps marker]} (f/compact-temp-paths (:log-path b))
+              [[_ tmp]] temps]
           (dkv/compact! b)                        ; must not throw, must not write
           (is (not (.exists (java.io.File. ^String tmp)))
               "no compaction temp for a closed store")

@@ -146,9 +146,13 @@ a run without it, more slowly.
   covering every backend the `KvBackend` adapters reach — the flat map, the dense one, the
   on-disk WAL, an overlay. The columnar index walks its own native trie and counts no node
   probes, so a columnar run reports **no fan at all** rather than a fabricated one, and
-  `profile_test` asserts that silence rather than standing aside. The other four hold on
-  both stores: the columnar index keeps them itself, since it writes and walks the index
-  rather than going through `KvIndexStore` to do it.
+  `profile_test` asserts that silence rather than standing aside. The other six hold on
+  both stores. Three of them are the columnar index's own — `:reads`, `:writes` and
+  `:retracts`, which it keeps itself, since it writes and walks the index rather than
+  going through `KvIndexStore` to do it. The remaining three are no index's to keep at
+  all: `:goals` and `:sift` are tallied by the matchers (`vaelii.impl.resolution`) and
+  `:fetches` by the record store, so none of the three can vary with the index a run
+  happens to be on.
 - A retrieval that reaches the index without going through either matcher has no shape:
   the direct `p/lookup` callers — `find-sentex-handle`, the level-0 raw read, and every
   term read the interactive arm makes — appear in `:fan` and `:reads` and not in

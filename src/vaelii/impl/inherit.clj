@@ -107,7 +107,13 @@
   nil)
 
 (defmacro with-memo
-  "Answer `body` under a memo, reusing the enclosing one when there is one."
+  "Answer `body` under a memo, reusing the enclosing one when there is one.
+
+  **`body` must be eager**, the precondition `observe/with-search-scope` carries for the
+  same reason: a lazy seq handed back from here realizes after the binding frame has
+  popped, so every `positions` and `reach` its elements ask for is walked again from
+  scratch. Nothing reports that — the answers are identical — so each seq-returning
+  layer below realizes before it returns."
   [& body]
   `(binding [*memo* (or *memo* (atom {}))] ~@body))
 
@@ -185,10 +191,10 @@
            declaration-functors))))
 
 (defn positions
-  "`[{:n :rel :inverse?} …]` — the preserved argument positions declared for `pred`,
-  visible from `context`, whose relation is one this may actually walk.  Empty (the
-  overwhelmingly common case) means the predicate inherits nothing and every consumer
-  here is a no-op.
+  "`[{:n :rel :inverse? :handle :in} …]` — the preserved argument positions declared for
+  `pred`, visible from `context`, whose relation is one this may actually walk.  Empty
+  (the overwhelmingly common case) means the predicate inherits nothing and every
+  consumer here is a no-op.
 
   Several declarations may name one position; they are not collapsed here, because
   their reaches **union** (`reach`) rather than compete.
@@ -197,6 +203,14 @@
   `support-for` names when a firing rests on the move it licenses: the declaration is
   as much a reason for an inherited claim as the claim itself, and retracting it has to
   withdraw whatever was concluded.
+
+  **`:in` is the context the declaration was asserted in**, and it is here because
+  `move-support` names *one* declaration out of the several that may license a move:
+  `[rel, inverse?, n]` fixes the declaration's whole sentence, so two visible statements
+  of it differ only in where they were said, and without `:in` the choice would fall to
+  `matches-visible`' answer set — handle order, which is arrival order.  It costs one
+  record fetch per declaration, paid inside the memo rather than per firing, over a list
+  that is empty for nearly every predicate.
 
   Realized rather than lazy, and memoized on `[pred context]`: four layers of one
   question ask for this, and each computation is two `matches-visible` calls.
@@ -214,7 +228,8 @@
                           :let  [n (get b '?n) rel (get b '?rel)]
                           :when (and (integer? n) (pos? n) (symbol? rel)
                                      (usable-relation? (:taxonomy kb) rel context))]
-                      {:n n :rel rel :inverse? inverse? :handle h})))))
+                      {:n n :rel rel :inverse? inverse? :handle h
+                       :in (:context (p/get-sentex (:records kb) h))})))))
 
 (defn declarations-exist?
   "Does this KB declare any preservation at all?  One set-cardinality read per
@@ -491,10 +506,15 @@
        (group-by :tuple)
        (map (fn [[_ cs]]
               ;; the strongest claim on a tuple: key built once per claim (min in one
-              ;; pass), not per comparison of a full sort thrown away but for its first
+              ;; pass), not per comparison of a full sort thrown away but for its first.
+              ;; The sentence prints through `nm/print-key`, since `cs` is a bucket of a
+              ;; `res/matches-visible` answer *set* and the winner's `:class` is what
+              ;; `verdict` and `checks/asymmetry-problem` read — an ambient
+              ;; `*print-length*` collapsing the key would decide an admission on the
+              ;; order the retrieval happened to answer in
               (nm/min-by-content-key (juxt #(- (st/rank-of (:class %)))
                                            #(str (:context %))
-                                           #(pr-str (:sentence %)))
+                                           #(nm/print-key (:sentence %)))
                                      compare
                                      cs)))))
 
@@ -539,14 +559,18 @@
           probe (fn [order negated? polarity]
                   (strongest-per-tuple
                    kb polarity (found-claims kb pred sl order negated? context)))]
-      (concat
-       (probe fwd false :for)
-       (probe fwd true  :against)
-       ;; The converse is read with the tuple indices swapped, so a stored `(P x y)`
-       ;; is filed against the tuple `[y x]` it denies.
-       (when (and asym? (= 2 (count args)))
-         (remove #(= (first (:tuple %)) (second (:tuple %)))
-                 (probe [1 0] false :against)))))))
+      ;; realized here, inside the memo (`with-memo`): the probes read the store and
+      ;; `strongest-per-tuple` groups lazily, so a seq handed back unrealized does all
+      ;; of that with the memo gone
+      (vec
+       (concat
+        (probe fwd false :for)
+        (probe fwd true  :against)
+        ;; The converse is read with the tuple indices swapped, so a stored `(P x y)`
+        ;; is filed against the tuple `[y x]` it denies.
+        (when (and asym? (= 2 (count args)))
+          (remove #(= (first (:tuple %)) (second (:tuple %)))
+                  (probe [1 0] false :against))))))))
 
 ;; ---- specificity ---------------------------------------------------------
 
@@ -578,7 +602,13 @@
   (with-memo
     (let [poss (positions kb (nm/functor goal) context)
           cs   (claims kb goal context)]
-      (remove #(undercut? kb poss % cs context) cs))))
+      ;; realized inside the memo, and this is the layer where it matters most:
+      ;; `undercut?` compares every claim against every other and each comparison walks
+      ;; a `reach` per preserved position, so a seq escaping the binding pays that
+      ;; product uncached.  Both callers outside this namespace drain it
+      ;; (`checks/asymmetry-problems`, `provers`), so nothing is realized that a lazy
+      ;; answer would have skipped.
+      (into [] (remove #(undercut? kb poss % cs context)) cs))))
 
 (defn verdict
   "What the preserved claims say about the ground goal:
@@ -670,8 +700,12 @@
   adjacency `fact-reach` walks — so a path is found for exactly the pairs the reach
   answers and the two cannot disagree about what a context reaches.  Breadth-first, so
   the witness is a shortest path; neighbours are expanded in term order and a tie
-  between two facts stating one step is broken on the **context name**, so the witness
-  is a function of the content rather than of the order the facts arrived in."
+  between two facts stating one step is broken on the **context name and then on what
+  the fact says**, so the witness is a function of the content rather than of the order
+  the facts arrived in.  The sentence is in the key because the matcher is type-aware
+  and a goal fans over sub-predicates: two believed sentexes routinely state one step
+  from one context, and the handle chosen here becomes an antecedent of the recorded
+  justification — the same completeness `one-supporter` keys on just above."
   [kb rel inverse? a w context]
   (if (= a w)
     []
@@ -682,8 +716,10 @@
                               (let [v (get b '?rv)]
                                 (when (and v (not= v n))
                                   (when-let [sxr (p/get-sentex (:records kb) h)]
-                                    [v h (str (:context sxr))])))))
-                      (sort-by (juxt #(str (nth % 0)) #(nth % 2)))
+                                    [v h (str (:context sxr))
+                                     (nm/print-key (:sentence sxr))])))))
+                      (nm/sort-by-content-key
+                       (juxt #(nm/print-key (nth % 0)) #(nth % 2) #(nth % 3)) compare)
                       (partition-by first)
                       (map first)))]
       (loop [q (conj clojure.lang.PersistentQueue/EMPTY a), parent {a nil}]
@@ -711,7 +747,13 @@
   already records.
 
   One declaration is named, not all of them — the union of their reaches is what
-  licenses the claim, and any member of it that reaches is a complete reason."
+  licenses the claim, and any member of it that reaches is a complete reason.  **Which
+  one is a content choice**: `poss` is materialized from a `res/matches-visible` answer
+  set, and `[rel, inverse?]` alone fixes the declaration's sentence — the position is
+  constant across `poss`, which arrives already grouped by it — so the asserting context
+  is what separates two visible statements of one declaration.  The chosen handle is
+  prepended to the support list and lands in a justification, so retracting one of two
+  equivalent declarations must not withdraw a conclusion by coin-toss."
   [kb poss a w context]
   (if (= a w)
     []
@@ -727,7 +769,8 @@
                                    (conj (vec p) t)
                                    (vec p))))]
                  (into [handle] es))))
-           (sort-by (juxt #(str (:rel %)) #(str (:inverse? %))) poss)))))
+           (nm/sort-by-content-key
+            (juxt #(str (:rel %)) #(str (:inverse? %)) #(str (:in %))) compare poss)))))
 
 (defn support-for
   "What licenses the ground goal `(P a1 … an)` by preservation — `{:claim handle
@@ -788,13 +831,16 @@
                                       hs)
                                     hs)]
                            {:claim (:handle c) :handles (vec (distinct hs))})))
-                     ;; the key mixes a `str` tuple and a `pr-str` sentence — built once
+                     ;; the key mixes a `str` tuple and a printed sentence — built once
                      ;; per survivor now, not per comparison; the `[rank …]` tuple orders
-                     ;; under `compare`
+                     ;; under `compare`.  Through `nm/print-key`, because the survivor
+                     ;; chosen here has its `:handle` written into a recorded
+                     ;; justification and `sv` is drawn from a `res/matches-visible`
+                     ;; answer *set*
                      (nm/sort-by-content-key (juxt #(- (st/rank-of (:class %)))
                                                    #(str (:tuple %))
                                                    #(str (:context %))
-                                                   #(pr-str (:sentence %)))
+                                                   #(nm/print-key (:sentence %)))
                                              compare
                                              sv))))))))))
 
@@ -918,15 +964,20 @@
             (when-let [s (support-for kb literal context)]
               [(assoc s :bindings {})])
             (let [by-n (by-position poss (count args))]
-              (distinct
-               (for [[w _] (stated-claims kb pred args poss context)
-                     t     (licensed-product kb by-n args w context)
-                     :when (not= t w)
-                     :let  [b (goal-bindings args t)]
-                     :when b
-                     :let  [s (support-for kb (cons pred t) context)]
-                     :when s]
-                 (assoc s :bindings b))))))))))
+              ;; realized inside the memo: `licensed-product` walks a `reach` per
+              ;; preserved position per claim and `support-for` opens a memo of its own
+              ;; per tuple, so an escaping seq shares nothing between the tuples of one
+              ;; literal.  The join drains this per state (`chain/solve-preserving`),
+              ;; so the whole product is what it consumes either way.
+              (into [] (distinct)
+                    (for [[w _] (stated-claims kb pred args poss context)
+                          t     (licensed-product kb by-n args w context)
+                          :when (not= t w)
+                          :let  [b (goal-bindings args t)]
+                          :when b
+                          :let  [s (support-for kb (cons pred t) context)]
+                          :when s]
+                      (assoc s :bindings b))))))))))
 
 ;; ---- which rules an arriving sentence moves ------------------------------
 

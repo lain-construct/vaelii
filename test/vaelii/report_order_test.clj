@@ -20,7 +20,8 @@
   *says*.  A cleared KB per arm (`with-cleared-kb`, `witness_order_test`'s reason: each
   arm wants a store of its own), with the terms minted once outside both so the two
   arms are about the same knowledge."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
@@ -214,3 +215,74 @@
           "both orders derive the equality")
       (is (apply = readings)
           "the merge names its two facts and the declaration in one order"))))
+
+;; ---- why-not's excepted argument ----------------------------------------
+
+(deftest why-not-blames-the-same-excepted-rule-in-either-order
+  ;; A blocked conclusion is never stored, so `why-not`'s sentence arity reconstructs the
+  ;; firing backwards.  Two excepted rules can conclude one goal, and the rules are read
+  ;; off `rules/direct-concluders` — the rule index's own set, which is handle order.  So
+  ;; the reported `:rule` and `:exception` are a content choice or they are a fact about
+  ;; which rule was written first.  Read back as **content**: the reported handles differ
+  ;; between two loads for the one reason that is not the subject.
+  (tu/with-terms [bird flies penguin injured Opus CxStory]
+    (let [r1       (fwd [(list bird '?x)] (list flies '?x))
+          r2       (fwd [(list penguin '?x)] (list flies '?x))
+          readings (both-orders
+                    [[r1 r2] [r2 r1]]
+                    (fn [kb rules]
+                      ;; the rules go in in the ordering's order, but each keeps its OWN
+                      ;; exception — so the two arms hold one body of knowledge and differ
+                      ;; in nothing but arrival.  Both exceptions hold of Opus, so both
+                      ;; completions are candidates and something has to choose.
+                      (let [h (into {} (map (fn [r] [r (first (flatten [(v/assert kb r CxStory)]))]))
+                                    rules)]
+                        (v/assert kb (list 'exceptWhen (list penguin '?x)
+                                           (list 'sentexHandle (h r1)))
+                                  CxStory)
+                        (v/assert kb (list 'exceptWhen (list injured '?x)
+                                           (list 'sentexHandle (h r2)))
+                                  CxStory)
+                        (v/assert kb (list bird Opus) CxStory)
+                        (v/assert kb (list penguin Opus) CxStory)
+                        (v/assert kb (list injured Opus) CxStory)))
+                    (fn [kb _]
+                      (let [reading (fn []
+                                      (let [w (v/why-not kb (list flies Opus) CxStory)]
+                                        [(:reason w)
+                                         (:exception w)
+                                         ;; the rule as its sentence, never as its handle
+                                         (some-> (:rule w) (->> (v/sentex kb)) v/readable-sentence)
+                                         (mapv #(said kb %) (:via w))]))]
+                        ;; the second reading is taken under a caller's print bounds —
+                        ;; the REPL's, typically.  Both rules render as
+                        ;; `(implies (and ...) ...)` at length 2, so a printed key would
+                        ;; collapse and drop the choice onto the rule index's own order
+                        [(reading)
+                         (binding [*print-length* 2 *print-level* 2] (reading))])))]
+      (is (= :excepted (ffirst (first readings)))
+          "the goal is blocked rather than merely unsupported")
+      (doseq [[i arm] (map-indexed vector readings)]
+        (is (apply = arm)
+            (str "arm " i ": the key is structural, so an ambient *print-length* moves nothing")))
+      (is (apply = readings)
+          "and the completion blamed is the content-least one, in either arrival order"))))
+
+;; ---- the one ordering key in this family that is read off the source ----
+
+(deftest a-clash-reports-sides-are-keyed-on-content-alone
+  ;; `clash-report` orders a report's two sides by `[sentence context]`, and those two
+  ;; keys are **total**: sentence-plus-context is what identifies a sentex, so two sides
+  ;; agreeing on both are one canonical sentex and one handle — not a pair at all. A third
+  ;; key could therefore only ever be dead weight that reads as assertion order, on a
+  ;; public reading (`contradictions`, `conflicts`).
+  ;;
+  ;; A scan rather than a behavioural arm, for `sort_by_content_key_test`'s reason: the
+  ;; unreachable tie-break is invisible to every reading, so only the source says whether
+  ;; it is there.
+  (let [line (->> (str/split-lines (slurp "src/vaelii/impl/settle.clj"))
+                  (filter #(str/includes? % "(sort-by (juxt :sentence :context"))
+                  first)]
+    (is (some? line) "clash-report still orders its sides by a juxt of content keys")
+    (is (not (str/includes? line ":handle"))
+        (str "a handle is in the side-ordering key, which is arrival order: " line))))

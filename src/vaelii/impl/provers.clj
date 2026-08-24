@@ -232,8 +232,7 @@
 (defrecord TransitivityProver []
   Prover
   (applicable? [_ _ goal _]
-    (and (sequential? goal) (contains? transitive-predicates (first goal))
-         (= 2 (count (rest goal)))))
+    (and (binary? goal) (contains? transitive-predicates (first goal))))
   ;; est-bindings reads the same scoped closures solve answers from, or the planner
   ;; would size a fan the solver never yields
   (est-bindings [_ kb goal context]
@@ -358,9 +357,9 @@
 
   The partner is probed with `matches-visible` on the swapped literal, **not** by
   delegating a goal to the registry.  That keeps the step relation a function of the KB
-  alone — the property `vaelii.impl.literal-cache`'s docstring argues for at length, and
-  the reason the cache under this walk can exist — and it is why a mutual `(inverse P Q)`
-  + `(inverse Q P)` pair cannot cycle here the way `solve-inverted` has to guard against.
+  alone — the property `vaelii.impl.literal-cache`'s docstring argues for at length — and
+  it is why a mutual `(inverse P Q)` + `(inverse Q P)` pair cannot cycle here the way
+  `solve-inverted` has to guard against.
   A `P` declared its own inverse yields the two probes of a symmetric predicate, which is
   what such a declaration says."
   [kb dir pred node context]
@@ -369,24 +368,59 @@
       (into [(list pred node '?rv)] (map #(list % '?rv node)) qs)
       (into [(list pred '?rv node)] (map #(list % node '?rv)) qs))))
 
+(defn- closure-key
+  "The key a walk's reach — and the neighbour sets it is built from — is held under.
+
+  One function because there are **three** construction sites and they have to agree: the
+  open ask that fills the cache, and the closed pair that reads it by membership from
+  either end.  Written out three times, adding a component to one of them turns every hit
+  into a miss and the only symptom is a slow test.
+
+  `[dir pred node context]` covers what the step relation reads — `inverses-under` is a
+  function of exactly `pred` and `context`.  The **belief mode** is the fifth, and it is
+  not covered by the clock: a `CxEverything` read walks the same four with the belief
+  filter off and moves nothing, so without it the two modes share one entry and whichever
+  ran first answers for both — an ordinary read reporting a defeated default.  Same
+  omission, and the same fix, as the literal cache's key.
+
+  `memo-neighbours` is deliberately **not** one of the three.  Its memo is bound per search
+  step (`observe/with-search-scope`) and so lives inside a single read, where the belief
+  mode cannot change; a blind read and an ordinary one never share one.  Keying it here
+  would put a `^:dynamic` deref in the walk's innermost loop — once per node — which is the
+  cost `res/belief-blind?` exists to keep out of exactly that loop."
+  [dir pred node context]
+  [dir pred node context (res/belief-blind?)])
+
 (defn- memo-neighbours
-  "`matches-visible` neighbours of `node` under `pred`, realized to a set and cached in
+  "The neighbours of `node` under `pred`, realized to a set and cached in
   `observe/*reach-memo*` when one is bound.  `dir` is `:succ` (node in argument 1) or `:pred`
   (node in argument 2).
 
   The key stays `[dir pred node context]` and covers everything the step relation reads:
-  `inverses-under` is a function of exactly `pred` and `context`, both already in it.  The
+  `inverses-under` is a function of exactly `pred` and `context`, both already in it — and
+  the belief mode is constant for this memo's whole life, which `closure-key` says why.  The
   neighbours are a set of **terms**, so an edge recorded in both spellings — or reached
-  through both probes of a self-inverse predicate — contributes one member, not two."
+  through both probes of a self-inverse predicate — contributes one member, not two.
+
+  Read with `matches-visible`'s `cached?` false, which is the whole of the walk's
+  relationship with the solution cache: a walk asks each node's literal once, so that
+  cache has no repeat here to serve, and one insertion per node would clear it wholesale
+  under a reader that does re-ask.  Why the argument and not the toggle is
+  `res/matches-visible`'s own."
   [kb dir pred node context]
   (let [compute #(into #{}
-                       (comp (mapcat (fn [pat] (res/matches-visible kb pat context)))
+                       (comp (mapcat (fn [pat] (res/matches-visible kb pat context false)))
                              (keep (fn [m] (get (second m) '?rv))))
                        (hop-patterns kb dir pred node context))]
     (if-let [m observe/*reach-memo*]
       (let [k [dir pred node context]]
-        (if (contains? @m k) (get @m k) (let [v (compute)] (swap! m assoc k v) v)))
-      (compute))))
+        (if (contains? @m k)
+          (do (observe/note-neighbours! true) (get @m k))
+          (let [v (compute)]
+            (observe/note-neighbours! false)
+            (swap! m assoc k v)
+            v)))
+      (do (observe/note-neighbours! false) (compute)))))
 
 (defn- succs
   "y such that (pred x y) is believed, visible from context (memoized per query)."
@@ -443,7 +477,7 @@
         counter (volatile! 0)]
     (letfn [(component! [root]
               ;; pop one SCC; it is cyclic when it has a second member — a singleton is
-              ;; cyclic only through a self-edge, which is tested at the source
+              ;; cyclic only through a self-edge, which `push!` tests
               (let [members (loop [acc []]
                               (let [w (.pop stack)]
                                 (.remove on w)
@@ -453,12 +487,18 @@
             (visit! [v0]
               (let [frames (java.util.ArrayDeque.)]
                 (letfn [(push! [v]
-                          (let [i (vswap! counter inc)]
+                          (let [i    (vswap! counter inc)
+                                succ (vec (step v))]
+                            ;; the self-edge is read off the successors already in hand:
+                            ;; Tarjan does not see it (a singleton component is cyclic
+                            ;; only through one), and asking `step` a second time to find
+                            ;; it would double a walk's retrievals — the one thing the
+                            ;; walk's read path promises it does not do
+                            (when (some #(= v %) succ) (vswap! cyclic conj! v))
                             (.put index v i) (.put low v i)
                             (.push stack v) (.add on v)
                             (.push frames (object-array [v (java.util.ArrayDeque.
-                                                            ^java.util.Collection
-                                                            (vec (step v)))]))))]
+                                                            ^java.util.Collection succ)]))))]
                   (push! v0)
                   (while (not (.isEmpty frames))
                     (let [^objects f (.peek frames)
@@ -477,22 +517,24 @@
                             (.contains on w)             (.put low v (min (long (.get low v))
                                                                           (long (.get index w))))
                             :else                        nil))))))))]
+      ;; every node with a self-edge has an outgoing edge, so `walk-sources` names it and
+      ;; the walk reaches it — testing at the push rather than per source therefore finds
+      ;; the same set, and finds it without a second read of anybody's neighbours
       (doseq [s sources]
-        ;; a self-edge makes a singleton component cyclic, and Tarjan does not see it
-        (when (contains? (set (step s)) s) (vswap! cyclic conj! s))
         (when-not (.containsKey index s) (visit! s)))
       (persistent! @cyclic))))
 
 ;; ---- the closure answer cache ------------------------------------------
 ;;
 ;; `reach` is a fixpoint, and asking for one twice over an unmutated KB is the same
-;; question twice.  The layer below removes the *store* reads — `matches-visible` is
-;; cached per literal and stamped with the change clock, so a repeat re-fetches no record
-;; — and leaves the walk.  The walk is the majority: over a 40-member class it is 127 µs
-;; against the 15 µs of per-ask dispatch a closed one-hop goal pays too, and holding the
-;; answer puts a repeat at 52 µs, which is that dispatch plus the projection and nothing
-;; else (`lein bench-walk`).  On a chain longer than the per-literal cache's entry bound
-;; the layer below cannot help at all, and a repeat there is 0.12× (`docs/taxonomy.md`).
+;; question twice.  **This is the only layer that can answer the repeat**, and the reason
+;; is how `memo-neighbours` reads: a walk asks each node's neighbour literal once, so the
+;; per-literal solution cache has no repeat of a walk's to serve and is neither consulted
+;; nor filled by one (`res/matches-visible`, `cached?` false).  The walk is also
+;; where the time is — over a 40-member class it is
+;; 127 µs against the 15 µs of per-ask dispatch a closed one-hop goal pays too, and
+;; holding the answer puts a repeat at 52 µs, which is that dispatch plus the projection
+;; and nothing else (`lein bench-walk`).
 ;;
 ;; **Why this can be cached where a `solve-goal` answer cannot.**  `literal-cache`'s
 ;; docstring gives the two properties a cached answer needs and `solve-goal` lacks: it
@@ -555,9 +597,9 @@
   conclusions move the clock under it — fills this with nothing rather than with
   something stale.  Belief is covered by the same stamp: a relabel moves the clock, so a
   defeated edge retires the closure that crossed it without anything here knowing which
-  entry to look for."
+  entry to look for.  Belief *mode* is not: see `closure-key`."
   [kb dir pred node context step]
-  (let [k     [dir pred node context]
+  (let [k     (closure-key dir pred node context)
         clock (observe/change-clock)]
     (or (closure-hit kb k clock)
         (let [v (reach (step node) step)]
@@ -606,8 +648,8 @@
         ;; `reaches?` exists for.
         (and (ground? a) (ground? b))
         (let [clock (observe/change-clock)
-              from  (closure-hit kb [:succ pred a context] clock)
-              into' (closure-hit kb [:pred pred b context] clock)]
+              from  (closure-hit kb (closure-key :succ pred a context) clock)
+              into' (closure-hit kb (closure-key :pred pred b context) clock)]
           (cond
             from  (if (contains? from b) [{}] [])
             into' (if (contains? into' a) [{}] [])
@@ -624,14 +666,16 @@
         ;; Answered by one condensation rather than one closure per source: `reaches? x x`
         ;; walks x's whole reach to *fail*, so the acyclic case — the ordinary one for a
         ;; `before` or `partOf` chain — would cost O(n²) to answer nothing.
-        ;; `sort-by pr-str`, never bare `sort`: these are **terms**, and a term need not
+        ;; A printed key, never a bare `sort`: these are **terms**, and a term need not
         ;; be `Comparable` — an unreifiable function application stays structural in
         ;; argument position, so a binding can be a list, and a bare sort throws
         ;; `ClassCastException` on a KB whose cycle relates two of them.  Printed form is
-        ;; the content key the rest of this file already ranks terms by.
+        ;; the content key the rest of this file already ranks terms by, and it is printed
+        ;; through `nm/print-key` so an ambient `*print-length*` cannot elide two nested
+        ;; terms to one prefix and drop the order onto the source's handle set.
         (= a b) (map (fn [x] {a x})
-                     ;; `pr-str` keeps a list-valued binding sortable; built once per term
-                     (nm/sort-by-content-key pr-str compare
+                     ;; the key keeps a list-valued binding sortable; built once per term
+                     (nm/sort-by-content-key nm/print-key compare
                                              (on-a-cycle (walk-sources kb pred context) fwd)))
         ;; Both open: **nothing from here**, so the extent answers — the stored `pred`
         ;; facts and those of its `genl` sub-predicates, through the ordinary match path
@@ -682,8 +726,7 @@
 (defrecord SymmetricProver []
   Prover
   (applicable? [_ kb goal context]
-    (and (sequential? goal) (tax/has-prop? (:taxonomy kb) :symmetric (first goal) context)
-         (= 2 (count (rest goal)))))
+    (and (binary? goal) (tax/has-prop? (:taxonomy kb) :symmetric (first goal) context)))
   (est-bindings [_ kb goal _] (est-by-functor kb goal))
   (cost         [_ _ _ _] :lookup)
   (completeness [_ _ _ _] 50)                 ; augments the fact prover
@@ -698,7 +741,7 @@
 (defrecord InverseProver []
   Prover
   (applicable? [_ kb goal context]
-    (and (sequential? goal) (= 2 (count (rest goal)))
+    (and (binary? goal)
          (boolean (seq (tax/inverses-under (:taxonomy kb) (first goal) context)))))
   (est-bindings [_ kb goal _] (est-by-functor kb goal))
   (cost         [_ _ _ _] :lookup)
@@ -716,8 +759,7 @@
 (defrecord ReflexiveProver []
   Prover
   (applicable? [_ kb goal context]
-    (and (sequential? goal) (tax/has-prop? (:taxonomy kb) :reflexive (first goal) context)
-         (= 2 (count (rest goal)))))
+    (and (binary? goal) (tax/has-prop? (:taxonomy kb) :reflexive (first goal) context)))
   (est-bindings [_ _ _ _] 1)
   (cost         [_ _ _ _] :lookup)
   (completeness [_ _ _ _] 50)
@@ -828,7 +870,7 @@
 (defrecord EvaluateProver []
   Prover
   (applicable? [_ _ goal _]
-    (and (sequential? goal) (= 'evaluate (first goal)) (= 2 (count (rest goal)))))
+    (binary-pred? goal 'evaluate))
   (est-bindings [_ _ _ _] 1)
   (cost         [_ _ _ _] :lookup)
   ;; The only way to compute an expression.  That `evaluate` is an ordinary functor a
@@ -1027,7 +1069,9 @@
   make `5 Kilogram` and `5000 Gram` unequal on a last-bit rounding difference.  Two base
   magnitudes count as equal when they differ by at most this much, and strict `<` / `>`
   demand a gap wider than it — so exactly one of `<`, `=`, `>` holds for any pair.
-  Absolute (not relative) and small; rebind for a coarser or finer policy."
+  Absolute (not relative) and small; rebind for a coarser or finer policy, and the
+  rounding grid a computed magnitude is snapped to follows the rebinding
+  (`tolerance-scale`)."
   1e-9)
 
 (defn measure?
@@ -1125,16 +1169,36 @@
                            context '[?base ?factor]))
       unit))
 
+(defn- tolerance-scale
+  "The decimal scale the tolerance grid sits on — the places `*quantity-tolerance*`
+  distinguishes, `-⌊log₁₀ tol⌋`: 9 at the shipped `1e-9`, 3 under a `1e-3` rebinding.
+
+  Derived rather than fixed, because the grid and the comparisons have to be the same
+  policy: a caller who coarsens `*quantity-tolerance*` coarsens what `q=` calls equal,
+  and a grid left behind would then snap two equal magnitudes to two different figures.
+  Clamped to `[0, 18]` — the top of the range is what a non-positive tolerance (exact
+  comparison, nothing to snap) reads as, and 18 keeps the result inside the `long`
+  precision the caller tests for."
+  ^long []
+  (let [t (double *quantity-tolerance*)]
+    (if (pos? t)
+      (min 18 (max 0 (- (long (Math/floor (Math/log10 t))))))
+      18)))
+
 (defn round-magnitude
   "Snap a computed magnitude to the tolerance grid, and hand back a long when what is
   left is a whole number.  Two reasons, and only the second is cosmetic: a sum of
   converted magnitudes carries float noise that would render as `2.5000000000000004`,
   and a rendered `(QuantityFn 9000.0 Second)` is not `=` to the `(QuantityFn 9000
   Second)` a caller would write, so a bound answer would not compare equal to the
-  obvious way of writing it."
+  obvious way of writing it.
+
+  The grid is `*quantity-tolerance*`'s own (`tolerance-scale`), so rebinding the
+  tolerance moves the rounding with the comparisons rather than leaving the two on
+  different policies."
   [x]
   (let [b (-> (BigDecimal/valueOf (double x))
-              (.setScale 9 java.math.RoundingMode/HALF_UP)
+              (.setScale (int (tolerance-scale)) java.math.RoundingMode/HALF_UP)
               (.stripTrailingZeros))]
     (if (and (<= (.scale b) 0) (< (.precision b) 19))
       (.longValue b)
@@ -1177,8 +1241,7 @@
 (defrecord QuantityProver []                     ; measure comparison over the unit table
   Prover
   (applicable? [_ _ goal _]
-    (and (sequential? goal) (contains? measure-comparisons (first goal))
-         (= 2 (count (rest goal)))
+    (and (binary? goal) (contains? measure-comparisons (first goal))
          (measure? (nth goal 1)) (measure? (nth goal 2))))
   (est-bindings [_ _ _ _] 1)                     ; a ground test: it holds or it does not
   (cost         [_ _ _ _] :lookup)               ; a couple of table reads + arithmetic
@@ -1278,18 +1341,14 @@
 
   Unlike a dropped conclusion, an aggregate error is not an event that happened once:
   a count is recomputed, never cached, so the same bad extent is reduced again on every
-  query, every re-check and every settle pass.  Recording each one would fill a ledger
-  capped at its newest 1000 entries with copies of a single defect and evict the
-  derivation-path drops it exists to report — the reader would lose real content to a
-  loop.  So an entry equal to one already filed (`:run` aside, since a later run
-  re-reducing the same values is the same defect) is dropped."
+  query, every re-check and every settle pass.  `violations/report-once` is what keeps
+  the ledger from filling with copies of one defect, and it is shared with the other
+  refusal that is recomputed rather than remembered — a post-join literal declined for
+  disagreeing with itself."
   [kb goal context message detail]
-  (let [entry (merge {:violation :aggregate :sentence goal :context context
-                      :message message}
-                     detail)]
-    (when-not (some #(= (dissoc % :run) entry) (some-> (:violations kb) deref))
-      (violations/report kb [entry])))
-  nil)
+  (violations/report-once kb (merge {:violation :aggregate :sentence goal :context context
+                                     :message message}
+                                    detail)))
 
 (defn- aggregate-values
   "The **distinct** values `?v` takes over the body's solutions, in solution order.
@@ -1333,13 +1392,23 @@
   "The values as one dimension's `[unit [lo hi]...]`, or nil when they are not all
   measures of a single dimension.  The unit answers are rendered in is the dimension's
   base — read out of the same `conversionFactor` table the normalization multiplied
-  by, so nothing separate can disagree about the unit the arithmetic happened in."
+  by, so nothing separate can disagree about the unit the arithmetic happened in.
+
+  **Whose base**, though, is a question a dimension can answer two ways.  The
+  direct-to-base contract says every unit of a dimension converts to a *single* base, and
+  a KB that breaks it — two units of one `dimensionOf` naming different bases — has
+  values whose magnitudes are already in incomparable scales.  Reading the base off
+  whichever measure the extent yielded first would render the same knowledge in different
+  units in different arrival orders, since the values reach here in solution order.  So
+  the unit is taken from the **content-least** of them (`nm/min-by-content-key`): still
+  arbitrary where the KB is inconsistent, but the same answer whatever the arrival order,
+  and identical to the old reading for the conforming KB where every base agrees."
   [kb values context]
   (when (every? measure? values)
     (let [norms (mapv #(normalize-quantity kb % context) values)
           dims  (into #{} (map first) norms)]
       (when (= 1 (count dims))
-        [(base-unit-of kb (last (first values)) context)
+        [(base-unit-of kb (nm/min-by-content-key identity (map last values)) context)
          (mapv (fn [[_ lo hi]] [lo hi]) norms)]))))
 
 (defn- reduce-numbers
@@ -1470,18 +1539,19 @@
   ;; than a projection into one — `projectable-agent?` is the gate, and it refuses a
   ;; `?variable` because the minted context name would carry a `?` no context name may.
   (applicable? [_ kb goal context]
-    (and (sequential? goal)
-         (= 2 (count (rest goal)))
+    (and (binary? goal)
          (tax/has-prop? (:taxonomy kb) :modal (nm/functor goal) context)
          (modal/projectable-agent? (second goal))
          (sequential? (nth goal 2))))
   ;; The planner should order a belief query by what the *inner* query actually costs,
   ;; so delegate to the inner goal's own estimate in the agent context — a complete
   ;; prover's count when one owns the inner shape, else the index model the inner
-  ;; functor would get asked directly.
+  ;; functor would get asked directly.  Estimated under the spelling `solve` will ask,
+  ;; which is the agent's, or a merge inside the agent context prices a goal the query
+  ;; never runs.
   (est-bindings [_ kb goal _]
-    (let [inner (nth goal 2)
-          actx  (modal/context-of-agent (second goal))]
+    (let [actx  (modal/context-of-agent (second goal))
+          inner (res/goal-normal-form kb (nth goal 2) actx)]
       (or (est-goal kb inner actx) (est-by-functor kb inner))))
   ;; A projection is a sub-query, not a lookup: it runs the inner goal through the whole
   ;; registry before it can answer, which is the `:compute` tier.  The registry expands
@@ -1497,17 +1567,41 @@
   ;; is discarded here on purpose: the whole point is that a belief is read from where
   ;; the belief lives).  The inner bindings are over `P`'s variables, which are exactly
   ;; the outer goal's arg-2 variables, so they project straight back out.
+  ;;
+  ;; `P` arrives in the spelling the caller wrote: the read doors normalize the whole
+  ;; goal, and this position is held opaque to that (`res/representative-term`), since
+  ;; the asker's merges are not the agent's.  So the normalization owed it happens here,
+  ;; against the **agent's** partition — which is the ordinary rule that the reader is
+  ;; what elects (docs/equality.md), applied to the reader a projection actually has.
+  ;; An identity the agent holds licenses the substitution inside their own belief, and
+  ;; only for them.
   (solve [_ kb goal _context]
-    (let [inner (nth goal 2)
-          actx  (modal/context-of-agent (second goal))]
+    (let [actx  (modal/context-of-agent (second goal))
+          inner (res/goal-normal-form kb (nth goal 2) actx)]
       (solve-goal-with kb (registry kb) (sx/canon inner) actx))))
 
 ;; ---- type inference from arg-constrained usage -----------------------
 
-(defn- believed-sentexes-with [kb term]
-  (->> (p/sentexes-with-term (:index kb) term)
-       (keep #(p/get-sentex (:records kb) %))
-       (filter #(jtms/in? (:tms kb) (:id %)))))
+(defn- believed-sentexes-with
+  "The sentexes naming `term` that `context` **can see and does believe** — the term
+  index read, filtered the way a retrieval is.
+
+  The visibility half is `res/visible-supporter-fn`, which is belief, `genlCx`
+  inheritance and the `except` roster in one memoized predicate, and which is **nil**
+  for a nil or `?var` context — the unscoped read, where belief alone decides, exactly
+  as it does everywhere else.  Scoping matters here because what is inferred from a
+  usage is only as visible as the usage: a reader that cannot see `(eats Muffet Bone1)`
+  must not learn from it that `Bone1` is food, or a sibling theory's facts type terms
+  for a context that was never told them.
+
+  Lazy, and it has to be: `inferred-types` streams this so a ground membership test
+  stops at the first witness."
+  [kb term context]
+  (let [visible? (res/visible-supporter-fn kb context)
+        live?    (or visible? #(jtms/in? (:tms kb) %))]
+    (->> (p/sentexes-with-term (:index kb) term)
+         (keep #(p/get-sentex (:records kb) %))
+         (filter #(live? (:id %))))))
 
 (defn- inferred-types
   "Types an individual `x` must have because it fills an arg-constrained argument
@@ -1522,6 +1616,11 @@
   two readings of one declaration must agree about that or a claim `assert` refuses for
   being ill-typed is one `ask` cannot type at all.
 
+  **And the usage counts only where it can be seen.**  Both sides of the inference are
+  read from the asking context — the declaration through `matches-visible`, the tuple
+  through `believed-sentexes-with` — so a fact stated in a context the reader does not
+  inherit from types nothing for it, exactly as that fact answers nothing for it.
+
   **Lazy and deduped.**  `distinct` over a lazy `for` returns a lazy, duplicate-free
   seq, so a *ground* `(Type x)` test (ArgTypeProver.solve's `some`) stops at the first
   believed sentex that witnesses the type it seeks, realizing the believed-sentex scan
@@ -1529,7 +1628,7 @@
   consumes the whole seq, which enumerates every type exactly as the set did."
   [kb x context]
   (distinct
-   (for [s (believed-sentexes-with kb x)
+   (for [s (believed-sentexes-with kb x context)
          :let [sen (:sentence s) pred (nm/functor sen) as (vec (nm/args sen))]
          :when (and (symbol? pred) (seq as))
          ;; above `n`, since whose declarations bind a tuple is a fact about the
@@ -1654,7 +1753,23 @@
   a rule is a sentex, inherited by the ordinary `genlCx` up-cone like everything
   else.  Nor is a rule the KB no longer believes (`res/rule-believed?`) — the
   consequent index posts on storage, so belief is asked of the record here exactly as
-  forward chaining asks it of a trigger."
+  forward chaining asks it of a trigger.
+
+  **In content order**, `[sentence context]` under `nm/compare-form`.  The index answers
+  in handle-set order, which is assertion order, and two consumers *truncate* on this
+  list: `prove-within`'s `:max-results` stops the DFS partway through the rules it would
+  have expanded, and the node engine's frontier is filled from `children`, which walks it.
+  So without an order here the same knowledge in two arrival orders answers a capped query
+  with two different answer sets — order independence, broken by the one thing that is
+  never allowed to break it (docs/nmtms.md).
+
+  The key needs no memo, which is why there is none: the sentence **is** the key, already
+  a field on the record, and `compare-form` walks two forms in place rather than printing
+  either.  So the sort builds one two-element vector per candidate and allocates nothing
+  else — against a `print-key` per rule, which would be a String per candidate per
+  comparison were it not decorated first.  `:context` joins it because one sentence stated
+  in two contexts is two rules, and a key that could not tell them apart would drop the
+  tie back onto the handle."
   [kb goal context]
   (when (sequential? goal)
     (->> (res/concluding-rule-handles kb (first goal) context)
@@ -1662,6 +1777,7 @@
          (filter rules/backward-sentex?)
          (filter #(res/rule-believed? kb (:id %)))
          (filter #(res/rule-visible-from? kb context (:context %)))
+         (nm/sort-by-content-key (juxt :sentence :context))
          (map #(parse-rule kb % context)))))
 
 ;; ---- the engine ---------------------------------------------------------
@@ -1703,6 +1819,17 @@
   "Does this prover compute a transitive closure — genl/genlCx through the cached
   taxonomy, or a predicate declared `(transitive P)`?"
   [pr] (or (instance? TransitivityProver pr) (instance? TransitivePredicateProver pr)))
+
+(defn fact-prover?
+  "Is this *the* stored-fact prover — the one that answers by matching the store, and
+  whose answers therefore each name a sentex with a context?
+
+  `vaelii.impl.vantage` asks it of every applicable prover to decide whether a literal is
+  inside post-hoc placement's domain.  A goal only this one answers is a goal every answer
+  to which can be placed, because every answer came from somewhere; a goal any *other*
+  prover also answers has answers computed rather than stored — a closure walk, an
+  evaluable, an inferred argument type — and those name no context to place by."
+  [pr] (instance? FactProver pr))
 
 (defn- goal-cost-rank [pr kb goal context] (cost-rank (cost pr kb goal context)))
 

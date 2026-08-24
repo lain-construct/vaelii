@@ -87,6 +87,27 @@
       (is (empty? (:writes (prof/snapshot))) "a fresh start holds nothing from the last one")
       (prof/stop))))
 
+(deftest stop-is-final-against-a-tally-still-being-filed
+  ;; The instrument is process-wide and its seams sit on every index read, so `stop` can
+  ;; land while another thread is inside one — the browser reading beside a REPL, a
+  ;; portfolio racer, a job.  A tally applied to the cleared instrument must be dropped:
+  ;; recreated instead, it is a fragment with no `:t0`, which leaves `profiling?` true
+  ;; for the life of the process (so every later read pays a CAS the switch promised it
+  ;; would not) and `snapshot` reading `(long nil)` off the missing stamp.
+  (dotimes [_ 10]
+    (prof/start)
+    (let [running (promise)
+          filer   (future (dotimes [_ 20000]
+                            (prof/record-read :trie-lookup)
+                            (deliver running true)))]
+      @running                                  ; the filer is inside the loop, not before it
+      (prof/stop)
+      @filer
+      (is (false? (prof/profiling?))
+          "a tally filed as `stop` landed restarted the instrument")
+      (is (nil? (prof/snapshot))
+          "and left a reading behind for the next run to inherit"))))
+
 ;; ---- the labels ---------------------------------------------------------
 ;;
 ;; One test per access path the tally can name.  Each builds the pattern that forces the

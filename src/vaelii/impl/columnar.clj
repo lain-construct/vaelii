@@ -580,10 +580,17 @@
                     (dotimes [j (alength kt)]
                       (aset ftok (+ base j) (aget kt j))
                       (aset ftgt (+ base j) (aget ^ints newid (aget tg j))))))   ; remap target
+                ;; **A leaf run is laid down ascending by handle**, which is what `pints`
+                ;; hands back.  Filling it from `pmembers` instead builds a Clojure set
+                ;; first and lays the run down in *hash* order — an ordering that is a
+                ;; function of how the set was assembled as well as of what is in it, so
+                ;; the same index could freeze to two different byte layouts.  Handle
+                ;; order is the right order to fix on because this is a byte layout and
+                ;; not a belief question: every reader takes a run as a whole set, none
+                ;; reads its order for meaning, and the postings already hold it that way.
                 (when-let [lp (aget ^objects leaves old)]
-                  (let [lb (aget floff i)]
-                    (loop [ms (seq (dense/pmembers lp)), j 0]
-                      (when ms (aset fh (+ lb j) (int (first ms))) (recur (next ms) (inc j))))))))
+                  (let [^ints hs (dense/pints lp)]
+                    (System/arraycopy hs 0 fh (aget floff i) (alength hs))))))
             (set! fcounts fcnt) (set! foffsets foff) (set! fedge-tok ftok)
             (set! fedge-tgt ftgt) (set! fleaf-off floff) (set! fhandles fh)
             (set! frozen? true)
@@ -712,22 +719,24 @@
   ;; trie native; roots + term index straight to the shared int-keyed backend (same keys
   ;; as KvIndexStore, so the delegated reads below stay consistent)
   (index-sentex [_ sentex handle]
-    (t-insert! trie (sx/path sentex) handle)
-    (let [terms  (kv/sentex-terms sentex)
-          roster (kv/roster-adds roots terms)           ; reads the pre-write postings
-          slots  (kv/slot-adds roots sentex)]           ; likewise — keeps the coarse
+    (let [pth     (sx/path sentex)
+          terms   (kv/sentex-terms sentex)
+          root-ks (kv/root-keys sentex)                 ; derived from the sentex alone
+          roster  (kv/roster-adds roots terms)          ; reads the pre-write postings
+          slots   (kv/slot-adds roots sentex)]          ; likewise — keeps the coarse
                                                         ; argument reads answerable
+      (t-insert! trie pth handle)
       (kv/kv-batch roots
                    (concat (map (fn [t] [:add-to-set (kv/term-key t) handle]) terms)
-                           (map (fn [k] [:add-to-set k handle]) (kv/root-keys sentex))
+                           (map (fn [k] [:add-to-set k handle]) root-ks)
                            roster slots))
       ;; the same tally `KvIndexStore` keeps, because this store writes the index itself
       ;; rather than through it — an instrument that went quiet on the backend the
       ;; density work exists for would report a KB that never writes an index
       (when (prof/profiling?)
-        (prof/record-index-write sentex {:levels (inc (count (sx/path sentex)))
+        (prof/record-index-write sentex {:levels (inc (count pth))
                                          :terms  (count terms)
-                                         :roots  (count (kv/root-keys sentex))
+                                         :roots  (count root-ks)
                                          :roster (count roster)
                                          :slots  (count slots)})))
     handle)
@@ -738,21 +747,23 @@
   ;; otherwise surface as a handle with no record, several operations away from the store
   ;; that diverged.  `reindex` is the repair.
   (unindex-sentex! [_ sentex handle]
-    (let [dead (long (t-remove! trie (sx/path sentex) handle))]
+    (let [pth  (sx/path sentex)
+          dead (long (t-remove! trie pth handle))]
       (if (neg? dead)
         (trove/log! {:level :warn :id ::unindex-absent
-                     :data {:handle handle :path (sx/path sentex) :context (:context sentex)}})
-        (let [terms  (kv/sentex-terms sentex)
-              roster (kv/roster-retires roots terms handle) ; reads the pre-write postings
-              slots  (kv/slot-retires roots sentex handle)] ; likewise
+                     :data {:handle handle :path pth :context (:context sentex)}})
+        (let [terms   (kv/sentex-terms sentex)
+              root-ks (kv/root-keys sentex)                ; derived from the sentex alone
+              roster  (kv/roster-retires roots terms handle) ; reads the pre-write postings
+              slots   (kv/slot-retires roots sentex handle)] ; likewise
           (kv/kv-batch roots
                        (concat (map (fn [t] [:remove-from-set (kv/term-key t) handle]) terms)
-                               (map (fn [k] [:remove-from-set k handle]) (kv/root-keys sentex))
+                               (map (fn [k] [:remove-from-set k handle]) root-ks)
                                roster slots))
           (when (prof/profiling?)
-            (prof/record-index-retract sentex {:levels (inc (count (sx/path sentex)))
+            (prof/record-index-retract sentex {:levels (inc (count pth))
                                                :terms  (count terms)
-                                               :roots  (count (kv/root-keys sentex))
+                                               :roots  (count root-ks)
                                                :roster (count roster)
                                                :slots  (count slots)
                                                :dead   dead})))))

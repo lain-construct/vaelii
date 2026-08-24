@@ -251,7 +251,19 @@
           (is (some? (:deadline b)))
           (is (= 3 (:max-results b)))
           (is (= 2 (:max-depth b)))
-          (is (nil? (:max-term-growth b)) "unnamed is the default ceiling, not no ceiling"))))))
+          (is (nil? (:max-term-growth b)) "unnamed is the default ceiling, not no ceiling")))
+      ;; ...and the public door reaches `prove-from` through that same translation rather
+      ;; than through a bounds map of its own.  The bound is rostered, so `check-budget!`
+      ;; admits it — a door that then dropped it would answer under the shipped ceiling
+      ;; with nothing to say the raise had not been read.
+      ;; Under the shipped executor whatever the sweep installed: the claim is about the
+      ;; DFS arm's translation, and the node engine takes neither this map nor this bound.
+      (testing "prove-within carries it, and builds no bounds map of its own"
+        (tu/with-shipped-config
+          (is (empty? (:results (v/prove-within kb (list p A) CxRaise nil)))
+              "the shipped ceiling, through the public door")
+          (is (= [{}] (:results (v/prove-within kb (list p A) CxRaise {:max-term-growth 20})))
+              "and a raised one reaches the fact the bounds map already reaches"))))))
 
 ;; ---- the budget roster ----------------------------------------------------
 

@@ -393,3 +393,42 @@
       (both #(p/rules-by-antecedent % pr) mem col)
       (both #(p/rules-with-exception-on % pr) mem col))
     (both p/exception-rules mem col)))
+
+;; ---- the frozen layout is a layout, so it has to be fixed ---------------
+
+(defn- sections
+  "A frozen store's CSR as comparable values (the arrays as vectors)."
+  [store]
+  (let [c (columnar/csr store)]
+    (reduce (fn [m k] (update m k #(into [] %))) c
+            [:counts :offsets :edge-tok :edge-tgt :leaf-off :handles])))
+
+(deftest a-frozen-leaf-run-is-ascending-by-handle
+  ;; `t-compact!` fills each node's handle run from its postings, and filling it from the
+  ;; Clojure **set** those postings build put the run in hash order — an ordering that is
+  ;; a function of how the set was assembled as well as of what is in it, and one nothing
+  ;; downstream asks for.  This is a byte layout rather than a belief question (every
+  ;; reader takes a run as a whole set; none reads its order for meaning), so handle order
+  ;; is the right one to fix on — and it is the order the postings already hold.
+  (let [rng  (java.util.Random. 4242)
+        ops  (vec (for [i (range 400)]
+                    [(sx/sentex (rand-sentence rng) (pick rng ctxs)) (inc i)]))
+        load (fn [space entries]
+               (let [col (columnar/columnar-index-store {:space space})]
+                 (p/clear-index! col)
+                 (doseq [[s h] entries] (p/index-sentex col s h))
+                 (columnar/compact! col)
+                 col))
+        a    (load 81 ops)
+        b    (load 82 ops)
+        {:keys [nodes leaf-off handles]} (sections a)]
+    (is (pos? (count handles)) "there are runs to be wrong about")
+    (doseq [i (range nodes)
+            :let [run (subvec handles (nth leaf-off i) (nth leaf-off (inc i)))]
+            :when (seq run)]
+      (is (= (vec (sort run)) run) (str "node " i "'s leaf run is ascending")))
+    ;; the freeze is a function of the op sequence and nothing else — two stores given
+    ;; the same ops produce the same bytes, section for section.  (Not of the *content*
+    ;; alone: the token dictionary numbers terms in first-seen order, so a different
+    ;; arrival order is a different trie and legitimately a different image.)
+    (is (= (sections a) (sections b)))))

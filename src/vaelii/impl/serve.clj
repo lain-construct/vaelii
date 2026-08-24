@@ -158,6 +158,11 @@
    :justification    (op v/justification)
    :supporting-justifications (op v/supporting-justifications)
    :dependent-justifications  (op v/dependent-justifications)
+   ;; the one thing about a justification that belief cannot be read off: blocked by its
+   ;; rule's exception, so every antecedent is IN and it still supports nothing.  Served
+   ;; because a remote reader has no other way to ask — the network is not a record — and
+   ;; a proof tree drawn without it calls a blocked justification supporting
+   :blocked-justifications    (op v/blocked-justifications)
    :lookup       (op v/lookup)
    :escalate     (op v/escalate)
    :explain-levels (op v/explain-levels)
@@ -274,15 +279,28 @@
   born, and `wire_contract_test` pins the pairing."
   #{:naming :not-well-formed :not-ground :not-range-restricted :not-indexable
     :shape :not-encodable
-    :arg-type :inter-arg-type :arg-genl :quoted-arg-type :arg-position :arg-constraint-kind :arity
-    :disjoint :functional :asymmetric :anti-transitive :unknown-option :bad-handle
+    :arg-type :inter-arg-type :arg-genl :quoted-arg-type :arg-position :arg-constraint-kind
+    :arg-variable :arity
+    ;; the six relation-property refusals, which `check` reports and `assert` throws as
+    ;; one family — a caller that asserts content a declared property forbids has made
+    ;; one kind of mistake, so the six answer alike rather than splitting on which
+    ;; property caught it
+    :disjoint :functional :asymmetric :anti-transitive :irreflexive :anti-symmetric
+    :unknown-option :bad-handle
     :unknown-handle :bad-level :exception-not-closed :not-stratified :naf-not-closed
     :quantifier-not-local :quantified-conjunction
     :not-watchable :not-checkable :not-assertible
     :bad-table-entry
+    ;; a query context (`CxEverything` / `CxInference` / `CxNothing`) handed to a read
+    ;; that does not resolve one — `:why-not`, `:lookup`, `:query-plan`, `:search-tree`
+    ;; and the rest.  The caller named a reading this door does not offer, which is the
+    ;; same class of mistake as naming an option it does not read
+    :unsupported-context
     ;; `:export` is in `ops`, so its destination refusals are caller mistakes too —
-    ;; a directory that exists and is not empty is not a backend fault
+    ;; a directory that exists and is not empty is not a backend fault — and so are the
+    ;; two that name a dump this build does not write
     :no-destination :not-a-directory :not-empty :export-busy :unsupported-format
+    :unsupported-variant :unsupported-compression
     ;; the feed's four (docs/feed.md).  The two ceilings are the odd ones and are here
     ;; on purpose: the daemon is at capacity rather than the request being malformed,
     ;; but the caller is who can fix it — by dropping a subscription, or by polling on a

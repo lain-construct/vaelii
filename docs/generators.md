@@ -48,11 +48,12 @@ with the first.
 
 Two consequences worth stating, because both are easy to trip over:
 
-- **A hole may stand in functor position.** `(?outcome ?a ?p)` is legal here and
-  nowhere else, because by mint time it holds `succeededAt`. This is what lets one
-  generator range over a family of predicates while every rule the index ever keys on
-  has a concrete functor. A variable functor no enclosing level binds is refused
-  (`:not-indexable`) — nothing will ever bind it.
+- **A hole may stand in functor position.** `(?outcome ?a ?p)` is a rule *antecedent*,
+  where a variable functor is otherwise refused, and it is legal here because by mint
+  time it holds `succeededAt`. This is what lets one generator range over a family of
+  predicates while every antecedent the index keys on has a concrete functor. A variable
+  functor no enclosing level binds is refused (`:not-indexable`) — nothing will ever bind
+  it.
 - **Range restriction moves one level in.** The generator's own is vacuous: its
   consequent is a rule rather than a conclusion, and the stamped rule's free variables
   are unbound on purpose. What is checked is the *stamped* rule's, with the holes
@@ -236,10 +237,13 @@ unchanged either way — the rule index is keyed by predicate, so N concrete rul
 never scanned, and each is reachable only through its own functors.
 
 **Not a variable-predicate rule.** A rule that reaches the store with a variable functor
-is still refused (`:not-indexable`, [indexing.md](indexing.md)): the index has two cells
-and both are keyed on a concrete symbol. Nesting does not weaken that — it is what makes
-it affordable, since a functor an enclosing level fills is concrete by the time anything
-is keyed on it. A rule nothing encloses is exactly as refused as it was.
+in an **antecedent** is still refused (`:not-indexable`, [indexing.md](indexing.md)): the
+antecedent cell is keyed on a concrete symbol, and a variable names none for an arriving
+fact to trigger. (The consequent cell has a catch-all for a variable there, which is why
+the refusal falls on one half and not both.) Nesting does not weaken it — nesting is what
+makes it affordable, since a functor an enclosing level fills is concrete by the time
+anything is keyed on it. A rule nothing encloses is refused exactly as it is anywhere
+else.
 
 **Not a rule about rules.** A generator concludes a rule; nothing reads one as a term,
 and no rule can take a rule as an antecedent. The one way to speak *about* a stored

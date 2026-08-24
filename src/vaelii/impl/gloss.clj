@@ -228,9 +228,8 @@
   `apposition?` is false wherever the gloss is nested — inside a rule or a negation —
   because a clause carrying a dashed definition of each of its terms stops being a
   sentence anyone can read."
-  [kb [pred arg] apposition?]
-  (let [t    (comment-template kb pred)
-        head (articles (str (term-words arg) " is a " (term-words pred)))
+  [[pred arg] t apposition?]
+  (let [head (articles (str (term-words arg) " is a " (term-words pred)))
         d    (some-> t :text str/trim not-empty)]
     (cond
       (and d apposition?) {:text   (str head " — " (str/lower-case (subs d 0 1)) (subs d 1))
@@ -279,9 +278,13 @@
      (let [{:keys [text source]} (literal kb (second sent) false)]
        {:text (str "it is not true that " text) :source source})
 
-     (and (= 2 (count sent))
-          (not= 1 (count (:params (comment-template kb (first sent))))))
-     (type-literal kb sent apposition?)
+     (= 2 (count sent))
+     ;; the template is read once and handed down — `type-literal` needs the same one,
+     ;; and each read is a `sentexes-matching` plus a content sort
+     (let [t (comment-template kb (first sent))]
+       (if (not= 1 (count (:params t)))
+         (type-literal sent t apposition?)
+         (relation-literal kb sent)))
 
      :else (relation-literal kb sent))))
 
@@ -350,10 +353,11 @@
   names — the shape a reader recognizes, rather than the canonical `?var0` the store
   keeps."
   [kb sx]
-  (gloss kb (if (:antecedent sx)
-              {:antecedent (conjuncts (second (v/readable-sentence sx)))
-               :consequent (nth (v/readable-sentence sx) 2 nil)}
-              (v/readable-sentence sx))))
+  (let [sent (v/readable-sentence sx)]
+    (gloss kb (if (:antecedent sx)
+                {:antecedent (conjuncts (second sent))
+                 :consequent (nth sent 2 nil)}
+                sent))))
 
 (defn- terms-of
   "Every symbol in a sentence, as it would be rendered — what `sentence-case` checks the
@@ -389,7 +393,9 @@
       ;; each other and from "this sentence has a named gloss already" — so a reader
       ;; who wires up a provider and sees no generated text has nothing to look at.
       (if-let [said (try (some-> (ask sentence) str str/trim not-empty)
-                         (catch Exception e
+                         ;; Throwable, like every other catch over a model's reply — a
+                         ;; StackOverflowError out of a deep answer is the reply's fault
+                         (catch Throwable e
                            (trove/log! {:level :warn :id ::gloss-failed :error e
                                         :msg "gloss generation failed; using the composed text"
                                         :data {:sentence sentence}})

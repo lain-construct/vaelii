@@ -12,8 +12,9 @@
     stores; each side is a single pipeline, but the seam between them remains)
     — the orphaned record is unfindable, and re-asserting its sentence
     would mint a *second* handle for the same canonical form;
-  * an index layout change (the leaf/child key split makes an index written in the
-    old shape read as empty — fail-safe, but a persistent KB needs this rebuild);
+  * an index whose key shapes are not this build's (`kv/index-layout-version`): a
+    lookup finds no key and answers nothing, which is fail-safe and undiagnosable, so
+    a persistent KB needs this rebuild;
   * any suspicion that counts and extents have drifted: a rebuild is cheaper
     than an audit.
 
@@ -24,7 +25,8 @@
   Named bare, like `recover`: the `!` convention marks destruction of stored
   *knowledge*, and this destroys only derived state and recreates it from the
   records, which stay untouched."
-  (:require [vaelii.impl.observe :as observe]
+  (:require [vaelii.impl.capabilities :as cap]
+            [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]))
@@ -90,4 +92,9 @@
            (index-one! index sx h) (update :rules inc))
          acc))
      {:sentexes 0 :rules 0}
-     (p/sentex-ids records))))
+     ;; A walk that fetches every live record, so a store that can warm many at one cost
+     ;; is told a chunk ahead (`protocols/Prefetching`).  Ungated, unlike the query path's
+     ;; hint: this walk consumes every handle it is given, so a hint here can save round
+     ;; trips and cannot waste one.  Nil for every store that does not prefetch, which is
+     ;; every store the engine ships, and then this is `(p/sentex-ids records)`.
+     (cap/hinting (cap/prefetcher records) cap/recovery-hint-chunk (p/sentex-ids records)))))

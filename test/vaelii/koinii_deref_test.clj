@@ -330,6 +330,87 @@
           (is (re-matches #"sha256:[0-9a-f]{64}" (d/state-root a)))))
       (finally (tu/clear-kb! a)))))
 
+;;; ── the commit identity is BELIEF, not storage ────────────────────────
+;;; A defeated default is retained on purpose and is no part of what the seat holds, so it
+;;; is no part of what the seat commits to: two seats agreeing on every belief must agree
+;;; on the id however differently their stores were built.
+
+(deftest a-defeated-record-is-no-part-of-the-commit
+  (let [a (fresh-seat :belief-a)
+        b (fresh-seat :belief-b)]
+    (try
+      ;; both seats know exactly the same two things, with identical provenance so the
+      ;; state roots are comparable too
+      (binding [v/*clock* (constantly 1750000000000)]
+        (doseq [seat [a b]]
+          (v/assert seat '(not (chirps Rex)) 'CxS {:strength :monotonic :creator 'AgentAtlas})
+          (v/assert seat '(barks Rex) 'CxS {:strength :monotonic :creator 'AgentAtlas})))
+      (let [cid0  (d/commit-id a)
+            root0 (d/state-root a)
+            ;; a default the monotonic negative beats: stored on a, believed by nobody
+            defeated (v/assert a '(chirps Rex) 'CxS {:creator 'AgentBoreas})]
+        (testing "the fixture really stored a record the seat does not believe"
+          (is (some? (v/sentex a defeated)) "it is in the store")
+          (is (false? (v/in? a defeated)) "and defeated by the monotonic negative"))
+        (testing "a defeated record moves neither the commit id nor the state root"
+          (is (= cid0 (d/commit-id a)))
+          (is (= root0 (d/state-root a))))
+        (testing "so two seats with the same belief and different stored sets agree"
+          (is (< (count (p/sentex-ids (:records b))) (count (p/sentex-ids (:records a))))
+              "the fixture gave them genuinely different stored sets")
+          (is (= (d/commit-id a) (d/commit-id b)) "the same knowledge is one commit id")
+          (is (= (d/state-root a) (d/state-root b)) "and one snapshot"))
+        (testing "an unbelieved record has no leaf, so there is no inclusion proof for it"
+          (is (nil? (d/inclusion-proof a (d/locator-of a defeated))))
+          (is (some? (d/inclusion-proof a (d/locate a '(barks Rex) 'CxS)))
+              "a believed record still proves, against the same root")
+          (is (true? (d/verify-inclusion (d/locate a '(barks Rex) 'CxS)
+                                         (d/inclusion-proof a (d/locate a '(barks Rex) 'CxS))
+                                         (d/commit-id a)))))
+        (testing "and the two resolvers agree with the proof, because both read belief"
+          ;; `handle-of` and `handles` are STORAGE reads; the commit family enumerates
+          ;; belief.  Left unfiltered, a defeated record resolves here while answering no
+          ;; inclusion proof — one seat, two answers about what it holds.
+          (let [loc (d/locator-of a defeated)
+                mk  (d/marker a defeated)]
+            (is (false? (:resolved? (d/resolve-by-locator a loc)))
+                "a defeated record's locator does not resolve")
+            (is (= :not-received (:reason (d/resolve-by-locator a loc)))
+                "a bare locator cannot tell the two absences apart, and says the weaker one")
+            (is (false? (:resolved? (d/dereference a mk))))
+            (is (= :not-believed (:reason (d/dereference a mk)))
+                "handed the sentence, dereference names which absence it is")
+            (is (some? (v/handle-of a '(chirps Rex) 'CxS))
+                "and the record is still stored — this is belief, not a retraction")))
+        (testing "and reviving it moves the id — belief is what the id follows"
+          (v/retract! a (v/handle-of a '(not (chirps Rex)) 'CxS))
+          (is (true? (v/in? a defeated)) "the default is believed once its defeater is gone")
+          (is (not= cid0 (d/commit-id a)))
+          (is (some? (d/inclusion-proof a (d/locator-of a defeated))))
+          (is (true? (:resolved? (d/resolve-by-locator a (d/locator-of a defeated))))
+              "and it resolves again, with the leaf it now has")
+          (is (true? (:resolved? (d/dereference a (d/marker a defeated)))))))
+      (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
+
+;;; ── publish! pins :compression :none ──────────────────────────────────
+
+(deftest publish-refuses-a-compression-that-would-cost-byte-stability
+  (let [a   (fresh-seat :pin)
+        dir (temp-dir "pin")]
+    (rm-rf! dir)
+    (try
+      (atlas-writes! a)
+      (testing "the byte-stability claim is not a default a caller can override"
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"pins :compression :none"
+                              (d/publish! a dir {:compression :gzip})))
+        (is (= :koinii/compression-pinned
+               (:type (ex-data (try (d/publish! a dir {:compression :gzip})
+                                    (catch clojure.lang.ExceptionInfo e e)))))))
+      (testing "asking for what it already is is allowed, and other opts pass through"
+        (is (some? (d/publish! a dir {:compression :none})))
+        (is (.exists ^File (io/file dir "sentexes.nippy.stream"))))
+      (finally (tu/clear-kb! a) (rm-rf! dir)))))
+
 ;;; ── verify-inclusion fails closed on a malformed (untrusted) proof ────
 
 (deftest verify-inclusion-rejects-malformed-proofs-without-throwing

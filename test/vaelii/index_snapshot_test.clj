@@ -163,6 +163,41 @@
           (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
           (is (= :saved (:index (snap/save! dir (:index kb2) stamp)))))))))
 
+(deftest a-save-that-fails-part-way-takes-its-temp-sections-with-it
+  ;; Each section is written beside its target and swapped in only at the commit point,
+  ;; so a throw part-way costs the new image and never the one on disk.  What it must not
+  ;; also cost is the directory: a `.tmp` section is the size of the index, nothing else
+  ;; ever deletes one, and a KB nobody reopens carries it for good.
+  (with-snapshot-dir
+    (fn [dir]
+      (build! (v/open-kb {:records :disk :index :columnar :dir dir :recover? false}))
+      (backend/close-dir! dir)
+      (let [[kb2 _] (opening dir)
+            stamp   #(drs/slot-fingerprint (:records kb2))
+            ^String root (snap/snapshot-root dir)
+            temps   (fn [] (->> (.listFiles (File. root))
+                                (filter #(.endsWith (.getName ^File %) ".tmp"))
+                                (mapv #(.getName ^File %))
+                                sort
+                                vec))]
+        ;; a write, so the image is no longer the index being read and `save!` is not
+        ;; skipped as `:unchanged`
+        (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
+        (is (= [] (temps)) "nothing is left over before the failed save")
+        (is (thrown? java.io.IOException
+                     (with-redefs-fn
+                       {#'snap/write-roots! (fn [& _] (throw (java.io.IOException. "the disk filled")))}
+                       (fn [] (snap/save! dir (:index kb2) stamp))))
+            "the failure travels rather than being reported as a written image")
+        (is (= [] (temps))
+            (str "a failed save left its sections behind: " (pr-str (temps))))
+        (testing "and the image already on disk is the one that is still there"
+          (let [want (answers kb2)]
+            (backend/close-dir! dir)
+            (let [[kb3 rebuilds] (opening dir)]
+              (is (zero? rebuilds) "the previous image still reads, so nothing rebuilt")
+              (is (= want (answers kb3))))))))))
+
 (deftest a-half-thawed-index-writes-its-sections-out-of-the-mapping
   ;; `index-rule` writes the rule index and touches no trie path (the rule *sentex* does
   ;; that separately — this is the half `reindex/index-rule-entry` posts on its own).  So

@@ -22,9 +22,6 @@
 (comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
 (genl capability intangible)
 
-(comment character_string "A run of text. The type is stated so a text-valued argument position can name what it holds; no string carries a type membership, so nothing is ever checked against it.")
-(genl character_string intangible)
-
 (comment clothing "An artifact worn on the body.")
 (genl clothing artifact)
 
@@ -55,8 +52,24 @@
 (comment intangible "Something with no mass or location: an attribute, a relation, a time.")
 (genl intangible thing)
 
-(comment integer "A whole number. Stated for the same reason as character_string, and inert for the same reason.")
-(genl integer intangible)
+;; CxCore's literal types, placed in this lattice.  Text and a number have no mass and no
+;; location, and neither of them is a relation.  Saying the second is what lets a rule be
+;; refused for feeding a text-valued argument into a position that holds a type: every
+;; type is a unaryPredicate, so the type position asks for a predicate, and one variable
+;; cannot be both at once.  The disjointness on number carries integer with it.
+;;
+;; symbol gets neither edge, and CxCore's note on it says why: a name is exactly how a
+;; predicate is written, so (disjoint symbol predicate) would be false.
+(genl string intangible)
+(genl number intangible)
+(genl keyword intangible)
+(genl boolean intangible)
+(genl character intangible)
+(disjoint string predicate)
+(disjoint number predicate)
+(disjoint keyword predicate)
+(disjoint boolean predicate)
+(disjoint character predicate)
 
 (comment language "A system of signs a person speaks, writes or signs in.")
 (genl language intangible)

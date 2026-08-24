@@ -23,7 +23,7 @@
 
   Crash-safety: `scan-log` truncates a torn tail on open (a partial op frame is dropped
   whole, never half-applied), and compaction rewrites the log crash-safely
-  (`files/recover-log-compaction!`).  All log writes hold the backend lock (the RAF file
+  (`files/recover-compaction!`).  All log writes hold the backend lock (the RAF file
   pointer is shared)."
   (:require [clojure.set :as set]
             [taoensso.trove :as trove]
@@ -113,7 +113,7 @@
         _        (f/ensure-dir! root)
         _        (f/assert-format! root)
         log-path (str root "/kv.log")]
-    (f/recover-log-compaction! log-path)
+    (f/recover-compaction! log-path)
     ;; read before anything is written, and drop it: the marker describes a store nobody
     ;; holds, so it cannot survive into a session that appends
     (let [clean (f/read-clean-marker root)
@@ -149,9 +149,9 @@
           (throw t))))))
 
 (defn fsync
-  "fsync the WAL.  `fsync?` false drains to the page cache without the fsync."
-  [{:keys [log lock]} fsync?]
-  (when fsync? (locking lock (f/force! log false))))
+  "fsync the WAL."
+  [{:keys [log lock]}]
+  (locking lock (f/force! log false)))
 
 (defn dead-ratio
   "The delta-accumulation ratio: `1 - live-keys / frames-written`, the fraction of the
@@ -184,7 +184,8 @@
       (trove/log! {:level :debug
                    :msg (str "disk kv: compact! of " log-path
                              " skipped — the store is closed")})
-      (let [{:keys [tmp marker]} (f/log-compact-paths log-path)
+      (let [{:keys [temps marker]} (f/compact-temp-paths log-path)
+            [[_ tmp]] temps
             snapshot @data
             tlog     (f/open-log tmp)]
         ;; A failure **before the marker** takes the temp with it: the original stays
@@ -203,11 +204,11 @@
             (f/write-commit-marker! marker {:log log-path})
             (vreset! committed? true)
             (f/replay-temp-onto-raf! log tmp)
-            (f/delete-log-compact-temps! marker tmp)
+            (f/delete-compact-temps! marker temps)
             (vreset! frames (count snapshot))
             (catch Throwable t
               (f/close! tlog)
-              (when-not @committed? (f/delete-log-compact-temps! marker tmp))
+              (when-not @committed? (f/delete-compact-temps! marker temps))
               (throw t))))))))
 
 (defn close!
@@ -235,11 +236,22 @@
   (try
     (when (and (dur/auto-compact?) (>= (dead-ratio b) (dur/compact-dead-ratio)))
       (compact! b))
-    (fsync b true)
-    (f/write-clean-marker! dir {"kv" (locking lock (f/log-length log))})
+    (fsync b)
+    ;; **The flag is set in the same critical section that reads the length.**  The
+    ;; marker's whole job is to say what length this log closed at, so a compaction
+    ;; landing between the read and the flag would rewrite the log to some other length
+    ;; and leave a marker that no longer describes it — and the next open reads that as
+    ;; `damaged?`, which is a wholesale `clear-index!` plus `reindex` of a store nothing
+    ;; was ever wrong with.  Setting `closed` here closes that window: `compact!`
+    ;; consults the flag after taking this same lock, so a queued rewrite that gets in
+    ;; first finds the log open and the flag clear (and the length read after it is
+    ;; still that log's), and one that arrives second is skipped.
+    (f/write-clean-marker! dir {"kv" (locking lock
+                                       (vreset! closed true)
+                                       (f/log-length log))})
     (finally
       (locking lock
-        ;; under the same lock `compact!` consults it, so no compaction can start against
-        ;; the closed log
+        ;; idempotent — already set on the path above, and this is the arm that covers a
+        ;; compaction or flush that threw before the marker was written
         (vreset! closed true)
         (f/close! log)))))

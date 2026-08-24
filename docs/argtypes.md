@@ -212,6 +212,7 @@ a finite set that never shrinks.
 | the argument is disjoint with the declared type | the existing `:arg-type` refusal — no type is minted on the way to it |
 | an **individual** in an `genlArg` position | `genls-problem` convicts; an individual can never acquire `genl` edges |
 | the declared type is not one the hierarchy holds | nothing — a name that does not reach `thing` is not a type we invent a membership in. This is where a structural constraint lands without needing a list of exemptions to keep in step |
+| a **function application** in the position | `args-problem` / `genls-problem` check it against the function's declared `result` / `genlResult` and refuse where the result misses ([nat.md](nat.md)) — but nothing is minted, a declared result being a claim about the *function* and not about this application, and a compound having no membership to mint |
 | a genuine negation, or a rule | not argument-checked, so not entailed from either |
 | a **query** | nothing, ever. The entailment is on the store path alone |
 | bulk load | skipped with the rest of the checks (`*bulk-load?*`) |
@@ -307,6 +308,21 @@ being nothing to mint about a term that already is what it is. Open-world about 
 does not type (a compound, a keyword) and about a declared type outside the syntactic
 lattice, so an imported constraint on a domain collection never convicts a literal it
 cannot judge. `checks/args-quoted-problem`, behind the same O(1) gate as `interArg`.
+
+**One vocabulary, not two.** `string`, `number`, `integer`, `keyword`, `boolean`,
+`character` and `symbol` are the KB's only names for the kinds a literal argument can
+carry — one per leaf kind, deliberately complete — and both declarations read them: the
+use/mention distinction is carried by *which predicate you write*, not by a second set of
+type names. A string literal denotes itself, so `(arg comment 2 string)` and
+`(quotedArg p n string)` ask two questions of one set — what the argument denotes, and
+what is written there. A parallel domain spelling would buy nothing and cost a trap:
+`quotedArg` reads a type outside the syntactic lattice open-world, so a second spelling
+stores clean and convicts nothing, with no report.
+
+`symbol` is the exception, and is **mention-only**. A symbol does not denote itself, so
+the set of names and the set of things named are not one set — `parentOf` is written as a
+symbol and denotes a predicate. It therefore gets no placement in the domain lattice and
+no disjointness: a use-level claim about it would be false of every predicate name.
 
 ## Scope
 

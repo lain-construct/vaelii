@@ -516,6 +516,18 @@ variables) at any depth. The believed-literal *match* is `sentexes-matching`, wh
 different question and returns sentexes. See [api.md](api.md),
 [inference.md](inference.md).
 
+**Query context** ![kb](../.github/badges/cat-kb.svg): One of `CxEverything`,
+`CxInference` and `CxNothing` — a `Cx…` symbol naming a **way of reading** rather than a
+place. Resolved at the read door and never reaching the engine; refused at `assert` and in
+the `genlCx` slots, so nothing is stored in one and nothing wires one into the lattice.
+`CxEverything` reads the store as spelled, belief ignored; `CxInference` keeps only what
+one reader's `genlCx` cone sees over the whole derivation and reports that reader as
+`:context`;
+`CxNothing` sees no fact at all, leaving the provers. A **variable** context (`?ctx`, the
+default of every short arity, or any name) is the same reading as `CxInference`, the witness
+being unified into that variable rather than arriving as `:context`. See
+[contexts.md](contexts.md), [from-cyc.md](from-cyc.md).
+
 **`quotedArg`** ![kb](../.github/badges/cat-kb.svg): An argument-type constraint on the
 argument **as a term** — its EDN kind (`string`, `number` with `integer` below it,
 `symbol`) checked against a syntactic type, the mention twin of `arg`. `(quotedArg

@@ -91,7 +91,7 @@ config_wants_disk() {
 #   4   `profile_test/the-fan-tally-counts-what-the-walk-touched` — the `:fan` tally is
 #       the one that is not index-independent, since the columnar trie walks natively and
 #       counts no node probes.  It asserts that instead of standing aside (docs/profile.md).
-#   8   the four `tu/query-engine-override` sites in `backward_test`, `query_test` and
+#   8   the six `tu/query-engine-override` sites in `backward_test`, `query_test` and
 #       `inference_test` — `prove` returns one solution per derivation on the DFS and one
 #       per answer on the node engine, so counting its results is a DFS question.
 #

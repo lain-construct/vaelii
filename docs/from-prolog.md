@@ -126,12 +126,15 @@ skolemized to a deterministic NAT constant when the rule fires.
 | a defeasible rule | `set/defaultRule` |
 | a stated exception | `exceptWhen` → [exceptions.md](exceptions.md) |
 
-A conjunctive consequent splits into one rule per conjunct. A literal whose functor is a
-**variable** is refused `:not-indexable` — in an antecedent or a consequent, and whether
-or not something binds it, because the index is keyed by predicate and there is nothing
-to key on. A rule whose consequent is itself a rule is the exception: it is a
-**generator**, and a variable in functor position there is a hole the enclosing level
-fills at mint time → [generators.md](generators.md).
+A conjunctive consequent splits into one rule per conjunct. A rule **antecedent** whose
+functor is a variable is refused `:not-indexable`, whether or not something binds it: the
+antecedent index is keyed by predicate, so a variable there names none for an arriving
+fact to trigger, and the rule would fire over whatever happened to be stored when a
+concrete antecedent beside it arrived. A variable functor in the **consequent** is legal —
+range restriction makes it antecedent-bound, so a forward firing is ground, and the
+consequent slot files it under a catch-all cell every backward goal reads. A rule whose
+consequent is itself a rule is a **generator**, and a variable in functor position there
+is a hole the enclosing level fills at mint time → [generators.md](generators.md).
 
 ## Retraction actually retracts
 

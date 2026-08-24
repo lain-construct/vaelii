@@ -161,6 +161,25 @@
       (is (= 2 (count (re-seq #"\[\d+\]" (get-in (first (stub/requests p))
                                                  [:messages 0 :content]))))))))
 
+(tu/deftest-kb the-run-total-adds-the-counts-a-host-gave-and-skips-the-ones-it-did-not
+  ;; `ollama/usage` names six counts and fills in whatever came back, so a host that
+  ;; reports prompt tokens and nothing else answers with four nil values.  Summing the
+  ;; batches has to drop those: `(+ nil nil)` is an NPE out of a fn that only counts
+  ;; tokens, and it takes **two** batches to reach, so a single-batch run never sees it.
+  (let [partial-usage (fn [in] {:input-tokens in :output-tokens nil
+                                :load-ms nil :prompt-ms nil :eval-ms nil :total-ms nil})
+        turn (fn [in] {:stop-reason "end_turn" :model "vaelii-stub"
+                       :content [{:type :text :text (stub/verdicts-text [[0 :true] [1 :true]])}]
+                       :usage (partial-usage in)})
+        cs (vec (take 4 (derived-claims kb)))
+        r  (oracle/judge cs {:provider (stub/provider {:script [(turn 10) (turn 7)]})
+                             :batch-size 2})]
+    (is (= 2 (:batches r)))
+    (is (= {:input-tokens 17} (:usage r))
+        "the count both hosts gave is added; the ones neither gave are absent, not zero")
+    (testing "and the judging itself is unaffected — the counts are a report, not a verdict"
+      (is (= 4 (count (:judged r)))))))
+
 (tu/deftest-kb the-rate-over-nothing-is-no-score-rather-than-a-bad-one
   (let [empty-result (oracle/judge [] {})]
     (is (nil? (:rate (oracle/agreement empty-result))))
@@ -218,16 +237,20 @@
 
 ;; ---- the live tier: the agreement in docs/commonsense.md ----------------
 
+(def ^:private judging-model
+  "**phi4:14b**, pinned rather than defaulted — a different model makes Ollama evict and
+  reload, which on a shared host costs whoever else is using it."
+  "phi4:14b")
+
 (defn- judging-provider
-  "The judging provider: **phi4:14b at the window the host is already serving**.  Both are
-  pinned rather than defaulted — a different model or a different `num_ctx` makes Ollama
-  evict and reload, which on a shared host costs whoever else is using it.
+  "The judging provider: `judging-model` at the window the host is already serving.  The
+  window is pinned for the model's reason.
 
   A constructor and nothing else: it holds no opt-in check, and is named so it cannot be
   read as the helper that does.  Consent is the caller's, and the one caller below asks
   for it first."
   []
-  (ollama/provider {:model "phi4:14b" :num-ctx 4096 :timeout-ms 600000}))
+  (ollama/provider {:model judging-model :num-ctx 4096 :timeout-ms 600000}))
 
 (def ^:private control-sentences
   "Five claims this ontology's own content says are false, three about kinds and two about
@@ -255,15 +278,9 @@
   (mapv #(v/assert kb % 'CxControl) control-sentences))
 
 (deftest ^:llm a-live-model-judges-what-the-kb-concluded
-  (cond
-    (not (tu/live-llm?))
-    (println "\nSKIP live oracle — set VAELII_LLM_LIVE=1 to opt in")
-
-    (not (ollama/available?))
-    (println (str "\nSKIP live oracle — no Ollama at " (ollama/base-url)
-                  " — set VAELII_OLLAMA_HOST to point at one"))
-
-    :else
+  ;; the model named here is `judging-provider`'s, pinned rather than configured, so the
+  ;; presence check asks about that one
+  (when (tu/live-model "live oracle" {:model judging-model :env nil})
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (starter/load-into kb)
       (world/load-into kb)
@@ -275,8 +292,8 @@
             {sound false control true} (group-by #(contains? planted (:handle %)) (:judged r))
             a (oracle/agreement (assoc r :judged sound))
             c (oracle/agreement (assoc r :judged control))]
-        (println (format "\nphi4:14b judged %d claims in %d batches, %d ms"
-                         (:total (oracle/agreement r)) (:batches r) elapsed))
+        (println (format "\n%s judged %d claims in %d batches, %d ms"
+                         judging-model (:total (oracle/agreement r)) (:batches r) elapsed))
         (println "\nthe KB's own conclusions:\n" (oracle/report (assoc r :judged sound)))
         (println "\nthe planted falsehoods:\n" (oracle/report (assoc r :judged control)))
         ;; every control, verdict and all — which falsehood a judge let through is worth

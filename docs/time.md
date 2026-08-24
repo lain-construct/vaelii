@@ -105,8 +105,8 @@ them, by laying out three intervals every way three intervals can be laid out an
 recording which outer relation each layout admits. Six points suffice: a layout is a weak
 ordering of six endpoints, so it needs at most six distinct values. The test asserts the
 derived table equals the transcribed one, entry for entry. The two representations share
-nothing, so they can only agree by both being right — and the derivation caught a real
-transcription error on the first run.
+nothing, so they can only agree by both being right — which is what makes a mistyped cell
+a test failure rather than a wrong answer.
 
 The table is written out of thirteen named blocks rather than 169 loose sets, because that
 is what its entries are. Composing two relations pins some of the four endpoint
@@ -185,13 +185,14 @@ algebra's full disjunctive form is tractable, and a network of it that survives 
 a model. So an emptied constraint means genuine unsatisfiability — a cycle of strict
 `instantBefore` facts is a reportable contradiction and not a suspicion.
 
-**The same algebra appears twice in this tree.** `vaelii.impl.orientation` composes two
-independent one-dimensional projections to get the nine cardinal directions, and each
+**The same algebra appears twice in this tree.** `vaelii.impl.projection` builds a
+nine-relation algebra out of two independent one-dimensional projections — the cardinal
+directions and the relative frame are both that shape ([space.md](space.md)) — and each
 projection is exactly these three relations under the spellings `:lt` / `:eq` / `:gt`. The
 table is duplicated rather than shared: there the three relations are a position on an axis
-and a private detail of a nine-relation algebra, here they are an order in time with their
-own vocabulary. Nine identical entries are cheaper than the coupling, and either copy is
-checkable against its own definitions.
+and an implementation detail of the two nine-relation algebras built over them, here they
+are an order in time with their own vocabulary. Nine identical entries are cheaper than the
+coupling, and either copy is checkable against its own definitions.
 
 ## Where the layers meet
 

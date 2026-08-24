@@ -26,17 +26,9 @@
             [taoensso.trove :as trove]
             [vaelii.impl.llm.stub :as stub]))
 
-(def kinds
-  "The backends `provider` knows how to build, in the order `first-available` tries
-  them: the local one before the remote one, since a model already on the machine is
-  the one to prefer.  Not because asking is cheaper — `ollama/available?` is an HTTP
-  GET that waits up to its two-second timeout on an unreachable host, where
-  `anthropic/available?` is two `getenv` reads before it shells out at all.  The local
-  probe is the slow one and goes first anyway, because what it decides is which model
-  answers rather than how fast the decision is taken."
-  [:stub :ollama :anthropic])
-
 (def ^:private backend-ns
+  "The namespace each non-stub kind resolves its constructors out of.  `:stub` is not
+  here: it is required directly, being the fallback every other kind falls back *to*."
   {:ollama    'vaelii.impl.llm.ollama
    :anthropic 'vaelii.impl.llm.anthropic})
 
@@ -155,10 +147,3 @@
   ([kind]
    (when-let [f (resolve-fn kind 'warm)]
      (try (f) (catch Throwable _ nil)))))
-
-(defn first-available
-  "The first backend in `kinds` that can serve a turn — `:stub` at worst, since it
-  always can.  For a caller with no preference that would still rather use a real
-  model than propose nothing."
-  ([] (first-available {}))
-  ([opts] (or (first (filter #(and (not= :stub %) (available? % opts)) kinds)) :stub)))

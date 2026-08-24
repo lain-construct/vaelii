@@ -14,10 +14,10 @@
   of a declaration-carrying predicate).  It was found by hand, against a worktree at the
   parent commit.
 
-  This gate closes that gap from the other side.  It runs twelve fixed workloads with
+  This gate closes that gap from the other side.  It runs fourteen fixed workloads with
   `vaelii.impl.profile` collecting and pins the **exact** index-operation counts each one
   costs: every `IndexStore` read by family, every `index-sentex` batch op by family, and
-  every `unindex-sentex!` batch op by family.  Eight of the twelve assert and four retract,
+  every `unindex-sentex!` batch op by family.  Nine of the fourteen assert and five retract,
   so a constant added to either write path lands here.
 
   **Six of the eight write a fact and two write the vocabulary**, which is the split to
@@ -94,9 +94,9 @@
 (use-fixtures :each (fn [t] (try (t) (finally (prof/stop)))))
 
 (def ^:private n
-  "Operations per workload — asserts in the six assert workloads, retractions in the four
+  "Operations per workload — asserts in the nine assert workloads, retractions in the five
   teardowns.  Large enough that a per-operation constant lands as a three-digit difference
-  rather than a rounding one, small enough that ten workloads are a few seconds."
+  rather than a rounding one, small enough that fourteen workloads are a few seconds."
   100)
 
 (def ^:private cost-space
@@ -475,11 +475,18 @@
               :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 300 :roots 400 :roster 0 :slots 200}}
 
+   ;; **No `:rule-index` family at all, and only a negative workload reads that way.**  An
+   ;; arriving negation triggers the `[:not q]` keys for the specs `q` of its body's
+   ;; predicate (`rules/trigger-keys`), and those are enumerated from the live
+   ;; `:rule-antecedents` roster rather than from the spec closure — so a KB whose rules read
+   ;; no negation, which is this one, names no key at all and never probes the rule index.
+   ;; A positive assert cannot reach zero the same way: its keys are `genls(pred)`, which is
+   ;; never empty, so every other workload here carries the family.
    {:name    :negative
     :build   negative
     :sentexes 100
     :reads   {:argument-root 500 :argument-slot 500 :exception-index 200
-              :functor-root 1100 :rule-index 100 :trie-counts 200 :trie-lookup 100}
+              :functor-root 1100 :trie-counts 200 :trie-lookup 100}
     :writes  {:levels 400 :terms 400 :roots 400 :roster 103 :slots 101}}
 
    {:name    :compound

@@ -18,6 +18,7 @@
   Universe and Well) — are the starter's, not the core KB's, and each wires itself
   into the spindle in its own KB file (see vaelii.impl.starter)."
   (:require [vaelii.core :as v]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.seed :as seed]))
 
 (defn load-into
@@ -38,7 +39,22 @@
   (seed/load-context kb 'CxCore))
 
 (defn comment-of
-  "The documentation string(s) attached to `term` via comment sentexes."
+  "The documentation attached to `term` by `comment` sentexes, in **content order**.
+
+  Ordered because every caller takes the first one — the vocabulary card, the prompt's
+  predicate lines, a selection's gloss.  `sentexes-matching` promises the *set* and not
+  an order, so a term carrying two comments (the shipped ontology gives each one; a KB
+  that adds a gloss of its own gives two) would otherwise be displayed with whichever
+  the index happened to yield first, and the same knowledge loaded in two orders would
+  read differently.  A vector, since the ranking realizes the matches either way.
+
+  Ranked through `nm/name-key` rather than on the value: `comment`'s second argument is a
+  string by convention and nothing refuses another type, and a comparison of a string
+  against a number throws where this only has to be total.  `name-key` is `str` for the
+  scalar the convention promises and the guarded `print-key` for anything else, so a
+  comment written as a compound cannot collapse two entries into one key under an ambient
+  `*print-length*`."
   [kb term]
-  (map (comp #(nth % 2) :sentence)
-       (v/sentexes-matching kb (list 'comment term '?text) '?ctx)))
+  (into [] (sort-by nm/name-key
+                    (map (comp #(nth % 2) :sentence)
+                         (v/sentexes-matching kb (list 'comment term '?text) '?ctx)))))

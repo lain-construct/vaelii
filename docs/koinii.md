@@ -88,8 +88,9 @@ The transport an agent coordinates over is the `Medium` protocol, with two imple
   apparatus. The callback runs on the writing thread, so a slow one still slows the writer —
   fine single-process, wrong across agents.
 
-Everything above the protocol — `reply` / `assert` / `reply-many`, the recovery reads — runs
-the same over either medium. Only `subscribe` differs, because only the feed does.
+Everything above the protocol — `assert`, the five reply verbs (`answer` / `endorse` /
+`justify` / `dispute` / `vote`), `reply-many`, and the recovery reads — runs the same over
+either medium. Only `subscribe` differs, because only the feed does.
 
 ### When to stop
 
@@ -112,6 +113,13 @@ is a **deterministic function of its id** — `AgentAtlas` → `CxAtlas` (`ident
 context that is not its own. The one context every governed agent may *not* write is the
 admin-only registry `CxRegistry`: the governed may not write the authority that governs them.
 
+The **stamp** is fixed by the same id, and refused rather than bent: `channel/assert` stamps
+`:creator` the agent the handle names, and a caller passing a *different* `:creator` is
+refused (`:koinii/creator-mismatch`). Neither silent outcome is honest — honouring it lets an
+agent sign another's name, dropping it leaves a call that looks like it took — and ownership
+is load-bearing downstream, since `belief/disregard` will only withdraw a statement whose
+creator is the withdrawing agent. Passing the agent's own id is redundant and allowed.
+
 The auth **strength** is conditional on policy (decision D4):
 
 - **Cooperative** (the default) — `*creator*` trusted by convention, the write routed to the
@@ -127,10 +135,11 @@ The registry itself carries three facts per agent — a membership mark (`agent`
 name (`displayNameOf`), and a **trust value** (`trustLevel`). Trust is a *mutable number*,
 not a fixed rank (decision D3): an operator-assigned tier at bootstrap, overwritten by earned
 reputation later. `trustLevel` is `functional`, so an update retracts the old value and
-asserts the new rather than accumulating two. The number must support one constraint the
-reputation math will later compute into — an endorsement is a trust signal only across
-**distinct** principals, so homogeneous agents endorsing each other are discounted to one
-signal — but here trust is only *stored*.
+asserts the new rather than accumulating two. The number must support one constraint any
+reputation math would have to honour — an endorsement is a trust signal only across
+**distinct** principals, so homogeneous agents endorsing each other are worth one signal
+between them. No such math ships: nothing computes `trustLevel` from endorsements, and no
+resolution policy reads it. Here trust is only *stored*.
 
 ## Speech acts: reply is an assertion
 
@@ -142,9 +151,11 @@ whether a move stands on its own or answers another:
   provenance already records who spoke. So `asserts` is documentary vocabulary, never minted
   — *an assertion in koinii is just an assertion*. A `queries` node **is** minted, because a
   question must be told apart from a claim.
-- **Response** (`answers`, `disputes`, `endorses`, `justifies`) — a **meta-sentex on the
-  target**, naming it by handle, asserted in the responder's own context and stamped with the
-  responder as creator.
+- **Response** (`answers`, `disputes`, `endorses`, `justifies`, `votesFor`,
+  `votesAgainst`) — a **meta-sentex on the target**, naming it by handle, asserted in the
+  responder's own context and stamped with the responder as creator. The two ballots are
+  response acts like the rest, marks included: a vote is cast *on* a claim, so retracting
+  the claim withdraws the votes rather than leaving a count standing over nothing.
 
 Two independent facts force the response shape, and together they are decision D1:
 
@@ -229,6 +240,14 @@ records the dispute, pushes it to whoever is watching, and manages its life. Thr
   round. An arbiter who is **a party** to the dispute is refused (`:arbiter-is-party`): a
   ruling lands in the arbiter's own context, so for a party it would restamp their own
   claim or retract it, deleting the disputed sentence rather than settling the clash.
+
+  Both of those reads follow **belief**, not storage. A defeated sentex stays stored on
+  purpose (it can revive), so an unfiltered enumeration of an agent's context sees claims
+  and rulings the agent no longer holds — and each has a consequence: a defeated ruling
+  read back as standing is *withdrawn as stale*, which for the majority policy's tie arm
+  means retracted, so a ruling that had already lost its force is destroyed rather than
+  left to revive; a defeated claim read back as a side convicts its holder of being a
+  party to a dispute they have stepped out of.
 - **Majority vote** — a ballot is a meta-sentex on the disputed claim (`votesFor` /
   `votesAgainst`), knowledge like every other move, so `why` explains a decision as "the
   majority voted, here are the ballots." The decision reuses the arbiter's reversible
@@ -246,9 +265,12 @@ disagreements by weighing spoofable identities.
 An open dispute does **not** block dependent reasoning — the KB keeps deriving and both sides
 stay believed. But a conclusion resting on a contested premise should be *visible as such*:
 `contested-premises` / `rests-on-contested?` are pure reads that surface the risk without
-hiding anything. The heavier option, `quarantine`, reversibly masks a contested claim from a
-channel via `except` — off by default, because it over-suppresses (with the claim masked the
-channel can no longer see the *dispute* either).
+hiding anything. `contested-premises` reports its handles in **content order**: the support
+walk collects them into a set, and the handles in it are allocated in assertion order, so
+ranking on either would make the list a fact about how the KB was loaded. The heavier option,
+`quarantine`, reversibly masks a contested claim from a channel via `except` — off by default,
+because it over-suppresses (with the claim masked the channel can no longer see the *dispute*
+either).
 
 ## Belief: what an agent holds
 
@@ -300,6 +322,20 @@ Catch-up is **wire-only**: the ring, the cursor, and lag exist on the wire feed.
 medium has no ring to fall off, so a single-process agent needs none of this and the
 `-feed-open` / `-feed-poll` operations throw there.
 
+**A poll that fails is a failure, whatever it threw.** `sync!` reads a `:type` off a refusal
+to tell a reaped subscription from anything else, but a transport is free to throw something
+carrying no type at all — and treating that as "no error" drops it into the drained-to-head
+arm, which persists a nil cursor and hands the caller its stale view as though the stream were
+current. Silent loss is the failure this module exists to prevent, so any exception out of the
+poll is re-thrown with the original as its cause, and a poll answering no cursor is refused
+rather than stored.
+
+**A consumer has one driving thread.** `sync!` is a read-modify-write over the stored cursor
+and the materialized view, and the cursor is a claim about what *this* replica has applied —
+two drivers each advancing it apply half the stream apiece. `sync!` takes the consumer's own
+monitor (uncontended when the contract is kept), which stops an interleaving from corrupting
+the view outright; it does not make two drivers a sensible arrangement.
+
 ## The other deployment shape: independent seats
 
 The default topology is N agents funnelling writes through one daemon — the daemon *is* the
@@ -321,20 +357,37 @@ Three ideas, each grounded on a primitive that ships:
   build's own constructor. The digest input is an explicit type-tagged byte encoding, not
   `pr-str`: injective across the value space a sentence holds, and independent of ambient
   print vars, so a symbol never digests as the like-spelled string.
-- **The commit is a Merkle function of state.** `commit-id` is an RFC-6962 Merkle root over
+- **The commit is a Merkle function of belief.** `commit-id` is an RFC-6962 Merkle root over
   the seat's *sorted* per-sentex leaf digests, domain-separated (`0x00` leaf, `0x01` node) so
   a leaf cannot be forged as an internal node. Order- and handle-independent by construction,
   because belief and storage are order-independent ([nmtms.md](nmtms.md)) — so two seats that
-  reached the same set of assertions by different routes compute the same commit id. The tree
+  reached the same beliefs by different routes compute the same commit id. The tree
   shape buys pure auditability: `inclusion-proof` yields an audit path and `verify-inclusion`
   recomputes the root from just a `(locator, proof)` pair, with **no KB**. (`commit-id`
   fingerprints *knowledge*; `state-root` folds provenance in for a git-commit-like *snapshot*
   identity that moves when who/when moves.)
+
+  **The leaves are what the seat believes, not what it stores.** A defeated default and a
+  conclusion whose support was withdrawn stay stored on purpose ([nmtms.md](nmtms.md)) — they
+  can revive — and they are no part of what the seat *holds*. Folding them in would make the
+  id a function of a seat's retraction history as well as its knowledge: two seats agreeing
+  on every belief but differing in what each had once stored would compute different ids and
+  read as disagreeing about the knowledge, which is the one question these ids answer. So
+  `commit-id`, `state-root` and `inclusion-proof` all enumerate the believed records, and a
+  defeat moves the id exactly as a retraction does. `inclusion-proof` on an unbelieved
+  record's locator is `nil`: there is no leaf, and a path that verified against the published
+  root would be claiming otherwise.
 - **The marker is untrusted.** `dereference` finds the sentence in the seat's own KB and
   rehashes what it found; a stale or tampered marker fails that check and is rejected, and a
   marker the seat cannot resolve means the commit was not received — never that the payload
   should be believed. Attribution is trustworthy only as far as the identity model above makes
   it: a distributed KB inherits the same cooperative-vs-proof-tier question.
+- **Resolution follows belief, exactly as the commit does.** `dereference` and
+  `resolve-by-locator` answer from the *believed* records, not the stored ones, so the two
+  halves of a seat agree about what it holds: a defeated default resolves nowhere, which is
+  the same set `inclusion-proof` will not prove. `dereference`, which is handed the sentence,
+  distinguishes the two absences (`:not-received` vs `:not-believed`); a bare locator cannot,
+  so `resolve-by-locator` reports `:not-received` for both.
 
 ## Design decisions
 
@@ -361,7 +414,9 @@ Every module is additive over the public core API; nothing in core loads any of 
 - `vaelii.impl.koinii.speech-acts` — the `CxSpeechActs` vocabulary and the origination /
   response acts. KB: `resources/kb/koinii/CxSpeechActs.txt`.
 - `vaelii.impl.koinii.channel` — the coordination library: the `Medium` protocol (`wire` /
-  `local`), `join` / `assert` / `reply` / `subscribe` / `reply-many`, and the recovery reads.
+  `local`), `join` / `assert` / `pose-query`, the reply verbs `answer` / `endorse` /
+  `justify` / `dispute` / `vote` / `reply-many`, `subscribe` / `unsubscribe`, and the
+  recovery reads `answers-to` / `endorsements-of` / `open-queries` / `query`.
 - `vaelii.impl.koinii.dispute` — the per-channel dispute reads and the lifecycle vocabulary.
 - `vaelii.impl.koinii.adjudication` — the leave-open / arbiter / majority policies, the notify
   and stale sweeps, and the contested-premise reads.

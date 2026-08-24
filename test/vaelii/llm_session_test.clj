@@ -17,7 +17,7 @@
   Everything here runs **offline against the stub** — no host, no model, no socket."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
-            [clojure.test :refer [is testing use-fixtures]]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.llm.session :as session]
@@ -131,6 +131,28 @@
         (let [r (page-proposal {:max-lines 1000})]
           (is (= (count (:page r)) (:page-found r)))
           (is (false? (:page-truncated? r))))))))
+
+;; ---- a JSON envelope's escapes are undone, not half-undone -------------
+
+(deftest a-json-escaped-sentence-reads-back-with-the-characters-it-carried
+  ;; The scanner reads s-expressions out of the raw response text, so what arrives is
+  ;; still JSON-escaped — and several hosts escape every character above 127.  A pattern
+  ;; that undoes one character per backslash turns `café` into `cafu00e9`: not a
+  ;; parse failure, which is the problem, but a sentence that reads cleanly and says
+  ;; something else.
+  (testing "the escapes a single-character pattern already handled"
+    (is (= "a\nb\tc" (session/unescape "a\\nb\\tc")))
+    (is (= "say \"this\"" (session/unescape "say \\\"this\\\""))))
+  (testing "and the one it could not"
+    (is (= "café" (session/unescape "caf\\u00e9")))
+    (is (= "→" (session/unescape "\\u2192")))
+    (testing "an escaped backslash is not the start of one"
+      (is (= "\\u0041" (session/unescape "\\\\u0041")))))
+  (testing "through read-sentence, which is where a host's escaping actually arrives"
+    (is (= '(comment Cafe "un café")
+           (session/read-sentence "(comment Cafe \\\"un caf\\u00e9\\\")")))
+    (testing "and an unescaped sentence still reads unchanged — the retry is a fallback"
+      (is (= '(dog Muffet) (session/read-sentence "(dog Muffet)"))))))
 
 ;; ---- untrusted EDN cannot leave through the stack ----------------------
 

@@ -16,6 +16,7 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
+            [vaelii.impl.nat :as nat]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
@@ -55,21 +56,42 @@
   "The syntactic types a literal is classified into — the roots of the kind lattice
   `quotedArg` types against.  A `quotedArg` whose declared type is neither one of these
   nor below one is out of the feature's domain (an imported constraint typing an argument
-  as some domain collection), and the check reads it open-world rather than convicting."
-  '#{string number integer symbol})
+  as some domain collection), and the check reads it open-world rather than convicting.
+
+  One per leaf kind a sentence can carry, and complete on purpose: a kind with no root
+  here is one both argument checks have to wave through, which is a hole rather than a
+  policy.  A compound is the exception `literal-type` states."
+  '#{string number integer symbol keyword boolean character})
 
 (defn- literal-type
   "The syntactic type of an argument taken as a **term** — its EDN kind, mapped to the
-  type `quotedArg` constrains against: a string is `string`, an integer `integer` (a
-  `number` below), any other number `number`, a non-variable symbol `symbol` (a name,
-  however its role spells it).  `nil` for a kind quotedArg does not type — a compound, a
-  keyword, a boolean, a variable — which the check reads open-world, exactly as
-  `args-problem` exempts an argument outside the hierarchy."
+  type the argument checks compare it against: a string is `string`, an integer `integer`
+  (a `number` below), any other number `number`, a keyword `keyword`, a boolean
+  `boolean`, a character `character`, a non-variable symbol `symbol` (a name, however its
+  role spells it).
+
+  `nil` for the two things that are not a leaf with a knowable kind — a **variable**,
+  which is not a term yet, and a **compound**, whose kind is not the question: what
+  `(QuantityFn 5 Meter)` denotes is its function's business, so no syntactic answer would
+  be the right one and both checks read it open-world.
+
+  The syntactic half is the whole of what this declines to answer, and the semantic half
+  is answered beside it: `result` / `genlResult` say what an application denotes, and
+  `convicting-result-type` reads them.  A **reifiable** application reaches neither — it
+  is minted before the checks run and arrives as the constant its result types were
+  materialized on, checked like any symbol — so a compound seen here is one that is never
+  minted, and its function's declaration is the only thing the KB can know about it.
+
+  A boolean is tested before a symbol only because `false` and `nil` are the two values
+  a `cond` arm can be written to fall through by accident; the order is otherwise free."
   [x]
   (cond
     (string? x)                              'string
+    (boolean? x)                             'boolean
     (integer? x)                             'integer
     (number? x)                              'number
+    (keyword? x)                             'keyword
+    (char? x)                                'character
     (and (symbol? x) (not (sx/variable? x))) 'symbol
     :else                                    nil))
 
@@ -177,16 +199,114 @@
   untouched: every declaration is still read, and a sentence no declaration convicts
   still has no violation.
 
-  The `pr-str` key is built once per match and compared as a string (`nm/sort-by-content-key`
+  The key is built once per match and compared as a string (`nm/sort-by-content-key`
   with `compare`) — the same lexicographic order, off the per-comparison rebuild — and a
-  run of one, the common case for a `(first (for …))` consumer, sorts nothing."
+  run of one, the common case for a `(first (for …))` consumer, sorts nothing.  Printed
+  through `nm/print-key`, so no ambient `*print-length*` collapses two declarations to
+  one prefix: these sentences are *short*, which exposes them rather than protecting them
+  — at `*print-length*` 3, `(arg parentOf 1 person)` and `(arg parentOf 1 animal)` print
+  the same."
   [ds]
-  (nm/sort-by-content-key #(pr-str (:sentence (nth % 2))) compare ds))
+  (nm/sort-by-content-key #(nm/print-key (:sentence (nth % 2))) compare ds))
+
+(defn- outside-declared-type?
+  "Does `arg` fail the `(arg P n t)` demand, as seen from `context`?
+
+  Two readings, because the KB knows two different amounts about the two kinds of term.
+
+  A **symbol** is typed by what somebody asserted, so the reading is open-world: it
+  violates nothing until it holds a membership, and then only if none of them reaches
+  `t`.  A **literal** is typed by what it *is* — `literal-type` reads its EDN kind, and
+  those kinds sit in the `genl` lattice (CxCore) exactly so this comparison can be made.
+  No assertion is involved and none is possible, so there is nothing to be open-world
+  about: a string is a `string` and a `string` is not a `dog`, and saying so is the
+  difference between a declaration that constrains a position and one that constrains
+  the half of it somebody happened to spell with a name.
+
+  The openness moves rather than disappearing, and it moves to the **declared type**: a
+  `t` outside the hierarchy is one the lattice cannot place the kind against, which is
+  the imported-constraint case `args-quoted-problem` exempts for the same reason.
+
+  A **compound** is neither of the two readings and is not answered here.  It holds no
+  membership and its kind is not the question; what it denotes is its function's business,
+  and `convicting-result-type` beside this is the arm that reads the function."
+  [tax types arg t context]
+  (if (checkable-term? arg)
+    (let [ms (types arg)]
+      (and (kb/isa-among? (:closures ms) 'thing)
+           (not (kb/isa-among? (:closures ms) t))))
+    (when-some [k (literal-type arg)]
+      (and (symbol? t)
+           (tax/genl? tax t 'thing context)
+           (not (tax/genl? tax k t context))))))
+
+(defn- application-term?
+  "Is `x` a function **application** — a compound whose head is a name?
+
+  The one argument shape neither `checkable-term?` nor `literal-type` answers for: a type
+  membership cannot be asserted of it, and its EDN kind is not the question its declared
+  position asks.  A **vector** fails the head test rather than being excluded by name — a
+  vector in a sentence is a list of forms (an `exceptWhen`'s conjuncts, a `thereExists`'s
+  binders), so its first element is a form and not a function."
+  [x]
+  (and (sequential? x)
+       (symbol? (first x))
+       (not (sx/variable? (first x)))))
+
+(defn- convicting-result-type
+  "The declared result type that convicts the application `x` of failing a demand for
+  type `t`, seen from `context`, or nil.  `declared` is the reader for the demand's
+  reading — `nat/result-types` for `arg`'s instance demand, `nat/genl-result-types`
+  for `genlArg`'s subtype one — and the two are never crossed: `arg` asks what the
+  application *is*, `genlArg` what it is a *kind of*, and one declaration answers each.
+
+  **A result declaration is a claim about the function, not about the application.**
+  `(result QuantityFn measure)` says every `(QuantityFn m u)` denotes a measure; no
+  application is typed on its own, and nothing here computes a per-application type —
+  there is nothing to compute, a structural application holding no membership and being
+  able to hold none.  A **reified** application does not arrive here at all: it is minted
+  before the checks run, and its constant carries these very declarations materialized as
+  `(T K)` / `(genl K T)`, which the symbol arm reads.  So this is the reading for the
+  applications that are never minted, and it and the mint say the same thing about the
+  same function.
+
+  **Open-world, one level out from the symbol reading.**  A head that declares no result
+  exempts every application of it, exactly as an unclassified symbol exempts itself, and a
+  declared result the asking context cannot place in the hierarchy is no evidence either.
+  Only a head with a declared result that visibly reaches `thing` and visibly fails to
+  reach `t` convicts — `outside-declared-type?`'s floor and its negation as failure, with
+  the head's declarations standing where a term's memberships stand.
+
+  Content-least where a head declares several, so which of them a refusal names is keyed
+  on what the KB says rather than on the order a retrieval enumerated them.
+
+  **A quoting predicate's argument is a mention and is left alone.** `(termOfUnit K
+  (FruitFn AppleTree))` and a compound-argument `(rewriteOf T E)` carry the NAT
+  expression as a literal payload rather than as a term used in that position
+  (`nat/nat-quoting-predicates`, docs/nat.md), so typing it by what the function yields
+  would type a quotation by its referent.  It is also the one place a mint would pay for
+  this: `mint-nat!` writes a `termOfUnit` per constant, and that write is where a KB
+  declaring result types would otherwise buy a scoped retrieval it can never be convicted
+  by.
+
+  Behind `nat/any-result-declarations?` — two O(1) functor counts, reached only for a
+  compound sitting at a position some declaration constrains, so a KB that has written no
+  result declaration pays nothing for this and one that has pays two integer reads."
+  [kb declared pred x t context]
+  (when (and (symbol? t) (application-term? x)
+             (not (contains? nat/nat-quoting-predicates pred))
+             (nat/any-result-declarations? kb))
+    (let [tax (:taxonomy kb)
+          rs  (vec (declared kb (first x) context))]
+      (when (not-any? #(tax/genl? tax % t context) rs)
+        (nm/min-by-content-key identity (filterv #(tax/genl? tax % 'thing context) rs))))))
 
 (defn- args-problem
   "First (arg pred n type) violation for a sentence, or nil.  Uses genl
   transitivity; only constraints and type memberships visible from `context`
-  count.  Open-world: an untyped term can't violate anything.
+  count.  Open-world about a **symbol**: an untyped one can't violate anything.  A
+  **literal** carries its type in its syntax and is checked against it —
+  `outside-declared-type?` has that argument.
 
   **Genl transitivity in two places, not one.**  The constraint *type* is reached
   through the closure, and so is the constrained *predicate*: `decls` reads every
@@ -197,27 +317,36 @@
   refuses the same claim spelled `parentOf` — which it has to, since the stored
   sub-predicate fact answers every super-predicate query through the matcher's fan.
 
+  **An application is typed by its function's `result`**, which is the one thing the
+  KB can know about a term no membership can be asserted of: `(result QuantityFn
+  measure)` refuses `(needsDog (QuantityFn 5 Meter))` under `(arg needsDog 1 dog)` and
+  admits it under `(arg needsMeasure 1 measure)`.  `convicting-result-type` has that
+  argument, the open-world floor included.
+
   `types` is the shared per-assert membership reader (`kb/membership-reader`), `decls`
   the shared declaration reader.  The two questions asked of each constrained
   argument — is it in the hierarchy at all, and does it reach the constraint type —
   are one retrieval and two set lookups, and a second constraint on the same position
   adds no retrieval at all."
-  [_kb sentence _context types decls]
+  [kb sentence context types decls]
   (let [pred (nm/functor sentence)
-        as   (vec (nm/args sentence))]
+        as   (vec (nm/args sentence))
+        tax  (:taxonomy kb)]
     (when (symbol? pred)
       (first
        (for [m     (in-content-order (decls 'arg))
              :let  [b   (nth m 1)
                     n   (get b '?n)
                     t   (get b '?type)
-                    arg (arg-at as n)]
-             :when (and arg (checkable-term? arg)
-                        (let [ms (types arg)]
-                          (and (kb/isa-among? (:closures ms) 'thing)
-                               (not (kb/isa-among? (:closures ms) t)))))]
+                    arg (arg-at as n)
+                    ;; the application arm — nil for every argument that is not one
+                    r   (convicting-result-type kb nat/result-types pred arg t context)]
+             :when (and arg (or r (outside-declared-type? tax types arg t context)))]
          {:type :arg-type :sentence sentence :arg arg :expected t :position n
-          :message (str "arg constraint: " arg " must be a " t
+          ;; `pr-str`, so a convicted string reads as one — it prints the same as `str`
+          ;; for every term that could already be convicted here
+          :message (str "arg constraint: " (pr-str arg) " must be a " t
+                        (when r (str " — " (first arg) " results in a " r))
                         " (arg " n " of " pred (via-clause (declared-of m) pred) ")")})))))
 
 (defn- inter-args-problem
@@ -297,13 +426,18 @@
   apply also descends the predicate hierarchy exactly as `arg`'s do, by riding the
   same reader.
 
+  **An application is typed by its function's `genlResult`**, never by its `result`:
+  this position wants a kind, and `genlResult` is the declaration saying an application
+  names one where `result` says it *is* one.  `convicting-result-type` has that
+  argument, and keeps the two readings apart.
+
   Open-world has a floor here that `arg` does not have.  An argument outside the
   hierarchy is normally exempt, since the edges placing it may not have arrived yet —
   but an **individual** can never acquire them (`wff/genl-problems` refuses `genl` of
   one), so a type-level position holding one is convicted rather than excused.  The
   test is \"outside the hierarchy *and* individual\", not \"individual\", because a
   reified NAT reads as an individual by spelling and is minted with real `genl` edges from
-  its `resultGenl` declarations — one that reaches `thing` is judged like any type.
+  its `genlResult` declarations — one that reaches `thing` is judged like any type.
 
   **A deliberate global/scoped split inside one `cond`.**  The first floor asks what
   the argument *is* (could it ever be a type?) and stays **global**: a reified NAT's
@@ -325,17 +459,22 @@
                     n   (get b '?n)
                     t   (get b '?type)
                     arg (arg-at as n)
-                    why (when (and arg (checkable-term? arg) (symbol? t))
-                          (cond
-                            (not (tax/genl? tax arg 'thing))          ; global: the individual floor
-                            (when (nm/individual? arg)
-                              (str arg " is an individual, so it can never be a subtype of " t))
+                    ;; the application arm — nil for every argument that is not one
+                    r   (convicting-result-type kb nat/genl-result-types pred arg t context)
+                    why (if r
+                          (str (pr-str arg) " must be a subtype of " t " — "
+                               (first arg) " results in a subtype of " r)
+                          (when (and arg (checkable-term? arg) (symbol? t))
+                            (cond
+                              (not (tax/genl? tax arg 'thing))          ; global: the individual floor
+                              (when (nm/individual? arg)
+                                (str arg " is an individual, so it can never be a subtype of " t))
 
-                            (not (tax/genl? tax arg 'thing context))  ; scoped: no visible evidence
-                            nil                                       ; — open world excuses
+                              (not (tax/genl? tax arg 'thing context))  ; scoped: no visible evidence
+                              nil                                       ; — open world excuses
 
-                            (not (tax/genl? tax arg t context))       ; scoped: the writer's vantage
-                            (str arg " must be a subtype of " t)))]
+                              (not (tax/genl? tax arg t context))       ; scoped: the writer's vantage
+                              (str arg " must be a subtype of " t))))]
              :when why]
          {:type :arg-genl :sentence sentence :arg arg :expected t :position n
           :message (str "arg constraint: " why " (arg " n " of " pred
@@ -557,10 +696,14 @@
   already convicts under the type it actually states."
   [matches target]
   (let [sen   (fn [m] (:sentence (nth m 2)))
-        order (fn [m] (pr-str [(sen m) (:context (nth m 2))]))]
+        ;; `nm/print-key`, and built once per match rather than once per comparison: the
+        ;; second arm names ONE handle out of a `res/matches-visible` answer *set*, so a
+        ;; key an ambient `*print-length*` collapsed would decide the refusal on
+        ;; enumeration order — which is the handle order this key exists to keep out
+        order (fn [m] (nm/print-key [(sen m) (:context (nth m 2))]))]
     (if-let [exact (seq (filter #(= target (sen %)) matches))]
-      (map first (sort-by order exact))
-      (take 1 (map first (sort-by order matches))))))
+      (map first (nm/sort-by-content-key order compare exact))
+      (take 1 (map first (nm/sort-by-content-key order compare matches))))))
 
 (defn- handle-naming
   "The one handle a *refusal* names — the first of `handle-namings`, which is the
@@ -1456,11 +1599,15 @@
                                             (= home (:context o))))]
                         (assoc o ::mark q ::converse converse))
              opposing (->> claims
-                           ;; one `pr-str` + two `str` in the key — built once per claim,
-                           ;; not per comparison; the `[rank …]` tuple orders under `compare`
+                           ;; one `nm/print-key` + two `str` in the key — built once per
+                           ;; claim, not per comparison; the `[rank …]` tuple orders under
+                           ;; `compare`.  Printed through `print-key` because `claims` is
+                           ;; a `for` over `res/matches-visible`, an answer *set*, and
+                           ;; `asymmetry-problem` takes the first: an elided sentence would
+                           ;; decide a refusal on which claim the retrieval yielded first
                            (nm/sort-by-content-key (juxt #(- (strength/rank-of (:class %)))
                                                          #(str (:context %))
-                                                         #(pr-str (:sentence %))
+                                                         #(nm/print-key (:sentence %))
                                                          #(str (::mark %)))
                                                    compare)
                            (reduce (fn [acc o]
@@ -1635,9 +1782,13 @@
                                      ", so the direct step " (pr-str (nth chain 2))
                                      " cannot hold too")})]
          (->> found
+              ;; `:chain` is three whole sentences — the longest printed value keyed on
+              ;; anywhere here, and the first an ambient `*print-length*` truncates — so
+              ;; it is printed through `nm/print-key`.  `antitransitivity-problem` takes
+              ;; the first of these, and `found` is a `for` over `res/matches-visible`
               (nm/sort-by-content-key
                (juxt #(- (strength/rank-of (:weakest %)))
-                     #(pr-str (:chain %))
+                     #(nm/print-key (:chain %))
                      #(str (:pred %)))
                compare)
               (reduce (fn [[acc seen] v]
@@ -2442,6 +2593,198 @@
     (throw (ex-info (str "a do/ imperative cannot appear in a rule: " (pr-str bad))
                     {:type :not-assertible :form bad :sentence sentence}))))
 
+;; ---- the argument constraints a rule's variables carry -------------------
+;;
+;; `args-problem` holds a **ground** argument to what its position declares.  Every
+;; argument of a rule is a variable, so that arm passes over all of them vacuously and
+;; the rule is stored — and then each fact the rule concludes is convicted one at a
+;; time, by a complaint naming the conclusion and never the rule that wrote it.
+;;
+;; A variable is one term standing in several positions at once, though, so the
+;; positions can be held to **each other** before anything fires.  A variable an
+;; antecedent binds through `(arg comment 2 string)` and a consequent places
+;; into `(genl ?x ?string)` has to be a run of text and a type at the same time, and
+;; text and a type are declared disjoint: no term is both, so every firing of that rule
+;; would conclude something the door refuses.  The rule is the mistake, and this is
+;; where it is said.
+;;
+;; **A type-level position asks for a type, which is a `unaryPredicate`.**  That is the
+;; second reading this arm needs and the KB already holds it twice over: every type is
+;; asserted a `unaryPredicate` when the schema loads, and `declaration-problem` refuses
+;; an `arg` declaration on a `typeRelationPredicate` precisely because *its* arguments
+;; name kinds.  So a position is type-level when a `genlArg` names it **or** when its
+;; predicate is a `typeRelationPredicate` — which is how `genl`'s second argument is
+;; constrained at all.  That position carries no declaration of its own, deliberately
+;; (see CxCore), and the relation kind is what says what it holds.
+;;
+;; **Instance constraint against instance constraint, and nothing else.**  `(disjoint T
+;; U)` says the two types share no instance, which is exactly what two such constraints
+;; on one variable ask of it — the reading `args-problem` gives a ground term, asked of
+;; a term that is not there yet.  Two *subtype* constraints are left alone: a type below
+;; two disjoint types is empty rather than impossible, and nothing else in the KB
+;; refuses an empty type.
+;;
+;; **Positive literals only.**  A negated antecedent says the variable does not fill
+;; that position, so a constraint carried there is one no binding ever has to satisfy;
+;; reading it would refuse `(implies (and (dog ?x) (not (plant ?x))) …)` for saying
+;; exactly what its author meant.  An existential is skipped for the reason its
+;; variables are local: what it binds inside is not the variable the rest shares.
+;;
+;; **`arg` and `genlArg`, and the other two kinds are not an extension waiting to be
+;; made.**  `declaration-queries` reads four; this arm reads two, and the missing pair is
+;; a *result* rather than a scope decision — each has a binding both ends accept, so
+;; refusing the rule would refuse one that works.
+;;
+;;   - `quotedArg` × `arg`, and `quotedArg` × `quotedArg`.  Bind a **compound**.  It is
+;;     the one thing `literal-type` declines to answer for, so both sides read it
+;;     open-world.  Every other leaf kind is named and therefore decided, so a compound
+;;     is the whole of the escape — and it is an escape a `result` read at check time
+;;     rather than at mint would close for an unreifiable function, which is the one way
+;;     these verdicts could still move.  With
+;;     `symbol` on the `quotedArg` side there is no tension to begin with: a symbol is
+;;     what every term the `arg` side types is written as.
+;;   - `quotedArg` × a type-level position.  A string literal serves here, `(genl "Bob"
+;;     thing)` being admitted — `genls-problem` still exempts a literal outright, which
+;;     is its own question (a literal is never a subtype of anything).
+;;   - `interArg`.  Its trigger is a *demand*, not a fact.  `(arg P i T)` does not make
+;;     argument `i` a `T` — an unclassified term satisfies it vacuously — so no rule's
+;;     own bindings entail the trigger, and a conditional constraint that never provably
+;;     fires can convict nothing.
+;;   - `arg` × `genlArg` beyond the `unaryPredicate` mapping below.  A term may be an
+;;     instance of one type and a subtype of another at once; the meta-ontology depends
+;;     on it, every type being an instance of `unaryPredicate`.
+;;
+;; Each of those has a witness in `rule_variable_arg_test`, so an extension has to turn
+;; one red before it can land.  docs/taxonomy.md carries the same list for a reader.
+
+(def ^:private collection-type
+  "The type a **type-level** argument position asks its filler to be an instance of.
+  Every type in the KB is asserted a `unaryPredicate` as the schema loads, so this is
+  what `genlArg`'s \"a subtype of T\" and `typeRelationPredicate`'s \"relates kinds\"
+  both amount to as a membership — and a membership is what `disjoint` separates."
+  'unaryPredicate)
+
+(defn- binding-literals
+  "The literals of rule `inner` that **bind** its variables: every positive antecedent,
+  plus the consequent — with an `(ist Ctx S)` consequent replaced by the `S` it places,
+  since that is the sentence the conclusion is stored as and so the one whose argument
+  positions the conclusion has to satisfy."
+  [inner]
+  (let [c (rules/consequent inner)
+        c (if (and (sequential? c) (= sx/ist-functor (first c)) (= 3 (count c)))
+            (nth c 2)
+            c)]
+    (conj (into []
+                (remove #(or (sx/negation? %) (sx/unknown? %) (sx/there-exists? %)))
+                (rules/antecedents inner))
+          c)))
+
+(defn- literal-variable-constraints
+  "The memberships one literal demands of the variables sitting in its arguments, as
+  `[[variable {:type T :position n :pred P :via V :level :arg|:genlArg|:kind}] …]`.
+
+  Two sources, and they are the two readings a position can carry.  An `(arg P n T)`
+  declaration types the filler directly.  A **type-level** position — one a `genlArg`
+  names, or any position of a `typeRelationPredicate` — types it as a
+  `unaryPredicate`, since what stands there is a kind.  `:level` is kept so the refusal
+  can say which reading it read, and `:via` so a constraint that descended from a
+  super-predicate names the predicate it was written of, exactly as `args-problem` does.
+
+  Walked in `in-content-order`, so which declaration a refusal names is decided by what
+  the KB says rather than by how the retrieval happened to enumerate."
+  [kb lit context]
+  (let [pred (nm/functor lit)
+        as   (vec (nm/args lit))]
+    (when (and (sequential? lit) (symbol? pred) (some sx/variable? as))
+      (let [decls    (declaration-reader kb pred context)
+            type-rel (seq (res/matches-visible kb (list 'typeRelationPredicate pred) context))
+            of-kind  (fn [kind mk]
+                       (for [m     (in-content-order (decls kind))
+                             :let  [b (nth m 1)
+                                    n (get b '?n)
+                                    a (arg-at as n)]
+                             :when (and (sx/variable? a) (symbol? (get b '?type)))]
+                         [a (mk m b n)]))]
+        (concat
+         (of-kind 'arg
+                  (fn [m b n] {:type (get b '?type) :position n :pred pred
+                               :via (declared-of m) :level :arg}))
+         (of-kind 'genlArg
+                  (fn [m _ n] {:type collection-type :position n :pred pred
+                               :via (declared-of m) :level :genlArg}))
+         (when type-rel
+           (for [[i a] (map-indexed vector as)
+                 :when (sx/variable? a)]
+             [a {:type collection-type :position (inc i) :pred pred
+                 :via pred :level :kind}])))))))
+
+(defn- variable-constraints
+  "`variable -> [{…} …]` over `literals`, in literal order — the whole of what a rule's
+  own text says its variables have to be."
+  [kb literals context]
+  (reduce (fn [acc lit]
+            (reduce (fn [acc [v c]] (update acc v (fnil conj []) c))
+                    acc
+                    (literal-variable-constraints kb lit context)))
+          {} literals))
+
+(defn- variable-constraint-clause
+  "How a refusal names one constraint it found — **a string (arg 2 of
+  comment)**, or **a type (arg 2 of genl, a typeRelationPredicate)** for a position
+  whose demand comes from the relation kind rather than from a declaration.  Carries
+  `via-clause` for a constraint that descended from a super-predicate, exactly as
+  `args-problem`'s message does."
+  [{:keys [type position pred via level]}]
+  (str (case level
+         :arg     (str "a " type)
+         :genlArg "a type"
+         :kind    "a type")
+       " (arg " position " of " pred
+       (case level
+         :genlArg (str ", constrained with genlArg" (via-clause via pred))
+         :kind    ", a typeRelationPredicate"
+         (via-clause via pred))
+       ")"))
+
+(defn- variable-clash-problem
+  "The first pair of constraints on one of rule `inner`'s variables that no term
+  satisfies at once, or nil.
+
+  Only two **instance** demands can convict: `disjoint` says two types share no
+  instance, and a membership is what each of these constraints asks for — the
+  `unaryPredicate` a type-level position asks for included.  Variables are taken in
+  name order and each one's constraints in literal-then-content order, so a rule
+  several of whose variables clash is refused for the same one every time."
+  [kb inner context]
+  (let [taxo   (:taxonomy kb)
+        by-var (variable-constraints kb (binding-literals inner) context)]
+    (first
+     ;; `name-key`, not `str`: a rule variable is a symbol, and saying so is what keeps
+     ;; the key out of the class an ambient `*print-length*` can collapse
+     (for [v     (sort-by nm/name-key (keys by-var))
+           :let  [cs (get by-var v)]
+           :when (< 1 (count cs))
+           [i a] (map-indexed vector cs)
+           b     (drop (inc i) cs)
+           :when (and (not= (:type a) (:type b))
+                      (tax/disjoint? taxo (:type a) (:type b) context))]
+       {:type :arg-variable :sentence inner :variable v
+        :expected [(:type a) (:type b)]
+        :message (str "arg constraint: " v " must be " (variable-constraint-clause a)
+                      " and " (variable-constraint-clause b)
+                      ", and the two types are disjoint")}))))
+
+(defn- check-variable-constraints!
+  "Throw when a variable of rule `inner` carries two argument constraints no term can
+  satisfy together.  The value form is `variable-clash-problem`; this is the door's.
+
+  Private, unlike the cross-namespace rule checks beside it in `check-rule!`: every
+  door that stores a rule reaches this through that list, so there is no second caller
+  for a public name to serve."
+  [kb inner context]
+  (when-let [p (variable-clash-problem kb inner context)]
+    (throw (ex-info (:message p) (dissoc p :message)))))
+
 ;; ---- generators: the refusals a rule concluding a rule owes ---------------
 ;; A generator is a rule and passes everything a rule passes.  What follows is what it
 ;; owes *as* a generator, and every one of them is asked of each nesting level, since a
@@ -2456,12 +2799,20 @@
   generator concludes is a rule — so every generator in the KB is filed under `implies`
   and nothing else is, at any nesting depth.  Nothing backward-chains through it (a
   generator is forward-only, and no goal's functor is `implies`), which leaves it doing
-  exactly this one job."
+  exactly this one job.
+
+  **Content-ordered**, because `generator-cycle` names one of these in a refusal
+  message — verbatim, by handle.  The index cell is a *set*, so where three generators
+  each close the cycle, an unordered walk would blame whichever the set yielded first,
+  which is the arrival order that whole check exists to keep out.  One list per KB, and
+  a generator roster is a handful of rules."
   [kb]
-  (into []
-        (comp (keep (fn [h] (when-let [s (p/get-sentex (:records kb) h)] [h s])))
-              (filter (fn [[_ s]] (rules/generator-sentex? s))))
-        (p/rules-by-consequent (:index kb) sx/rule-functor)))
+  (nm/sort-by-content-key
+   (fn [[_ s]] [(:sentence s) (:context s)])
+   (into []
+         (comp (keep (fn [h] (when-let [s (p/get-sentex (:records kb) h)] [h s])))
+               (filter (fn [[_ s]] (rules/generator-sentex? s))))
+         (p/rules-by-consequent (:index kb) sx/rule-functor))))
 
 (defn- stamped-predicate
   "The predicate a generator eventually concludes — the **innermost** rule's, through
@@ -2609,6 +2960,12 @@
   C1 already stored, indexed, and chained from, while the caller saw a throw and
   reasonably concluded nothing had been asserted.
 
+  One arm here has no counterpart on the fact path at all —
+  `check-variable-constraints!`, which holds a rule's shared variables to the argument
+  constraints of every position they stand in.  A ground argument is checked by
+  `constraint-checks` on the way in; a variable is checked here or nowhere, since the
+  term it will hold does not exist yet.
+
   A **generator** owes three more (`check-generator!`), and they run last so the
   sharper complaint comes first: a rule that is unbound *and* backward-only is refused
   for the unbound variable, which is the one its author can act on."
@@ -2637,6 +2994,12 @@
     (when-not (= :inert direction)
       (rules/check-indexable-functors inner))
     (nm/check! (:naming kb) inner context)
+    ;; the argument constraints the rule's own variables carry, checked against each
+    ;; other — the arm above this file's `binding-literals` explains.  Here rather than
+    ;; on the fact path because a variable is not an argument any ground check can see,
+    ;; and after naming because it reads declarations off the functors naming just
+    ;; passed.
+    (check-variable-constraints! kb inner context)
     ;; the rule-set check, before anything is stored: an `exceptWhen` is negation as
     ;; failure, and a cycle through it would make the settled state depend on
     ;; arrival order (docs/exceptions.md)
@@ -2728,9 +3091,17 @@
                              (tax/add-genl probe a b ::probe)
                              (tax/add-genlCx probe a b ::probe))
                 concluders (stratification-concluders kb)]
+            ;; walked in content order: `exception-rules` is a **set**, and the cycle
+            ;; this returns is the witness the refusal message prints and
+            ;; `edge-stratification-violation` carries in `:detail :cycle`.  Two rules
+            ;; that each close a cycle through the arriving edge would otherwise give two
+            ;; different refusals for one edge according to which was asserted first.
             (some #(some->> (stored-rule-node kb %)
                             (wff/negation-cycle probe concluders))
-                  excepted)))))))
+                  (nm/sort-by-content-key
+                   (fn [h] (let [s (p/get-sentex (:records kb) h)]
+                             [(:sentence s) (:context s)]))
+                   excepted))))))))
 
 (defn check-edge-stratified
   "Throw unless adding this taxonomy edge leaves the stored rule set stratified.

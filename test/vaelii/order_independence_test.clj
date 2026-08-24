@@ -36,12 +36,31 @@
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
-(defn- permutations [coll]
-  (if (<= (count coll) 1)
-    (list (seq coll))
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))))
+(defn- interleavings
+  "Every **linear extension** of `chains`: each chain's ops keep their own relative
+  order, and the chains interleave with one another freely.  An op that constrains
+  nothing is a chain of one, so a flat permutation is the all-singletons case.
+
+  This is what an ordering test containing a **removal** needs and a flat permutation
+  cannot express.  A `retract!` names a handle its own assertion allocated, so it may
+  not precede it — and tying the pair into a single op would remove the very window
+  such a test is about, the third op arriving *between* them.  Stated as a chain, the
+  constraint is declared once and every legal ordering follows from it.
+
+  The count is the multinomial: chains of 3, 1 and 1 give 5!/3!1!1! = 20."
+  [chains]
+  (let [chains (into [] (remove empty?) chains)]
+    (if (empty? chains)
+      (list ())
+      (for [i    (range (count chains))
+            tail (interleavings (update chains i rest))]
+        (cons (first (nth chains i)) tail)))))
+
+(defn- permutations
+  "Every ordering of `coll` — the `interleavings` of ops that constrain one another not
+  at all."
+  [coll]
+  (interleavings (mapv vector coll)))
 
 ;; How many orderings the *sampled* order-independence check walks when running the
 ;; full n! every time is too dear.  Order-independence is enforced here as a
@@ -63,10 +82,11 @@
     (vec al)))
 
 (defn- sampled-orderings
-  "A deterministic sample of up to `n` of `orderings`: the identity and the reverse
-  always — the two extremes a relabelling is likeliest to split on, which
-  `permutations` returns first and last — then a fixed-seed spread of the rest.
-  Returns them all unchanged when there are `n` or fewer."
+  "A deterministic sample of up to `n` of `orderings`: always the two extremes a
+  relabelling is likeliest to split on, which `interleavings` returns first and last —
+  the ops in the order they were given and in the reverse of it, each chain's own order
+  intact — then a fixed-seed spread of the rest.  Returns them all unchanged when there
+  are `n` or fewer."
   [n orderings]
   (let [v (vec orderings)]
     (if (<= (count v) n)
@@ -84,25 +104,68 @@
     (doseq [op ops] (op kb))
     (observe kb)))
 
+(defn- outcome-census
+  "The distinct outcomes over `orderings`, each mapped to how many produced it (`:n`) and
+  the index of the first that did (`:at`) — the shape a failure is read from.  A
+  sixteen-against-four split says at once which side is the defect, where a bare set of
+  readings leaves that to be guessed, and the index reproduces it: `interleavings` is
+  deterministic, so ordering #3 is the same ordering on the next run."
+  [orderings observe]
+  (reduce (fn [acc [i o]]
+            (if (contains? acc o)
+              (update-in acc [o :n] inc)
+              (assoc acc o {:n 1 :at i})))
+          {}
+          (map-indexed (fn [i ops] [i (run-ops ops observe)]) orderings)))
+
+(def ^:private census-lines
+  "How many outcomes a failure prints in full.  A split is nearly always two-way and a
+  reader wants both; the cap is for the pathological case — an `observe` accidentally
+  reading something arrival-ordered makes every ordering its own outcome, and dozens of
+  whole-KB readings printed in full bury the count that says what went wrong."
+  6)
+
+(defn- census-report
+  "A census as failure text, one line per outcome, earliest first."
+  [census]
+  (let [ranked (sort-by (comp :at val) census)]
+    (str (apply str (for [[o {:keys [n at]}] (take census-lines ranked)]
+                      (str "\n  " n "x (first at #" at ") " (pr-str o))))
+         (when (> (count ranked) census-lines)
+           (str "\n  ... and " (- (count ranked) census-lines) " more outcome(s)")))))
+
 (defn- outcomes
   "The set of distinct outcomes over the given `orderings`."
   [orderings observe]
-  (into #{} (map #(run-ops % observe)) orderings))
+  (set (keys (outcome-census orderings observe))))
+
+(defn- one-outcome-under!
+  "Assert that every linear extension of `chains` agrees, and return the single outcome.
+
+  The general form: `one-outcome!` is this with every op its own chain.  Reach for this
+  one whenever an op depends on an earlier one — a `retract!` on the handle an `assert`
+  allocated, an un-merge on the merge it lifts — where a flat permutation would produce
+  orderings that cannot be run at all.  `cap` samples, exactly as `one-outcome!` does."
+  ([label chains observe] (one-outcome-under! label chains observe nil))
+  ([label chains observe cap]
+   (let [all    (interleavings chains)
+         walked (cond->> all cap (sampled-orderings cap))
+         census (outcome-census walked observe)]
+     (is (= 1 (count census))
+         (str label ": " (count census) " distinct outcomes across " (count walked)
+              (when cap (str " sampled of " (count all))) " orderings —"
+              (census-report census)))
+     (key (first (sort-by (comp :at val) census))))))
 
 (defn- one-outcome!
   "Assert that every ordering of `ops` agrees, and return the single outcome.  With a
   `cap`, walk a deterministic sample of that many orderings instead of the full n! —
   for a scenario whose per-ordering cost makes the exhaustive walk too dear to run
-  every time (see `ordering-sample`)."
+  every time (see `ordering-sample`).  Ops that constrain one another cannot be stated
+  here; they belong in `one-outcome-under!`."
   ([label ops observe] (one-outcome! label ops observe nil))
   ([label ops observe cap]
-   (let [all    (permutations ops)
-         walked (cond->> all cap (sampled-orderings cap))
-         os     (outcomes walked observe)]
-     (is (= 1 (count os))
-         (str label ": " (count os) " distinct outcomes across " (count walked)
-              (when cap (str " sampled of " (count all))) " orderings — " (pr-str os)))
-     (first os))))
+   (one-outcome-under! label (mapv vector ops) observe cap)))
 
 ;; ---- defaults and their exceptions --------------------------------------
 
@@ -650,13 +713,12 @@
   ;; a blocked set or a refusal record to read, so the conclusion exists only if the
   ;; revived datum went back on the agenda (`vaelii.revived-datum-test`).
   ;;
-  ;; Not `one-outcome!`, because these ops do not permute freely: a lift cannot precede
-  ;; the defeat it lifts, and tying the two together as one op would remove the very
-  ;; window this is about — the partner arriving *between* them.  So the three ordered
-  ;; steps are held in sequence and the two free ops are slid through every position they
-  ;; have: the partner into each of the 4 gaps, and the rule into each of the 5 gaps of
-  ;; what that leaves.  Twenty orderings, and the ones where the partner lands in the
-  ;; middle are the defect.
+  ;; `one-outcome-under!` rather than `one-outcome!`, because these ops do not permute
+  ;; freely: a lift cannot precede the defeat it lifts, and tying the two together as one
+  ;; op would remove the very window this is about — the partner arriving *between* them.
+  ;; So the three ordered steps are one chain and the two free ops are chains of one, and
+  ;; every interleaving of the three follows.  Twenty orderings, and the ones where the
+  ;; partner lands in the middle are the defect.
   (let [assert-a  #(v/assert % '(vpA VOne VTwo) 'CxUniverse)
         defeat-a  #(v/assert % '(not (vpA VOne VTwo)) 'CxUniverse
                              {:strength :monotonic})
@@ -664,23 +726,15 @@
         partner   #(v/assert % '(vpB VTwo VThree) 'CxUniverse {:strength :monotonic})
         rule      #(v/assert-rule % '[(vpA ?x ?z) (vpB ?z ?y)] '(vpC ?x ?y) 'CxUniverse
                                   {:direction :forward})
-        insert    (fn [ops i op] (vec (concat (take i ops) [op] (drop i ops))))
         observe   (fn [kb]
                     {:joined     (boolean (seq (v/sentexes-matching kb '(vpC VOne VThree)
                                                                     'CxUniverse)))
                      :antecedent (boolean (seq (v/sentexes-matching kb '(vpA VOne VTwo)
-                                                                    'CxUniverse)))})
-        outcomes  (into {}
-                        (for [p (range 4)
-                              r (range 5)
-                              :let [ops (insert (insert [assert-a defeat-a lift-a] p partner)
-                                                r rule)
-                                    kb  (tu/fresh)]]
-                          (do (doseq [op ops] (op kb))
-                              [[p r] (observe kb)])))]
-    (is (= #{{:joined true :antecedent true}} (into #{} (vals outcomes)))
-        (str "a fact that comes back believed must derive what it could not while it was "
-             "OUT, in every order — " (pr-str (into (sorted-map) outcomes)))))
+                                                                    'CxUniverse)))})]
+    (is (= {:joined true :antecedent true}
+           (one-outcome-under! "a revival that owes a derivation"
+                               [[assert-a defeat-a lift-a] [partner] [rule]] observe))
+        "a fact that comes back believed must derive what it could not while it was OUT"))
   (tu/clear-kb! (tu/test-kb)))
 
 (deftest an-un-merge-that-owes-a-derivation-is-order-independent
@@ -692,9 +746,9 @@
   ;; back, leaving the conclusion to be derived again at the surviving spelling or not at
   ;; all.  Mechanism and the second merge route: `vaelii.revived-datum-test`.
   ;;
-  ;; Same shape as its sibling: the ordered steps held in sequence, the two free ops slid
-  ;; through every gap they have.  The orderings where the partner lands between the
-  ;; merge and the un-merge are the defect.
+  ;; Same shape as its sibling: the ordered steps are one chain, the two free ops are
+  ;; chains of one.  The orderings where the partner lands between the merge and the
+  ;; un-merge are the defect.
   (let [fact      #(v/assert % '(uqA UDep UZed) 'CxUniverse {:strength :monotonic})
         merge-it  #(v/assert % '(rewriteOf UPref UDep) 'CxUniverse
                              {:strength :monotonic})
@@ -702,25 +756,145 @@
         partner   #(v/assert % '(uqB UZed UWye) 'CxUniverse {:strength :monotonic})
         rule      #(v/assert-rule % '[(uqA ?x ?z) (uqB ?z ?y)] '(uqC ?x ?y)
                                   'CxUniverse {:direction :forward})
-        insert    (fn [ops i op] (vec (concat (take i ops) [op] (drop i ops))))
         observe   (fn [kb]
                     {:conclusions (set (map :sentence
                                             (v/sentexes-matching kb '(uqC ?x ?y)
                                                                  'CxUniverse)))
                      :antecedent  (boolean (seq (v/sentexes-matching kb '(uqA UDep UZed)
-                                                                     'CxUniverse)))})
-        outcomes  (into {}
-                        (for [p (range 4)
-                              r (range 5)
-                              :let [ops (insert (insert [fact merge-it un-merge] p partner)
-                                                r rule)
-                                    kb  (tu/fresh)]]
-                          (do (doseq [op ops] (op kb))
-                              [[p r] (observe kb)])))]
-    (is (= #{{:conclusions #{'(uqC UDep UWye)} :antecedent true}}
-           (into #{} (vals outcomes)))
-        (str "a spelling an un-merge gives back must derive what its twin could not, in "
-             "every order — " (pr-str (into (sorted-map) outcomes)))))
+                                                                     'CxUniverse)))})]
+    (is (= {:conclusions #{'(uqC UDep UWye)} :antecedent true}
+           (one-outcome-under! "an un-merge that owes a derivation"
+                               [[fact merge-it un-merge] [partner] [rule]] observe))
+        "a spelling an un-merge gives back must derive what its twin could not"))
+  (tu/clear-kb! (tu/test-kb)))
+
+;; ---- two traces, one KB -------------------------------------------------
+;;
+;; Everything above permutes ONE set of assertions, which can only ask whether the order
+;; *within* a trace matters.  A removal makes the stronger question available: two
+;; **different** traces that end at the same knowledge must read the same.  That is not a
+;; corollary of order independence over adds — the traces are not permutations of each
+;; other — and it is the only way to state what a retraction owes, which is to leave
+;; nothing of what it took.
+
+(defn- whole-reading
+  "**Everything the KB holds**, as content: every stored sentex's sentence and context,
+  whether it is believed, and at what class.  Handle-free by construction — a set keyed
+  on content, never on the id assertion order hands out — so two KBs reached by
+  different routes compare equal exactly when they hold the same knowledge.
+
+  The scenario-specific `observe`s above name the few sentences their scenario is about,
+  which is the right instrument when the question is *did this conclusion survive*.  This
+  one is for the confluence tests below, where the question is *is anything left over* —
+  and a leftover is by definition a sentence the test did not think to name.  Retraction
+  sweeps a solely-supported conclusion's record rather than merely relabelling it (the
+  claim `tu/assert-neutral!` makes structurally at every teardown), so a sweep that
+  stopped short shows up here as an extra member on one side."
+  [kb]
+  (into #{}
+        (map (fn [h]
+               (let [sx (v/sentex kb h)]
+                 {:sentence (:sentence sx)
+                  :context  (:context sx)
+                  :believed (v/in? kb h)
+                  :class    (v/defeat-class kb h)})))
+        (tu/sentex-ids kb)))
+
+(deftest a-fact-given-back-leaves-the-kb-that-never-had-it
+  ;; The plainest confluence claim: a KB that learned an extra fact, derived from it and
+  ;; gave it back is the KB that never learned it.  Both sides walk every ordering of
+  ;; their own trace first, so a difference between them is a difference between the
+  ;; traces and not between two arbitrary orders of one.
+  (let [rule      #(v/assert-rule % '[(cfA ?x ?z) (cfB ?z ?y)] '(cfC ?x ?y) 'CxUniverse
+                                  {:direction :forward})
+        lead      #(v/assert % '(cfA CfOne CfTwo) 'CxUniverse)
+        keeper    #(v/assert % '(cfB CfTwo CfThree) 'CxUniverse)
+        extra     #(v/assert % '(cfB CfTwo CfFour) 'CxUniverse)
+        give-back #(v/retract! % (v/handle-of % '(cfB CfTwo CfFour) 'CxUniverse))
+        joins     #(set (map :sentence (v/sentexes-matching % '(cfC ?x ?y) 'CxUniverse)))]
+    (testing "the extra fact does work while it stands, so the comparison is not vacuous"
+      (let [kb (tu/fresh)]
+        (doseq [op [rule lead keeper extra]] (op kb))
+        (is (= #{'(cfC CfOne CfThree) '(cfC CfOne CfFour)} (joins kb))
+            "both partners join the lead")
+        (give-back kb)
+        (is (= #{'(cfC CfOne CfThree)} (joins kb))
+            "and giving one back takes its join and only its join")))
+    (is (= (one-outcome! "never larger" [rule lead keeper] whole-reading)
+           (one-outcome-under! "larger, then given back"
+                               [[rule] [lead] [keeper] [extra give-back]] whole-reading))
+        "a KB that learned a fact and gave it back is the KB that never learned it"))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-taxonomy-edge-put-back-is-the-edge-that-never-left
+  ;; The round trip, over state a retraction has to **rebuild** rather than relabel.  A
+  ;; `genl` edge is the sharpest case: it is a cached closure and a reference count, not
+  ;; a JTMS label, and `vaelii.taxonomy-teardown-test` exists because nothing in the
+  ;; neutral fixture would notice one leaking.  Assert the edge, retract it, assert it
+  ;; again — the closure, the membership it fans out to and the rule it lets fire must
+  ;; all land where a single assert would have put them, in every interleaving with the
+  ;; member and the rule.
+  ;;
+  ;; Both sides assert at the door's own class, because the class is deliberately not
+  ;; inherited across a round trip (`a-re-assert-never-downgrades-a-premises-class`) and
+  ;; a comparison against a `:monotonic` original would be reading that decision as a bug.
+  (let [edge    #(v/assert % '(genl cfdog_t cfmammal_t) 'CxUniverse)
+        drop-it #(v/retract! % (v/handle-of % '(genl cfdog_t cfmammal_t) 'CxUniverse))
+        member  #(v/assert % '(cfdog_t CfRex) 'CxUniverse)
+        rule    #(v/assert % '(implies (cfmammal_t ?x) (cfBreathes ?x)) 'CxUniverse)
+        observe (fn [kb]
+                  {:records (whole-reading kb)
+                   :genl    (v/genl? kb 'cfdog_t 'cfmammal_t)
+                   :specs   (v/specs kb 'cfmammal_t)
+                   :types   (set (v/types-of kb 'CfRex))})
+        once    (one-outcome! "the edge asserted once" [edge member rule] observe)
+        round   (one-outcome-under! "the edge round-tripped"
+                                    [[edge drop-it edge] [member] [rule]] observe)]
+    (testing "the edge is load-bearing, so the comparison is not vacuous"
+      (is (true? (:genl once)))
+      (is (contains? (:specs once) 'cfdog_t) "the closure fans the subtype in")
+      (is (contains? (set (map :sentence (:records once))) '(cfBreathes CfRex))
+          "and a rule stated over the supertype reaches the member through it"))
+    (is (= once round)
+        "an edge retracted and re-asserted leaves what a single assert would have"))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest two-supports-can-be-withdrawn-in-either-order
+  ;; The first scenario here to interleave **two** removals.  Two rules conclude the same
+  ;; sentence from two different facts, so the conclusion has two witnesses: withdrawing
+  ;; either must leave it standing on the other, and withdrawing both must take it.  The
+  ;; sweep is where this goes wrong in both directions — one that collects a closure
+  ;; without looking for a surviving witness fails at the first retraction, one that
+  ;; leaves a justification behind fails at the second.
+  ;;
+  ;; 180 orderings rather than the two the withdrawal order alone would give, because the
+  ;; retractions are not the only thing moving: a rule arriving after the fact it would
+  ;; have fired on has to catch up, and a rule arriving after both retractions has nothing
+  ;; to fire on at all.  All of them end in the same place or none of this holds.
+  (let [rule-p #(v/assert-rule % '[(cfP ?x)] '(cfQ ?x) 'CxUniverse {:direction :forward})
+        rule-r #(v/assert-rule % '[(cfR ?x)] '(cfQ ?x) 'CxUniverse {:direction :forward})
+        add-p  #(v/assert % '(cfP CfSubj) 'CxUniverse)
+        drop-p #(v/retract! % (v/handle-of % '(cfP CfSubj) 'CxUniverse))
+        add-r  #(v/assert % '(cfR CfSubj) 'CxUniverse)
+        drop-r #(v/retract! % (v/handle-of % '(cfR CfSubj) 'CxUniverse))
+        holds? #(boolean (seq (v/sentexes-matching % '(cfQ CfSubj) 'CxUniverse)))]
+    (testing "a withdrawal leaves the conclusion standing on the other witness"
+      (doseq [[first-drop second-drop] [[drop-p drop-r] [drop-r drop-p]]]
+        (let [kb (tu/fresh)]
+          (doseq [op [rule-p rule-r add-p add-r]] (op kb))
+          (is (holds? kb) "two witnesses")
+          (first-drop kb)
+          (is (holds? kb) "one witness left, and one is enough")
+          (second-drop kb)
+          (is (not (holds? kb)) "and none left is none"))))
+    (let [end (one-outcome-under! "both supports withdrawn"
+                                  [[add-p drop-p] [add-r drop-r] [rule-p] [rule-r]]
+                                  (fn [kb] {:records    (whole-reading kb)
+                                            :conclusion (holds? kb)}))]
+      (is (false? (:conclusion end))
+          "the one outcome is the conclusion gone, not the conclusion kept")
+      (is (= 2 (count (:records end)))
+          "and what is left is the two rules — no fact, no conclusion, no orphan")))
   (tu/clear-kb! (tu/test-kb)))
 
 ;; ---- the taxonomy caches follow suit ------------------------------------
@@ -1002,3 +1176,42 @@
           "the mirror answers a goal, not only a join")
       (is (zero? (:conflicts result))))
     (tu/clear-kb! (tu/test-kb))))
+
+;; ---- a bounded backward search ------------------------------------------
+
+(deftest a-capped-proof-answers-the-same-whichever-rule-arrived-first
+  ;; Three backward rules conclude one goal and each has its own witness, so a cap of one
+  ;; answer is a *choice* among them.  The candidates come off the consequent index, whose
+  ;; order is the handle order and so the assertion order, and **both** executors truncate
+  ;; on that list: the DFS pushes a frame per candidate and `:max-results` stops it partway
+  ;; through them, and the node engine fills its frontier from the same list and pops by an
+  ;; estimate that ties three ways.  So the question is asked of both engines rather than
+  ;; of whichever one the suite happens to be sweeping — a `binding` here, not
+  ;; `tu/query-engine-override`, because this test drives the choice instead of standing
+  ;; aside from it.
+  (doseq [engine [:dfs :inference]]
+    (binding [v/*query-engine* engine]
+      (let [ops     [#(v/assert-rule % '[(pSrcA ?x)] '(pReach ?x) 'CxUniverse
+                                     {:direction :backward})
+                     #(v/assert-rule % '[(pSrcB ?x)] '(pReach ?x) 'CxUniverse
+                                     {:direction :backward})
+                     #(v/assert-rule % '[(pSrcC ?x)] '(pReach ?x) 'CxUniverse
+                                     {:direction :backward})
+                     #(v/assert % '(pSrcA PrA) 'CxUniverse)
+                     #(v/assert % '(pSrcB PrB) 'CxUniverse)
+                     #(v/assert % '(pSrcC PrC) 'CxUniverse)]
+            reached (fn [kb budget]
+                      (into #{} (map #(get % '?x))
+                            (:results (v/prove-within kb '(pReach ?x) 'CxUniverse budget))))
+            observe (fn [kb]
+                      {:capped (reached kb {:max-results 1 :max-depth 3})
+                       :whole  (reached kb {:max-depth 3})})
+            result  (one-outcome! (str "capped proof under " engine) ops observe 24)]
+        (testing (str "and the reading is the sensible one under " engine)
+          (is (= 1 (count (:capped result)))
+              "a cap of one really is a choice among the three rules")
+          (is (contains? (:whole result) (first (:capped result)))
+              "and the answer it chose is one of the answers")
+          (is (= '#{PrA PrB PrC} (:whole result))
+              "while the uncapped run still reaches every witness")))))
+  (tu/clear-kb! (tu/test-kb)))

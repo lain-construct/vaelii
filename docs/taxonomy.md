@@ -2,7 +2,7 @@
 
 - **Covers:** how the `genl` type hierarchy is cached and queried, how `disjoint` /
   `disjointMetatype` are enforced, and how `arg` / `genlArg` constrain arguments as a
-  rejection check.
+  rejection check — of a ground sentence, and of a rule's shared variables.
 - **Not here:** `genlCx`, the sibling closure over contexts rather than types →
   [contexts.md](contexts.md); `arg` / `genlArg` read as an entailment that mints a
   stored, justified fact → [argtypes.md](argtypes.md).
@@ -36,7 +36,10 @@ at `thing`. We cache the reflexive-transitive closure both ways:
 
 1. **Arg constraints.** `(arg pred n type)` sentexes constrain arguments;
    `assert` checks arg *n* with `isa?` (does the arg have a type whose `genls`
-   reaches the constraint). Open-world: an untyped arg can't violate.
+   reaches the constraint). Open-world about a **symbol**: an untyped one can't
+   violate. A **literal** carries its type in its syntax and is checked against it.
+   A **function application** is checked against what its function is declared to
+   yield.
 2. **Specificity.** Matching a unary type predicate fans out over `specs`, so an
    antecedent `(animal ?x)` is satisfied by a stored `(dog Muffet)` — no need to
    materialize `(animal Muffet)`. `isa?` answers membership on demand.
@@ -638,10 +641,22 @@ way the domain is: `(relationKind …)` is a `disjointMetatype` over
 is refused exactly as `Muffet` being both a `dog` and a `cat` is. The same widening makes
 `arg` constrain predicate-valued positions — `(arg typeToInstancePred 1
 typeRelationPredicate)` refuses a link whose first argument is not classified
-type-level. Numbers, strings and compounds stay outside both checks, since no type
-membership can be asserted of one (a NAT reifies to its constant first, so a reified
-term is checked under its constant). Open-world is unchanged: a term carrying no type
-membership at all still cannot violate anything.
+type-level. A **literal** is typed by what it *is* rather than by what somebody
+asserted: `checks/literal-type` reads its EDN kind, and the kinds sit in the lattice
+(CxCore) precisely so the comparison can be made — a `string` is not a `dog`, and `arg`
+says so. There is one per leaf kind a sentence can carry, and the set is complete on
+purpose: a kind with no name is one both argument checks must wave through, which is a
+hole in a declaration rather than a policy. A **compound** stays outside that lattice: what
+`(QuantityFn 5 Meter)` denotes is its function's business, not its syntax's, so no kind
+would be the right answer — and its function is what answers instead. `arg` reads
+`(result F T)` and `genlArg` reads `(genlResult F T)`, from the asking context's
+vantage, so the declaration binds every application of `F` whether or not `F` mints one:
+a *reifiable* application arrives as its minted constant carrying the same types
+materialized, an *unreifiable* one is read through the declaration itself, and both meet
+one verdict ([nat.md](nat.md)). A function that declares no result exempts its
+applications, exactly as an unclassified symbol exempts itself.
+Open-world is unchanged for a **symbol**: a term carrying no type membership at all
+still cannot violate anything.
 
 `disjoint? kb a b` decides disjointness via the genl closure. Disjointness is
 enforced as **contradiction detection**: `assert` of a type membership `(T X)`
@@ -1280,6 +1295,66 @@ rejects a wrongly-typed argument), and as an *inference* when querying — the
 from the arg-constrained position it fills, so a thing's type can follow from
 how it is used, not only from a stored membership.
 
+### And against the variables of a rule
+
+`args-problem` reads a **ground** argument. Every argument of a rule is a variable, so
+it passes over all of them vacuously — and a rule whose variable-binding chain feeds an
+impossible term into a position is stored, fires, and is then convicted one conclusion
+at a time by a complaint naming the conclusion and never the rule that wrote it.
+
+A variable is one term standing in several positions at once, so
+`checks/check-variable-constraints!` holds the positions to **each other** before the
+rule is stored — on both storage doors and in `check`, since it rides `check-rule!`.
+It refuses `:arg-variable`:
+
+```clojure
+(v/check kb '(implies (comment ?x ?string) (genl ?x ?string)) 'CxUniverse)
+;; [{:type :arg-variable :variable ?string :expected [string unaryPredicate]
+;;   :message "arg constraint: ?string must be a string (arg 2 of comment)
+;;             and a type (arg 2 of genl, a typeRelationPredicate), and the two types
+;;             are disjoint"}]
+```
+
+`(implies (arg ?pred ?n ?kind) (genl ?pred ?kind))` is the shape that must *pass*, and
+does: `?kind` is asked for a kind at both ends.
+
+**A type-level position asks for a `unaryPredicate`**, which is what makes the two
+demands comparable at all — `disjoint` separates *memberships*, and a subtype demand is
+not one until it is read as the membership every type carries. A position is type-level
+when a `genlArg` names it **or** when its predicate is a `typeRelationPredicate`, the
+mark saying that of every position at once; that second half is how `genl`'s second
+argument is constrained, since it deliberately carries no declaration of its own
+(CxCore says why).
+
+Four restrictions keep the arm to what it can actually prove:
+
+- **Instance demand against instance demand only.** Two *subtype* demands are left
+  alone: a type below two disjoint types is empty, not impossible, and nothing else in
+  the KB refuses an empty type.
+- **Positive literals only.** A negated antecedent says the variable does *not* fill
+  that position, so `(implies (and (dog ?x) (not (plant ?x))) …)` is saying exactly what
+  its author meant; an existential is skipped because its variables are local.
+- **Declared disjointness only**, so the arm stays as open-world as the ground one. The
+  literal types carry the declaration that makes the case above bite —
+  `(disjoint string predicate)` and `(disjoint number predicate)` in CxAbstract, text and
+  a number each being a thing no relation is, and the second carrying `integer` with it.
+  `symbol` deliberately carries neither: a name is exactly how a predicate is written, so
+  the disjointness would be false. CxCore adds `(disjoint function predicate)`, which is
+  what `function`'s own comment has always said in prose, and it is what refuses
+  `(implies (result ?f ?t) (genl ?f ?t))`: `?f` is asked for a function at one end and
+  a kind at the other.
+- **Two constraint kinds of the four**, and the other two are a *result* rather than a
+  scope decision. `arg` and `genlArg` are read; `quotedArg` and `interArg` are not,
+  because each pairing has a binding both ends accept — refusing the rule would refuse
+  one that works. Both `quotedArg` pairings admit a **compound**, the one thing
+  `literal-type` declines to answer for; and `interArg`'s trigger is a
+  *demand*, not a fact — `(arg P i T)` does not make argument `i` a `T`, since an
+  unclassified term satisfies it vacuously, so no rule's own bindings entail the trigger.
+  For the same reason there is no reading of `arg` against `genlArg` sharper than the
+  `unaryPredicate` mapping above: a term may be an instance of one type and a subtype of
+  another at once, and the meta-ontology depends on it. Each of those has a witness in
+  `rule_variable_arg_test`, so widening the arm turns one red first.
+
 ## What is cached, what is not, and why
 
 - **A transitive predicate's closure is not held as a *relation*, but the answer is
@@ -1290,15 +1365,20 @@ how it is used, not only from a stored membership.
   finds is **cached per `[direction predicate node context]` on the KB** and dropped —
   not repaired — the moment anything moves.
 
-  Three layers, at three scopes, and they are not alternatives:
+  Two layers, at two scopes, and they are not alternatives:
 
   | | holds | scope | retired by |
   |---|---|---|---|
-  | `literal-cache` | one literal's visible matches | the KB | the change clock |
   | `observe/*reach-memo*` | one node's neighbours | one search step | going out of scope |
   | `:closure-answers` | one whole reach | the KB | the change clock |
 
-  The clock is the whole invalidation story, and it is what makes the top layer follow
+  The KB's `literal-cache` is **not** a third: a walk visits each node once, so it asks
+  each neighbour literal once and leaves that cache nothing to serve, while its insertion
+  per node would clear the whole cache part-way through. The neighbour probes read with
+  `res/matches-visible`'s `cached?` false — [caches.md](caches.md) states the rule a scan
+  follows.
+
+  The clock is the whole invalidation story, and it is what makes `:closure-answers` follow
   **belief**: a relabel moves it, so a defeated edge retires the closure that crossed it
   without anything having to know which entry the edge was in. It is also what makes a
   scope that *writes while it reads* — forward chaining, whose own conclusions move the
@@ -1314,9 +1394,10 @@ how it is used, not only from a stored membership.
   computing a closure to store would charge a two-hop question for the whole extent and
   lose `reaches?`'s early exit. Measured (`lein bench-walk`): a second identical ask over
   an unmutated KB costs 0.10–0.14× the first on a 2,000- to 8,000-node chain and fetches
-  no records. The layer below cannot reach that on its own: it bounds itself by **entry**
-  count and a walk spends one entry per node, so a closure with more nodes than that
-  bound clears it as the walk proceeds and leaves nothing for the repeat. Note that genl
+  no records. Nothing under it could answer that repeat anyway: the neighbour probes go
+  with `res/matches-visible`'s `cached?` false, so a walk neither consults the KB's solution
+  cache nor fills it — a walk asks each node once, and the entries it would spend, one
+  per node, would clear that cache under a reader who does re-ask. Note that genl
   changes are **not** a dependency of the walk itself: subtype fan-out applies only to
   unary goals, and `(P x y)` is binary.
 - **Metatype membership is cached rather than stored**, so `disjointness-test` scans

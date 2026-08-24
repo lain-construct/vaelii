@@ -307,7 +307,14 @@ launch() {                                         # launch <index>
   envv=( $(config_env "$cfg") )
   opts="${MATRIX_JVM_OPTS:-}"
   if config_wants_disk "$cfg"; then
-    diskd[i]="$OUT_DIR/$cfg.disk"
+    # `.noindex` SUFFIX, NOT A MARKER FILE.  A durable config's store is thousands of
+    # record-log and idx writes per run, and `mds_stores` indexing them competes for the
+    # device the durable half is already bound on (~20% CPU alongside `fseventsd`,
+    # measured during a full matrix).  Spotlight skips a directory whose NAME ends
+    # `.noindex`; a `.metadata_never_index` file inside one does nothing on macOS 26 —
+    # both were probed against a control, and only the suffix held.  The logs beside it
+    # keep their names and stay searchable: it is the scratch that churns, not them.
+    diskd[i]="$OUT_DIR/$cfg.disk.noindex"
     rm -rf "${diskd[i]}"
     opts="$opts -Dvaelii.disk.dir=${diskd[i]}"
   fi

@@ -118,10 +118,18 @@
   [conn handle context]
   (c/belief-status conn handle context))
 
+(defn blocked-justifications
+  "The ids of the justifications a rule exception currently blocks — every antecedent IN
+  and supporting nothing.  The one justification property belief does not report."
+  [conn]
+  (c/blocked-justifications conn))
+
 (defn why
-  "Why the sentex `handle` names is believed — its supporting justifications, as data."
-  [conn handle]
-  (c/why conn handle))
+  "Why the sentex `handle` names is believed — its supporting justifications, as data.
+  `opts` is `core/why`'s `{:max-depth n}`, which is how a `{:truncated? true}` branch is
+  re-asked whole."
+  ([conn handle] (c/why conn handle))
+  ([conn handle opts] (c/why conn handle opts)))
 
 (defn why-not
   "Why a sentence is *not* believed, by handle or by sentence and context."

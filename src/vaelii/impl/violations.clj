@@ -38,7 +38,8 @@
   conclusion stopped arriving.
 
   A rule is named when a *derivation* was refused, which is what the chainer files.  Three
-  families name none: an aggregate's numeric refusal; the five notices that a pass stopped
+  families name none: an aggregate's numeric refusal and the post-join literal declined
+  for answering two ways, both of which are about a *literal* and not a firing; the five notices that a pass stopped
   short of what it might have said — `:exposure-truncated`, `:arbitration-truncated` and
   `:arity-truncated`, where a budget ran out before the work was done, and
   `:constraint-exposure-truncated` and `:arity-report-truncated`, where the work *was* done
@@ -89,3 +90,18 @@
                    ;; every entry it just dropped — on a ledger that trims again on the
                    ;; next overflow, the cap would bound the count and nothing else.
                    (vec (subvec v' (- n max-violations))))))))))
+
+(defn report-once
+  "`report` one entry, unless an entry equal to it (`:run` aside) already stands in the
+  ledger.
+
+  For a refusal that is **recomputed rather than remembered**: a count is reduced again
+  on every query, every re-check and every settle pass, and a post-join literal is
+  re-solved on every firing attempt of its rule.  Recording each occurrence would fill a
+  ledger capped at its newest 1000 entries with copies of one defect and evict the
+  derivation-path drops it exists to report.  `:run` is ignored in the comparison because
+  a later run meeting the same defect is the same defect, not a second one."
+  [kb entry]
+  (when-not (some #(= (dissoc % :run) entry) (some-> (:violations kb) deref))
+    (report kb [entry]))
+  nil)

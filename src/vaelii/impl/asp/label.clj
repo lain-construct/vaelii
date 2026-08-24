@@ -295,8 +295,18 @@
   something now asserts the choice. Retracting the returned handles restores the
   open tie.
 
-  Additive, so no `!`: this creates a context and asserts into it, and retracting the
-  handles it returns undoes it."
+  **The context is minted whether or not there was a tie**, and `label-dilemmas` is
+  deliberately the other way round. With no recorded `Program` — a KB the engine never
+  arbitrated in, or a dilemma it declined — the `genlCx` edge is written and `:handles`
+  comes back empty: a specialization that sees its base and records nothing is what \"the
+  engine committed to nothing\" materializes as, and it is the honest shape for a caller
+  that asked to see one arbitration. `label-dilemmas` *makes* a choice rather than
+  reporting one, so minting a context for a choice it did not make would assert that one
+  happened.
+
+  Additive, so no `!`: this creates a context and asserts into it. The labeling is
+  undone by retracting the returned handles; the `genlCx` edge is a premise of its own
+  and is retracted as one."
   [kb ctx base]
   (let [tms (:tms kb)
         program (v/last-program kb)

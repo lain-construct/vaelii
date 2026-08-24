@@ -46,9 +46,19 @@ A transcribed table can be mistyped into a wrong entailment reported with full
 confidence, so two of the three are re-derived from first principles by their tests and
 compared entry for entry: `interval_test` lays out three intervals every way six
 endpoints admit and reads the three relations off, `point_test` does the same over three
-instants. **RCC-8's table has no such test** — regions have no coordinates to enumerate,
-so there is nothing to derive it from. Its 64 entries are checked only by the pairs the
-suite exercises, and a mistyped cell in a corner nothing queries would survive.
+instants. **RCC-8's table has no such derivation** — regions have no coordinates to
+enumerate, so there is nothing to derive it from.
+
+What stands over its 64 entries instead is `qcn_algebra_test`, which holds the
+relation-algebra laws over all six algebras: converse a total involution on the universe,
+composition closed and never empty, a singleton two-sided identity, `(a∘b)⌣ = b⌣∘a⌣`, and
+Peirce's cycle law `c ∈ a∘b ⟺ a⌣∘c meets b`. Those read every cell against its transposed
+and cycled counterparts rather than reading it again, which is what makes a mistyped cell
+in a corner nothing queries visible: every single-cell mutation of the table but three
+fails one of them, and the three are one shape — dropping a symmetric relation from its
+own square, where both sides of every law move together. Associativity is deliberately
+not among the laws, because `distance` composes weakly and is not associative, which
+costs path consistency nothing.
 
 Two things nearby are deliberately *not* calculi. `vaelii.impl.stp` is metric time —
 numeric bounds closed by shortest paths, not a relation algebra, and forcing it through
@@ -437,8 +447,12 @@ defeat, and both stay believed. Only the network knows they cannot both hold.
 **So a negative fact owes every trigger a positive one owes**, and the one thing standing
 in the way is its own functor. A calculus is claimed by a *predicate*, and `(not (ntpp A
 B))`'s outermost functor is `not`, which claims nothing — so both places that ask "did a
-fact of some calculus just arrive?" read the sentence's **underlying body**
-(`sentex/underlying-body`, the same peel the predicate-keyed re-check trigger takes).
+fact of some calculus just arrive?" read the sentence's **body under the `not`** before
+asking which calculus claims it. `special/recheck-on-qualitative` is handed
+`sentex/underlying-body`, the same peel the predicate-keyed re-check trigger takes;
+`chain`'s per-datum test compares the functor first and pays `kb/body-under-not` only for
+a `not`, which reads the already-canonical stored sentence structurally where
+`underlying-body` would rebuild and re-intern it to answer the same question.
 Those two are the whole of it: `chain`'s re-join, which is what finds the relation a
 negative fact has newly entailed, and `special/recheck-on-qualitative`, which is what puts
 a firing in front of `entailment-withdrawn?` when a negative fact is what made the theory
@@ -810,7 +824,12 @@ Three things hold that shape, and the order of them is the useful part. **The re
 first half, and it is not the pass**: without residency a load pays a full network read
 per consulting call — seventeen thousand of them against thirty-nine asserts at 40
 regions, where the pass itself costs about a millisecond of the seventy an assert takes.
-Residency takes those seventeen thousand to seventy-eight. **Then the pass**, which
+Residency takes those seventeen thousand to seventy-eight. Two gates hold that, from the
+two sides a cost has: `qcn_chain_test/network-reads-grow-with-the-calls-and-not-with-the
+-asserts` counts the builds (exact, and blind to a loaded box), and `lein perf`'s
+`qcn-network-residency` prices a repeated consultation against 8× the stored extent of the
+calculus the asking context cannot see. Neither subsumes the other — a count cannot see a
+slower read, and a ratio cannot see a constant. **Then the pass**, which
 warm-starts ([above](#warm-starting-semi-naive-over-the-network)). **Then the join**,
 which is this section.
 

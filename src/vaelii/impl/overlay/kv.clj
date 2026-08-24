@@ -101,10 +101,17 @@
 (defn- cleared? [overlay] (some? (kv/kv-get overlay cleared-key)))
 
 (defn- shadowed?
-  "Is the base's value at `k` invisible — wholesale-cleared, or tombstoned?"
+  "Is the base's value at `k` invisible — wholesale-cleared, or tombstoned?
+
+  The tombstone roster is **probed**, never materialized.  Every read on the seam asks
+  this — `inherited?` is on the path of every `kv-count` and `kv-members`, and
+  `merged-member?` is what keeps the `exception-rule?` gate O(1) — so building the whole
+  set of tombstoned keys to test one of them would put the fork's delete count on the
+  cost of every read it makes.  `kv-member?` is the op that answers it as a probe on
+  every backend, which is the reason it is on the protocol."
   [overlay k]
   (or (cleared? overlay)
-      (contains? (kv/kv-members overlay deleted-keys-key) k)))
+      (kv/kv-member? overlay deleted-keys-key k)))
 
 (defn- overlay-has? [overlay k] (some? (kv/kv-get overlay k)))
 
@@ -277,8 +284,10 @@
                 :decrement       (kv/kv-decrement this k)
                 :add-to-set      (kv/kv-add-to-set this k a)
                 :remove-from-set (kv/kv-remove-from-set this k a)
-                (throw (ex-info (str "unknown overlay batch op " (pr-str op))
-                                {:type :unknown-op :op op :key k}))))
+                ;; the one refusal every backend spells (`kv/unknown-op!`): a caller
+                ;; discriminating on `:type` must not have to know which adapter it
+                ;; reached
+                (kv/unknown-op! op)))
             ops)))
 
   ;; The portable projection of the *merged* view — what an export of a fork writes.  Set

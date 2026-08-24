@@ -35,12 +35,15 @@
   and `classify` clears its own previous classification.  Truth values from two
   different groundings unioned into one context assert nothing at all.
 
-  ## MVP scope (docs/solving.md)
+  ## What a choice constrains (docs/solving.md)
 
-  Constraints are the engine's own contradictions among the **direct** ground choice
-  heads — a `(not X)`/`X` pair, a `functional` predicate given two values, or a
-  `disjoint` type clash.  Choices do **not** propagate through ordinary rules yet
-  (that is provenance-propagation / full clingo grounding, the named follow-ups)."
+  Constraints reach the **direct** ground choice heads and nothing further: the engine's
+  own contradictions among them — a `(not X)`/`X` pair, a `functional` predicate given
+  two values, a `disjoint` type clash — and every `hardConstraint` / `softConstraint`
+  rule ground over them.  Choices do **not** propagate through ordinary rules, because
+  the Program is built from the choice heads and the nogoods standing over them: nothing
+  runs the chainer with a choice held hypothetically, and nothing emits the rule base to
+  a grounder.  A constraint that only bites downstream of a rule has nothing to bite on."
   (:require [clojure.set :as set]
             [vaelii.core :as v]
             [vaelii.impl.asp.edge :as edge]
@@ -263,7 +266,7 @@
 (defn- ground-heads
   "The distinct ground choice heads: each assumptionRule's antecedents proved over the
   facts believed in `base` (a scoped, belief-filtered join), its head substituted with
-  each solution's bindings.  MVP assumes a positive head literal.
+  each solution's bindings.  The head is taken to be a positive literal.
 
   A rule's `exceptWhen` guard is honored per binding, evaluated in `base` — grounding
   is a fourth consumer of a rule's firing beside the three chainers, and it makes the
@@ -339,11 +342,13 @@
   program-local ids): one per clashing pair, uniform priority.  Heads are bucketed by
   `clash-key` and only compared within a bucket — the full pairwise `clash?` restricted
   to pairs that could possibly clash, so a 3-coloring's 30k choice heads cost O(nodes)
-  rather than O(heads²).  The bucketing is content-derived and each bucket is sorted, so
+  rather than O(heads²).  The bucketing is content-derived and each bucket is sorted
+  through `nm/print-key` — a bare `pr-str` would let an ambient `*print-length*` collapse
+  the key and put the reported `(contradicts X Y)` pair in `head->id`'s map order — so
   the nogood set is order-independent."
   [kb base head->id]
   (for [bucket (vals (group-by (comp clash-key key) head->id))
-        [[s1 _] [s2 _]] (pairs (nm/sort-by-content-key (comp pr-str key) compare bucket))
+        [[s1 _] [s2 _]] (pairs (nm/sort-by-content-key (comp nm/print-key key) compare bucket))
         :when   (clash? kb base s1 s2)]
     {:nogood #{(head->id s1) (head->id s2)}
      :priority 1
@@ -494,10 +499,19 @@
   The ids are program-local, minted over the content-sorted heads — never KB handles.
   Nothing needs more: `solve/content-key` orders by sentence + context, and an atom
   label is only ever read back within the solve that minted it.  Storing the menu
-  instead (the old design) left write-only sentexes nothing maintained — see the ns
-  docstring, \"What persists, and what does not\"."
+  instead would leave write-only sentexes nothing maintains — see the ns docstring,
+  \"What persists, and what does not\".
+
+  **This sort is the whole of the id assignment**, so it is the one ordering a
+  labeling can be traced back to: `edge/translate` builds the choice order, the nogood
+  bodies, the minimize weights and the level-0 tiebreak off these ids.  The key is
+  printed through `nm/print-key` for that reason — a bare `pr-str` under an ambient
+  `*print-length*` elides two long choice heads to one prefix, and the tie falls back to
+  `ground-heads`' own order, which is `matches-visible` set order over handles.  Two KBs
+  holding one body of knowledge would then mint different ids and the solver could
+  return a different labeling."
   [kb base]
-  (let [heads (nm/sort-by-content-key pr-str compare (ground-heads kb base))]
+  (let [heads (nm/sort-by-content-key nm/print-key compare (ground-heads kb base))]
     (when (seq heads)
       (let [head->id (into {} (map-indexed (fn [i s] [s (inc i)])) heads)
             content  (into {} (map (fn [[s id]] [id {:sentence s :context base}])) head->id)
@@ -597,19 +611,20 @@
   materialization loop having nothing to run."
   ([kb base into-cx] (label kb base into-cx :all))
   ([kb base into-cx mode]
-   ;; before the solve: only `:all` writes, so only `:all` has anything to replace
-   (when-not (contains? #{:one :sat} mode)
-     (refuse-blocked-run! kb base into-cx))
-   (let [t0    (System/nanoTime)
-         built (build kb base)
-         t1    (System/nanoTime)]
+   ;; `:one` and `:sat` return a labeling and persist nothing, so they have nothing to
+   ;; replace and nothing to sweep — only `:all` writes, and the refusal comes before
+   ;; the grounding rather than after the solve
+   (let [single? (contains? #{:one :sat} mode)
+         _       (when-not single? (refuse-blocked-run! kb base into-cx))
+         t0      (System/nanoTime)
+         built   (build kb base)
+         t1      (System/nanoTime)]
      (if-let [{:keys [program head->id]} built]
        (let [id->head (zipmap (vals head->id) (keys head->id))
              all-ids  (set (vals head->id))
-             ;; the heads in the order `build` minted their ids (a `pr-str` sort over the
-             ;; same set), read straight off `id->head` — no re-sort, no re-`pr-str`
+             ;; the heads in the order `build` minted their ids (a `nm/print-key` sort over the
+             ;; same set), read straight off `id->head` — no re-sort, no second key built
              choices  (mapv id->head (range 1 (inc (count head->id))))
-             single?  (contains? #{:one :sat} mode)
              {:keys [optima translate-ms solve-ms]}
              (if single?
                (one-optimum program (= mode :one))     ; :sat ⇒ keep-belief off (plain SAT)
@@ -659,7 +674,7 @@
                                  (assoc l :context ctx)))
                              optima))}
                       timing)))))
-       (do (when-not (contains? #{:one :sat} mode) (clear-run! kb base into-cx))
+       (do (when-not single? (clear-run! kb base into-cx))
            {:base base :into into-cx :count 0 :choices []
             :reason :no-choices :labelings []})))))
 

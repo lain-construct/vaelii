@@ -133,6 +133,25 @@
     (is (v/ask? kb '(sameQuantity (QuantityFn 1000 MilliMeter) (QuantityFn 1 Meter)) C)
         "1000 × 0.001 rounds to 1.0 within 1e-9")))
 
+(tu/deftest-kb the-rounding-grid-is-the-bound-tolerances
+  ;; The grid a computed magnitude is snapped to and the slack the comparisons allow are
+  ;; one policy.  Rebinding the tolerance without moving the grid leaves two magnitudes
+  ;; that compare equal rendering as two different figures — an answer that is `=` to
+  ;; itself under the comparison and not under `=`.
+  (testing "under a coarse tolerance, two magnitudes inside it compare equal"
+    (binding [provers/*quantity-tolerance* 1e-3]
+      (is (v/ask? kb '(sameQuantity (QuantityFn 2.0 Meter) (QuantityFn 2.0005 Meter)) C)
+          "5e-4 apart is inside a 1e-3 tolerance")
+      (testing "and the grid is that tolerance's — three decimal places, not nine"
+        (is (= 2.001 (provers/round-magnitude 2.0005)))
+        (is (= 2 (provers/round-magnitude 2.0004))
+            "noise below the bound tolerance is snapped away rather than rendered"))))
+  (testing "the shipped tolerance keeps the nine places the float noise needs"
+    (binding [provers/*quantity-tolerance* 1e-9]
+      (is (= 2.0004 (provers/round-magnitude 2.0004)) "nothing at 1e-4 is noise at 1e-9")
+      (is (= 9000 (provers/round-magnitude 9000.0000000000004))
+          "float noise below the grid is snapped away, and a whole number comes back long"))))
+
 ;; ---- a table the KB disagrees with itself about --------------------------
 ;; Every match of a table read carries the same bindings when one declaration is merely
 ;; restated, and different ones when the KB has declared a unit twice over.  Reading the
@@ -203,6 +222,31 @@
       (is (= forward
              (let [[dim lo _] (provers/normalize-quantity other '(QuantityFn 1 Gram) C)]
                [dim lo (provers/base-unit-of other 'Gram C)]))))))
+
+(tu/deftest-kb an-aggregate-renders-in-one-unit-whichever-measure-arrived-first
+  ;; Two units of one dimension declaring **different bases** — a KB that has broken the
+  ;; direct-to-base contract, so its magnitudes are already in incomparable scales.  What
+  ;; must not depend on arrival order *as well* is the unit the answer comes back in:
+  ;; `provers/measure-bounds` reads it off one of the values, and the values reach it in
+  ;; solution order.
+  (let [table! (fn [k]
+                 (v/assert k '(dimensionOf Furlong Distance) C)
+                 (v/assert k '(dimensionOf Chain Distance) C)
+                 (v/assert k '(conversionFactor Furlong Rod 40) C)
+                 (v/assert k '(conversionFactor Chain Link 4) C))
+        goal   '(agg/sum ?n ?v (spanOf Trail ?v))
+        summed (fn [k] (get (tu/sole-answer (v/ask k goal C) goal) '?n))]
+    (table! kb)
+    (v/assert kb '(spanOf Trail (QuantityFn 1 Furlong)) C)
+    (v/assert kb '(spanOf Trail (QuantityFn 2 Chain)) C)
+    (tu/with-neutral-kb [other #(doto (tu/isolated-fresh)
+                                  (core-context/load-into)
+                                  (seed/load-context 'CxMeasure "upper"))]
+      (table! other)
+      (v/assert other '(spanOf Trail (QuantityFn 2 Chain)) C)
+      (v/assert other '(spanOf Trail (QuantityFn 1 Furlong)) C)
+      (is (= (summed kb) (summed other))
+          "the same two measures in two arrival orders render in one unit"))))
 
 ;; ---- check-only: an open goal is refused, not enumerated -----------------
 

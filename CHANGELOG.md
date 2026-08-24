@@ -1,22 +1,1125 @@
 # Changelog
 
+## 0.12.0 — 2026-08-23 — "query contexts, bulk loading, and a literal's type"
+
+- **`resultIsa` and `resultGenl` are `result` and `genlResult`.** The argument-constraint
+  family lost its `*Isa` spellings when `argIsa` became `arg` and `argGenl` became
+  `genlArg`; the result family, which mirrors it one level over, kept them. It reads
+  `result` / `genlResult` now — the bare name for the instance claim and the `genl`-prefixed
+  one for the subtype claim, the same pair `arg` and `genlArg` make. The two comments also
+  stop saying "the output of the **reifiable** ?function": both readings hold for both
+  kinds of function, and the reifiability mark decides only *where the type is held* — a
+  reifiable function's application mints a constant and carries `(?type K)` on it, an
+  unreifiable one is typed from the declaration at check time. *Class:* **Breaking** for a
+  KB or a tool that names either predicate. *Migration:* rename every occurrence —
+  `resultIsa` → `result`, `resultGenl` → `genlResult`. The old names are gone rather than
+  deprecated, and nothing reports one: an undeclared predicate stores clean, so a
+  declaration still naming `resultIsa` constrains nothing and says nothing about it.
+  [docs/nat.md](docs/nat.md)
+
+  *Breaks:* `resultIsa`, `resultGenl`
+
+- **The four function marks classify what they mark, and the reifiability criterion is
+  written down.** `reifiableFunction`, `unreifiableFunction`, `quotingFunction` and
+  `contextDenotingFunction` each say what happens to a function's *applications* and
+  never said the term was a `function` — so `function` was a type the shipped KB put
+  nothing in, and `(disjoint function predicate)` reached the three declarations naming a
+  function-valued argument and not one term. Each mark now carries
+  `(genl <mark> function)`, the shape every algebraic property mark already had
+  (`(genl functional binaryPredicate)`). What that buys immediately: `(predicate FatherFn)`
+  is refused as a disjointness rather than admitted; `(result parentOf T)` is refused,
+  a predicate not being a function; and `(arg QuantityFn 1 number)` is refused instead of
+  stored and left inert — the arg family constrains predicates, nothing reads it for a
+  function's own argument positions, and the KB says so at the door. The two reifiability
+  comments also state the criterion they are chosen by, which was recorded nowhere:
+  **boundedness of the application space.** Reification stores one constant per distinct
+  application and keeps it, so it is safe exactly when the applications are bounded —
+  `(FatherFn Muffet)` is one per animal. A measure function is not and never is:
+  `(QuantityFn 5 Meter)`, `(QuantityFn 5.001 Meter)` and every magnitude between run over
+  the reals, which is why `QuantityFn` and `QuantityIntervalFn` are `unreifiableFunction`
+  and stay structural for a prover to compute. *Class:* **Refusal** for a KB that marks
+  one term both a function and a predicate, or that declares an `arg` / `genlArg` /
+  `quotedArg` on a function. *Migration:* such a declaration constrained nothing before
+  and constrains nothing now — drop it. A term genuinely holding both marks was already
+  two things at once; keep the one its applications behave like.
+  [docs/nat.md](docs/nat.md)
+
+  *Breaks:* `reifiableFunction`, `unreifiableFunction`, `quotingFunction`, `contextDenotingFunction`
+
+- **The faster reading of an unnamed context agreed with the reference in five fewer ways
+  than it claimed.** `CxInference` — and a variable context, which is every short arity —
+  answers by one of two strategies that must not differ, and a review of the pair found
+  that they did. A three-literal join that outgrew its row budget **threw**: the bail
+  crossed three nested reduces wrapped for two, so the goals-reduce took the bare sentinel
+  as its next partial-solution set and reduced over a keyword. A literal that stopped being
+  index-only once the join bound it — `(t ?a)` is answered by the stored-fact prover,
+  `(t Ind)` also by the argument-type one — was answered with less, because the domain gate
+  was asked of the goal as written and the placement pass reads only the index. A goal
+  naming a **merged** term was answered for the wrong reader or the wrong binding: goals
+  are rewritten by the merges *their* reader sees, so a context above a `sameAs` asks a
+  different question, and one unscoped pass cannot have built its answers — that read goes
+  to the fan now. A `CxEverything` walk **left its closure behind** for the next ordinary
+  read, the reach cache having been keyed without the belief mode; the three sites that
+  build that key are one `closure-key` function now, since they have to agree — the
+  per-search-step neighbour memo is deliberately not one of them, its belief mode being
+  constant for its whole life, and keying it would put a dynamic deref in the walk's
+  innermost loop. And a rule
+  whose consequent was `(ist CxNothing S)` **stored into it** — the chainer being the one
+  door that places without asserting, and `nm/context?` saying yes to all three query
+  contexts by design. *Class:* **Refusal** for that last one — such a firing drops its
+  conclusion and is recorded like any other dropped one — and a **Fix** for the four
+  above it. *Migration:* none —
+  every case answered wrongly, threw, or wrote where nothing may be written.
+  [docs/contexts.md](docs/contexts.md)
+
+  *Breaks:* `ist`
+
+- **A records read stays lazy, and a proof's witness is one of its bindings.** Two more
+  from the same review, both of them ways the new reading changed something it was not
+  meant to touch. `sentexes-matching` promises a seq that fetches what it is asked for, and
+  making the default context the joint reading turned it into a **realized vector** — every
+  reader asked before the caller saw element one, so `(take 5 …)` paid for the term's whole
+  neighbourhood across every context. Nothing there needs that: a records read has no
+  witness to maximize, so unlike a bindings read there is no point at which it must have
+  seen every reader before it can answer at all. It is driven one reader at a time again,
+  and a `take` stops at the reader that supplied the last element it wanted. The `readers`
+  seed is still paid up front — which contexts can answer is not knowable lazily — and the
+  docstring says so now rather than promising otherwise. Separately, a `{:proof? true}`
+  answer is `{:bindings … :proof …}`, and the witness was attached **beside** those two
+  rather than among the bindings: invisible to `(:bindings answer)`, which is where a
+  caller looks for a binding, and with the check that stops an already-bound `?ctx` being
+  overwritten reading a key that is never there. A variable witness goes inside `:bindings`
+  now; `CxInference`'s `:context` stays beside them, being a side channel by construction.
+  *Class:* **Fix**. *Migration:* a caller that had found the witness at the top level of a
+  `:proof?` answer reads it from `:bindings` with every other binding; nothing else moves,
+  and a bare-bindings answer is unchanged. The grouping `:proof?` gets is left as it is and
+  documented instead — two proofs of one binding keep a witness each, which is the reading
+  a proof asks for. [docs/api.md](docs/api.md)
+
+  *Breaks:* `:proof?`
+
+- **Three reads that could not answer the question answered empty instead.** Each is a
+  door taking something it cannot honour and returning nothing rather than saying so, which
+  is the failure the query-context door exists to prevent, found in three places it had not
+  reached. A goal spelling **`?ctx`** was captured: retrieval unifies the sentex's context
+  slot against that symbol, so a goal variable spelled the same way was unified with the
+  context rather than with the argument it stands in — `(p ?ctx ?b)` came back `{?ctx CxA,
+  ?b Y}`, the first argument's binding silently replaced, and the witness check that would
+  have caught the mismatch reads a binding already gone. Naming the context variable
+  something else was never a workaround; the marker is fixed. A **compound context that
+  does not reify** was read at: `(CxTimeFn ?t)` is not ground and `(CxBogusFn Q)` is not
+  declared, so neither names a context, and a read at something that names no context finds
+  nothing — looking exactly like a true negative. The write side already refused both; the
+  read side takes more shapes, a variable and a query context among them, and so had no
+  check at all rather than a wider one. And the two **network reads** answered a structure,
+  so a query context came back `{:nodes [] :consistent? true}` — not merely empty but
+  positively reassuring, an unsatisfiable KB and a way of reading rendered identically.
+  *Class:* **Refusal**, all three. *Migration:* rename a goal variable spelled `?ctx`, or
+  name a context to read in — at a named context there is no marker to collide with and
+  `(p ?ctx ?b)` answers correctly, unchanged; give a context-denoting application its
+  declaration and its ground arguments; and name a real context to the network reads.
+  [docs/contexts.md](docs/contexts.md)
+
+  *Breaks:* `?ctx` `qualitative-network` `possible-relations`
+
+
+- **A literal argument is typed by what it is, and `arg` now says so.** `(arg P n dog)`
+  admitted `(P "Bob")` and `(P 5)` without complaint: the definitional checks exempted
+  every non-symbol, on the stated grounds that a type membership cannot be *asserted* of a
+  literal. True, and beside the point — `checks/literal-type` reads a literal's EDN kind,
+  and those kinds sit in the `genl` lattice precisely so the comparison can be made. A
+  string is a `string`, a `string` is not a `dog`. The openness moves rather than
+  disappearing: it attaches to the **declared type**, so a `t` outside the hierarchy still
+  exempts and a **symbol** is open-world exactly as before, and a **compound** is the one
+  leaf shape no *kind* answers for — its function's declaration is what answers it, which
+  the entry below reads and [docs/defenses.md](docs/defenses.md) argues out. CxCore gains
+  `keyword`, `boolean` and `character` beside `string`, `number`, `integer` and `symbol`,
+  one per leaf kind a sentence can carry, so no kind is waved through for want of a name;
+  `quotedArg` types against all seven. *Class:* **Refusal** for a sentence putting a
+  literal in a position typed against something its kind does not reach. *Migration:* none
+  for a stored KB — `recover` replays content rather than re-checking it — but such a
+  sentence is refused on re-assert. Widen the declaration to a type the kind reaches
+  (`intangible` covers every literal), or drop it.
+  [docs/argtypes.md](docs/argtypes.md)
+
+  *Breaks:* `:arg-type`, `:quoted-arg-type`
+
+- **A result declaration binds the applications its function never mints.** `result`
+  and `genlResult` typed only what a **mint** materialized, so they worked for a
+  `reifiableFunction` — whose application reifies to a constant carrying `(T K)` before
+  the checks see it — and did nothing whatever for an `unreifiableFunction`, whose
+  application stays a compound all the way through. `(result QuantityFn measure)`
+  stored clean, read back identically to a working declaration, and let
+  `(needsDog (QuantityFn 5 Meter))` through under
+  `(arg needsDog 1 dog)`, while the identical declaration on a reifiable function refused
+  the identical claim: one declaration, two verdicts, decided by whether its function
+  happened to mint. `checks/args-problem` and `genls-problem` read it at check time now —
+  `arg` against `result` (what an application **is**), `genlArg` against `genlResult`
+  (what it is a **kind of**), never crossed. Open-world one level out from the symbol
+  reading: a function declaring no result exempts every application of it, exactly as an
+  unclassified symbol exempts itself, and a declared result the asking context cannot
+  place under `thing` exempts too. Context-scoped like every definitional check, so a
+  declaration a context cannot see does not refuse it — where the **mint** keeps reading
+  globally, materializing into `CxUniverse` where every reader sees the result. A
+  declared result stays a claim about the **function**: no per-application type is
+  computed and nothing is minted. `disjoint-problem` still skips a compound — its
+  `:opposing-handle` is the conflicting membership's own handle, and a declaration about a
+  whole function is not one. *Class:* **Refusal** for a sentence putting a function
+  application in a position typed against something the function's declared result does
+  not reach. *Migration:* none for a stored KB — `recover` replays content rather than
+  re-checking it — but such a sentence is refused on re-assert. Widen the declaration to a
+  type the result reaches, drop the `result` / `genlResult`, or write the argument as a
+  term. [docs/nat.md](docs/nat.md)
+
+  *Breaks:* `result`, `genlResult`, `unreifiableFunction`, `:arg-type`, `:arg-genl`
+
+- **An attitude is opaque: the asker's merges stop at the proposition.** `(believes
+  Oedipus (marriedTo Oedipus Jocasta))` plus a `(sameAs Jocasta MotherOfOedipus)` the
+  *asker* holds answered `(believes Oedipus (marriedTo Oedipus MotherOfOedipus))` **true**
+  — an entailment nobody has, since the agent does not hold the identity — while a merge
+  the *agent* holds licensed nothing at all. A `modalPredicate`'s proposition is a mention
+  now, held opaque to identity congruence in the one walk migration and query share, and
+  the projection normalizes it against the agent's own partition instead. The agent slot, a
+  non-sentence argument and an ungranted predicate all stay transparent, and a `rewriteOf`
+  spelling rename still reaches into the quotation. *Class:* **Breaking** — a caller
+  relying on the old answer was relying on an unsoundness. *Migration:* to get the
+  substitution, assert the identity in the agent's context, where it is the agent's belief;
+  a `genlCx` edge from the agent to the context holding the merge does the same for every
+  merge that context states. *Breaks:* `believes` `modalPredicate`
+  [docs/belief.md](docs/belief.md)
+
+- **One vocabulary for the literal types, and `character_string` is retired.** The KB
+  carried two unconnected hierarchies for the same values: `string` / `number` / `integer`
+  / `symbol` in CxCore, which `quotedArg` types a term against, and `character_string` in
+  CxAbstract, which `arg` typed a referent against — with `integer` the only term anybody
+  had noticed sat in both. The distinction they were standing in for is real, but it is
+  carried by *which declaration you write*: `arg` reads what an argument denotes and
+  `quotedArg` reads the term written there, and a string literal denotes itself, so both
+  ask one set. A second spelling bought nothing and cost a trap —
+  `(quotedArg P n character_string)` stored clean and convicted nothing, `quotedArg`
+  reading a type outside the syntactic lattice open-world, with no report anywhere. So
+  `character_string` is gone; CxCore's four literal types carry comments of their own and
+  CxAbstract places two of them, `(genl string intangible)` and `(genl number intangible)`,
+  with `(disjoint string predicate)` and `(disjoint number predicate)` replacing the two
+  narrower pairs. `symbol` deliberately gets neither: a symbol does not denote itself, so
+  a name is exactly how a predicate is written and the disjointness would be false.
+  `(arg comment 2 …)` also stops being a forward reference from CxCore into an upper
+  theory. *Class:* **Breaking** for a KB that names `character_string` — in a declaration,
+  a rule, or a stored membership. *Migration:* rename every occurrence of
+  `character_string` to `string`. The old name is gone rather than deprecated.
+  [docs/argtypes.md](docs/argtypes.md)
+
+  *Breaks:* `character_string`
+
+- **A rule's shared variables are held to the argument constraints of every position
+  they stand in.** `args-problem` reads a ground argument and every argument of a rule is
+  a variable, so a rule feeding a text-valued binding into a type-valued slot stored
+  clean and was convicted a conclusion at a time, by a complaint naming the conclusion
+  and never the rule. `checks/check-variable-constraints!` runs on both storage doors and
+  in `check`, and refuses the new `:arg-variable` when two constraints on one variable
+  demand disjoint types; a position counts as type-level when a `genlArg` names it or
+  when its predicate is a `typeRelationPredicate`, which is what constrains `genl`'s
+  second argument. CxAbstract separates the literal types from `predicate` — text and a
+  number are each a thing no relation is — so `(implies (comment ?x ?string) (genl ?x
+  ?string))` is refused rather than stored.
+  CxCore gains `(disjoint function predicate)`, which its `function` comment has always
+  stated in prose and the KB never held, so `(implies (result ?f ?t) (genl ?f ?t))`
+  is refused too. A rule a **mint** stamps out — a generator's fill, a `defn*` fact's
+  companion rule — is held to the same check and dropped with an `:arg-variable` entry
+  in `violations` rather than thrown, the derivation path's discipline.
+  *Class:* **Fix.** *Migration:* a KB holding such a rule keeps it; a rule
+  re-asserted through the front door is refused, and the refusal names the variable.
+  [docs/taxonomy.md](docs/taxonomy.md)
+
+- **A torn justification stream tears the import.** Only the sentex stream was checked
+  against its manifest count, so a truncated `justifications.nippy.stream` read as a
+  clean EOF and lost belief with no witness; both streams are counted now, and every
+  non-terminal exit closes the frame stream it was reading. *Class:* **Fix.**
+  *Migration:* none. [docs/operations.md](docs/operations.md)
+
+- **An unsupported `:compression` is refused at the sink.** `wrap-output` wrote plain
+  nippy under a manifest naming the codec; it now throws `:unsupported-compression`,
+  mirroring the read side. And a compaction copy that moves fewer bytes than the
+  original holds throws `:short-transfer` instead of installing a truncated file.
+  *Class:* **Fix.** *Migration:* none. [docs/operations.md](docs/operations.md)
+
+- **A generated corpus is the same corpus however it is read.** The generator deduped
+  facts on the sentence alone, so `:contexts` above 1 spread the plan over more contexts
+  without the KB holding more sentexes — and its three lazy streams shared one `Random`,
+  so realization order changed the corpus. Deduplication keys the `[sentence context]`
+  pair and each stream owns a seeded generator; a corpus generated under either fix
+  differs from one generated before it. *Class:* **Fix.** *Migration:* regenerate any
+  saved generated corpus a comparison depends on.
+
+- **The ASP backend frees what a failed solve leaves.** A native clingo `Control` leaked
+  when block loading threw, and program temp files parked in the JVM-lifetime
+  delete-on-exit hook; both are cleaned on the failure path itself now. *Class:* **Fix.**
+  *Migration:* none. [docs/asp.md](docs/asp.md)
+
+- **The STP closure cache keys the tolerance its verdicts were read to.** The closed
+  network is cached on the network *value*, which is sound across queries because the
+  network is derived from the believed facts — but both of `close`'s verdicts are read to
+  `*quantity-tolerance*`, a dynamic var a caller may rebind for a coarser or finer policy,
+  and the magnitudes are on the grid before the cycle check is made, so the network alone
+  does not record which band it was decided in. A read under a rebound tolerance was
+  answered with the verdict reached under the ambient one. The tolerance rides in the key:
+  one number, constant for a whole query loop. And the six shipped algebras are held to
+  their laws — converse involution, composition closure, the identity, the converse
+  interchange, Peirce's law, distributivity over union — which 509 of 512 single-cell
+  mutations of the RCC-8 table fail. *Class:* **Fix.** *Migration:* none.
+  [docs/stp.md](docs/stp.md), [docs/qcn.md](docs/qcn.md)
+
+- **A firing that subsumed under a negation names the edge it climbed, and an edge
+  arriving after the facts reaches it.** The two things a subsumption match owes beyond
+  the match — a `genl` witness on the justification (`chain/subsumption-links`) and a
+  re-seeding of the facts a late edge newly makes matchable
+  (`special/subsumption-seeds`) — both read a bare functor, which is `not` for every
+  negation there is. So a conclusion derived through the contravariant fan outlived the
+  edge it rested on, and the same three sentences derived it in one arrival order and not
+  the other. Links now pair on the antecedent **key** (`rules/antecedent-key`) and read
+  the direction off its polarity; the seeds read a negated antecedent's new facts up
+  `super`'s `genl` closure, gated on some rule actually reading a negation under `sub`.
+  *Class:* **Fix.** *Migration:* none. [docs/inference.md](docs/inference.md)
+
+- **A portfolio races the tacticians it names.** Re-pointing an already-normalized
+  strategy at another tactician by `assoc` kept the first one's signs — `tactics/strategy`
+  lets an explicit sign win over the tactician's, which is what "name a tactician and bend
+  one term" needs — so every racer ran the base ordering under a different name and the
+  bet had nothing to win. `tactics/with-tactician` is the swap that says which side wins.
+  Answer sets are unchanged, which is why no completeness sweep could see it.
+  *Class:* **Fix.** *Migration:* none. [docs/inference.md](docs/inference.md)
+
+- **An inferred argument type is read from the asking context.** `ArgTypeProver` types a
+  term from how it is used, and read the usages globally while reading the declarations
+  scoped — so a reader that could not see `(eats Muffet Bone1)` still learned from it that
+  `Bone1` is food. Both halves are scoped now. *Class:* **Fix** — a context answers fewer
+  type goals, and each one it drops rested on a fact it cannot see.
+  *Migration:* none. [docs/contexts.md](docs/contexts.md)
+
+- **`prove-within` carries `:max-term-growth`.** The bound is on the budget roster, so
+  `check-budget!` admitted it — and the door then built a bounds map of its own that did
+  not name it, so a caller raising the DFS's term-growth ceiling was answered under the
+  shipped one with nothing to say the raise had not been read. It reaches the prover
+  through `budget/prove-bounds` now, which is the translation the roster was written
+  beside for exactly this reason. *Class:* **Fix** — a budget key that was accepted and
+  ignored now takes effect; a caller that never named it is unaffected, the shipped
+  ceiling being what an unnamed one already meant. *Migration:* none.
+  [docs/anytime.md](docs/anytime.md), [docs/inference.md](docs/inference.md)
+
+- **Subsumption runs under a negation, the other way.** `(genl dog animal)` has always put
+  a stored `(dog Muffet)` under the pattern `(animal ?x)`; the same edge now puts a stored
+  `(not (animal Muffet))` under the pattern `(not (dog ?x))`, because `¬animal ⊑ ¬dog` is
+  the contrapositive of `dog ⊑ animal`. It reaches every site the positive fan reaches: the
+  trigger match, retrieval, both chainers through `res/subsuming-unify`, and which rules an
+  arriving negation triggers. A negative literal fans its **body's** functor over `genls`
+  where a positive one fans over `specs` (`res/super-predicates` beside
+  `res/sub-predicates`, one definition each so the reference matcher and the rete alpha
+  matcher cannot drift), and the two directions stay exclusive: `(not (dog Muffet))` still
+  says nothing about `(not (animal ?x))`, since a non-dog may be any other animal. No
+  taxonomy state and no index key carries it — every negated conclusion was already filed
+  under one `not` bucket, and the negated *antecedent* key is unchanged. The trigger side
+  is where the cost would have landed, so it enumerates from the live `:rule-antecedents`
+  roster rather than from the spec closure: an arriving `(not (thing X))` would otherwise
+  probe the rule index once per type in the KB, and a KB whose rules read no negation pays
+  a map read and probes the rule index not at all. *Class:* **Additive** — a query that
+  answered nothing now answers, and nothing stored changes shape; a KB with a rule on a
+  negated antecedent does derive conclusions it did not, which is the point.
+  *Migration:* none. [docs/inference.md](docs/inference.md),
+  [docs/exceptions.md](docs/exceptions.md)
+
+- **A negated `exceptWhen` conjunct is re-checked in both directions.** The filter that
+  decides which of a rule's firings a trigger could have reached compares the trigger's
+  predicate against the conjunct predicate's `specs` closure; under a negation the
+  conjunct is *also* answered contravariantly, by a negative fact on a `genls` of its
+  predicate, so a negated conjunct now takes the union of the two. Without it a firing
+  whose exception an arriving negation newly blocks is filtered out of its own re-check
+  and the conclusion stays believed: with `winged ⊑ appendaged` and an exception
+  `(not (winged ?x))`, asserting `(not (appendaged Opus))` left the conclusion standing.
+  Over-approximating is the safe direction throughout that filter — an extra candidate is
+  a re-check that changes nothing, a missing one is a lost withdrawal. *Class:* **Fix.**
+  [docs/exceptions.md](docs/exceptions.md)
+
+- **The exposure sweep debits its budget once, and its empty gate runs first.**
+  `exposed-clashes` walked every stored sentex to collect the terms it would probe and
+  only then asked whether the KB separates any two types at all — a whole-store read taken
+  to be told there is nothing to say, and the one whole-store walk in that namespace. The
+  three set-emptiness reads come first. And `clash-candidates` carried the revisit and the
+  touched halves forward with their overlap intact, so a declaration reached twice was
+  paid for twice against one exposure budget and could be filed as cut short over content
+  the first pass had already swept; `touched` drops what `revisit` already names, a
+  membership test apiece. *Class:* **Fix** — a cost one, and a budget that reaches as far
+  as it is sized to. *Migration:* none. [docs/nmtms.md](docs/nmtms.md)
+
+- **`argue` explains a side a rule derived, not only a side the store holds.** A verdict
+  reached by rule expansion was reported as provable and left unexplained: `:for-why` and
+  `:against-why` read the JTMS, which has nothing to say about a conclusion no sentex
+  holds, so an adjudicating caller saw evidence for a stored side and silence for the
+  other — in the `:contradiction` case, silence for exactly the half under dispute. The
+  search's own derivation now comes back beside them under **`:for-derivation`** /
+  **`:against-derivation`**: `query`'s `{:proof? true}` tree, the same value that door
+  returns. Two keys rather than two shapes of one, because the two explanations read
+  differently (`:goal` / `:via` / `:because` against `:sentence` / `:informant` /
+  `:support`) and answer different questions — a belief record against a search trace. A
+  derivation needs a positive `:max-depth` and a ground sentence, and is a **fallback**:
+  where the JTMS answers, the search is not run. *Class:* **Additive** — no existing key
+  changes shape or drops, and a side carries at most one of the two.
+  *Migration:* none. [docs/api.md](docs/api.md), [docs/inference.md](docs/inference.md)
+
+
+- **Not naming a context no longer means the union.** A **variable** context — `?ctx`, the
+  default of every short arity, or any name you choose — is the *joint* reading: the answer
+  must hold from some one reader's `genlCx` cone, and that reader is unified into the
+  variable. A conjunctive read therefore refuses to join a fact in `CxA` to a fact in `CxB`
+  when no context sees both, which is an answer no reader of the KB has. The union is
+  `CxEverything`, asked for by name. **One exception:** a goal whose every literal is
+  *computed* rather than matched (`different`, `evaluate`, `unknown`) rests on no stored
+  fact, so there is no witness to pick and it is read whole-KB; a *mixed* goal needs none,
+  its matched literals deciding which readers can answer. Both halves are argued in
+  [docs/defenses.md](docs/defenses.md). *Class:* **Breaking** for a conjunctive read that
+  relied on the union, and for any caller comparing whole answer maps from a read that
+  passes a variable context (the witness is now among the bindings). *Migration:* pass
+  `CxEverything` for the union, or a concrete context to scope the read.
+  *Breaks:* `?ctx`
+  [docs/contexts.md](docs/contexts.md)
+
+- **Three query contexts: `CxEverything`, `CxInference`, `CxNothing`.** `Cx…` symbols that
+  name a *way of reading* rather than a place, filling the one row of
+  [docs/from-cyc.md](docs/from-cyc.md) that had no spelling here. `CxEverything` reads the
+  store as stored, belief ignored — the cheapest question the engine takes, and the only
+  one that sees a defeated default. `CxInference` keeps only what a single reader's
+  `genlCx` cone sees over the **whole derivation**, where the default `?ctx` is existential
+  *per literal* and so will join two facts no one context sees; the reader that covered it
+  comes back as `:context`. `CxNothing` sees no fact at all, leaving the provers.
+  All three resolve at the read door and reach no further; asserting into one is refused,
+  as is any `genlCx` edge naming one. The doors that resolve one are `query`, `ask`,
+  `prove` and `sentexes-matching`, with the `?` variants that delegate to them; every
+  other read refuses `:unsupported-context` and names those four, rather than handing the
+  symbol to the engine as an ordinary concrete context nothing is asserted in and
+  answering **empty** — a wrong answer that looks like a right one. An `(ist Ctx S)` goal
+  rescues such a call, the named context winning as it always does. *Class:* **Additive**
+  — nothing about an existing read moves, `?ctx` included. *Migration:* none.
+  [docs/contexts.md](docs/contexts.md)
+
+
+- **`CxInference` is answered two ways, and the bounded one is the default.**
+  `vantage/*strategy*` says which: `:fan` (the reference) enumerates the readers and asks
+  each one the ordinary scoped question, and `:post-hoc` asks once unscoped, carrying what
+  each answer rested on, and places it afterwards. The two owe the same answer set, which
+  `vantage_differential_test` holds them to over generated lattices, so the choice is pure
+  cost. `:post-hoc` is the default because it is **bounded** rather than faster: it prunes
+  a partial solution whose ingredients already have no common descendant, and gives up past
+  `lattice contexts × *rows-per-reader*` rows — 20 by default — after which the fan answers
+  whatever was abandoned. Which of the two wins is a fact about the data rather than about
+  the lattice, and [docs/defenses.md](docs/defenses.md) carries the measurements that say
+  so. Neither is an option on a read door: they are a var to rebind in a benchmark or a
+  differential test, as `res/*hierarchical-retrieval*` already is. *Class:* **Additive** —
+  the answers do not depend on the strategy, only what they cost does. *Migration:* none.
+  [docs/contexts.md](docs/contexts.md)
+
+- **A placement is held to what a reader could have answered.** Post-hoc asks once
+  unscoped, so it sees the KB with every reader-scoped filter off and has to put them back
+  by reasoning about the *placement* rather than about the read — and it was putting back
+  none of them. Four divergences from the fan, each found by asking for one. The `genl`
+  edges a match subsumed through are an ingredient of the answer, so a reader that sees
+  `(pup_t Rex)` and not `(genl pup_t hound_t)` does not answer `(hound_t ?x)` — the same
+  call the forward chainer makes for subsumption support, because the two have to reach
+  one verdict. The exceptions: `matches-visible` at `?ctx` runs where the hidden set is
+  empty by construction, so a placement landed in the very context that excepts one of its
+  facts. The retired spellings: supersession is per reader, so a placement below an
+  equality merge sees both a fact and the twin migrated there. And the witness rule:
+  maximality is a property of a **binding**, so two derivations of one binding may not
+  keep two witnesses — which hid behind the `?ctx` `match-one` unifies into every binding,
+  making one binding two keys until the placement projects onto the goal's own variables.
+  Post-hoc's domain is also asked of the prover registry rather than read off the
+  literal's shape, which does not say: `(gp0 ?a ?b)` and `(genl aa_t ?x)` are one shape
+  and only the second walks a closure. *Class:* **Fix** — the two strategies agree, which
+  is what makes the default a cost decision. *Migration:* none.
+  [docs/contexts.md](docs/contexts.md)
+
+
+- **The enumerations promise a `java.util.Set`, and a store may compress it.**
+  `sentex-ids`, `justification-ids` and `premise-ids` now say what a caller may do with the
+  answer — `contains?`, `count`, `seq`, `sort`, `=` against another set — rather than that
+  it is an `IPersistentSet`, so a caller wanting `conj` / `disj` / `clojure.set` converts
+  with `(set …)` at the site that wants them. The shape is what costs at scale, and
+  `vaelii.impl.roster` — a `Roaring64Bitmap` behind a `java.util.Set` — is the alternative
+  a store may answer instead: 0.13–0.26 bytes a handle against a `PersistentHashSet`'s
+  48–75, which is 4.5–7.0 GB at 100M records held while `recover` walks the premises
+  ([docs/defenses.md](docs/defenses.md)). The engine's own stores still answer Clojure
+  sets, which is the `:disk` backend's ceiling and now a number in the doc instead of an
+  assumption. *Class:* **Additive** — every store the engine ships answers exactly what it
+  answered; the contract now says what a store *may* answer.
+  [docs/storage.md](docs/storage.md)
+
+- **`Tallying`: how many records, and is there one at all, without building the roster.**
+  `open-kb` asked both by building the whole live-handle set and reading `count` / `first`
+  off it — free on a store whose enumeration is a read of its own state, the entire table
+  on the wire for one whose enumeration is a query, and asked twice on a `:pg-disk` open
+  before the KB has answered anything. A store that can answer more cheaply implements the
+  new optional protocol (`sentex-tally`, `justification-tally`, and three `a-…-id`
+  samplers); the nine call sites go through `capabilities/count-sentexes`,
+  `count-justifications`, `some-sentex-id`, `some-justification-id` and `some-premise-id`,
+  which **fall back to the enumeration** — so a store without the capability reads exactly
+  as it did. Over Postgres records each is now one row. *Class:* **Additive** — a new
+  optional protocol beside `Prefetching`; nothing an existing store does changes.
+  [docs/storage.md](docs/storage.md)
+
+
+- **`BulkLoading`: an `import!` writes its records through a sink a store can answer in
+  bulk.** Without one, each frame of a dump is its own `put-sentex` — a map assoc on the
+  RAM store, a round trip on one across a socket — which left the fastest ingest path a
+  records backend has (`COPY`, in the Postgres adapter) reachable only by an application
+  that bypassed the KB. The third optional protocol beside `Prefetching` and `Tallying` is
+  `open-sentex-sink` / `open-justification-sink`, each answering a `RecordSink` the three
+  import paths write their stream to; `capabilities/sentex-sink` and `justification-sink`
+  **fall back to `put-sentex` per record**, so a store without the capability loads exactly
+  as it did. It is a sink rather than a batched put, and a record is not readable until the
+  sink closes, for the reason [docs/defenses.md](docs/defenses.md) gives. Through `import!`
+  on a 30k-record dump, `{:belief? false}`: `:pg-memory` 2,784 → **17,882 records/s** and
+  `:sqlite` 7,444 → **16,572**, against `:disk` at 6,790 — a server-backed load is now
+  faster than the local disk backend, and what remains is the engine's own per-frame work
+  rather than the store. *Class:* **Additive** — a new optional protocol; every store the
+  engine ships implements nothing and takes the loop.
+  [docs/storage.md](docs/storage.md)
+
+- **`BulkAnnotating`: the premise marks and the provenance are written many at once too.**
+  The two per-handle writes that follow a record are made by the import path in a loop,
+  and neither can ride the record write — which strength a handle ends at is decided only
+  once the whole sentex stream is read, and the provenance stream is read after the
+  records. On a store where a write is a round trip that is `n` round trips each: 20,000
+  on a 10,000-record belief import, against 657 ms for the records themselves.
+  `mark-premise-batch` / `put-provenance-batch` are the seam and
+  `capabilities/mark-premises` / `put-all-provenance` the door, falling back to the loop.
+  Bare, not `!`: both add and take nothing away, and the per-handle twins beside them
+  (`mark-premise` / `put-provenance`) are bare for the same reason.
+  A separate protocol from `BulkLoading`, since a store may load records in bulk without
+  being able to bulk-update rows already there. Over Postgres, `{:belief? :stored}` on a
+  10k dump: **2,288 → 5,969 records/s**, one statement for every mark and one per 1,000
+  provenance maps. The batch marks `RETURNING` the ids they touched, so the phantom-premise
+  guard and the strength cache stay exactly as strict as the one-row form.
+  *Class:* **Additive.** [docs/storage.md](docs/storage.md)
+
+- **The `:disk` record store bulk-loads too.** A record at a time there is two syscalls on
+  an unbuffered `RandomAccessFile` — the log append and the 24-byte idx slot — plus a lock
+  apiece. `f/append-records-sized!` packs a batch's frames into one write and
+  `f/write-slots!` writes one positional range per run of consecutive handles, which is a
+  single range for handles minted in order or preserved from a dump. Records-only import
+  into `:disk-memory`: **14,987 → 18,986 records/s** (+27%, medians of three interleaved
+  runs). A bulk write also *evicts* rather
+  than fills the hot-record cache, since a load is a stream nobody is reading back.
+  (`:disk` proper gains little, because with the durable index its bulk load is dominated
+  by the index writes rather than the records.) *Class:* **Additive**, with one new
+  refusal type: `:bad-batch`, for a `:batch` that is not a positive number of records.
+  [docs/storage.md](docs/storage.md)
+
+- **`*prefetch-candidates*` refuses a value that is not a chunk, at the `binding`.** The
+  setting is `false` or a positive integer, and a var whose off-value is `false` invites
+  `true` as the on-value — which is truthy, so it passed every gate on the query path and
+  failed in the chunk arithmetic instead, a `ClassCastException` raised from inside a lazy
+  seq several frames into the walk, naming neither the var nor what was bound to it. A
+  validator on the var throws from `binding` itself, by name. *Class:* **Fix.**
+  *Migration:* a `binding` of `nil`, `0` or `true` now throws where it previously ran
+  unhinted or failed mid-query; bind `false` or a chunk size (256 is the measured
+  plateau). [docs/storage.md](docs/storage.md)
+
+- **`recover` stops re-reading records the roster already answered for.** `rebuild-tms`
+  tested whether a justification's consequence and every antecedent were stored by
+  *fetching* each one; a store rosters a handle only once the record is there, so
+  membership in the live-handle set already answers that, and the fetch now runs only for
+  a handle the roster does not name — which is the case it exists for. On a 9,002-record
+  store that is 27,004 record fetches down to 9,004, on **every** backend. *Class:* **Fix**
+  (a cost one, and no behaviour moves: a justification resting on a record the store lost
+  is still left out of the network).
+
+- **The recovery walks take the prefetch hint too.** `reindex` over the records and
+  `recover` over the justifications both fetch every handle they enumerate, so they hint a
+  chunk ahead — **ungated**, unlike the query path, because a walk that consumes
+  everything never over-fetches what a stopping consumer would.  (It can still be a poor
+  trade: a hint larger than the store's own cache evicts what it just installed, which is
+  why the hint keeps exactly one chunk in flight and the store caps each batch at its
+  capacity.) `Prefetching` gains
+  `prefetch-justifications!` for the second of them. Over Postgres records this takes
+  `reindex`+`recover` on that store from 1,656 ms to 740 ms, against 506 ms for the same
+  KB entirely in RAM. *Class:* **Additive** — a second op on an optional protocol added in
+  this same unreleased version; nothing implements it outside the Postgres adapter.
+  [docs/storage.md](docs/storage.md)
+
+- **`:pg-disk` names its directory, and the directory names its database.** The durable
+  index lives on the host and the records live on a server, joined by nothing but the opts
+  map — so `:dir` is now required for `:pg-disk` (a derived default is one two KBs over two
+  databases would share), and the index directory is stamped with the database identity,
+  an open over a different one being refused with `:type :stale-index-records`. The
+  coverage check cannot stand in for it: that compares record counts, which two unrelated
+  stores of the same size match. *Class:* **Refusal** — `{:backend :pg-disk}` with no
+  `:dir` had no correct meaning, and the backend is new in this release, so no caller is
+  carrying one. *Migration:* name the directory.
+  *Breaks:* `:pg-disk`, `:dir`, `:stale-index-records`
+  [docs/storage.md](docs/storage.md)
+
+- **A fork's own records cannot be `:pg`.** An overlay keeps tombstones and released
+  premise marks beside its records and that bookkeeping is written for `:memory` and
+  `:disk`, so the pairing was already refused — but by `mount/meta-kv`, after `open-kb` had
+  built the fork's own record store (a live pool) and its index half (which takes the
+  directory's exclusive lock). A throw there returns no KB, so neither was closeable and
+  the directory was unopenable for the life of the JVM. Refused at the door instead. A
+  `:pg` KB can still be the frozen base. *Class:* **Fix.**
+
+- **One database keys one index, however it is spelled.** `:pg` given as a JDBC URL and as
+  the `:dbtype`/`:host`/`:dbname` triple are the same store and now key alike, as are a
+  stated `:port 5432` and an omitted one; `:pg` naming no database at all — a present nil,
+  an empty map, an opaque `DataSource` — is refused rather than defaulted. Keying on the
+  literal opts map split one database into two index spaces, and two KBs then minted two
+  handles for one sentence. *Class:* **Fix.** [docs/storage.md](docs/storage.md)
+
+- **`:sqlite` and `:disk` records in one directory no longer share an index.**
+  `derived-index-space` keyed both on the path alone, so a `:sqlite` KB and a `:disk-memory`
+  KB over one directory were handed a single RAM index over records neither held. The key
+  now carries the axis as well as the path. *Class:* **Fix.**
+
+- **A prefetch hint for a record store whose fetch is not local.** `Prefetching` is an
+  optional capability beside `RecordStore` — one op, `prefetch-sentexes!` — that a
+  retrieval path calls with the handles it is about to walk, a chunk at a time. It is a
+  **hint and never an answer**: it returns nothing, every record still arrives through
+  `get-sentex`, and a store that ignores it answers identically, so it cannot move a
+  result on any backend. `resolution/*prefetch-candidates*` is the chunk size and is
+  **false**, so nothing is hinted unless asked; none of the engine's own stores implement
+  the capability, so the setting is inert over them. Over Postgres records on a corpus
+  whose working set does not fit the store's cache (`:cache-capacity 1000` against a 40k
+  corpus) it is 12.6 ms/query against 4.0 at a 256-handle chunk. *Class:* **Additive** — a new optional protocol and one setting that
+  defaults off; nothing changes for a KB that leaves it alone.
+  [docs/storage.md](docs/storage.md)
+
+- **Postgres records: `:pg-memory` and `:pg-disk`.** `open-kb` accepts `{:backend
+  :pg-memory :pg <db-spec>}` — the records in a database an operator already runs, through
+  the Apache-2.0 `com.vaelii/postgres` adapter (`vaelii.postgres.record-store`), resolved
+  lazily exactly as `:sqlite` is, so the SSPL engine still carries no JDBC dependency.
+  `:pg-disk` pairs the same records with the durable `:disk` index, which is **local** to
+  the host running the writer and does not travel with the KB. The `:pg` opt names the
+  database (a next.jdbc db-spec or a JDBC URL, with an optional `:schema`) and is
+  required: nothing derives a default server. What a server buys — `COPY` at 95.8k
+  records/s against the per-record door's 4.1k/s, an operator's backup and replication, a
+  store bigger than one disk — and what it does **not** buy, which is a shared KB, are
+  both in the doc. *Class:* **Additive** — new backend names and one new option; a KB
+  naming neither is unchanged. The durable `:disk` index now pairs with `:pg` records as
+  well as `:disk`, where it refuses RAM ones and `:sqlite` as before.
+  [docs/storage.md](docs/storage.md)
+
+- **Five refusals the daemon answered 500 for are the caller's mistake.**
+  `serve/client-error-types` is a hand roster, and a refusal born at one door and never
+  added to it counts as a backend fault at every proxy between the caller and the daemon.
+  `:irreflexive` and `:anti-symmetric` are the two relation-property refusals that were
+  not beside the four already on it; `:unsupported-context` is a query context handed to
+  a read that does not resolve one; `:unsupported-variant` and `:unsupported-compression`
+  name a dump this build does not write. All five answer **400** now, with the same
+  `:type` on the wire as before. *Class:* **Fix.** *Migration:* a client discriminating on
+  the status rather than on `:type` sees five 500s become 400s.
+  [docs/operations.md](docs/operations.md)
+
+- **A tool argument the chosen signature cannot read is refused, not dropped.** The tool
+  surface dispatches on the longest signature the model's input satisfies, and the shapes
+  nest — `query` takes `(goal)`, `(goal, context)`, `(goal, context, opts)` — so a call
+  giving a goal and `opts` with no context selected the first and ran the read facts-only
+  with the depth discarded, which is indistinguishable from a goal no rule can reach.
+  *Class:* **Fix.** *Migration:* none. [docs/llm.md](docs/llm.md)
+
+- **A feed subscription with a context and no goal is refused.** `core/watch`'s whole-feed
+  arity takes no context, so the daemon registered an unscoped listener while its registry
+  stored the context and `:watchers` reported it back — naming a scope it was not
+  applying. `:not-watchable`, the mirror of the contextless goal. *Class:* **Fix.**
+  *Migration:* none. [docs/feed.md](docs/feed.md)
+
+- **`preview` and `edit-with-consequences!` refuse a cap that is not a positive integer.**
+  Both guarded `:max-results` with `pos-int?`, so a string or a zero read as *no cap* and
+  the diff came back whole with `:bounded?` false — the silent default the opts roster
+  beside it refuses a typo for. `check-limit!` now runs at both doors, as it already did
+  at `find-terms`, `kb-quality` and `qualitative-scenarios`. *Class:* **Fix.**
+  *Migration:* none. [docs/preview.md](docs/preview.md)
+
+- **The proposal panel's apply refuses a target this process does not hold.** The panel,
+  the turn and the preview all say a proposal needs the KB in process; the apply is the
+  one that writes, and it was the exception — `report-only-problems` is a KB read, so on a
+  remote target it was skipped and the line it holds back would have been stored on the
+  strength of a field the browser sent. *Class:* **Fix.** *Migration:* none.
+  [docs/web.md](docs/web.md)
+
+- **`register-modal-predicate!` loses its `!`.** It asserts one `(modalPredicate pred)`
+  marker, which `retract!` takes back, so it never belonged on a roster that means "the KB
+  cannot undo this". *Class:* **Breaking.** *Migration:* call
+  `register-modal-predicate` — same arities, same return, the `!` spelling is gone.
+  *Breaks:* `register-modal-predicate!`
+  [docs/belief.md](docs/belief.md), [docs/api.md](docs/api.md)
+
+- **The dense TMS's handle-ceiling refusal carries a `:type`.** It named the ceiling and
+  the `{:tms :reference}` remedy but no type, so a supervisor discriminating on the
+  refusal vocabulary could not tell it from any other `ex-info`. It is
+  `:type :handle-ceiling` now, `:remedy` unchanged. *Class:* **Additive.**
+  *Migration:* none. [docs/density.md](docs/density.md)
+
+- **The rounding grid follows `*quantity-tolerance*`.** A computed magnitude was snapped
+  to nine decimal places whatever tolerance was bound, so rebinding the var moved every
+  comparison and left the grid where it was — two magnitudes the comparisons called equal
+  rendered as two different figures. The scale is derived from the bound tolerance.
+  *Class:* **Fix.** *Migration:* none. [docs/quantity.md](docs/quantity.md)
+
+- **A confluence report names only overlaps a term can reach.** The critical-pair detector
+  descended into functor position, which `normalize` never reduces at, so two rules could
+  be reported as non-confluent over a term no normal form passes through.
+  *Class:* **Fix** — a warning is withdrawn, none is added.
+  *Migration:* none. [docs/equational.md](docs/equational.md)
+
+- **An unrepaired reified-NAT collision is swept against one expression.** A constant
+  mapped to two expressions had its orphanhood decided against either of them and its
+  bookkeeping computed from whichever the retrieval yielded first, so a sweep could retract
+  one expression's records on the other's verdict. Both readers take the content-least
+  expression. *Class:* **Fix.** *Migration:* none. [docs/nat.md](docs/nat.md)
+
+- **A koinii commit id is a function of belief, not of storage.** `commit-id`,
+  `state-root` and `inclusion-proof` folded every stored record, so a seat that had
+  defeated a default computed a different id from a seat that never heard of it — two
+  seats agreeing on every belief reading as though they disagreed about the knowledge. All
+  three enumerate the believed records now, and `inclusion-proof` on an unbelieved
+  record's locator is nil. *Class:* **Breaking** — every id a seat computes moves, and a
+  defeat moves it as a retraction does. *Migration:* re-derive any stored commit id or
+  state root; ids taken before this are not comparable with ids taken after.
+  *Breaks:* `commit-id`, `state-root`, `inclusion-proof`
+  [docs/koinii.md](docs/koinii.md)
+
+- **A koinii write is stamped by the identity it is made through.** `channel/assert` let a
+  caller's `:creator` win over the agent handle's, against its own contract and against the
+  ownership check `belief/disregard` enforces; `deref/publish!` let a caller's
+  `:compression` override the `:none` that makes a published commit byte-stable. Both are
+  refused now — `:koinii/creator-mismatch` and `:koinii/compression-pinned` — rather than
+  one silently honoured and the other silently dropped. *Class:* **Breaking.**
+  *Migration:* drop the `:creator` from a `channel/assert` call (it was already the
+  agent's), and take a compressed dump with `export!` directly, which makes no
+  byte-stability claim.
+  *Breaks:* `:koinii/creator-mismatch`, `:koinii/compression-pinned`, `publish!`
+  [docs/koinii.md](docs/koinii.md)
+
+- **The koinii adjudication reads follow belief.** `standing-rulings` and `rule`'s
+  arbiter-is-party check enumerated an agent's context unfiltered, so a defeated ruling was
+  withdrawn as stale — and destroyed — while a defeated claim still convicted its holder of
+  being a party to the dispute. Both filter belief. `contested-premises` returns its
+  handles in content order rather than in the hash order of the support set.
+  *Class:* **Fix.** *Migration:* none. [docs/koinii.md](docs/koinii.md)
+
+- **A catch-up poll that fails is a failure whatever it threw.** Only an `ex-info` with a
+  `:type` was read as an error, so anything else fell through to the drained-to-head arm:
+  `sync!` persisted `{:cursor nil}` and handed back the stale view as though the stream
+  were current — silent loss, which is the one failure catch-up exists to prevent. Any
+  exception is now reported with the original as its cause, and a poll answering no cursor
+  is refused rather than stored. `sync!` also takes the consumer's own monitor, since its
+  body is a read-modify-write over the cursor and the view. *Class:* **Fix.**
+  *Migration:* none. [docs/koinii.md](docs/koinii.md)
+
+- **Exactly one of several concurrent `unwatch`es of one token says it removed something.**
+  `feed/unregister!` read the listener list and then swapped, so two callers both saw the
+  listener and both answered true — two callers each believing they own a teardown that
+  happened once. One `swap-vals!`, and the answer is read off the CAS that did the removal.
+  *Class:* **Fix.** *Migration:* none. [docs/feed.md](docs/feed.md)
+
+- **An LLM error body rides bounded in the message and whole in the data.** A non-200
+  joined the entire response into the exception message, so a proxy answering a megabyte of
+  HTML put a megabyte in every log line the failure reached. The message takes
+  `http/excerpt`'s bound, as `http/decode`'s `:excerpt` already did, and the full text is
+  under `:body` in the ex-data. `under-read-deadline` also catches `Throwable` rather than
+  `Exception`: an `Error` out of a body read — a hostile body overflowing the stack — no
+  longer escapes the `:llm-timeout` rewrite. *Class:* **Fix.** *Migration:* a caller that
+  parsed the failing body out of the message reads `:body` instead.
+  [docs/llm.md](docs/llm.md)
+
+- **A generated corpus counts its context edges, and draws direction and defeasibility
+  separately.** `plan`'s `:units` — what a progress bar divides by — added the number of
+  contexts where `load-into` asserts one edge more than that (the schema context's own
+  edge under `CxCore`), so a bar over two or more contexts never reached its end. And
+  `:direction` and `:defeasible?` were two thresholds on the same rule index, so at any
+  settings where `:defeasible` ≤ `:forward` every defeasible rule was also a forward one
+  and no settings at all produced a defeasible *backward* rule — a shape the corpus could
+  not exercise however the knobs were turned. Two draws now, from the rule stream's own
+  seeded generator. *Class:* **Fix.** *Migration:* regenerate any saved generated corpus a
+  comparison depends on. [docs/catalog.md](docs/catalog.md)
+
+- **A compaction drops a handle whose frame the log cannot give back.** A slot can outlive
+  its frame — what a truncated tail leaves under a slot the truncation did not reach — and
+  the rewrite re-froze the `nil` it read, putting the handle back as a *live* record
+  fetching to nothing: an id `sentex-ids` names and `get-sentex` has no answer for. It is
+  tombstoned instead and taken out of the live set, the premise set and the record cache,
+  with a `:warn` naming the handle. *Class:* **Fix.** *Migration:* none.
+  [docs/storage.md](docs/storage.md)
+
+- **The durability tick costs nothing on a store nobody wrote to.** `counters.nippy` was
+  rewritten every tick — a temp, an fsync of it, an `ATOMIC_MOVE` and a directory fsync,
+  every three seconds for the life of the process — whether or not the handle counter had
+  moved. It is written when it changed. The compaction probe beside it is floored by
+  `vaelii.disk.compact-min-interval-ms` as well: asking a record store for its dead ratio
+  scans every `.idx` in full under the kind lock, and the stamp was taken only where a
+  compaction *fired* — so a store that never crosses the threshold paid that scan every
+  three seconds for the life of the process. The stamp is taken before the ratio is read
+  and again when a rewrite finishes, so the interval floors the probe and the rewrite
+  alike. *Class:* **Fix.** *Migration:* none. [docs/storage.md](docs/storage.md)
+
+- **The durability daemon installs one ticker and forgets no backend.** The scheduler, the
+  compaction executor and the shutdown hook were check-then-act inits, so two first
+  `register!`s racing installed two tickers over one registry — every registrant fsynced
+  twice a tick, with only one of the two reachable by `stop!`. All three (and `stop!`) now
+  take one monitor. And `submit-compaction!` marks a backend in flight *before* the submit,
+  so a submit the executor refused left the mark standing and barred that backend from
+  auto-compaction for the life of the process; the refusal clears it. *Class:* **Fix.**
+  *Migration:* none. [docs/storage.md](docs/storage.md)
+
+- **The disk lock tells a second JVM from a second copy of itself, and keeps what it could
+  not give back.** `tryLock` *throws* when the calling JVM already holds an overlapping
+  lock, so that branch was reporting "locked by another JVM" for a second classloader copy
+  of this namespace — and reading the holder off the file, which named our own pid as the
+  intruder. It is diagnosed as ours now (`:same-jvm? true`). `held?` and `release!` follow
+  the `held` entry rather than re-reading `vaelii.disk.lock`, which could be toggled
+  between the acquire and the release and leave the OS lock stranded. And a release that
+  fails keeps its entry rather than reporting the directory free while the JVM still holds
+  it: re-acquisition is refused with `:type :unreleased`, naming this JVM.
+  *Class:* **Fix.** *Migration:* none. [docs/storage.md](docs/storage.md)
+
+- **An `:xz` dump allocates a dictionary the size of a chunk.** Each chunk is its own
+  compression window — that is what makes one independently readable — so the encoder is
+  per chunk, and it was taking LZMA2's preset-6 8 MiB dictionary against a default
+  10,000-frame chunk of about 1 MB. Sized to the chunk it writes the same bytes (identical
+  from 8 MiB down to 1 MiB, measured over a 34k-sentex dump) for 24 MB of encoder working
+  set rather than 93. `:xz` is also read through the imported `XZInputStream` rather than
+  reflectively, leaving `:zstd` the only codec whose readability depends on the classpath.
+  *Class:* **Fix.** *Migration:* none. [docs/namespaces.md](docs/namespaces.md)
+
+- **A remote `why` re-asks a truncated proof deeper.** `client/why` takes `core/why`'s
+  `opts` — `{:max-depth n}` — at a third arity; the served op already accepted it, so only
+  the client wrapper was missing and a `{:truncated? true}` branch was unreachable over the
+  wire. *Class:* **Additive.** [docs/api.md](docs/api.md)
+
+- **Which justifications a rule exception blocks is a served read.**
+  `core/blocked-justifications` answers the network's blocked set,
+  `:blocked-justifications` serves it, and `client` and the access facade reach it — so an
+  attached browser draws a blocked justification as blocked rather than as supporting,
+  blocking being the one justification property belief alone does not report.
+  *Class:* **Additive.** [docs/exceptions.md](docs/exceptions.md)
+
+- **The neighbour sets a closure walk builds are counted.** `:closure-neighbours` was
+  registered with `:counters nil`, so a miss — one neighbour set built against the store —
+  went unrecorded and the page that shows cache hit rates carried a blank where that row's
+  should be. `observe/note-neighbours!` counts them in the literal cache's arrangement and
+  for its reason: process-wide `AtomicLong`s, because they measure the mechanism and not a
+  store. A read taken with no memo bound counts as a miss, a compute being a compute
+  whatever scope it happens in. Seven tests were reaching the same number by redefining
+  `res/matches-visible` and guessing which of its calls were the walk's; six now read the
+  counter. *Class:* **Additive.** *Migration:* none.
+  [docs/caches.md](docs/caches.md), [docs/web.md](docs/web.md)
+
+- **Three CLI commands print their answer sorted.** `match`, `query` and `ask` answer sets,
+  and an unsorted print was whichever order the retrieval enumerated — so two loads of one
+  KB printed the same knowledge differently and a `diff` of two runs read as a change in
+  the KB. They are ordered by content key, alongside `types` and `contexts`. `prove` keeps
+  DFS order, which is a reading of the search rather than an artifact. *Class:* **Fix.**
+  *Migration:* a script depending on the previous output order of `match` / `query` / `ask`
+  reads a different one. [docs/operations.md](docs/operations.md)
+
+- **The log level survives a reload of the namespace that holds it.** The dial lived in a
+  plain `def`'d atom, so re-evaluating `vaelii.impl.logging` handed the process back a
+  level reading nil — whatever an operator had set, undone by a reload nobody asked to
+  change the level. Under cloverage that is not hypothetical: it re-evaluates every
+  namespace to instrument it, so the suite lost the `:error` floor its injections install
+  and the coverage run wrote 1.5M lines of debug output. A `defonce`, as `caches/registry`
+  and the memory spaces already are. *Class:* **Fix.** *Migration:* none.
+  [docs/operations.md](docs/operations.md)
+
+- **The browser refuses a request parameter it cannot read.** `?max-derivations=`, `?d=`,
+  `?calc=` and the assert form's `strength` each took a default, a different calculus, or
+  `:monotonic` in silence — `max-derivations` most consequentially, its absence being what
+  asks for an unbounded fixpoint. Each answers **400** naming the parameter, the value and
+  what would have been legal, and `?d=` is held to the range its own form declares.
+  *Class:* **Fix.** *Migration:* a bookmarked URL carrying an unreadable value answers 400
+  rather than a page. [docs/web.md](docs/web.md)
+
+- **A cancelled job's interrupt cannot reach a thread it has released.** `jobs/cancel!`
+  decided from one read of the registry, so a job settling in between had the interrupt land
+  on the pool thread it had already gone back to. The thread is fenced by the job's own
+  monitor, and a canceller interrupted while it waits restores its flag rather than throwing
+  out of the web handler. *Class:* **Fix.** *Migration:* none. [docs/web.md](docs/web.md)
+
+- **The profiler UI starts once under a race as well as under a reload.** The claim is a
+  `compare-and-set!` rather than a read followed by a start, so two callers cannot both pass
+  the test and race for the port. *Class:* **Fix.** *Migration:* none.
+  [docs/web.md](docs/web.md)
+
+- **A term graph draws the same neighbours whatever else was asserted first.** The ego-edge
+  scan took a fixed window off a set of handles, so the picture was a sample by hash of the
+  handle values. It is ordered by handle first, which makes the window the term's earliest
+  mentions, and the caption says that is what it is. *Class:* **Fix.** *Migration:* none.
+  [docs/web.md](docs/web.md)
+
+- **A post-join antecedent that answers two ways concludes nothing.** An aggregate, or a
+  computed literal reading one, was evaluated per placement by taking the registry's first
+  solution — so a literal with several solutions placed a different fact depending on which
+  came first, and which comes first is a function of how the facts were stored. The
+  disagreement is declined and filed as `:post-join-ambiguous` in `violations`, the rule
+  the engine already takes for a reading stated twice over. *Class:* **Fix.**
+  *Migration:* none — a KB whose post-join literals are the built-in computations cannot
+  reach it. [docs/aggregate.md](docs/aggregate.md)
+
+- **An aggregate over measures renders in one unit whatever order they arrived in.** The
+  reduction read its base unit off whichever measure the extent yielded first, so a KB
+  whose units of one dimension declare different bases answered in different units in
+  different load orders. The content-least unit decides. *Class:* **Fix.**
+  *Migration:* none. [docs/quantity.md](docs/quantity.md)
+
+- **A capped backward proof answers the same whichever order the rules arrived.** Candidate
+  rules came off the consequent index in handle order, and both executors truncate on that
+  list — `prove-within`'s `:max-results` and the node engine's frontier — so a bounded query
+  returned different answers for the same knowledge. The candidates are ordered by
+  `[sentence context]`, and the node frontier breaks a cost tie on the node's own content
+  rather than on the id its traversal minted. *Class:* **Fix.** *Migration:* none, unless a
+  caller had pinned which single answer a capped `prove` returned.
+  [docs/nmtms.md](docs/nmtms.md)
+
+- **`nm/name-key` and `nm/by-print-key`, and no ordering key is a bare `str`.** `str` on a
+  collection honours the ambient print bounds exactly as `pr-str` does, so a sentence, a
+  NAT, a context NAT or a binding map keyed with it collapses under a REPL's
+  `*print-length*` and the tie falls back to arrival order. Fifty-one ordering keys move to
+  the guarded printer and six to the scalar key, and `sort_by_content_key_test` now scans
+  for the shape. *Class:* **Additive.** *Migration:* none.
+  [docs/nmtms.md](docs/nmtms.md)
+
+- **Two scaling claims are gated.** `lein perf` gains `qcn-network-residency` (a repeated
+  qualitative consultation is flat in the stored extent of the calculus it is not about)
+  and `inherit-reach-memo` (8x the claims reaching one term costs under 12x per ask), each
+  with a counted companion in the suite. *Class:* **Additive.** *Migration:* none.
+  [docs/qcn.md](docs/qcn.md)
+
+- **`/levels` refuses a query context rather than failing on one.** `CxEverything`,
+  `CxInference` and `CxNothing` typed into the page's own context box reached a read that
+  does not resolve one, and the browser has no exception middleware to make a page of the
+  refusal — so Jetty answered 500. `/levels` and `/levels/rows` check the context first and
+  answer the same 400 page every other unreadable parameter gets, naming the context and
+  the three that are not places. *Class:* **Refusal.** *Migration:* none — no page produces
+  such a URL, and a hand-written one gets a page instead of an error.
+  *Breaks:* `/levels`, `/levels/rows`
+  [docs/web.md](docs/web.md)
+
+- **A continuation offset is capped, so a hand-edited one cannot overflow the arithmetic.**
+  `?offset=` was read unbounded and `/find/rows` adds its page cap to it before asking the
+  term roster, so `Long/MAX_VALUE` raised `ArithmeticException` out of the handler as a 500.
+  `->offset` ceilings at a billion rows — past anything a sentinel writes, so no cursor is
+  truncated — and it covers all six continuation routes at once. *Class:* **Fix.**
+  *Migration:* none. [docs/web.md](docs/web.md)
+
+- **A CSS width is written with a dot whatever the machine's locale.** The load progress bar
+  and the heap meter composed `width:` with `format "%.1f"`, which renders in the default
+  locale — so on a comma-decimal one the declaration read `width:12,5%`, which is not a CSS
+  number: the browser dropped it and the bar drew at whatever width the stylesheet gave it,
+  with nothing on the page to say so. Both go through one `Locale/ROOT` helper. Display
+  numbers are untouched and still read in the reader's own convention. *Class:* **Fix.**
+  *Migration:* none. [docs/web.md](docs/web.md)
+
+- **`POST /propose/level` is guarded exactly as the row it reposts.** The list's originals
+  ride two repeated fields and are zipped, and the route checked neither what it read nor
+  how many of each arrived — so a sentence that did not read reached the verdict pass, and a
+  post carrying more `from`s than `ctx`s re-rendered the shorter and dropped the rest with
+  nothing to say a line had gone missing. Both are refused now, in `/propose/line`'s own
+  words. *Class:* **Refusal.** *Migration:* none.
+  *Breaks:* `/propose/level`
+  [docs/web.md](docs/web.md)
+
+- **Cancelling a job that has already finished answers false.** `jobs/cancel!` answered true
+  for any id the registry still held, and it holds a settled job's report for an hour — so a
+  stop clicked the moment a run finished reported a cancellation over a load that was
+  complete or a dump already written. It answers whether there was a *run* to stop, and
+  `/jobs/cancel` says so. *Class:* **Fix.** *Migration:* a caller reading the answer as
+  "the registry still holds this id" now reads a settled job as absent — ask `jobs/job` for
+  that question instead. [docs/web.md](docs/web.md)
+
+- **A koinii ballot is declared, so it cascades with the claim it was cast on.**
+  `votesFor` / `votesAgainst` were the two response acts `CxSpeechActs` never declared:
+  no `comment`, no arity, no `arg`, and — the one that mattered — no
+  `targetFollowingPredicate`. So retracting a disputed claim swept its answers,
+  endorsements, disputes and justifications and left the ballots standing on a claim that
+  no longer existed, with `tally` still counting them. Both now carry the same family
+  every other response act does. *Class:* **Fix.** *Migration:* none — a KB that loads
+  `CxSpeechActs` picks the marks up on the next load; ballots already stored on a claim
+  that has since gone are orphans no cascade will reach, and are found by matching
+  `(votesFor ?a (sentexHandle ?h))` against the handles the store still holds.
+  [docs/koinii.md](docs/koinii.md)
+
+- **Cross-seat dereference follows belief, as the commit id already did.**
+  `commit-id`, `state-root` and `inclusion-proof` enumerate the records a seat
+  *believes*; `dereference` and `resolve-by-locator` walked storage, so a defeated default
+  resolved to a full answer for which the same seat could produce no inclusion proof — one
+  seat, two stories about what it holds. Both read the believed handles now.
+  `dereference`, which is handed the sentence, reports the new `:not-believed` for a
+  record it stores but does not hold; a bare locator cannot tell that from never having
+  received it, so `resolve-by-locator` reports `:not-received` for both.
+  *Class:* **Breaking** for a caller resolving an unbelieved record. *Migration:* read the store
+  directly (`handle-of` / `sentex`) where storage rather than belief is the question; a
+  caller discriminating on `:reason` gains one value to match.
+  *Breaks:* `dereference` `resolve-by-locator` [docs/koinii.md](docs/koinii.md)
+
+- **Two koinii channel doors stop nil-punning their argument.** `channel/dispute` and
+  `speech-acts/dispute` read the target's sentence to build the rebuttal, so a handle
+  naming no record stored the literal `(not nil)` plus a `disputes` edge on nothing — a
+  challenge to a claim that does not exist, indistinguishable in the KB from one that
+  does. Both refuse it (`:koinii/no-such-handle`), as `deref/marker` does.
+  `channel/vote` fell out of a defaulted `case` as a bare `IllegalArgumentException`;
+  it refuses by name (`:koinii/no-such-stance`), carrying the two directions there are.
+  *Class:* **Refusal.** *Migration:* none.
+  *Breaks:* `channel/dispute`, `speech-acts/dispute`, `channel/vote`,
+  `:koinii/no-such-handle`, `:koinii/no-such-stance`
+  [docs/koinii.md](docs/koinii.md)
+
+- **A wire subscription that dies says so, and a dropped event is not silent.** With no
+  `:on-error`, a poll failure ended the loop and left the subscription reading live — a
+  dead reader nobody could detect and so nobody resubscribed; with no `:on-lagged`, the
+  ring's dropped count vanished. Every exit from the poll loop resets the subscription's
+  new `:running` atom, and each unset seam logs instead of dropping: `:error` for the
+  failure, `:warn` for the lag. *Class:* **Additive.** *Migration:* none — a supplied
+  handler still replaces the line. [docs/koinii.md](docs/koinii.md)
+
+- **A refused arbiter ruling ends no dispute episode.** `adjudication/rule` cleared the
+  dispute's notified/stale marks *before* asserting the ruling, so an inadmissible `upheld`
+  threw out of `edit!` leaving the dispute reopened and un-notified with nothing ruled on
+  it — the driver then re-announcing a clash whose ruling never happened. The marks are
+  cleared once the ruling has landed. `adjudication/sweep-stale` also stops running a
+  whole-KB `contradictions` + `conflicts` scan per open dispute: every entry `disputes-in`
+  hands back is live by construction, so the skip reads the stored `:stale` mark.
+  *Class:* **Fix.** *Migration:* none. [docs/koinii.md](docs/koinii.md)
+
+- **A model host that never answers costs seconds, not the turn's whole budget.** Both HTTP
+  backends handed `:timeout-ms` to `connectTimeout`, so a host that accepted no connection
+  held the calling thread for the five minutes an Ollama turn is allowed, or the ten a
+  Messages API turn is — a hang wearing a timeout's clothes. The connect deadline is now a
+  fixed `http/connect-timeout-ms`, and `:timeout-ms` bounds the answer as documented. The
+  Ollama probes also share one held `HttpClient` rather than building a pool per call, which
+  `available?` did on every `/propose` the browser posted. *Class:* **Fix.** *Migration:*
+  none — a caller that wanted a long connect deadline never had a way to ask for one.
+  [docs/llm.md](docs/llm.md)
+
+- **A sentence carrying an escaped non-ASCII character reads back with that character.**
+  The incremental scanner reads s-expressions out of the raw response, so escapes arrive
+  intact — and a host that writes `café` produced `cafu00e9` in the stored sentence:
+  not a parse failure, which is the problem, but a sentence that read cleanly and said
+  something else. `session/unescape` reads the four hex digits, and `\b` / `\f` with them.
+  *Class:* **Fix.** *Migration:* none. [docs/llm.md](docs/llm.md)
+
+- **A judged run's token counts add across batches instead of throwing.** A provider names
+  every count it knows and leaves the rest nil, so summing two batches' usage raised a
+  `NullPointerException` out of `oracle/judge` — reachable only past the first batch, which
+  is why a small run never saw it. Absent counts are dropped rather than counted as zero.
+  *Class:* **Fix.** *Migration:* a `:usage` map now omits a key no host reported, where a
+  single-batch run once carried it as nil. [docs/commonsense.md](docs/commonsense.md)
+
+- **A tool failure with no message is named by its class.** The `Throwable` arm exists for
+  the `StackOverflowError` a deeply nested argument raises, and that error carries no
+  message — so the refusal handed the model an empty string, which reads as a tool that
+  answered emptily rather than as an argument to fix. *Class:* **Fix.** *Migration:* none.
+  [docs/llm.md](docs/llm.md)
+
+- **The vocabulary inventory says how many lines it left out.** The trim stopped on a nil
+  entry as though the list had ended, reporting nothing dropped — and a cut nobody is shown
+  reads as the whole of the vocabulary. *Class:* **Fix.** *Migration:* none.
+  [docs/llm.md](docs/llm.md)
+
+- **A test that reaches a model without the `^:llm` mark now fails the suite's own scan.**
+  The mark ⟺ gate check is satisfied by a test carrying *neither*, so an unmarked, ungated
+  test that built an Ollama provider and ran a turn dialled out under a plain `lein test`.
+  The scan reads what a test calls as well as what it declares. *Class:* **Additive.**
+  *Migration:* a test that genuinely reaches a host carries the mark and the gate; one that
+  exercises a probe offline pins the var it reaches through. [docs/llm.md](docs/llm.md)
+
+### Performance
+
+Six changes to what a read or a write costs. None of them moves an answer; the one that
+moves a counted read says so.
+
+- **A literal with no symmetric sub-predicate pays for one answer, not a mirror's two.**
+  Giving the mirror its second answer (0.11.0, below) gave every candidate the machinery
+  for two — a `lazy-mapcat` over a per-candidate answer vector run through a transducer
+  chain whose `remove` probes a `[handle bindings]` pair against a set holding bare
+  handles, so on the non-symmetric path it allocates a tuple that cannot hit. `sym?` is
+  already read once per call, so that shape keeps the chunked `keep` and the handle-keyed
+  dedup it had, and the pairing stays where a mirror really can answer twice. The
+  retrievals are identical, which is what `:reads`, `:goals` and `:sift`
+  (`vaelii.impl.profile`) hold across it; a 5 000-node braid probe allocates 0.80× what it
+  did. *Class:* neither label. [docs/indexing.md](docs/indexing.md)
+
+- **A closure walk is a scan, so it neither reads the literal cache nor fills it.** `reach`
+  visits a node once, so a walk asks each neighbour literal once and leaves no repeat for a
+  solution cache to serve — one hit in 4 998 lookups, measured — while its one insertion
+  per node clears the whole 4 096-entry cache part-way through, evicting the metadata
+  literals a rule-heavy query does re-ask. The neighbour probes pass `matches-visible` a
+  false `cached?`, so the exemption reaches the probe and not everything under the walk,
+  and no `binding` marks the toggle thread-bound for the rest of the process. A walk keeps
+  its repetition where it is: the closure in `:closure-answers`, the neighbour sets a join
+  re-walks in the search step's memo. This one **does** move a counted read — a former
+  cache hit fetched no records and now costs the probe it skipped — so `:reads` rises by
+  the hits it no longer takes, while the answers do not move. The braid probe allocates
+  0.73× against the entry above and asks 1.45× against the release before both.
+  *Class:* neither label. [docs/caches.md](docs/caches.md)
+
+- **The reader set stops meet-closing the lattice against itself.** `readers` ran
+  `meet-closure` over the whole context lattice plus the candidate seed — O(pairs), each
+  pair a maximal-common-descendant search — and over the lattice's own nodes it cannot add
+  a member: a common descendant is drawn from the context-down closures, so it is a node
+  already, and the closure was handing back the set it was given. It runs only over a seed
+  the lattice does not already contain, which is the one case the seed exists for: an
+  edgeless context holding a fact the goal could match. `readers` drops 1.83 → 0.07 ms at
+  three contexts and 9.56 → 0.22 at twenty-four, and the fan with it (10.37 → 8.37, 32.88
+  → 24.48). What is left of the fan's cost is the fan — |readers| scoped queries — and a
+  reader is dear in proportion to how deep its `genlCx` up-cone is, not how wide the
+  lattice is. *Class:* neither label. [docs/contexts.md](docs/contexts.md)
+
+- **The join budget stops charging for the read it was meant to guard.** Sizing the bail
+  off `readers` put that call — O(the goal's match set), because besides the lattice it
+  hunts for contexts outside it — back on the default path, which is the one path that
+  never needs it: post-hoc places from the ingredients it matched and enumerates no
+  readers at all. It is sized off the lattice instead, which is a row count for a cost
+  decision and not an estimate of anything. And the first literal is not metered: the
+  budget guards the multiplication, and the first stage multiplies nothing — its rows are
+  the answer set's own floor — so a single-literal read of eight thousand facts abandoned
+  a pass it was winning and fanned over eighteen readers, the one shape post-hoc cannot
+  lose. *Class:* neither label. [docs/contexts.md](docs/contexts.md)
+
+- **The belief flag is read once a retrieval path, not once a candidate.** `believed?` put
+  a dynamic deref in the innermost loop retrieval has — once per *candidate handle*, of
+  which a broad literal has thousands — which `lein perf` caught as negation-arbitration
+  going 11.47× to 12.73× against a 12.00× bound. Each path reads it into a local at the
+  top and the per-candidate cost is an `or` against a boolean. Safe to hoist because the
+  value cannot change under a path: the door binds it around the whole read, and a blind
+  seq re-establishes it per realization step. *Class:* neither label.
+  [docs/belief.md](docs/belief.md)
+
+- **Two constants stop being recomputed on the hottest write paths.** `registered-calculi`
+  rebuilt its answer per call — an `instance?` test per prover in the default registry of
+  eighteen, plus a fresh vector, to tell a KB that registered no calculus nil again — and
+  it is asked once per asserted sentence and once per antecedent literal, so a 10M-fact
+  bulk load computed the same nil 10M times. It is memoized on the registry vector's
+  *identity*, registration being opt-in and setup-time, and identity keys avoid the
+  hashCode walk that is the cost being removed. `add-just!` walked `(concat antecedents
+  out)` under a `doseq`, allocating a lazy seq per derived justification to express
+  nothing but "iterate both"; two `run!` walks instead. Measured paired against the
+  unpatched tree, order alternated per pair: 1.020× on a 1M-fact DAG load (4/4 pairs) and
+  ~1.3% median on a four-rule join to a 38,772-fact fixpoint. *Class:* neither label.
+  [docs/qcn.md](docs/qcn.md), [docs/nmtms.md](docs/nmtms.md)
+
 ## 0.11.0 — 2026-08-22 — "contradiction solving, arrival order, and the durable log"
 
-- **`antiTransitive` convicts the chain it forbids.** `(antiTransitive P)` shipped
-  classified and disjoint from `transitive`, with the conviction itself declared and not
-  enforced: `(P a b)` and `(P b c)` believed left `(P a c)` admitted in silence. The three
-  are now **one nogood**, which is the first whose members are three rather than two — a
-  known-true chain refuses the direct step at the door (`:type :anti-transitive`), a chain
-  with one defeasible step has that step defeated, and three equal defaults are a
-  three-sided dilemma `contradictions` reports and the engine declines to decide. The mark
-  descends the predicate hierarchy like the other constraint marks, so it convicts a
-  `fatherOf` chain under `(antiTransitive parentOf)`; it does not imply `irreflexive`, and
-  a step reached only by argument preservation is not enumerated. *Class:* **Breaking** —
-  a KB that declared the mark and stored a chain is now told about it: refused where the
-  chain is known true, one member disbelieved where the strengths differ, and reported as
-  a dilemma where they do not. `:nogood` / `:handles` / `:sides` on a clash report can
-  hold three members where a reader may have assumed two. *Migration:* drop the mark, or state the chain's exception,
-  where the declaration was documentation rather than a constraint.
+
+- **`antiTransitive` convicts the chain it forbids.** The mark shipped classified and
+  disjoint from `transitive`, with the conviction declared and not enforced: `(P a b)` and
+  `(P b c)` believed left `(P a c)` admitted in silence. The three are **one nogood**, the
+  first whose members are three rather than two — a known-true chain refuses the direct
+  step at the door (`:type :anti-transitive`), a chain with one defeasible step has that
+  step defeated, and three equal defaults are a three-sided dilemma `contradictions`
+  reports and the engine declines to decide. The mark descends the predicate hierarchy
+  like the other constraint marks, so it convicts a `fatherOf` chain under
+  `(antiTransitive parentOf)`; it does not imply `irreflexive`, and a step reached only by
+  argument preservation is not enumerated. *Class:* **Breaking** — a KB that declared the
+  mark and stored a chain is now told about it, and `:nogood` / `:handles` / `:sides` on a
+  clash report can hold three members where a reader may have assumed two. *Migration:*
+  drop the mark, or state the chain's exception, where the declaration was documentation
+  rather than a constraint.
   *Breaks:* `antiTransitive`, `:anti-transitive`, `:opposing-handles`, `contradictions`,
   `conflicts`, `check`
   [docs/nmtms.md](docs/nmtms.md), [docs/taxonomy.md](docs/taxonomy.md)
@@ -174,21 +1277,19 @@
 
 ### Storage and the durable log
 
+
 - **A dedup probe reads the exact leaf, not a match of it.** `find-sentex-handle` asked
   `p/lookup` for the sentex's own trie key, and a key carrying a variable — which every
   non-ground key does, since keys are α-renamed — is a *wildcard* there: it fanned over
   every stored sentex of that shape and read the record of each to tell them apart, at a
-  positional read and a nippy thaw apiece on a paged store. `handle-of` and `why-not` are
-  public, RPC ops and CLI commands, so the pattern is the caller's to choose; measured at
-  800 candidates, 2779 µs per call against 13 µs. `p/leaf-at` reads the node the path
-  names and nothing else — the whole candidate set, since anything at another leaf is
-  another sentence. *Class:* **Breaking** — one method added to the `IndexStore` seam
-  ([docs/storage.md](docs/storage.md)), so an out-of-tree index implements `leaf-at`; it
-  is the leaf handles at an exact path, which every trie already holds.
-  *Migration:* implement `leaf-at` on any `IndexStore` outside this tree; the shipped
-  backends all carry it.
+  positional read and a nippy thaw apiece on a paged store (2,779 µs a call against 13, at
+  800 candidates). `p/leaf-at` reads the node the path names and nothing else, which is
+  the whole candidate set: anything at another leaf is another sentence. *Class:*
+  **Breaking** — one method added to the `IndexStore` seam, so an out-of-tree index
+  implements `leaf-at`; it is the leaf handles at an exact path, which every trie already
+  holds. *Migration:* implement `leaf-at`; the shipped backends all carry it.
   *Breaks:* `leaf-at`, `IndexStore`, `find-sentex-handle`
-  [docs/indexing.md](docs/indexing.md)
+  [docs/indexing.md](docs/indexing.md), [docs/storage.md](docs/storage.md)
 
 - **An append is all or nothing.** A write that failed partway through a frame left a
   length prefix promising bytes that never followed, and the next dirty open walked from
@@ -540,22 +1641,21 @@ None of these change an answer; each is pinned by a test that fails on the old c
 
 ## 0.10.0 — 2026-08-20 — "more than one agent over one knowledge base"
 
+
 - **Koinii: several agents coordinate over one shared knowledge base.** A new layer,
   `vaelii.impl.koinii.*`, lets independent agents assert, reply, dispute and resolve over a
   **common** store — agents *are* contexts, moves *are* sentexes, and the change feed is the
   medium, so coordination is a small vocabulary in the KB itself rather than a transport
   bolted on the side. It runs in two shapes: one single-writer daemon several clients share,
   or independently-replicated seats that reconcile through content-addressed moves. The
-  modules divide the work — `identity` (a SHA-256 / multihash content locator, a canonical
-  encoder and a Merkle commit tree), `channel` (subscribe / reply over the change feed),
-  `dispute` (context-scoped dispute reads and lifecycle), `adjudication` (a default
-  notify-plus-arbiter policy with majority-vote resolution and honest ties), `catchup` (a
-  CDC snapshot-and-tail), plus `deref`, `belief` and `speech_acts`. It is **additive**:
-  nothing in `vaelii.core` loads it, every module rests on the public core API and
-  `vaelii.client` exactly as `vaelii.impl.argue` does, and the starter never walks it — a KB
-  pays for koinii only when a deployment loads a koinii context (`identity/load-registry`,
-  `speech-acts/load-speech-acts`). *Class:* **Additive** — a new optional layer and two
-  shipped contexts (`resources/kb/koinii/`); no existing behaviour changes.
+  modules are `identity` (a SHA-256 / multihash content locator, a canonical encoder and a
+  Merkle commit tree), `channel` (subscribe / reply over the change feed), `dispute`,
+  `adjudication` (notify-plus-arbiter, majority-vote resolution and honest ties), `catchup`
+  (a CDC snapshot-and-tail), plus `deref`, `belief` and `speech_acts`. Nothing in
+  `vaelii.core` loads it, every module rests on the public core API exactly as
+  `vaelii.impl.argue` does, and the starter never walks it, so a KB pays for koinii only
+  when a deployment loads a koinii context. *Class:* **Additive** — a new optional layer
+  and two shipped contexts (`resources/kb/koinii/`); no existing behaviour changes.
   [docs/koinii.md](docs/koinii.md), [docs/feed.md](docs/feed.md)
 
 - **Belief projection: what an agent holds true.** `(believes Agent P)` is answered by
@@ -617,20 +1717,19 @@ None of these change an answer; each is pinned by a test that fails on the old c
   your KB text — `argIsa → arg`, `argGenl → genlArg`, `interArgIsa → interArg`; nothing else
   changes. [docs/argtypes.md](docs/argtypes.md), [docs/inherit.md](docs/inherit.md)
 
+
 - **A sentence carrying a non-serializable value is refused at every door.** A value nippy
-  cannot freeze and thaw — a function, an atom, a non-serializable object — used to store in
-  the `:memory` backend and then throw at write time on the first `:disk` backend, so the
-  same assert succeeded or failed by backend. `checks/check-encodable` now refuses it up
-  front at every persisting door (`assert`, hence `assert-rule` / `assert-many` /
-  `bulk-assert-facts!`, and `assert-inert`) with `:type :not-encodable`, and `check` predicts
-  it — so a stored sentence's values round-trip in every backend or the sentence is refused
-  in all of them. The vocabulary and literals — symbols, keywords, strings, numbers, chars,
+  cannot freeze and thaw — a function, an atom, a non-serializable object — stored in the
+  `:memory` backend and then threw at write time on the first `:disk` backend, so the same
+  assert succeeded or failed by backend. `checks/check-encodable` refuses it up front at
+  every persisting door (`assert`, hence `assert-rule` / `assert-many` /
+  `bulk-assert-facts!`, and `assert-inert`) with `:type :not-encodable`, and `check`
+  predicts it. The vocabulary and literals — symbols, keywords, strings, numbers, chars,
   booleans, `nil`, and any vector/map/set of them — clear without a freeze (~56 ns/assert,
   zero index reads); a leaf outside that set goes through the freeze/thaw pair the disk
   backends run and is refused if either throws. *Class:* **Refusal** — accepting the value
   stored a sentence no `:disk` KB could recover, so no working caller is broken.
-  *Breaks:* `:not-encodable`. *Migration:* none — replace the non-serializable leaf with
-  data; a value the `:memory` backend used to take never survived a dump-and-load.
+  *Breaks:* `:not-encodable`. *Migration:* replace the non-serializable leaf with data.
   [docs/storage.md](docs/storage.md)
 
 - **New public reads for handles and un-stored canonical form, and `argue` is public.**
@@ -652,20 +1751,19 @@ None of these change an answer; each is pinned by a test that fails on the old c
 
 ## 0.9.0 — 2026-08-17 — "the truth-maintenance network defaults to dense"
 
-- **The dense truth-maintenance network is the default.** `open-kb`'s `:tms` now defaults
-  to `:dense` (bitmaps + primitive-keyed maps) rather than `:reference` (the persistent-map
-  network). `jtms_dense_oracle_test` proves the two belief-identical op by op, so no answer,
-  match or ordering changes; what changes is resident RAM — measured flat per node from 20k
-  to 1M, the JTMS holds in ~3.8× less memory at corpus scale (~9.1 → ~2.35 GB on an 11.5M-
-  sentex corpus, a ~21% whole-KB cut), which an engine built for one large node holding 100M
-  should take by default. Wall is unchanged: dense loads and recovers as fast as the
-  reference, and at 10.19M both wall identically because the open-time cost is above the
-  network. *Class:* **Breaking** — a documented default changes: a KB opened without `:tms`
-  now runs the dense network, and `catalog/footprint`'s `:tms` estimate drops 467 → ~101
-  B/sentex to match. No answer, match or ordering moves — only the representation and the
-  footprint number. *Breaks:* the `:tms` default. *Migration:*
-  pin `:tms :reference` to keep the persistent-map network and the old footprint figure. [docs/density.md](docs/density.md),
-  [docs/nmtms.md](docs/nmtms.md)
+
+- **The dense truth-maintenance network is the default.** `open-kb`'s `:tms` defaults to
+  `:dense` (bitmaps + primitive-keyed maps) rather than `:reference` (the persistent-map
+  network). `jtms_dense_oracle_test` proves the two belief-identical op by op, so no
+  answer, match or ordering changes; what changes is resident RAM — measured flat per node
+  from 20k to 1M, ~3.8× less at corpus scale (~9.1 → ~2.35 GB on an 11.5M-sentex corpus, a
+  ~21% whole-KB cut), which an engine built for one large node holding 100M should take by
+  default. Wall is unchanged. *Class:* **Breaking** — a documented default changes, and
+  `catalog/footprint`'s `:tms` estimate drops 467 → ~101 B/sentex to match. No answer,
+  match or ordering moves — only the representation and the footprint number.
+  *Breaks:* the `:tms` default. *Migration:* pin `:tms :reference` to keep the
+  persistent-map network and the old footprint figure.
+  [docs/density.md](docs/density.md), [docs/nmtms.md](docs/nmtms.md)
 
 - **The dense network gives a concurrent reader a consistent view.** A reader thread beside
   the writer — the web browser over a REPL's KB, the shape the single-writer contract calls
@@ -678,60 +1776,55 @@ None of these change an answer; each is pinned by a test that fails on the old c
   a race that could tear or fault a read on the new default now cannot. `jtms_concurrency_test`.
   [docs/density.md](docs/density.md), [docs/storage.md](docs/storage.md)
 
+
 - **Four relation properties, enforced.** `irreflexive` refuses a self tuple `(P a a)` at
   the door (`:type` `:irreflexive`), the strict counterpart of `reflexive` and stronger
   than `asymmetric`, which admits the self tuple. `antiSymmetric` resolves by *merging*: a
   believed converse `(P b a)` beside `(P a b)` derives `(equals a b)` and unifies the two
   arguments, the antisymmetric twin of what `functional` does with two symbol values, over
   the same three arrival directions; a converse no equality could reconcile (two numbers)
-  refuses instead (`:type` `:anti-symmetric`). `equivalenceRelation` needs no engine code —
+  refuses instead (`:type` `:anti-symmetric`). `equivalenceRelation` needs no engine code:
   three shipped forward rules derive `symmetric`, `transitive` and `reflexive`, each
-  enforced in turn (a subsumption `genl` edge would classify but not set the property the
-  enforcement reads, so the rules are the minimal correct expression). `antiTransitive` is
-  **declared and its chain conviction deferred**: `(P a b) ∧ (P b c) ⇒ ¬(P a c)` is a
-  three-party nogood the settle machinery forms only pairwise, so what is enforced is its
-  classification and `(disjoint transitive antiTransitive)` — no predicate is both. Each new
-  property is one predicate on the collapsed model — `(genl X binaryPredicate)`, no derived
-  twin — and the lattice sits on the bare marks: `(genl asymmetric irreflexive)`, `(genl
-  asymmetric antiSymmetric)`, `(disjoint symmetric asymmetric)`, `(disjoint reflexive
-  irreflexive)`, `(disjoint transitive antiTransitive)`. `(disjoint symmetric antiSymmetric)`
-  is skipped — `equals` is both. *Class:* **Additive** — two new refusal `:type` keywords a
-  caller may now meet, and vocabulary that was inert before is now read; no existing
-  declaration changes behaviour. [docs/taxonomy.md](docs/taxonomy.md),
-  [docs/nmtms.md](docs/nmtms.md)
+  enforced in turn. `antiTransitive` is **declared and its chain conviction deferred** —
+  `(P a b) ∧ (P b c) ⇒ ¬(P a c)` is a three-party nogood the settle machinery forms only
+  pairwise — so what is enforced is its classification and `(disjoint transitive
+  antiTransitive)`. Each property is one predicate on the collapsed model, `(genl X
+  binaryPredicate)` with no derived twin, and the lattice sits on the bare marks;
+  `(disjoint symmetric antiSymmetric)` is skipped, `equals` being both. *Class:*
+  **Additive** — two new refusal `:type` keywords a caller may now meet, and vocabulary
+  that was inert before is now read; no existing declaration changes behaviour.
+  [docs/taxonomy.md](docs/taxonomy.md), [docs/nmtms.md](docs/nmtms.md)
+
 
 - **A subsumption rests on its strongest route, not its shortest.** When a fact reaches a
   rule antecedent of a different functor across the `genl` closure, the conclusion is
-  capped at the defeat class of the path the match climbed. That path was chosen breadth-
-  first — the *fewest* edges — so a conclusion read `:default` whenever the shortest route
-  ran through a defeasible edge, even when a longer all-`:monotonic` route existed. The walk
-  now takes the **widest bottleneck**: the route whose floor (the `min` defeat class along
-  it) is highest, tie-broken by depth then content. So a conclusion over a `:monotonic`
-  route holds `:monotonic`, and `kb/reach-strength` reads that floor directly. *Class:*
-  **Breaking** — `defeat-class` of a conclusion reached across a taxonomy that offers two
-  routes at different strengths can rise from `:default` to `:monotonic`; a caller that
-  keyed on the old class must re-read it. No answer *set* changes — only the strength a
-  conclusion is reported at. *Breaks:* `defeat-class`. *Migration:* re-read `defeat-class`
-  on conclusions reached across such a taxonomy; if you want the old shortest-path witness
-  for placement, it is unchanged — only the `genl` subsumption path a firing rests on moved.
-  [docs/taxonomy.md](docs/taxonomy.md)
+  capped at the defeat class of the path the match climbed — chosen breadth-first, the
+  *fewest* edges, so a conclusion read `:default` whenever the shortest route ran through a
+  defeasible edge and a longer all-`:monotonic` route existed. The walk takes the **widest
+  bottleneck**: the route whose floor is highest, tie-broken by depth then content, which
+  `kb/reach-strength` reads directly. *Class:* **Breaking** — `defeat-class` of a
+  conclusion reached across a taxonomy that offers two routes at different strengths can
+  rise from `:default` to `:monotonic`; no answer *set* changes. *Breaks:* `defeat-class`.
+  *Migration:* re-read `defeat-class` on such conclusions; the shortest-path placement
+  witness is unchanged. [docs/taxonomy.md](docs/taxonomy.md),
+  [docs/defenses.md](docs/defenses.md)
+
 
 - **An algebraic property is one predicate, not a mark and a twin.** The derived predicate
   types `symmetricPredicate` / `asymmetricPredicate` / `transitivePredicate` /
-  `reflexivePredicate` / `functionalPredicate` are removed, along with the `PredicateTypeProver`
-  and the CxCore rules that materialized them. Each **mark** — `symmetric`, `asymmetric`,
-  `transitive`, `reflexive`, `functional` — now carries the classification itself: through
-  `(genl symmetric binaryPredicate)` in CxCore it *is* a `binaryPredicate` subtype, so
-  `(symmetric siblingOf)` makes `isa? siblingOf symmetric` and `isa? siblingOf binaryPredicate`
-  hold and `ask (symmetric ?p)` enumerates by ordinary retrieval. `genl` / `genlCx` are the
-  taxonomy's `closure-relations`: `(transitive genl)` is stored and queryable but held out of
-  the `:transitive` property machinery, so it never routes them to the generic prover. *Class:*
-  **Breaking** — a query, rule or `isa?` naming a `…Predicate` type now answers nothing; and
-  because the surviving mark is a `decontextualizedPredicate`, its membership is read KB-wide
-  rather than only in the context that once derived the twin. *Breaks:* `symmetricPredicate`,
-  `asymmetricPredicate`, `transitivePredicate`, `reflexivePredicate`, `functionalPredicate`.
-  *Migration:* replace `(…Predicate P)` with the bare mark `(… P)`; the mark answers the same
-  membership and now classifies `P` as a `binaryPredicate` directly.
+  `reflexivePredicate` / `functionalPredicate` are removed, along with the
+  `PredicateTypeProver` and the CxCore rules that materialized them. Each **mark** carries
+  the classification itself: through `(genl symmetric binaryPredicate)` in CxCore it *is* a
+  `binaryPredicate` subtype, so `(symmetric siblingOf)` makes `isa? siblingOf symmetric`
+  and `isa? siblingOf binaryPredicate` hold, and `ask (symmetric ?p)` enumerates by
+  ordinary retrieval. `(transitive genl)` is stored and queryable but held out of the
+  `:transitive` property machinery, `genl` / `genlCx` being the taxonomy's own closure
+  relations. *Class:* **Breaking** — a query, rule or `isa?` naming a `…Predicate` type now
+  answers nothing; and because the surviving mark is a `decontextualizedPredicate`, its
+  membership is read KB-wide rather than only in the context that once derived the twin.
+  *Breaks:* `symmetricPredicate`, `asymmetricPredicate`, `transitivePredicate`,
+  `reflexivePredicate`, `functionalPredicate`. *Migration:* replace `(…Predicate P)` with
+  the bare mark, which answers the same membership.
   [docs/taxonomy.md](docs/taxonomy.md)
 
 - **A rule may conclude a variable predicate.** `(implies (holds ?p ?x ?y) (?p ?x ?y))`
@@ -772,22 +1865,21 @@ None of these change an answer; each is pinned by a test that fails on the old c
   public read and one route; nothing existing changes.
   [docs/web.md](docs/web.md), [docs/exceptions.md](docs/exceptions.md)
 
+
 - **A rule is asked before it fires, and a definitional read is taken from where it is
   asked.** One blind spot ran through several paths: a stored-but-OUT rule still fired, or
   a read answered from a vantage that could not see the declaration it rested on. The two
-  re-join paths (`rejoin-qualitative`, `rejoin-preserving`) now ask `rule-believed?` as the
+  re-join paths (`rejoin-qualitative`, `rejoin-preserving`) ask `rule-believed?` as the
   trigger path always did, so a defeated rule reached off the storage-posted antecedent
-  index no longer fires — and no longer files a `violations` entry against a rule the KB
-  does not hold. A `watch` subsumes through the `genl`
-  edges its own context sees rather than every edge; a functional-merge clash and ASP's
-  auto-clash detectors read functionality, disjointness and same-class from the solving
-  vantage; and `why-not` names the supersession the fact's own context elected rather than
-  one a global rewrite returned. A refusal also keeps the depth bound its run set, so a
-  release honours that bound over the default — live-session only, since a recovered KB
-  rebuilds refusals at the default exactly as it resets derivation depths. No working caller
-  relied on a rule firing unasked, or on a read that disagreed with itself across a context
-  it could not see. [docs/inference.md](docs/inference.md),
-  [docs/contexts.md](docs/contexts.md), [docs/exceptions.md](docs/exceptions.md)
+  index neither fires nor files a `violations` entry against a rule the KB does not hold. A
+  `watch` subsumes through the `genl` edges its own context sees rather than every edge; a
+  functional-merge clash and ASP's auto-clash detectors read functionality, disjointness
+  and same-class from the solving vantage; and `why-not` names the supersession the fact's
+  own context elected rather than one a global rewrite returned. A refusal also keeps the
+  depth bound its run set — live-session only, since a recovered KB rebuilds refusals at
+  the default exactly as it resets derivation depths.
+  [docs/inference.md](docs/inference.md), [docs/contexts.md](docs/contexts.md),
+  [docs/exceptions.md](docs/exceptions.md)
 
 - **A dotted-rest pattern retrieves the facts it matches.** A query or match whose
   sentence ends in a rest-splice — `(parentOf . ?args)`, `(?pred . ?args)` — returned
@@ -822,19 +1914,19 @@ None of these change an answer; each is pinned by a test that fails on the old c
   *Class:* **Additive** — a new backend keyword; no existing pairing changes.
   [docs/storage.md](docs/storage.md)
 
+
 - **`person` is a social agent, and `human` is the biological type.** The shipped ontology
-  splits the two: `human` is `(genl human mammal)` and `(genl human person)`, while `person`
-  is `(genl person physical_object)` — an entity with social agency that need not be alive. So
-  `(isa X person)` no longer entails `mammal` or `animal`: a non-biological agent can be a
-  `person`, which is what lets the social predicates (`friendOf`, `knows`, `marriedTo`)
-  constrain their arguments to `person` and still admit it, while the biological predicates
-  (`parentOf`, `birthYearOf`, `fatherOf`, `motherOf`) constrain to `animal` and refuse a
-  `person` who is not one. *Class:* **Breaking** — a shipped taxonomy edge changed: `(genl
-  person mammal)` and `(genl person animal)` no longer hold, so a query, rule or `isa?` that
-  read a `person` as a `mammal`/`animal` answers differently. *Breaks:* the `person`
-  membership entailment; the biological predicates now refuse a non-`animal` `person`.
-  *Migration:* type biological individuals `(isa X human)` where you relied on `(isa X person)`
-  implying `mammal` or `animal`; leave non-biological agents as `person`.
+  splits the two: `human` is `(genl human mammal)` and `(genl human person)`, while
+  `person` is `(genl person physical_object)` — an entity with social agency that need not
+  be alive. So `(isa X person)` no longer entails `mammal` or `animal`, which is what lets
+  the social predicates (`friendOf`, `knows`, `marriedTo`) constrain their arguments to
+  `person` and still admit a non-biological agent, while the biological ones (`parentOf`,
+  `birthYearOf`, `fatherOf`, `motherOf`) constrain to `animal` and refuse a `person` who is
+  not one. *Class:* **Breaking** — a shipped taxonomy edge changed, so a query, rule or
+  `isa?` that read a `person` as a `mammal`/`animal` answers differently. *Breaks:* the
+  `person` membership entailment; the biological predicates now refuse a non-`animal`
+  `person`. *Migration:* type biological individuals `(isa X human)` where you relied on
+  `(isa X person)` implying `mammal` or `animal`; leave non-biological agents as `person`.
   [docs/commonsense.md](docs/commonsense.md)
 
 - **`argPreserving` is renamed `transitiveInArg`.** The meta-predicate that declares an
@@ -1494,6 +2586,7 @@ written.
   guard answered from arrival order rather than content; **Additive** for `check`.
   [docs/exceptions.md](docs/exceptions.md), [docs/naf.md](docs/naf.md)
 
+
 - **A rule can conclude a rule.** `(implies <antes> (implies <antes'> <conseq'>))` is a
   **generator**: its firing stores the rule it concludes, holes filled. The hole split is
   computed rather than declared — a variable the generator's own antecedents mention is
@@ -1506,10 +2599,10 @@ written.
   four chainer sites, which is what makes that work. Five refusals bound it: a generator
   generating a generator, an `exceptWhen` on the stamped rule, a `set/backwardRule`
   generator, one sharing no variable with what it stamps, and a generator **cycle** —
-  refused outright rather than depth-capped, since a cap makes the KB's contents a function
-  of how long the chainer ran. *Class:* **Additive**; shapes that were refused are accepted,
-  and nothing could previously make a stored rule un-believed.
-  [docs/generators.md](docs/generators.md)
+  refused outright rather than depth-capped ([docs/defenses.md](docs/defenses.md)).
+  *Class:* **Additive**; shapes that were refused are accepted, and nothing could
+  previously make a stored rule un-believed. [docs/generators.md](docs/generators.md)
+
 
 - **A NAF guard written as a conjunction now guards.** `(unknown (and A B))` was accepted
   and inert in three places at once: no prover claims the functor `and`, so the goal came
@@ -1520,9 +2613,8 @@ written.
   is the one accessor all four readers share, so the conjuncts are evaluated by the
   exception's own block-if-all evaluator, each conjunct's predicate is watched, and each is
   a negative edge; conjuncts are sorted and flattened, as an exception's are. A conjunction
-  **under a quantifier** is refused (`:quantified-conjunction`) — read flat, each conjunct
-  would be satisfied by a different witness, so "has a sick child" would hold of anyone with
-  a child while anyone at all was sick — and an empty conjunction with it.
+  **under a quantifier** is refused (`:quantified-conjunction`), and an empty one with it —
+  [docs/defenses.md](docs/defenses.md) says why the flat reading is not available.
   *Class:* neither label for the guard, no author's code having done what its author
   believed; **Refusal** for the two shapes. *Migration:* bind the witness with a generator
   antecedent and leave one literal under the `unknown`.
@@ -1764,29 +2856,27 @@ anyway, because a caller can observe them and should be told what to expect.
 | branches on `violations`' `:violation` with a defaultless `case` | `:arbitration-truncated` is a new kind |
 | builds on the shipped Space or Time vocabulary | an argument position that held `thing` now names a type, so an assert 0.5.0 accepted can meet an `:arg-type` refusal — widen the convicting declaration it names, or state the argument at a type the position admits |
 
+
 - **A settle pays for the region it moved, not for what the KB holds.** Eight reads were
   charging the second. `refresh-relation` walked every supporter to decide whether to run
-  and recomputed every edge's believed-supporter set — 176.6 ms in a 64k-edge relation,
-  6.87x across 8x the edges the flip is not about — where `:handle-edge`, the transpose of
-  `:support`, reads the scope forward off the moved handles: 9.2 µs, 0.61x. The five flat
-  caches read `:cache-support` backward, so every settle paid the declared vocabulary to
-  learn it had nothing to do: 5.0 ms at 32k declarations to find nothing, 95 ms for a flip,
-  against 5 µs and 1 µs read forward off `:cache-handle-keys`. `record-clashes!` ordered
-  every standing clash report on the settle path, so an assert into a KB holding 800
-  dilemmas paid for a reading nobody asked for — stored in arrival order and ordered at the
-  read by `settle/ranked`, 1.60 → 1.07 ms against 1.05 before the ordering existed. A
-  `genl` edge with nothing above or below it cost 800 `arbitrable-violations` calls and a
-  `genlCx` edge re-derived 400 opposed bodies; both cost zero now, weighed per pair.
-  `refresh-supersessions` re-examined every displaced spelling every settle — 400 calls and
-  9.06x against 400 standing merges, now 0 and 1.70x — and a negated exception conjunct
-  registered under `not`, hiding the predicate it is about, waved the recheck through to
-  `:all`: 1,600 exception evaluations and 10.16x become 0 and 0.91x. What the scoping
-  removed was a whole-KB rescan four writers leaned on, so a writer touching a shared edge
-  records it in `:dirty` / `:cache-dirty` and the reconcile takes those whether or not
-  belief moved there. Gates: `taxonomy-belief-flip`, `flat-cache-belief-flip`,
-  `standing-clash-reading`, `taxonomy-edge-arbitration`, `context-edge-arbitration`.
-  *Class:* neither label; every reading answers what it answered.
-  [docs/taxonomy.md](docs/taxonomy.md), [docs/equality.md](docs/equality.md)
+  and recomputed every edge's believed-supporter set — 176.6 ms in a 64k-edge relation —
+  where `:handle-edge`, the transpose of `:support`, reads the scope forward off the moved
+  handles: 9.2 µs. The five flat caches read `:cache-support` backward, so every settle
+  paid the declared vocabulary to learn it had nothing to do: 5.0 ms at 32k declarations,
+  against 5 µs read forward off `:cache-handle-keys`. `record-clashes!` ordered every
+  standing clash report on the settle path, so an assert into a KB holding 800 dilemmas
+  paid for a reading nobody asked for — stored in arrival order and ordered at the read by
+  `settle/ranked`. A `genl` edge with nothing above or below it cost 800
+  `arbitrable-violations` calls and a `genlCx` edge re-derived 400 opposed bodies, both
+  weighed per pair now; `refresh-supersessions` re-examined every displaced spelling every
+  settle; and a negated exception conjunct registered under `not`, hiding the predicate it
+  is about, waved the recheck through to `:all`. What the scoping removed was a whole-KB
+  rescan four writers leaned on, so a writer touching a shared edge records it in `:dirty`
+  / `:cache-dirty` and the reconcile takes those whether or not belief moved there. Gates:
+  `taxonomy-belief-flip`, `flat-cache-belief-flip`, `standing-clash-reading`,
+  `taxonomy-edge-arbitration`, `context-edge-arbitration`. *Class:* neither label; every
+  reading answers what it answered. [docs/taxonomy.md](docs/taxonomy.md),
+  [docs/equality.md](docs/equality.md)
 
 - **The arbitrating half of a bounded pass says when its budget stopped it.** The reporting
   half filed `:exposure-truncated`; the half that spends the same budget *before anything
@@ -1802,6 +2892,7 @@ anyway, because a caller can observe them and should be told what to expect.
   pair while the mark still stood, no closure moved, and neither member was in the region —
   the KB kept reporting a dilemma the oracle does not. Only the departure was silent.
 
+
 - **Four places where arrival order decided an answer.** A predicate's **second declared
   inverse** hid its first: the taxonomy held one partner per predicate, so
   `(transitive beforeEv)` proved a chain with `afterEv` declared second and failed with it
@@ -1809,18 +2900,15 @@ anyway, because a caller can observe them and should be told what to expect.
   `{predicate -> #{partners}}` now, maintained in both directions; `inverse-of` keeps its
   shape and answers the lexicographically smallest. **`kb-quality` ranked its capped lists
   on the handle**, so two loads of one KB reported the same `:never-count` over a different
-  `:never` — they rank on content now. **A preview's capped diff** was built off a region
-  sorted numerically, so the browser's 50-row panel showed a different fifty depending on
-  load order, with `:bounded?` true either way; both halves rank on sentence then context
-  at the point each caller caps. And **an LLM prompt** was cut before it was sorted, so a
-  term past the cap was shown a prefix of arrival order — the sort precedes the cut at all
-  four sites, the scan above it is sorted rather than left in the index's hash order, and
-  the heading tells the model it is looking at a sample. *Migration:* a caller reading the
-  first N of either preview half gets a different N — a different, better-defined N.
-  *Class:* neither label; nothing documented which of two declarations won, and a sequence
-  that moved with load order was never a contract.
-  [docs/preview.md](docs/preview.md), [docs/taxonomy.md](docs/taxonomy.md),
-  [docs/llm.md](docs/llm.md)
+  `:never`. **A preview's capped diff** was built off a region sorted numerically, so the
+  browser's 50-row panel showed a different fifty depending on load order, with `:bounded?`
+  true either way. And **an LLM prompt** was cut before it was sorted, so a term past the
+  cap was shown a prefix of arrival order. All four rank on content — sentence then context
+  — at the point each caller caps, and the LLM heading tells the model it is looking at a
+  sample. *Migration:* a caller reading the first N of either preview half gets a
+  different, better-defined N. *Class:* neither label; a sequence that moved with load
+  order was never a contract. [docs/preview.md](docs/preview.md),
+  [docs/taxonomy.md](docs/taxonomy.md), [docs/llm.md](docs/llm.md)
 
 - **A card's cut is a count, including the cut that was not counted.** `used-with` claimed
   everything its scan missed was still offered under a later tier, which is false for
@@ -1833,21 +2921,19 @@ anyway, because a caller can observe them and should be told what to expect.
   and `derive-functional-equalities` took `first` of a `(functional P)` stated in two
   contexts, so retracting one withdrew a merge the other still licensed.
 
+
 - **The model backends refuse by name, never by value, and a turn that ran out of tokens is
   not a deletion.** The JDK rejects a bad header character by quoting the value verbatim,
   and the browser renders that onto the proposal panel — so a `.env` ending in CRLF was one
   hop from putting an API key on a page; it is `{:type :llm-bad-credential}` carrying no
   value. A streamed body reads under a watchdog (`:llm-timeout`), a 200 whose body is not
-  JSON raises `:llm-bad-response` with a bounded excerpt rather than escaping as the JSON
-  library's own exception, and eleven sites catch `Throwable` — a `StackOverflowError` on
-  deeply nested model text read as *the model proposed nothing*, `canon` overflowing around
-  500 nestings against the EDN reader's 5,000. `:stop-reason` is read before the diff, so a
-  truncated turn is `:truncated` rather than every row the model never reached coming back
-  as a `:remove`. `apply-proposal!` calls `edit!`, which is not a transaction, so it returns
-  `{:result :applied :failed-at :error}` and runs the settle by hand on the failure path.
-  The `^:llm` consent gate follows the call graph to a fixpoint, one namespace having
-  defined a `live-model` that was a bare provider constructor. *Class:* Additive for the
-  three new `:type`s.
+  JSON raises `:llm-bad-response` with a bounded excerpt, and eleven sites catch `Throwable`
+  — a `StackOverflowError` on deeply nested model text read as *the model proposed nothing*,
+  `canon` overflowing around 500 nestings against the EDN reader's 5,000. `:stop-reason` is
+  read before the diff, so a truncated turn is `:truncated` rather than every row the model
+  never reached coming back as a `:remove`. `apply-proposal!` calls `edit!`, which is not a
+  transaction, so it returns `{:result :applied :failed-at :error}` and runs the settle by
+  hand on the failure path. *Class:* Additive for the three new `:type`s.
 
 - **The taxonomy's closures terminate, scope their repairs, and read a repeat.** A `genlCx`
   edge out of a context that sees another one back never returned: the depth potential ranks
@@ -1856,15 +2942,13 @@ anyway, because a caller can observe them and should be told what to expect.
   a context cycle rebuilt every component (11.19x across 16x a background the retraction is
   not about); an edge merely *incident* on a cycle is left alone, and the same retraction
   reads 0.97x. `TransitivePredicateProver` holds the reach per
-  `[direction predicate node context]` stamped with the change clock — 0.10–0.14x on a
-  repeat over a 2,000- to 8,000-node chain, with no record read at all — and a closed goal
-  reads the cache without filling it. `(P ?x ?x)` cost a closure per node to answer nothing
+  `[direction predicate node context]` stamped with the change clock, and a closed goal
+  reads the cache without filling it; `(P ?x ?x)` cost a closure per node to answer nothing
   and is one Tarjan condensation. And a transitive predicate's hops are the believed
   matches, the **inverse spelling among them**: `(transitive before)` walked stored `before`
   facts alone, so an `(inverse before after)` chain broke mid-walk and answered negative
   with no diagnostic. *Migration:* such an `ask` returns at least what it did and never
-  less, so the only caller affected is one that counted on an inverse-recorded hop being
-  invisible. *Class:* Additive for the cache; neither label for the rest.
+  less. *Class:* Additive for the cache; neither label for the rest.
   [docs/taxonomy.md](docs/taxonomy.md), [docs/storage.md](docs/storage.md)
 
 - **A unary fact about a reified NAT was deleted with the constant, silently.** One clause
@@ -1881,20 +2965,21 @@ anyway, because a caller can observe them and should be told what to expect.
   *Class:* neither label; a caller whose unary claim was being deleted underneath them was
   not getting what they believed.
 
+
 - **The change feed crosses the process boundary, as a subscription with a cursor.** `watch`
   takes a function and a function does not cross an EDN wire, so the daemon's half is
   `:watch` / `:poll` / `:unwatch` / `:watchers` over a ring and an integer cursor — all four
   in `serve/feed-ops` rather than `serve/ops`, which is what keeps a subscription out of the
   model's tool set. A parked long poll held a thread nothing counted, so 55 concurrent polls
-  drove the 50-thread pool to 50/50 busy and `/health` from 62 ms to 25,997 ms:
-  `max-parked` (16) bounds how many may wait, and a poll that does not ask to wait is never
-  refused. `{:wait-ms 1e300}` answered 500 and `##NaN` made the poll answer instantly
-  forever — it is `nat-int?`, capped before coercion — and a subscription dropped while it
-  was being registered took the whole feed down permanently. What one caller can allocate is
-  bounded three ways, nothing authenticating `POST /op` on the loopback default: 64
-  subscriptions, 256 events per ring, and one unpolled for five minutes reaped at the next
-  call. The ceilings bound the event count and not the bytes, and the docs say so.
-  *Class:* neither label — the feed is new in this release. [docs/feed.md](docs/feed.md)
+  drove the 50-thread pool to 50/50 busy and `/health` from 62 ms to 25,997 ms: `max-parked`
+  (16) bounds how many may wait, and a poll that does not ask to wait is never refused.
+  `{:wait-ms 1e300}` answered 500 and `##NaN` made the poll answer instantly forever — it is
+  `nat-int?`, capped before coercion. What one caller can allocate is bounded three ways,
+  nothing authenticating `POST /op` on the loopback default: 64 subscriptions, 256 events
+  per ring, and one unpolled for five minutes reaped at the next call. The ceilings bound
+  the event count and not the bytes, and the docs say so. *Class:* neither label — the feed
+  is new in this release. [docs/feed.md](docs/feed.md)
+
 
 - **A conjunction is costed as a join rather than as a column of literals.** `plan/est-rows`
   answers what `est-matches` does not — not *can* this literal fan out, a sound upper bound,
@@ -1905,15 +2990,12 @@ anyway, because a caller can observe them and should be told what to expect.
   falls back on a proxy rather than calling the join a cartesian product. Generators are
   split into connected blocks and ranked by adjacent transposition, with two placements
   outside the law because they are claims an estimate cannot make. Planning one fixed
-  conjunction is now flat in the size of the KB — the cost model asked for a distinct-value
-  count once per literal per plan and `(count (children …))` materialized the child set,
-  25x more against 32x the facts — and `plan-scaling` reads flat with `p/count-children`
-  against 24.6x without. `lein bench-plan` reports the q-error per join depth: 1.00 at every
-  depth through six literals, 1.00 / 2.75 / 2.87 on a corpus built to break the independence
-  assumption where a compounding model would read about 7.5 at depth 3, and 1.13x the best
-  of all 24 permutations against 2.18x before. `query-plan` carries `:est-rows`,
-  `:est-prefix` and `:block` beside `:est-matches`. *Class:* **Additive**; a new
-  `IndexStore` read, owed by both implementations.
+  conjunction is now flat in the size of the KB, `plan-scaling` reading flat with
+  `p/count-children` against 24.6x without. `lein bench-plan` reports the q-error per join
+  depth: 1.00 through six literals, and 1.00 / 2.75 / 2.87 on a corpus built to break the
+  independence assumption where a compounding model would read about 7.5 at depth 3.
+  `query-plan` carries `:est-rows`, `:est-prefix` and `:block` beside `:est-matches`.
+  *Class:* **Additive**; a new `IndexStore` read, owed by both implementations.
   [docs/inference.md](docs/inference.md), [docs/indexing.md](docs/indexing.md)
 
 - **Long work is one mechanism: a job registry, and the screen that watches it.**

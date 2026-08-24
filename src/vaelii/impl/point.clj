@@ -15,14 +15,16 @@
   which came first.  The two meet at `vaelii.impl.stp`, which relates an interval to its
   two endpoint instants and puts numbers on the gaps between them.
 
-  **The same algebra appears twice in this tree.**  `vaelii.impl.orientation` composes two
-  independent one-dimensional projections to get the nine cardinal directions, and each
-  projection is exactly these three relations under the spellings `:lt` / `:eq` / `:gt`.
-  The table is duplicated rather than shared: there the three relations are a position on
-  an axis and are a private implementation detail of a nine-relation algebra, here they
-  are an order in time with their own vocabulary, and neither namespace should have to
-  read the other's keywords to say what it means.  Nine identical entries are cheaper than
-  that coupling, and either copy is checkable against the definitions on its own.
+  **The same algebra appears twice in this tree.**  `vaelii.impl.projection` builds a
+  nine-relation algebra out of two independent one-dimensional projections — the cardinal
+  directions of `vaelii.impl.orientation` and the relative frame of `vaelii.impl.relative`
+  are both that shape — and each projection is exactly these three relations under the
+  spellings `:lt` / `:eq` / `:gt`.  The table is duplicated rather than shared: there the
+  three relations are a position on an axis and an implementation detail of the algebras
+  built over them, here they are an order in time with their own vocabulary, and neither
+  namespace should have to read the other's keywords to say what it means.  Nine identical
+  entries are cheaper than that coupling, and either copy is checkable against the
+  definitions on its own.
 
   Instants are **stored as ordinary sentexes** — the three named binary predicates
   (`instantBefore`, `instantAfter`, `instantEqual`) plus three derived ones

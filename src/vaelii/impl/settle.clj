@@ -540,7 +540,7 @@
   this round queued must read belief as it is now.  `touched` is the region as read
   after the defeat — the caller reads it once and the next round shares the value."
   [kb touched]
-  (special/reconcile-belief-change! kb touched)
+  (special/reconcile-belief-change kb touched)
   (tax/restore-depths (:taxonomy kb)))
 
 (defn- preserved-rejoins-for
@@ -676,9 +676,11 @@
         ;; `:sentence` by, and for the same reason: a handle is allocated in assertion
         ;; order, so sorting the sides by one would make "which side is first?" an
         ;; answer about which was typed first while `:sentence` beside it said the same
-        ;; thing either way.  The context separates one sentence clashing with itself
-        ;; across two contexts; the handle is the last resort, for a pair a reader
-        ;; cannot tell apart anyway.
+        ;; thing either way.  Two keys are **total** here, so no third is needed: the
+        ;; context separates one sentence clashing with itself across two contexts, and
+        ;; sentence-plus-context is what identifies a sentex — two sides agreeing on both
+        ;; are one canonical sentex and one handle, which is not a pair at all.  So no
+        ;; handle enters the key at all, and `report_order_test` scans this line for one.
         sides (->> nogood
                    (map (fn [h]
                           (let [s (p/get-sentex recs h)]
@@ -691,7 +693,7 @@
                                                   ;; comparison; a rule side lists the rule's
                                                   ;; whole firing history
                                                   (nm/sort-by-content-key jkey nm/compare-form))})))
-                   (sort-by (juxt :sentence :context :handle) nm/compare-form)
+                   (sort-by (juxt :sentence :context) nm/compare-form)
                    vec)]
     {:nogood nogood :priority priority :sentence sentence
      :handles (mapv :handle sides)
@@ -932,18 +934,43 @@
     (let [ss (map #(literal-shape (cond-> % norm norm)) triggers)]
       (if (some nil? ss) :all (set ss)))))
 
+(defn- reachable-predicates
+  "The trigger predicates that could answer an exception conjunct whose own predicate is
+  `pred` — the closure `firing-reachable?` tests a trigger's predicate against.
+
+  For a **positive** conjunct that is `specs(pred)`, the fan matching walks: an exception
+  on `flightless` is answered by a stored `(penguin Opus)`.
+
+  A **negated** conjunct takes both closures, because two different things can move it
+  and they run in opposite directions.  A *negative* trigger answers it directly, and
+  under a negation subsumption is contravariant — `(not (flightless Opus))` is answered
+  by a stored `(not (animal Opus))` when `flightless ⊑ animal`
+  (docs/inference.md, \"Under a negation the fan reverses\") — which is `genls(pred)`.
+  A *positive* trigger moves it the other way, by contradicting the negative sentex the
+  conjunct reads and flipping its belief, and a positive fact on a spec is what does
+  that — which is `specs(pred)`, the covariant walk.  `literal-shape` drops polarity, so
+  a trigger of either kind arrives under one shape and the union is what covers both.
+  Over-approximating is the safe direction here, as it is throughout this filter: an
+  extra candidate is a re-check that changes nothing, a missing one is a lost
+  withdrawal."
+  [kb pred lit]
+  (let [tax (:taxonomy kb)]
+    (if (sx/negation? lit)
+      (into (tax/specs tax pred) (tax/genls tax pred))
+      (tax/specs tax pred))))
+
 (defn- firing-reachable?
   "Could any trigger of shape in `shapes` have flipped this firing's exception?
 
   The firing's `bindings` are substituted into each exception conjunct — closure makes
   that ground — and the conjunct is compared with each trigger.  A trigger can answer a
   conjunct only when their arguments agree **and** the trigger's predicate lies in the
-  conjunct predicate's `specs` closure: an exception on `flightless` is satisfied by a
-  stored `(penguin Opus)` when `(genl penguin flightless)`, so a bare equality test on
-  the predicate would silently miss the case the taxonomy exists for.  That is the same
-  test `recheck-on-predicate` keys the index on, read in the other direction, so this
-  narrows *within* what the index already selected and never past it.  Both read the
-  **global** spec closure, deliberately: the two sides must agree, and a
+  closure `reachable-predicates` gives the conjunct: an exception on `flightless` is
+  satisfied by a stored `(penguin Opus)` when `(genl penguin flightless)`, so a bare
+  equality test on the predicate would silently miss the case the taxonomy exists for.
+  That is the same test `recheck-on-predicate` keys the index on, read in the other
+  direction, so this narrows *within* what the index already selected and never past it.
+  Both read the **global** closure, deliberately: the two sides must agree, and a
   context-narrowed read here would under-select — a missed withdrawal, not a wasted
   re-check.
 
@@ -965,12 +992,12 @@
   [kb except bindings shapes cross? norm]
   (boolean
    (some (fn [lit]
-           (if-let [[lp la] (literal-shape (cond-> (res/substitute lit bindings)
-                                             norm norm))]
-             (or (cross? lp)
-                 (let [specs (tax/specs (:taxonomy kb) lp)]
-                   (some (fn [[tp ta]] (and (= la ta) (contains? specs tp))) shapes)))
-             true))                                       ; unreadable conjunct: keep
+           (let [lit' (cond-> (res/substitute lit bindings) norm norm)]
+             (if-let [[lp la] (literal-shape lit')]
+               (or (cross? lp)
+                   (let [reach (reachable-predicates kb lp lit')]
+                     (some (fn [[tp ta]] (and (= la ta) (contains? reach tp))) shapes)))
+               true)))                                    ; unreadable conjunct: keep
          except)))
 
 (defn- exception-candidates
@@ -1355,6 +1382,38 @@
 ;; exposed a clash does not withdraw the entry, and an ingredient that leaves and
 ;; revives files it again — each exposure is an event, stamped with its run.
 
+(defn- believed-xf
+  "Handles → the believed, positive sentexes among them: fetch the record, keep it when
+  the TMS believes the handle and the record asserts rather than denies.
+
+  **One definition, because every pass here reads the store the same way.**  The moved
+  region, an argument root, a context's own postings and a predicate's extent are four
+  different enumerations of handles and one question about each handle they yield, and a
+  pass that dropped a filter would decide a clash on content the KB does not believe.  The
+  belief read is `jtms/in?`, so a superseded spelling drops out with a defeated one
+  (docs/equality.md)."
+  [kb]
+  (comp (keep #(p/get-sentex (:records kb) %))
+        (filter #(jtms/in? (:tms kb) (:id %)))
+        (filter #(= :true (:truth %)))))
+
+(defn- believed-in-cone
+  "The believed, positive sentexes stored across `contexts` — the shape every cone sweep
+  in this namespace walks, and the reason they are one function: four passes ask it of a
+  `context-up` or a `context-down` closure and differ only in what they read off each
+  sentex.
+
+  **Lazy, and left in the cone's own order**, which is what the budgeted consumers above
+  it need: a context cycle makes the cone the whole graph, so nothing here may be realized
+  or sorted before its first element comes out (`instances-below` carries the
+  measurement).  A non-symbol names no context the index is keyed by and is dropped."
+  [kb contexts]
+  (for [c     (filter symbol? contexts)
+        s     (keep #(p/get-sentex (:records kb) %)
+                    (p/sentexes-in-context (:index kb) c))
+        :when (and (jtms/in? (:tms kb) (:id s)) (= :true (:truth s)))]
+    s))
+
 (defn- believed-at-arg
   "The believed, positive sentexes posted on `term`'s **argument-`pos` root** — one
   posting read per term and position, and the read every partner rule in this namespace
@@ -1365,18 +1424,15 @@
   second filler of the same functional slot, the converse of an asymmetric claim.
   `anti-transitive` is the one that does not — a chain reaches a tuple by its *target* as
   readily as by its source, so `(P z a)` is a partner of `(P a b)` with the shared term
-  in position 2 — which is why the position is a parameter rather than the constant it
-  was.  One read still serves the exposure pass, the retroactive sweeps and the
-  arbitration vantages alike, so a narrowing applied to one of them is applied to all.
+  in position 2 — which is why the position is a parameter rather than a constant.  One
+  read still serves the exposure pass, the retroactive sweeps and the arbitration vantages
+  alike, so a narrowing applied to one of them is applied to all.
 
   A non-symbol has no root to read — a number or a compound is not an indexable term —
   and comes back empty rather than as a scan."
   [kb pos term]
   (when (symbol? term)
-    (into [] (comp (keep #(p/get-sentex (:records kb) %))
-                   (filter #(jtms/in? (:tms kb) (:id %)))
-                   (filter #(= :true (:truth %))))
-          (p/sentexes-with-arg (:index kb) pos term))))
+    (into [] (believed-xf kb) (p/sentexes-with-arg (:index kb) pos term))))
 
 (defn- believed-at-arg1
   "`believed-at-arg` at position 1 — the membership and slot-partner read, which is most
@@ -1664,16 +1720,11 @@
   whole graph, so sorting it before the first term came out cost
   `retract-context-cycle-scaling` a 3.4x growth against a 2x bound."
   [kb sub]
-  (let [tax (:taxonomy kb)]
-    (for [c     (filter symbol? (tax/context-up tax sub))
-          s     (keep #(p/get-sentex (:records kb) %)
-                      (p/sentexes-in-context (:index kb) c))
-          :let  [sen (:sentence s)]
-          :when (and (jtms/in? (:tms kb) (:id s))
-                     (= :true (:truth s))
-                     (sequential? sen) (= 2 (count sen))
-                     (symbol? (first sen)) (symbol? (second sen)))]
-      (second sen))))
+  (for [s     (believed-in-cone kb (tax/context-up (:taxonomy kb) sub))
+        :let  [sen (:sentence s)]
+        :when (and (sequential? sen) (= 2 (count sen))
+                   (symbol? (first sen)) (symbol? (second sen)))]
+    (second sen)))
 
 ;; ---- what a declaration reaches back over --------------------------------
 ;;
@@ -1742,7 +1793,10 @@
   (> (count (reduce (fn [seen h]
                       (if-let [s (p/get-sentex (:records kb) h)]
                         (let [sen (:sentence s)]
-                          (if (and (= 2 (count sen)) (= :true (:truth s))
+                          ;; `sequential?` before `count`, as every other reader of an
+                          ;; argument-root posting here does it: a sentence that is not a
+                          ;; sequence has no arity to compare and `count` throws on it
+                          (if (and (sequential? sen) (= 2 (count sen)) (= :true (:truth s))
                                    (jtms/in? (:tms kb) (:id s)))
                             (let [seen' (into seen (owner (first sen)))]
                               (if (> (count seen') 1) (reduced seen') seen'))
@@ -2263,9 +2317,7 @@
   the flag gates the *report* (`report-arbitration-cut!`) and not the work: a cheap
   proxy is the wrong thing to hang belief on."
   [kb touched revisit]
-  (let [believed (comp (keep #(p/get-sentex (:records kb) %))
-                       (filter #(jtms/in? (:tms kb) (:id %)))
-                       (filter #(= :true (:truth %))))
+  (let [believed  (believed-xf kb)
         sweeping? (checks/arbitrating? kb)
         ;; `revisit` ahead of `touched` and each half in content order: the sweep below
         ;; is budgeted, so which triggers it reaches must not depend on the handle order
@@ -2275,9 +2327,17 @@
         ;; and it runs under `arbitrating?`; the other consumer is `(set moved)` on the
         ;; way out, which a sort cannot move.  So a `:refuse` KB — the default — sorted
         ;; the region twice per settle to feed a pass that was never going to run.
+        ;;
+        ;; The two halves **overlap**, and the half a handle is in decides nothing but its
+        ;; place in the order: a member of a known clash pair that this settle also moved
+        ;; is in both.  `touched` drops what `revisit` already names, since the sweep below
+        ;; spends one budget across the whole vector — a declaration reached twice would
+        ;; pay for its reach twice, and could be filed as cut short on the second pass over
+        ;; content the first already swept.  `revisit` is a handle set, so the drop is a
+        ;; membership test apiece.
         ordered (if sweeping? content-order identity)
         moved (into (vec (ordered (into [] believed revisit)))
-                    (ordered (into [] believed touched)))
+                    (ordered (into [] believed (remove revisit touched))))
         left  (volatile! (long *exposure-instance-budget*))
         swept (when sweeping?
                 (mapcat (fn [s]
@@ -2813,6 +2873,26 @@
                                     views fresh))}))
       ngs)))
 
+(defn- separations?
+  "Does the KB separate any two types at all?  Disjointness is spelled three ways —
+  `disjoint`, a disjoint metatype's members, and a `siblingDisjoint` parent's
+  specializations — so a KB declaring none takes all three reads, the `or`
+  short-circuiting only on a hit.  Three set-emptiness reads and no walk, which is what
+  lets every disjointness pass sit behind it."
+  [tax]
+  (boolean (or (seq (tax/disjoint-pairs tax))
+               (seq (tax/disjoint-metatypes tax))
+               (seq (tax/sibling-disjoints tax)))))
+
+(defn- tuple-marks?
+  "Does any predicate carry one of the three tuple marks — `functional`, `asymmetric`,
+  `antiTransitive`?  `separations?`'s other half, and the same reading: a KB declaring
+  none can form none of those clashes and pays three set-emptiness reads to say so."
+  [tax]
+  (boolean (or (seq (tax/props tax :functional))
+               (seq (tax/props tax :asymmetric))
+               (seq (tax/props tax :anti-transitive)))))
+
 (def ^:dynamic *skip-constraint-nogoods*
   "When true, `constraint-nogoods` takes the same branch a KB declaring no
   disjointness/functional/asymmetric feature takes — it derives no definitional-clash
@@ -2847,12 +2927,7 @@
   [kb region]
   (let [tax (:taxonomy kb)]
     (if (or *skip-constraint-nogoods*
-            (not (or (seq (tax/disjoint-pairs tax))
-                     (seq (tax/disjoint-metatypes tax))
-                     (seq (tax/sibling-disjoints tax))
-                     (seq (tax/props tax :functional))
-                     (seq (tax/props tax :asymmetric))
-                     (seq (tax/props tax :anti-transitive)))))
+            (not (or (separations? tax) (tuple-marks? tax))))
       ;; Nothing separates anything and no predicate carries one of the three tuple
       ;; marks, so no set of sentexes can clash — which makes this the one place the whole
       ;; candidate set can be dropped rather than re-examined.  It has to be dropped
@@ -2935,12 +3010,7 @@
             {}
             ;; content order, so a budgeted sweep reaches the same triggers however the region
             ;; came back — the same reason `report-arity-reach!` sorts its predicates
-            (content-order
-             (into []
-                   (comp (keep #(p/get-sentex (:records kb) %))
-                         (filter #(jtms/in? (:tms kb) (:id %)))
-                         (filter #(= :true (:truth %))))
-                   touched)))
+            (content-order (into [] (believed-xf kb) touched)))
            m
        ;; ...and the pairs a **retracted** exception re-armed: the terms below both sides of
        ;; a departed exception, focused on the pair.  The refuse-side twin of
@@ -2972,27 +3042,30 @@
 
   Returns the same entry shape `violations` reports (`{:violation :disjoint :detail
   {...}}`), so a caller renders both with one renderer.  Reads only: nothing is stored,
-  nothing is filed, and belief does not move."
+  nothing is filed, and belief does not move.
+
+  **The separations gate comes first**, ahead of the membership walk: nothing separates
+  anything, so nothing can clash, and the answer is empty without a record fetched.  The
+  walk below it is over every stored sentex — the one place in this namespace that is —
+  so a KB declaring no disjointness must not pay it to be told there is nothing to say."
   [kb]
-  (let [tax    (:taxonomy kb)
-        probes (exposure-probes tax)
-        terms  (into #{}
-                     (comp (keep #(p/get-sentex (:records kb) %))
-                           (filter #(jtms/in? (:tms kb) (:id %)))
-                           (filter #(= :true (:truth %)))
-                           (keep (fn [s]
-                                   (let [sen (:sentence s)]
-                                     (when (and (sequential? sen) (= 2 (count sen))
-                                                (symbol? (first sen))
-                                                (symbol? (second sen)))
-                                       (second sen))))))
-                     (p/sentex-ids (:records kb)))]
-    (if-not (or (seq (tax/disjoint-pairs tax)) (seq (tax/disjoint-metatypes tax))
-                (seq (tax/sibling-disjoints tax)))
+  (let [tax (:taxonomy kb)]
+    (if-not (separations? tax)
       []                                             ; nothing separates anything
-      (into [] (comp (mapcat #(exposed-clashes-for-term kb % :all probes #{}))
-                     (distinct))
-            (sort terms)))))                         ; terms are symbols — bare sort is the same content order
+      (let [probes (exposure-probes tax)
+            terms  (into #{}
+                         (comp (believed-xf kb)
+                               (keep (fn [s]
+                                       (let [sen (:sentence s)]
+                                         (when (and (sequential? sen) (= 2 (count sen))
+                                                    (symbol? (first sen))
+                                                    (symbol? (second sen)))
+                                           (second sen))))))
+                         (p/sentex-ids (:records kb)))]
+        (into [] (comp (mapcat #(exposed-clashes-for-term kb % :all probes #{}))
+                       (distinct))
+              ;; terms are symbols — a bare sort is the same content order
+              (sort terms))))))
 
 (defn- expose-clashes!
   "File the disjointness clashes the settle's moved region newly makes jointly
@@ -3006,11 +3079,7 @@
   `contradictions` and must not be filed here as well."
   [kb touched arbitrated]
   (let [tax (:taxonomy kb)]
-    (when (and (not *rebuilding?*)
-               (seq touched)
-               (or (seq (tax/disjoint-pairs tax))
-                   (seq (tax/disjoint-metatypes tax))
-                   (seq (tax/sibling-disjoints tax))))
+    (when (and (not *rebuilding?*) (seq touched) (separations? tax))
       (let [{:keys [candidates truncated]} (exposure-candidates kb touched)
             probes  (exposure-probes tax)
             entries (into []
@@ -3087,13 +3156,9 @@
   element comes out."
   [kb sub]
   (let [tax (:taxonomy kb)]
-    (for [c     (filter symbol? (tax/context-up tax sub))
-          s     (keep #(p/get-sentex (:records kb) %)
-                      (p/sentexes-in-context (:index kb) c))
+    (for [s     (believed-in-cone kb (tax/context-up tax sub))
           :let  [sen (:sentence s)]
-          :when (and (jtms/in? (:tms kb) (:id s))
-                     (= :true (:truth s))
-                     (sequential? sen)
+          :when (and (sequential? sen)
                      (= 2 (count (nm/args sen)))
                      (let [f (nm/functor sen)]
                        (and (symbol? f)
@@ -3160,10 +3225,7 @@
                            (let [f (nm/functor sen)]
                              (and (symbol? f)
                                   (marks-above? tax f))))))
-        believed  (comp (keep #(p/get-sentex (:records kb) %))
-                        (filter #(jtms/in? (:tms kb) (:id %)))
-                        (filter #(= :true (:truth %))))
-        region    (into [] believed touched)
+        region    (into [] (believed-xf kb) touched)
         ;; the two edges and the mark declaration, told apart by shape: a `case` on the
         ;; functor, so a region sentex under none of the five costs one hash dispatch
         ;; rather than a membership test per vocabulary
@@ -3396,9 +3458,7 @@
     (when (and (not *rebuilding?*)
                (seq touched)
                (not (checks/arbitrating? kb))
-               (or (seq (tax/props tax :functional))
-                   (seq (tax/props tax :asymmetric))
-                   (seq (tax/props tax :anti-transitive))))
+               (tuple-marks? tax))
       ;; one `clash-marked-below` for the pass, past the gate that already proved a mark
       ;; exists.  The `genl` and mark triggers ask once per arriving sentence and the
       ;; region filter asks per binary sentex, so the askers scale with the region while
@@ -3514,16 +3574,11 @@
   is content-ordered, so what a cut prefix costs is coverage and never a different reading
   of the same coverage."
   [kb sub]
-  (let [tax (:taxonomy kb)]
-    (for [c     (filter symbol? (tax/context-down tax sub))
-          s     (keep #(p/get-sentex (:records kb) %)
-                      (p/sentexes-in-context (:index kb) c))
-          :let  [sen (:sentence s)
-                 f   (when (sequential? sen) (nm/functor sen))]
-          :when (and (symbol? f)
-                     (jtms/in? (:tms kb) (:id s))
-                     (= :true (:truth s)))]
-      f)))
+  (for [s     (believed-in-cone kb (tax/context-down (:taxonomy kb) sub))
+        :let  [sen (:sentence s)
+               f   (when (sequential? sen) (nm/functor sen))]
+        :when (symbol? f)]
+    f))
 
 (defn- arity-bindings-above-context
   "The predicates bound by a believed binding stored in the contexts `super` sees — the
@@ -3535,16 +3590,11 @@
   and an edge revealing only the second binds a predicate no declaration in the cone
   names."
   [kb super]
-  (let [tax (:taxonomy kb)]
-    (for [c     (filter symbol? (tax/context-up tax super))
-          s     (keep #(p/get-sentex (:records kb) %)
-                      (p/sentexes-in-context (:index kb) c))
-          :let  [sen  (:sentence s)
-                 pred (when (sequential? sen) (arity-bound-by kb sen (:context s)))]
-          :when (and pred
-                     (jtms/in? (:tms kb) (:id s))
-                     (= :true (:truth s)))]
-      pred)))
+  (for [s     (believed-in-cone kb (tax/context-up (:taxonomy kb) super))
+        :let  [sen  (:sentence s)
+               pred (when (sequential? sen) (arity-bound-by kb sen (:context s)))]
+        :when pred]
+    pred))
 
 (defn- any-arity-declared?
   "Has the KB declared *any* predicate's arity, in either spelling — the O(1) gate that
@@ -3665,11 +3715,7 @@
           ;; ...and the context edges whose cone it cut short, which is the same reading
           ;; one ingredient earlier: predicates the pass never got as far as naming
           unreached (volatile! [])
-          believed (into []
-                         (comp (keep #(p/get-sentex (:records kb) %))
-                               (filter #(jtms/in? (:tms kb) (:id %)))
-                               (filter #(= :true (:truth %))))
-                         touched)
+          believed (into [] (believed-xf kb) touched)
           named (into #{} (keep #(arity-bound-by kb (:sentence %) (:context %))) believed)
           ;; the ingredient that names no predicate.  Content order over the edges,
           ;; because a budget running out mid-region decides which cones were walked at
@@ -3942,7 +3988,7 @@
         note!  (fn [m] (vswap! extra into (keys m)))
         before (doto (jtms/superseded (:tms kb)) note!)]
     (when belief-moved?
-      (special/reconcile-belief-change! kb @region)
+      (special/reconcile-belief-change kb @region)
       ;; ...and repair again, because the reconcile itself can surrender the potential:
       ;; an edge leaving a strongly connected component dissolves it, and a revived one
       ;; can close a new one.  Left to the *next* settle, `:scc` reads empty in between,
@@ -3979,7 +4025,7 @@
       ;; supersession flip moves what pairs without moving a label
       (note-supersession-flips! kb before after)
       (when (or (seq before) (seq after))
-        (special/reconcile-belief-change!
+        (special/reconcile-belief-change
          kb
          (into @region (concat (keys before) (keys after)))))
       ;; ...and the spellings this reconcile gave *back*, which are revived datums by
@@ -4126,7 +4172,7 @@
       ;; the next pass's read.
       (let [region        (delay (jtms/touched (:tms kb)))
             revival-flips (when defeated-before?
-                            (special/reconcile-belief-change! kb @region)
+                            (special/reconcile-belief-change kb @region)
                             (tax/restore-depths (:taxonomy kb))
                             ;; ...and an except among the revived is a visibility flip:
                             ;; what it hid is seeable again, and only this settle knows

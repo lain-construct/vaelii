@@ -299,27 +299,44 @@
    additive: clingo rejects a second load_aspif (\"incremental aspif programs are
    not supported\"), so this is a one-shot base load for `open-control` — a live
    control solves the program it opened with, and nothing grows it in place.
-   Returns the temp File (caller keeps it alive until the control is freed)."
+   Returns the temp File (caller keeps it alive until the control is freed).
+
+   No `deleteOnExit`: its hook set retains one path, unreclaimable, for the
+   process's life — the very cost `delete-keep-temps!` exists to keep off a
+   long-running daemon. The file is instead deleted here when the write or the
+   load throws, since a caller that never receives it has nothing to hand that
+   function."
   [ctl aspif-text]
-  (let [tmp   (doto (java.io.File/createTempFile "vaelii-session" ".aspif") .deleteOnExit)
-        _     (spit tmp aspif-text)
-        files (ptr-array [(cstr (.getPath tmp))])]
-    (chk! "load_aspif" (ci "clingo_control_load_aspif" ctl files (Long/valueOf 1)))
-    tmp))
+  (let [tmp (java.io.File/createTempFile "vaelii-session" ".aspif")]
+    (try
+      (spit tmp aspif-text)
+      (let [files (ptr-array [(cstr (.getPath tmp))])]
+        (chk! "load_aspif" (ci "clingo_control_load_aspif" ctl files (Long/valueOf 1)))
+        tmp)
+      (catch Throwable e
+        (.delete tmp)
+        (throw e)))))
 
 (defn open-control
   "Create a live Control with `arg-strs` flags and load the base `aspif-text`.
    Returns `{:ctl Pointer :keep [..]}` — `:keep` holds JNA buffers and temp
-   files that must outlive the control (free it with `free-control!`)."
+   files that must outlive the control (free it with `free-control!`).
+
+   A load that throws frees the control on the way out: the caller is handed an
+   exception rather than a handle, so nothing else can free it, and a leaked
+   Control is native memory no GC reaches."
   [arg-strs aspif-text]
   (let [argcs (mapv cstr arg-strs)
         argv  (if (seq argcs) (ptr-array argcs) Pointer/NULL)
         ctlr  (PointerByReference.)]
     (chk! "control_new" (ci "clingo_control_new" argv (Long/valueOf (count argcs))
                             Pointer/NULL Pointer/NULL (Integer/valueOf 20) ctlr))
-    (let [ctl (.getValue ctlr)
-          tmp (load-block! ctl aspif-text)]
-      {:ctl ctl :keep [argcs tmp]})))
+    (let [ctl (.getValue ctlr)]
+      (try
+        {:ctl ctl :keep [argcs (load-block! ctl aspif-text)]}
+        (catch Throwable e
+          (cv "clingo_control_free" ctl)
+          (throw e))))))
 
 (defn solve-control
   "Solve a live control under `assume-lits` (signed program literals assumed
@@ -400,8 +417,12 @@
         (identity keep)                          ; retain open-control buffers past the solves
         {:cautious cautious :brave brave})
       (finally
-        (free-control! ctl)
-        (delete-keep-temps! keep)))))
+        ;; the temps go even when the free throws.  `delete-keep-temps!` is the only
+        ;; thing that removes them — there is no `deleteOnExit` to fall back on — so a
+        ;; throw out of `free-control!` would leave one .aspif per classify behind in a
+        ;; long-running daemon's tmpdir.
+        (try (free-control! ctl)
+             (finally (delete-keep-temps! keep)))))))
 
 (defn available?
   "True if libclingo can be loaded and called in this JVM."

@@ -85,10 +85,21 @@
   `store` for the durable cursor.  Holds a materialized view — a SET of sentences — the
   agent's replica of the channel's truth for `goal`.  `initial-view` seeds it: on a restart,
   pass the view the agent persisted (its durable state), so an in-ring resume tails onto it
-  without a snapshot; omit it (empty) for a fresh agent."
+  without a snapshot; omit it (empty) for a fresh agent.
+
+  **One consumer, one driving thread.**  A consumer is an agent's replica and `sync!` is
+  how that agent advances it; two threads driving one consumer is not a shape this is for,
+  and the cursor makes the reason concrete — a stored position is a claim about what this
+  replica has applied, and two drivers each advancing it apply half the stream apiece.
+  `sync!` takes the consumer's own monitor (`:lock`) so an interleaving cannot corrupt the
+  view outright, but the serialization it buys is a floor, not a licence: what the second
+  caller gets is whatever the first left, which is rarely what it asked for."
   ([handle goal context store] (open handle goal context store #{}))
   ([handle goal context store initial-view]
-   {:handle handle :goal goal :context context :store store :view (atom initial-view)}))
+   {:handle handle :goal goal :context context :store store :view (atom initial-view)
+    ;; the monitor `sync!` holds — per consumer, so two consumers never contend, and
+    ;; uncontended within one because a consumer has a single driving thread
+    :lock (Object.)}))
 
 (defn view-of
   "The consumer's current materialized view — the SET of sentences it believes for its
@@ -121,51 +132,81 @@
   - **Bootstrap** a fresh consumer (no stored cursor): open a subscription, snapshot, tail.
 
   Polls non-blocking and drains to the ring's head, persisting the final position.
-  Idempotent: calling it again when nothing moved is a no-op that returns the same view."
+  Idempotent: calling it again when nothing moved is a no-op that returns the same view.
+
+  **One driving thread per consumer** (`open`).  The body is a read-modify-write over the
+  stored cursor and the view, so it runs under the consumer's own monitor — cheap, and
+  uncontended when the contract above is kept.  The monitor keeps two callers from
+  corrupting the replica; it does not make two drivers a sensible arrangement.
+
+  **Any failure of the poll is a failure.**  A refusal carries a `:type` this reads, but a
+  transport that throws something else — or an `ex-info` with no `:type` at all — is still
+  the poll not having answered: it is re-thrown with the original as the cause rather than
+  falling through to the drained-to-head arm, which would persist a nil cursor and hand
+  back the stale view as though the stream were current."
   [consumer]
-  (let [{:keys [handle goal context store view]} consumer
+  (let [{:keys [handle goal context store view lock]} consumer
         m         (:medium handle)
-        snapshot! (fn [] (reset! view (snapshot handle goal context)))
-        pos0      (read-position store)]
-    (loop [pos     (or pos0
-                       ;; bootstrap: open a subscription, take the snapshot, tail from it
-                       (let [{:keys [token cursor]} (ch/-feed-open m goal context)]
-                         (snapshot!)
-                         {:token token :cursor cursor}))
-           snapped (when (nil? pos0) true)]        ; Object, not a primitive boolean (recur)
-      (let [{:keys [token cursor]} pos
-            result (try {:ok (ch/-feed-poll m token cursor nil)}
-                        (catch clojure.lang.ExceptionInfo e {:err (:type (ex-data e))}))]
-        (cond
-          ;; the subscription was reaped (idle past the daemon's window) — re-open, snapshot,
-          ;; and tail the fresh subscription (its early events overlap the snapshot; set-safe)
-          (= :unknown-subscription (:err result))
-          (let [{:keys [token cursor]} (ch/-feed-open m goal context)]
-            (snapshot!)
-            (recur {:token token :cursor cursor} true))
-
-          (:err result)
-          (throw (ex-info "koinii: catch-up feed error" {:type (:err result) :token token}))
-
-          :else
-          (let [{:keys [events lagged]} (:ok result)
-                next-cursor (:cursor (:ok result))]
+        snapshot! (fn [] (reset! view (snapshot handle goal context)))]
+    (locking lock
+      ;; the stored position is read INSIDE the monitor: read outside it, two callers both
+      ;; see "no cursor", both bootstrap, and the second's snapshot lands on top of the
+      ;; first's applied batch
+      (let [pos0 (read-position store)]
+        (loop [pos     (or pos0
+                           ;; bootstrap: open a subscription, snapshot, tail from it
+                           (let [{:keys [token cursor]} (ch/-feed-open m goal context)]
+                             (snapshot!)
+                             {:token token :cursor cursor}))
+               snapped (when (nil? pos0) true)]     ; Object, not a primitive boolean (recur)
+          (let [{:keys [token cursor]} pos
+                result   (try {:ok (ch/-feed-poll m token cursor nil)}
+                              (catch Exception e {:err e}))
+                err      (:err result)
+                ;; nil for anything that is not a typed refusal, which is why the arms
+                ;; below branch on `err` itself and read the type only to *classify* it
+                err-type (:type (ex-data err))]
             (cond
-              ;; fell off the ring: the stored cursor cannot replay the gap.  Snapshot (the
-              ;; only complete recovery), then resume from the cursor the poll handed back —
-              ;; the surviving ring events are already in the snapshot.  `snapped` guards
-              ;; against re-snapshotting in the same pass.
-              (and (pos? (long (or lagged 0))) (not snapped))
-              (do (snapshot!)
-                  (recur {:token token :cursor next-cursor} true))
+              ;; the subscription was reaped (idle past the daemon's window) — re-open,
+              ;; snapshot, and tail the fresh subscription (its early events overlap the
+              ;; snapshot; set-safe)
+              (= :unknown-subscription err-type)
+              (let [{:keys [token cursor]} (ch/-feed-open m goal context)]
+                (snapshot!)
+                (recur {:token token :cursor cursor} true))
 
-              ;; drained to the head — persist the position and return the view
-              (empty? events)
-              (do (write-position! store {:token token :cursor next-cursor})
-                  @view)
+              (some? err)
+              (throw (ex-info "koinii: catch-up feed error"
+                              {:type (or err-type :koinii/feed-error) :token token}
+                              err))
 
-              ;; in-ring: apply the batch onto the durable view and keep draining
               :else
-              (do (swap! view apply-events events)
-                  (write-position! store {:token token :cursor next-cursor})
-                  (recur {:token token :cursor next-cursor} snapped)))))))))
+              (let [{:keys [events lagged]} (:ok result)
+                    next-cursor (:cursor (:ok result))]
+                ;; a poll that answered without a cursor cannot be resumed from, and
+                ;; storing the nil would turn the next `sync!` into a bootstrap that
+                ;; re-snapshots silently — so the malformed reply is refused where it lands
+                (when-not (nat-int? next-cursor)
+                  (throw (ex-info (str "koinii: catch-up poll answered no cursor ("
+                                       (pr-str next-cursor)
+                                       ") — there is no position to resume from")
+                                  {:type :koinii/no-cursor :token token :cursor next-cursor})))
+                (cond
+                  ;; fell off the ring: the stored cursor cannot replay the gap.  Snapshot
+                  ;; (the only complete recovery), then resume from the cursor the poll
+                  ;; handed back — the surviving ring events are already in the snapshot.
+                  ;; `snapped` guards against re-snapshotting in the same pass.
+                  (and (pos? (long (or lagged 0))) (not snapped))
+                  (do (snapshot!)
+                      (recur {:token token :cursor next-cursor} true))
+
+                  ;; drained to the head — persist the position and return the view
+                  (empty? events)
+                  (do (write-position! store {:token token :cursor next-cursor})
+                      @view)
+
+                  ;; in-ring: apply the batch onto the durable view and keep draining
+                  :else
+                  (do (swap! view apply-events events)
+                      (write-position! store {:token token :cursor next-cursor})
+                      (recur {:token token :cursor next-cursor} snapped)))))))))))

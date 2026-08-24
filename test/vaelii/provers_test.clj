@@ -280,23 +280,21 @@
   (let [larger (tu/tmp-pred "largerThan")
         r      (fn [i] (tu/fresh-term :individual (str "R" i)))
         n      60
-        rs     (mapv r (range (inc n)))
-        seen   (atom 0)]
+        rs     (mapv r (range (inc n)))]
     (v/assert kb (list 'transitive larger) 'CxUniverse)
     (v/with-deferred-settle kb
       (doseq [i (range 1 (inc n))]
         (v/assert kb (list larger (rs (dec i)) (rs i)) 'CxUniverse {:chain? false})))
-    ;; count how far the walk goes by watching how many distinct nodes it asks about
-    (with-redefs [vaelii.impl.resolution/matches-visible
-                  (let [orig vaelii.impl.resolution/matches-visible]
-                    (fn [& args] (swap! seen inc) (apply orig args)))]
-      (reset! seen 0)
-      (is (v/ask? kb (list larger (rs 0) (rs 2)) 'CxUniverse))
-      (let [near @seen]
-        (reset! seen 0)
-        (is (v/ask? kb (list larger (rs 0) (rs n)) 'CxUniverse))
-        (is (< near @seen)
-            "a near answer must cost less than the far one — it did not stop early")))))
+    ;; how far the walk goes is how many neighbour sets it had to build
+    (let [answered (atom nil)
+          near     (tu/neighbours-built
+                    #(reset! answered (v/ask? kb (list larger (rs 0) (rs 2)) 'CxUniverse)))
+          _        (is @answered)
+          far      (tu/neighbours-built
+                    #(reset! answered (v/ask? kb (list larger (rs 0) (rs n)) 'CxUniverse)))]
+      (is @answered)
+      (is (< near far)
+          "a near answer must cost less than the far one — it did not stop early"))))
 
 (tu/deftest-kb a-cyclic-transitive-predicate-terminates
   ;; `wff` refuses a `genl` / `genlCx` cycle; nothing refuses one here, because a
@@ -515,3 +513,25 @@
     (is (not (v/ask? kb (list reachesTo A C) 'CxUniverse))
         "visibility reads upward only, so the root does not see A's hop either")
     (is (v/ask? kb (list reachesTo A B) CxB) "the visible half still answers")))
+
+(tu/deftest-kb an-inferred-argument-type-is-read-from-the-asking-context
+  ;; `ArgTypeProver` types a term from how it is *used*, and a usage is a stored fact
+  ;; with a context: a reader that cannot see `(eats Muffet Bone1)` must not learn from
+  ;; it that Bone1 is food.  The declaration half was already scoped
+  ;; (`res/constraining-predicates`, through `matches-visible`); this pins the tuple
+  ;; half beside it.
+  (tu/with-terms [eats food_t Muffet Bone1 CxA CxB]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genl food_t 'thing) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list 'arg eats 2 food_t) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list eats Muffet Bone1) CxA {:strength :monotonic}))
+    (is (not (v/ask? kb (list eats Muffet Bone1) CxB))
+        "the usage itself is invisible from the sibling")
+    (is (v/ask? kb (list food_t Bone1) CxA)
+        "the context that sees the usage infers the type from it")
+    (is (not (v/ask? kb (list food_t Bone1) CxB))
+        "and the one that cannot see the usage infers nothing from it")
+    (is (v/ask? kb (list food_t Bone1) '?ctx)
+        "the any-context read is unscoped, as every other scoped read here is")))

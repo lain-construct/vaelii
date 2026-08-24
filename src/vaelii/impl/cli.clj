@@ -34,6 +34,7 @@
             [clojure.pprint :as pp]
             [clojure.string :as str]
             [vaelii.core :as v]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.starter :as starter])
   (:import [java.io PushbackReader StringReader]))
 
@@ -114,11 +115,11 @@
   message is the class name and names neither the command nor the argument."
   [["assert"      2 2   "'<sentence>' <CxName>"        "store a fact"]
    ["assert-rule" 3 3   "'[<antecedents>]' '<consequent>' <CxName>" "store a rule"]
-   ["match"       2 2   "'<pattern>' <CxName>"         "stored, believed literals"]
-   ["query"       2 2   "'<goal>' <CxName>"            "the default read (--depth N to expand rules)"]
+   ["match"       2 2   "'<pattern>' <CxName>"         "stored, believed literals, in content order"]
+   ["query"       2 2   "'<goal>' <CxName>"            "the default read, in content order (--depth N to expand rules)"]
    ["query?"      2 2   "'<goal>' <CxName>"            "the same, as a boolean"]
-   ["ask"         2 2   "'<goal>' <CxName>"            "the prover registry, no rule expansion"]
-   ["prove"       2 2   "'<goal>' <CxName>"            "backward chaining; one solution per derivation"]
+   ["ask"         2 2   "'<goal>' <CxName>"            "the prover registry, in content order; no rule expansion"]
+   ["prove"       2 2   "'<goal>' <CxName>"            "backward chaining; one solution per derivation, in DFS order"]
    ["provable?"   2 2   "'<goal>' <CxName>"            "the same, as a boolean"]
    ["retract"     1 1   "<handle>"                      "remove a sentex and what it solely supported"]
    ["why"         1 1   "<handle>"                      "the proof tree behind a belief"]
@@ -241,9 +242,28 @@
          "  --compression <c>     export: gzip | xz | none\n"
          "  (repl takes all four — its options are fixed at start and each line reuses them)\n")))
 
+(defn- in-content-order
+  "An answer **set**, in a printed content order.
+
+  Three commands answer with one — `match`, `query` and `ask` — and a set has no order of
+  its own, so what reached stdout was whichever order the retrieval enumerated: two loads
+  of the same knowledge printed it differently, and a diff of the two outputs read as a
+  change in the KB.  `types` and `contexts` in the same table are sorted for that reason,
+  and these are held to it too.
+
+  `prove` is deliberately **not** here.  It answers one solution per derivation in the
+  order the DFS found them, and that order is part of what a proof says."
+  [answers]
+  (nm/sort-by-content-key nm/print-key compare answers))
+
 (defn dispatch
   "Run one command against `kb` and return its result (a handle, a seq of sentences /
-  solutions, a proof tree, …).  `args` are data; `opts` is the parsed option map."
+  solutions, a proof tree, …).  `args` are data; `opts` is the parsed option map.
+
+  **A command that answers a set answers it sorted** (`in-content-order`): `match`,
+  `query` and `ask` alongside `types` and `contexts`, so one KB prints the same output
+  however its knowledge arrived.  `prove` keeps the DFS's order, which is a reading rather
+  than an artifact."
   [kb cmd args opts]
   (check-arity! cmd args)
   (let [strength (when-let [s (:strength opts)] {:strength (keyword s)})
@@ -254,10 +274,10 @@
     (case cmd
       "assert"      (v/assert kb (nth args 0) (nth args 1) strength)
       "assert-rule" (v/assert-rule kb (nth args 0) (nth args 1) (nth args 2) strength)
-      "match"       (mapv :sentence (v/sentexes-matching kb (nth args 0) (nth args 1)))
-      "query"       (vec (v/query kb (nth args 0) (nth args 1) depth))
+      "match"       (in-content-order (map :sentence (v/sentexes-matching kb (nth args 0) (nth args 1))))
+      "query"       (in-content-order (v/query kb (nth args 0) (nth args 1) depth))
       "query?"      (v/query? kb (nth args 0) (nth args 1) depth)
-      "ask"         (vec (v/ask kb (nth args 0) (nth args 1)))
+      "ask"         (in-content-order (v/ask kb (nth args 0) (nth args 1)))
       "prove"       (v/prove kb (nth args 0) (nth args 1))
       "provable?"   (v/provable? kb (nth args 0) (nth args 1))
       "retract"     (v/retract! kb (nth args 0))
@@ -269,7 +289,9 @@
       "isa"         (apply v/isa? kb args)
       "types-of"    (apply v/types-of kb args)
       "handle-of"   (v/handle-of kb (nth args 0) (nth args 1))
-      "types"       (sort-by str (v/types kb))   ; str, never bare sort: a type node may be a NAT
+      ;; `by-print-key`, never bare `sort`: a type node may be a NAT, and a NAT keyed with
+      ;; `str` collapses under an ambient print bound
+      "types"       (nm/by-print-key (v/types kb))
       "contexts"    (sort (v/contexts kb))
       "conflicts"   (v/conflicts kb)
       "contradictions" (v/contradictions kb)
@@ -381,8 +403,11 @@
                   (err! "error:" (.getMessage e))
                   (System/exit 1)))
         kb (try (open-kb-from opts)
-                (catch clojure.lang.ExceptionInfo e
-                  (err! "error:" (.getMessage e))
+                ;; Throwable, matching the command arm below: an unwritable --dir or a
+                ;; corrupt log throws a plain IOException, and a stack trace is not the
+                ;; one-line courtesy this door promises
+                (catch Throwable e
+                  (err! "error:" (or (ex-message e) (.getName (class e))))
                   (System/exit 1)))]
     (cond
       (or (nil? cmd) (= cmd "repl"))

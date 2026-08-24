@@ -12,6 +12,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.catalog :as catalog]
             [vaelii.impl.sandbox :as sandbox]
             [vaelii.impl.starter :as starter]
             [vaelii.impl.web :as web]
@@ -171,6 +172,14 @@
         (is (str/includes? b "Stored"))
         (is (v/ask? kb '(mortal SandboxWebRufus) (symbol sbx)))
         (is (str/includes? b "Your sandbox") "the panel says where the writing went")))
+    (testing "it is behind the write guard like every other write to a KB's content, so a
+              job holding this process's one writer refuses it rather than emptying the
+              sandbox behind a page with nothing to say about why"
+      (with-redefs [catalog/write-blocked? (constantly true)]
+        (let [r (post "/sandbox/reset" {})]
+          (is (= 200 (:status r)) "a page, not a status htmx would decline to swap")
+          (is (str/includes? (:body r) "Nothing was written"))))
+      (is (sandbox/live? kb (symbol sbx)) "and the sandbox it did not discard is still there"))
     (testing "reset discards it and says what it took"
       (let [b (:body (post "/sandbox/reset" {}))]
         (is (re-find #"sandbox reset — \d+ sentexes and \d+ justification" b))

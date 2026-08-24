@@ -32,6 +32,8 @@
             [vaelii.core :as v]
             [vaelii.impl.config :as config]
             [vaelii.impl.kb :as kb]
+            [vaelii.impl.llm.ollama :as ollama]
+            [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]))
 
 ;; ---- the switches, and the pin that hands their defaults back -----------
@@ -282,6 +284,42 @@
   (contains? #{"1" "true" "yes"}
              (some-> (System/getenv "VAELII_LLM_LIVE") str/trim str/lower-case)))
 
+(defn live-model
+  "The model a live test runs against, or **nil with a printed reason** — the one helper
+  every `^:llm` test opens with, so the three ways such a test cannot run are answered in
+  one place and in one order.
+
+  Opting in is checked **first**, before the host is so much as probed: a reachable Ollama
+  is not consent.  Then reachability, then whether the host has actually pulled the model
+  — a host that is up but has never seen the model fails in a way that reads like a bug in
+  the code under test.
+
+  `what` names the tier in the skip line.  `opts`: `:model` (default
+  `ollama/configured-model`) and `:env`, the variable that names it — omitted for a model
+  a test pins, where there is no variable to point anybody at.
+
+  One helper rather than a copy per file so that the consent path is one path: the source
+  scan in `vaelii.llm-test` follows a test's calls to `live-llm?` to prove it asked, and a
+  helper hoisted here is followed the same as one defined beside the test."
+  ([what] (live-model what {}))
+  ([what {:keys [model env] :or {env "VAELII_OLLAMA_MODEL"}}]
+   (let [model (or model (ollama/configured-model))]
+     (cond
+       (not (live-llm?))
+       (do (println (str "  [skip] " what ": set VAELII_LLM_LIVE=1 to opt in")) nil)
+
+       (not (ollama/available? {:timeout-ms 2000}))
+       (do (println (str "  [skip] " what ": no server at " (ollama/base-url)
+                         " — set VAELII_OLLAMA_HOST to point at one"))
+           nil)
+
+       (nil? (ollama/capabilities model))
+       (do (println (str "  [skip] " what ": " (ollama/base-url) " has no model " model
+                         (when env (str " — set " env))))
+           nil)
+
+       :else model))))
+
 (defn test-kb
   "A KB on the shared scratch space."
   []
@@ -333,6 +371,21 @@
   [s] (str/lower-case (str/replace (str s) #"[^A-Za-z0-9]+" "_")))
 
 (defn- cap [s] (if (seq s) (str (str/upper-case (subs s 0 1)) (subs s 1)) s))
+
+(defn neighbours-built
+  "Neighbour sets the transitive-closure walk **built** while `f` ran — the miss half of
+  `observe/note-neighbours!`, one store retrieval each.  Answers the count; `f`'s own
+  value is the caller's to capture.
+
+  The engine counts these, so a test asking whether a walk happened reads a number rather
+  than redefining `res/matches-visible` to tally calls.  That interception could not tell a
+  walk's probe from a `FactProver` lookup of the same predicate except by the `?rv` the
+  walk's patterns happen to carry, and it pinned the arity of a function whose shape is
+  none of the asking test's business."
+  [f]
+  (let [before (:misses (observe/neighbour-counts))]
+    (f)
+    (- (:misses (observe/neighbour-counts)) before)))
 
 (defn sole-answer
   "The one binding map `answers` holds, plus the assertion that there is exactly one.

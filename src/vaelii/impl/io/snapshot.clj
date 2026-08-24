@@ -31,6 +31,14 @@
   A section written to one sink loads from another, the same property `p/index-entries` /
   `p/index-load` already give the index across backends.
 
+  **The seam has out-of-tree implementations, so it is a published shape and not a private
+  one.**  `vaelii-postgres` (`vaelii.postgres.snapshot/pg-sink` / `pg-source`) and
+  `vaelii-sqlite` (`vaelii.sqlite.snapshot/sqlite-sink` / `sqlite-source`) each implement
+  both protocols and drive them through `save-index!` / `load-index!`, and both suites
+  cross-load a section against `memory-medium` to check the two targets agree.  What is
+  reached only from this repo's own tests is `file-sink` / `file-source`: the reference
+  target, and the one that shows an implementer what a section and a manifest have to be.
+
   ## The manifest is the commit point
 
   It is written **last**, exactly as a dump's `meta.edn` is: a half-written image has no
@@ -127,7 +135,20 @@
   existing manifest, so from here until `commit!` the image reads as absent — the window
   in which a stale manifest could describe half-rewritten sections is closed by
   construction.  `:compression` defaults to `:none` (an image is a fast local cache, and
-  the CPU a codec costs is usually the wrong trade for it); `:chunk-size` to 10000."
+  the CPU a codec costs is usually the wrong trade for it); `:chunk-size` to 10000.
+
+  **Bare, though it deletes a file.**  The `!` convention marks an operation the KB cannot
+  take back (`docs/api.md`), and a manifest is an artifact of a cache rather than stored
+  knowledge: dropping it costs a `reindex`, which is the fallback `load-index!` takes on
+  any `decision` reason anyway.  Nothing a record holds is reachable through it.
+
+  **And it belongs here rather than in `save-index!`.**  Invalidating before the first
+  section is a property of *this* target — a directory of files, where the manifest and
+  the sections are separate objects with a window between them.  A sink whose commit is
+  one transactional write has no such window and needs no such step, and `save-index!`
+  sits above the seam and writes through whichever sink it is handed.  Moving the step up
+  would mean a third protocol op every out-of-tree implementer had to grow, to say
+  something two of the three targets have nothing to say about."
   ([root] (file-sink root {}))
   ([root {:keys [compression chunk-size] :or {compression :none chunk-size 10000}}]
    (let [^File d (io/file root)]
@@ -202,8 +223,13 @@
   "The content-validity core an index cache shares wherever it is stored: the layout it is
   keyed in, and the records it was derived from.  Returns `:layout-changed`,
   `:records-differ`, or nil.  Each container adds its own classes around this — an image
-  (`decision`) adds `:absent` and a format-version check; a dump
-  (`vaelii.impl.io.import/index-decision`) adds `:absent` and `:handles-remapped`."
+  (`decision`, below) adds `:absent` and a format-version check; a dump
+  (`vaelii.impl.io.import/index-decision`) adds `:absent` and `:handles-remapped`.
+
+  The **mapped** image is the one container that asks the same two questions inline
+  rather than through here (`vaelii.impl.disk.index-snapshot/decision`): it interleaves a
+  byte-order class between them, and orders the whole cond by what a reader needs told
+  first rather than by what is cheapest to ask."
   [meta stamp]
   (cond
     (not= kv/index-layout-version (:index-layout meta)) :layout-changed
@@ -212,9 +238,11 @@
 
 (defn decision
   "Why the image described by manifest `m` cannot be trusted against `stamp` (the store's
-  current records fingerprint), or nil when it can.  Lifted from
-  `vaelii.impl.disk.index-snapshot/decision`: the image is a cache, so any non-nil reason
-  discards the whole of it and the caller rebuilds.  `:entries-truncated` is not decided
+  current records fingerprint), or nil when it can.  The medium-agnostic reading of the
+  question `vaelii.impl.disk.index-snapshot/decision` answers for a mapped image — that
+  one draws its own truncation and platform classes from the files it maps and does not
+  come through here.  The image is a cache, so any non-nil reason discards the whole of
+  it and the caller rebuilds.  `:entries-truncated` is not decided
   here — a nippy stream's truncation reads as a clean EOF, so it can only be caught while
   the section is installed, against the count the manifest recorded."
   [m stamp]
@@ -236,17 +264,22 @@
 
 (def ^:private install-batch 10000)
 
-(defn- install-entries!
-  "Install a section's `[key value]` frames into `index` in bounded batches, returning the
+(defn install-entries!
+  "Install a stream of `[key value]` frames into `index` in bounded batches, returning the
   count installed.  Checked at the end, not realized first — an index image is several
   entries per record, so holding one to inspect it would cost more heap than the records
   did.  A frame that is not a `[key value]` pair throws; the caller's rebuild clears
-  whatever was installed."
+  whatever was installed.
+
+  Public because the two places an index arrives from a file — a snapshot section
+  (`load-index!`, below) and a dump's `index/entries` stream (`vaelii.impl.io.import`) —
+  are the same install and must stay one: same batch size, same refusal, same count to
+  check against the manifest that vouches for the stream."
   [index frames]
   (let [n (volatile! 0)]
     (doseq [batch (partition-all install-batch frames)]
       (when-not (every? #(and (sequential? %) (= 2 (count %))) batch)
-        (throw (ex-info "snapshot index section holds something that is not a [key value] pair"
+        (throw (ex-info "index entry stream holds something that is not a [key value] pair"
                         {:type :malformed-entry})))
       (vswap! n + (count batch))
       (p/index-load index batch))

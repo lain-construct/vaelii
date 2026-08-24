@@ -320,6 +320,43 @@
       (do (swap! cache caches/assoc-bounded resident-limit k v)
           true))))
 
+(def ^:private ^AtomicLong neighbour-hits (AtomicLong. 0))
+(def ^:private ^AtomicLong neighbour-misses (AtomicLong. 0))
+
+(defn note-neighbours!
+  "Record one neighbour-set read by the closure walk: `hit?` true where `*reach-memo*`
+  answered it, false where it was **computed** — which includes every read taken with no
+  memo bound at all, since a compute is a compute whatever scope it happens in.
+
+  Counted here rather than inferred from outside.  `misses` is the walk's real cost —
+  neighbour sets built, one store retrieval each — and the only alternative is to
+  intercept `res/matches-visible` and guess which of its calls were the walk's, which is
+  what the tests here used to do: by the `?rv` the walk's own patterns carry, a heuristic
+  that cannot separate a walk's probe from a `FactProver` lookup of the same predicate.
+  A counter on the memo answers the question the caches page asks anyway (`:hit-rate` on
+  the `:closure-neighbours` row) and the question a test asks, in the same number.
+
+  Process-wide `AtomicLong`s, `literal-cache`'s arrangement and for its reason: they
+  measure the mechanism, not a store, and a per-KB split would bill one KB for a walk
+  another ran."
+  [hit?]
+  (if hit? (.incrementAndGet neighbour-hits) (.incrementAndGet neighbour-misses))
+  nil)
+
+(defn neighbour-counts
+  "`{:hits :misses}` for the neighbour memo — hits served, neighbour sets computed."
+  []
+  {:hits (.get neighbour-hits) :misses (.get neighbour-misses)})
+
+(defn reset-neighbour-counters
+  "Zero the neighbour counters and answer them as they stood.  Wider than one KB, like
+  the counters themselves, which is why it is its own control and not part of a clear."
+  []
+  (let [h (.get neighbour-hits) m (.get neighbour-misses)]
+    (.set neighbour-hits 0)
+    (.set neighbour-misses 0)
+    {:hits h :misses m}))
+
 (def ^:dynamic *reach-memo*
   "A per-query cache for the transitive-predicate closure's per-node neighbour
   lookups (`succs` / `preds-of`) — an atom of `{[dir pred node context] -> set}`, or
@@ -411,12 +448,15 @@
   :scope    :process
   :unit     "neighbour sets"
   :limit    nil
-  :counters nil
+  :counters :process
   :note     (str "A transitive predicate's per-node neighbour lookups, so a join over "
                  "one solves each node once rather than once per binding. Bound per "
-                 "backward-search step, so it is uncountable from outside one for the "
-                 "same reason the stored handles are.")
-  :read     (fn [_] {:entries (some-> *reach-memo* deref count)})})
+                 "backward-search step, so its ENTRIES are uncountable from outside one "
+                 "for the same reason the stored handles are — the counters are not, and "
+                 "a miss is one neighbour set built against the store.")
+  :read     (fn [_] (assoc (neighbour-counts)
+                           :entries (some-> *reach-memo* deref count)))
+  :reset-counters (fn [_] (reset-neighbour-counters))})
 
 (caches/register-cache
  {:cache    :pinned-values

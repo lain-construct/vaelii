@@ -93,6 +93,101 @@
     (let [net (-> {} (stp/narrow 'A 'B 1 1) (stp/narrow 'B 'C 1 1) (stp/narrow 'A 'C 2 2))]
       (is (not= :inconsistent (stp/close net (stp/nodes net)))))))
 
+;; ---- the closure against a second implementation of it -------------------
+;;
+;; `stp/close` runs Floyd–Warshall over a flat `double[]` addressed through an index map.
+;; The reference below is the same algorithm written the obvious way — a persistent map
+;; keyed `[p q]`, one two-element vector per probe — and the two share no code, so they can
+;; agree only by both being right.  It lives here rather than in `src/` because nothing but
+;; this test wants it: n³ probes is n³ vectors, which at a hundred instants is two million
+;; allocations for one closure.
+
+(defn- reference-close
+  "All-pairs shortest paths over `net` across `nodes`, keyed `[p q]` in a persistent map:
+  `:inconsistent` for a crossed constraint or a negative cycle, else the closed network."
+  [net nodes]
+  (if (seq (stp/unsatisfiable-pairs net))
+    :inconsistent
+    (let [node-vec (into [] (sort-by str nodes))
+          seeded   (reduce (fn [d [[p q] [_ hi]]]
+                             (if (or (= p q) (not (Double/isFinite (double hi))))
+                               d
+                               (let [cur (get d [p q])]
+                                 (if (or (nil? cur) (< hi cur)) (assoc d [p q] hi) d))))
+                           (into {} (map (fn [x] [[x x] 0])) node-vec)
+                           net)
+          closed   (reduce
+                    (fn [d k]
+                      (reduce
+                       (fn [d p]
+                         (if-let [dpk (get d [p k])]
+                           (reduce (fn [d q]
+                                     (if-let [dkq (get d [k q])]
+                                       (let [w (+ dpk dkq), cur (get d [p q])]
+                                         (if (or (nil? cur) (< w cur)) (assoc d [p q] w) d))
+                                       d))
+                                   d node-vec)
+                           d))
+                       d node-vec))
+                    seeded node-vec)
+          eps      provers/*quantity-tolerance*
+          cyclic   (filter (fn [x] (when-let [w (get closed [x x])] (< w (- eps)))) node-vec)]
+      (if (seq cyclic)
+        :inconsistent
+        (into {}
+              (for [p     node-vec
+                    q     node-vec
+                    :when (not= p q)
+                    :let  [hi (get closed [p q] ##Inf)
+                           lo (if-let [w (get closed [q p])] (- w) ##-Inf)]
+                    :when (or (Double/isFinite (double lo)) (Double/isFinite (double hi)))]
+                [[p q] [lo hi]]))))))
+
+(defn- same-verdict?
+  "Do two closures answer the same thing?  Bound for bound and **numerically**: the
+  reference keeps whatever number type the constraint was written with, and the matrix
+  hands back a long wherever the arithmetic came out whole, so `15` and `15.0` are one
+  answer here."
+  [a b]
+  (or (= a b)
+      (and (map? a) (map? b)
+           (= (set (keys a)) (set (keys b)))
+           (every? (fn [k]
+                     (let [[l1 h1] (get a k), [l2 h2] (get b k)]
+                       (and (== l1 l2) (== h1 h2))))
+                   (keys a)))))
+
+(defn- random-network
+  "`edges` random integer gaps over `n` instants, drawn from `rnd`.  The bounds are drawn
+  wide enough around zero that a chain of them closes into a negative cycle often — which
+  is the verdict worth oracling, since it is the one no single constraint states."
+  [^java.util.Random rnd n edges]
+  (let [instants (mapv #(symbol (str "Sn" %)) (range n))]
+    (reduce (fn [net _]
+              (let [p (nth instants (.nextInt rnd n))
+                    q (nth instants (.nextInt rnd n))]
+                (if (= p q)
+                  net
+                  (let [lo (- (.nextInt rnd 21) 10)]
+                    (stp/narrow net p q lo (+ lo (.nextInt rnd 8)))))))
+            {}
+            (range edges))))
+
+(deftest the-closure-agrees-with-a-map-keyed-reference-implementation
+  (let [rnd  (java.util.Random. 20260823)
+        runs (for [i (range 120)
+                   :let [net (random-network rnd (+ 3 (mod i 8)) (+ 2 (mod i 11)))
+                         ns' (stp/nodes net)]]
+               [net (stp/close net ns') (reference-close net ns')])]
+    (doseq [[net mine theirs] runs]
+      (is (same-verdict? mine theirs)
+          (str "the two closures disagree on " (pr-str net))))
+    (testing "and the sample really does reach both verdicts, so agreeing is not vacuous"
+      (is (some (fn [[_ mine _]] (= :inconsistent mine)) runs)
+          "some network closes into a negative cycle")
+      (is (some (fn [[_ mine _]] (map? mine)) runs)
+          "and some closes consistently"))))
+
 (deftest a-bound-reads-back-as-an-ordering
   (is (= #{:before} (stp/point-possibilities [1 5])))
   (is (= #{:after} (stp/point-possibilities [-5 -1])))

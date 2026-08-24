@@ -64,6 +64,24 @@
         (is (= (some? hits) (some? counters))
             "a counted cache says whose counters those are; an uncounted one has none")))))
 
+(tu/deftest-kb a-row-is-data-all-the-way-down
+  ;; `caches` is a public read: it is served over the remote surface and rendered on a
+  ;; page, so a row has to be a value both can carry.  The descriptor a cache registers
+  ;; holds three *functions* — `:read`, `:clear` and `:reset-counters` — and what a
+  ;; caller needs of the last two is already on the row as `:clearable?` and `:counters`.
+  ;; One left in reads as `#function[…]` on the page and refuses to serialize on the
+  ;; wire, and only the two caches that keep process-wide counters would show it.
+  (let [rows (v/caches kb)]
+    (is (seq rows))
+    (doseq [row rows]
+      (testing (str (:cache row))
+        (doseq [[k v] row]
+          (is (not (fn? v))
+              (str "a row carries no function — " k " does")))))
+    (testing "and the two that would have leaked one are in the answer"
+      (is (some #(= :literal-matches (:cache %)) rows))
+      (is (some :counters rows) "at least one row reports process-wide counters"))))
+
 (tu/deftest-kb a-namespace-registers-its-caches-by-being-loaded
   ;; Which is what lets an unloaded one hold no row: a process with no metric-time
   ;; reasoner has no metric closures, and a row of zeroes would claim a cache that does

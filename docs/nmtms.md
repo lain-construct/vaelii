@@ -235,7 +235,9 @@ equal to each other's however a caller spelled the justification.)
 every *report* reads it as a list. Three of the seven builders get there by **sorting on
 content** (`kb/antecedent-order`) — forward chaining's two placement sites and
 `special/derive-equality`, the three handed a vector whose order is an arrival. The order
-is the printed sentence then the context, and the informant is ordered with the rest
+is the sentence then the context — a **structural** key, walked in place by
+`nm/compare-form` rather than printed, so no ambient `*print-length*` can elide two long
+sentences to one prefix and drop the tie back onto arrival — and the informant is ordered with the rest
 rather than pinned to a position (the record names it in its own `:informant` slot, and
 symbol informants like `rewriteOf` are no part of the vector at all). Nothing reads a
 position — `valid?` and `has-justification?` read the set, and `why` lifts the rule out by
@@ -260,10 +262,11 @@ never on the handle is one rule with one home:
 
 **The key is built once per entry, not once per comparison.** `sort-by` calls its key fn
 from inside the comparator, so a naive sort builds it ~2·n·log₂n times — and each build
-is a `get-sentex` per antecedent plus a `pr-str`. A rule handle is an antecedent of every
+is a `get-sentex` per antecedent. A rule handle is an antecedent of every
 firing it licenses, so `dependent-justifications` pays that multiple on the whole history:
 at 100k firings, ~3.3M key builds where 100k would do. All three sites decorate, sort and
-undecorate, which is the same `compare` over the same keys and stable either way.
+undecorate through `nm/sort-by-content-key`, which is the same comparator over the same
+keys and stable either way.
 
 Two properties are easy to assume and would be wrong — a dense network cannot simply
 replace the reference (`RoaringBitmap` is mutable, and `jtms_atomicity_test` pins that a
@@ -376,12 +379,15 @@ assert / retract / `forward-chain` / `recover`:
    ([taxonomy.md](taxonomy.md#what-each-constraint-does-in-each-arrival-order) has the
    measurement). The rule it generalizes to: **a nogood whose detection reads a
    belief-following cache its own member supports is not stable.**
-3. Resolve each nogood from its members' **defeat-classes** (`decide-nogood`):
-   - **different defeat-class** → defeat the strictly-weaker member. No solver.
-     (Monotonic beats default.)
-   - **equal, and defeasible** → a **dilemma**. Both sides stay believed at
-     `:default` and the pair is reported by `contradictions`. Nothing is arbitrated.
-   - **equal `:monotonic`** → irreducible; report it in `conflicts` (never throw).
+3. Resolve each nogood from its members' **defeat-classes** (`decide-nogood`), read over
+   the whole member set rather than over two — a nogood is a set that must not hold in
+   full, and `antiTransitive` forms one over three sentexes:
+   - **a unique weakest member** → defeat it. No solver. (Monotonic beats default.)
+   - **a minimum shared by several, and defeasible** → a **dilemma**. Every member stays
+     believed at `:default` and the set is reported by `contradictions`. Nothing is
+     arbitrated.
+   - **a minimum shared by several `:monotonic` members** → irreducible; report it in
+     `conflicts` (never throw).
 4. Loop until no active nogood remains.
 
 A default/default clash is **not** decided, and defeat-class is the only axis it could
@@ -760,16 +766,18 @@ reading a caller actually holds. A nogood is a *set*, so something has to linear
 sorting by handle is the tempting answer and it is the one that fails, because handles
 are allocated in assertion order — "which side is `(first (:sides c))`?" would then mean
 "which side was typed first", on a report whose `:sentence` said the same thing either
-way. So the sides are ordered by printed sentence, then by context (one sentence can
+way. So the sides are ordered by sentence, then by context (one sentence can
 clash with itself across two contexts), then by handle for a pair a reader cannot
-tell apart regardless. `:handles` is `:sides`' handles in that order, so the two agree.
+tell apart regardless — a **structural** key throughout, compared by `nm/compare-form`
+rather than printed. `:handles` is `:sides`' handles in that order, so the two agree.
 
 **The list is ordered by the same rule the sides are.** Ordering the pair inside a report
 and leaving the vector of reports unordered would move the problem out one level rather
 than solve it: the nogoods are held in a hash set keyed by handle, so
 `(first (contradictions kb))` would be an answer about which pair was typed first, on a
-call whose every other reading is order-independent. Both readings are ordered by printed
-sentence, then context — the sides' rule applied to the reports.
+call whose every other reading is order-independent. Both readings are ordered by
+sentence, then context — the sides' rule applied to the reports, and handle-free, since a
+report is already ordered inside.
 
 **The ordering is the read's, not the settle's**, and that is a claim about where the
 guarantee lives rather than about whether it holds. `settle` stores the two vectors in
@@ -783,7 +791,7 @@ ms. A reading is asked for far more rarely than a KB is written to.
 
 The sort key rides each report's metadata, built once when the report is built and
 carried through the memo, so ordering a reading compares prepared keys instead of
-`pr-str`ing every side per comparison. Nothing inside the engine leans on the stored
+rebuilding every side's per comparison. Nothing inside the engine leans on the stored
 order: the labeling solver re-sorts the dilemmas by priority then content for itself,
 because an earlier choice constrains every later one
 (`vaelii.impl.solve`, and `solve_test/the-result-does-not-depend-on-the-order-the-nogoods-arrive-in`).
@@ -1024,7 +1032,7 @@ nesting of the two are classified alike. Every rejection carries an `ex-info` `:
 so a caller discriminates on that rather than guessing from which keys are present:
 `:naming` `:not-well-formed` `:not-ground` `:not-range-restricted` `:not-indexable`
 `:not-assertible` `:arity` `:arg-type` `:arg-genl` `:arg-position` `:inter-arg-type`
-`:arg-constraint-kind` `:disjoint` `:functional` `:asymmetric` `:not-stratified`
+`:arg-constraint-kind` `:arg-variable` `:disjoint` `:functional` `:asymmetric` `:not-stratified`
 `:exception-not-closed`, plus the two about the *request* rather than the knowledge —
 `:shape` (the context is not a symbol, the sentence is not an s-expression, or it is a
 vector — which is how a query spells a conjunction, so one spelling would store a

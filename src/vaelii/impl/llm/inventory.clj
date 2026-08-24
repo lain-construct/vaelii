@@ -42,7 +42,8 @@
   (:require [clojure.string :as str]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.llm.selection :as selection]))
+            [vaelii.impl.llm.selection :as selection]
+            [vaelii.impl.naming :as nm]))
 
 ;; ---- what counts as coined vocabulary -----------------------------------
 
@@ -453,9 +454,12 @@
                             (map vector (repeat Long/MAX_VALUE) (sort declared)))
          best       (reduce (fn [acc [tier p]] (if (contains? acc p) acc (assoc acc p tier)))
                             {} ranked)
-         ordered    (map first (sort-by (fn [[p tier]] [tier (str p)]) best))
+         ;; a predicate is a symbol (`name-key`); a type node may be a NAT (`print-key`)
+         ordered    (map first (nm/sort-by-content-key (fn [[p tier]] [tier (nm/name-key p)])
+                                                       compare best))
          kept       (take max-relations ordered)
-         types      (->> (concat (filter all-types nb) (sort-by str (remove nb-set all-types)))   ; types may be NATs
+         types      (->> (concat (filter all-types nb)
+                                 (nm/by-print-key (remove nb-set all-types)))
                          (remove head-only?)
                          distinct)
          shown      (take max-types types)]
@@ -519,15 +523,19 @@
   "Take entries while their running token estimate stays under `max-tokens`, and say how
   many were left out.  The inventory is the one section that can be trimmed without losing
   knowledge — a predicate not listed is a predicate the model will not reuse, which is a
-  worse answer, never a wrong one — so this trims where `vaelii.impl.llm.selection` refuses."
+  worse answer, never a wrong one — so this trims where `vaelii.impl.llm.selection` refuses.
+
+  The recursion tests the **seq**, not the head element: a nil entry is a line like any
+  other, and stopping on one would end the walk early *and* report nothing dropped — the
+  count that tells the reader how much of the vocabulary is not on the page."
   [lines max-tokens]
-  (loop [kept [] spent 0 [l & more] lines]
-    (if (nil? l)
-      [kept 0]
+  (loop [kept [] spent 0 more (seq lines)]
+    (if-let [[l & remaining] more]
       (let [cost (selection/estimate-tokens l)]
         (if (and max-tokens (> (+ spent cost) max-tokens))
-          [kept (inc (count more))]
-          (recur (conj kept l) (long (+ spent cost)) more))))))
+          [kept (count more)]
+          (recur (conj kept l) (long (+ spent cost)) remaining)))
+      [kept 0])))
 
 (defn- block
   ([heading lead lines cut noun] (block heading lead lines cut noun nil))

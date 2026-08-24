@@ -27,7 +27,7 @@
   (v/assert kb (list 'genl cycl_constant cycl_expression) 'CxUniverse)
   (v/assert kb (list 'reifiableFunction Quote)            'CxUniverse)
   (v/assert kb (list 'quotingFunction Quote)              'CxUniverse)
-  (v/assert kb (list 'resultIsa Quote cycl_expression)    'CxUniverse))
+  (v/assert kb (list 'result Quote cycl_expression)    'CxUniverse))
 
 (defn- k-of [kb h] (second (:sentence (v/sentex kb h))))
 

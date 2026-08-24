@@ -208,8 +208,9 @@ value must go through `sentex/sentex`.**
 The only blessed `:refer :all` is `[clojure.test :refer :all]` in test namespaces;
 everywhere else use an explicit `:refer [foo bar]` of exactly the names the file uses.
 Foundational vocabulary uses short `:as` aliases by convention — `sx` for
-`impl.sentex`, `p` for `impl.protocols`, `v` for `vaelii.core`, `tax` for
-`impl.taxonomy`, `nm` for `impl.naming`, `tu` for `vaelii.test-util`. Follow what the
+`impl.sentex`, `p` for `impl.protocols`, `cap` for `impl.capabilities`, `v` for
+`vaelii.core`, `tax` for `impl.taxonomy`, `nm` for `impl.naming`, `tu` for
+`vaelii.test-util`. Follow what the
 file you are editing already does.
 
 ### 3.6 Comments: current code only, no archaeology

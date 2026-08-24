@@ -184,9 +184,20 @@
   [kb naf-antes bindings pctx]
   (boolean (some #(unknown-inner-holds? kb % bindings pctx) naf-antes)))
 
+(defn- disagreeing-solutions
+  "The disagreeing solutions of one post-join literal as a content-ordered vector of
+  `[[?var value] …]`, for the ledger entry that names them.
+
+  Ordered by content, never by the order the registry yielded them: an entry naming them
+  in solution order would carry into the ledger the very arrival dependence the refusal
+  exists to remove, so the same knowledge loaded either way would file two different
+  entries about one defect and `report-once` would keep both."
+  [sols]
+  (nm/sort-by-content-key identity (mapv #(nm/sort-by-content-key first (mapv vec %)) sols)))
+
 (defn post-join-bindings
   "Extend `bindings` with what a firing's post-join literals compute (`rules/post-join
-  -literals`), or nil when one of them has no answer.
+  -literals`), or nil when one of them has no answer — or gives more than one.
 
   This is where an aggregate antecedent is actually evaluated: not in the join, which
   does not yet know where the conclusion lands, but per placement context — the same
@@ -201,18 +212,44 @@
   somewhere — the same reason `solve-deferred` uses it.  Moving a literal later must
   not quietly move it to another context.
 
-  Nil is a **block**, and it means one of two things that the caller need not
-  distinguish: the literal has no answer at all (a `min` over an empty group, a
-  comparison that came out false), or its output was already bound — by an earlier
-  antecedent, or by the firing this is re-checking — and the recomputed value no
-  longer matches it."
+  **A literal that answers two ways answers nothing**, the rule the engine takes for a
+  reading stated twice over — `provers/table-agreed` on a unit's conversion factor,
+  `duration/interval-length` on two lengths.  Every output here reaches the conclusion:
+  through the literals still to run, through the `exceptWhen` and `unknown` checks that
+  read these bindings, and through the consequent itself.  So taking the registry's
+  first solution would conclude a *different fact* per arrival order, since which
+  solution is first is a function of how the facts were stored.  The disagreement is
+  declined and filed (`:post-join-ambiguous`) instead of adjudicated.  At most two
+  distinct solutions are ever realized, so the check costs one extra pull off a lazy
+  seq and never enumerates a wide answer.
+
+  Nil is a **block**, and it means one of three things the caller need not distinguish:
+  the literal has no answer at all (a `min` over an empty group, a comparison that came
+  out false), its output was already bound — by an earlier antecedent, or by the firing
+  this is re-checking — and the recomputed value no longer matches it, or the solutions
+  disagreed."
   [kb literals bindings pctx]
   (reduce (fn [bs lit]
-            (let [g   (res/substitute lit bs)
-                  ctx (if (sx/aggregate? lit) pctx '?ctx)]
-              (if-let [sol (first (provers/solve-goal kb g ctx))]
-                (merge bs sol)
-                (reduced nil))))
+            (let [g    (res/substitute lit bs)
+                  ctx  (if (sx/aggregate? lit) pctx '?ctx)
+                  sols (into [] (comp (distinct) (take 2)) (provers/solve-goal kb g ctx))]
+              (case (count sols)
+                1 (merge bs (first sols))
+                0 (reduced nil)
+                (do (violations/report-once
+                     kb {:violation :post-join-ambiguous
+                         :context   pctx
+                         :detail    {:literal   g
+                                     :solutions (disagreeing-solutions sols)
+                                     ;; `print-key`, not `pr-str`: the message is part of
+                                     ;; what `report-once` dedupes on, and an ambient
+                                     ;; `*print-length*` would elide two literals to one
+                                     ;; string — or one literal to two, across a rebind
+                                     :message   (str "post-join literal " (nm/print-key g)
+                                                     " has more than one solution; a firing "
+                                                     "that took one of them would depend on "
+                                                     "the order the facts arrived")}})
+                    (reduced nil)))))
           bindings
           literals))
 
@@ -624,11 +661,10 @@
 
 (defn- qualitative-antecedent
   "The registered calculus claiming `ante`, or nil — nil for every KB that registered no
-  prover.  Nil is not free: `qkb/calculus-for` rebuilds the registered-calculus list per
-  call, so a KB that opted into nothing still pays an `instance?` test per prover in the
-  registry, here once per antecedent literal of every rule considered.  A constant in the
-  registry's size and no store read, which is what makes it affordable on that path —
-  not an absent cost.  The shape gate in front of it is the real saving, and it is
+  prover.  Nil is close to free: `qkb/calculus-for` memoizes the registered-calculus
+  list against the registry vector, so a repeat registry costs a volatile read and an
+  identity compare, and the per-prover `instance?` scan runs only when the registry
+  itself changed.  The shape gate in front of it is still the larger saving, and it is
   arity-only: positive binary literals, a negated one being refuted by the network rather
   than entailed by it, and what a refutation rests on is the whole network rather than a
   support list."
@@ -664,17 +700,17 @@
   exist is not the placement's question, and the reasons this hands back are what
   placement then reads to decide where the conclusion may live."
   [kb literal states]
-  (let [af (nm/functor literal)]
+  (let [ak (rules/antecedent-key literal)]
     (for [{:keys [bindings handles matched]} states
           :let [g (res/substitute literal bindings)]
           {b :bindings sup :handles claim :claim} (inherit/solve-with-support kb g '?ctx)]
       ;; the claim satisfied the antecedent like any other match, and it may have done
-      ;; so through a sub-predicate — so it is paired with the antecedent's functor and
+      ;; so through a sub-predicate — so it is paired with the antecedent's key and
       ;; `subsumption-links` reads the taxonomy edges *that* pairing rests on.  The
       ;; declaration and the reach edges are not paired: they are what licensed the
       ;; move, not facts that matched a pattern.
       {:bindings (merge bindings b) :handles (into handles sup)
-       :matched  (conj matched [af claim])})))
+       :matched  (conj matched [ak claim])})))
 
 (defn- mirrored-antecedent?
   "Is `ante` a literal the matcher answers through the **symmetric mirror** — a binary
@@ -862,13 +898,15 @@
   whose antecedents are all computed lists the rule handle alone, which is the honest
   reading: nothing but the rule supports it.
 
-  `:matched` pairs each ordinarily matched fact with the **functor of the antecedent
-  it satisfied**, which `:handles` alone cannot say: the join runs in cost order
-  (`planned-join`), so a handle's position in the vector names nothing.  The pairing is
-  what lets a firing tell which of its facts reached its antecedent through the `genl`
-  hierarchy, and therefore which taxonomy edges it rests on (`subsumption-links`).  A
-  qualitative entailment's support handles are not paired: the network licensed them,
-  not the taxonomy."
+  `:matched` pairs each ordinarily matched fact with the **antecedent key it
+  satisfied** (`rules/antecedent-key`, a functor or `[:not functor]`), which `:handles`
+  alone cannot say: the join runs in cost order (`planned-join`), so a handle's position
+  in the vector names nothing.  The pairing is what lets a firing tell which of its
+  facts reached its antecedent through the `genl` hierarchy, and therefore which
+  taxonomy edges it rests on (`subsumption-links`); the key rather than the bare functor
+  because under a negation that climb runs the other way, and the bare functor is `not`
+  for every negation there is.  A qualitative entailment's support handles are not
+  paired: the network licensed them, not the taxonomy."
   [kb ante states admit]
   (cond
     ;; An `(unknown S)` antecedent is negation as failure, checked at *derive time* in
@@ -901,14 +939,14 @@
             states)
 
     :else
-    (let [af    (nm/functor ante)
+    (let [ak    (rules/antecedent-key ante)
           calc  (qualitative-antecedent kb ante)
           keep? (when (and admit (nil? calc) (not (mirrored-antecedent? kb ante))) admit)
           hit   (mapcat (fn [{:keys [bindings handles matched]}]
                           (for [[h b2] (join-matches kb (res/substitute ante bindings))
                                 :when (or (nil? keep?) (keep? h))]
                             {:bindings (merge bindings b2) :handles (conj handles h)
-                             :matched  (conj matched [af h])}))
+                             :matched  (conj matched [ak h])}))
                         states)]
       (if calc
         (distinct (concat hit (solve-qualitative kb calc ante states)))
@@ -1020,7 +1058,9 @@
                        ;; the trigger is a match like any other, and it is the one most
                        ;; likely to have subsumed: `fire-rules-for` reaches a rule
                        ;; through the arriving fact's *supertypes*
-                       :matched  (if handle-only? [[(nm/functor trigger-ante) trigger-handle]] [])}]]
+                       :matched  (if handle-only?
+                                   [[(rules/antecedent-key trigger-ante) trigger-handle]]
+                                   [])}]]
     ;; a *deferred* trigger draws no handle at all, so there is no arrival to order the
     ;; rest of the join against and nothing is suppressed
     (planned-join kb to-join b0 consequent-pred seed
@@ -1304,32 +1344,46 @@
     (place-fact-conclusion kb rule conseq pctx all-antes depth bindings strength)))
 
 (defn- subsumption-links
-  "The `[fact-functor antecedent-functor]` pairs a firing reached through
-  **predicate/type subsumption** — one per matched fact whose own functor is not the
-  functor of the antecedent it satisfied.
+  "The `[sub super]` predicate pairs a firing reached through **predicate/type
+  subsumption** — one per matched fact that did not satisfy its antecedent on the
+  antecedent's own key.
+
+  Both sides are read as `rules/antecedent-key`s, a functor or `[:not functor]`, which
+  is what carries the **polarity** the direction depends on.  A positive fact satisfies
+  a positive antecedent by being on a *spec* of it, so the fact is the sub; a negated
+  fact satisfies a negated antecedent by being on a *genl* of it — subsumption runs the
+  other way under a negation (`res/match1`) — so there the *antecedent's* body is the
+  sub.  A key of one polarity against a key of the other never subsumed: the match was
+  a plain unify, and polarity does not cross.
 
   Empty for every ordinary firing, which is what keeps this free: a fact matches an
-  antecedent of its own functor, so the `not=` drains the pipeline before a closure is
+  antecedent of its own key, so the `not=` drains the pipeline before a closure is
   ever read.  `record-of` is the firing's already-fetched records; a matched handle
   with no record (swept mid-run) is skipped rather than guessed at.
 
-  Read **upward from the fact**, not downward from the antecedent: `ff ∈ specs(af)` and
-  `af ∈ genls(ff)` are the same reachability on the same edges, and the up-closure of a
-  term is its chain to `thing` where the down-closure of a general antecedent can be
-  most of the hierarchy (OpenCyc's `thing` has six figures of them).  Same answer, and
-  the memo it fills is the small one.
+  Read **upward from the sub**, not downward from the super: `sub ∈ specs(super)` and
+  `super ∈ genls(sub)` are the same reachability on the same edges, and the up-closure
+  of a term is its chain to `thing` where the down-closure of a general antecedent can
+  be most of the hierarchy (OpenCyc's `thing` has six figures of them).  Same answer,
+  and the memo it fills is the small one.
 
-  The global closure is the gate, not a placement's: whether the two functors are
+  The global closure is the gate, not a placement's: whether the two predicates are
   related at all is a property of the KB, and *which* contexts can see the relating
   edges is `subsumption-support`'s question, asked once per placement."
   [kb matched record-of]
   (let [tax (:taxonomy kb)]
     (into []
-          (comp (keep (fn [[af h]]
-                        (when-let [ff (nm/functor (:sentence (record-of h)))]
-                          (when (and (symbol? af) (symbol? ff) (not= af ff)) [ff af]))))
+          (comp (keep (fn [[ak h]]
+                        (when-let [s (:sentence (record-of h))]
+                          (let [fk (rules/antecedent-key s)]
+                            (when (not= ak fk)
+                              (cond
+                                ;; positive: the fact is on a spec of the antecedent
+                                (and (symbol? ak) (symbol? fk)) [fk ak]
+                                ;; negated: contravariant, so the antecedent is the spec
+                                (and (vector? ak) (vector? fk)) [(second ak) (second fk)]))))))
                 (distinct)
-                (filter (fn [[ff af]] (contains? (tax/genls tax ff) af))))
+                (filter (fn [[sub super]] (contains? (tax/genls tax sub) super))))
           matched)))
 
 (defn- subsumption-support
@@ -1339,7 +1393,7 @@
   of the firing, so their contexts are an input to deciding where it lands rather than
   a test on a decision already made.
 
-  A fact that satisfied an antecedent of a different functor did so over a `genl` path,
+  A fact that satisfied an antecedent it does not key with did so over a `genl` path,
   and a conclusion that rests on that path may only live where the path is visible —
   otherwise a context believes `(ancestorOf Tom Bob)` on the strength of a
   `(genl fatherOf parentOf)` edge some sibling theory asserted and it cannot see.
@@ -1357,8 +1411,8 @@
   ;; conclusion is capped at that path's floor.  `supporter-class` is the live JTMS
   ;; defeat-class of each edge supporter, read here where the tms is in hand.
   (let [supporter-class #(jtms/defeat-class (:tms kb) %)]
-    (reduce (fn [acc [ff af]]
-              (if-let [hs (tax/reach-support (:taxonomy kb) :genl ff af vantage supporter-class)]
+    (reduce (fn [acc [sub super]]
+              (if-let [hs (tax/reach-support (:taxonomy kb) :genl sub super vantage supporter-class)]
                 (into acc hs)
                 (reduced nil)))
             []
@@ -1454,7 +1508,15 @@
   [kb rule raw-c ist? links fact-handles fact-ctxs]
   (let [tax (:taxonomy kb)]
     (if ist?
-      (let [c  (when (nm/context? (second raw-c)) (second raw-c))
+      ;; A **query context** is refused here, not merely unresolved.  `nm/context?` says
+      ;; yes to `CxNothing` and its two siblings — they are spelled like contexts and read
+      ;; as roles only at the doors — so an `(ist CxNothing S)` consequent would place a
+      ;; perfectly ordinary conclusion into a symbol that names a way of *reading*.  Every
+      ;; write door already refuses one; this is the door that fires rather than asserts,
+      ;; and it is the one that could make `CxNothing` answer a fact.
+      (let [c  (when (and (nm/context? (second raw-c))
+                          (not (nm/query-context? (second raw-c))))
+                 (second raw-c))
             hs (when c (subsumption-support kb links c))]
         (if (and c hs)
           [[c] {c (into (mapv first hs) (visibility-support tax c (keep second hs)))}]
@@ -1576,7 +1638,7 @@
 
   Reading the rule *view* rather than the record: `:excepts` and `:naf` are already in
   hand on the firing path, and fetching them again per firing is what the view exists to
-  avoid.  `bindings` is nil when a post-join literal had no answer."
+  avoid.  `bindings` is nil when a post-join literal had no answer, or more than one."
   [kb rule antes bindings pctx]
   (cond
     (nil? bindings)                                                 :post-join
@@ -1769,7 +1831,8 @@
                             f)))
             raw       (if free (skolem/skolemize-conclusion kb rule raw0 bindings free) raw0)
             ;; a ground `(Quasiquote T)` in the fired head constructs and reifies its
-            ;; mention here (docs plan) — a no-op unless quasiquotation is declared
+            ;; mention here — a no-op unless quasiquotation is declared
+            ;; (`quasiquote/any-quasiquote?`, the `(quotingFunction Quasiquote)` gate)
             raw       (quasiquote/reduce-in-conclusion kb raw)
             ;; a conjunctive skolemized head shares one witness across its conjuncts
             ;; (only a head existential stores a conjunctive consequent — an ordinary
@@ -1778,7 +1841,7 @@
                         (vec (rest raw)) [raw])
             all-antes (conj (vec handles) (:rule-handle rule))
             ;; the matched records, fetched once: placement reads their contexts, and
-            ;; the subsumption links read their functors
+            ;; the subsumption links read their antecedent keys
             facts     (mapv #(p/get-sentex (:records kb) %) handles)
             links     (subsumption-links kb matched (zipmap handles facts))
             new       (vec (mapcat #(place-conseq kb rule % handles all-antes facts links
@@ -2116,9 +2179,11 @@
         ;; read once per datum, not per candidate position: what makes the mirror true is
         ;; the fact's own `symmetric` declaration, and every position asks the same fact
         mirror   (symmetric-mirror kb fact)
-        ;; a positive fact's predicate and its supertypes; a negative fact's one
-        ;; `[:not pred]` key (`rules/antecedent-key`), negation taking no subsumption fan
-        preds    (rules/trigger-keys (:taxonomy kb) fact)
+        ;; a positive fact's predicate and its supertypes; a negative fact's `[:not q]`
+        ;; keys for the specs `q` of its body's predicate, which is the direction a genl
+        ;; edge carries through a negation — read off the rule roster rather than off
+        ;; that closure (`rules/trigger-keys`)
+        preds    (rules/trigger-keys (:taxonomy kb) fact @(:rule-antecedents kb))
         ;; the antecedent index is complete, so each candidate's own record decides
         ;; whether it may fire here: forward-capable is the only question
         rhs      (into #{} (mapcat #(p/rules-by-antecedent (:index kb) %)) preds)
@@ -2308,7 +2373,7 @@
                   ;; run's store, and a nested run gets its own.  Armed only for a bulk
                   ;; frontier (`kb/chain-authority-min-frontier`) — an incremental assert's
                   ;; one-fact seed concludes too little to repay the probe, so it stays nil
-                  ;; and `find-sentex-handle` walks the trie exactly as it did pre-optimization.
+                  ;; and `find-sentex-handle` walks the trie, which is the reference path.
                   kb/*chain-authoritative-functors* (when (>= (count seed)
                                                               kb/chain-authority-min-frontier)
                                                       (java.util.HashMap.))

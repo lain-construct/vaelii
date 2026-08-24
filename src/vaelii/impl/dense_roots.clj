@@ -349,7 +349,9 @@
               :increment (kv/kv-increment this k)
               :decrement (kv/kv-decrement this k)
               :add-to-set (do (kv/kv-add-to-set this k a) nil)
-              :remove-from-set (do (kv/kv-remove-from-set this k a) nil)))
+              :remove-from-set (do (kv/kv-remove-from-set this k a) nil)
+              ;; the one refusal every adapter spells — see `vaelii.impl.dense-kv`
+              (kv/unknown-op! op)))
           ops))
   ;; The portable projection has to undo *both* of this backend's compressions: the
   ;; interned key (through `unpack`, against the shared dictionary) and the `IntPostings`
@@ -388,14 +390,14 @@
   ;; intersection of scoped leaves.  So the aggregate reads delegate straight to it, ints
   ;; and all, and get the whole collapse.
   ;;
-  ;; Without this, `DenseRoots` took the `Object` default (`vaelii.impl.kv`), which
+  ;; Without these four, `DenseRoots` takes the `Object` default (`vaelii.impl.kv`), which
   ;; reconstructs the four-part `[:argument-root pred pos term]` VECTOR through `arg-key`
   ;; and calls the generic `kv-members`/`kv-count`/`kv-intersect` — routed to `:fallback`
   ;; and re-parsed by the fallback's `arg-root-key?` back into `pos`/`term`/`pred`.  That
   ;; cons-and-reparse per read, and the union rebuilt over the slot roster rather than read
   ;; off the maintained node, is exactly the cost the trie exists to remove; delegating
-  ;; here is what carries the v2/v3 memory-backend win onto the columnar / disk-columnar
-  ;; path, whose argument reads bottom out on this backend.
+  ;; here is what carries the memory backend's trie collapse onto the columnar /
+  ;; disk-columnar path, whose argument reads bottom out on this backend.
   ;;
   ;; **Both routing states, one path.**  The argument roots are resident in the fallback
   ;; whether or not a snapshot is mapped: unmapped they are *written* there (`route ⇒

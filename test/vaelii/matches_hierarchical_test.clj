@@ -21,6 +21,7 @@
   comparisons and fails when a run makes none."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.literal-cache :as lc]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
@@ -49,15 +50,23 @@
 
 (defn- lead-sides
   "`f` projected under each `res/*lead-side*` — `:scoped` (one predicate-scoped bucket per
-  spec, the pre-v4 lead), `:auto` (the count-driven default) and `:agnostic` (the small
-  side, always) — plus the `matches-visible` fan-out as ground truth (`:ref`).  The side
+  spec), `:auto` (the count-driven default) and `:agnostic` (the small side, always) —
+  plus the `matches-visible` fan-out as ground truth (`:ref`).  The side
   `lead-candidates` reads from is a pure cost decision, so all four must be the identical
-  set."
+  set.
+
+  **The literal cache is off for the comparison, and that is what makes it one.**
+  `*lead-side*` is not part of `matches-visible`'s cache key — nothing in the engine
+  rebinds it, so keying on it would only fragment the cache — which means the second and
+  third arms here would be served the first arm's answer and the oracle would be checking
+  a result against itself.  `lead_side_cost_test` pins the same switch off for the cost
+  half, and for the same reason."
   [f]
-  {:ref      (binding [res/*hierarchical-retrieval* false]                        (proj (f)))
-   :scoped   (binding [res/*hierarchical-retrieval* true, res/*lead-side* :scoped]   (proj (f)))
-   :auto     (binding [res/*hierarchical-retrieval* true, res/*lead-side* :auto]     (proj (f)))
-   :agnostic (binding [res/*hierarchical-retrieval* true, res/*lead-side* :agnostic] (proj (f)))})
+  (binding [lc/*enabled* false]
+    {:ref      (binding [res/*hierarchical-retrieval* false]                        (proj (f)))
+     :scoped   (binding [res/*hierarchical-retrieval* true, res/*lead-side* :scoped]   (proj (f)))
+     :auto     (binding [res/*hierarchical-retrieval* true, res/*lead-side* :auto]     (proj (f)))
+     :agnostic (binding [res/*hierarchical-retrieval* true, res/*lead-side* :agnostic] (proj (f)))}))
 
 (defn- fact-sentences
   "Up to `n` distinct positive ground-fact bodies (no rules), sampled *evenly* across
@@ -212,7 +221,7 @@
       ;; and the answer set is exactly the two believed sub-facts, the unrelated predicate
       ;; and the invisible sibling context both correctly excluded from the agnostic lead
       (let [ys (into #{} (map #(get (second %) '?y))
-                     (binding [res/*lead-side* :agnostic]
+                     (binding [lc/*enabled* false, res/*lead-side* :agnostic]
                        (res/matches-visible kb (list broadRel A '?y) 'CxSocialWorld)))]
         (is (= #{B1 B2} ys) (str "the agnostic lead's answer set is wrong: " (pr-str ys)))))))
 

@@ -2,13 +2,15 @@
 
 - **Covers:** `(believes Agent P)` — answered by proving `P` inside `Agent`'s own
   context rather than in the asker's, so agents may disagree without the KB
-  contradicting itself. `modalPredicate` / `register-modal-predicate!` open the same
-  machinery to `knows`, `desires`, `intends`.
+  contradicting itself. `modalPredicate` / `register-modal-predicate` open the same
+  machinery to `knows`, `desires`, `intends`. The **opacity** of `P`: which party's
+  equality merges may rewrite a term inside a belief.
 - **Not here:** a modal *logic* — no K/T/4/5 schema, and a nested `(believes A (believes B P))`
   projects only where the marker is visible — nothing by default, since an independent
   agent context cannot see the grant (see below); hypothetical worlds → [abduction.md](abduction.md).
+  The de re reading of a belief, and any operator for a *group* of agents.
 - **Assumes:** context, `genlCx` visibility, the prover registry → [contexts.md](contexts.md),
-  [glossary.md](glossary.md).
+  [glossary.md](glossary.md); the equality partition → [equality.md](equality.md).
 
 Two agents can believe contradictory things without the KB being inconsistent — that is
 what a context lattice is *for*, and the engine already has the lattice. What belief
@@ -79,6 +81,89 @@ contradict base. To let an agent see base too, add the edge yourself:
 (v/ask? kb '(believes Bob (green Grass)) 'CxWell)        ; => true
 ```
 
+## Opacity: the proposition is a mention
+
+An attitude is **opaque**. From *Oedipus believes he married Jocasta* and *Jocasta is his
+mother* it does not follow that *Oedipus believes he married his mother* — that is the
+whole of the tragedy, and it is what makes a belief different from an ordinary two-place
+fact. So `P` in `(believes Agent P)` is a **mention**: a sentence named as syntax, not a
+sentence the reader may normalize.
+
+```clojure
+(v/assert kb '(marriedTo Oedipus Jocasta) 'CxAgentOedipus)   ; what he believes
+(v/assert kb '(sameAs Jocasta MotherOfOedipus) 'CxUniverse)  ; what the ASKER knows
+
+(v/ask? kb '(believes Oedipus (marriedTo Oedipus Jocasta))         'CxUniverse) ; => true
+(v/ask? kb '(believes Oedipus (marriedTo Oedipus MotherOfOedipus)) 'CxUniverse) ; => false
+```
+
+The merge is real and the asker holds it: asked *outside* the quotation, either spelling
+normalizes to the class representative and the two are one question, exactly as
+[equality.md](equality.md) describes. Inside it, nothing moves — the merges the asker
+believes are not the ones the agent does.
+
+**The agent's own merges do license the substitution**, and license it for that agent
+alone. The projection runs the proposition in the agent's context, so it is normalized
+there — the ordinary rule that the reader is what elects, applied to the reader a
+projection actually has:
+
+```clojure
+(v/assert kb '(marriedTo Oedipus Jocasta)      'CxAgentOedipus)
+(v/assert kb '(sameAs Jocasta MotherOfOedipus) 'CxAgentOedipus)   ; HE holds the identity
+(v/assert kb '(marriedTo Creon Jocasta)        'CxAgentCreon)     ; Creon does not
+
+(v/ask? kb '(believes Oedipus (marriedTo Oedipus MotherOfOedipus)) 'CxUniverse) ; => true
+(v/ask? kb '(believes Oedipus (marriedTo Oedipus Jocasta))         'CxUniverse) ; => true
+(v/ask? kb '(believes Creon   (marriedTo Creon  MotherOfOedipus))  'CxUniverse) ; => false
+```
+
+That is the *de dicto* reading: the substitution goes through exactly when the agent holds
+the identity. The *de re* reading — "of his mother, Oedipus believes he married her",
+true whoever holds the identity — is a different question and the projector does not
+answer it.
+
+### Where the barrier sits, and what it covers
+
+Congruence opacity lives in the one walk both migration and query go through
+(`res/representative-term`), not at the read door. That is what keeps the two in step: a
+merge migrates a stored `(believes A P)` no more than it rewrites the question, so the
+belief stays retrievable under the spelling it was asserted in rather than under one only
+the merge produces. `res/without-retired` reads the same walk, so a quoted spelling is not
+retired for a reader who never renamed it.
+
+Three positions stay **transparent**, and each for a reason:
+
+| Position | Rewritten by the asker's merges | Why |
+|---|---|---|
+| the agent — `(believes Oedipus …)` | **yes** | the asker refers with it; merge `Oedipus` and `KingOfThebes` and it is one agent under two names |
+| a non-sentence argument — `(believes A Foo)` | **yes** | it names a term, not a proposition; the projector declines that shape too |
+| an ungranted predicate — `(mutters A (…))` | **yes** | opacity is what the `modalPredicate` marker buys; without it this is an ordinary relation |
+
+**The other sentence-holding forms are transparent, and none of them is a quotation.**
+`(ist Ctx S)` routes an assertion into `Ctx` — `S` is asserted, so it is used rather than
+named ([contexts.md](contexts.md)). An `exceptWhen` conjunct and an `unknown` are queries
+the engine runs on the reader's behalf, and they are normalized at the context that runs
+them ([exceptions.md](exceptions.md), [naf.md](naf.md)). In each the engine is the one
+doing the believing, so the reader's merges are the right ones and congruence applies.
+An attitude is the case where somebody else is.
+
+A **`rewriteOf` spelling rename does** reach into the quotation, exactly as it reaches into
+a `quotingFunction`'s arguments: it retires a *name*, and both the belief and the question
+follow it. A `sameAs` / `equals` identity merge does not. That is the same split
+[equality.md](equality.md) opens with — three relations, one closure, and only one of them
+is about spelling.
+
+The marker is read **globally** here, where the projection reads it scoped. The two
+questions differ: whether a belief *projects* is a policy of the context that granted the
+marker, while whether an argument is a quotation is a fact about the sentence — and a
+reader-scoped answer to the second would migrate a stored belief for one context while
+holding it for another, after which neither could retrieve what the other had renamed.
+
+Opacity here is **congruence** opacity. The oriented equational rewriting that runs after
+it (the schematic `equals` of [equational.md](equational.md)) walks argument terms without
+reading the marker, so a schematic equation normalizes inside a quoted position as it does
+outside one.
+
 ## More than one modal predicate
 
 Which predicates project is a KB property, not a hard-coded set. `believes` ships granted
@@ -86,9 +171,9 @@ in `CxCore`; `knows`, `desires`, `intends` are the same projection under a diffe
 predicate, and one assertion away:
 
 ```clojure
-(v/register-modal-predicate! kb 'knows)   ; grants (modalPredicate knows) in CxCore
+(v/register-modal-predicate kb 'knows)   ; grants (modalPredicate knows) in CxCore
 ;; or scope the grant to one theory:
-(v/register-modal-predicate! kb 'knows 'CxPsychology)
+(v/register-modal-predicate kb 'knows 'CxPsychology)
 ```
 
 `(modalPredicate P)` is read **scoped from the asking context**, exactly as

@@ -13,9 +13,10 @@
 
   Two properties make a generated KB usable as a measurement rather than as noise:
 
-  * **Deterministic.**  Everything is drawn from one seeded `java.util.Random` in a fixed
-    order, so the same parameters give the same KB — a shape can be reproduced from the
-    numbers alone, and a run compared against a rerun.
+  * **Deterministic.**  Each of `plan`'s three draw streams owns a `java.util.Random`
+    seeded from the plan seed and its own constant (`stream-seeds`), so the same
+    parameters give the same KB whichever order a reader realizes the streams in — a
+    shape can be reproduced from the numbers alone, and a run compared against a rerun.
   * **Stratified.**  Predicates are split into layers: facts populate layer 0, and a rule
     concluding a layer-k predicate draws its antecedents only from layers below k.  The
     rule set is therefore acyclic, so forward chaining cascades base → derived →
@@ -146,9 +147,36 @@
 
 ;; ---- the plan ------------------------------------------------------------
 
+(def ^:private stream-seeds
+  "One seed offset per **independently drawn stream** of the plan.
+
+  The three lazy seqs a plan hands back — `:memberships`, `:facts`, `:rules` — are
+  realized by whoever holds the plan, in whatever order that caller wants: `load-into`
+  takes memberships, then rules, then facts, and a test reading the map takes them in
+  another.  Sharing one `Random` across the three would make each stream's *values* a
+  function of when the others were realized, so the same parameters would describe
+  different KBs depending on the order they were asked for — which is exactly the
+  property `plan` promises it does not have.  A stream per generator closes that: each
+  draws from its own `Random`, seeded off the plan's seed, so the interleaving cannot be
+  observed.  (Within one stream the order is the seq's own and is fixed.)
+
+  The offsets are the SplitMix64 mixing constants, written as the signed longs they are
+  (a positive hex literal that wide reads as a `BigInt`): distinct, odd and
+  high-entropy, so two streams of one plan and one stream of two adjacent seeds do not
+  alias."
+  {:memberships -7046029254386353131        ; 0x9E3779B97F4A7C15
+   :facts       -4658895280553007687        ; 0xBF58476D1CE4E5B9
+   :rules       -7723592293110705685})      ; 0x94D049BB133111EB
+
+(defn- stream-rng
+  "The `Random` for one of `plan`'s draw streams — see `stream-seeds`."
+  ^java.util.Random [seed stream]
+  (java.util.Random. (bit-xor (long seed) (long (stream-seeds stream)))))
+
 (defn plan
   "The whole synthetic KB as data — pure, and a function of `params` alone (the seed
-  included), so the same numbers describe the same KB every time.
+  included), so the same numbers describe the same KB every time, **whatever order its
+  streams are realized in** (`stream-seeds`).
 
   Returns `{:params :context-edges :genls :memberships :facts :rules :units}`, where
   `:units` is the total number of assertions `load-into` will make (what a progress bar
@@ -158,7 +186,9 @@
   (let [{:keys [types branching individuals predicates facts rules forward defeasible
                 antecedents layers contexts seed]}
         (merge defaults params)
-        rng    (java.util.Random. (long seed))
+        mrng   (stream-rng seed :memberships)
+        frng   (stream-rng seed :facts)
+        rrng   (stream-rng seed :rules)
         ctxs   (if (< contexts 2)
                  [context-root]
                  (mapv context-name (range contexts)))
@@ -168,13 +198,27 @@
         tcdf   (zipf-cdf (max 1 types) 1.0)
         bcdf   (zipf-cdf (count base) 1.1)
         adist  (antecedent-counts antecedents)
-        nfwd   (long (* (/ (double forward) 100.0) rules))
-        ndef   (long (* (/ (double defeasible) 100.0) rules))
+        ;; the fact contexts form a **chain** under the schema context, not a fan of
+        ;; siblings: two incomparable contexts have no common descendant, so a rule
+        ;; joining a fact from each would complete with nowhere to put its conclusion
+        ;; (`:no-placement`).  Down a chain every pair is comparable and the conclusion
+        ;; lands in the deeper of the two.
+        ;;
+        ;; Bound rather than written inline in the map below, because `:units` is the
+        ;; count of assertions `load-into` makes and this is one of the phases it counts:
+        ;; the head edge under `CxCore` is an assertion the context *list* does not name,
+        ;; so a unit total derived from that list runs one short of the bar it drives.
+        cedges (cons (list 'genlCx context-root 'CxCore)
+                     ;; each band sees the one above it — `(genlCx Sub Super)`,
+                     ;; so the *second* element of a consecutive pair is the child
+                     (map (fn [[super sub]] (list 'genlCx sub super))
+                          (partition 2 1 (cons context-root
+                                               (remove #{context-root} ctxs)))))
         ;; a type membership names a *specific* type: the tree is filled breadth-first,
         ;; so the deep (specific) types are the high indices — draw Zipf from the top
         ;; end so an individual is usually a leaf kind and only rarely a bare root one
-        a-type #(type-name (- (max 1 types) 1 (zipf tcdf rng)))
-        an-ind #(ind-name (zipf icdf rng))
+        a-type #(type-name (- (max 1 types) 1 (zipf tcdf mrng)))     ; memberships only
+        an-ind #(ind-name (zipf icdf frng))                          ; facts only
         ;; per target layer: the band it concludes into, and every band below it
         per-k  (into {} (for [k (range 1 (count bs))]
                           (let [cb (nth bs k)
@@ -182,41 +226,43 @@
                             [k {:cb cb :ccdf (zipf-cdf (max 1 (count cb)) 1.3)
                                 :lo lo :lcdf (zipf-cdf (max 1 (count lo)) 1.1)}])))]
     {:params       (merge defaults params)
-     ;; the fact contexts form a **chain** under the schema context, not a fan of
-     ;; siblings: two incomparable contexts have no common descendant, so a rule
-     ;; joining a fact from each would complete with nowhere to put its conclusion
-     ;; (`:no-placement`).  Down a chain every pair is comparable and the conclusion
-     ;; lands in the deeper of the two.
-     :context-edges (cons (list 'genlCx context-root 'CxCore)
-                          ;; each band sees the one above it — `(genlCx Sub Super)`,
-                          ;; so the *second* element of a consecutive pair is the child
-                          (map (fn [[super sub]] (list 'genlCx sub super))
-                               (partition 2 1 (cons context-root
-                                                    (remove #{context-root} ctxs)))))
+     :context-edges cedges
      :genls        (genl-edges types branching)
      ;; every individual gets one type membership, in a context chosen round-robin so
      ;; the bands are evenly populated whatever the individual distribution does
      :memberships  (map (fn [i] [(list (a-type) (ind-name i)) (nth ctxs (mod i (count ctxs)))])
                         (range individuals))
-     :facts        (map (fn [i] [(list (nth base (zipf bcdf rng)) (an-ind) (an-ind))
+     :facts        (map (fn [i] [(list (nth base (zipf bcdf frng)) (an-ind) (an-ind))
                                  (nth ctxs (mod i (count ctxs)))])
                         (range facts))
-     :rules        (map (fn [i]
-                          (let [a    (nth adist (.nextInt rng (count adist)))
-                                k    (inc (.nextInt rng (max 1 (dec (count bs)))))
+     ;; **Direction and defeasibility are two draws, not two thresholds on one index.**
+     ;; Read off `(< i n)` they would be perfectly correlated: at any settings where
+     ;; `defeasible` ≤ `forward`, every defeasible rule would also be a forward one, and
+     ;; no settings at all would produce a defeasible *backward* rule — a shape the corpus
+     ;; could not exercise however the knobs were turned.  Two percentage draws from the
+     ;; rule stream's own `Random` keep them independent, at the price that each mix is a
+     ;; share rather than an exact count.  Both are drawn in the `let` rather than in the
+     ;; map below, so the order they consume the stream in is the source order here and
+     ;; not a map literal's evaluation order.
+     :rules        (map (fn [_]
+                          (let [a    (nth adist (.nextInt rrng (count adist)))
+                                k    (inc (.nextInt rrng (max 1 (dec (count bs)))))
                                 {:keys [cb ccdf lo lcdf]} (per-k k)
                                 vars (mapv #(symbol (str "?v" %)) (range (inc a)))
-                                antes (mapv (fn [j] (list (nth lo (zipf lcdf rng))
+                                antes (mapv (fn [j] (list (nth lo (zipf lcdf rrng))
                                                           (nth vars j) (nth vars (inc j))))
-                                            (range a))]
+                                            (range a))
+                                conseq (list (nth cb (zipf ccdf rrng))
+                                             (first vars) (peek vars))
+                                fwd?  (< (.nextInt rrng 100) (long forward))
+                                def?  (< (.nextInt rrng 100) (long defeasible))]
                             {:antecedents antes
-                             :consequent  (list (nth cb (zipf ccdf rng))
-                                                (first vars) (peek vars))
-                             :direction   (if (< i nfwd) :forward :backward)
-                             :defeasible? (< i ndef)
+                             :consequent  conseq
+                             :direction   (if fwd? :forward :backward)
+                             :defeasible? def?
                              :layer       k}))
                         (range rules))
-     :units        (+ (count ctxs) (max 0 types) individuals facts rules)}))
+     :units        (+ (count cedges) (max 0 types) individuals facts rules)}))
 
 ;; ---- loading it ----------------------------------------------------------
 
@@ -265,11 +311,17 @@
                                       :note (if pending
                                               (format "derived · %,d on the agenda" (long pending))
                                               "forward chaining to a fixpoint")}))
-         ;; the two fact phases are deduped here so the bulk path's "pairwise distinct"
-         ;; precondition holds; a HashSet of the sentences costs a fraction of what the
-         ;; sentexes themselves will
+         ;; The two fact phases are deduped here so the bulk path's "pairwise distinct"
+         ;; precondition holds; a HashSet of the entries costs a fraction of what the
+         ;; sentexes themselves will.
+         ;;
+         ;; Keyed on the **whole `[sentence context]` entry**, because that is the
+         ;; precondition `bulk-assert-facts!` states: no two the same sentence *in the
+         ;; same context*.  A sentence is a distinct sentex in each context that holds
+         ;; it, so keying on the sentence alone would drop every repeat past the first
+         ;; and make `:contexts` a knob that spreads the facts without adding any.
          seen    (java.util.HashSet.)
-         fresh   (fn [batch] (into [] (remove #(not (.add seen (first %)))) batch))
+         fresh   (fn [batch] (into [] (filter #(.add seen %)) batch))
          load!   (fn [phase batches]
                    (doseq [batch batches]
                      (let [b (fresh batch)]

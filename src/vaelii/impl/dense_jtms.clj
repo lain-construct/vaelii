@@ -84,15 +84,16 @@
   Handles are allocated in assertion order and never reused, so this bounds a KB's
   *cumulative* allocations (~2.1B), not its live node count — 21x the engine's 100M
   target, but reachable by a long-lived writer that churns assert/retract for long
-  enough.  Crossing it throws an actionable error naming the ceiling and the `{:tms
-  :reference}` remedy (`check-handle!`, at the two entry points a new id enters), rather
-  than the bare \"integer overflow\" the cast would raise — and never a silent truncation
+  enough.  Crossing it throws `:type :handle-ceiling`, an actionable error naming the
+  ceiling and carrying `:remedy {:tms :reference}` (`check-handle!`, at the two entry
+  points a new id enters), rather than the bare \"integer overflow\" the cast would raise — and never a silent truncation
   that would collide two handles, so belief is never corrupted.  A KB that expects to
   churn past 2^31 pins `{:tms :reference}`, whose `Long`-keyed persistent maps have no
   such ceiling.  This is measured in density.md."
   (:require [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.jtms-protocol :refer [Tms]]
+            [vaelii.impl.observe :as observe]
             [vaelii.impl.strength :as strength])
   (:import [it.unimi.dsi.fastutil.ints Int2IntOpenHashMap Int2ObjectOpenHashMap]
            [java.util.concurrent.locks StampedLock]
@@ -222,9 +223,9 @@
 
 ;; The deftype's methods call the operations below, and those need the type itself for
 ;; their hints — a genuine in-file cycle, so the entry points are declared ahead of it.
-(declare ensure! premise! suspend-premise! add-just! restrength-informant! defeat!
-         clear-defeats! relabel-all! set-blocked! retract-datum! sweep-from! snapshot
-         just-record)
+(declare ensure! ensure-noop? premise! suspend-premise! add-just! restrength-informant!
+         defeat! clear-defeats! relabel-all! set-blocked! retract-datum! sweep-from!
+         snapshot just-record)
 
 (deftype DenseTms [^StampedLock lock
                    ^RoaringBitmap nodes
@@ -300,7 +301,17 @@
   (-dependents [_ datum] (with-read lock (adj-set conseqs datum)))
   (-justification [this jid] (with-read lock (when (rb-has? jids jid) (just-record this jid))))
   (-justifications [this] (with-read lock (seq (mapv #(just-record this %) (rb-longs jids)))))
-  (-ensure-node [this datum depth] (with-write lock (ensure! this datum depth)) nil)
+  (-ensure-node [this datum depth]
+    ;; Take the exclusive stamp only when the write would change something: a node
+    ;; already present at a depth no higher than `depth` is exactly what `ensure!`
+    ;; leaves (it keeps the `min` of the two).  This runs once per placement, so most
+    ;; calls are that no-op, and the probe is optimistic — no lock in the steady state.
+    ;; Skipping is sound under the single-writer contract: nothing moves the node
+    ;; between the probe and the write that is not taken.  Same skip the reference
+    ;; makes (`jtms/-ensure-node`), under the same switch.
+    (when-not (and observe/*chain-fast-paths* (opt-read lock (ensure-noop? this datum depth)))
+      (with-write lock (ensure! this datum depth)))
+    nil)
   (-add-premise [this datum strength] (with-write lock (premise! this datum strength)) nil)
   (-suspend-premise [this datum] (with-write lock (suspend-premise! this datum)) nil)
   (-add-justification [this just] (with-write lock (add-just! this just)) nil)
@@ -591,8 +602,23 @@
       (throw (ex-info (str "dense TMS: " kind " " v " exceeds the 2^31-1 handle ceiling ("
                            max-handle ").  Open the KB with {:tms :reference} — its "
                            "Long-keyed network has no ceiling (docs/density.md, Phase 3).")
-                      {:kind kind :value v :ceiling max-handle :remedy {:tms :reference}})))
+                      {:type :handle-ceiling :kind kind :value v :ceiling max-handle
+                       :remedy {:tms :reference}})))
     v))
+
+(defn- ensure-noop?
+  "Would `ensure!` leave the network exactly as it stands — is `datum` already a node at
+  a depth no higher than `depth`?  That is what `ensure!` writes back, since it keeps the
+  `min` of the stored depth and the asked one, so the exclusive stamp buys nothing there.
+
+  Total, as every read here is: false for anything that cannot name a node — nil, a
+  non-integer, or a handle past `max-handle` — so the refusal stays `check-handle!`'s to
+  raise from inside `ensure!` rather than becoming a cast error from this probe."
+  [^DenseTms this datum depth]
+  (and (integer? datum)
+       (<= (long datum) max-handle)
+       (rb-has? ^RoaringBitmap (.-nodes this) datum)
+       (<= (long (.get ^Int2IntOpenHashMap (.-depths this) (int datum))) (long depth))))
 
 (defn- ensure! [^DenseTms this datum depth]
   (let [d      (int (check-handle! datum "node handle"))
@@ -658,8 +684,13 @@
       (rb-add! ^RoaringBitmap (.-j-mono this) jid)
       (rb-del! ^RoaringBitmap (.-j-mono this) jid))
     (adj-add! (.-supports this) consequence id)
-    (doseq [a (concat antecedents out)]
-      (adj-add! (.-conseqs this) a id))
+    ;; Two straight walks, not `doseq` over `(concat antecedents out)`: the lazy seq was
+    ;; allocated once per justification — the hottest write path there is, one per derived
+    ;; fact — to express nothing but "iterate both".  `run!` reduces each collection in
+    ;; place, with no cons cells and no chunk buffer.
+    (let [cs (.-conseqs this)]
+      (run! (fn [a] (adj-add! cs a id)) antecedents)
+      (when (seq out) (run! (fn [a] (adj-add! cs a id)) out)))
     (if (and (rb-has? in consequence)
              (or (not (valid? this jid in ^RoaringBitmap (.-blocked this)))
                  (let [cls (if (rb-has? mono consequence) :monotonic :default)]
@@ -803,7 +834,9 @@
     ;; a block names a justification and a supersession names a datum, so a swept one
     ;; must lose both — an entry left behind would be reapplied to whatever reuses the id
     (doseq [jid dead-jids] (rb-del! ^RoaringBitmap (.-blocked this) jid))
-    (swap! ^clojure.lang.Atom (.-superseded this) #(apply dissoc % dead))
+    ;; one transient pass rather than `apply dissoc`, whose per-key HAMT path copy `dead`
+    ;; — a whole swept region — would pay for on every `exceptWhen` block (`jtms/dissoc-all`)
+    (swap! ^clojure.lang.Atom (.-superseded this) jtms/dissoc-all dead)
     {:removed-sentexes dead :removed-justifications removed-justs}))
 
 (defn- retract-datum!

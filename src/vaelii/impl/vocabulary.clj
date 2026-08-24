@@ -22,8 +22,8 @@
 
   **Two classes, and the distinction is the point.**  `:enforced` means some code path
   reads it and the KB will refuse, derive, or answer differently because of it — the
-  `:by` string says which path, and whether that path is keyed on this functor by name or
-  is a generic mechanism the declaration merely enrols in.  `:inert` means nothing does,
+  string under that key says which path, and whether that path is keyed on this functor
+  by name or is a generic mechanism the declaration merely enrols in.  `:inert` means nothing does,
   with `:why` recording that this is a decision rather than an omission: most of the
   inert entries are *derived* predicate types, which exist so a KB can be queried for
   what a mark implies, and are read by no check because the mark itself is what the
@@ -57,14 +57,26 @@
   "`term -> {:enforced \"where\"}` or `term -> {:inert \"why\"}`, over every term
   CxCore comments.
 
-  The `:by` prose names a code path, so it is the thing to update when one moves — and
-  `audit` is what notices when a *term* moves without it."
+  The `:enforced` prose names a code path, so it is the thing to update when one moves —
+  and `audit` is what notices when a *term* moves without it."
   '{;; ---- the taxonomy relations, cached rather than chained ----------------
     genl        {:enforced "taxonomy/add-genl — the cached closure every membership, match and placement reads"}
     genlCx {:enforced "taxonomy/add-genlCx — the visibility closure a context read walks"}
     thing       {:enforced "checks — the hierarchy root the open-world floors test against by name"}
     predicate   {:enforced "generic: the arg target CxCore constrains its own meta-level with"}
-    function    {:enforced "generic: the arg target the function-valued positions of resultIsa, resultGenl and functionCorrespondingPredicate name"}
+    function    {:enforced "generic: the arg target the function-valued positions of result, genlResult and functionCorrespondingPredicate name"}
+
+    ;; ---- the literal types, read by name ----------------------------------
+    ;; One vocabulary for both readings (docs/argtypes.md): `arg` types what an argument
+    ;; denotes and `quotedArg` the term written there, and a literal denotes itself, so
+    ;; the same four names answer both.  `symbol` is the exception and is mention-only.
+    string      {:enforced "checks/syntactic-roots — the kind quotedArg judges a literal against, matched by name"}
+    number      {:enforced "checks/syntactic-roots — the same, with integer below it"}
+    integer     {:enforced "checks/syntactic-roots — the same"}
+    keyword     {:enforced "checks/syntactic-roots — the same"}
+    boolean     {:enforced "checks/syntactic-roots — the same"}
+    character   {:enforced "checks/syntactic-roots — the same; a one-letter string is not one"}
+    symbol      {:enforced "checks/syntactic-roots — the same; mention-only, so nothing places it in the domain lattice"}
 
     ;; ---- the definitional constraints -------------------------------------
     arg      {:enforced "checks/args-problem — refuses on the way in, and entails under *assertive-arg-types?*"}
@@ -143,8 +155,8 @@
     contextArgSubrelation   {:enforced "context-nat producer — sibling F-contexts differing at one arg are ordered by the sub-relation on that arg, materializing genlCx"}
     termOfUnit  {:enforced "nat — the constant-to-expression half of the reified-term map"}
     rewriteOf   {:enforced "nat for a compound right side, the equality partition for a symbol"}
-    resultIsa   {:enforced "nat — materialized as a membership on each minted constant"}
-    resultGenl  {:enforced "nat — materialized as a genl edge on each minted constant"}
+    result   {:enforced "nat — materialized as a membership on each minted constant"}
+    genlResult  {:enforced "nat — materialized as a genl edge on each minted constant"}
     functionCorrespondingPredicate
     {:enforced "nat — reifies an application to the value the predicate already names, and projects a minted constant back onto it"}
 

@@ -144,7 +144,7 @@
   ;; `contextArgSubrelation` declaration can flip OUT→IN with NO assert — retracting a
   ;; monotonic defeater above it revives it.  An edge never built while the declaration was
   ;; OUT has no justification to revive, so `retract!` must re-run the producer
-  ;; (`reconcile-revivals!`) against the settled belief (docs/context-nat.md).
+  ;; (`reconcile-revivals`) against the settled belief (docs/context-nat.md).
   (let [cxfn  (declare-datetime-dimension! kb)
         year  (list cxfn 'CxMonad (list 'DatetimeFn "2000"))
         month (list cxfn 'CxMonad (list 'DatetimeFn "2000-01"))
@@ -245,3 +245,51 @@
             ev   (first (filter #(= rfact (:sentence (v/sentex kb %))) (:antecedents just)))]
         (testing "its R-evidence supporter is the fact in the smallest context, not the first"
           (is (= 'CxCore (:context (v/sentex kb ev)))))))))
+
+;; ---- the context slot reads back through the ranks it was written under ---
+
+(tu/deftest-kb a-context-slot-resolves-the-same-way-reading-and-writing
+  ;; `maybe-reify-context` mints on the write path and dedups on the read one, and the
+  ;; two have to resolve an application to the same term or a fact stored under one
+  ;; spelling is unreachable by the other.  A `(rewriteOf T E)` is the rank that shows it:
+  ;; the write path resolves the slot to `T` and mints no `termOfUnit`, so a read that
+  ;; consulted the dedup probe alone would answer `no-match` for a context it had just
+  ;; stored into.
+  (tu/with-terms [CxAlias Slot likes Tom Ann]
+    (let [cxfn (fresh-cxfn "Alias")
+          app  (list cxfn Slot)]
+      (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxAlias 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'rewriteOf CxAlias app) 'CxUniverse)
+      (let [h (v/assert kb (list likes Tom Ann) app)]
+        (testing "the write path resolves the slot to the rewriteOf target"
+          (is (= CxAlias (:context (v/sentex kb h)))))
+        (testing "and the read path resolves it the same way"
+          (is (= [CxAlias]
+                 (mapv :context (v/sentexes-matching kb (list likes Tom Ann) app))))
+          (is (v/ask? kb (list likes Tom Ann) app)))))))
+
+;; ---- a declared position the function does not have ----------------------
+
+(tu/deftest-kb a-subrelation-position-past-the-arity-orders-nothing-and-throws-nothing
+  ;; Nothing at the assert door ties a declaration's `pos` to the arity of the function
+  ;; it names, so a wide one is storable.  The producer runs on the assert maintenance
+  ;; path, so masking that position blind would throw out of an unrelated assert; a
+  ;; position that does not index the expression simply names no sibling group.
+  (let [cxfn  (declare-datetime-dimension! kb)
+        year  (list cxfn 'CxMonad (list 'DatetimeFn "2000"))
+        month (list cxfn 'CxMonad (list 'DatetimeFn "2000-01"))]
+    (v/assert kb (list 'contextArgSubrelation cxfn 9 'subintervalOf) 'CxUniverse)
+    (testing "storing into the contexts still works, declaration first"
+      (is (some? (v/assert kb '(holiday NewYear) year)))
+      (is (some? (v/assert kb '(weather Cold) month))))
+    (let [ky (:context (tu/sentex-matching kb '(holiday NewYear) year))
+          km (:context (tu/sentex-matching kb '(weather Cold) month))]
+      (testing "and no edge is invented from a position the expression does not have"
+        (is (not (v/sees? kb km ky)))
+        (is (not (v/sees? kb ky km)))))
+    (testing "a second declaration on a real position still orders them"
+      (v/assert kb (list 'contextArgSubrelation cxfn 2 'subintervalOf) 'CxUniverse)
+      (let [ky (:context (tu/sentex-matching kb '(holiday NewYear) year))
+            km (:context (tu/sentex-matching kb '(weather Cold) month))]
+        (is (v/sees? kb km ky))))))

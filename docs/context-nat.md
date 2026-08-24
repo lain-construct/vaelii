@@ -155,7 +155,7 @@ producer may call it inside the settle loop. Fields are numeric, so `"2000-1"` a
 - **The stored-fact oracle is not retroactive on its own.** A comparator dimension needs
   nothing but the contexts; a dimension resolved by stored `(R a b)` facts has its edge
   swept when a context or the declaration arrives, but an `(R a b)` fact arriving *after*
-  both contexts does not itself re-trigger the producer in this version.
+  both contexts does not itself re-trigger the producer.
 
 ## Where it lives
 
@@ -167,7 +167,7 @@ producer may call it inside the settle loop. Fields are numeric, so `"2000-1"` a
 - `vaelii.impl.naming` — `context?` (the `cx/` namespace).
 - `vaelii.core` — the context-arg reify in `assert` and the read doors (`ist-goal`), the
   context-slot shape gate (`context-shape-problem`), the producer maintenance hook, and its
-  revival re-run on `retract!` / `edit!` (`context-nat/reconcile-revivals!`).
+  revival re-run on `retract!` / `edit!` (`context-nat/reconcile-revivals`).
 - `vaelii.impl.special` / `wff` — the `contextDenotingFunction` prop mark and the
   `contextArgSubrelation` well-formedness check.
 - `vaelii.impl.context-nat` — the producer and the comparator registry.

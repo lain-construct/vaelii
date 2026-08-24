@@ -59,6 +59,26 @@
         (is (re-find #"One scenario" (:body r)))
         (is (re-find #"ntpp" (:body r)))))))
 
+(tu/deftest-kb a-calculus-name-no-algebra-answers-to-is-refused
+  ;; The fallback picks the first calculus with a populated network, so `?calc=rcc9` drew a
+  ;; matrix — a *different* algebra's, with nothing on the page to say so.  A reader
+  ;; comparing two calculi by editing the URL is exactly who that misleads.
+  (tu/with-terms [RegA RegB CxSpaceRefuse]
+    (v/assert kb (list 'genlCx CxSpaceRefuse 'CxWell) 'CxUniverse {:strength :monotonic})
+    (nest kb CxSpaceRefuse RegA RegB)
+    (let [r (GET kb "/network" (str "ctx=" CxSpaceRefuse "&calc=rcc9"))]
+      (is (= 400 (:status r)))
+      (is (re-find #"<code>calc</code>" (:body r)))
+      (is (re-find #"rcc9" (:body r)))
+      (testing "and the refusal names every calculus that would have been legal"
+        (doseq [nm (map (comp name :calculus) (v/calculi))]
+          (is (re-find (re-pattern nm) (:body r)) (str nm " is offered by the refusal")))))
+    (testing "a real one still renders, and so does the page with no calculus named"
+      (is (= 200 (:status (GET kb "/network" (str "ctx=" CxSpaceRefuse "&calc=rcc8")))))
+      (is (= 200 (:status (GET kb "/network" (str "ctx=" CxSpaceRefuse)))))
+      (is (= 200 (:status (GET kb "/network" (str "ctx=" CxSpaceRefuse "&calc="))))
+          "an empty control is the control not being submitted"))))
+
 (tu/deftest-kb an-unsatisfiable-network-says-so-rather-than-answering
   (tu/with-terms [RegA RegB CxSpaceClash]
     (v/assert kb (list 'genlCx CxSpaceClash 'CxWell) 'CxUniverse

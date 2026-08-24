@@ -9,8 +9,8 @@
   [glossary.md](glossary.md).
 
 A **NAT** is a function-application term `(F arg…)` that *denotes an entity* —
-`(FruitFn AppleTree)`, `(CapitalOf France)`, `(QuantityFn 5 Meter)`. Pure has no
-first-class function terms in a stored sentence; every stored token is atomic. NATs
+`(FruitFn AppleTree)`, `(CapitalOf France)`, `(QuantityFn 5 Meter)`. A stored sentence has
+no first-class function terms; every stored token is atomic. NATs
 are supported by **reification**, and functions split by declaration into two kinds.
 
 - `(reifiableFunction F)` — **object-denoting**. A ground `(F a…)` is a **reified NAT**: it
@@ -49,7 +49,7 @@ inverted term index like any other fact.
 | `(reifiableFunction F)` / `(unreifiableFunction F)` | F's kind — a **predicate-metadata mark** (`vaelii.impl.taxonomy` `:reifiable` / `:unreifiable` prop), belief-following like `transitive`/`symmetric` |
 | `(termOfUnit K E)` | the constant↔expression map: constant `K` denotes NAT expression `E`. The reverse (`K → E`) index; `E → K` is the inverted term index |
 | `(rewriteOf T E)` (compound `E`) | NAT `E` reifies to the existing real term `T` instead of a fresh constant |
-| `(resultIsa F T)` / `(resultGenl F T)` | F's output types — materialized on mint as `(T K)` / `(genl K T)` |
+| `(result F T)` / `(genlResult F T)` | F's output types — materialized on mint as `(T K)` / `(genl K T)` |
 | `(functionCorrespondingPredicate F P N)` | F and P state one relationship: `(F a…) = V` exactly when P holds of `a…` with `V` at argument `N` |
 
 `termOfUnit` and `rewriteOf` are **quoting predicates** (`nat/nat-quoting-predicates
@@ -61,6 +61,28 @@ shape: a **symbol** second argument is term equality (the equality partition —
 [equality.md](equality.md)); a **compound** second argument is a NAT reify-to-term
 declaration. The equality integrate arm and `wff/equality-problems` both skip the
 compound shape, so it is stored as an inert quoting fact, never entering the closure.
+
+## Which mark a function gets
+
+`reifiableFunction` and `unreifiableFunction` describe two mechanisms — minted into a
+constant, or left structural for a prover to compute — and the choice between them is not
+a matter of taste. The criterion is **boundedness of the application space**.
+
+Reifying stores one opaque constant per distinct application and keeps it, so it is safe
+exactly when the applications are bounded: `(FatherFn Muffet)` is one constant per animal,
+and an `AdultFn`-shaped function one per individual. A function whose arguments range over
+a continuous or open-ended domain is not, and takes `unreifiableFunction` instead —
+`(QuantityFn 5 Meter)`, `(QuantityFn 5.001 Meter)` and every magnitude between them run
+over the reals, so a constant apiece is a store nothing bounds. That is why `QuantityFn`
+and `QuantityIntervalFn` are unreifiable, and why a **measure function is never reifiable
+however atomic its value reads** — the shape is the trap, since a measure looks like a
+thing you would want a name for.
+
+Both marks classify: `(reifiableFunction F)` and `(unreifiableFunction F)` each say F is a
+`function`, which is what `(disjoint function predicate)` reaches. The choice changes
+where a declared result type is *stored*, not whether it holds — a reifiable application
+carries `result` materialized on its constant, an unreifiable one is typed from the
+declaration at check time, and the two say the same thing about the same function.
 
 ## The reifiable gate
 
@@ -89,19 +111,76 @@ constraint checks**:
   unguarded and nothing says so;
 - **unreifiable NATs are left structural** — never minted.
 
-Reify-**before**-WFF is load-bearing. `checks/args-problem` and `disjoint-problem`
-read only top-level args and skip compounds, so the raw compound `(FruitFn AppleTree)`
-in an argument slot is neither type-checked nor indexed. The minted constant `K`
-carries the materialized `resultIsa` types, so it is an atomic term the checks *can*
-see — and the term index never posts the raw NAT's constituents, which would pollute
-it (`sentex/index-terms` descends into ground compounds).
+Reify-**before**-WFF is load-bearing. The raw compound `(FruitFn AppleTree)` in an
+argument slot is not indexed, and `disjoint-problem` skips it — the term index never
+posts the raw NAT's constituents, which would pollute it (`sentex/index-terms` descends
+into ground compounds). The minted constant `K` carries the materialized `result`
+types, so it is an atomic term every check reads like any symbol.
+
+The **argument** checks do not skip it. `args-problem` and `genls-problem` read a
+compound through its function's declared result — see [Typing an application that is
+never minted](#typing-an-application-that-is-never-minted) below, which is what makes
+one declaration bind both classes of function.
 
 `mint-nat!` allocates a fresh opaque `K`, asserts `(termOfUnit K E)`, materializes the
-result types (`(T K)` per `resultIsa`, `(genl K T)` per `resultGenl`), and returns
+result types (`(T K)` per `result`, `(genl K T)` per `genlResult`), and returns
 `K`, all at `:monotonic` strength — a reified NAT's identity and result types are structural,
 not defeasible. `assert` stores synchronously, so a second occurrence of `E` in the
 same sentence dedups against the first; a `(rewriteOf T E)` declaration short-circuits
 the mint to the real term `T`.
+
+## Typing an application that is never minted
+
+A reified application arrives at the definitional checks as its constant, typed by the
+`(T K)` / `(genl K T)` the mint materialized. An **unreifiable** function has no mint,
+so its application stays a compound all the way to the checks — and a compound holds no
+type membership and can hold none, a membership being asserted of a name.
+
+So the argument checks read the *function's* declaration instead. `(arg P n T)` reads
+`(result F T')` — what an application of `F` **is** — and `(genlArg P n T)` reads
+`(genlResult F T')` — what it is a **kind of**. The two are never crossed.
+
+```clojure
+(v/assert kb '(unreifiableFunction QuantityFn) 'CxUniverse)
+(v/assert kb '(result QuantityFn measure) 'CxUniverse)
+(v/assert kb '(arg needsDog 1 dog) 'CxUniverse)
+
+(v/assert kb '(needsDog (QuantityFn 5 Meter)) 'CxUniverse)
+;; refused: (QuantityFn 5 Meter) must be a dog — QuantityFn results in a measure
+```
+
+Four things fix what that reading is and is not.
+
+- **It is a claim about the function, not about the application.** `(result
+  QuantityFn measure)` says every `(QuantityFn m u)` denotes a measure. Nothing computes
+  a type for one application, because there is nothing to compute: the term has no
+  membership and can acquire none.
+- **Open-world, one level out from the symbol reading.** A function that declares no
+  result exempts every application of it, exactly as an unclassified symbol exempts
+  itself, and a declared result the asking context cannot place under `thing` is
+  evidence the lattice cannot judge. Only a declared result that visibly reaches `thing`
+  and visibly fails to reach the demanded type convicts.
+- **Context-scoped, like every definitional check.** The declaration is read from the
+  asking context's vantage, so a context that cannot see it is not refused by it. That
+  is where the check parts company with the **mint**, which reads globally: a mint
+  materializes into `CxUniverse`, where every reader sees the result, and what a term
+  denotes is not a thing a reader may vary. `nat/result-types` and
+  `genl-result-types` carry both arities for exactly that split.
+- **One declaration, one verdict.** `(result F measure)` refuses the same sentence
+  whether `F` is reifiable or unreifiable — through the constant in the first case and
+  through this reading in the second. A reifiable function's application never reaches
+  this arm at all.
+
+A **quoting predicate's** argument is left alone: `(termOfUnit K (FruitFn AppleTree))`
+and a compound-argument `(rewriteOf T E)` carry the expression as a literal payload
+rather than as a term used in that position, so typing it by what the function yields
+would type a quotation by its referent. That is also where the reading would otherwise
+cost a mint something — `mint-nat!` writes one `termOfUnit` per constant.
+
+`disjoint-problem` is the check that still skips a compound. Its `:opposing-handle` is
+the conflicting *membership's* handle — what `settle` weighs the pair by — and a result
+declaration is not a membership of this application: pairing them in a nogood would let
+one application's assertion defeat a claim about the whole function.
 
 ## Read path
 
@@ -214,6 +293,13 @@ lexicographically-smallest survivor via a further equality, which migrates their
 The retired spelling stays a usable *question*: a goal naming the old term
 goal-rewrites to the new expression and still resolves to `K`.
 
+A collision can also run the other way — one constant mapped to two expressions — and
+until the repair reaches it, **every reader of the map takes the same one**: the
+content-least (`nat/authoritative-expression`, the choice `dedup-constant` makes on the
+other side of the map). That is what keeps the orphan sweep coherent: `orphan?` decides
+orphanhood against the expression `bookkeeping-handles` then computes the retraction set
+from, so no verdict about one expression retracts records belonging to another.
+
 **Remove** is retraction. When the last stored use of a reified NAT goes, its `termOfUnit` map
 and materialized types would dangle a raw `nat/` symbol — so `remove-orphaned-nats!`
 (run after `retract!` and `edit!`, gated, suppressed while already removing orphans)
@@ -227,15 +313,15 @@ the constant *is*, and counting it as a use would make every placeholder immorta
 
 **Bookkeeping is decided by authorship, not by shape.** `K`'s own sentexes are its
 `termOfUnit` map plus exactly what `mint-nat!` wrote about it, and `nat/minted-for`
-re-derives that set the way the mint derived it: `(T K)` for each believed `(resultIsa F
-T)`, `(genl K T)` for each `(resultGenl F T)`, `F` being the function of the expression
+re-derives that set the way the mint derived it: `(T K)` for each believed `(result F
+T)`, `(genl K T)` for each `(genlResult F T)`, `F` being the function of the expression
 `K` maps to, and the correspondence projection. Everything else naming `K` is somebody's
 assertion whatever its arity — `(prime K)` is a claim about `K` exactly as `(noted Author
 K)` is, and a sweep reading arity alone would retract the claim along with the constant.
 The set is computed behind a **delay**, and the `termOfUnit` clause is what makes that
 pay: a constant a teardown collects has its map and nothing else left, so the common
 answer is reached without reading the declarations at all. The one constant this keeps
-alive that a shape test would have collected is one whose `resultIsa` declaration was
+alive that a shape test would have collected is one whose `result` declaration was
 retracted after the mint: the materialized `(T K)` is then a believed sentence no rule
 supports and nobody has withdrawn, and holding `K` for it is the direction to err in.
 
@@ -276,7 +362,7 @@ and the loop ends on the round that removes nothing.
 
 - `vaelii.impl.nat` — detectors (`reified-nat-symbol?`, `reifiable-function?`,
   `reifiable-ground-nat?`), lookups (`nat-expression`, `dedup-constant`,
-  `rewrite-target`, `result-isa-types` / `result-genl-types`,
+  `rewrite-target`, `result-types` / `genl-result-types`,
   `correspondence-of` / `correspondence-value` / `corresponding-literal`),
   `expand-expression`, the shared reify walk in both modes, `mint-nat!`, and the
   rename / remove / correspondence maintenance — the orphan questions among it
@@ -291,6 +377,8 @@ and the loop ends on the round that removes nothing.
   teardown took away, which is the region the orphan sweep runs over.
 - `vaelii.impl.special` — the two function-kind prop marks, the correspondence's
   wff-only entry, and the equality-arm skip for a compound-arg `rewriteOf`.
+- `vaelii.impl.checks` — `convicting-result-type`, the arm `args-problem` and
+  `genls-problem` read a compound argument through ([argtypes.md](argtypes.md)).
 - `vaelii.impl.wff` — `function-decl-problems`, `correspondence-problems`, the
   `:opaque` role a minted constant carries through the same-role check, and the
   `equality-problems` waiver for a compound-arg `rewriteOf`.

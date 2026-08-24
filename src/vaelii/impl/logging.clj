@@ -47,10 +47,13 @@
 
 (def ^:private settable (set dial-levels))
 
-(def ^:private dial
-  "The level, or nil for *the engine has installed nothing* — which is not the same as
-  `:info`, and the difference is what `current-level` reports."
-  (atom nil))
+;; The level, or nil for *the engine has installed nothing* — which is not the same as
+;; `:info`, and the difference is what `current-level` reports.  A `defonce` because the
+;; dial is turned from outside this namespace — an operator's `set-log-level`, the
+;; `:injections` that quiet the suite — and a reload of *this* file (a REPL reload,
+;; cloverage re-evaluating it form by form to instrument it) must not silently undo that
+;; and hand the process back a level nobody chose.
+(defonce ^:private dial (atom nil))
 
 (defn current-level
   "The level the dial holds, or nil when the engine has installed no backend.  Nil says

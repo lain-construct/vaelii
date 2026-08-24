@@ -31,20 +31,45 @@
                     EOFException InputStream OutputStream)
            (java.lang.reflect Constructor)
            (java.util.zip GZIPInputStream GZIPOutputStream)
-           (org.tukaani.xz LZMA2Options XZOutputStream)))
+           (org.tukaani.xz LZMA2Options XZInputStream XZOutputStream)))
 
 ;;; ── writing ───────────────────────────────────────────────────────────
+
+(def ^:private xz-dict-bytes
+  "The LZMA2 dictionary an `:xz` chunk is compressed against.
+
+  A chunk is its own compression window, so the dictionary can never fill past the chunk
+  — and `LZMA2Options`'s default is a preset-6 8 MiB one, against a default 10,000-frame
+  chunk that measures about 1 MB.  Sizing it to the chunk costs nothing and saves the
+  difference: over a 34k-sentex dump's sentex stream the compressed bytes are **identical**
+  from 8 MiB down to 1 MiB (245,816 either way, in the same time), while the encoder's
+  working set falls from 93 MB to 12 MB.  This is that with headroom, at 24 MB.  A caller
+  who raises `:chunk-size` past it loses only the matches a window wider than this would
+  have found."
+  (* 2 1024 1024))
 
 (defn- wrap-output
   "The compressing wrapper for one chunk, matching the stream's `:compression`.  Each
   chunk is its own container — closing the wrapper writes the codec's trailer before
   the chunk's length is known, which is what lets a reader decompress any one chunk
-  without the rest."
+  without the rest.  So an `:xz` stream allocates **an encoder per chunk** rather than one
+  for the whole file; `xz-dict-bytes` is what keeps that a small allocation.
+
+  **A codec this cannot write is refused, not written flat.**  The compression a sink
+  is given rides the manifest it commits (`vaelii.impl.io.snapshot`), so a value that
+  fell through to the bare stream would leave plain nippy bytes under a manifest naming
+  a codec — and `wrap-input`, which refuses the same value, would then fail to read back
+  a file this reported as written.  `:zstd` is the live case: the reader accepts a dump
+  some other tool wrote in it and nothing here writes it."
   ^OutputStream [^OutputStream out compression]
   (case compression
-    :gzip (GZIPOutputStream. out)
-    :xz   (XZOutputStream. out (LZMA2Options.))
-    out))
+    :gzip       (GZIPOutputStream. out)
+    :xz         (XZOutputStream. out (doto (LZMA2Options.)
+                                       (.setDictSize (int xz-dict-bytes))))
+    (:none nil) out
+    (throw (ex-info (str "cannot write compression " compression
+                         " — a stream is written :gzip, :xz or :none")
+                    {:type :unsupported-compression :compression compression}))))
 
 (defn write-frames!
   "Write `frames` into `file` in the chunked layout, `chunk-size` frames per chunk.
@@ -73,12 +98,12 @@
 
 (defn- reflective-input
   "Wrap `in` in the input stream named by `class-name` via its `(InputStream)`
-  constructor.  A codec here is one a dump may *arrive* in rather than one this engine writes,
+  constructor.  A codec here is one a dump may *arrive* in and this engine does not write,
   so it is resolved reflectively: the dump imports iff the library is on the classpath,
-  and a clear error names the missing dep otherwise.  `:gzip` and `:none` — the export
-  default and the opt-out — need no dep and never reach here; `:xz` is written too
-  (`vaelii.impl.io.export`) and its library is a declared dependency, so only `:zstd`
-  actually depends on what a build happens to carry."
+  and a clear error names the missing dep otherwise.  **`:zstd` is the only one**, and so
+  the only codec whose readability depends on what a build happens to carry — `:gzip`,
+  `:none` and `:xz` are all written here, from imported classes, and read back from the
+  same ones."
   ^InputStream [^String class-name ^InputStream in]
   (try
     (let [k    (Class/forName class-name)
@@ -96,10 +121,28 @@
   (case compression
     :gzip       (GZIPInputStream. in)
     (:none nil) in
-    :xz         (reflective-input "org.tukaani.xz.XZInputStream" in)
+    :xz         (XZInputStream. in)
     :zstd       (reflective-input "io.airlift.compress.zstd.ZstdInputStream" in)
     (throw (ex-info (str "unknown compression " compression)
                     {:type :unsupported-compression :compression compression}))))
+
+(defn- wrap-file-input
+  "`file`'s bytes under `compression`'s wrapper — with the file **closed** when the
+  wrapper refuses them.
+
+  The acquisition chain is the reason this is not written inline: `wrap-input` throws on a
+  codec this build cannot read, and `GZIPInputStream`'s own constructor throws on a
+  section whose first bytes are not gzip — a dump whose `meta.edn` names a compression its
+  payload does not carry, which is exactly the dump a reader meets.  Either throw out of a
+  nested constructor call leaves the descriptor this line opened with nothing holding a
+  reference to it and nothing that will close it."
+  ^InputStream [file compression]
+  (let [raw (io/input-stream (io/file file))]
+    (try
+      (wrap-input raw compression)
+      (catch Throwable t
+        (try (.close raw) (catch Throwable c (.addSuppressed t c)))
+        (throw t)))))
 
 (defn- thaw-until-eof
   "Realize every back-to-back nippy frame from `in` into a vector, stopping at EOF."
@@ -187,6 +230,20 @@
   (when frames (sweep-readers! frames (fn [c] (c))))
   nil)
 
+(defn closer
+  "`frames` as a `java.io.Closeable`, so a consumer can put the stream in the `with-open`
+  it already has rather than wrapping its whole body in a `try`.
+
+  A frame seq closes its own file on being consumed to the end, and on a failure it
+  raises itself — but **not** on a throw out of the consumer's body, which is the exit a
+  cancelled load, a refused frame and a failed write all take.  Every such consumer holds
+  a sink under `with-open` already; one more binding there is the whole of what it takes
+  to give the stream the same lifetime, and `with-open` closes in reverse order, so the
+  stream goes after the sink that was reading against it."
+  ^java.io.Closeable [frames]
+  (reify java.io.Closeable
+    (close [_] (close-frames! frames))))
+
 (defn read-chunked-seq
   "Lazy seq of frames from a v6+ chunked stream file: a run of `[int32 length]
   [compressed chunk]`.  Chunks are read serially and thawed on demand, so the whole
@@ -215,7 +272,7 @@
   [file compression]
   (let [^DataInputStream in (DataInputStream.
                              (BufferedInputStream.
-                              (wrap-input (io/input-stream (io/file file)) compression)))
+                              (wrap-file-input file compression)))
         step (fn step []
                (lazy-seq
                 (let [item (closing-on-failure

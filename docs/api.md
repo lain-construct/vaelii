@@ -20,8 +20,17 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                               ; :backend names a <records>-<index> pair —
                                               ; :memory :memory-dense :memory-columnar
                                               ; :disk-memory :disk-dense :disk-columnar
-                                              ; :disk — or :records / :index override a
-                                              ; half of one (docs/storage.md)
+                                              ; :disk :sqlite :pg-memory :pg-disk — or
+                                              ; :records / :index override a half of one
+                                              ; (docs/storage.md)
+                                              ; :sqlite and :pg records come from Apache-2.0
+                                              ; siblings, resolved lazily, so the engine loads
+                                              ; no JDBC driver unless one is named; :pg is a
+                                              ; next.jdbc db-spec or a JDBC URL string and is
+                                              ; required, since nothing derives a server
+                                              ; :dir is the directory for :disk / :sqlite, and
+                                              ; for :pg-disk, whose durable index is files on
+                                              ; this host describing records on a server
                                               ; :naming and :constraints are this KB's two
                                               ; front-door policies (docs/naming.md, nmtms.md)
                                               ; :recover? is :auto (or true) / :warn / false —
@@ -98,6 +107,24 @@ default-chain-opts                              ; the bounds a chain run takes w
 (last-program kb)                              ; the last edge Program solved — the tie, before belief erased it
 (set-solver kb :asp)                           ; the real answer-set backend, by name (:stub is the default)
 (set-solver kb solver)                         ; or any vaelii.impl.solve/Solver value
+;; The context argument on the six reads below — sentexes-matching, query, prove, ask
+;; and the ? variants of the last three — takes a real Cx… context, a ?var, or one
+;; of the three QUERY CONTEXTS — names for a way of reading rather than a place
+;; (docs/contexts.md).  Nothing is asserted into one and no genlCx edge may name one.
+;;   CxEverything  every stored sentex, belief IGNORED — a syntactic read of the store
+;;   CxInference   only what one reader's genlCx cone sees over the WHOLE derivation,
+;;                 that reader bound to ?ctx in the answer.  The default ?ctx is
+;;                 existential per LITERAL, so it will join two facts no context sees
+;;   CxNothing     no fact at all: whatever the provers alone can compute
+;; A VARIABLE context (?ctx, the default of every short arity, or any name) is the same
+;; joint reading as CxInference — the witness is unified into that variable instead of
+;; arriving as :context.  So the default read requires one reader to see the whole
+;; derivation; the union is CxEverything.
+;; Exception: a goal whose every literal is computed (different / evaluate / unknown)
+;; names no context, so it is read whole-KB with no witness — a fanned (unknown X) would
+;; be satisfied by the most ignorant reader in the KB.  A mixed goal needs no exception.
+;; A door that does not resolve one refuses it (:unsupported-context) rather than
+;; answering empty.
 (sentexes-matching kb sentence context)        ; believed literal match (context defaults to ?ctx)
 (query kb goal context opts)                   ; THE FRONT DOOR -> solutions.  No :max-depth and it
 (query? kb goal context opts)                  ; expands no rule; a :max-depth and it is the node
@@ -115,7 +142,9 @@ default-chain-opts                              ; the bounds a chain run takes w
 (ask kb goal context) / (ask? kb goal context) ; the prover registry -> solutions / boolean.  Expands
                                                ; NO rule, so it opens no proof search
 (ask-within kb goal context budget)             ; anytime ask: bound {:max-ms :max-results :max-cost}
-(prove-within kb goal context budget)           ; anytime prove: bound {:max-ms :max-results :max-depth}
+(prove-within kb goal context budget)           ; anytime prove: bound {:max-ms :max-results :max-depth
+                                                ;   :max-term-growth} — the last a termination guard, so
+                                                ;   leaving it out keeps the shipped ceiling
                                                ; both -> {:results :status :count :elapsed-ms :resume}
 (resume partial budget)                        ; continue a :timeout/:capped partial result
 (abduce kb goal context opts)                   ; what would have to be true for the goal to follow:
@@ -149,6 +178,13 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; {:result :first|:last|n}, a value bound into that
                                                ; slot.  A fn value, never eval of data
                                                ; (docs/inference.md)
+(register-modal-predicate kb pred [context])    ; grant `pred` belief-style projection:
+                                               ; `(pred agent sentence)` is answered by proving
+                                               ; `sentence` in the agent's context, as `believes`
+                                               ; is.  A convenience over asserting
+                                               ; `(modalPredicate pred)`, so the grant follows
+                                               ; retraction and is scoped by the context holding
+                                               ; it — `CxCore` by default (docs/belief.md) -> kb
 (add-reasoner kb :allen :rcc8)                 ; register shipped ones by name -> kb
 (reasoners)                                    ; the roster: the six algebras + :duration :metric-time
 (reasoner :allen)                              ; one as a value, for a registry of your own
@@ -317,11 +353,25 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; opts: `query-opt-keys`, checked at THIS door — a
                                                 ; misspelt depth checked downstream is never checked at
                                                 ; all, and answers :unknown for a derivable sentence
+                                                ; :for-why / :against-why are `why`'s JTMS map, for a
+                                                ; side the store holds; :for-derivation /
+                                                ; :against-derivation are `query`'s {:proof? true} tree,
+                                                ; for a side a rule derived instead.  A side carries at
+                                                ; most one — the derivation is the fallback, and needs a
+                                                ; positive depth and a ground sentence
 ;; introspection: sentex, justification, supporting-justifications, dependent-justifications, premise?, defeat-class
 ;;   both justification listings are ordered by CONTENT — the informant's own sentence,
 ;;   then the antecedent sentences — and so is the antecedent vector inside each
 ;;   justification, which is what `why`'s :because and `why-not`'s :missing print.  So
 ;;   the same knowledge reports identically whatever order it was loaded in (nmtms.md)
+(blocked-justifications kb)                     ; the ids a rule exception currently blocks —
+                                                ; every antecedent IN and supporting nothing.
+                                                ; The one justification property belief does
+                                                ; not report, so a proof tree reads it beside
+                                                ; belief rather than instead of it
+                                                ; (exceptions.md).  The whole set: the caller
+                                                ; is rendering a tree and wants one read
+                                                ; rather than one per justification
 
 ;; the log dial — process-wide, since one JVM has one `taoensso.trove/*log-fn*`, and
 ;; turnable on a process that is already running (docs/operations.md)
@@ -335,11 +385,16 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; must not replace the logging of the
                                                 ; application that opened it
 
-;; the five public dynamic vars — process- or thread-scoped settings, `binding`-shaped
+;; the six public dynamic vars — process- or thread-scoped settings, `binding`-shaped
 ;; because they are about a whole batch rather than one call
 *bulk-load?*                                    ; false: `assert` in bulk-load mode — the per-fact
                                                 ; validation and dedup off for a caller-guaranteed
                                                 ; well-formed, pairwise-distinct premise load
+*write-unrecovered?*                            ; false: accept a write into a KB whose belief (or
+                                                ; index) was never built over the store it opened,
+                                                ; which the write doors otherwise refuse by name
+                                                ; (:unrecovered-kb).  Its docstring lists what
+                                                ; binding it gives up (docs/storage.md)
 *creator*                                       ; nil: the creator stamped into provenance when opts
                                                 ; names none.  Bind per session / import / user
 *clock*                                         ; a 0-arg fn giving the `:created` stamp (epoch ms).
@@ -450,7 +505,7 @@ It returns a **vector of problems**, empty when the sentence is admissible.  Eac
 map with the `:type` keyword `assert` would have thrown — `:naming`, `:not-ground`,
 `:not-well-formed`, `:not-range-restricted`, `:not-indexable`, `:not-stratified`,
 `:not-assertible`, `:exception-not-closed`, `:arg-type`, `:arg-genl`, `:arg-position`, `:inter-arg-type`,
-`:arg-constraint-kind`, `:arity`, `:disjoint`, `:functional`, `:asymmetric` — a readable
+`:arg-constraint-kind`, `:arg-variable`, `:arity`, `:disjoint`, `:functional`, `:asymmetric` — a readable
 `:message`, and whatever else that check knows (`:arg` / `:expected` / `:position` for an
 arg breach, plus `:trigger` and `:trigger-position` for the `interArg` form, which
 names the argument whose type made the constraint fire; `:cycle` for a stratification
@@ -619,7 +674,8 @@ Inside `vaelii.impl.*` the same convention runs — `delete-sentex!`, `unindex-s
 `del-genl!`, `unmark-prop!`, `clear-records!`, `clear-index!`.
 
 Everything that *adds* or *recomputes* is bare even though it mutates: `assert`,
-`assert-rule`, `add-premise`, `index-sentex`, `mark-prop`, `forward-chain`, `settle`,
+`assert-rule`, `add-premise`, `register-modal-predicate`, `index-sentex`, `mark-prop`,
+`forward-chain`, `settle`,
 `recover`. So the `!` is a warning about not being able to undo, not a note that a
 function has effects — which is why `vaelii.core` excludes `clojure.core/assert` and
 callers write `v/assert`. A `set-` that installs a value is bare for the same reason:
@@ -677,7 +733,7 @@ a variable so they join — grandparentOf, part-location, owns-parts).
 `disjoint`, `largerThan`, `partType` and `capabilityType` relate kinds. *At most* one, not
 exactly one — the unmarked are those whose two ends sit at different levels, or at no
 level at all (`implies` is a connective; `rewriteOf` takes either role so long as its two
-sides agree; `resultIsa` and `resultGenl` relate a function to a type;
+sides agree; `result` and `genlResult` relate a function to a type;
 `functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
 relates one animal to a capability kind). The mark is not decoration: it decides which
 argument-check family the predicate may use, one for **every** position, which is why a

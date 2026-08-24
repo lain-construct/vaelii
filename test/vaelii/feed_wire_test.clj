@@ -230,6 +230,16 @@
         (let [r (post handler :watch [(list dog '?x) nil])]
           (is (= :not-watchable (:type r)))
           (is (= 400 (:status r)))))
+      (testing "and so is the mirror image: a context with no goal to scope"
+        ;; The whole-feed subscription is not scoped — `core/watch`'s no-goal arity takes
+        ;; no context at all — so a context arriving alone would register an unscoped
+        ;; listener while the registry stored the context and `:watchers` reported it
+        ;; back, the daemon naming a scope it is not applying.
+        (let [r (post handler :watch [nil CxWireFeed])]
+          (is (= :not-watchable (:type r)))
+          (is (= 400 (:status r)))
+          (is (empty? (ok! (post handler :watchers [])))
+              "nothing was registered under the context it refused")))
       (testing "and nothing a refused watch touched is left registered"
         (is (empty? (v/watchers kb)))
         (is (empty? (ok! (post handler :watchers []))))))))
@@ -508,6 +518,37 @@
         (is (= :unknown-subscription @parked)
             "dropping the subscription wakes the parked poll rather than leaving it to time out")
         (is (zero? (:parked @reg)) "and the permit came back")))))
+
+(tu/deftest-kb an-interrupted-park-answers-and-puts-the-interrupt-back
+  ;; A parked poll holds a server thread, so it is precisely what a container shutting
+  ;; down interrupts.  `.wait` clears the flag on its way out, so letting the
+  ;; `InterruptedException` travel would answer a 500 — a reader's feed reads as having
+  ;; failed when it has not — and would lose the interrupt for whoever owns the thread.
+  ;; It ends the park the way the deadline does: answer what is there, flag restored.
+  (let [reg    (sub/registry)
+        token  (:token (sub/watch reg kb nil nil))
+        result (promise)
+        flag   (promise)
+        body   (fn []
+                 (deliver result (try {:ok (sub/poll reg kb token 0 {:wait-ms 20000})}
+                                      (catch Throwable e {:threw e})))
+                 (deliver flag (.isInterrupted (Thread/currentThread))))
+        t      (Thread. ^Runnable body "vaelii-test-parked-poll")]
+    (.start t)
+    ;; wait for it to actually be parked rather than sleeping a guessed interval
+    (loop [n 0]
+      (when (and (< n 400) (not= 1 (:parked @reg))) (Thread/sleep 5) (recur (inc n))))
+    (is (= 1 (:parked @reg)) "it is parked")
+    (.interrupt t)
+    (let [r (deref result 5000 ::timeout)]
+      (is (not= ::timeout r) "the interrupt ends the park rather than being waited out")
+      (is (nil? (:threw r)) (str "and answers rather than throwing: " (pr-str (:threw r))))
+      (is (= [] (:events (:ok r)))
+          "with the events it has, which is what a wait that ran out answers too")
+      (is (true? (deref flag 5000 ::timeout))
+          "and the interrupt is back for whoever owns the thread"))
+    (is (zero? (:parked @reg)) "and the permit came back")
+    (sub/unwatch reg kb token)))
 
 (tu/deftest-kb a-wait-value-no-long-holds-is-a-refusal-and-not-a-fault
   ;; Every one of these is a well-formed request with a bad option *value*.  Answered

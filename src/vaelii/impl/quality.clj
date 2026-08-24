@@ -237,7 +237,7 @@
      :gini        (gini xs)
      :buckets     (frequencies (map #(long (Math/floor (Math/log10 (double %)))) xs))
      :heaviest    (into [] (comp (map (fn [[pred n]] [pred n])) (take limit))
-                        (sort-by (juxt (comp - val) (comp str key)) extents))}))
+                        (sort-by (juxt (comp - val) (comp nm/print-key key)) extents))}))
 
 ;; ---- how deep the chains reach -------------------------------------------
 
@@ -366,7 +366,7 @@
         named (:type-names pass)]
     (progress! {:phase :taxonomy :done 0 :total (count nodes)})
     (let [reach (frequencies (mapcat #(tax/genls taxo %) nodes))
-          [root rooted] (first (sort-by (juxt (comp - val) (comp str key)) reach))]
+          [root rooted] (first (sort-by (juxt (comp - val) (comp nm/print-key key)) reach))]
       {:names   (count (into named nodes))
        :edged   (count nodes)
        :root    root
@@ -457,7 +457,9 @@
                         stored)
           ;; content order, so the listed set is a function of the vocabulary rather than
           ;; of the handle order the index walked
-          ordered (sort-by (juxt (comp str :sentence) (comp str :context)) found)]
+          ordered (nm/sort-by-content-key
+                   (juxt (comp nm/print-key :sentence) (comp nm/print-key :context))
+                   compare found)]
       {:total          (count stored)
        :stranded       (vec (take limit ordered))
        :stranded-count (count found)

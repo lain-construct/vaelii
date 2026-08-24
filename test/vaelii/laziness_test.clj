@@ -21,9 +21,17 @@
   f coll))`, and `apply` reads four elements off the mapped seq to fill `concat`'s
   arglist — so *four* branches expand before the first result, and more if the source
   is chunked.  Every threshold below is therefore set at 2, which a lazy
-  implementation meets and an eager one cannot."
+  implementation meets and an eager one cannot.
+
+  **The other half of the contract is where laziness must *not* reach**: a seq built
+  under a thread binding realizes after that binding has popped, so a layer that hands
+  one back loses the scope it was computed in.  `res/blind-seq` says what that costs
+  when the binding is a flag; the last section here measures it where the binding is a
+  cache (`inherit/with-memo`), which is the shape that stays silent because the answers
+  are identical either way."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.levels :as levels]
             [vaelii.impl.provers :as provers]
@@ -286,3 +294,108 @@
                 (is (= 1 @n)))
               (testing "and the results are all still there when asked for"
                 (is (= 40 (count (:results r))))))))))))
+
+;; ---- the budget door spends the stream one result at a time --------------
+;;
+;; `budget/collect` reads `rest` rather than `next` so a cap of n pulls exactly n, and
+;; docs/anytime.md says so.  That claim rests on something the fn cannot check: `seq` on
+;; a **chunked** source realizes thirty-two elements whatever the cap says, so a single
+;; `mapv` or a vector anywhere in the answer stream would make the door pay a chunk per
+;; ask while still returning the right n.  `provers/project` ends in `distinct` (not
+;; chunk-aware) and every layer under it walks its postings a result at a time, which is
+;; what makes the claim exact — measured here at the same per-candidate seam.
+
+(tu/deftest-kb a-capped-ask-pays-for-the-cap-and-not-for-a-chunk
+  (tu/with-terms [likes Anchor CxStory]
+    (doseq [_ (range 60)]
+      (v/assert kb (list likes Anchor (tu/tmp-ind "Kid")) CxStory {:chain? false}))
+    (let [goal (list likes Anchor '?x)
+          runs (fn [b] (let [n (atom 0), orig @#'jtms/in?]
+                         (with-redefs-fn {#'jtms/in? (fn [& args] (swap! n inc) (apply orig args))}
+                           (fn [] [(v/ask-within kb goal CxStory b) @n]))))
+          [capped few] (runs {:max-results 2})
+          [whole all]  (runs {})]
+      (testing "the cap is honoured, and the extent really is sixty wide"
+        (is (= 2 (:count capped)))
+        (is (= :capped (:status capped)))
+        (is (= 60 (:count whole)))
+        (is (< 50 all)))
+      (testing "and two answers cost two, not a chunk of thirty-two"
+        (is (< few (quot all 4))
+            (str "a two-answer cap cost " few " belief reads against " all
+                 " for the whole extent — a chunked answer stream pays thirty-two"
+                 " whatever the cap says"))))))
+
+;; ---- laziness escaping a binding: the preservation memo -------------------
+;;
+;; `inherit/with-memo` holds one cache of `positions` and `reach` for the length of one
+;; question, and each layer under it builds a seq.  Handed back unrealized, that seq
+;; realizes with the binding frame popped: every `reach` is walked from scratch, and
+;; `undercut?` asks for one per *pair* of claims.  Nothing else can catch it — the
+;; answers are identical, so every content test stays green.
+;;
+;; The seam is `res/matches-visible`.  A reach over a **fact-relation** reads it once per
+;; node it walks (`inherit/fact-reach`), so a re-walked reach is visible as a read that a
+;; memo hit would have skipped.  The measurement is the same drain run twice: once bare,
+;; once inside an enclosing `with-memo`.  A layer that realized under its own memo makes
+;; the enclosing one worth nothing, so the two counts agree; a layer that handed its seq
+;; out makes the enclosing one the only memo there is, and they do not.
+
+(defn- visible-reads
+  "How many `res/matches-visible` calls `run` makes."
+  [run]
+  (let [n (atom 0), orig @#'res/matches-visible]
+    (with-redefs-fn {#'res/matches-visible (fn [& args] (swap! n inc) (apply orig args))}
+      (fn [] (run) @n))))
+
+(defn- preserved-fan!
+  "`rel` transitive with `base` a part of every one of `owners`, `pred` preserved along
+  `rel` at position 1, and `pred` stated of every owner.  So a goal about `base` has one
+  claim per owner and no two of them are comparable — every claim survives, and
+  `undercut?` asks for a reach once per *pair* on the way to saying so."
+  [kb rel pred base owners]
+  (v/with-deferred-settle kb
+    (v/assert kb (list 'transitive rel) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArg pred 1 rel) 'CxUniverse)
+    (doseq [o owners]
+      (v/assert kb (list rel base o) 'CxUniverse)
+      (v/assert kb (list pred o) 'CxUniverse))))
+
+(tu/deftest-kb the-surviving-claims-are-realized-inside-the-memo-that-computed-them
+  (tu/with-terms [partOf needsWork]
+    (let [base   (tu/tmp-ind "Part")
+          owners (vec (repeatedly 5 #(tu/tmp-ind "Whole")))
+          goal   (list needsWork base)
+          drain  #(doall (inherit/surviving kb goal 'CxUniverse))]
+      (preserved-fan! kb partOf needsWork base owners)
+      (drain)                                   ; warm whatever caches persist between asks
+      (let [bare (visible-reads drain)
+            held (visible-reads #(inherit/with-memo (drain)))]
+        (testing "the fixture really does walk the reach"
+          (is (= 5 (count (drain))) "one surviving claim per owner, none comparable")
+          (is (pos? held)))
+        (testing "an enclosing memo saves nothing, because the answer was realized in its own"
+          (is (= bare held)
+              (str "draining outside a memo cost " bare " visible reads against " held
+                   " inside one — the seq escaped `with-memo` and re-walked the reach")))))))
+
+(tu/deftest-kb the-forward-preservation-solutions-are-realized-inside-their-own-memo
+  ;; `solve-with-support`'s open arm is the other escape: `licensed-product` walks a reach
+  ;; per claim and `support-for` opens a memo of its own per tuple, so a seq handed out
+  ;; shares nothing between the tuples of one literal.  Same measurement, same claim.
+  (tu/with-terms [partOf needsWork]
+    (let [base   (tu/tmp-ind "Part")
+          owners (vec (repeatedly 5 #(tu/tmp-ind "Whole")))
+          lit    (list needsWork '?x)
+          drain  #(doall (inherit/solve-with-support kb lit '?ctx))]
+      (preserved-fan! kb partOf needsWork base owners)
+      (drain)
+      (let [bare (visible-reads drain)
+            held (visible-reads #(inherit/with-memo (drain)))]
+        (testing "the fixture really does enumerate licensed tuples"
+          (is (seq (drain)) "the unstated part inherits from every whole it is part of")
+          (is (pos? held)))
+        (testing "an enclosing memo saves nothing here either"
+          (is (= bare held)
+              (str "draining outside a memo cost " bare " visible reads against " held
+                   " inside one")))))))

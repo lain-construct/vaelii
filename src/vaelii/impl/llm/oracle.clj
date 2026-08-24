@@ -58,7 +58,8 @@
             [vaelii.core :as v]
             [vaelii.impl.gloss :as gloss]
             [vaelii.impl.llm.protocol :as proto]
-            [vaelii.impl.llm.stub :as stub]))
+            [vaelii.impl.llm.stub :as stub]
+            [vaelii.impl.naming :as nm]))
 
 (def default-batch-size
   "How many claims go in one turn.  Small enough that a model keeps the numbering
@@ -117,8 +118,10 @@
   antecedent order, so it is a reading rather than an arrival."
   [kb handle]
   (let [tree    (v/why kb handle)
-        support (first (sort-by (fn [s] (pr-str [(:rule s) (mapv :sentence (:because s))]))
-                                (:support tree)))
+        support (nm/min-by-content-key
+                 (fn [s] (nm/print-key [(:rule s) (mapv :sentence (:because s))]))
+                 compare
+                 (:support tree))
         because (:because support)]
     (into []
           (comp (remove :cycle?)
@@ -162,7 +165,7 @@
                           :givens   (if premise? [] (givens kb h))})))
                    handles)]
     (into [] (map-indexed #(assoc %2 :index %1))
-          (sort-by (juxt :text #(pr-str (:sentence %))) made))))
+          (nm/sort-by-content-key (juxt :text #(nm/print-key (:sentence %))) compare made))))
 
 (defn judgeable?
   "Is there an English sentence here to judge?  A gloss that is entirely `:named` is the
@@ -323,7 +326,15 @@
       :skipped (vec no)
       :batches (count runs)
       :model (:model (first runs))
-      :usage (apply merge-with + {} (keep :usage runs))})))
+      ;; A provider names every count it knows how to report and leaves the ones the host
+      ;; omitted `nil` — `vaelii.impl.llm.ollama/usage` reads six fields out of whatever
+      ;; came back.  Summing across batches has to drop those first: `(+ nil 1)` is an NPE
+      ;; out of a fn that only counts tokens, and it takes two batches to reach, so a
+      ;; single-batch run hides it.  Dropped rather than counted as zero, because an
+      ;; absent count is one the host did not give, not a count of nothing.
+      :usage (->> (keep :usage runs)
+                  (map #(into {} (remove (comp nil? val)) %))
+                  (apply merge-with + {}))})))
 
 ;; ---- what came back -----------------------------------------------------
 

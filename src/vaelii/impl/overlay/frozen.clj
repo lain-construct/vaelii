@@ -26,7 +26,8 @@
   was opened.  Opening the base's files read-only at the OS level is the disk backend's
   business and orthogonal — this is what makes the *composition* safe whatever the base
   is (memory, disk, or a later SQL store)."
-  (:require [vaelii.impl.kv :as kv]
+  (:require [vaelii.impl.capabilities :as cap]
+            [vaelii.impl.kv :as kv]
             [vaelii.impl.protocols :as p]))
 
 (defn- refuse [op]
@@ -81,7 +82,18 @@
   (delete-provenance!   [_ _]   (refuse "delete-provenance!"))
   (mark-premise         [_ _ _] (refuse "mark-premise"))
   (unmark-premise!      [_ _]   (refuse "unmark-premise!"))
-  (clear-records!       [_]     (refuse "clear-records!")))
+  (clear-records!       [_]     (refuse "clear-records!"))
+
+  ;; A frozen base is a read of its base, tallies included — and through the *helpers*,
+  ;; not the protocol ops, so a base without the capability falls back to its own
+  ;; enumeration here rather than throwing.  Always answering it is what keeps a
+  ;; `:pg` base's tally from becoming a whole-table read the moment it is forked over.
+  p/Tallying
+  (sentex-tally        [_] (cap/count-sentexes        base))
+  (justification-tally [_] (cap/count-justifications  base))
+  (a-sentex-id         [_] (cap/some-sentex-id        base))
+  (a-justification-id  [_] (cap/some-justification-id base))
+  (a-premise-id        [_] (cap/some-premise-id       base)))
 
 (defn frozen-records
   "`base` as a read-only `RecordStore`."
