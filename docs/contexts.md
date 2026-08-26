@@ -352,6 +352,13 @@ The removal is **total**, not just for reads:
   except is never placed in the cone; a late except sweeps what already fired; and
   retracting the except **re-derives** what it was hiding. A conclusion placed *above*
   the cone (a context that does not see the except) is untouched.
+- **Rules.** `H` may itself be a rule — a firing rests on its rule exactly as it
+  rests on its facts (the rule handle is in the stored justification), so excepting a
+  rule sweeps its conclusions from the cone, blocks late firings there, and revives
+  them when the except is retracted (`special/recheck-except` re-chains a rule
+  target on departure). The backward chainers honor the same removal:
+  `provers/candidate-rules` drops a rule the asking context cannot see, so `query`
+  and `prove` do not rebuild through a hidden rule what forward chaining swept.
 
 **What the two of them read.** Both go through the KB's `:excepted` roster —
 `{context → {hidden-handle → #{except-handle}}}`, maintained O(1) at the store and

@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- **A visibility `except` targeting a rule now removes totally in both directions.**
+  The arrival side already held — the stored justification carries the rule handle
+  among its antecedents, so excepting a rule swept its conclusions and blocked late
+  firings — but the two read-back arms did not. *Departure:* `recheck-except`'s
+  revival arms are keyed on a fact target (`dependents`, empty once the firing is
+  swept, and the predicate fan, which a rule sentence never matches), so retracting a
+  rule-targeting except restored the rule's visibility and none of its conclusions;
+  the target itself is now re-chained when it is a rule. *Backward:* `candidate-rules`
+  filtered direction, belief and context inheritance but never the visibility hidden
+  set, so a goal in the cone rebuilt through the hidden rule exactly what forward
+  chaining had swept — the same `res/hidden-fn` the sweep reads now gates candidacy,
+  nil (one deref) for a KB that hides nothing. Found live: a justified dispute whose
+  defeated side kept ground-succeeding under `query` and holding its `contradictions`
+  entry after its rule was excepted, while the argue tree correctly collapsed.
+  *Class:* **Fix**. *Migration:* none.
+  [docs/contexts.md](docs/contexts.md#except-removing-visibility-down-a-context-subtree)
+
 ## 0.13.0 — 2026-08-25 — "calendar time, joined queries, and the doors that refuse"
 
 - **`:disk` and `:pg-disk` are `:disk-log` and `:pg-disk-log`.** The second `disk` in each

@@ -477,8 +477,10 @@
   because this runs once per placement and once per candidate justification, and a rule
   has two or three antecedents where a cone can hide thousands of handles.  A nil
   predicate is the gate — a KB that hides nothing from `pctx` pays a deref and returns
-  here.  A rule handle among `antes` never spuriously matches: a rule is not an `except`
-  target."
+  here.  The rule handle among `antes` matching is load-bearing, not spurious: a rule
+  is a sentex and an `except` may target it, and a firing rests on its rule as it
+  rests on its facts — this is what sweeps a hidden rule's conclusions
+  (`special/recheck-except` carries the departure-side twin)."
   [kb antes pctx]
   (if-let [hidden? (res/hidden-fn kb pctx)]
     (boolean (some hidden? antes))
@@ -1972,8 +1974,9 @@
       ;; from the placement context, there is no conclusion and no justification —
       ;; nothing to defeat and nothing to arbitrate.  The check is per *placement*,
       ;; because all three are evaluated in the conclusion's context and a firing may
-      ;; place into several.  `all-antes` includes the rule handle, never an `except`
-      ;; target, so it cannot spuriously match the hidden set.
+      ;; place into several.  `all-antes` includes the rule handle, which the hidden
+      ;; set matches on purpose: a hidden rule may not fire into the cone any more
+      ;; than a hidden fact may support a firing there.
       ;; `mapcat`, not `map`: one placement yields the conclusion *and* a copy in each
       ;; context the predicate is lifted into, and every one of them is a new datum the
       ;; agenda has to see.
