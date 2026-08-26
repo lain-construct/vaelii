@@ -22,8 +22,8 @@
 
   **Two classes, and the distinction is the point.**  `:enforced` means some code path
   reads it and the KB will refuse, derive, or answer differently because of it — the
-  `:by` string says which path, and whether that path is keyed on this functor by name or
-  is a generic mechanism the declaration merely enrols in.  `:inert` means nothing does,
+  string under that key says which path, and whether that path is keyed on this functor
+  by name or is a generic mechanism the declaration merely enrols in.  `:inert` means nothing does,
   with `:why` recording that this is a decision rather than an omission: most of the
   inert entries are *derived* predicate types, which exist so a KB can be queried for
   what a mark implies, and are read by no check because the mark itself is what the
@@ -45,6 +45,7 @@
   drifts too, but a test can see it drift."
   (:require [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.special :as special]))
 
@@ -57,14 +58,26 @@
   "`term -> {:enforced \"where\"}` or `term -> {:inert \"why\"}`, over every term
   CxCore comments.
 
-  The `:by` prose names a code path, so it is the thing to update when one moves — and
-  `audit` is what notices when a *term* moves without it."
+  The `:enforced` prose names a code path, so it is the thing to update when one moves —
+  and `audit` is what notices when a *term* moves without it."
   '{;; ---- the taxonomy relations, cached rather than chained ----------------
     genl        {:enforced "taxonomy/add-genl — the cached closure every membership, match and placement reads"}
     genlCx {:enforced "taxonomy/add-genlCx — the visibility closure a context read walks"}
     thing       {:enforced "checks — the hierarchy root the open-world floors test against by name"}
     predicate   {:enforced "generic: the arg target CxCore constrains its own meta-level with"}
-    function    {:enforced "generic: the arg target the function-valued positions of resultIsa, resultGenl and functionCorrespondingPredicate name"}
+    function    {:enforced "generic: the arg target the function-valued positions of result, genlResult and functionCorrespondingPredicate name"}
+
+    ;; ---- the literal types, read by name ----------------------------------
+    ;; One vocabulary for both readings (docs/argtypes.md): `arg` types what an argument
+    ;; denotes and `quotedArg` the term written there, and a literal denotes itself, so
+    ;; the same four names answer both.  `symbol` is the exception and is mention-only.
+    string      {:enforced "checks/syntactic-roots — the kind quotedArg judges a literal against, matched by name"}
+    number      {:enforced "checks/syntactic-roots — the same, with integer below it"}
+    integer     {:enforced "checks/syntactic-roots — the same"}
+    keyword     {:enforced "checks/syntactic-roots — the same"}
+    boolean     {:enforced "checks/syntactic-roots — the same"}
+    character   {:enforced "checks/syntactic-roots — the same; a one-letter string is not one"}
+    symbol      {:enforced "checks/syntactic-roots — the same; mention-only, so nothing places it in the domain lattice"}
 
     ;; ---- the definitional constraints -------------------------------------
     arg      {:enforced "checks/args-problem — refuses on the way in, and entails under *assertive-arg-types?*"}
@@ -86,9 +99,9 @@
     relationKind  {:enforced "generic: a disjointMetatype, so its two members separate each other"}
     instanceRelationPredicate {:enforced "checks/declaration-problem — an genlArg on one is refused"}
     typeRelationPredicate     {:enforced "checks/declaration-problem — an arg on one is refused"}
-    unaryPredicate   {:enforced "checks/predicate-type-arities — the membership spelling of an arity"}
-    binaryPredicate  {:enforced "checks/predicate-type-arities — the membership spelling of an arity"}
-    ternaryPredicate {:enforced "checks/predicate-type-arities — the membership spelling of an arity"}
+    unaryPredicate   {:enforced "checks/predicate-type-arities — the membership spelling of an arity; plus its disjointness with the other two classes, so a predicate is at most one of the three"}
+    binaryPredicate  {:enforced "checks/predicate-type-arities — the membership spelling of an arity; plus its disjointness with the other two classes, so a predicate is at most one of the three"}
+    ternaryPredicate {:enforced "checks/predicate-type-arities — the membership spelling of an arity; plus its disjointness with the other two classes, so a predicate is at most one of the three"}
 
     ;; ---- predicate metadata answered by a prover --------------------------
     ;; Each is both a *mark* (it maintains its taxonomy prop) and a *type*: `(genl X
@@ -102,6 +115,7 @@
     transitiveInArg        {:enforced "inherit — the argument reach along a declared transitive relation"}
     transitiveInArgInverse {:enforced "inherit — the same, read backwards"}
     abduciblePredicate   {:enforced "taxonomy prop :abducible — the gate on what abduce may hypothesize"}
+    closedExtentPredicate {:enforced "taxonomy prop :closed-extent — ClosedExtentProver answers (not (P …)) from the absence of a positive, and a closed negative rule antecedent under the grant is negation as failure"}
     modalPredicate       {:enforced "taxonomy prop :modal — the gate BeliefProjectionProver reads to decide which predicates project their sentence into the agent's context"}
     targetFollowingPredicate {:enforced "taxonomy prop :target-following — the mark core/retract-following-metas! reads to tear down a meta-sentex when the sentex it names by handle is retracted"}
 
@@ -119,6 +133,7 @@
     ;; ---- the connectives and rule wrappers, read by the canonicalizer -----
     implies {:enforced "sentex canonicalization — becomes the antecedent/consequent slots of a RuleSentex"}
     and     {:enforced "sentex canonicalization — the antecedent conjunction, never stored alone"}
+    or      {:enforced "rules/expand-antecedent — polycanonicalization, one rule per alternative; never stored, and rules/disjunction-problems refuses every position it could not be expanded out of"}
     not     {:enforced "sentex canonicalization — the truth slot, and the negation nogoods"}
     set/forwardRule  {:enforced "sentex/peel-rule-wrapper — sets the rule's direction"}
     set/backwardRule {:enforced "sentex/peel-rule-wrapper — sets the rule's direction"}
@@ -143,8 +158,8 @@
     contextArgSubrelation   {:enforced "context-nat producer — sibling F-contexts differing at one arg are ordered by the sub-relation on that arg, materializing genlCx"}
     termOfUnit  {:enforced "nat — the constant-to-expression half of the reified-term map"}
     rewriteOf   {:enforced "nat for a compound right side, the equality partition for a symbol"}
-    resultIsa   {:enforced "nat — materialized as a membership on each minted constant"}
-    resultGenl  {:enforced "nat — materialized as a genl edge on each minted constant"}
+    result   {:enforced "nat — materialized as a membership on each minted constant"}
+    genlResult  {:enforced "nat — materialized as a genl edge on each minted constant"}
     functionCorrespondingPredicate
     {:enforced "nat — reifies an application to the value the predicate already names, and projects a minted constant back onto it"}
 
@@ -166,13 +181,20 @@
 
 (defn- declared-terms
   "Every term `vocabulary-context` comments — the grammar, read off the loaded KB rather
-  than off the file, so the audit is about what this KB has."
+  than off the file, so the audit is about what this KB has.
+
+  **As stored**, so a `comment` on a defeated declaration still names its term.  The
+  audit's question is which grammar terms this KB carries documentation for, and a
+  `comment` is documentation rather than a claim about the world: the term is spelled in
+  the vocabulary whatever the JTMS currently makes of the sentex that spells it, and a
+  believed door would report the grammar shrinking whenever a settle moved a belief
+  nobody wrote the comment about."
   [kb]
   (into (sorted-set)
         (comp (keep #(p/get-sentex (:records kb) %))
               (filter #(= vocabulary-context (:context %)))
               (keep (fn [s] (let [[_ t] (:sentence s)] (when (symbol? t) t)))))
-        (p/sentexes-with-functor (:index kb) 'comment)))
+        (reads/as-stored-with-functor (:index kb) 'comment)))
 
 (def ^:private machine-readable-enforced
   "The functors whose behaviour is provable from a data structure rather than from prose:

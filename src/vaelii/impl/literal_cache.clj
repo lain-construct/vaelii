@@ -6,9 +6,9 @@
 
   A backward proof asks the same question many times.  Two sibling branches that both
   need `(parentOf Tom ?y)` each solve it in full, and a diamond-shaped rule set pays for
-  the shared literal once per path through the diamond — the per-path `:seen` guards in
-  `res/prove-from`'s per-path guard stops a goal from re-*expanding* itself on one
-  path, and say nothing about the same goal being re-*solved* on another.  Keying an
+  the shared literal once per path through the diamond — `res/prove-from`'s per-path
+  `:seen` guard stops a goal from re-*expanding* itself on one path, and says nothing
+  about the same goal being re-*solved* on another.  Keying an
   answer by the literal is what collects that sharing, and the key has to be blind to
   what the caller happened to name its variables: `(P ?x)` and `(P ?y)` are one question.
 

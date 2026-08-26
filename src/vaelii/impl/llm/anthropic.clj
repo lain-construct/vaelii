@@ -85,7 +85,13 @@
   "A short-lived access token from an `ant auth login` profile, or nil.  Shelling out
   is the documented way to hand an OAuth profile to a raw-HTTP caller; the token is
   returned, never printed, and a CLI that has not answered within `cli-timeout-ms` is
-  killed rather than waited on — this runs on a request thread."
+  killed rather than waited on — this runs on a request thread.
+
+  The child and the deadline thread are given back on **every** exit, not only the one
+  that read a token: a read that throws would otherwise leave a subprocess running and a
+  thread sleeping out the full `cli-timeout-ms` behind a call that has already answered
+  nil.  And an interrupt is put back rather than swallowed — this runs on a request
+  thread, and a cancelled job that lost its interrupt here goes on to its next report."
   []
   (try
     (let [^java.util.List argv ["ant" "auth" "print-credentials" "--access-token"]
@@ -93,11 +99,17 @@
           _ (.redirectError pb ProcessBuilder$Redirect/DISCARD)
           ^Process proc (.start pb)
           ^Thread killer (http/watchdog endpoint cli-timeout-ms
-                                        #(.destroyForcibly ^Process proc))
-          out (slurp (.getInputStream proc))
-          exit (.waitFor proc)]
-      (.interrupt killer)
-      (when (zero? exit) (clean out)))
+                                        #(.destroyForcibly ^Process proc))]
+      (try
+        (let [out  (slurp (.getInputStream proc))
+              exit (.waitFor proc)]
+          (when (zero? exit) (clean out)))
+        (finally
+          (.interrupt killer)
+          (.destroyForcibly proc))))
+    (catch InterruptedException _
+      (.interrupt (Thread/currentThread))
+      nil)
     (catch Exception _ nil)))
 
 (defn credentials
@@ -144,7 +156,9 @@
                        (:error? block) (assoc "is_error" true))
         :tool-use    {"type" "tool_use" "id" (:id block)
                       "name" (:name block) "input" (or (:input block) {})}
-        (throw (ex-info (str "cannot encode content block of type " (pr-str (:type block)))
+        (throw (ex-info (str "cannot encode content block of type " (pr-str (:type block))
+                             " — want :text, :tool-use or :tool-result, or a block"
+                             " carrying its original JSON under :raw")
                         {:type :llm-encode :block-type (:type block)})))))
 
 (defn- encode-message [{:keys [role content]}]
@@ -238,13 +252,23 @@
   [text status]
   (http/decode endpoint text status))
 
-(defn- api-error [status ^String body-text]
+(defn- api-error
+  "The exception for a failed call — the API's own `error.message` where there is one,
+  else the body.
+
+  **The message is bounded, the body is data** — `http/decode`'s rule, and for the same
+  reason: the failing body is whatever answered, a proxy in front of the API answers
+  megabytes of HTML, and a megabyte in a message is a megabyte in every log line that
+  reports it.  `http/excerpt` bounds what the message carries; the whole text rides under
+  `:body`, where a caller that wants it reads it deliberately."
+  [status ^String body-text]
   (let [parsed (try (json/parse-string body-text) (catch Exception _ nil))]
     (ex-info (str "Anthropic API " status ": "
-                  (or (get-in parsed ["error" "message"]) body-text))
+                  (http/excerpt (str (or (get-in parsed ["error" "message"]) body-text))))
              {:type :llm-api-error
               :status status
-              :error-type (get-in parsed ["error" "type"])})))
+              :error-type (get-in parsed ["error" "type"])
+              :body body-text})))
 
 (defn- betas-for [request]
   (when (:fallbacks request "default") [fallback-beta]))
@@ -303,7 +327,10 @@
         (update :usage merge (get ev "usage")))
 
     "error"
-    (throw (ex-info (str "Anthropic stream error: " (get-in ev ["error" "message"]))
+    (throw (ex-info (str "Anthropic stream error"
+                         (when-let [t (get-in ev ["error" "type"])] (str " (" t ")"))
+                         ": " (http/excerpt (str (or (get-in ev ["error" "message"])
+                                                     (pr-str ev)))))
                     {:type :llm-api-error :error-type (get-in ev ["error" "type"])}))
 
     acc))
@@ -385,7 +412,10 @@
                                   "ANTHROPIC_AUTH_TOKEN, or run `ant auth login`")
                              {:type :llm-no-credential})))
          ^HttpClient$Builder b (HttpClient/newBuilder)
-         _ (.connectTimeout b (Duration/ofMillis (long timeout-ms)))
+         ;; `http/connect-timeout-ms`, not the turn's budget: `timeout-ms` bounds the
+         ;; *answer*, and an API that never completes a handshake would otherwise hold the
+         ;; calling thread for the ten minutes a hard turn is allowed.
+         _ (.connectTimeout b (Duration/ofMillis (long http/connect-timeout-ms)))
          conn {:base-url (or base-url (System/getenv "ANTHROPIC_BASE_URL") "https://api.anthropic.com")
                :timeout-ms timeout-ms
                :credential credential

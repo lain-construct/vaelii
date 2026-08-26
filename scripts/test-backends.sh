@@ -5,7 +5,7 @@
 # Storage is two independent choices (docs/storage.md): the RECORD store, which
 # must survive (`:memory` / `:disk`), and the INDEX, which is derived state
 # `reindex` recomputes from the records (`:memory` / `:dense` / `:columnar` /
-# `:disk`).  That is 2 × 4 = 8 pairings, of which SEVEN are legal — RAM records
+# `:disk-log`).  That is 2 × 4 = 8 pairings, of which SEVEN are legal — RAM records
 # under the durable index is refused, an index outliving its records describing
 # records that are gone — and each of the seven has a `:backend` name spelled
 # `<records>-<index>`, which is what `VAELII_TEST_BACKEND` takes.  Every one of
@@ -48,17 +48,18 @@
 #
 # The suite is expected to be **failing-set-identical** across every run — a
 # backend that answers differently is a bug in the backend, not a feature of
-# it.  The assertion COUNT moves only where a test says why, and exactly one
-# does: profile_test's `:fan` contract puts the two columnar runs FOUR
-# assertions below the other six (the columnar trie counts no node probes, and
-# the test asserts that instead of standing aside — docs/profile.md).  Any
-# other difference is a run that skipped something the others ran.
+# it.  The assertion COUNT is identical too: where a tally is one store's — the
+# columnar trie counts no node probes, so it reports no `:fan` — the test asserts
+# that backend's own reading rather than standing aside (docs/profile.md), so no
+# run is expected short.  Any difference is a run that skipped something the
+# others ran.
 #
 # That is CHECKED at the foot of this script rather than left to be read, since
-# it is the one difference a green matrix hides: thirteen passing runs say
+# it is the one difference a green matrix hides: a dozen passing runs say
 # nothing if one of them ran four hundred fewer assertions.  The expected
-# shortfalls are `config_expected_delta` in scripts/lib/suite-configs.sh, which
-# is also where a new stand-aside is recorded.
+# shortfall is `config_expected_delta` in scripts/lib/suite-configs.sh — zero for
+# every configuration — and it is where a stand-aside would be recorded if one
+# ever had to exist.
 #
 # Runs here are SEQUENTIAL, and that is a choice about readability rather than a
 # constraint: one run at a time is one run's wall time, and a box you can still
@@ -66,15 +67,15 @@
 # at `<vaelii.disk.dir>/space-<n>`, and every run below already gets its own
 # `vaelii.disk.dir`, so the single-writer lock is never contended and the
 # six-block `VAELII_TEST_SPACE` limit is about a case this does not create.
-# **`scripts/test-matrix.sh` is the concurrent one** — these eight and the five
+# **`scripts/test-matrix.sh` is the concurrent one** — these eight and the six
 # sweeps at once, ~13 minutes against the ~55 the two scripts take in sequence,
 # and what to run when a change owes the matrix.  Reach for this script for one
 # axis, one backend, or a wall time that means something.
 #
 # A leading-colon argument is a TEST SELECTOR, passed straight to `lein test`
 # (project.clj defines them).  `:default` — what a bare run takes — skips the
-# twenty `^:slow` tests, the exhaustive cross-products and randomized oracles
-# that take one run from 317s to 219s between them; `:slow` is those alone;
+# forty-one `^:slow` tests, the exhaustive cross-products and randomized oracles
+# that carry a hundred thousand of the suite's assertions; `:slow` is those alone;
 # `:all` is both.  Eight backends multiply that gap by eight, which is why the
 # fast pass is the default here for the same reason it is in `lein test` — and
 # why the matrix is worth running at `:all` before a storage change lands.  A
@@ -264,7 +265,7 @@ for backend in "${BACKENDS[@]}"; do
   # handed one would only put a `-D` on its line that means nothing.
   diskdir=""
   case "$backend" in
-    disk|disk-*)                                   # the RECORD half, i.e. the name's prefix
+    disk-*)                                        # the RECORD half, i.e. the name's prefix
       diskdir="$OUT_DIR/$backend.disk"
       rm -rf "$diskdir"
       envv+=(JVM_OPTS="-Dvaelii.disk.dir=$diskdir") ;;
@@ -376,8 +377,8 @@ fi
 # A green set of runs has still said nothing if one of them ran fewer assertions than the
 # rest: a namespace that failed to load, a `deftest` that stood aside without saying so, a
 # gate that inherited a switch and measured nothing.  Every one of those is green.
-# `config_expected_delta` in suite-configs.sh carries the two stand-asides that are real
-# and says why; anything else is reported here and fails the run.  Skipped when something
+# `config_expected_delta` in suite-configs.sh expects no shortfall anywhere, and says why
+# no configuration stands aside; any shortfall is reported here and fails the run.  Skipped when something
 # already failed — an error aborts the rest of its namespace, so the shortfall means
 # nothing — and when the runs did not all compile one revision.
 deltas_bad=0
@@ -387,8 +388,8 @@ if [[ ${#FAILED[@]} -eq 0 && ${#COUNT_PAIRS[@]} -gt 1 ]]; then
       echo "${BOLD}assertion counts: a run did not run what the others ran${OFF}"
       echo "$delta_report"
       echo "  ${DIM}Every run passed, so this is a test that did not run rather than one that"
-      echo "  failed.  Find what the short run skipped, or record a deliberate stand-aside"
-      echo "  in config_expected_delta with its reason.${OFF}"
+      echo "  failed.  Find what the short run skipped — or, where an artifact really is"
+      echo "  one implementation's, assert that configuration's own expectation.${OFF}"
       deltas_bad=1
     fi
   else

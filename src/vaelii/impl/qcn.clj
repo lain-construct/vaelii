@@ -32,7 +32,8 @@
   tractable subclass.  So a constraint that survives is *possible*, not *satisfiable*,
   and a non-entailment is \"not provable\", never \"provably false\"."
   (:require [clojure.set :as set]
-            [vaelii.impl.caches :as caches])
+            [vaelii.impl.caches :as caches]
+            [vaelii.impl.naming :as nm])
   (:import [java.util ArrayDeque BitSet LinkedHashSet]))
 
 (defn constraint
@@ -173,7 +174,7 @@
   Built once per algebra and cached, since an algebra is a stable value and the tables
   are a pure function of it."
   [{:keys [universe identity compose converse]}]
-  (let [rels (vec (sort-by str universe))
+  (let [rels (into [] (sort-by nm/name-key universe))
         k    (count rels)]
     (when (> k max-base-relations)
       (throw (ex-info (str "relation algebra has " k " base relations; "
@@ -554,12 +555,12 @@
 
 (defn- given-inconsistency
   "The inconsistency report for a network that is unsatisfiable *before* any tightening,
-  or nil.  The blamed pair is the smallest of them under `str`, so which one is named is
-  a function of content rather than of iteration order."
+  or nil.  The blamed pair is the smallest of them under `nm/print-key`, so which one is
+  named is a function of content rather than of iteration order."
   [net support algebra]
   (let [bad (unsatisfiable-pairs net algebra)]
     (when (seq bad)
-      (let [pair (first (sort-by str bad))]
+      (let [pair (nm/min-by-content-key nm/print-key compare bad)]
         {::inconsistent pair ::culprits (get support pair #{})}))))
 
 (defn- run

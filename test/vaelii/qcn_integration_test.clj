@@ -18,6 +18,7 @@
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.seed :as seed]
             [vaelii.impl.space :as space]
+            [vaelii.impl.stp :as stp]
             [vaelii.test-util :as tu]))
 
 ;; both spatial calculi and the interval one, all three provers registered — the point
@@ -437,8 +438,14 @@
       (is (identical? n1 n2) "the second read is the resident value, not a rebuild"))
     (testing "keyed by calculus and context, so neither collides"
       (qkb/network kb iv/allen C)
+      ;; a calculus names its key with an unqualified keyword; every other resident read
+      ;; on this atom keys off its own namespace, which is what keeps them apart
       (is (= #{[:rcc8 C] [:allen C]}
-             (set (keys @(:qcn kb))))))
+             (into #{} (filter (comp simple-keyword? first)) (keys @(:qcn kb))))))
+    (testing "and the Allen read leaves its narrowing's own read resident beside them —
+              the metric problem, under a key of `stp`'s namespace rather than a calculus
+              name, so the two cannot collide either"
+      (is (contains? (set (keys @(:qcn kb))) [::stp/problem C])))
     (testing "three top-level queries with nothing between them read once"
       ;; the clock is bumped by hand so the first of the three pays a build; without it
       ;; the count is zero, the KB already holding what the asserts above left resident

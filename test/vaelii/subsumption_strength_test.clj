@@ -19,8 +19,9 @@
 (tu/deftest-kb a-conclusion-rests-on-the-strongest-route-not-the-shortest
   (let [ff (tu/tmp-type) mid (tu/tmp-type) af (tu/tmp-type)
         result (tu/tmp-pred) a (tu/tmp-ind)
-        class-of (fn [] (some->> (first (v/sentexes-matching kb (list result a) 'CxU))
-                                 :id (v/defeat-class kb)))]
+        class-of (fn [] (some->> (v/sentexes-matching kb (list result a) 'CxU)
+                                 (v/sort-by-content :context)
+                                 first :id (v/defeat-class kb)))]
     ;; two routes ff ->* af: a one-hop default edge, and a two-hop monotonic chain
     (v/assert kb (list 'genl ff af) 'CxU {:strength :default})
     (v/assert kb (list 'genl ff mid) 'CxU {:strength :monotonic})
@@ -33,14 +34,14 @@
       (is (= :monotonic (class-of))
           "it rests on the monotonic two-hop route, not the default one-hop"))
     (testing "remove the long route and it drops to :default, conclusion still believed"
-      (v/retract! kb (:id (first (v/sentexes-matching kb (list 'genl mid af) 'CxU))))
+      (v/retract! kb (v/handle-of kb (list 'genl mid af) 'CxU))
       (is (some? (class-of)) "still believed — the default route still reaches af")
       (is (= :default (class-of)) "now only the default one-hop route remains"))
     (testing "restore the long route and the floor climbs back"
       (v/assert kb (list 'genl mid af) 'CxU {:strength :monotonic})
       (is (= :monotonic (class-of)) "the widest route is recomputed on the edge change"))
     (testing "retracting the short route now changes nothing"
-      (v/retract! kb (:id (first (v/sentexes-matching kb (list 'genl ff af) 'CxU))))
+      (v/retract! kb (v/handle-of kb (list 'genl ff af) 'CxU))
       (is (= :monotonic (class-of))
           "the monotonic route was the witness all along; losing the default one is a no-op"))))
 

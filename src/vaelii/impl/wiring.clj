@@ -9,10 +9,12 @@
   Exactly two calls run the other way:
 
     `assert-sentence` — the full assertion path, called from `vaelii.impl.nat` (a reified
-    NAT stores its `(termOfUnit K E)` map and its materialized types) and from
-    `vaelii.impl.skolem` (a firing mints its witness).  Storing is a *whole* assert —
-    naming, the definitional checks, the index, chaining, settle — so the write path runs
-    chaining, and chaining calls back here to mint a constant (docs/skolem.md).
+    NAT stores its `(termOfUnit K E)` map and its materialized types), from
+    `vaelii.impl.skolem` (a firing mints its witness), and from
+    `vaelii.impl.quasiquote` (declaring the four marks quasiquotation runs on).  Storing
+    is a *whole* assert — naming, the definitional checks, the index, chaining, settle —
+    so the write path runs chaining, and chaining calls back here to mint a constant
+    (docs/skolem.md).
 
     `solve-goal` — the prover registry, called from `vaelii.impl.resolution` to discharge
     a deferred antecedent (`different` / `evaluate` / `unknown`).  Backward chaining is a
@@ -46,12 +48,15 @@
 
 (def ^:dynamic *defer-settle?*
   "When true, the assert path does **not** `settle` after storing — belief is left
-  un-reconciled for the caller to settle once, later.  Two callers bind it:
+  un-reconciled for the caller to settle once, later.  Three callers bind it:
 
   - a rule firing minting a skolem NAT mid-fixpoint (`vaelii.impl.skolem`): the nested
     `(termOfUnit K E)` assert is monotonic bookkeeping and the enclosing firing settles
     once when it finishes, so settling per mint would be redundant churn — and worse,
     would relabel belief inside the running chain (docs/skolem.md);
+  - a fired conclusion reducing a ground `Quasiquote` to its constant
+    (`vaelii.impl.quasiquote/reduce-in-conclusion`), which is the same mint at the same
+    moment and defers for the same reason;
   - `with-deferred-settle` / `assert-many`, which run a whole batch of asserts under it
     and settle once at the end, so a bulk load pays one belief reconciliation instead of
     N.  Chaining still runs per assert (only the `settle` is deferred), so the final

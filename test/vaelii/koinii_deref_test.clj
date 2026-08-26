@@ -15,9 +15,9 @@
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as backend]
-            [vaelii.impl.koinii.deref :as d]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as vr]
+            [vaelii.koinii.deref :as d]
             [vaelii.test-util :as tu])
   (:import (java.io File)
            (java.nio.file Files)
@@ -34,10 +34,10 @@
     (tu/clear-kb!)))
 
 (defn- disk-seat
-  "A durable seat: a `:disk` KB over `dir`, opened unrecovered so an `import!` lands into
+  "A durable seat: a `:disk-log` KB over `dir`, opened unrecovered so an `import!` lands into
   an empty store (the pulled-commit case).  Close it with `backend/close-dir!`."
   [^File dir]
-  (v/open-kb {:backend :disk :dir (.getPath dir) :recover? false}))
+  (v/open-kb {:backend :disk-log :dir (.getPath dir) :recover? false}))
 
 (defn- temp-dir ^File [nm]
   (.toFile (Files/createTempDirectory (str "koinii-deref-" nm "-")
@@ -63,6 +63,15 @@
 
 (defn- stream-bytes [^File dir nm]
   (with-open [in (io/input-stream (io/file dir nm))] (.readAllBytes in)))
+
+(defn- tamper-locator
+  "Flip one hex digit of `locator`'s digest body, leaving the `\"sha256:\"` tag intact — so
+  the result is still a well-formed locator, just not the one this seat computes.  That is
+  what makes it a test of the rehash: mangling the tag would make it no locator at all,
+  which the resolvers refuse earlier and differently."
+  [locator]
+  (let [body (subs locator (count "sha256:"))]
+    (str "sha256:" (if (= \0 (first body)) \1 \0) (subs body 1))))
 
 ;;; ── the locator: content-addressed, handle-independent ────────────────
 
@@ -218,7 +227,11 @@
           (testing "the honest marker resolves"
             (is (:resolved? (d/dereference seat mk))))
           (testing "a tampered locator fails the rehash — the marker's payload is rejected, not the KB"
-            (let [bad (assoc mk :locator (apply str (reverse (:locator mk))))
+            ;; one hex digit of the digest body flipped, the "sha256:" tag intact: a
+            ;; WELL-FORMED locator that is not this seat's, so the rehash is what rejects
+            ;; it.  A locator mangled out of the format never gets that far — it is not a
+            ;; locator, and is refused as `:malformed` before the KB is read at all.
+            (let [bad (assoc mk :locator (tamper-locator (:locator mk)))
                   r   (d/dereference seat bad)]
               (is (not (:resolved? r)))
               (is (= :locator-mismatch (:reason r)))
@@ -236,6 +249,116 @@
               (is (not (:resolved? r)))
               (is (= :not-received (:reason r)))))))
       (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
+
+;;; ── a malformed marker is ANSWERED, never thrown out of the resolve path ──
+;;; A marker arrives over an untrusted transport, so garbage — or a hostile peer's
+;;; deliberately malformed sentence — must earn the module's own refusal rather than an
+;;; engine-vocabulary exception out of `handle-of`.  The peer would otherwise crash the
+;;; receiving seat's resolve path by sending `{:sentence [1 2]}`.
+
+(deftest a-malformed-marker-is-refused-and-never-throws
+  (let [source (fresh-seat :bad-src)
+        seat   (fresh-seat :bad-seat)
+        dump   (temp-dir "bad-commit")]
+    (rm-rf! dump)
+    (try
+      (let [ha (atlas-writes! source)]
+        (d/publish! source dump)
+        (d/pull! seat dump)
+        (let [mk (d/marker source ha)]
+          (testing "the honest marker still resolves — the gate lets a real one through"
+            (is (:resolved? (d/dereference seat mk))))
+
+          (testing "a malformed :sentence is answered, not thrown — the bug this closes"
+            (let [r (d/dereference seat (assoc mk :sentence [1 2]))]
+              (is (false? (:resolved? r)) "no engine :shape exception escapes")
+              (is (= :malformed (:reason r)))
+              (is (= :shape (:problem r)) "the engine's own refusal type names the part")
+              (is (= (:locator mk) (:locator r)) "the payload is echoed as it arrived")))
+
+          (testing "and a context the engine will not be asked about is the same answer"
+            (let [r (d/dereference seat (assoc mk :context 'CxInference))]
+              (is (false? (:resolved? r)))
+              (is (= :malformed (:reason r)))
+              (is (= :unsupported-context (:problem r)))))
+
+          (testing "a malformed :locator is refused before the KB is consulted at all"
+            (doseq [[label bad] [["not a string" 42]
+                                 ["no algorithm tag" (apply str (repeat 64 "a"))]
+                                 ["uppercase hex" (str "sha256:" (apply str (repeat 64 "A")))]
+                                 ["too short" "sha256:aa"]
+                                 ["wrong algorithm" (str "sha1:" (apply str (repeat 64 "a")))]
+                                 ;; the tag reversed along with the body: not a locator at
+                                 ;; all, so it is refused as one rather than compared as one
+                                 ["reversed tag and all" (apply str (reverse (:locator mk)))]]]
+              (let [r (d/dereference seat (assoc mk :locator bad))]
+                (is (false? (:resolved? r)) label)
+                (is (= :malformed (:reason r)) label)
+                (is (= :locator (:problem r)) label))))
+
+          (testing "a non-map payload is not a marker, whatever it is"
+            (doseq [[label bad] [["a string" "sha256:deadbeef"]
+                                 ["a vector" [1 2 3]]
+                                 ["nil" nil]
+                                 ["a number" 7]]]
+              (let [r (d/dereference seat bad)]
+                (is (false? (:resolved? r)) label)
+                (is (= :malformed (:reason r)) label)
+                (is (= :not-a-map (:problem r)) label)
+                (is (nil? (:locator r)) label))))
+
+          (testing "a missing lookup key is malformed, not a bare-locator resolve"
+            (let [r (d/dereference seat (dissoc mk :sentence))]
+              (is (= :malformed (:reason r)))
+              (is (= :no-sentence (:problem r))))
+            (let [r (d/dereference seat (dissoc mk :context))]
+              (is (= :malformed (:reason r)))
+              (is (= :no-context (:problem r))))
+            (testing "but the CLAIMED seat is not required — dereference never reads it"
+              (is (:resolved? (d/dereference seat (dissoc mk :seat))))))
+
+          ;; the gate must not swallow the honest absence it exists to stay distinct from
+          (testing "a WELL-FORMED marker for a sentence this seat does not hold is still :not-received"
+            (let [r (d/dereference seat (assoc mk :sentence '(usesDatabase ProdCluster Mango9)))]
+              (is (false? (:resolved? r)))
+              (is (= :not-received (:reason r)))
+              (is (nil? (:problem r)) "an absence carries no problem — nothing was malformed")))
+
+          (testing "why-marker passes the refusal through rather than proving anything"
+            (let [r (d/why-marker seat (assoc mk :sentence [1 2]))]
+              (is (= :malformed (:reason r)))
+              (is (nil? (:why r)))))))
+      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
+
+;;; ── resolve-by-locator takes peer input too, and answers the same way ─────
+
+(deftest resolve-by-locator-refuses-a-string-that-is-not-a-locator
+  (let [seat (fresh-seat :bad-loc)]
+    (try
+      (v/assert seat '(likes Alpha Beta) 'CxS)
+      (let [good (d/locate seat '(likes Alpha Beta) 'CxS)
+            idx  (d/locator-index seat)]
+        (testing "the honest locator resolves, by both arities"
+          (is (:resolved? (d/resolve-by-locator seat good)))
+          (is (:resolved? (d/resolve-by-locator seat good idx))))
+        (testing "a string that is not a locator is :malformed, not :not-received"
+          (doseq [[label bad] [["not a string" 42]
+                               ["nil" nil]
+                               ["no algorithm tag" (apply str (repeat 64 "a"))]
+                               ["too short" "sha256:aa"]
+                               ["uppercase hex" (str "sha256:" (apply str (repeat 64 "A")))]]]
+            (doseq [[arity r] [["2-arity" (d/resolve-by-locator seat bad)]
+                               ["3-arity" (d/resolve-by-locator seat bad idx)]]]
+              (is (false? (:resolved? r)) (str label " / " arity))
+              (is (= :malformed (:reason r)) (str label " / " arity))
+              (is (= :locator (:problem r)) (str label " / " arity))
+              (is (= bad (:locator r)) (str label " / " arity)))))
+        (testing "while a well-formed locator this seat does not hold stays :not-received"
+          (let [r (d/resolve-by-locator seat (str "sha256:" (apply str (repeat 64 "0"))))]
+            (is (false? (:resolved? r)))
+            (is (= :not-received (:reason r)))
+            (is (nil? (:problem r))))))
+      (finally (tu/clear-kb! seat)))))
 
 ;;; ── the why handoff: the proof comes from the seat's own KB ───────────
 
@@ -309,6 +432,36 @@
                   (d/locate a '(grade Essay \B) 'CxS)) "distinct chars, distinct locators"))
       (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
 
+;;; ── and a value the encoding does not cover is refused, not hashed ────
+;;; The encoder is a closed spec, and that is what makes a locator a shared address: two
+;;; seats agree because there is one byte sequence per value and no fallback that could
+;;; differ between them.  So a value outside the spec has to stop the digest.  Falling
+;;; back on `pr-str` or on identity would mint a locator a second seat computes
+;;; differently, which is worse than the refusal in exactly the way a silent wrong
+;;; address is worse than a loud missing one.
+
+(deftest a-value-the-encoding-does-not-cover-refuses-rather-than-hashing-it
+  (let [seat (fresh-seat :uncanonical)]
+    (try
+      (doseq [[what value] [["a map" {:a 1}] ["a set" #{1 2}] ["a Date" (java.util.Date. 0)]]]
+        (testing (str what " is refused where the digest is computed")
+          (let [d (try (d/locate seat (list 'grade 'Essay value) 'CxS)
+                       nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+            (is (= :koinii/uncanonical-value (:type d)))
+            (is (= (class value) (:class d))
+                "naming the class, since the value is what the caller has to change"))))
+      (testing "the store refuses one too, so the encoder's guard covers a value that
+                reached a sentence some other way rather than a value anyone can assert"
+        (let [d (try (v/assert seat '(grade Essay {:a 1}) 'CxS)
+                     nil
+                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+          (is (= :not-encodable (:type d)))))
+      (testing "and the seat still commits — one refused value is not a poisoned seat"
+        (v/assert seat '(grade Essay 3) 'CxS)
+        (is (re-matches #"sha256:[0-9a-f]{64}" (d/commit-id seat))))
+      (finally (tu/clear-kb! seat)))))
+
 ;;; ── commit-id folds derived sentexes; state-root survives nil provenance ──
 
 (deftest commit-id-covers-derived-records-and-state-root-tolerates-nil-provenance
@@ -329,6 +482,87 @@
         (testing "state-root tolerates the nil provenance (leaf is [nil nil identity])"
           (is (re-matches #"sha256:[0-9a-f]{64}" (d/state-root a)))))
       (finally (tu/clear-kb! a)))))
+
+;;; ── the commit identity is BELIEF, not storage ────────────────────────
+;;; A defeated default is retained on purpose and is no part of what the seat holds, so it
+;;; is no part of what the seat commits to: two seats agreeing on every belief must agree
+;;; on the id however differently their stores were built.
+
+(deftest a-defeated-record-is-no-part-of-the-commit
+  (let [a (fresh-seat :belief-a)
+        b (fresh-seat :belief-b)]
+    (try
+      ;; both seats know exactly the same two things, with identical provenance so the
+      ;; state roots are comparable too
+      (binding [v/*clock* (constantly 1750000000000)]
+        (doseq [seat [a b]]
+          (v/assert seat '(not (chirps Rex)) 'CxS {:strength :monotonic :creator 'AgentAtlas})
+          (v/assert seat '(barks Rex) 'CxS {:strength :monotonic :creator 'AgentAtlas})))
+      (let [cid0  (d/commit-id a)
+            root0 (d/state-root a)
+            ;; a default the monotonic negative beats: stored on a, believed by nobody
+            defeated (v/assert a '(chirps Rex) 'CxS {:creator 'AgentBoreas})]
+        (testing "the fixture really stored a record the seat does not believe"
+          (is (some? (v/sentex a defeated)) "it is in the store")
+          (is (false? (v/in? a defeated)) "and defeated by the monotonic negative"))
+        (testing "a defeated record moves neither the commit id nor the state root"
+          (is (= cid0 (d/commit-id a)))
+          (is (= root0 (d/state-root a))))
+        (testing "so two seats with the same belief and different stored sets agree"
+          (is (< (count (p/sentex-ids (:records b))) (count (p/sentex-ids (:records a))))
+              "the fixture gave them genuinely different stored sets")
+          (is (= (d/commit-id a) (d/commit-id b)) "the same knowledge is one commit id")
+          (is (= (d/state-root a) (d/state-root b)) "and one snapshot"))
+        (testing "an unbelieved record has no leaf, so there is no inclusion proof for it"
+          (is (nil? (d/inclusion-proof a (d/locator-of a defeated))))
+          (is (some? (d/inclusion-proof a (d/locate a '(barks Rex) 'CxS)))
+              "a believed record still proves, against the same root")
+          (is (true? (d/verify-inclusion (d/locate a '(barks Rex) 'CxS)
+                                         (d/inclusion-proof a (d/locate a '(barks Rex) 'CxS))
+                                         (d/commit-id a)))))
+        (testing "and the two resolvers agree with the proof, because both read belief"
+          ;; `handle-of` and `handles` are STORAGE reads; the commit family enumerates
+          ;; belief.  Left unfiltered, a defeated record resolves here while answering no
+          ;; inclusion proof — one seat, two answers about what it holds.
+          (let [loc (d/locator-of a defeated)
+                mk  (d/marker a defeated)]
+            (is (false? (:resolved? (d/resolve-by-locator a loc)))
+                "a defeated record's locator does not resolve")
+            (is (= :not-received (:reason (d/resolve-by-locator a loc)))
+                "a bare locator cannot tell the two absences apart, and says the weaker one")
+            (is (false? (:resolved? (d/dereference a mk))))
+            (is (= :not-believed (:reason (d/dereference a mk)))
+                "handed the sentence, dereference names which absence it is")
+            (is (some? (v/handle-of a '(chirps Rex) 'CxS))
+                "and the record is still stored — this is belief, not a retraction")))
+        (testing "and reviving it moves the id — belief is what the id follows"
+          (v/retract! a (v/handle-of a '(not (chirps Rex)) 'CxS))
+          (is (true? (v/in? a defeated)) "the default is believed once its defeater is gone")
+          (is (not= cid0 (d/commit-id a)))
+          (is (some? (d/inclusion-proof a (d/locator-of a defeated))))
+          (is (true? (:resolved? (d/resolve-by-locator a (d/locator-of a defeated))))
+              "and it resolves again, with the leaf it now has")
+          (is (true? (:resolved? (d/dereference a (d/marker a defeated)))))))
+      (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
+
+;;; ── publish! pins :compression :none ──────────────────────────────────
+
+(deftest publish-refuses-a-compression-that-would-cost-byte-stability
+  (let [a   (fresh-seat :pin)
+        dir (temp-dir "pin")]
+    (rm-rf! dir)
+    (try
+      (atlas-writes! a)
+      (testing "the byte-stability claim is not a default a caller can override"
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"pins :compression :none"
+                              (d/publish! a dir {:compression :gzip})))
+        (is (= :koinii/compression-pinned
+               (:type (ex-data (try (d/publish! a dir {:compression :gzip})
+                                    (catch clojure.lang.ExceptionInfo e e)))))))
+      (testing "asking for what it already is is allowed, and other opts pass through"
+        (is (some? (d/publish! a dir {:compression :none})))
+        (is (.exists ^File (io/file dir "sentexes.nippy.stream"))))
+      (finally (tu/clear-kb! a) (rm-rf! dir)))))
 
 ;;; ── verify-inclusion fails closed on a malformed (untrusted) proof ────
 

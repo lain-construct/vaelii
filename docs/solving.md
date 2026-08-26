@@ -40,6 +40,16 @@ classes; there is no third). `forward-sentex?` / `backward-sentex?` return false
 choice rule, so it **never chains into belief** — asserting `(candidate Item)` does not
 derive `(color Item red)`. A solve is the only thing that consults it.
 
+**This is where a disjunctive conclusion lands.** `(implies <body> (or C1 C2))` is
+refused at the assert door, and the refusal points here: a disjunctive head says one of
+two things holds without saying which, and belief is a label on a stored sentex rather
+than on a set of them, so forward chaining has nothing to place. What it *is* is a
+choice, and a choice has a home — one `set/assumptionRule` per alternative, plus a
+`set/hardConstraint` over the combinations that cannot stand together, read back as an
+answer set. (A rule **antecedent** that disjoins is a different question with a different
+answer: it is polycanonicalized into one rule per alternative and never reaches a solve
+at all — [canonicalization.md](canonicalization.md).)
+
 ## `hardConstraint` / `softConstraint` — a nogood over the choices
 
 ```clojure
@@ -164,11 +174,15 @@ anything else is refused as `:not-assertible`.
 4. **Materialize** (`:all` only) — per answer set, a `genlCx` child `Into1`,
    `Into2`, … of `Base` holding `(head)` for a chosen-true head, `(not head)` for a
    chosen-false one, and an inert `(labelingOf <ctx> <Into> <i>)` **ownership marker**.
+   A choice head must be a **positive** literal for this round-trip to hold: `(not
+   head)` marks a chosen-*false* positive head, so a head that were itself `(not X)`
+   would read back as its positive core with the polarity flipped. Grounding refuses a
+   negated head (`:choice-head-not-positive`) before any world is written.
 
 The numbered names are for humans; **ownership is recorded in the marker, never
 inferred from a name**. Rediscovery (`do/classify`, and the replace sweep below) reads
 the markers back through the term index, so a user context that happens to be named
-`<base><i>Context` is neither aggregated nor swept — and materialization skips any
+`<Into><i>` is neither aggregated nor swept — and materialization skips any
 numbered slot an unrelated context already occupies, so it is never written into
 either. Two belt-and-braces guards back this: the sweep refuses to touch a context
 holding any *believed* sentex (everything a solve writes is inert by construction),

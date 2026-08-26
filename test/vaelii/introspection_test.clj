@@ -190,8 +190,8 @@
   (tu/with-terms [bird flies Robin]
     (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
     (let [fact  (v/assert kb (list bird Robin) 'CxNaturalWorld)
-          concl (:id (first (v/sentexes-matching kb (list flies Robin) 'CxNaturalWorld)))]
-      (is (integer? concl) "the rule fired")
+          concl (v/handle-of kb (list flies Robin) 'CxNaturalWorld)]
+      (is (v/in? kb concl) "the rule fired")
       (testing "the conclusion is supported by a justification, and depends on nothing"
         (is (seq (v/supporting-justifications kb concl)))
         (is (empty? (v/dependent-justifications kb concl))))
@@ -206,7 +206,7 @@
   (tu/with-terms [bird flies Robin]
     (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
     (v/assert kb (list bird Robin) 'CxNaturalWorld)
-    (let [concl (:id (first (v/sentexes-matching kb (list flies Robin) 'CxNaturalWorld)))
+    (let [concl (v/handle-of kb (list flies Robin) 'CxNaturalWorld)
           d     (first (v/supporting-justifications kb concl))]
       (is (= d (v/justification kb (:id d))) "round-trips by id")
       (is (= concl (:consequence d)))
@@ -250,6 +250,6 @@
           "it keeps the non-defeasible reading it was first given")
       (testing "and its conclusions still carry the bare rule's strength"
         (v/assert kb (list bird Robin) 'CxNaturalWorld {:strength :monotonic})
-        (let [concl (:id (first (v/sentexes-matching kb (list flies Robin) 'CxNaturalWorld)))]
+        (let [concl (v/handle-of kb (list flies Robin) 'CxNaturalWorld)]
           (is (= :monotonic (v/defeat-class kb concl))
               "a bare rule over a known-true fact concludes known-true"))))))

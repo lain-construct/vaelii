@@ -41,7 +41,9 @@
   "The nodes `sess` pops, in order, driven dry.  The frontier's decisions, as data."
   [sess]
   (loop [acc []]
-    (if-let [[_ id] (first @(:queue sess))]
+    ;; a frontier entry is `[estimate content id]` — the content is the tie-break, and
+    ;; what a pop order is read off is the node the id names
+    (if-let [[_ _ id] (first @(:queue sess))]
       (let [n (get @(:nodes sess) id)]
         (inf/step! sess)
         (recur (conj acc n)))
@@ -117,6 +119,44 @@
   (testing "an unknown one is refused rather than silently ordered by nothing"
     (is (= :unknown-tactician
            (:type (try (tac/strategy :nonesuch) (catch clojure.lang.ExceptionInfo e (ex-data e))))))))
+
+(tu/deftest-kb the-defaults-are-themselves-a-normalized-strategy
+  ;; `tactics/defaults` is public, and the readers of a strategy map read it directly —
+  ;; `child-bias` multiplies `:motivation` by `:motivation-weight`, so a `defaults` without
+  ;; the three signs makes `strategy`'s output the only map anything may be handed.
+  (testing "it carries the signs of the tactician it names"
+    (is (= (select-keys (:ground-first tac/tacticians) [:depth-sign :tree-sign :motivation])
+           (select-keys tac/defaults [:depth-sign :tree-sign :motivation]))))
+  (testing "so a reader works on it without going through `strategy` first"
+    (is (number? (tac/child-bias tac/defaults true)))
+    (is (zero? (tac/child-bias tac/defaults true))
+        ":ground-first has no opinion about a productive node's children")
+    (is (zero? (tac/child-bias tac/defaults false))))
+  (testing "and normalizing it is the identity"
+    (is (= tac/defaults (tac/strategy nil)))
+    (is (= tac/defaults (tac/strategy tac/defaults)))))
+
+(tu/deftest-kb re-pointing-a-normalized-strategy-takes-the-new-tacticians-signs
+  ;; `strategy` lets an explicit sign win over the tactician's, which is what "name a
+  ;; tactician and bend one term" needs — and a *normalized* strategy carries all three
+  ;; signs, so `assoc`-ing a new `:tactician` onto one keeps the old ordering under the
+  ;; new name.  `with-tactician` is the swap that says which side wins.  The portfolio
+  ;; depends on it: without it every racer runs the base tactician's estimate.
+  (let [base (tac/strategy nil)]                      ; :ground-first, depth-sign 1
+    (doseq [t (keys tac/tacticians)]
+      (let [s (tac/with-tactician base t)]
+        (is (= t (:tactician s)))
+        (is (= (select-keys (get tac/tacticians t) [:depth-sign :tree-sign :motivation])
+               (select-keys s [:depth-sign :tree-sign :motivation]))
+            (str "re-pointing at " t " kept another tactician's signs"))
+        (testing "and it is a fixed point of `strategy`, which the engine re-normalizes with"
+          (is (= s (tac/strategy s))))))
+    (testing "the caller's other weights survive the swap"
+      (is (= 99 (:size-penalty (tac/with-tactician (assoc base :size-penalty 99) :cost)))))
+    (testing "an unknown tactician is refused here too"
+      (is (= :unknown-tactician
+             (:type (try (tac/with-tactician base :nonesuch)
+                         (catch clojure.lang.ExceptionInfo e (ex-data e)))))))))
 
 (tu/deftest-kb ^:slow every-complete-tactician-returns-the-same-answers
   ;; The gate.  Every tactician reorders the frontier and none of them drops a node, so
@@ -327,7 +367,23 @@
                              (catch clojure.lang.ExceptionInfo e (ex-data e)))))))
         (testing "solutions routes to it on request"
           (is (= union (set (inf/solutions kb goals CxPort
-                                           {:portfolio? true :max-depth 4})))))))))
+                                           {:portfolio? true :max-depth 4})))))
+        (testing "and each racer really runs its own ordering, not three copies of one"
+          ;; The bet only pays if the racers disagree, and a strategy that carries the
+          ;; base tactician's signs under a racer's name is indistinguishable from one
+          ;; that does not — every racer answers the same set either way, so the sweep
+          ;; above cannot see it.  Watch the estimate instead: what reaches it is the
+          ;; strategy each session actually ordered by.
+          (let [signs #(select-keys % [:tactician :depth-sign :tree-sign :motivation])
+                seen  (atom #{})]
+            (binding [inf/*estimate* (fn [kb strat node]
+                                       (swap! seen conj (signs strat))
+                                       (tac/estimate kb strat node))]
+              (dorun (inf/portfolio-solutions kb goals CxPort {:max-depth 4})))
+            (is (= (into #{} (map #(signs (tac/with-tactician (tac/strategy nil) %)))
+                         inf/default-racers)
+                   @seen)
+                "the racers ordered by fewer distinct strategies than they name")))))))
 
 ;; ---- choosing one without a caller ---------------------------------------
 

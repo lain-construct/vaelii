@@ -97,7 +97,7 @@
       (is (= '#{dog} (tax/genls t 'dog 'CxO)))
       (is (= '#{animal} (tax/specs t 'animal 'CxO))))
     (testing "the unscoped read is unchanged"
-      (is (= '#{dog animal thing} (tax/genls t 'dog))))))
+      (is (= '#{dog animal thing} (tax/genls-global t 'dog))))))
 
 (deftest a-nil-context-supporter-constrains-everywhere
   (let [t (lattice)]

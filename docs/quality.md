@@ -2,8 +2,9 @@
 
 - **Covers:** `kb-quality` — which rules never fire, how skewed the predicate extents
   are, how deep the rule graph's chains reach, how much of the taxonomy is connected,
-  which argument declarations constrain nothing — what each reading costs, and what each
-  one does *not* mean.
+  which argument declarations constrain nothing, which rules another rule already covers,
+  which rule pairs would contradict each other if both fired — what each reading costs,
+  and what each one does *not* mean.
 - **Not here:** how a run went (iterations, derived conclusions, dropped ones) →
   [api.md](api.md)'s instrumentation block and [inference.md](inference.md); whether the
   engine's own grammar is read by anything → `vocabulary-audit`; the naming rules a type
@@ -17,7 +18,7 @@ derived conclusions, `violations` lists the ones that were dropped. None of them
 reading about the *knowledge*, so the author of a large KB — who wants to know whether any
 of it is any good — had no answer at all.
 
-Five questions, and the whole of this page is them:
+Seven questions, and the whole of this page is them:
 
 | question | the read that answers it | cost |
 |---|---|---|
@@ -26,10 +27,13 @@ Five questions, and the whole of this page is them:
 | how deep do chains reach | the rule graph, SCC-condensed | O(V+E) over *functors* |
 | how much of the taxonomy is connected | the `genl` closure per type | O(ancestor **pairs**) — each type's whole up-closure is read to find its root, so a chain of V types costs Θ(V²) where it has V−1 edges |
 | which argument declarations constrain nothing | the declared arity per stored declaration | O(declarations × super-predicates) |
+| which rules another rule already covers | one match per rule pair sharing a consequent functor | O(candidate pairs), each a handful of unifications |
+| which rule pairs would contradict each other | one unifier per rule pair the consequent index brings together | O(candidate pairs) |
 
 Plus the term roster, walked **once** to find the functor names the first four readings
 are about — which is the report's one superlinear term and the reason the total below
-leads with it.
+leads with it — and one record read per rule, which is what the last two need and the
+postings cannot give.
 
 **Nothing is a gate.** A threshold on somebody's ontology is not a build failure — `lein
 perf` gates the engine, and this reports on the content. What *is* gated is the report's
@@ -61,15 +65,21 @@ reading comes off state that is already there:
   the hierarchy *above* a predicate rather than by the spec subtree below it.
 - **The record store is read for the rules the report lists** — a handful, capped by
   `:limit`, so a listed rule reads as its author wrote it rather than as a handle — and
-  for the argument declarations, which are vocabulary and therefore few: 298 in the whole
+  for the argument declarations, which are vocabulary and therefore few: 377 in the whole
   bundled ontology.
+- **The two rule-hygiene readings read a record per rule**, and they are the only readings
+  that do. A rule's antecedents, its consequent and the four slots deciding whether it can
+  stand in for another live on the record and nowhere else, so this is the term nothing
+  cheaper answers. It is `O(rules)` and never `O(sentexes)`: the rules are what a KB has
+  hundreds of where it has millions of facts.
 
 So the report is
-`O(terms + rules + firings + ancestor pairs + declarations × super-predicates)` and never
-`O(sentexes)` — the **vocabulary**, which is what the perf check's claim says and what it
-measures: 8x the stored facts over 2.8x the vocabulary costs 1.5x, and 8x the vocabulary
-costs 8x. A KB of a million facts about a hundred individuals has a hundred-odd names in
-it, and that is the number the report answers to.
+`O(terms + rules + firings + ancestor pairs + declarations × super-predicates
++ candidate pairs)` and never
+`O(sentexes)` — the **vocabulary and the rule set**, which is what the perf check's claim
+says and what it measures: 8x the stored facts over 2.8x the vocabulary costs 1.5x, and 8x
+the vocabulary costs 8x. A KB of a million facts about a hundred individuals has a
+hundred-odd names in it, and that is the number the report answers to.
 
 Rules are enumerated from the **rule index**, which means one absence worth knowing: a
 rule the index cannot key by any predicate — an `:inert` one written with a variable
@@ -113,9 +123,11 @@ believed extent is O(n) per predicate ([api.md](api.md), "Stored vs believed"), 
 would turn an O(predicates) report into an O(sentexes) one. The stored/believed
 distinction is exactly what an author wants to see rather than have chosen for them.
 
-The measured shape on a converted OpenCyc 4.0 corpus at 1.14M sentexes: Gini **0.9621**,
-over 7,602 predicates with an extent, of which 5,162 hold exactly one fact and 5 hold over
-100,000.
+The measured shape on one conversion of OpenCyc 4.0 — the corpus [kbs.md](kbs.md) is the
+route to, read here at roughly 1.1M sentexes rather than at that page's own load, so the
+denominator below is this run's and not that one's: Gini **about 0.96**, over ~7,600
+predicates with an extent, of which about two-thirds hold exactly one fact and a handful
+hold over 100,000.
 
 ## Chain depth, and the reason it is condensed
 
@@ -133,7 +145,8 @@ Two mistakes are avoided by construction here, and both are cheap to make:
 - **Keying the condensation by the component itself.** Two node sets compare equal in
   O(nodes), and the condensation runs one such comparison per edge, which turns O(V+E)
   into O(V·E) — the same mistake wearing a quieter hat. Components are keyed by an integer
-  id: measured on a 4,000-functor cycle, 1,146 ms became 36 ms.
+  id: measured on a 4,000-functor cycle, a run of over a second became tens of
+  milliseconds.
 
 Depth is reported **per rule** — the depth of the component its consequent functor lands
 in — as a histogram plus `:at-least`, the fraction of rules in a chain at least that deep.
@@ -160,9 +173,12 @@ The denominator (`:names`) is every type-shaped name in the vocabulary, and by
 `genl` itself is counted. Which is the reason the gap is the finding rather than either
 fraction on its own.
 
-The measured shape on the same OpenCyc conversion: of 124,417 types, 88,245 (70.9%) carry
-a `genl` edge and 79,948 (64.3%) reach the root — and the 29% with no edge at all is a
-bigger finding than either.
+The measured shape on the same OpenCyc conversion as the Gini above, and all three
+counts are that one run's own denominator: of roughly 124k types, about 71% carry a
+`genl` edge and about 64% reach the root — and the ~29% with no edge at all is a bigger
+finding than either. A percentage taken from one reading over a denominator from another
+would be a number nobody measured, which is why the type count here is this run's rather
+than [kbs.md](kbs.md)'s.
 
 ## Argument constraints that constrain nothing
 
@@ -202,6 +218,124 @@ nothing, so there is no *newly* for a settle to report and it reads the same an 
 [taxonomy.md](taxonomy.md) has that argument in full, against the wrong-length **fact**,
 which is a ledger entry.
 
+## Rules another rule already covers
+
+A stored rule **R2** is covered by a stored rule **R1** when one substitution σ over R1's
+variables makes `ante(R1)σ` a subset of `ante(R2)` and `conseq(R1)σ` R2's conclusion. R1
+then fires wherever R2 does and concludes at least as much, so R2 adds nothing the KB
+would not have had.
+
+Both halves are **predicate-genl aware, and in opposite directions** — the same asymmetry
+[inference.md](inference.md)'s "Predicate subsumption in matching" describes, read once
+forwards and once backwards:
+
+- An antecedent of R1 on `P` is covered by an antecedent of R2 on a **spec** of `P`.
+  Whatever satisfies `dog` satisfies `animal`, so a rule keyed on `animal` fires wherever
+  one keyed on `dog` does.
+- A consequent of R1 on a **spec** of R2's covers it. Concluding `(dog X)` answers every
+  goal `(animal ?x)` would; concluding `(animal X)` answers nothing about dogs, so a
+  consequent on a *super* does not cover. This is the half a reader expects to be
+  symmetric and is not.
+
+R1 must also be **at least as available**, and four slots decide that. `direction` must
+cover — `:both` covers `:forward` and `:backward`, every other direction covers only
+itself, and `:inert` covers nothing but `:inert` because it chains in neither engine.
+**A default cannot stand in for a strict rule**: a defeasible conclusion is defeated
+exactly where the strict one stands. `assumption` and `constraint` must match, since
+neither chains at all ([solving.md](solving.md)). And R1 must carry no `exceptWhen` R2
+lacks — an exception is a binding R1 declines to conclude for and R2 concludes for, which
+is exactly not covering it. What is *not* read is the rule sentex's own strength, which
+says how the rule is defeated rather than where it runs.
+
+Scoped from **R2's context**, which is the vantage the claim is made from: a rule covered
+by one it cannot see is not covered.
+
+**Every hit is a redundancy or a deliberate specialization, and the reading cannot tell
+them apart.** An exact duplicate cannot be here at all — two rules alike up to variable
+names, antecedent order or a symmetric argument order are one handle
+([canonicalization.md](canonicalization.md)) — so what is left is a rule written for the
+narrow case beside the general one, and whether that was the point lives in what the
+author meant rather than in what the KB holds. The reading names the pair, the
+substitution and the context, and leaves the judgement.
+
+An entry is `{:subsumed h2 :by h1 :substitution σ :context C :sentence :by-sentence}`, and
+σ is written in the two authors' own variable names rather than in the `?var0` numbering
+both rules are stored under. `:total` counts the rules compared, `:subsumed-count` the
+pairs found, and the list is capped by `:limit` with `:truncated?` saying so.
+
+Pruned by consequent functor — the pairs are drawn from a grouping of the rules by what
+each concludes, fanned over the genl closure of the covered rule's own predicate — and by
+antecedent count. **The count prune is the one thing the reading
+under-reports**: σ may collapse two of R1's antecedents onto one of R2's, so a rule with
+more antecedents than the one it covers is missed. A missing hit is the safe direction for
+a report that names redundancies.
+
+## Contradictions in waiting
+
+Rule pairs whose consequents would clash if both fired, and whose antecedents could hold
+at once. Four kinds, asked of a pair in this order so one answering to two lands under one
+of them:
+
+| kind | the clash |
+|---|---|
+| `:negation` | one concludes `S` and the other `(not T)` where `S` entails `T` — `(dog X)` against `(not (animal X))`, and never `(animal X)` against `(not (dog X))` |
+| `:disjoint` | two unary type conclusions about one term whose types a `disjoint`, `siblingDisjoint` or `disjointMetatype` declaration separates ([taxonomy.md](taxonomy.md)) |
+| `:functional` | two conclusions filling one `functional` slot for one subject with values that are not the same term |
+| `:asymmetric` | one tuple concluded both ways round under a predicate declared `asymmetric`. A self tuple `(P a a)` is not one — the ontology admits it |
+
+The two property marks are read **up** the predicate hierarchy, as every constraint is
+convicted against them: two `fatherOf` conclusions clash against `(functional parentOf)`.
+
+"Jointly satisfiable" is **shallow**, and three things rule it out: a literal appearing
+under σ together with its own negation, one term claimed to be of two separated types, and
+one term bound to two arities — `(arity ?p 1)` beside `(arity ?p 2)`, and `(arity ?p 1)`
+beside `(equivalenceRelation ?p)`, which claims 2 by reaching `binaryPredicate` up `genl`.
+Each of the three is a **declaration read**: **no inference is run and no fact is
+consulted.** This is what the rules say about each other, so a pair here is a clash that
+*could* form rather than one that has — a clash already formed is in
+`(contradictions kb)`, which is the other question and the other reader.
+
+Scoped to a context that can see **both** rules. That is a common descendant of the two
+contexts and not a `sees?` between them, for [nmtms.md](nmtms.md)'s reason: asking only
+whether one sees the other exempts every sibling pair, while two incomparable contexts can
+share a descendant from which both halves are visible. A pair no context sees together is
+not reported, and the reported `:context` is where the nogood could form — which is
+frequently neither rule's own.
+
+**A pair whose antecedents cannot both hold is dropped, not flagged**, and the difference
+from `:excepted` below is the whole reason. Such a pair is not a clash anybody has to sort:
+the two rules cannot both fire for one term, so nothing is in wait and a flag would be a
+finding with no reader. An `:excepted` pair is the opposite — both rules fire, the clash
+does form, and what handles it is the `exceptWhen`, which is a thing the author wrote and
+may have written wrong, so it is listed and flagged. Unreachable is the engine's answer;
+handled is the author's.
+
+The shipped ontology's own case is the **arity cycle**, and it is dropped from both
+directions. `(unaryPredicate ?p) => (arity ?p 1)` beside `(binaryPredicate ?p) =>
+(arity ?p 2)` would be a `:functional` clash on the `arity` table, and the antecedents are
+two types CxCore declares `disjoint` ([taxonomy.md](taxonomy.md)), so the pair never enters
+the reading. Read the other way round, `(arity ?p 1) => (unaryPredicate ?p)` beside
+`(arity ?p 2) => (binaryPredicate ?p)` is a `:disjoint` clash on the *conclusions*, and
+what drops it is the third rule-out above: one `?p` bound to two arities. The same rule-out
+drops the pairs against `(equivalenceRelation ?p) => (symmetric ?p)` and its two siblings,
+whose conclusions are `binaryPredicate` specializations and so separated from the unary and
+ternary classes.
+
+**A pair one of the two already states as an exception is reported, marked `:excepted`.**
+"Birds fly, unless penguins" beside "penguins do not fly" is the intended shape, not a
+defect: one rule's `exceptWhen` names a predicate the other rule is about, and the clash is
+handled. Hiding it would tell an author there was nothing to see, where what there is to
+see is that the pair is handled — so it is listed with the flag and the reader sorts them.
+
+An entry is
+`{:rules [h1 h2] :kind :negation|:disjoint|:functional|:asymmetric :unifier σ :context C
+:excepted b :sentences [s1 s2]}`. In σ the **second** rule's variables carry a trailing
+`'`, because both authors are free to write `?x` and a map holding two of them says
+nothing. `:total` counts the rules paired, `:pair-count` the pairs found, and the list is
+capped by `:limit`.
+
+A rule is never paired with itself: the reading is about two rules disagreeing.
+
 ## Reading it
 
 `kb-quality` answers data; `quality-report` renders that same map as Markdown and reads
@@ -209,7 +343,8 @@ nothing else, so it cannot print a figure the data does not hold — and refuses
 not one of its answers (`:not-a-report`), because a page of zeros and dashes is a report a
 caller who passed the wrong map cannot tell from a report of an empty KB. `:on-progress` is
 called as each phase begins, in the order they run — `:extents`, `:rules`, `:chains`,
-`:taxonomy`, `:declarations` — and may **throw to cancel**, the reading being of current
+`:taxonomy`, `:declarations`, `:subsumption`, `:clashes` — and may **throw to cancel**,
+the reading being of current
 state, so a half-finished one is discarded rather than repaired. A phase reports itself
 before its loop, so one with nothing in it is still announced: "skipped because empty" and
 "not reached" must not read the same to a caller watching for where a long report is.
@@ -221,6 +356,12 @@ transaction over a still one.
 
 `:firings` is every recorded firing in the KB, the defeated ones included — not the live
 rules' share of them, which is why the rendered sentence states it as a total.
+
+The two rule-hygiene readings are **as-stored about the rules** and **belief-following
+about the declarations they consult**. A rule the KB currently disbelieves is still a rule
+somebody wrote, and a redundancy in the text does not stop being one while its support is
+defeated; a `disjoint` or `functional` declaration nobody believes, on the other hand,
+separates and constrains nothing, so it convicts nothing here either.
 
     lein cli quality --dir /path/to/kb        # the report, as a document
 

@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.chaining-contracts-test
-  "Two guards on the forward-chaining path that nothing exercised.
+  "Three guards on the forward-chaining path that nothing exercised.
 
   `:max-derivations` is the backstop against a runaway chain that is *not* bounded
   by depth — a rule that derives ever more facts at the same depth walks straight
@@ -13,7 +13,10 @@
   guarantees it binds to a *context*.  The guard yields no placements when it does
   not, and a `keep` swallows the nil — so removing it would place a conclusion into
   a bogus context that `context-up` never reaches: stored, believed, and invisible
-  to every query."
+  to every query.
+
+  The third is the `new?` gate on the transitive re-seed, which is what keeps the
+  first backstop from being the thing that ends an ordinary run — see the test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.rules :as vr]
@@ -75,6 +78,42 @@
       (v/assert kb (list edge a b) CxGraph {:chain? false}))
     (let [{:keys [truncated?]} (v/forward-chain kb {:max-depth 1})]
       (is truncated? "a depth-1 bound cannot reach the two-hop path"))))
+
+(tu/deftest-kb a-recursive-rule-concluding-a-transitive-predicate-converges
+  ;; The `new?` gate on `special/transitive-seeds` in `place-fact-conclusion`, and the
+  ;; only thing that exercises it.
+  ;;
+  ;; A declared-transitive predicate's closure is answered rather than stored, so a
+  ;; rule joined to one is re-driven by seeding the PARTNER antecedent's facts when a
+  ;; link arrives.  When the rule *concludes* that same predicate, those partner facts
+  ;; are the very ones whose firing concluded the link — so a re-derivation that
+  ;; re-seeded them would re-drive its own trigger, and the agenda in `chain` is a
+  ;; plain queue with no dedup.  Two `edge` facts are then enough to run to
+  ;; `:max-derivations`: the run truncates, warns, and returns a fixpoint it never
+  ;; reached, on a KB whose whole content is three derivable pairs.
+  ;;
+  ;; Seeding only for a NEW conclusion is what closes it, and it costs nothing: a
+  ;; re-derivation adds a justification rather than a link, so the closure it would
+  ;; re-drive the join over is the one the join already ran against.
+  ;;
+  ;; The bound is well below the backstop and far above the answer, so the assertion
+  ;; is about convergence rather than about a count: ungated this reaches 500 with the
+  ;; closure still unfinished, gated it stops at three.
+  (tu/with-terms [edge anc A B C CxDescent]
+    (v/assert kb (list 'genlCx CxDescent 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'transitive anc) CxDescent {:strength :monotonic :chain? false})
+    (v/assert kb (fwd [(list edge '?x '?y)] (list anc '?x '?y)) CxDescent {:chain? false})
+    (v/assert kb (fwd [(list edge '?x '?y) (list anc '?y '?z)]
+                      (list anc '?x '?z)) CxDescent {:chain? false})
+    (doseq [[a b] [[A B] [B C]]]
+      (v/assert kb (list edge a b) CxDescent {:chain? false}))
+    (let [{:keys [derived truncated?]} (v/forward-chain kb {:max-derivations 500})]
+      (is (not truncated?)
+          "a two-edge line under a recursive transitive rule is a fixpoint, not a runaway")
+      (is (< derived 20)
+          "three pairs and their supporting placements — not hundreds")
+      (is (= 3 (count (v/sentexes-matching kb (list anc '?x '?y) CxDescent)))
+          "the closure over a two-edge line is A-B, B-C and A-C"))))
 
 ;; ---- :on-progress -------------------------------------------------------
 ;;

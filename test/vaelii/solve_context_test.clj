@@ -146,6 +146,25 @@
         (is (zero? (:count r)))
         (is (= :no-choices (:reason r)))))))
 
+(deftest a-negated-choice-head-is-refused
+  ;; A choice head must be a POSITIVE literal.  A labeling persists `(head)`/`(not head)`
+  ;; and `classify`'s polarity-table reads it back by unwrapping one `not`, so a negated
+  ;; head `(not X)` would round-trip as its positive core `X` with the polarity flipped —
+  ;; classify emitting a statement about a non-head.  It is refused at grounding, before
+  ;; any world is written, and no backend is needed to reach the refusal.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [candidate paints Cand]
+      (v/assert kb (list candidate Cand) 'CxUniverse)
+      (v/assert kb (list 'set/assumptionRule
+                         (list 'implies (list candidate '?c) (list 'not (list paints '?c))))
+                'CxUniverse)
+      (let [e (try (v/assert kb (list 'do/label 'CxUniverse (tu/tmp-ctx "Plan")) 'CxUniverse)
+                   (catch clojure.lang.ExceptionInfo ex ex))]
+        (is (instance? clojure.lang.ExceptionInfo e) "the negated-head label is refused")
+        (is (= :choice-head-not-positive (:type (ex-data e))))
+        (is (= [(list 'not (list paints Cand))] (:negated (ex-data e)))
+            "and the offending ground head is named")))))
+
 (deftest grounding-honors-the-assumption-rules-exception
   ;; ground-heads is a fourth consumer of a rule's firing beside the three chainers:
   ;; a binding the exceptWhen holds of is not offered as a choice, the same decision

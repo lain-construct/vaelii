@@ -41,6 +41,8 @@
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.wiring :as wiring]))
@@ -69,7 +71,7 @@
 
 (def universal-context
   "Where every NAT bookkeeping fact lives — `(reifiableFunction F)`, `(termOfUnit K
-  E)`, `(resultIsa F T)`, and a minted reified NAT's materialized types — so it is visible
+  E)`, `(result F T)`, and a minted reified NAT's materialized types — so it is visible
   from every context, matching the other universal vocabulary."
   'CxUniverse)
 
@@ -98,16 +100,16 @@
 (defn reified-context-symbol?
   "True iff `term` is a reified **context** constant — a symbol in the `cx/`
   namespace.  The discriminant that lets a reified constant classify as a context
-  (`naming/context?`) while an object `nat/` constant classifies as a term."
+  (`naming/context?`) while an object `nat/` constant classifies as a term, and what the
+  orphan sweep reads to ask the *context* liveness question of one: a context is kept
+  alive by what is stored **in** it as much as by what names it (`orphan?`)."
   [term]
   (and (symbol? term) (= context-namespace (namespace term))))
 
 (defn reified-object-symbol?
   "True iff `term` is a reified **object** constant — a symbol in the `nat/` namespace.
-  What the orphan sweep collects on: an object constant is orphaned when no sentence
-  names it any more, but a context constant's liveness is the facts stored *in* it (its
-  context slot), which the term index does not post — so contexts are left out of the
-  sweep and persist until torn down explicitly (docs/context-nat.md)."
+  The other half of the pair: an object constant denotes a *thing* sentences talk about,
+  so nothing can be stored in it and naming is the whole of its liveness."
   [term]
   (and (symbol? term) (= nat-namespace (namespace term))))
 
@@ -200,13 +202,28 @@
 ;; are belief-filtered by `kb/sentexes-matching`, so a superseded spelling (a renamed reified NAT's old
 ;; expression) does not answer.
 
+(defn authoritative-expression
+  "The one expression a reified constant denotes, chosen from `exprs` — the **content-least**
+  of them.
+
+  Normally there is nothing to choose: the map is 1:1 and `exprs` holds one member.  A
+  collision the repair has yet to reach holds several, and every reader of the map has to
+  make the same choice out of them or they disagree about one constant — `orphan?` deciding
+  a constant orphaned against one expression while `bookkeeping-handles` computes what to
+  retract from another is a sweep that retracts the wrong records.  Content, never arrival,
+  for the reason `dedup-constant` elects the surviving constant the same way: which of two
+  spellings the retrieval yielded first is not an answer about the KB."
+  [exprs]
+  (nm/min-by-content-key identity exprs))
+
 (defn nat-expression
-  "The NAT expression a reified constant denotes, or nil."
+  "The NAT expression a reified constant denotes, or nil — the authoritative one where an
+  unrepaired collision maps it to more than one (`authoritative-expression`)."
   [kb nat-sym]
   (when (reified-nat-symbol? nat-sym)
-    (some-> (first (kb/sentexes-matching kb (list 'termOfUnit nat-sym '?e) universal-context))
-            :sentence
-            (nth 2))))
+    (authoritative-expression
+     (keep #(nth (:sentence %) 2 nil)
+           (kb/sentexes-matching kb (list 'termOfUnit nat-sym '?e) universal-context)))))
 
 (defn dedup-constant
   "The existing reified constant for the ground NAT expression `E`, or nil — the
@@ -241,32 +258,56 @@
       (first ts))))
 
 (defn- result-targets
-  "The distinct arg2s of believed `(<pred> head ?t)` facts — the result types of the
-  reifiable function `head` under `pred`."
-  [kb pred head]
-  (->> (kb/sentexes-matching kb (list pred head '?t) '?ctx)
-       (keep #(nth (:sentence %) 2))
-       distinct))
+  "The distinct arg2s of believed `(<pred> head ?t)` facts — the result types the function
+  `head` is declared with under `pred`.
 
-(defn result-isa-types
-  "Types `T` with `(resultIsa head T)` — materialized as `(T K)` on a freshly minted
-  reified NAT whose function is `head` (its output is an *instance* of T)."
-  [kb head] (result-targets kb 'resultIsa head))
+  **Two vantages, and the caller picks by which question it is asking.**  The mint asks
+  globally: it materializes what it reads into `CxUniverse`, which every context sees, so
+  a declaration written where the minting assert cannot see it still types the constant
+  for every later reader — the context-independence `reifiable-function?` takes, and for
+  its reason, what a term denotes not being a thing a reader may vary.  A **check** asks
+  from `context`: it convicts on an absence, and the whole definitional family judges from
+  the asking context's vantage, so a declaration that context cannot see may not refuse
+  it.
 
-(defn result-genl-types
-  "Types `T` with `(resultGenl head T)` — materialized as `(genl K T)` on a freshly
-  minted reified NAT whose function is `head` (its output is a *subtype* of T)."
-  [kb head] (result-targets kb 'resultGenl head))
+  The scoped arity reads through `res/matches-visible` rather than a literal match at one
+  context.  A result declaration lives in `CxUniverse` and is asked about from wherever
+  the sentence is being written, so the read walks the `genlCx` cone exactly as every
+  other declaration read does."
+  ([kb pred head]
+   (->> (kb/sentexes-matching kb (list pred head '?t) '?ctx)
+        (keep #(nth (:sentence %) 2))
+        distinct))
+  ([kb pred head context]
+   (->> (res/matches-visible kb (list pred head '?t) context)
+        (keep #(get (nth % 1) '?t))
+        distinct)))
+
+(defn result-types
+  "Types `T` with `(result head T)` — what an application of `head` is an *instance*
+  of.  Materialized as `(T K)` on a freshly minted reified NAT whose function is `head`,
+  and read at check time for an application that is never minted (docs/argtypes.md).
+  Globally, or (with `context`) through only the declarations visible from it."
+  ([kb head] (result-targets kb 'result head))
+  ([kb head context] (result-targets kb 'result head context)))
+
+(defn genl-result-types
+  "Types `T` with `(genlResult head T)` — what an application of `head` is a *subtype*
+  of.  Materialized as `(genl K T)` on a freshly minted reified NAT whose function is
+  `head`, and read at check time for an application that is never minted.  Globally, or
+  (with `context`) through only the declarations visible from it."
+  ([kb head] (result-targets kb 'genlResult head))
+  ([kb head context] (result-targets kb 'genlResult head context)))
 
 (defn any-result-declarations?
-  "Cheap gate: does the KB declare any `resultIsa` or `resultGenl`?  False ⇒ no mint has
-  materialized a result type, so the orphan sweep's question about them is answered
-  without a probe.  Two O(1) functor counts, the same shape as
-  `any-corresponding-predicates?`."
+  "Cheap gate: does the KB declare any `result` or `genlResult`?  False ⇒ no mint has
+  materialized a result type and no application can be typed by one, so both the orphan
+  sweep's question about them and the argument checks' are answered without a probe.  Two
+  O(1) functor counts, the same shape as `any-corresponding-predicates?`."
   [kb]
   (let [ix (:index kb)]
-    (or (pos? (p/count-with-functor ix 'resultIsa))
-        (pos? (p/count-with-functor ix 'resultGenl)))))
+    (or (pos? (reads/stored-count-with-functor ix 'result))
+        (pos? (reads/stored-count-with-functor ix 'genlResult)))))
 
 ;; ---- the corresponding predicate -----------------------------------------
 ;; `(functionCorrespondingPredicate F P N)` states that a function and a predicate say
@@ -305,7 +346,7 @@
   functor count, so a KB that declares none pays one integer read per assert and
   nothing else."
   [kb]
-  (pos? (p/count-with-functor (:index kb) correspondence-predicate)))
+  (pos? (reads/stored-count-with-functor (:index kb) correspondence-predicate)))
 
 (defn- believed-correspondences
   "Believed correspondence declarations as `[function predicate position-or-nil]`
@@ -315,14 +356,13 @@
   an argument root: the declarations number one per reified function and so are few,
   where the position-2 argument roots hold every fact ever asserted about `P` — and this is
   asked once per assert, which is the last place to make a cost a function of the
-  corpus.  Belief is filtered here rather than through `kb/sentexes-matching`: the
-  declaration has two legal arities, and a pattern query would need one probe per arity
-  to see both."
+  corpus.  Belief is filtered at the **door** rather than through `kb/sentexes-matching`:
+  the declaration has two legal arities, and a pattern query would need one probe per
+  arity to see both."
   [kb match?]
   (when (any-corresponding-predicates? kb)
-    (->> (p/sentexes-with-args (:index kb) correspondence-predicate {})
+    (->> (reads/believed-with-args kb correspondence-predicate {})
          (keep #(p/get-sentex (:records kb) %))
-         (filter #(jtms/in? (:tms kb) (:id %)))
          (map :sentence)
          (filter #(<= 3 (count %) 4))
          (map (fn [[_ f pr n]] [f pr (when (integer? n) n)]))
@@ -516,8 +556,8 @@
 
 (defn- minted-for
   "The sentences `mint-nat!` writes **about** the constant `k` it minted for expression
-  `E`: the materialized result types — `(T k)` per believed `(resultIsa F T)` and
-  `(genl k T)` per `(resultGenl F T)`, `F` being `E`'s function — and the correspondence
+  `E`: the materialized result types — `(T k)` per believed `(result F T)` and
+  `(genl k T)` per `(genlResult F T)`, `F` being `E`'s function — and the correspondence
   projection.  All of them land in `universal-context`, which is where the mint puts
   them.
 
@@ -526,13 +566,50 @@
   mint read to find out which sentences those were.  Reading shape instead makes a
   user's own unary claim about a reified NAT — `(prime K)`, `(genl K SomeType)` — look
   like a materialized type, and the sweep then retracts the claim along with the
-  constant."
+  constant.
+
+  Empty for a **context** constant, mirroring the mint: `mint-nat!` writes a `cx/`
+  constant's `termOfUnit` and nothing else, result types and the correspondence being
+  object-denoting concerns a place is not (docs/context-nat.md).  Re-derived rather than
+  assumed, so a `Cx*Fn` that does carry a `result` declaration does not make a reader's
+  own `(T cx/g1)` look like a sentence the mint wrote."
   [kb k E]
-  (into (if-let [lit (corresponding-literal kb E k)] #{lit} #{})
-        (when (any-result-declarations? kb)
-          (let [head (first E)]
-            (concat (map #(list % k) (result-isa-types kb head))
-                    (map #(list 'genl k %) (result-genl-types kb head)))))))
+  (if (reified-context-symbol? k)
+    #{}
+    (into (if-let [lit (corresponding-literal kb E k)] #{lit} #{})
+          (when (any-result-declarations? kb)
+            (let [head (first E)]
+              (concat (map #(list % k) (result-types kb head))
+                      (map #(list 'genl k %) (genl-result-types kb head))))))))
+
+(defn- computed-genlCx-edge?
+  "Is `sx` a `genlCx` edge the **structural producer** materialized — the engine's own
+  wiring of a `cx/` context into the lattice (docs/context-nat.md) — rather than an edge
+  somebody asserted or a rule concluded?
+
+  Authorship again, and the justification is where it is recorded: the producer deduces
+  its edges under the `contextArgSubrelation` informant and nothing else uses that
+  informant, so an edge that is not a premise and whose every support carries it was
+  written by the producer.  A premise is the caller's edge however the producer also
+  derives it, and a support under any other informant is a rule's conclusion — either is
+  content, and content naming a context keeps it alive.
+
+  This is what makes the computed containment *not* a liveness source: a month context
+  `genlCx`-ing its year is derived from the two `termOfUnit` maps, so counting it as a
+  use would make every context the producer ever ordered immortal, each holding the
+  other up.  Belief is not read — the question is who wrote the edge, and a defeated
+  declaration leaves a stored edge the producer still owns."
+  [kb sx]
+  (let [s (:sentence sx)]
+    (and (= 'genlCx (nm/functor s))
+         (= universal-context (:context sx))
+         (let [tms (:tms kb)
+               h   (:id sx)
+               js  (jtms/supports tms h)]
+           (and (not (jtms/premise? tms h))
+                (seq js)
+                (every? #(= 'contextArgSubrelation (:informant (jtms/justification tms %)))
+                        js))))))
 
 (defn- nat-bookkeeping-of?
   "Is `sx` one of constant `k`'s own bookkeeping sentexes — its `termOfUnit` map, or one
@@ -571,6 +648,13 @@
   `k`'s own bookkeeping sentexes?  False when nothing maps it: a constant with no
   believed `termOfUnit` names no expression, so there is no map left to dangle.
 
+  For a **context** constant the same question reaches one thing more, because a context
+  is somewhere sentexes are as well as something sentences name: it is orphaned when its
+  context slot holds nothing, no stored sentence names it, and no stored `genlCx` edge
+  does either — bar the edges the structural producer computed from its own `termOfUnit`
+  (`computed-genlCx-edge?`), which are the engine's wiring rather than anybody's claim.
+  Its only bookkeeping is that map (`minted-for`).
+
   Uses count by storage, not belief: a stored-but-OUT use revives when the defeat
   above it lifts, and an inert use (a labeling's choice head) has no TMS node at all
   — collecting the map from under either would leave it dangling a raw `nat/`
@@ -582,15 +666,34 @@
   **One term-index read answers the whole question.**  `k`'s uses, its map and its
   materialized types are all sentexes naming `k`, so the inverted term index
   (docs/indexing.md) hands back the lot in the size of `k`'s own footprint, and nothing
-  here is a function of how many other constants the KB has minted."
+  here is a function of how many other constants the KB has minted.  The index posts a
+  sentex's **context** beside its content terms (`kv/sentex-terms`), so a `cx/` context's
+  extent is in that same answer and no second question has to be asked to be correct.
+
+  **A context is asked the cheap half first.**  A context NAT is a *place*, so what is
+  stored in it keeps it alive as surely as what names it — and a live one is the common
+  case and the expensive one, since its extent is exactly what the term-index answer
+  would materialize.  `count-in-context` settles it in one O(1) read on every backend
+  (docs/indexing.md, the secondary roots), so a context holding a million facts costs a
+  count rather than a million record fetches, and only an **empty** one goes on to the
+  term read.  Stored, not believed, for the reason the uses are.
+
+  Asked of the **authoritative** expression alone, not of any expression that would
+  answer yes: an unrepaired collision maps `k` to several, and `bookkeeping-handles`
+  computes the retraction set from exactly one of them (`nat-expression`), so deciding
+  orphanhood against a different one would retract `E₂`'s bookkeeping on `E₁`'s verdict."
   [kb k]
-  (let [all  (kb/find-sentexes kb k)
-        live (filterv #(jtms/in? (:tms kb) (:id %)) all)]
-    (boolean
-     (some (fn [E]
-             (let [minted (delay (minted-for kb k E))]
-               (every? #(nat-bookkeeping-of? k minted %) all)))
-           (mapped-expressions k live)))))
+  (let [ctx? (reified-context-symbol? k)]
+    (if (and ctx? (pos? (long (reads/stored-count-in-context (:index kb) k))))
+      false
+      (let [all  (kb/find-sentexes kb k)
+            live (filterv #(jtms/in? (:tms kb) (:id %)) all)]
+        (boolean
+         (when-let [E (authoritative-expression (mapped-expressions k live))]
+           (let [minted (delay (minted-for kb k E))]
+             (every? #(or (nat-bookkeeping-of? k minted %)
+                          (and ctx? (computed-genlCx-edge? kb %)))
+                     all))))))))
 
 (defn orphaned-constants
   "Every reified constant in the KB that no live use references any more.  Removing the
@@ -599,12 +702,15 @@
 
   Reads the whole map, so this is the answer *about the KB*, and its cost is the KB's
   whole `termOfUnit` population; the maintenance after a teardown asks the narrower
-  `orphaned-among` instead."
+  `orphaned-among` instead.
+
+  Both kinds: an object constant nothing names, and a context constant nothing is stored
+  in, names or wires (`orphan?`)."
   [kb]
   (->> (kb/sentexes-matching kb '(termOfUnit ?k ?e) universal-context)
        (map (fn [{[_ k _] :sentence}] k))
        distinct
-       (filter reified-object-symbol?)                ; contexts persist; see reified-object-symbol?
+       (filter reified-nat-symbol?)
        (filterv #(orphan? kb %))))
 
 (defn orphaned-among
@@ -617,11 +723,10 @@
   cannot answer differently for having been counted.  Cost is the candidate set's, not
   the map's.
 
-  A candidate that is not an **object** `nat/` constant is dropped rather than probed — a
-  removed sentence names ordinary terms too, and none of them has a map to orphan, while a
-  `cx/` context constant is kept out of the sweep on purpose (`reified-object-symbol?`)."
+  A candidate that is neither reserved namespace is dropped rather than probed — a
+  removed sentence names ordinary terms too, and none of them has a map to orphan."
   [kb candidates]
-  (into [] (comp (filter reified-object-symbol?) (distinct) (filter #(orphan? kb %))) candidates))
+  (into [] (comp (filter reified-nat-symbol?) (distinct) (filter #(orphan? kb %))) candidates))
 
 (defn reified-nats-in
   "Every reified-NAT constant `form` names, at any nesting.
@@ -633,10 +738,20 @@
   (into #{} (filter reified-nat-symbol?) (tree-seq sequential? seq form)))
 
 (defn constants-named-by
-  "Every reified-NAT constant the sentences of `sentexes` name — the candidate set a
-  region-scoped orphan sweep asks `orphaned-among` about, given what a teardown removed."
+  "Every reified-NAT constant the `sentexes` reference — the candidate set a region-scoped
+  orphan sweep asks `orphaned-among` about, given what a teardown removed.
+
+  Two places a removed sentex can reference one, because a `cx/` constant can be either
+  end of a reference: the **sentence**, at any nesting, and the sentex's own **context**,
+  which is where the last fact leaving a reified context is the removal that orphans it.
+  Reading the sentence alone would find a context only through an edge or a mention and
+  never through its extent, so emptying a context would leave it standing until something
+  unrelated named it."
   [sentexes]
-  (into #{} (mapcat #(reified-nats-in (:sentence %))) sentexes))
+  (into #{} (mapcat (fn [sx]
+                      (cond-> (reified-nats-in (:sentence sx))
+                        (reified-context-symbol? (:context sx)) (conj (:context sx)))))
+        sentexes))
 
 (defn bookkeeping-handles
   "The bookkeeping sentex handles of constant `k` — its `termOfUnit` and materialized
@@ -644,6 +759,13 @@
   `k` is orphaned.  Not belief-filtered: once `k` is orphaned everything it owns
   goes, and a bookkeeping sentex sitting OUT would otherwise stay stored, a map for
   a constant the sweep has already collected.
+
+  A **context** constant's is its `termOfUnit` alone, and the structural `genlCx` edges
+  the producer computed off it are deliberately not listed: they are *derived*, so
+  retracting the map withdraws their one premise and the dependency-directed sweep
+  deletes them (docs/nmtms.md).  Which is also what puts the far end of each edge in the
+  next round's candidate set, so a chain of ordered contexts collapses by the rule that
+  collapsed the first.
 
   **Realized before it returns**, because the caller retracts what it hands back and
   `minted` is a read of the very sentexes being retracted: it asks `k`'s `termOfUnit`
@@ -705,8 +827,8 @@
   "Mint a fresh reified constant for the ground NAT expression `E`: allocate an opaque
   constant `K` in `E`'s reify namespace (`cx/` for a context-denoting function, else
   `nat/`), assert `(termOfUnit K E)` in CxUniverse, and — for an **object** NAT only —
-  materialize the function's result types (`(T K)` per `resultIsa`, `(genl K T)` per
-  `resultGenl`) and the correspondence projection.  Returns `K`.  The bookkeeping is
+  materialize the function's result types (`(T K)` per `result`, `(genl K T)` per
+  `genlResult`) and the correspondence projection.  Returns `K`.  The bookkeeping is
   `:monotonic` — a reified NAT's identity and result types are structural, not defeasible
   defaults.  `assert` stores synchronously, so a second occurrence of `E` in the same
   sentence dedups against this.
@@ -733,9 +855,9 @@
          opts {:strength :monotonic :chain? chain?}]
      (wiring/assert-sentence kb (list 'termOfUnit k E) univ (assoc opts :chain? false))
      (when-not ctx?
-       (doseq [t (result-isa-types kb head)]
+       (doseq [t (result-types kb head)]
          (wiring/assert-sentence kb (list t k) univ opts))
-       (doseq [t (result-genl-types kb head)]
+       (doseq [t (genl-result-types kb head)]
          (wiring/assert-sentence kb (list 'genl k t) univ opts))
        ;; the correspondence read the other way: the constant *is* the value the
        ;; corresponding predicate relates these arguments to, so project it back onto
@@ -776,10 +898,14 @@
    (if (and (any-reifiable-functions? kb) (context-denoting-ground-nat? kb context))
      (if mint?
        (reify-or-mint-nat kb context false)
-       (let [E (apply list (first context)
-                      (map #(if (reifiable-ground-nat? kb %) (reify-nat-for-read kb %) %)
-                           (rest context)))]
-         (or (dedup-constant kb E) no-match)))
+       ;; the read leaf, not a third copy of the expression walk: `reify-nat-for-read` is
+       ;; `reify-or-mint-nat` minus the mint, so a context slot resolves through the same
+       ;; three ranks the write path minted against — a `rewriteOf` target, the value a
+       ;; corresponding predicate names, then the dedup probe — and holds a quoting
+       ;; function's argument opaque the same way.  Resolving a context by the dedup probe
+       ;; alone would read back `no-match` from a slot the write path stored under a
+       ;; `rewriteOf` target.
+       (reify-nat-for-read kb context))
      context)))
 
 (defn merge-colliding-nats!

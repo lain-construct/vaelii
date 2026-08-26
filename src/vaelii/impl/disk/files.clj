@@ -38,8 +38,9 @@
   (:require [clojure.edn :as edn]
             [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
-            [vaelii.impl.config :as config])
-  (:import [java.io DataInputStream DataOutputStream File
+            [vaelii.impl.config :as config]
+            [vaelii.impl.io.thaw :as safe])
+  (:import [java.io ByteArrayInputStream DataInputStream DataOutputStream File
             RandomAccessFile FileInputStream FileOutputStream
             BufferedInputStream BufferedOutputStream]
            [java.nio.channels FileChannel]
@@ -65,19 +66,45 @@
 
 (def ^:private supported-format-versions #{1})
 
+(defn- sentinel
+  "The EDN a directory's own sentinel file holds, or `::unreadable` — a torn or
+  truncated one included.
+
+  A sentinel is the **first** thing read about a directory, before any of its content
+  is, so it is the first place a half-written directory shows.  `edn/read-string` on a
+  file cut mid-form raises a bare `RuntimeException` (\"EOF while reading\"), which is
+  neither the typed refusal a caller can act on nor a fact about the file it names — so
+  what each caller decides about a damaged sentinel is decided by that caller, on a
+  value, rather than by whatever the reader happened to throw."
+  [^File file]
+  (try (edn/read-string (slurp file))
+       (catch Exception _ ::unreadable)))
+
 (defn assert-format!
   "Gate the store directory `root` on its `format.edn` sentinel: a known version is
   ok, an unknown one throws, and a missing sentinel is stamped with the current
-  version (a pre-sentinel directory is by definition today's layout)."
+  version (a pre-sentinel directory is by definition today's layout).
+
+  **A damaged sentinel is refused, not rewritten.**  A directory whose stamp was cut
+  mid-write is one whose *records* were being written at the same moment, and stamping
+  over it would adopt whatever is beside it as today's layout — the one reading that is
+  certainly wrong.  `:unreadable-store` names the file rather than the version, since
+  there is no version to name."
   [root]
   (let [file (File. (str root) "format.edn")]
     (if (.exists file)
-      (let [v (:format-version (edn/read-string (slurp file)))]
-        (when-not (contains? supported-format-versions v)
-          (throw (ex-info (str "Unsupported :disk KB format version " v " at " root
-                               " — this engine supports " (sort supported-format-versions) ".")
-                          {:type :unsupported-format :found v
-                           :supported supported-format-versions :root (str root)}))))
+      (let [m (sentinel file)]
+        (when (= ::unreadable m)
+          (throw (ex-info (str "the durable-store sentinel " (.getPath file)
+                               " is not readable EDN — the directory was written by"
+                               " something else, or its stamp was cut mid-write")
+                          {:type :unreadable-store :file (.getPath file) :root (str root)})))
+        (let [v (:format-version m)]
+          (when-not (contains? supported-format-versions v)
+            (throw (ex-info (str "Unsupported durable-store format version " v " at " root
+                                 " — this engine supports " (sort supported-format-versions) ".")
+                            {:type :unsupported-format :found v
+                             :supported supported-format-versions :root (str root)})))))
       (spit file (pr-str {:format-version format-version})))))
 
 (def ^:private index-layout-file "layout.edn")
@@ -95,11 +122,18 @@
   **This reads and never writes.** A base mounted under `:base` opts is gated by the
   same call and may not be written to, so the stamp `:unstamped` calls for is the
   caller's to make — `stamp-index-layout!` for a KB that owns the directory, nothing
-  at all for a read-only mount."
+  at all for a read-only mount.
+
+  **A damaged stamp is `:stale`**, not a refusal.  The question this answers is \"can I
+  prove these entries were keyed the way this build keys them\", and a stamp cut
+  mid-write proves nothing — so the answer is the one an unprovable stamp already gets,
+  and the index is rebuilt from the records, which are the ground truth either way.
+  That is the opposite of `assert-format!`'s reading of the same damage, because an
+  index is a cache and records are not."
   [root current populated?]
   (let [file (File. ^String (str root) ^String index-layout-file)]
     (if (.exists file)
-      (if (= current (:index-layout (edn/read-string (slurp file)))) :current :stale)
+      (if (= current (:index-layout (sentinel file))) :current :stale)
       (if populated? :stale :unstamped))))
 
 ;; A rebuild's *first* write, not its last: `index-layout-decision` reads an absent
@@ -123,6 +157,32 @@
   (spit (str root "/" index-layout-file) (pr-str {:index-layout current}))
   nil)
 
+(def ^:private records-identity-file "records.edn")
+
+(defn records-identity
+  "The record store `root`'s index was last built against, or nil when the directory has
+  never been stamped."
+  [root]
+  (let [file (File. ^String (str root) ^String records-identity-file)]
+    (when (.exists file)
+      (:records (edn/read-string (slurp file))))))
+
+(defn stamp-records-identity!
+  "Record which store `root`'s index describes.
+
+  A `:disk-log` index over `:disk` records needs no such stamp: the two share the directory,
+  so the files cannot describe anything else.  An index over records on a **server** can —
+  the directory says nothing about which database, and the coverage check that would catch
+  a mismatch compares record *counts*, which two unrelated databases match easily.  What
+  gets through is worse than an empty index: reads answer out of another store's handles,
+  and a re-assert of a sentence this store does hold mints a second handle for it."
+  [root identity]
+  ;; the stamp is written on the *first* open, which is before anything else has had cause
+  ;; to make the directory
+  (.mkdirs (File. ^String (str root)))
+  (spit (str root "/" records-identity-file) (pr-str {:records identity}))
+  nil)
+
 (defn- dsync? [] (= :dsync (config/disk-fsync-mode)))
 
 (defn- open-rw ^RandomAccessFile [^String path ^String mode]
@@ -132,11 +192,18 @@
 
 (defn open-log
   "Open a log file for append + read, positioned at EOF.  Under
-  `vaelii.disk.fsync=dsync` the channel is `rwd` so every append is durable."
+  `vaelii.disk.fsync=dsync` the channel is `rwd` so every append is durable.
+
+  The seek is guarded: a throw between the open and the return leaves a
+  `RandomAccessFile` nothing holds a reference to and nothing will close, and the caller
+  that answers a failed open by releasing the directory lock would then give the lock
+  back over a handle this JVM still has."
   ^RandomAccessFile [^String path]
   (let [raf (open-rw path (if (dsync?) "rwd" "rw"))]
-    (.seek raf (.length raf))
-    raf))
+    (try (.seek raf (.length raf)) raf
+         (catch Throwable t
+           (try (.close raf) (catch Throwable _ nil))
+           (throw t)))))
 
 (defn open-idx
   "Open an idx file for random read/write.  Always `rw` — idx slots are
@@ -170,7 +237,9 @@
     (nippy/freeze value {:compressor c})
     (nippy/freeze value)))
 
-(defn- thaw-bytes [^bytes bs] (nippy/thaw bs))
+;; Behind the class-name door (`vaelii.impl.io.thaw`): a log is a file, a file is
+;; untrusted input, and a frame naming a class is refused before the name is resolved.
+(defn- thaw-bytes [^bytes bs] (safe/thaw bs))
 
 (defn- write-fully-at!
   "Write every remaining byte of `bb` to `ch` at file position `pos` — positional, so
@@ -241,6 +310,31 @@
         bb     (java.nio.ByteBuffer/wrap buf)]
     (doseq [^bytes f frames] (.put bb f))
     (append-bytes! log-raf buf)))
+
+(defn append-records-sized!
+  "Append every value in `values` to the log, each its own frame, **as one write** —
+  `append-record-sized!`'s batch form.  Returns a vector of `[offset payload-length]` in
+  input order, which is the pair an idx slot records, so the caller writes the slots
+  without a second read of any length prefix.
+
+  All-or-nothing for the whole batch (`append-bytes!`), which is stronger than a loop of
+  single appends and is the point: a record at a time is two syscalls apiece on an
+  unbuffered `RandomAccessFile`, and a bulk load pays that per record for nothing — the
+  frames are known before any of them is written.  Caller must hold the log's write lock."
+  [^RandomAccessFile log-raf values]
+  (let [payloads (mapv freeze-bytes values)
+        total    (reduce (fn [^long acc ^bytes b] (+ acc 4 (alength b))) 0 payloads)
+        buf      (byte-array total)
+        bb       (java.nio.ByteBuffer/wrap buf)]
+    (doseq [^bytes b payloads]
+      (.putInt bb (alength b))
+      (.put bb b))
+    (let [base (append-bytes! log-raf buf)]
+      (first
+       (reduce (fn [[acc ^long off] ^bytes b]
+                 (let [n (alength b)]
+                   [(conj acc [off n]) (+ off 4 n)]))
+               [[] base] payloads)))))
 
 (defn- read-at
   "Fill `bb` from `ch` starting at file position `pos`; true iff it filled completely
@@ -364,6 +458,38 @@
     (.flip bb)
     (write-fully-at! (.getChannel idx-raf) bb (* (long id) slot-bytes))))
 
+(defn- consecutive-runs
+  "`sorted` (by id) split into maximal runs of **consecutive** ids.  A batch of records
+  minted in order, or a dump whose handles are preserved, is one run."
+  [sorted]
+  (reduce (fn [runs slot]
+            (let [run (peek runs)]
+              (if (and run (= (long (first slot)) (inc (long (first (peek run))))))
+                (conj (pop runs) (conj run slot))
+                (conj runs [slot]))))
+          [] sorted))
+
+(defn write-slots!
+  "Write many slots — each `[id offset length flags gen]` — as **one positional write per
+  run of consecutive ids**, where `write-slot!` is one write per slot.
+
+  A slot is 24 bytes at `id * 24`, so a run of consecutive handles is a contiguous range
+  of the idx and a batch of them is one syscall rather than one apiece.  Handles are
+  minted in order and a preserved dump numbers its records in order, so the common case
+  is a single write for the whole batch; the runs are what keeps it correct when it is
+  not.  Caller must hold the idx's write lock."
+  [^RandomAccessFile idx-raf slots]
+  (let [ch (.getChannel idx-raf)]
+    (doseq [run (consecutive-runs (sort-by first slots))]
+      (let [bb (java.nio.ByteBuffer/allocate (* slot-bytes (count run)))]
+        (doseq [[_ offset length flags gen] run]
+          (.putLong bb (long offset))
+          (.putLong bb (long length))
+          (.putInt  bb (unchecked-int flags))
+          (.putInt  bb (unchecked-int gen)))
+        (.flip bb)
+        (write-fully-at! ch bb (* (long (first (first run))) slot-bytes))))))
+
 (defn- slot-flags-consistent?
   "Would this `flags` word answer the same as the record — directly, or by falling back?
   A slot is consistent when its premise bit is silent or matches `premise?`, **and** its
@@ -446,19 +572,43 @@
                       (on-slot (+ base-id i) offset length
                                (long (bit-and 0xffffffff (.getInt bb (int (+ off 16)))))))
                     (recur (inc i) (long (+ off slot-bytes)))))))
-            (recur (long (+ base-id (quot n slot-bytes))) (+ pos n))))))))
+            ;; Advance by the WHOLE SLOTS consumed, never by `n`.  The inner loop
+            ;; refuses a partial trailing slot, so a read that is not a multiple of
+            ;; `slot-bytes` leaves a remainder — and stepping `pos` past it while
+            ;; stepping `base-id` by the slot count alone would start the next chunk
+            ;; mid-slot and misattribute every id from there on, silently.  `read` may
+            ;; return short at any point; today's chunk size only makes that rare.  A
+            ;; read too short to hold one slot ends the walk, which is what the inner
+            ;; loop already says about a partial slot at the end of the file.
+            (let [used (* slot-bytes (quot n slot-bytes))]
+              (when (pos? used)
+                (recur (long (+ base-id (quot n slot-bytes)))
+                       (long (+ pos used)))))))))))
 
 (defn read-nippy-file
   "Read a whole-file nippy value, returning `default` when the file is missing,
   empty, or unreadable (a rare torn blob thaws to default + a warning rather than
-  throwing — these blobs hold reconstructible metadata)."
+  throwing — these blobs hold reconstructible metadata).
+
+  **The file's bytes first, then the thaw over those.**  A `DataInput` has no known
+  remaining length, so a thaw straight off the file's stream reads a torn blob's next
+  four bytes as a count and allocates for it: a truncated file whose tail happens to
+  leave a large one is a gigabyte allocation before anything is checked.  Reading the
+  file into an array first bounds every such allocation by the file's own length, which
+  costs nothing here — these blobs are whole-file values being read into heap either
+  way.  The thaw is still `thaw-from-in!`, because `write-nippy-atomic!` writes with
+  `freeze-to-out!`: a headerless typed stream, not a `freeze`d array."
   ([path] (read-nippy-file path nil))
   ([^String path default]
    (let [f (File. path)]
      (if (and (.exists f) (pos? (.length f)))
        (try
-         (with-open [in (DataInputStream. (BufferedInputStream. (FileInputStream. f)))]
-           (nippy/thaw-from-in! in))
+         (let [bs (byte-array (.length f))]
+           (with-open [in (DataInputStream.
+                           (BufferedInputStream. (FileInputStream. f)))]
+             (.readFully in bs))
+           (with-open [in (DataInputStream. (ByteArrayInputStream. bs))]
+             (safe/thaw-from-in! in)))
          (catch Throwable t
            (trove/log! {:level :warn
                         :msg (str "disk.files: unreadable nippy blob " path
@@ -619,9 +769,9 @@
     (.seek log-raf new-len)))
 
 (defn validate-idx-tail!
-  "Tombstone any of the last `window` idx slots whose frame (offset + 4 + length)
-  extends past the log's current length — a torn trailing write where the idx page
-  was persisted but the log pages were not.  Returns the count repaired.
+  "Tombstone every idx slot whose frame (offset + 4 + length) extends past the log's
+  current length — a torn trailing write where the idx page was persisted but the log
+  pages were not.  Returns the count repaired.
 
   **This catches a slot that outruns the log, and only that.**  A slot is 24 bytes and a
   page is 4096, which 24 does not divide, so about 0.6% of slots straddle a page boundary
@@ -632,17 +782,15 @@
   rather than a wrong record.  Detecting the splice itself would take a per-slot checksum,
   which the 24-byte slot has no room for; the `gen` word is reserved and written as 0.
 
-  Rides `scan-idx!`'s chunked walk — the caller passes the whole idx as the window, and
-  a per-id `read-slot` at that width is a seek and a buffer allocation per slot where
-  the chunked read pays one per 4096."
-  ^long [^RandomAccessFile idx-raf ^RandomAccessFile log-raf ^long window]
-  (let [count-slots (quot (.length idx-raf) slot-bytes)
-        start       (max 0 (- count-slots window))
-        log-len     (.length log-raf)
-        repaired    (volatile! 0)]
+  Rides `scan-idx!`'s chunked walk, which reads the whole idx — a per-id `read-slot`
+  would be a seek and a buffer allocation per slot where the chunked read pays one per
+  4096 — so every live slot is tested and *tail* names where the damage can be rather
+  than a range this bounds the walk to."
+  ^long [^RandomAccessFile idx-raf ^RandomAccessFile log-raf]
+  (let [log-len  (.length log-raf)
+        repaired (volatile! 0)]
     (scan-idx! idx-raf (fn [id offset length _flags]
-                         (when (and (>= (long id) start)
-                                    (> (+ (long offset) 4 (long length)) log-len))
+                         (when (> (+ (long offset) 4 (long length)) log-len)
                            (tombstone-slot! idx-raf id)
                            (vswap! repaired inc))))
     @repaired))
@@ -655,15 +803,28 @@
 ;; originals are still authoritative and the orphan temps are dropped.
 
 (defn compact-temp-paths
-  "Sibling temp + commit-marker paths for crash-safe compaction of a (log, idx) pair.
-  The marker keys off the log path, so one marker governs the pair."
-  [^String log-path ^String idx-path]
-  {:log-tmp (str log-path ".compact")
-   :idx-tmp (str idx-path ".compact")
-   :marker  (str log-path ".compact-commit")})
+  "Sibling temp + commit-marker paths for a crash-safe compaction of `targets` — the files
+  rewritten together and installed together.  A record kind hands in its (log, idx) pair;
+  the KV backend's write-ahead log is one file and hands in itself.  **One marker governs
+  the set**, keyed off the first target, which is what makes the install atomic across
+  however many files it covers.
+
+  Returns `{:temps [[target temp] …] :marker marker}`, the temps in the order they were
+  named — so a caller that installs them individually takes them apart, and the three
+  helpers below that treat them as a set do not have to know how many there are."
+  [& targets]
+  {:temps  (mapv (fn [^String t] [t (str t ".compact")]) targets)
+   :marker (str ^String (first targets) ".compact-commit")})
 
 (defn- copy-into-channel!
-  "Truncate `dst` to 0 and copy all of `src-path` into it from position 0."
+  "Truncate `dst` to 0 and copy all of `src-path` into it from position 0.
+
+  **A transfer that moves nothing with bytes outstanding throws.**  `transferFrom` is
+  documented as free to return 0, and this is the post-marker install — the temp is the
+  only complete copy of the log or idx at that moment, so stopping quietly on a short
+  transfer would leave a *truncated* file in place of the original and call it done.  A
+  throw is what the compaction paths are written for: before the marker they drop the
+  temps, after it they retry and then mark the store failed."
   [^FileChannel dst ^String src-path]
   (with-open [in (FileInputStream. src-path)]
     (let [src   (.getChannel in)
@@ -672,7 +833,12 @@
       (loop [pos 0]
         (when (< pos total)
           (let [n (.transferFrom dst src pos (- total pos))]
-            (when (pos? n) (recur (+ pos n)))))))))
+            (when-not (pos? n)
+              (throw (ex-info (str "copy of " src-path " stalled at " pos " of " total
+                                   " bytes")
+                              {:type :short-transfer :path src-path
+                               :copied pos :total total})))
+            (recur (+ pos n))))))))
 
 (defn replay-temp-onto-raf!
   "Install the freshly-built `tmp-path` over an already-open RAF: truncate, copy the
@@ -702,72 +868,39 @@
   (fsync-dir! marker))
 
 (defn delete-compact-temps!
-  "Remove the commit marker then both temps (marker first, so a crash mid-cleanup
-  can't leave a marker without its temps).  Idempotent.
+  "Remove the commit marker then every temp in `temps` (marker first, so a crash
+  mid-cleanup can't leave a marker without its temps).  Idempotent.
 
   The fsync is what makes the *removal* durable, so it is owed only when a directory
   entry actually went away — `.delete` answers that, and the common call finds nothing
   to delete.  `clear-records!` runs this per kind on every wipe, so an unconditional
   fsync would charge a whole-store flush per kind to a wipe that had no compaction in
   flight."
-  [^String marker ^String log-tmp ^String idx-tmp]
+  [^String marker temps]
   (let [m (.delete (File. marker))
-        l (.delete (File. log-tmp))
-        i (.delete (File. idx-tmp))]
-    (when (or m l i) (fsync-dir! marker))))
-
-;; A single log with no idx (the KV write-ahead log) compacts the same way, minus the
-;; idx temp.  The original log is authoritative until the temp fully replaces it, so a
-;; crash before the marker keeps the original; a crash after it replays the temp.
-
-(defn log-compact-paths
-  "Temp + commit-marker paths for crash-safe compaction of a single `.log`."
-  [^String log-path]
-  {:tmp (str log-path ".compact") :marker (str log-path ".compact-commit")})
-
-(defn delete-log-compact-temps!
-  "Remove a single-log compaction's marker then temp (marker first).  Idempotent.
-  Fsyncs only when a delete landed, for the reason `delete-compact-temps!` gives."
-  [^String marker ^String tmp]
-  (let [m (.delete (File. marker))
-        t (.delete (File. tmp))]
-    (when (or m t) (fsync-dir! marker))))
-
-(defn recover-log-compaction!
-  "Finish or discard a crash-interrupted single-log compaction, BEFORE the log opens.
-  Returns :replayed, :discarded-incomplete, or :none.  Idempotent."
-  [^String log-path]
-  (let [{:keys [tmp marker]} (log-compact-paths log-path)
-        marker? (.exists (File. ^String marker))
-        tmp?    (.exists (File. ^String tmp))]
-    (cond
-      (and marker? tmp?)
-      (do (trove/log! {:level :warn
-                       :msg (str "disk.files: finishing interrupted log compaction of " log-path)})
-          (replay-temp-onto-path! log-path tmp)
-          (delete-log-compact-temps! marker tmp)
-          :replayed)
-      marker? (do (delete-log-compact-temps! marker tmp) :discarded-incomplete)
-      tmp?    (do (.delete (File. ^String tmp)) :discarded-incomplete)
-      :else   :none)))
+        d (reduce (fn [acc [_ ^String tmp]] (or (.delete (File. tmp)) acc)) false temps)]
+    (when (or m d) (fsync-dir! marker))))
 
 (defn recover-compaction!
-  "Finish or discard a crash-interrupted compaction of the (log, idx) pair, BEFORE
-  they are opened for normal use.  Returns :replayed, :discarded-incomplete, or :none.
-  Idempotent."
-  [^String log-path ^String idx-path]
-  (let [{:keys [log-tmp idx-tmp marker]} (compact-temp-paths log-path idx-path)
+  "Finish or discard a crash-interrupted compaction of `targets`, BEFORE they are opened
+  for normal use.  Returns :replayed, :discarded-incomplete, or :none.  Idempotent.
+
+  **The marker plus a complete set of temps is the commit**, whether the set is a record
+  kind's (log, idx) pair or the KV backend's single write-ahead log: the originals stay
+  authoritative until every temp is installed, so a crash before the marker keeps them and
+  drops the orphan temps, and one after it replays what the marker vouches for."
+  [& targets]
+  (let [{:keys [temps marker]} (apply compact-temp-paths targets)
         marker?  (.exists (File. ^String marker))
-        log-tmp? (.exists (File. ^String log-tmp))
-        idx-tmp? (.exists (File. ^String idx-tmp))]
+        present  (filterv (fn [[_ ^String tmp]] (.exists (File. tmp))) temps)]
     (cond
-      (and marker? log-tmp? idx-tmp?)
+      (and marker? (= (count present) (count temps)))
       (do
         (trove/log! {:level :warn
-                     :msg (str "disk.files: finishing interrupted compaction of " log-path)})
-        (replay-temp-onto-path! log-path log-tmp)
-        (replay-temp-onto-path! idx-path idx-tmp)
-        (delete-compact-temps! marker log-tmp idx-tmp)
+                     :msg (str "disk.files: finishing interrupted compaction of "
+                               (first targets))})
+        (doseq [[^String target ^String tmp] temps] (replay-temp-onto-path! target tmp))
+        (delete-compact-temps! marker temps)
         :replayed)
 
       marker?
@@ -775,13 +908,13 @@
       ;; the originals (validate-idx-tail! handles them) and clear the partial state.
       (do
         (trove/log! {:level :error
-                     :msg (str "disk.files: compaction marker for " log-path
+                     :msg (str "disk.files: compaction marker for " (first targets)
                                " present but a .compact temp is missing — keeping originals")})
-        (delete-compact-temps! marker log-tmp idx-tmp)
+        (delete-compact-temps! marker temps)
         :discarded-incomplete)
 
-      (or log-tmp? idx-tmp?)
-      (do (.delete (File. ^String log-tmp)) (.delete (File. ^String idx-tmp))
+      (seq present)
+      (do (doseq [[_ ^String tmp] present] (.delete (File. tmp)))
           :discarded-incomplete)
 
       :else :none)))

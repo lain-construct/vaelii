@@ -318,7 +318,11 @@
               :increment (kv/kv-increment this k)
               :decrement (kv/kv-decrement this k)
               :add-to-set (do (kv/kv-add-to-set this k a) nil)
-              :remove-from-set (do (kv/kv-remove-from-set this k a) nil)))
+              :remove-from-set (do (kv/kv-remove-from-set this k a) nil)
+              ;; `kv/unknown-op!` rather than `case`'s bare IllegalArgumentException:
+              ;; every adapter refuses an unreadable op by the one name a caller
+              ;; discriminates on (`:unknown-frame`)
+              (kv/unknown-op! op)))
           ops))
   ;; the portable projection: an `IntPostings` is this backend's private representation
   ;; of a handle set, so it is materialized out on the way and rebuilt on the way back

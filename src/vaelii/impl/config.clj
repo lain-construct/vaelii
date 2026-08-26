@@ -48,11 +48,17 @@
   ## What is not checkable here
 
   Five switches name a path or a label with no domain to check — `vaelii.disk.dir`,
-  `vaelii.kb.path`, `vaelii.kb.catalog`, `vaelii.build`, `vaelii.clingo.lib` — and two
-  name a member of a registry that resolves them itself: `vaelii.asp.solver`
-  (`asp.solver/configured`) and `vaelii.llm.provider` (`llm.provider/configured`).  The
-  ceiling `VAELII_MAX_BODY_BYTES` refuses at `guard/max-body-bytes`, where both servers
-  read it."
+  `vaelii.kb.path`, `vaelii.kb.catalog`, `vaelii.build`, `vaelii.clingo.lib` — and one
+  names a member of a registry that resolves it itself: `vaelii.llm.provider`
+  (`llm.provider/configured`).  `vaelii.web.port` / `VAELII_WEB_PORT` is the browser's
+  own, read at `web/default-port`, where an unparseable value falls through to the next
+  source rather than stopping a start over a convenience variable (docs/web.md).
+
+  Three more belong to the two servers and are read at `vaelii.impl.guard`, which both
+  of them read: `VAELII_API_TOKEN` and `VAELII_ALLOWED_HOSTS` are a secret and a host
+  list, neither of which has a domain to hold them to, and the ceiling
+  `VAELII_MAX_BODY_BYTES` refuses at `guard/max-body-bytes` for the reason
+  `arbitrate-constraints?` refuses at load — it is the root value of a var."
   (:require [clojure.string :as str]))
 
 (def truthy
@@ -326,6 +332,29 @@
   (prop-enum "VAELII_LOG_LEVEL" log-level-spellings nil
              "error, warn, info, debug or trace"))
 
+(defn max-query-ms
+  "The wall-clock ceiling the daemon holds every bounded read to
+  (`VAELII_MAX_QUERY_MS`, default 30000; 0 lifts it).  A request may name a smaller
+  `:max-ms` and is refused for naming a larger one (`vaelii.impl.serve`).
+
+  **30 seconds because that is when the caller stops listening.**  The zero-dep client's
+  own read timeout is 30 s (`vaelii.impl.client`), and every op runs under the daemon's
+  single write monitor — so a read still going after that is holding every other
+  caller's request behind an answer nobody is waiting for."
+  []
+  (prop-long "VAELII_MAX_QUERY_MS" 30000 0 nil))
+
+(defn max-query-depth
+  "The rule-expansion ceiling the daemon holds every bounded read to
+  (`VAELII_MAX_QUERY_DEPTH`, default 256; 0 lifts it).  A request may name a smaller
+  `:max-depth` and is refused for naming a larger one (`vaelii.impl.serve`).
+
+  256 because it is the largest depth the API's own defaults name — `why`'s — so every
+  documented call sits inside it, and a depth past it is a search a remote caller sized
+  rather than the engine."
+  []
+  (prop-long "VAELII_MAX_QUERY_DEPTH" 256 0 nil))
+
 (defn check!
   "Read every switch once, refusing the first whose value is outside its domain.
   `kb/open-kb` calls it, which is the earliest door that exists for the properties the
@@ -345,6 +374,7 @@
   (disk-compact-min-interval-ms)
   (disk-lock?)
   (index-snapshot?)
+  (belief-snapshot?)
   (arbitrate-constraints?)
   (assertive-arg-types?)
   (web-dev?)
@@ -354,4 +384,6 @@
   (asp-solver)
   (clingo-max-program-bytes)
   (asp-time-limit)
+  (max-query-ms)
+  (max-query-depth)
   nil)

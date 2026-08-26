@@ -46,7 +46,7 @@
   - **Another thread's fsyncs.**  The count is scoped to the calling thread on purpose,
     so the durability daemon's own tick cannot move it.
 
-  The KB is pinned to `:backend :disk` rather than inheriting `VAELII_TEST_BACKEND`, for
+  The KB is pinned to `:backend :disk-log` rather than inheriting `VAELII_TEST_BACKEND`, for
   the reason `assert_cost_test` pins `:memory`: the gate then says the same thing on all
   thirteen matrix configurations instead of thirteen different things."
   (:require [clojure.java.io :as io]
@@ -102,7 +102,7 @@
 (defn- populated-kb
   "A disk KB over `dir` holding enough that a wipe has records to drop."
   [dir]
-  (doto (v/open-kb {:backend :disk :dir dir :recover? false})
+  (doto (v/open-kb {:backend :disk-log :dir dir :recover? false})
     (v/assert '(genl dog animal) 'CxUniverse {:strength :monotonic})
     (v/assert '(genl animal organism) 'CxUniverse {:strength :monotonic})
     (v/assert '(isa Muffet dog) 'CxUniverse {:strength :monotonic})))
@@ -129,12 +129,13 @@
     (fn [dir]
       (let [kb    (populated-kb dir)
             pairs (record-pairs dir)
-            temps (mapv (fn [{:keys [log idx]}] (f/compact-temp-paths log idx)) pairs)]
+            sets  (mapv (fn [{:keys [log idx]}] (f/compact-temp-paths log idx)) pairs)]
         (is (= 3 (count pairs)) "three record kinds, as above")
         ;; what a compaction that died past its commit point leaves behind: the marker
         ;; the next open would finish the install from, and both temps it would install.
-        (doseq [{:keys [log-tmp idx-tmp marker]} temps]
-          (spit marker "") (spit log-tmp "") (spit idx-tmp ""))
+        (doseq [{:keys [temps marker]} sets]
+          (spit marker "")
+          (doseq [[_ tmp] temps] (spit tmp "")))
         (testing "the wipe supersedes the install, and the removal is made durable"
           (let [[_ n] (counting-dir-fsyncs #(v/clear! kb))]
             ;; FOUR: the counters blob as above, plus one per kind whose temps this wipe
@@ -143,7 +144,7 @@
             (is (= 4 n)
                 "a wipe clearing three kinds' compaction temps fsyncs once per removal, plus the counters")))
         (testing "and the temps are gone, which is the bug the fsync makes durable"
-          (doseq [{:keys [log-tmp idx-tmp marker]} temps]
-            (is (not (.exists (io/file marker)))  (str marker " survived the wipe"))
-            (is (not (.exists (io/file log-tmp))) (str log-tmp " survived the wipe"))
-            (is (not (.exists (io/file idx-tmp))) (str idx-tmp " survived the wipe"))))))))
+          (doseq [{:keys [temps marker]} sets]
+            (is (not (.exists (io/file marker))) (str marker " survived the wipe"))
+            (doseq [[_ tmp] temps]
+              (is (not (.exists (io/file tmp))) (str tmp " survived the wipe")))))))))

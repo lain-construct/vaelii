@@ -448,32 +448,372 @@
 
 ;; ---- well-formedness of NAF rule antecedents ----------------------------
 
-(tu/deftest-kb a-quantified-conjunction-is-refused
-  ;; The conjuncts share the binder, so answering them independently would take each
-  ;; from a different witness — "has a sick child" would hold of anyone with a child
-  ;; while anyone at all was sick.  Level 6 answers one goal at a time and has no join,
-  ;; so the form is refused rather than mis-evaluated.
-  (tu/with-terms [person childOf sick lonely counted]
-    (testing "a thereExists over a conjunction, inside an unknown"
+(tu/deftest-kb an-aggregate-refuses-a-reduction-variable-no-census-conjunct-produces
+  ;; A census body is joined like a NAF query, so its conjuncts share `?v` — but the join
+  ;; runs generators first, so a `?v` only a *computed* conjunct reads is a count over a
+  ;; variable nothing in the body can bind.  The same hole an `unknown` is refused for.
+  (tu/with-terms [person childOf sick counted]
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"which no conjunct of it binds"
+         (v/assert kb (list 'implies
+                            (list 'and (list person '?x)
+                                  (list 'agg/count '?n '?c (list 'and (list childOf '?x '?x)
+                                                                 (list 'unknown (list sick '?c))))
+                                  (list 'lessThan 1 '?n))
+                            (list counted '?x))
+                   'CxWell)))
+    (testing "and the same body with a generator binding it is admitted"
+      (is (some? (v/assert kb (list 'implies
+                                    (list 'and (list person '?x)
+                                          (list 'agg/count '?n '?c
+                                                (list 'and (list childOf '?x '?c)
+                                                      (list sick '?c)))
+                                          (list 'lessThan 1 '?n))
+                                    (list counted '?x))
+                           'CxWell))))))
+
+;; ---- the joined NAF query: conjuncts sharing a quantifier's variable ----
+
+(tu/deftest-kb a-quantified-conjunction-takes-one-witness-for-all-its-conjuncts
+  ;; The whole point of the join: "has no sick child" must not hold of a parent whose
+  ;; child is well merely because *some other* individual is sick.
+  (tu/with-terms [childOf sick Tom Kid Stranger]
+    (v/assert kb (list childOf Tom Kid) 'CxWell)
+    (v/assert kb (list sick Stranger) 'CxWell)
+    (let [q (list 'unknown (list 'thereExists '?c (list 'and (list childOf Tom '?c)
+                                                        (list sick '?c))))]
+      (testing "a well child and a sick stranger leave the existential unsatisfied"
+        (is (v/ask? kb q 'CxWell)
+            "read flat, the two conjuncts would each find their own witness and this would fail"))
+      (v/assert kb (list sick Kid) 'CxWell)
+      (testing "and the same child being sick is what satisfies it"
+        (is (not (v/ask? kb q 'CxWell)))))))
+
+(tu/deftest-kb a-joined-NAF-antecedent-blocks-and-revives
+  (tu/with-terms [person childOf sick unworried Tom Kid]
+    (v/assert kb (list 'implies
+                       (list 'and (list person '?x)
+                             (list 'unknown (list 'thereExists '?c
+                                                  (list 'and (list childOf '?x '?c)
+                                                        (list sick '?c)))))
+                       (list unworried '?x))
+              'CxWell)
+    (v/assert kb (list person Tom) 'CxWell)
+    (v/assert kb (list childOf Tom Kid) 'CxWell)
+    (testing "no sick child, so the rule fires"
+      (is (v/ask? kb (list unworried Tom) 'CxWell)))
+    (let [h (v/assert kb (list sick Kid) 'CxWell)]
+      (testing "the *second* conjunct's predicate is watched too, so the firing is swept"
+        (is (not (v/ask? kb (list unworried Tom) 'CxWell)))
+        (is (nil? (v/handle-of kb (list unworried Tom) 'CxWell))))
+      (v/retract! kb h)
+      (testing "and retracting it revives the conclusion by re-derivation"
+        (is (v/ask? kb (list unworried Tom) 'CxWell))))))
+
+(tu/deftest-kb a-joined-NAF-antecedent-is-order-independent
+  ;; The same knowledge in the other order: the sick child is there before the rule is.
+  (tu/with-terms [person childOf sick unworried Tom Kid]
+    (v/assert kb (list person Tom) 'CxWell)
+    (v/assert kb (list childOf Tom Kid) 'CxWell)
+    (v/assert kb (list sick Kid) 'CxWell)
+    (v/assert kb (list 'implies
+                       (list 'and (list person '?x)
+                             (list 'unknown (list 'thereExists '?c
+                                                  (list 'and (list childOf '?x '?c)
+                                                        (list sick '?c)))))
+                       (list unworried '?x))
+              'CxWell)
+    (is (not (v/ask? kb (list unworried Tom) 'CxWell))
+        "the rule never fires, which is the answer the other arrival order settles on")))
+
+(tu/deftest-kb every-conjunct-of-a-quantified-query-is-a-negative-edge
+  ;; Stratification reads the conjuncts through the quantifier, so a cycle through the
+  ;; *second* one is refused as readily as one through the first.
+  (tu/with-terms [person childOf sick unworried]
+    (v/assert kb (list 'implies
+                       (list 'and (list person '?x)
+                             (list 'unknown (list 'thereExists '?c
+                                                  (list 'and (list childOf '?x '?c)
+                                                        (list sick '?c)))))
+                       (list unworried '?x))
+              'CxWell)
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"not stratified"
+         (v/assert kb (list 'implies (list unworried '?y) (list sick '?y)) 'CxWell)))))
+
+(tu/deftest-kb a-standalone-existential-over-a-conjunction-is-the-join-written-out
+  ;; A *positive* standalone `thereExists` needs no NAF machinery: its conjunction is
+  ;; spliced in as that many antecedents, which is the join a reader would have written.
+  (tu/with-terms [parentOf sick worried Ann Kid]
+    (let [h1 (v/assert kb (list 'implies
+                                (list 'and (list 'thereExists '?c
+                                                 (list 'and (list parentOf '?x '?c)
+                                                       (list sick '?c))))
+                                (list worried '?x))
+                       'CxWell)
+          h2 (v/assert kb (list 'implies (list 'and (list parentOf '?p '?k) (list sick '?k))
+                                (list worried '?p))
+                       'CxWell)]
+      (is (= h1 h2) "the desugared rule is the hand-written join, to the same handle"))
+    (v/assert kb (list parentOf Ann Kid) 'CxWell)
+    (v/assert kb (list sick Kid) 'CxWell)
+    (is (v/ask? kb (list worried Ann) 'CxWell))))
+
+;; ---- a closed extent: (not (P a)) read as negation as failure ----------
+
+(tu/deftest-kb a-closed-extent-answers-the-negative-from-the-absence-of-a-positive
+  ;; "the months of the year are exactly these twelve"
+  (tu/with-terms [monthOfYear January February Smarch CxCalendar CxSibling]
+    (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxSibling 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list monthOfYear January) CxCalendar)
+    (v/assert kb (list monthOfYear February) CxCalendar)
+    (testing "without the grant, a month nobody listed is merely unknown"
+      (is (not (v/ask? kb (list 'not (list monthOfYear Smarch)) CxCalendar))))
+    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+    (testing "under the grant, nothing answering the positive is what answers the negative"
+      (is (v/ask? kb (list 'not (list monthOfYear Smarch)) CxCalendar))
+      (is (not (v/ask? kb (list 'not (list monthOfYear January)) CxCalendar))
+          "a member is not refuted by its own extent"))
+    (testing "and the grant is scoped: a sibling theory reading the same predicate
+              answers as it did before"
+      (is (not (v/ask? kb (list 'not (list monthOfYear Smarch)) CxSibling))))
+    (testing "a member arriving withdraws the negative"
+      (let [h (v/assert kb (list monthOfYear Smarch) CxCalendar)]
+        (is (not (v/ask? kb (list 'not (list monthOfYear Smarch)) CxCalendar)))
+        (v/retract! kb h)
+        (is (v/ask? kb (list 'not (list monthOfYear Smarch)) CxCalendar))))))
+
+(tu/deftest-kb a-closed-extent-rule-antecedent-is-negation-as-failure
+  (tu/with-terms [monthOfYear candidate notAMonth Smarch CxCalendar]
+    (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+    (v/assert kb (list 'implies (list 'and (list candidate '?m)
+                                      (list 'not (list monthOfYear '?m)))
+                       (list notAMonth '?m))
+              CxCalendar)
+    (v/assert kb (list candidate Smarch) CxCalendar)
+    (testing "the rule fires on the absence of a member, with nothing negative stored"
+      (is (v/ask? kb (list notAMonth Smarch) CxCalendar))
+      (is (nil? (v/handle-of kb (list 'not (list monthOfYear Smarch)) CxCalendar))
+          "and nothing about the negative space was stored to make it fire"))
+    (let [h (v/assert kb (list monthOfYear Smarch) CxCalendar)]
+      (testing "the member arriving withdraws the firing"
+        (is (not (v/ask? kb (list notAMonth Smarch) CxCalendar)))
+        (is (nil? (v/handle-of kb (list notAMonth Smarch) CxCalendar))
+            "withdrawn, not merely disbelieved"))
+      (v/retract! kb h)
+      (testing "and retracting it revives the conclusion"
+        (is (v/ask? kb (list notAMonth Smarch) CxCalendar))))))
+
+(tu/deftest-kb a-closed-extent-rule-is-order-independent
+  ;; The same knowledge in the other order: the member is there before the rule and
+  ;; before the grant.
+  (tu/with-terms [monthOfYear candidate notAMonth Smarch CxCalendar]
+    (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list candidate Smarch) CxCalendar)
+    (v/assert kb (list 'implies (list 'and (list candidate '?m)
+                                      (list 'not (list monthOfYear '?m)))
+                       (list notAMonth '?m))
+              CxCalendar)
+    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+    (testing "the grant arriving after the rule is what makes it fire"
+      (is (v/ask? kb (list notAMonth Smarch) CxCalendar)))
+    (v/assert kb (list monthOfYear Smarch) CxCalendar)
+    (testing "and a member arriving after that withdraws it, as in the other order"
+      (is (not (v/ask? kb (list notAMonth Smarch) CxCalendar))))))
+
+(tu/deftest-kb a-stored-negative-still-works-under-a-closed-extent
+  (tu/with-terms [monthOfYear candidate notAMonth Smarch CxCalendar]
+    (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+    (v/assert kb (list 'implies (list 'and (list candidate '?m)
+                                      (list 'not (list monthOfYear '?m)))
+                       (list notAMonth '?m))
+              CxCalendar)
+    (v/assert kb (list candidate Smarch) CxCalendar)
+    (v/assert kb (list 'not (list monthOfYear Smarch)) CxCalendar)
+    (is (v/ask? kb (list notAMonth Smarch) CxCalendar)
+        "a stored negative answers the antecedent as it always did")))
+
+(tu/deftest-kb a-closed-extent-cycle-through-negation-is-refused
+  (tu/with-terms [monthOfYear candidate CxCalendar]
+    (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+    (testing "a rule concluding P whose body reads (not (P …)) under the grant"
       (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo #"quantifies a conjunction"
-           (v/assert kb (list 'implies
-                              (list 'and (list person '?x)
-                                    (list 'unknown (list 'thereExists '?c
-                                                         (list 'and (list childOf '?x '?c)
-                                                               (list sick '?c)))))
-                              (list lonely '?x))
-                     'CxWell))))
-    (testing "and an aggregate over one, which needs the same join"
+           clojure.lang.ExceptionInfo #"not stratified"
+           (v/assert kb (list 'implies (list 'and (list candidate '?m)
+                                             (list 'not (list monthOfYear '?m)))
+                              (list monthOfYear '?m))
+                     CxCalendar))))))
+
+(tu/deftest-kb a-grant-that-would-close-a-cycle-is-refused
+  ;; The other arrival order: the rule is stored first, and the grant is what would add
+  ;; the negative edge.
+  (tu/with-terms [monthOfYear candidate CxCalendar]
+    (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'implies (list 'and (list candidate '?m)
+                                      (list 'not (list monthOfYear '?m)))
+                       (list monthOfYear '?m))
+              CxCalendar)
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"not stratified"
+         (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)))))
+
+(tu/deftest-kb why-not-says-the-extent-is-closed
+  (tu/with-terms [monthOfYear Smarch CxCalendar]
+    (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
+    (testing "without the grant it is simply not stored"
+      (is (= :not-stored (:reason (v/why-not kb (list monthOfYear Smarch) CxCalendar)))))
+    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+    (testing "under it the KB is not silent — the extent is complete and this is not in it"
+      (is (= :closed-extent
+             (:reason (v/why-not kb (list monthOfYear Smarch) CxCalendar)))))))
+
+;; ---- forall: sugar for the nested NAF ----------------------------------
+
+(deftest forall-desugars-to-a-nested-unknown
+  (testing "forall ?y (B => H) is not-exists ?y (B and not-H), two unknowns in a closed world"
+    (is (= '(unknown (thereExists ?y (and (childOf ?x ?y) (unknown (asleep ?y)))))
+           (sx/desugar-forall-literal '(forall ?y (implies (childOf ?x ?y) (asleep ?y)))))))
+  (testing "a conjunctive body contributes that many conjuncts to the join"
+    (is (= '(unknown (thereExists ?y (and (childOf ?x ?y) (minor ?y) (unknown (asleep ?y)))))
+           (sx/desugar-forall-literal
+            '(forall ?y (implies (and (childOf ?x ?y) (minor ?y)) (asleep ?y)))))))
+  (testing "a forall over something that is not an implication is refused"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an \(implies"
+                          (sx/desugar-forall-literal '(forall ?y (asleep ?y))))))
+  (testing "free-vars subtracts the binder, so a closed forall is closed"
+    (is (= '#{?x} (sx/free-vars '(forall ?y (implies (childOf ?x ?y) (asleep ?y))))))))
+
+(tu/deftest-kb a-stored-forall-rule-shows-the-nested-form
+  (tu/with-terms [person childOf asleep allKidsAsleep]
+    (let [sugar (list 'implies
+                      (list 'and (list person '?x)
+                            (list 'forall '?y (list 'implies (list childOf '?x '?y)
+                                                    (list asleep '?y))))
+                      (list allKidsAsleep '?x))
+          nested (list 'implies
+                       (list 'and (list person '?p)
+                             (list 'unknown
+                                   (list 'thereExists '?k
+                                         (list 'and (list childOf '?p '?k)
+                                               (list 'unknown (list asleep '?k))))))
+                       (list allKidsAsleep '?p))]
+      (is (= (:sentence (v/canonical-sentex kb sugar 'CxWell))
+             (:sentence (v/canonical-sentex kb nested 'CxWell)))
+          "the sugar exists at the door and nowhere past it")
+      (is (= (v/assert kb sugar 'CxWell) (v/assert kb nested 'CxWell))
+          "so the two are one rule, to one handle"))))
+
+(tu/deftest-kb all-of-bobs-children-are-asleep
+  ;; The common-sense reading, in the order the classical one is argued in.
+  (tu/with-terms [person childOf asleep allKidsAsleep Bob Kid1 Kid2 Kid3]
+    (v/assert kb (list 'implies
+                       (list 'and (list person '?x)
+                             (list 'forall '?y (list 'implies (list childOf '?x '?y)
+                                                     (list asleep '?y))))
+                       (list allKidsAsleep '?x))
+              'CxWell)
+    (v/assert kb (list person Bob) 'CxWell)
+    (testing "vacuously true - Bob has no children, so nothing is a counterexample"
+      (is (v/ask? kb (list allKidsAsleep Bob) 'CxWell)))
+    (v/assert kb (list childOf Bob Kid1) 'CxWell)
+    (v/assert kb (list asleep Kid1) 'CxWell)
+    (v/assert kb (list childOf Bob Kid2) 'CxWell)
+    (v/assert kb (list asleep Kid2) 'CxWell)
+    (testing "two children, both asleep"
+      (is (v/ask? kb (list allKidsAsleep Bob) 'CxWell)))
+    (let [h (v/assert kb (list childOf Bob Kid3) 'CxWell)]
+      (testing "a third child nobody says is asleep is the counterexample"
+        (is (not (v/ask? kb (list allKidsAsleep Bob) 'CxWell)))
+        (is (nil? (v/handle-of kb (list allKidsAsleep Bob) 'CxWell))
+            "the conclusion is withdrawn, not merely disbelieved"))
+      (testing "and the goal form agrees with the rule antecedent"
+        (is (not (v/ask? kb (list 'forall '?y (list 'implies (list childOf Bob '?y)
+                                                    (list asleep '?y)))
+                         'CxWell))))
+      (v/retract! kb h)
+      (testing "retracting that child revives the conclusion"
+        (is (v/ask? kb (list allKidsAsleep Bob) 'CxWell))))
+    (testing "and the third child back, asleep, is not a counterexample"
+      (v/assert kb (list childOf Bob Kid3) 'CxWell)
+      (v/assert kb (list asleep Kid3) 'CxWell)
+      (is (v/ask? kb (list allKidsAsleep Bob) 'CxWell)))))
+
+(tu/deftest-kb forall-is-order-independent
+  ;; The counterexample is already there when the rule arrives.
+  (tu/with-terms [person childOf asleep allKidsAsleep Bob Kid1]
+    (v/assert kb (list person Bob) 'CxWell)
+    (v/assert kb (list childOf Bob Kid1) 'CxWell)
+    (v/assert kb (list 'implies
+                       (list 'and (list person '?x)
+                             (list 'forall '?y (list 'implies (list childOf '?x '?y)
+                                                     (list asleep '?y))))
+                       (list allKidsAsleep '?x))
+              'CxWell)
+    (is (not (v/ask? kb (list allKidsAsleep Bob) 'CxWell)))
+    (v/assert kb (list asleep Kid1) 'CxWell)
+    (is (v/ask? kb (list allKidsAsleep Bob) 'CxWell)
+        "and the same knowledge in either order settles the same way")))
+
+(tu/deftest-kb a-forall-over-what-the-rule-concludes-is-a-cycle-through-negation
+  ;; Both halves of the desugar are negative edges: the body's predicate and the head's.
+  (tu/with-terms [person childOf asleep allKidsAsleep]
+    (v/assert kb (list 'implies
+                       (list 'and (list person '?x)
+                             (list 'forall '?y (list 'implies (list childOf '?x '?y)
+                                                     (list asleep '?y))))
+                       (list allKidsAsleep '?x))
+              'CxWell)
+    (testing "a rule concluding the forall's head predicate closes the cycle"
       (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo #"quantifies a conjunction"
-           (v/assert kb (list 'implies
-                              (list 'and (list person '?x)
-                                    (list 'agg/count '?n '?c (list 'and (list childOf '?x '?c)
-                                                                   (list sick '?c)))
-                                    (list 'lessThan 1 '?n))
-                              (list counted '?x))
+           clojure.lang.ExceptionInfo #"not stratified"
+           (v/assert kb (list 'implies (list allKidsAsleep '?z) (list asleep '?z)) 'CxWell))))
+    (testing "and so does one concluding its body predicate"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"not stratified"
+           (v/assert kb (list 'implies (list allKidsAsleep '?z) (list childOf '?z '?z))
                      'CxWell))))))
+
+(tu/deftest-kb a-forall-binder-that-escapes-is-refused
+  (tu/with-terms [person childOf asleep flagged]
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"escapes its quantifier"
+         (v/assert kb (list 'implies
+                            (list 'and (list person '?x) (list asleep '?y)
+                                  (list 'forall '?y (list 'implies (list childOf '?x '?y)
+                                                          (list asleep '?y))))
+                            (list flagged '?x))
+                   'CxWell)))))
+
+(tu/deftest-kb forall-is-not-assertible
+  (tu/with-terms [childOf asleep Bob Kid]
+    (testing "the written spelling carries a variable, so the ground check refuses it first"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"not ground"
+           (v/assert kb (list 'forall '?y (list 'implies (list childOf Bob '?y)
+                                                (list asleep '?y)))
+                     'CxWell))))
+    (testing "and a ground one reaches the query-operator arm, like unknown's"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"query operator"
+           (v/assert kb (list 'forall Kid (list 'implies (list childOf Bob Kid)
+                                                (list asleep Kid)))
+                     'CxWell))))))
+
+(tu/deftest-kb a-computed-conjunct-nothing-in-the-query-binds-is-refused
+  (tu/with-terms [person childOf asleep settled]
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo #"nothing in the query binds"
+         (v/assert kb (list 'implies
+                            (list 'and (list person '?x)
+                                  (list 'unknown (list 'thereExists '?c
+                                                       (list 'and (list childOf '?x '?x)
+                                                             (list 'unknown (list asleep '?c))))))
+                            (list settled '?x))
+                   'CxWell)))))
 
 (tu/deftest-kb an-empty-NAF-conjunction-is-refused
   (tu/with-terms [person nobody]

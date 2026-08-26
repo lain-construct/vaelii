@@ -31,3 +31,6 @@ CLAUDE.local.md
 
 # the local downstream roster check-breaking-siblings.sh reads (never published)
 .sibling-repos
+
+# handoff notes between concurrent sessions; never tracked
+tmp/

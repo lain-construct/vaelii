@@ -33,6 +33,12 @@
              (vaelii.test-util/with-kb)
              (vaelii.test-util/with-neutral-kb)
              (vaelii.test-util/with-cleared-kb)
+             ;; `vaelii.multi-jvm/with-child` binds a child-JVM handle from a source
+             ;; program and its arguments (`(with-child [child prog dir] …)`), which is
+             ;; `with-kb`'s case rather than `let`'s: the vector is a binding name
+             ;; followed by expressions, not pairs.  So it is excluded here rather than
+             ;; lint-as'd above.
+             (vaelii.multi-jvm/with-child)
              ;; `defreads` defines one target-first wrapper per op name, so the names
              ;; in its list are being *defined*, not called.
              (vaelii.impl.access/defreads)]}

@@ -166,11 +166,11 @@
         (check-tms kb c)))))
 
 (deftest the-arbitrariness-is-still-classifiable-from-the-reported-dilemma
-  ;; The insight the old KB-level test carried — in a Nixon diamond *neither* side is
-  ;; forced and *neither* is excluded — is still true and still worth pinning.  It is
-  ;; now the application's question to ask: `contradictions` hands over both sides with
-  ;; their justifications, which is exactly what a `Program` is made of, and
-  ;; classifying that says what the engine deliberately declines to say.
+  ;; In a Nixon diamond *neither* side is forced and *neither* is excluded, and it is
+  ;; the application's question to ask rather than the engine's to answer:
+  ;; `contradictions` hands over both sides with their justifications, which is exactly
+  ;; what a `Program` is made of, and classifying that says what the engine deliberately
+  ;; declines to say.
   (when asp?
     (tu/with-neutral-kb [kb tu/fresh]
       (let [{[pos neg] :handles} (nixon-diamond kb)

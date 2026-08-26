@@ -6,7 +6,8 @@
   non-creating handle lookup, and the stored-vs-believed split of the extent/count
   fns all have to be reachable from it.  These tests pin the public spelling —
   they deliberately require nothing under `vaelii.impl.*` except the test scaffolding."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
@@ -212,18 +213,21 @@
       (is (some #{:rcc8} (:known e))))))
 
 ;; ---- turning a shipped reasoner on, from core alone ---------------------
-;; Eight reasoners ship unregistered, and the provers are `vaelii.impl.*` values — so
+;; Ten reasoners ship unregistered, and the provers are `vaelii.impl.*` values — so
 ;; without a roster on `core` the only way to opt in is to reach past the boundary this
 ;; namespace exists to hold.  `add-reasoner` names them instead.  These tests require
 ;; nothing under impl, which is the whole point of them.
 
 (tu/deftest-kb the-shipped-reasoners-are-nameable-and-registrable-from-core
-  (testing "the roster covers the six algebras and the two quantitative reasoners"
-    (is (= [:allen :cardinal :distance :duration :metric-time :point :rcc8 :relative]
+  (testing "the roster covers the six algebras, the three quantitative reasoners and the
+            calendar clock"
+    (is (= [:allen :calendar :cardinal :distance :duration :metric-time :point :rcc8
+            :relative :sign]
            (v/reasoners)))
     (is (= (set (map :calculus (v/calculi)))
-           (into #{} (remove #{:duration :metric-time}) (v/reasoners)))
-        "every calculus is registrable, and the roster adds only the quantitative pair"))
+           (into #{} (remove #{:duration :metric-time :sign :calendar}) (v/reasoners)))
+        "every calculus is registrable, and the roster adds the quantitative three and
+         the calendar, which are not relation algebras"))
   (testing "each name resolves to a prover value"
     (doseq [nm (v/reasoners)]
       (is (some? (v/reasoner nm)) (str nm))))
@@ -301,12 +305,19 @@
 
 (deftest no-public-namespace-is-spelled-impl
   (testing "the six public namespaces are the whole public surface"
+    ;; `koinii/` is neither engine nor API: it is an application shipped in this tree,
+    ;; layered on the six below exactly as an outside consumer would be (docs/koinii.md).
+    ;; It is excluded here for the same reason it is excluded from the SPI and refusal
+    ;; rosters — pinning it as a public promise would make koinii's own development churn
+    ;; the engine's contract. What holds it honest is the other direction:
+    ;; `koinii-reaches-into-no-impl` below.
     (is (= #{"vaelii.core" "vaelii.client" "vaelii.starter"
              "vaelii.web" "vaelii.serve" "vaelii.cli"}
            (->> (file-seq (java.io.File. "src/vaelii"))
                 (filter #(.isFile ^java.io.File %))
                 (filter #(.endsWith (.getName ^java.io.File %) ".clj"))
                 (remove #(.contains (.getPath ^java.io.File %) "/impl/"))
+                (remove #(.contains (.getPath ^java.io.File %) "/koinii/"))
                 (map #(-> (.getPath ^java.io.File %)
                           (subs (count "src/"))
                           (subs 0 (- (count (subs (.getPath ^java.io.File %) (count "src/"))) 4))
@@ -314,6 +325,58 @@
                           (.replace "_" "-")))
                 set))
         "a new namespace outside impl/ is a new public promise — add it here on purpose")))
+
+(defn- impl-symbols-in
+  "Every `vaelii.impl…` symbol in `file`'s CODE — read, not grepped.
+
+  A regex over the text answers a different question than the one being asked.  It sees
+  `vaelii.impl` in a docstring that merely says where an engine mechanism lives (koinii's
+  docstrings do, legitimately, eight times), and it misses every spelling that is a
+  dependency but not the shape it matched: the plain-symbol libspec
+  `(:require vaelii.impl.naming)`, the prefix list `(:require [vaelii.impl [naming :as
+  nm]])`, an `(:import (vaelii.impl.sentex AtomicSentex))`, a `requiring-resolve` on a
+  quoted symbol, and — the one that needs no require at all — a bare
+  `(vaelii.impl.naming/sort-by-content-key …)` call, which resolves at runtime because
+  `vaelii.core` has already loaded the namespace.  Reading the file and walking the forms
+  catches all six as the symbols they are, and a string stays a string.
+
+  `read-string` per top-level form with `*read-eval*` off; reader metadata and `#\"…\"`
+  patterns survive it, and a `::` keyword in a namespace this reader has not loaded would
+  not, so anything unreadable is reported rather than skipped."
+  [^java.io.File file]
+  (let [src (str "[" (slurp file) "]")
+        forms (binding [*read-eval* false] (read-string src))
+        named (fn [x] (and (or (symbol? x) (keyword? x)) (namespace x)))]
+    (->> (tree-seq coll? seq forms)
+         (keep (fn [x]
+                 (cond (named x)   (when (str/starts-with? (namespace x) "vaelii.impl")
+                                     (namespace x))
+                       (symbol? x) (when (str/starts-with? (str x) "vaelii.impl")
+                                     (str x)))))
+         distinct
+         sort
+         vec)))
+
+(deftest koinii-reaches-into-no-impl
+  ;; The claim koinii's exclusion above rests on, checked rather than asserted. koinii is
+  ;; the one application shipped in this tree, and it earns its place outside `impl/` by
+  ;; consuming the same six namespaces an outside consumer gets: a `vaelii.impl.*` symbol
+  ;; appearing here means either koinii went around the API, or the API is missing
+  ;; something koinii needs and the answer is to publish it — never to reach past it.
+  (let [files (->> (file-seq (java.io.File. "src/vaelii/koinii"))
+                   (filter #(.isFile ^java.io.File %))
+                   (filter #(.endsWith (.getName ^java.io.File %) ".clj"))
+                   sort)]
+    ;; An empty or renamed directory would pass the check below vacuously, which is the
+    ;; failure mode a roster test is for.
+    (is (= 8 (count files))
+        "koinii's eight modules live at src/vaelii/koinii — moving them moves this test")
+    (let [offenders (into {} (keep (fn [^java.io.File f]
+                                     (when-some [hits (seq (impl-symbols-in f))]
+                                       [(.getPath f) (vec hits)])))
+                          files)]
+      (is (= {} offenders)
+          "koinii is an app on the public API — publish what it needs from vaelii.core"))))
 
 ;; ---- the extent fns refuse an option nothing reads ----------------------
 
@@ -339,3 +402,27 @@
     (testing "the rostered spelling still filters"
       (is (= 1 (count (v/sentexes-with-functor kb flies {:believed? true}))))
       (is (= 1 (count (v/sentexes-in-context kb CxExtent {:believed? true})))))))
+
+;; ---- a disjunctive goal is refused at every door that takes one --------
+
+(tu/deftest-kb a-disjunctive-goal-is-refused-at-every-door-that-takes-one
+  ;; `or` is expanded at the write door and nowhere else: a rule antecedent stores one
+  ;; rule per alternative, and a goal would have to be a union of queries rather than a
+  ;; query.  The read doors say so by shape.  `watch` takes a goal too, and a stored
+  ;; sentence never unifies with a disjunction — so a watch that registered one would
+  ;; fire never, which is the silent-nothing every other watch refusal exists to prevent.
+  (tu/with-terms [dog cat]
+    (let [goal (list 'or (list dog '?x) (list cat '?x))]
+      (testing "the read doors refuse it by shape"
+        (doseq [call [#(v/sentexes-matching kb goal 'CxUniverse)
+                      #(v/ask kb goal 'CxUniverse)
+                      #(v/prove kb goal 'CxUniverse)
+                      #(v/query kb [goal] 'CxUniverse)]]
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (call)))]
+            (is (= :shape (:type (ex-data e)))))))
+      (testing "and a watch refuses it rather than registering one that never fires"
+        (let [e (is (thrown? clojure.lang.ExceptionInfo
+                             (v/watch kb goal 'CxUniverse (fn [_] nil))))]
+          (is (= :not-watchable (:type (ex-data e))))
+          (is (string? (:reason (ex-data e)))))
+        (is (empty? (v/watchers kb)))))))

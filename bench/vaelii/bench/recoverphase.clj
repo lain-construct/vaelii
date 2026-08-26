@@ -510,8 +510,8 @@
                                       (let [k #{t s}]
                                         (when (and (not= t s) (not (contains? @seen k)))
                                           (vswap! seen conj k)
-                                          (when (or (contains? (tax/genls tax t) s)
-                                                    (contains? (tax/genls tax s) t))
+                                          (when (or (contains? (tax/genls-global tax t) s)
+                                                    (contains? (tax/genls-global tax s) t))
                                             [t s]))))))
                         types)]
       (println (format "%n  disjoint-declared types      : %,d" (count types)))
@@ -520,8 +520,8 @@
       (println (format "  subsumption-contradictory    : %,d  (T disjoint S with T⊑S or S⊑T)" (count subcon)))
       (when (seq self-ts)
         (println (format "%n  === self-disjoint types — each de-optimizes the scan for its down-closure ==="))
-        (doseq [t (take 80 (sort-by (fn [t] (- (count (tax/specs tax t)))) self-ts))]
-          (println (format "    %-42s down-closure(subtypes): %,d" (str t) (long (count (tax/specs tax t)))))))
+        (doseq [t (take 80 (sort-by (fn [t] (- (count (tax/specs-global tax t)))) self-ts))]
+          (println (format "    %-42s down-closure(subtypes): %,d" (str t) (long (count (tax/specs-global tax t)))))))
       (when (seq subcon)
         (println (format "%n  === subsumption-contradictory pairs (sample 60) ==="))
         (doseq [[t s] (take 60 subcon)]

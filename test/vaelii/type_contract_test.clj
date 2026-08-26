@@ -38,12 +38,16 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
-(defn- delimiter-analysis
+(defn delimiter-analysis
   "One string- and comment-aware pass over `src`: `:pairs` maps each opening
   delimiter's position to its closer's, and `:stacks` maps each position named in
   `snapshot-at` to the stack of enclosing opener positions, innermost last.
   Character literals (`\\(`) and string escapes are skipped, so a delimiter in
-  either cannot unbalance the count."
+  either cannot unbalance the count.
+
+  Public because `refusal_roster_test` asks the same question of `test/` — which form
+  encloses this keyword — and a second lexer beside this one would be a second set of
+  rules to drift from it."
   [^String src snapshot-at]
   (let [want (set snapshot-at)
         n    (.length src)]
@@ -73,8 +77,11 @@
             :comment
             (recur (inc i) (if (= c \newline) :code :comment) stack pairs stacks)))))))
 
-(def ^:private literal-type
-  #":type\s+:([A-Za-z][A-Za-z0-9-]*)")
+(def literal-type
+  "A `:type` whose value is a keyword literal, namespaced or not.  The namespace segment
+  is read because koinii spells its refusals `:koinii/…`, and a pattern stopping at the
+  slash would collapse all twenty of them to a bare `:koinii`."
+  #":type\s+:([A-Za-z][A-Za-z0-9-]*(?:/[A-Za-z][A-Za-z0-9-]*)?)")
 
 (def ^:private symbolic-type
   "A `:type` whose value is a **symbol** — the keyword is behind a var, so the scan can
@@ -135,8 +142,12 @@
                      lits)
      :symbols  (into #{} (comp (filter (comp on-surface? :pos)) (map :name)) syms)}))
 
-(defn- refusal-types
-  "The refusal-surface `:type` keywords in one source string."
+(defn refusal-types
+  "The refusal-surface `:type` keywords in one source string.
+
+  Public because `refusal_roster_test` asks the same sources the same question, one step
+  further on: not *what* the vocabulary is but whether each word of it is tested and
+  written down."
   [^String src]
   (:keywords (refusal-surface src)))
 
@@ -150,34 +161,38 @@
   or renamed keyword fails the comparison below until it is added here deliberately —
   with a changelog entry, since callers discriminate on it (CONTRIBUTING.md §3.8)."
   #{:already-loaded :anti-symmetric :anti-transitive :arg-constraint-kind :arg-genl :arg-position
-    :arg-type :arity :asymmetric :bad-algebra :bad-arg
-    :bad-args :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
+    :arg-type :arg-variable :arity :asymmetric :bad-algebra :bad-arg
+    :bad-args :bad-batch :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
     :bad-level :bad-registrant :bad-reply
-    :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large
+    :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large :budget-exhausted
+    :choice-head-not-positive
     :compaction-failed :context-escape :cross-origin :daemon-error :damaged-dictionary
-    :disjoint :disk-locked :duplicate-handle :duplicate-tokens :error
-    :exception-not-closed :export-busy :frozen-base :functional
+    :disallowed-class
+    :disjoint :disjunction-too-wide :disk-locked :duplicate-handle :duplicate-tokens :error
+    :exception-not-closed :export-busy :frozen-base :functional :handle-ceiling
     :incomplete-racer :inter-arg-type :internal-error :irreflexive :job-busy
     :labeling-inconsistent :labeling-run-blocked
     :llm-api-error :llm-bad-credential :llm-bad-response :llm-encode
     :llm-no-credential :llm-not-applicable :llm-timeout
-    :malformed-entry :malformed-record :missing-resource :naf-justification
+    :malformed-entry :malformed-manifest :malformed-record :manifest-too-large
+    :missing-resource :naf-justification
     :naf-not-closed
     :naming :no-base :no-depth-bound :no-destination
     :no-dump :no-foreign-reader :not-a-directory :not-assertible
     :not-checkable :not-defeasible :not-edn :not-empty :not-encodable :not-indexable
     :not-a-report :not-found :not-ground :not-in-process :not-range-restricted :not-stratified
-    :not-watchable :not-well-formed :quantified-conjunction :quantifier-not-local
-    :quoted-arg-type
+    :not-watchable :not-well-formed :over-ceiling :pattern-too-costly
+    :quantifier-not-local :quoted-arg-type
     :report-only
-    :reserved-family :reset :shape :solver-failed :solver-unavailable
-    :stacked-fork :stale-index-layout :still-exporting :still-loading :still-stopping
+    :reserved-family :reset :shape :short-transfer :solver-failed :solver-unavailable
+    :stacked-batch
+    :stacked-fork :stale-index-layout :stale-index-records :still-exporting :still-loading :still-stopping
     :too-many-subscriptions :too-many-waiters
     :torn-snapshot :truncated-dump :unauthorized :unbound-deferred :unforkable-index :unknown-backend
     :unknown-command :unknown-entry :unknown-frame :unknown-framing :unknown-handle
     :unknown-op :unknown-option :unknown-source :unknown-subscription :unknown-tactician
     :unparseable :unreadable :unreadable-store :unrecovered-kb :unrecovered-premise
-    :unreleased :unsupported-compression
+    :unreleased :unsupported-compression :unsupported-context
     :unsupported-format :unsupported-platform :unsupported-variant :unsupported-version})
 
 (def ^:private symbol-valued-types
@@ -195,22 +210,28 @@
   every keyword it can hold is in `roster` by way of the throw it came from."
   #{"cancelled" "ty"})
 
-(defn- source-files
-  "Every engine source file to scan for the `:type` roster — every `.clj` under `src/`
-  **except the `koinii/` subtree**.  koinii is a coordination library layered on the
-  public API (`docs/koinii.md`), not the engine, and it namespaces its own refusals
-  (`:koinii/…`) as a deliberate subsystem vocabulary rather than adding to this flat
-  caller-visible one; those are koinii's contract, tracked in koinii's own tests, and a
-  scan that folded them in would both churn this roster on koinii's active development and
-  collapse every `:koinii/x` to a bare `:koinii` (the regex stops at `/`).  When koinii is
-  extracted to its own module the exclusion becomes the module boundary."
+(defn all-source-files
+  "Every `.clj` under `src/`, koinii included.  `refusal_roster_test` scans this wider
+  set: whether a refusal is tested and written down is a question about every refusal the
+  tree can raise, and koinii's are raised at the same public doors the engine's are."
   []
   (->> (file-seq (io/file "src"))
        (filter #(.isFile ^java.io.File %))
        (map #(.getPath ^java.io.File %))
        (filter #(str/ends-with? % ".clj"))
-       (remove #(str/includes? % "/koinii/"))
        sort))
+
+(defn source-files
+  "Every engine source file to scan for the `:type` roster — every `.clj` under `src/`
+  **except the `koinii/` subtree**.  koinii is an application layered on the public API
+  (`docs/koinii.md`), not the engine, and it namespaces its own refusals (`:koinii/…`) as
+  a deliberate subsystem vocabulary rather than adding to this flat caller-visible one;
+  those are koinii's contract, tracked in koinii's own tests, and folding them in would
+  churn this roster on koinii's active development.  The directory koinii lives in is that
+  boundary — the same line `spi_surface_test` draws — and extracting it to its own repo
+  would only move it."
+  []
+  (remove #(str/includes? % "/koinii/") (all-source-files)))
 
 (deftest a-symbol-valued-type-is-named-rather-than-read-past
   ;; The one shape a source scan cannot answer: the keyword sits behind a var, so the

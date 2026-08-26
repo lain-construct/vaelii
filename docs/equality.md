@@ -151,6 +151,17 @@ Four parts, all reusing machinery that already exists:
    the **caller's premise**. The KB may not delete what someone asserted merely
    because it learned two names denote one thing — retracting the equality has to
    give it back.
+
+   **A superseded spelling does not fire a forward rule**, and it is the one
+   unbelieved datum that does not — a defeated default still fires, because a defeat is
+   a label and the conclusion drawn off it is labelled OUT with it and revives with it
+   ([nmtms.md](nmtms.md)). Supersession is not a label. It subtracts *reported* belief
+   with no relabel behind it, so a conclusion drawn off a retired spelling would stand
+   believed under a name no read asks after: the same three sentences concluding once
+   where the merge preceded the fact and twice where it followed. The restatement is on
+   the chaining agenda beside the retired spelling, so the firing is made once at the
+   elected name; and when the merge goes away the spelling comes back through `settle`'s
+   un-merge channel and fires then. `chain/process-datum` is where that gate sits.
 3. **Rewrite goals.** A query naming a non-representative is rewritten before
    lookup, since its own sentexes are no longer believed.
 4. **Queue the re-check.** Steps 2 and 3 are exactly what a closed-world condition —
@@ -265,6 +276,41 @@ retired, beside the `except` filter that already removes what a context may not 
 It is gated on the closure being non-empty, so a KB that has merged nothing pays one
 set-empty test per query.
 
+#### A late `genlCx` edge is a third arrival order
+
+An equality applies where it is visible, so the `genlCx` cone decides what a merge
+restates as much as the closure does — and the cone is knowledge that arrives in its own
+time. `(equals Tom Thomas)` in `Up`, `(mammal Tom)` in `Low`, and `(genlCx Low Up)` are
+three sentences that must yield one KB in all six orders, and the edge is the ingredient
+whose arrival nothing keyed on: `migrate-class` covers the merge arriving last and the
+assert path's `migrate-sentex` covers the fact arriving last, while a supersession is
+only ever *dropped or restated* by the reconcile and so cannot write a restatement that
+was never made. With the edge last, `Low` would keep the spelling it stored the fact
+under while every read from `Low` asks after `Thomas` — a sentex believed and answering
+no query, under either name.
+
+`special/migrate-under-context-edge` closes that, and it is the equality twin of the
+`genlCx` seeding forward chaining takes ([inference.md](inference.md)). **Both cones**,
+because the whole of the new reachability is that a reader in `context-down(sub)` now
+sees `context-up(super)`: a reader, a fact and a merge form a new triple only if the
+reader newly reached one of the two, which puts that one in `super`'s up-cone and the
+reader in `sub`'s down-cone — a merge above meeting the facts the widened readers
+already saw, and a fact above meeting the merges they already saw. It is **enumerated
+from the merges**, not from the cone: the candidates are the stored sentexes naming a
+term one of those merges displaces, which the inverted term index answers in one lookup
+per term, so the cost is proportional to the standing merges and to what they reach
+rather than to how much ontology the cone holds. A KB that has merged nothing pays one
+set-empty test, and each half is gated on the other side holding a merge the reader can
+see, so wiring a context under one whose merges it already inherits enumerates nothing.
+A **derived** edge runs the same arm from `chain/place-fact-conclusion`, so which
+spelling a context reads a fact under does not depend on whether the spindle was written
+or inferred.
+
+The removal side needs no twin of this: dropping an edge narrows what a reader sees, and
+a twin names the equality edges it was elected over, so the ordinary dependency-directed
+sweep collects one whose merge the reader can no longer see and `refresh-supersessions`
+hands the spelling back.
+
 **A late `rewriteOf` can move a representative, and that means re-migration.**
 `(sameAs A B)` elects a representative lexicographically; a later `(rewriteOf B A)`
 names `B` preferred and re-elects it. Everything already migrated to `A` has to
@@ -301,6 +347,17 @@ Here it is a side effect of the cheap implementation. The inverted term index
 locates a term at **any nesting depth**, and migration rewrites it there, so
 merging performs congruence closure eagerly over all ground content. No congruence
 algorithm is written, because the index already answers the question it would ask.
+
+**One position is exempt: a mention.** A term named as *syntax*, rather than one the
+sentence refers with, does not fold onto its referent's class — a `quotingFunction`'s arguments, and the
+proposition a `modalPredicate` attributes to its agent. `(believes Oedipus (marriedTo
+Oedipus Jocasta))` is not rewritten by a `sameAs` the *asker* holds, because an attitude is
+opaque and the asker's identities are not the agent's; the agent's own merges do rewrite
+it, where the projection reads them. A `rewriteOf` **spelling** rename reaches into a
+mention either way, since it retires a name rather than merging referents. The rule and
+both halves of what it buys are [belief.md](belief.md), "Opacity: the proposition is a
+mention"; the exemption is in the congruence walk itself, so migration and query hold it
+alike.
 
 ## `functional` infers equality instead of throwing
 
@@ -475,7 +532,7 @@ demand — which is non-terminating without careful control; the oriented path c
 the term-definition case that motivates it. No **Knuth-Bendix completion** — a
 non-confluent rule set is *detected and reported* (a `:non-confluent` violation when
 two equations disagree about a shared term) but not made confluent; the normal form
-stays deterministic and `unify` stays the arbiter, so a match is never *wrong*, only
+stays deterministic and `match` stays the arbiter, so a rewrite is never *wrong*, only
 sometimes missed (see [equational.md](equational.md), "Confluence"). And equality over
 **structural NAT / evaluated** functions is the compute provers' job (`sameQuantity`,
 `evaluate`), never the closure's.
@@ -506,19 +563,31 @@ individual merging:
   the rewritten rule re-posts under the representative's predicates in the rule
   index, keeps its `:direction` / `:defeasible` (re-applied by `rules/rewrap`,
   since the wrappers ride the record, not the stored sentence), and fires under the
-  representative while the original is superseded.
-- **A rule's guard travels with it.** An `exceptWhen` exception rides a separate
-  meta-sentex keyed by the rule's handle — `(exceptWhen <query> (sentexHandle H))` —
-  so migrating the rule to a new handle H′ would strand it. `migrate-rule-exceptions`
-  re-points each of the rule's exceptions onto the twin (query rewritten too), derived
-  and justified by `[the meta, the equality]`, so the twin fires *guarded* and
-  retracting the merge collects the exception twins and revives the originals. A NAF
-  `(unknown …)` antecedent lives *in* the rule sentence, so it rewrites with the rule
-  and re-posts through the twin's own `index-rule-sentex`. A predicate merged only in
-  an exception's *query* (the rule itself not migrated — `penguin` in
-  `bird ⇒ flies exceptWhen penguin`) is handled by the ordinary meta-sentex migration,
-  which rewrites the query onto the representative so it keeps blocking the migrated
-  facts.
+  representative while the original is superseded. **In both arrival orders**, which is
+  the rule door's own arm: `migrate-class` restates a rule already stored when the merge
+  arrives, and `assert-rule-sentence` restates one written afterwards, seeding the twin
+  beside the rule itself — the spelling the author wrote in stops firing the moment the
+  supersession lands.
+- **Handle-naming metas travel with their target.** A meta names another sentex by
+  handle — an `exceptWhen` names the rule it guards, an `except` names the sentex it
+  hides, a `targetFollowingPredicate` reply names the claim it hangs on — all shaped
+  `(P … (sentexHandle H) …)`. Migrating H to a new handle H′ would strand every one of
+  them, so the twin fires *unguarded*, becomes *visible*, or names a claim no longer
+  believed. `migrate-handle-metas` re-points each of H's believed metas onto the twin
+  (an `exceptWhen`'s query rewritten and realigned too; an `except` or reply's terms
+  rewritten and its handle retargeted), derived and justified by `[the meta, the
+  equality]`, so the twin ends properly qualified and retracting the merge collects the
+  meta twins and revives the originals. This runs in **both arrival orders**: for a meta
+  that predates the merge, `migrate-into` carries it as it migrates the target; for a
+  meta asserted *after* the merge — when migration already ran and never saw it —
+  `migrate-meta-onto-twins` replays the same carry onto the live twin at the meta's
+  door (the exceptWhen door and the ordinary fact door alike), idempotent for the metas
+  already carried. A NAF `(unknown …)` antecedent lives *in* the rule sentence, so it
+  rewrites with the rule and re-posts through the twin's own `index-rule-sentex`. A
+  predicate merged only in an exception's *query* (the rule itself not migrated —
+  `penguin` in `bird ⇒ flies exceptWhen penguin`) is handled by the ordinary
+  meta-sentex migration, which rewrites the query onto the representative so it keeps
+  blocking the migrated facts.
 
 `rewriteOf` is the spelling relation, so it is the one that carries alignment across
 predicates and types, and
@@ -554,6 +623,14 @@ refuse.
   election differs (`reader-contexts-for`, over `tax/meet-closure`), each twin placed in
   the context that elected it. Runs over the whole class, so a late `rewriteOf`
   re-electing the representative re-migrates with no separate code path.
+- The third arrival order, `special/migrate-under-context-edge`: a `genlCx` edge widens
+  which merges a context can see, so it restates the sentexes the widened cone newly
+  exposes to one — both cones, enumerated from the merges through the term index, and
+  run from `assert` and from `chain/place-fact-conclusion` alike.
+- `chain/process-datum` declines to fire a rule off a **superseded** datum, which is
+  the one unbelieved datum that does not fire: a defeat is a label the conclusion
+  inherits, where a supersession is not, so a conclusion drawn off a retired spelling
+  would stand believed under a name nothing asks after.
 - Supersession as **new TMS state** — `jtms`'s `:superseded`, a `datum -> {old-term
   representative}` map beside `defeated` and `blocked`. It is deliberately *not* a
   forced-OUT inside the fixpoint: the twin is justified by the original, so forcing

@@ -93,6 +93,7 @@ to reach the literals:
 |-------|-------------|
 | `(not X)` | `X` |
 | `(and X …)` | each conjunct |
+| `(or X …)` | nothing, and it never arrives: a disjunctive antecedent is polycanonicalized into one rule per alternative before naming runs, so what this walk sees is the expansion ([canonicalization.md](canonicalization.md)) |
 | `(implies A C)` | each antecedent (`:antecedent`), then `C` (`:consequent`) |
 | `set/forwardRule` · `backwardRule` · `inertRule` · `defaultRule` · `assumptionRule` · `hardConstraint` · `softConstraint` | the rule inside, wrappers nesting in any order |
 | `(exceptWhen Q R)` | `Q`'s conjuncts (`:exception`), then `R` |
@@ -100,6 +101,7 @@ to reach the literals:
 | `(unknown S)` · `(thereExists ?v S)` · `(exists ?v C)` | the query / consequent framed |
 | `(agg/count ?n ?v B)` and its four siblings | `B` — an aggregate's body is a goal, not an argument ([aggregate.md](aggregate.md)) |
 | `(sentexHandle N)` | nothing — it names a stored sentex by id |
+| `(do/labeling Ctx)` and the rest of `do/` | nothing — an imperative instructs the engine rather than stating that something is true, so it names no relation: it is dispatched at the top level of `assert` and refused anywhere inside a rule ([labeling.md](labeling.md)) |
 
 Two positions are deliberately **not** literals. **Arguments** are never walked: a
 compound in argument position is a *term*, and its head names a function or is plain
@@ -150,11 +152,11 @@ and counting messages counts records.
 
 **The throw is a reporting path, so it does not pay for a stack trace nobody prints.** A
 checked import counts what the front door refuses, which makes the refusal a hundred
-thousand calls in a load rather than an exceptional one — and three quarters of `ex-info`
-is materializing the trace so it can elide its own two frames: 6.3 µs against a bare
-constructor's 0.8 at the top of a stack, 23.7 against 4.4 forty frames down. `check!`
-builds the `ExceptionInfo` directly. Same class, same message, same `:type :naming`
-ex-data.
+thousand calls in a load rather than an exceptional one — and most of what `ex-info`
+costs is materializing the trace so it can elide its own two frames, which is a cost
+that grows with the depth of the stack it is thrown from where a bare constructor's does
+not. `check!` builds the `ExceptionInfo` directly. Same class, same message, same
+`:type :naming` ex-data.
 
 ### Whose invariants: the two doors
 

@@ -330,11 +330,12 @@
   does on an explicit click — so rendering the gallery is a read however many examples
   it holds."
   [kb {:keys [kind] :as example} context]
-  (merge {:id (:id example) :available? (available? kb example)}
-         (when (available? kb example)
-           (if (= :refusal kind)
-             (refusal-verdict kb example context)
-             (goal-verdict kb example context)))))
+  (let [avail? (available? kb example)]
+    (merge {:id (:id example) :available? avail?}
+           (when avail?
+             (if (= :refusal kind)
+               (refusal-verdict kb example context)
+               (goal-verdict kb example context))))))
 
 (defn establish!
   "Write an example's premises into `context` — one `edit`, so the whole batch settles

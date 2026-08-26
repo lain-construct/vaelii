@@ -227,13 +227,28 @@
         "and the answer carries the swap")))
 
 (deftest a-record-page-is-clean-too
-  (let [h     (:id (first (v/sentexes-with-functor tu/*kb* 'genl)))
-        j     (:id (first (v/supporting-justifications tu/*kb* h)))
-        found (concat (audit "/sentex" (:body (GET (str "/sentex/" h))))
-                      (audit "/why" (:body (GET (str "/why/" h))))
-                      (when j (audit "/justification"
-                                     (:body (GET (str "/justification/" j))))))]
-    (is (empty? found) (str/join "\n" found))))
+  ;; the justification audit is pinned to a **derived** sentex, built here rather than
+  ;; picked out of an enumeration: a premise carries no supporting justification, so a
+  ;; backend whose enumeration led with one would leave this audit unrun — and unrun is
+  ;; indistinguishable from clean, since it moves the assertion count by nothing
+  (tu/with-terms [Rufus]
+    (v/assert tu/*kb* (list 'living_thing Rufus) 'CxBiology)
+    (let [stored         (:id (first (v/sort-by-content (juxt :sentence :context)
+                                                        (v/sentexes-with-functor tu/*kb* 'genl))))
+          [concl & more] (v/sentexes-matching tu/*kb* (list 'mortal Rufus) '?ctx)
+          derived        (:id concl)
+          j              (:id (first (v/supporting-justifications tu/*kb* derived)))]
+      (is (nil? more) "one placement for the fresh individual, so the audit is pinned to it")
+      (is (some? derived) "the shipped rule concluded, so there is a derived sentex to audit")
+      (is (some? j) "and it rests on the justification the /justification page shows")
+      (let [found (concat (audit "/sentex" (:body (GET (str "/sentex/" stored))))
+                          (audit "/why" (:body (GET (str "/why/" stored))))
+                          (audit "/sentex (derived)"
+                                 (:body (GET (str "/sentex/" derived))))
+                          (audit "/why (derived)" (:body (GET (str "/why/" derived))))
+                          (audit "/justification"
+                                 (:body (GET (str "/justification/" j)))))]
+        (is (empty? found) (str/join "\n" found))))))
 
 ;; The panels that watch a running job only render their poll *while* one runs, so the
 ;; page a reader sees during a load is not the page a GET returns.  That is exactly where

@@ -16,7 +16,7 @@
   itself, printing the alias expansion — the flag never reaches this namespace through
   the alias, though it does through the full `lein run -m vaelii.impl.cli --help`.
 
-  **Backend.**  `--dir <path>` uses the durable `:disk` backend (recovered on open, so
+  **Backend.**  `--dir <path>` uses the durable `:disk-log` backend (recovered on open, so
   a fact asserted in one invocation is there in the next); with no `--dir` the KB is
   in-memory and lives only for the process — useful for `repl` or a single compound
   session, pointless across one-shot commands.  `--starter` loads the shipped schema
@@ -34,6 +34,7 @@
             [clojure.pprint :as pp]
             [clojure.string :as str]
             [vaelii.core :as v]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.starter :as starter])
   (:import [java.io PushbackReader StringReader]))
 
@@ -46,7 +47,8 @@
   accepted in silence would store known-true content at `:default` — the exact
   sentence the flag-with-no-value refusal beside it exists for, reached from the
   other side — and a misspelt `--dir` would open the in-memory KB, gone at exit."
-  #{"--dir" "--strength" "--depth" "--variant" "--compression"})
+  #{"--dir" "--strength" "--depth" "--variant" "--compression" "--format"
+    "--context" "--nearest"})
 
 (defn parse-opts
   "Split raw args into `[positionals opts]`.  `--k v` becomes `{:k v}`, a bare
@@ -68,7 +70,11 @@
           (#{"--help" "--memory" "--starter"} a)
           (recur (rest as) pos (assoc opts (keyword (subs a 2)) true))
           (not (value-flags a))
-          (throw (ex-info (str "unknown flag: " a) {:type :unknown-option :flag a}))
+          (throw (ex-info (str "unknown flag: " a " — the driver reads "
+                               (str/join ", " (sort (into #{"--help" "--memory" "--starter"}
+                                                          value-flags)))
+                               ", and a command reads only its own of those")
+                          {:type :unknown-option :flag a}))
           :else (let [v (second as)]
                   ;; a following flag is not a value: `--dir --starter` otherwise opens
                   ;; a directory literally named `--starter` and never loads the schema
@@ -114,26 +120,28 @@
   message is the class name and names neither the command nor the argument."
   [["assert"      2 2   "'<sentence>' <CxName>"        "store a fact"]
    ["assert-rule" 3 3   "'[<antecedents>]' '<consequent>' <CxName>" "store a rule"]
-   ["match"       2 2   "'<pattern>' <CxName>"         "stored, believed literals"]
-   ["query"       2 2   "'<goal>' <CxName>"            "the default read (--depth N to expand rules)"]
+   ["match"       2 2   "'<pattern>' <CxName>"         "stored, believed literals, in content order"]
+   ["query"       2 2   "'<goal>' <CxName>"            "the default read, in content order (--depth N to expand rules)"]
    ["query?"      2 2   "'<goal>' <CxName>"            "the same, as a boolean"]
-   ["ask"         2 2   "'<goal>' <CxName>"            "the prover registry, no rule expansion"]
-   ["prove"       2 2   "'<goal>' <CxName>"            "backward chaining; one solution per derivation"]
+   ["ask"         2 2   "'<goal>' <CxName>"            "the prover registry, in content order; no rule expansion"]
+   ["prove"       2 2   "'<goal>' <CxName>"            "backward chaining; one solution per derivation, in DFS order"]
    ["provable?"   2 2   "'<goal>' <CxName>"            "the same, as a boolean"]
    ["retract"     1 1   "<handle>"                      "remove a sentex and what it solely supported"]
    ["why"         1 1   "<handle>"                      "the proof tree behind a belief"]
-   ["why-not"     1 2   "'<goal>' [<CxName>]"          "why a goal is not believed"]
+   ["why-not"     1 2   "'<goal>' [<CxName>]"          "why a goal is not believed (--nearest N: the rules that nearly fired)"]
    ["in"          1 1   "<handle>"                      "is it believed?"]
    ["isa"         2 3   "<Individual> <type> [<CxName>]" "type membership, via genl"]
    ["types-of"    1 2   "<Individual> [<CxName>]"      "the types asserted of it, not their supertypes"]
+   ["describe"    1 1   "<term>"                        "everything the KB holds about one term (--context C)"]
    ["handle-of"   2 2   "'<sentence>' <CxName>"        "the handle a sentence is stored under"]
    ["types"       0 0   ""                              "types in the genl hierarchy"]
    ["contexts"    0 0   ""                              "contexts in the genlCx hierarchy"]
    ["conflicts"   0 0   ""                              "irreducible :monotonic clashes, both still believed"]
    ["contradictions" 0 0 ""                             "coexisting P/¬P pairs at :default"]
    ["quality"     0 0   ""                              "a report on the knowledge: unfired rules, skew, depth, coverage"]
-   ["load"        1 1   "<file>"                        "assert an edn vector of [sentence context opts]"]
-   ["export"      1 1   "<dest>"                        "write a dump (--variant, --compression)"]
+   ["load"        1 1   "<path>"                        "assert a text KB: a Cx*.txt file, or a directory of them"]
+   ["export"      1 1   "<dest>"                        "write a dump (--variant, --compression), or a text KB (--format text)"]
+   ["diff"        2 2   "<a> <b>"                       "what two text KBs disagree about, as content"]
    ["repl"        0 0   ""                              "the interactive loop"]])
 
 (def commands
@@ -184,7 +192,9 @@
    "assert-rule" #{:strength}
    "query"       #{:depth}
    "query?"      #{:depth}
-   "export"      #{:variant :compression}})
+   "export"      #{:variant :compression :format}
+   "describe"    #{:context}
+   "why-not"     #{:nearest}})
 
 (defn- flag-names [ks] (str/join ", " (map #(str "--" (name %)) (sort ks))))
 
@@ -232,44 +242,98 @@
                           "   " gloss)))
          "\n\nOptions.  The first three name the KB and go with any command; the rest"
          " belong to\nthe commands named beside them, and are refused elsewhere:\n"
-         "  --dir <path>          the durable :disk KB (recovered on open); absent, in-memory\n"
+         "  --dir <path>          the durable :disk-log KB (recovered on open); absent, in-memory\n"
          "  --memory              the in-memory KB, said explicitly\n"
          "  --starter             load the shipped starter schema\n"
          "  --strength <s>        assert, assert-rule: :monotonic instead of :default\n"
          "  --depth <n>           query, query?: how far to expand rules\n"
          "  --variant <v>         export: records | records+index\n"
          "  --compression <c>     export: gzip | xz | none\n"
-         "  (repl takes all four — its options are fixed at start and each line reuses them)\n")))
+         "  --format text         export: a text KB instead of a dump — one Cx<Name>.txt\n"
+         "                        per context, the format `load` reads\n"
+         "  --context <CxName>    describe: the vantage to read from; absent, every context\n"
+         "  --nearest <n>         why-not: run a bounded search and name the n rules that\n"
+         "                        came closest, with the antecedent each is missing\n"
+         "  (repl takes all seven — its options are fixed at start and each line reuses them)\n")))
+
+(defn- in-content-order
+  "An answer **set**, in a printed content order.
+
+  Three commands answer with one — `match`, `query` and `ask` — and a set has no order of
+  its own, so what reached stdout was whichever order the retrieval enumerated: two loads
+  of the same knowledge printed it differently, and a diff of the two outputs read as a
+  change in the KB.  `types` and `contexts` in the same table are sorted for that reason,
+  and these are held to it too.
+
+  `prove` is deliberately **not** here.  It answers one solution per derivation in the
+  order the DFS found them, and that order is part of what a proof says."
+  [answers]
+  (nm/sort-by-content-key nm/print-key compare answers))
 
 (defn dispatch
   "Run one command against `kb` and return its result (a handle, a seq of sentences /
-  solutions, a proof tree, …).  `args` are data; `opts` is the parsed option map."
+  solutions, a proof tree, …).  `args` are data; `opts` is the parsed option map.
+
+  **A command that answers a set answers it sorted** (`in-content-order`): `match`,
+  `query` and `ask` alongside `types` and `contexts`, so one KB prints the same output
+  however its knowledge arrived.  `prove` keeps the DFS's order, which is a reading rather
+  than an artifact."
   [kb cmd args opts]
   (check-arity! cmd args)
   (let [strength (when-let [s (:strength opts)] {:strength (keyword s)})
         ;; `--depth n` is how a command line says how far to expand rules.  Absent, the
         ;; read is whatever needs no rule — `query`'s contract, and there is deliberately
         ;; no default to supply here either.
-        depth    (when-let [d (:depth opts)] {:max-depth (Long/parseLong (str d))})]
+        depth    (when-let [d (:depth opts)] {:max-depth (Long/parseLong (str d))})
+        ;; `--context C` names the vantage a read takes; absent, `?ctx` reads every
+        ;; context, which is the whole-KB view and what a shell line usually means
+        ctx      (if-let [c (:context opts)] (symbol (str c)) '?ctx)
+        nearest  (when-let [n (:nearest opts)] {:nearest (Long/parseLong (str n))})]
     (case cmd
       "assert"      (v/assert kb (nth args 0) (nth args 1) strength)
       "assert-rule" (v/assert-rule kb (nth args 0) (nth args 1) (nth args 2) strength)
-      "match"       (mapv :sentence (v/sentexes-matching kb (nth args 0) (nth args 1)))
-      "query"       (vec (v/query kb (nth args 0) (nth args 1) depth))
+      "match"       (in-content-order (map :sentence (v/sentexes-matching kb (nth args 0) (nth args 1))))
+      "query"       (in-content-order (v/query kb (nth args 0) (nth args 1) depth))
       "query?"      (v/query? kb (nth args 0) (nth args 1) depth)
-      "ask"         (vec (v/ask kb (nth args 0) (nth args 1)))
+      "ask"         (in-content-order (v/ask kb (nth args 0) (nth args 1)))
       "prove"       (v/prove kb (nth args 0) (nth args 1))
       "provable?"   (v/provable? kb (nth args 0) (nth args 1))
       "retract"     (v/retract! kb (nth args 0))
       "why"         (v/why kb (nth args 0))
-      "why-not"     (if (= 1 (count args))
-                      (v/why-not kb (nth args 0))
-                      (v/why-not kb (nth args 0) (nth args 1)))
+      ;; `--nearest N` is the one that costs a search, so it is a flag rather than the
+      ;; default: it runs a bounded backward search and names the rules that came closest,
+      ;; which is what a `:not-stored` answer cannot say on its own (docs/api.md).
+      ;;
+      ;; This command takes a **goal** or a **handle** — one integer operand is a handle,
+      ;; as `why`'s is — and `--nearest` belongs to the goal alone: a stored handle is
+      ;; stored, so `:not-stored` is not the answer it can get, and there are no near
+      ;; misses to look for.  So the pairing is refused rather than dropped, which is
+      ;; `check-flags!`'s rule one level in: a flag honoured for one operand shape and
+      ;; ignored for the other reads identically from outside.
+      "why-not"     (cond
+                      (and nearest (integer? (nth args 0)))
+                      (throw (ex-info (str "--nearest takes a goal, not a handle: handle "
+                                           (nth args 0) " is stored, so :not-stored is not"
+                                           " the answer it can get and there is no rule to"
+                                           " look for.  Write the sentence and its context.")
+                                      {:type :unknown-option :flag "--nearest"
+                                       :handle (nth args 0)}))
+
+                      nearest (v/why-not kb (nth args 0) (or (second args) '?ctx) nearest)
+                      (= 1 (count args)) (v/why-not kb (nth args 0))
+                      :else (v/why-not kb (nth args 0) (nth args 1)))
       "in"          (v/in? kb (nth args 0))
       "isa"         (apply v/isa? kb args)
       "types-of"    (apply v/types-of kb args)
       "handle-of"   (v/handle-of kb (nth args 0) (nth args 1))
-      "types"       (sort-by str (v/types kb))   ; str, never bare sort: a type node may be a NAT
+      ;; everything the KB holds about one term, by the term's role — the shell spelling
+      ;; of "what can I ask about this?" (docs/troubleshooting.md).  `--context` is what
+      ;; scopes it: the argument declarations, the grants and the comments are each read
+      ;; from that context's genlCx up-cone, so two vantages give two correct answers
+      "describe"    (v/describe kb (nth args 0) ctx)
+      ;; `by-print-key`, never bare `sort`: a type node may be a NAT, and a NAT keyed with
+      ;; `str` collapses under an ambient print bound
+      "types"       (nm/by-print-key (v/types kb))
       "contexts"    (sort (v/contexts kb))
       "conflicts"   (v/conflicts kb)
       "contradictions" (v/contradictions kb)
@@ -277,24 +341,38 @@
       ;; distributions and a pretty-printed map of them is not a reading anybody takes.
       ;; `show` prints a string as-is, so the Markdown arrives as written
       "quality"     (v/quality-report (v/kb-quality kb))
-      ;; both numbers, because they differ exactly when the file repeats itself:
-      ;; `assert` answers the existing handle for a sentence already stored, so the
-      ;; distinct handles are the sentexes the load actually left in the KB, and a
-      ;; file of N duplicates reports `:loaded N :stored 1` instead of "loaded N"
-      "load"        (let [entries (edn/read-string (slurp (str (nth args 0))))
-                          handles (v/with-deferred-settle kb
-                                    (mapv (fn [[s ctx o]] (v/assert kb s ctx o)) entries))]
-                      {:loaded (count entries)
-                       ;; flatten: a rule concluding a conjunction answers a vector
-                       :stored (count (distinct (flatten handles)))})
-      ;; the one command whose argument is a **destination** rather than knowledge:
-      ;; `--variant` and `--compression` arrive as strings and are the writer's own
-      ;; keywords, so they are read as such rather than re-spelled here
-      "export"      (v/export! kb (str (nth args 0))
-                               (cond-> {}
-                                 (:variant opts)     (assoc :variant (keyword (:variant opts)))
-                                 (:compression opts) (assoc :compression (keyword (:compression opts)))))
-      (throw (ex-info (str "unknown command: " cmd)
+      ;; the text KB format — one `Cx<Name>.txt` per context, the file name naming it
+      ;; — which is what `export --format text` writes and what the shipped ontology is
+      ;; authored in.  One order-insensitive pass over the whole directory, so a
+      ;; context resting on another's content loads whichever name sorts first.
+      "load"        (dissoc (v/load-text! kb (str (nth args 0))) :elapsed-ms)
+      ;; the one command whose argument is a **destination** rather than knowledge.
+      ;; Two formats, and they are two doors rather than one with a flag (docs/api.md):
+      ;; a dump is the KB's state at its own handles, a text KB is its premises in the
+      ;; format an author edits.  So `--variant` / `--compression` describe a dump and
+      ;; are refused beside `--format text` rather than ignored — accepted and dropped,
+      ;; a compression flag reads from the outside exactly like one that was applied.
+      ;; Both arrive as strings and are the writer's own keywords, so they are read as
+      ;; such rather than re-spelled here.
+      "export"      (if (= "text" (:format opts))
+                      (do (when-let [ignored (seq (sort (filter opts [:variant :compression])))]
+                            (throw (ex-info (str "--format text writes a text KB, which has no "
+                                                 (str/join " and no " (map name ignored))
+                                                 " — those describe an export dump")
+                                            {:type :unknown-option :unknown (vec ignored)
+                                             :options [:format]})))
+                          (v/export-text! kb (str (nth args 0))))
+                      (v/export! kb (str (nth args 0))
+                                 (cond-> {}
+                                   (:variant opts)     (assoc :variant (keyword (:variant opts)))
+                                   (:compression opts) (assoc :compression (keyword (:compression opts))))))
+      ;; the one command that reads **two** KBs and neither of them is the one the run
+      ;; opened: both arguments are text KBs on disk, each read into an in-RAM KB of its
+      ;; own.  Keyed on content, so two exports of one KB taken at different handles diff
+      ;; empty and a `diff` of the output means something (docs/api.md)
+      "diff"        (v/kb-diff (str (nth args 0)) (str (nth args 1)))
+      (throw (ex-info (str "unknown command: " cmd " — want one of "
+                           (str/join ", " commands))
                       {:type :unknown-command :cmd cmd :commands commands})))))
 
 ;; ---- KB construction -----------------------------------------------------
@@ -311,7 +389,7 @@
                          " (or neither) for the in-process one.")
                     {:type :unknown-option :flags ["--memory" "--dir"]})))
   (let [kb (if dir
-             (v/open-kb {:backend :disk :dir dir :recover? :auto})
+             (v/open-kb {:backend :disk-log :dir dir :recover? :auto})
              (v/open-kb {}))]
     (when starter (starter/load-into kb))
     kb))
@@ -381,8 +459,11 @@
                   (err! "error:" (.getMessage e))
                   (System/exit 1)))
         kb (try (open-kb-from opts)
-                (catch clojure.lang.ExceptionInfo e
-                  (err! "error:" (.getMessage e))
+                ;; Throwable, matching the command arm below: an unwritable --dir or a
+                ;; corrupt log throws a plain IOException, and a stack trace is not the
+                ;; one-line courtesy this door promises
+                (catch Throwable e
+                  (err! "error:" (or (ex-message e) (.getName (class e))))
                   (System/exit 1)))]
     (cond
       (or (nil? cmd) (= cmd "repl"))

@@ -66,7 +66,8 @@
   the run is simply unbounded: `{:max-mss 100}` realizes the whole stream, which on an
   infinite source never returns, and is in any case the opposite of what was asked.
   (A `:max-cost` value outside the tiers is the *value* check, `:unknown-option` at
-  `vaelii.impl.provers/ask-capped` — this is the key check one level up.)"
+  `vaelii.impl.provers/cost-capped-provers`, which `ask-capped` reads the registry
+  through — this is the key check one level up.)"
   [budget]
   (opts/check! budget budget-keys "budget"
                "A bound nothing reads is an unbounded run in silence."))
@@ -118,15 +119,24 @@
 (defn collect
   "Realize the lazy seq `xs` under `budget`, returning the partial-result contract.
 
-  Both bounds are checked *before* pulling the next element, so `:max-results` n
-  realizes exactly n and a passed deadline stops without over-reading; the element
+  Both bounds are checked *before* pulling the next element, so `:max-results` n pulls
+  the source n times and a passed deadline stops without over-reading; the element
   under the cursor is never lost — it stays the head of the captured tail, so
   `resume` re-pulls it.  A `nil` / `{}` budget realizes the whole seq (`:complete`).
 
   `rest`, not `next`: `next` realizes one element *ahead* to decide whether a tail
   exists, so a cap of n would pull n+1 from the source.  `rest` defers that, and the
-  cap check sits above the `empty?` that would force it — so exactly n elements are
-  realized (an unbounded source is bounded without reading past the cap)."
+  cap check sits above the `empty?` that would force it — so an unbounded source is
+  bounded without reading past the cap.
+
+  **How many elements that realizes is the source's business, not this loop's.**  n pulls
+  realize exactly n elements of an **unchunked** seq, which is what every seq the engine
+  hands here is — a `lazy-seq`/`cons` chain out of the solvers and the index, pinned by
+  `laziness_test/a-capped-ask-pays-for-the-cap-and-not-for-a-chunk`.  A *chunked* source —
+  anything built by `map`/`filter` over a vector or a range — realizes its whole 32-element
+  chunk on the first pull whatever the cap says, and no cap check above it can prevent
+  that.  So the promise a caller may rely on is the one about the source: n pulls, and
+  the tail resumable from where they stopped."
   [xs budget]
   (check-budget! budget)
   (let [max-results (:max-results budget)

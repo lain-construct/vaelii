@@ -14,6 +14,7 @@
   (:refer-clojure :exclude [isa?])
   (:require [clojure.string :as str]
             [taoensso.trove :as trove]
+            [vaelii.impl.capabilities :as cap]
             [vaelii.impl.columnar :as columnar]
             [vaelii.impl.config :as config]
             [vaelii.impl.dense-kv :as dense]
@@ -22,6 +23,7 @@
             [vaelii.impl.disk.index-snapshot :as snapshot]
             [vaelii.impl.disk.record-store :as drs]
             [vaelii.impl.feed :as feed]
+            [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.memory :as mem]
@@ -32,7 +34,6 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
-            [vaelii.impl.rewrite :as rewrite]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.solve :as solve]
@@ -146,7 +147,7 @@
 ;; memory-only and every durable KB pay for a durable index it can always recompute.
 ;;
 ;; So the axes are independent — `:records` (`:memory` / `:disk`) and `:index`
-;; (`:memory` / `:dense` / `:columnar` / `:disk`) — and `:backend` is sugar naming a
+;; (`:memory` / `:dense` / `:columnar` / `:disk-log`) — and `:backend` is sugar naming a
 ;; pair.  **Every legal pair has a name**, spelled `<records>-<index>`, so the two opts
 ;; are for overriding a half rather than for reaching a corner the table left out.
 
@@ -154,24 +155,57 @@
   "The `:backend` sugar: each name expands to a `{:records :index}` pair, and reads
   `<records>-<index>` — `:disk-memory` is durable records with the derived index in RAM
   (rebuilt on open), `:disk-columnar` the same with the columnar index instead.
-  `:memory` and `:disk` are the two pairs that are the same store on both axes, named for
-  the store rather than doubled.
+  `:memory` is the one pair that is the same store on both axes, named for the store
+  rather than doubled.
 
-  Seven `:memory`/`:disk` pairs, plus `:sqlite` — a third durable records axis (an
-  embedded-SQLite record store, the `com.vaelii/sqlite` adapter resolved lazily so the
-  engine stays JDBC-free) with the derived index in RAM.  **RAM records with the durable
-  index is refused**, so no name spells it (`backend-axes` says why)."
+  `:disk-log` is durable records under the **log index**: a RAM key→value map with a
+  write-ahead log beneath it, so it opens already populated and needs no reindex while its
+  residency stays a RAM index's (`vaelii.impl.disk.kv`).  The name says which of those two
+  things the disk buys.
+
+  Seven `:memory`/`:disk` pairs, plus the two adapter record axes — `:sqlite` (an
+  embedded-SQLite file) and `:pg` (a Postgres server), each resolved lazily so the engine
+  stays JDBC-free.  `:sqlite` and `:pg-memory` take the derived RAM index, rebuilt on
+  open; `:pg-disk-log` takes the log index, which lives on the machine running the writer
+  rather than in the database (docs/storage.md).  **RAM records with the log index is
+  refused**, so no name spells it (`backend-axes` says why)."
   {:memory          {:records :memory :index :memory}
    :memory-dense    {:records :memory :index :dense}
    :memory-columnar {:records :memory :index :columnar}
    :disk-memory     {:records :disk   :index :memory}
    :disk-dense      {:records :disk   :index :dense}
    :disk-columnar   {:records :disk   :index :columnar}
-   :disk            {:records :disk   :index :disk}
+   :disk-log        {:records :disk   :index :disk-log}
    :sqlite          {:records :sqlite :index :memory}
+   :pg-memory       {:records :pg     :index :memory}
+   :pg-disk-log     {:records :pg     :index :disk-log}
    ;; a fork: both halves decorate whatever the frozen base resolved to, so `:overlay` is
    ;; a *decorator* selection rather than a store — see the `:base` / `:overlay` opts
    :overlay         {:records :overlay :index :overlay}})
+
+(def ^:private durable-under-log-index
+  "The record axes the `:disk-log` index pairs with.  `:disk` shares its directory and
+  lifecycle; `:pg` is on a server, so a local durable index is the only durable index its
+  records can have — and the files then belong to the host that ran the writer rather
+  than travelling with the KB (docs/storage.md)."
+  #{:disk :pg})
+
+(def ^:private reserved-backend-names
+  "Names `open-kb` refuses outright, and the pairing to take instead.  Each is a name a
+  caller reaches for and this engine does not read: `:disk` and `:pg-disk` read as *both
+  halves out of core*, which no pairing here is.  The log index holds its whole key→value
+  map in RAM and the log under it buys **durability, not residency**
+  (`vaelii.impl.disk.kv`) — which is what `:disk-log` and `:pg-disk-log` say.
+
+  **Refused rather than aliased.**  An index axis names a directory layout, so a name
+  that answers to two of them opens a store in a layout its caller did not ask for: a
+  wrong-shaped directory and a heap profile nobody chose, discovered by the machine
+  running out of it.  `check-opts!` already treats an option `open-kb` cannot read as a
+  refusal rather than a default, and a *name* it cannot read is that same argument one
+  level up — one edit per call site, against a KB that is never opened in a layout its
+  caller did not name."
+  {:disk    :disk-log
+   :pg-disk :pg-disk-log})
 
 (defn backend-axes
   "The `{:records :index}` selection for `opts`: the `:backend` sugar expanded, with an
@@ -180,11 +214,30 @@
   test suite's index-shape gate) must read the same table `open-kb` does, or a new sugar
   name silently leaves it saying the wrong thing.
 
-  **RAM records under the durable index is refused**, on either spelling.  The index is a
-  function of the records, so persisting the derived half while the ground truth
+  **The `:disk-log` index needs durable records**, on either spelling.  The index is
+  a function of the records, so persisting the derived half while the ground truth
   evaporates at JVM exit leaves index files describing records that no longer exist — and
-  the next open answers every query out of them, believing nothing is wrong."
+  the next open answers every query out of them, believing nothing is wrong.  Two record
+  axes carry it: `:disk`, which shares the index's directory and lifecycle, and `:pg`,
+  whose records are on a server and for which a *local* durable index is the only durable
+  index there is.
+
+  **`:disk` names no pairing here and no index axis.**  Both spellings are refused, and
+  each refusal names the pairing to take instead rather than resolving to something near
+  it (`reserved-backend-names`)."
   [{:keys [backend records index] :or {backend :memory}}]
+  (when-let [want (reserved-backend-names backend)]
+    (throw (ex-info (str "unknown KB backend " (pr-str backend) " — the durable-index pairing is "
+                         "spelled " (pr-str want) ", durable records under a write-ahead-logged "
+                         "index whose key->value map is in RAM.  The log buys durability and not "
+                         "residency; the name says which.")
+                    {:type :unknown-backend :backend backend :instead want})))
+  (when (= :disk index)
+    (throw (ex-info (str "unknown index backend :disk — the write-ahead-logged index is "
+                         ":disk-log.  It holds the whole key->value map in RAM and logs its "
+                         "mutations, so the log buys durability and not residency; the name "
+                         "says which.")
+                    {:type :unknown-backend :index index :instead :disk-log})))
   (let [pair (or (backend-modes backend)
                  (throw (ex-info (str "unknown KB backend " (pr-str backend) " — want one of "
                                       (pr-str (vec (sort (keys backend-modes))))
@@ -192,15 +245,14 @@
                                  {:type :unknown-backend :backend backend})))
         axes {:records (or records (:records pair))
               :index   (or index   (:index pair))}]
-    (when (and (= :disk (:index axes)) (not= :disk (:records axes)))
-      (throw (ex-info (str "the :disk index needs :disk records — an index is derived from the "
-                           "records, and the durable :disk index is built against the disk record "
-                           "store in one directory (shared handles and lifecycle), so it pairs with "
-                           ":disk records and no other.  A " (pr-str (:records axes)) " record store "
-                           "under it either empties at JVM exit (`:memory`) or is a different durable "
-                           "store the index does not describe (`:sqlite`).  Want a durable pair? "
-                           ":disk.  Want " (pr-str (:records axes)) " records? take the RAM index "
-                           "(`:memory`), rebuilt on open.")
+    (when (and (= :disk-log (:index axes)) (not (durable-under-log-index (:records axes))))
+      (throw (ex-info (str "the :disk-log index needs durable records — :disk or :pg — and these are "
+                           (pr-str (:records axes)) ".  An index is derived from the records, so "
+                           "persisting it over a store that empties at JVM exit (`:memory`) leaves "
+                           "index files describing records that are gone.  `:sqlite` records already "
+                           "live in a directory, and a durable index beside them is `:disk-log`'s pairing "
+                           "without its shared lifecycle: take :disk-log for that.  Otherwise take the RAM "
+                           "index (`:memory`), rebuilt on open.")
                       (assoc axes :type :unknown-backend))))
     axes))
 
@@ -218,6 +270,28 @@
                            "on, so add it to your project to select the :sqlite backend.")
                       {:type :unknown-backend :records :sqlite}))))
 
+(defn- pg-record-store-ctor
+  "The `com.vaelii/postgres` adapter's record-store constructor, resolved **lazily** —
+  the same trick `create-tms` uses for the dense TMS — so the SSPL engine never loads a
+  JDBC driver unless a KB selects `:pg-memory` or `:pg-disk-log`.  Throws a clear
+  missing-adapter error when the Apache-2.0 sibling is not on the classpath, rather than
+  a bare `FileNotFoundException` from the resolve."
+  []
+  (or (try (requiring-resolve 'vaelii.postgres.record-store/pg-record-store)
+           (catch java.io.FileNotFoundException _ nil))
+      (throw (ex-info (str "the :pg record backend needs the vaelii-postgres adapter "
+                           "(com.vaelii/postgres) on the classpath — an Apache-2.0 sibling the "
+                           "engine does not depend on, so add it to your project to select "
+                           ":pg-memory or :pg-disk-log.")
+                      {:type :unknown-backend :records :pg}))))
+
+(defn- pg-spec
+  "The `:pg` opt as a db-spec map.  A string is a JDBC URL, which is the spelling an
+  environment variable arrives in; a map is a next.jdbc db-spec, plus the adapter's own
+  keys (`:schema` and the cache sizes), and is passed through untouched."
+  [pg]
+  (if (string? pg) {:jdbcUrl pg} pg))
+
 (defn- record-store-for
   "The `RecordStore` for the record axis.  `:memory` keys the in-RAM store by `:space`,
   so a KB rebuilt over the same number sees the same records
@@ -225,7 +299,8 @@
   (`:dir`, else derived from the space number), shared per directory — and opens
   *only* the records, so a derived-index mode writes no index files
   (`vaelii.impl.disk.backend`).  `:sqlite` opens the embedded-SQLite record store over a
-  single file in that same directory, through the lazily-resolved sibling adapter."
+  single file in that same directory, and `:pg` opens the Postgres store over the
+  database the `:pg` opt names — both through lazily-resolved sibling adapters."
   [kind {:keys [space] :or {space 0} :as opts}]
   (case kind
     :memory (mem/memory-record-store {:space space})
@@ -235,26 +310,61 @@
     :sqlite (let [dir (disk/disk-dir opts)]
               (.mkdirs (java.io.File. ^String dir))
               ((sqlite-record-store-ctor) {:dbtype "sqlite" :dbname (str dir "/records.sqlite")}))
+    ;; the database is named by the caller and nothing here derives one: a KB that
+    ;; silently took a default server is a KB whose records are somewhere nobody said
+    :pg     ((pg-record-store-ctor) (pg-spec (:pg opts)))
     ;; `:overlay` is resolved by `open-kb`, which alone knows the base — reaching here
     ;; means a base or an overlay half was itself declared `:overlay`, and a stack of
     ;; forks is deliberately not built (docs/overlay.md)
-    (throw (ex-info (str "unknown record backend " (pr-str kind) " — want :memory, :disk or :sqlite"
+    (throw (ex-info (str "unknown record backend " (pr-str kind) " — want :memory, :disk, :sqlite or :pg"
                          (when (= :overlay kind)
                            " (an :overlay half cannot itself be an overlay)"))
                     {:type :unknown-backend :records kind}))))
+
+(def ^:private jdbc-pg-url
+  ;; jdbc:postgresql://host[:port]/dbname[?params] — enough to canonicalize the two
+  ;; spellings of one database against each other.
+  #"(?i)jdbc:postgres(?:ql)?://([^:/?]+)(?::(\d+))?/([^?]+)(?:\?.*)?")
+
+(defn- pg-identity
+  "What two `:pg` opts have to agree on to be **the same record store**: the server, the
+  database and the schema the tables live in.
+
+  **Canonical, not literal.**  A JDBC URL and the `:dbtype`/`:host`/`:dbname` spelling of
+  one database are the same store and must key alike — `pg-spec`'s own docstring calls the
+  URL \"the spelling an environment variable arrives in\" — and so are a stated `:port 5432`
+  and an omitted one.  Keying on the literal opts map splits one database into two index
+  spaces, and two KBs then mint two handles for one sentence, which no `reindex` can merge
+  afterwards.
+
+  A `:space` number does not name a database at all, which is why this exists."
+  [pg]
+  (let [m       (if (string? pg) {:jdbcUrl pg} pg)
+        [_ h p d] (some->> (:jdbcUrl m) (re-matches jdbc-pg-url))
+        host    (str/lower-case (str (or h (:host m) "localhost")))
+        port    (or (some-> (or p (:port m)) str str/trim parse-long) 5432)
+        dbname  (str (or d (:dbname m)))
+        schema  (some-> (:schema m) name)]
+    [host port dbname schema]))
 
 (defn- derived-index-space
   "What a **derived** (in-RAM) index's shared state is keyed by.  A derived index is a
   function of the records, so it must be shared exactly when the records are — and this
   is the whole of what enforces that: the `:space` number when the records are in RAM,
-  the record *directory* when they are on disk.  Each axis has its own registry
-  (`vaelii.impl.memory`, `.dense-kv`, `.columnar`), so one number keys both stores
+  the record *directory* when they are in one (`:disk`, and `:sqlite`'s file), the
+  database when they are on a server (`:pg`).  Each axis has its own registry
+  (`vaelii.impl.memory`, `.dense-kv`, `.columnar`), so one key keys both stores
   without either reaching the other's, and a KB cannot be given a private index over
-  records it shares — one directory's records answered out of another's index, with
+  records it shares — one store's records answered out of another's index, with
   nothing to signal it."
   [record-kind {:keys [space] :or {space 0} :as opts}]
-  (if (= :disk record-kind)
-    [:dir (disk/canonical-dir (disk/disk-dir opts))]
+  (case record-kind
+    ;; The **tag** discriminates the axis, not just the directory: `:sqlite` records and
+    ;; `:disk` records in one directory are two different stores, and keying both on the
+    ;; path alone hands them one shared index over records neither of them holds.
+    :disk   [:disk (disk/canonical-dir (disk/disk-dir opts))]
+    :sqlite [:sqlite (disk/canonical-dir (disk/disk-dir opts))]
+    :pg     [:pg (pg-identity (:pg opts))]
     space))
 
 (defn- index-store-for
@@ -262,14 +372,14 @@
   — the flat `:memory` map, the `:dense` int-postings backend (Phase 1,
   `vaelii.impl.dense-kv`) and the `:columnar` native trie (Phase 2,
   `vaelii.impl.columnar`) — and open empty, so a KB pairing one with durable records
-  must `reindex` before it can answer (`open-kb`).  `:disk` is the write-ahead-logged
-  durable index, which opens already populated.
+  must `reindex` before it can answer (`open-kb`).  `:disk-log` is the write-ahead-logged
+  index, which opens already populated.
 
   The flag is returned rather than sniffed from the store type at the call site: what
   makes an index durable is which one was *selected*, and a type test would have to be
   updated by whoever adds the next backend, silently and after the fact."
   [kind record-kind opts]
-  (if (= :disk kind)
+  (if (= :disk-log kind)
     [(disk/index-for (disk/disk-dir opts)) true]
     (let [space (derived-index-space record-kind opts)]
       (case kind
@@ -277,7 +387,7 @@
         :dense    [(dense/dense-index-store       {:space space}) false]
         :columnar [(columnar/columnar-index-store {:space space}) false]
         (throw (ex-info (str "unknown index backend " (pr-str kind)
-                             " — want :memory, :dense, :columnar, or :disk"
+                             " — want :memory, :dense, :columnar, or :disk-log"
                              (when (= :overlay kind)
                                " (an :overlay half cannot itself be an overlay)"))
                         {:type :unknown-backend :index kind}))))))
@@ -315,7 +425,7 @@
   from the records, restamp) is a **write to the base**, which a read-only mount may not
   make, so this refuses instead and names the one place the rebuild can happen."
   [index-kind base index-store]
-  (when (= :disk index-kind)
+  (when (= :disk-log index-kind)
     (let [root (str (disk/disk-dir base) "/index")]
       (when (and (.isDirectory (java.io.File. ^String root))
                  (= :stale (dfiles/index-layout-decision
@@ -365,7 +475,7 @@
 (def opt-keys
   "Every key `open-kb` reads.  Public because it is the answer to \"is this a real
   option?\", and a caller that can ask does not have to find out from a wrong answer."
-  #{:backend :records :index :space :dir :tms :recover?
+  #{:backend :records :index :space :dir :pg :tms :recover?
     :naming :constraints :base :base-stores :overlay})
 
 (defn- check-opts!
@@ -427,7 +537,7 @@
 (defn- check-mount-opts!
   "Refuse a mount or durability key nothing in this axis selection reads.
 
-  All four keys are in `opt-keys` — each is a real option — so `check-opts!` passes
+  All five keys are in `opt-keys` — each is a real option — so `check-opts!` passes
   them, but each is read only under the selection it belongs to, and an opts map that
   names one without the other is two halves of a request whose silent resolution is a
   different KB.  `:base` / `:base-stores` / `:overlay` are read when an axis is
@@ -438,8 +548,11 @@
   nothing writes, so the caller who asked for durability loses the store at JVM exit —
   behind an open that looked exactly like the durable one.  (A fork's
   top-level `:dir` is the same nothing: its own writable half's directory lives in the
-  `:overlay` sub-map, checked here on its own axes.)  `where` names the opts map, as
-  in `check-opts!`."
+  `:overlay` sub-map, checked here on its own axes.)  `:pg` names the database the
+  records live in, and is the one key here that is **required** rather than merely
+  read: nothing derives a default server, so `:pg` records without it have nowhere to
+  be — and `:pg` on any other records axis is a database nothing connects to, behind a
+  KB that opened in RAM.  `where` names the opts map, as in `check-opts!`."
   [opts {rkind :records ikind :index} where]
   (when-not (or (= :overlay rkind) (= :overlay ikind))
     (when-let [given (seq (filterv #(contains? opts %) [:base :base-stores :overlay]))]
@@ -451,15 +564,58 @@
                            " meant.")
                       {:type :unknown-option :unknown (vec given)
                        :records rkind :index ikind}))))
-  (when-not (or (= :disk rkind) (= :disk ikind) (= :sqlite rkind))
+  (when-not (or (= :disk rkind) (= :disk-log ikind) (= :sqlite rkind))
     (when (contains? opts :dir)
       (throw (ex-info (str where " was given :dir " (pr-str (:dir opts))
                            " but no half is :disk or :sqlite, so nothing writes there — the"
                            " store lives in RAM and is gone at JVM exit, the opposite of what"
                            " naming a directory asks for.  Want durability?"
-                           " {:backend :disk} (or :disk-memory / :disk-dense /"
-                           " :disk-columnar / :sqlite).")
+                           " {:backend :disk-log} (or :disk-memory / :disk-dense /"
+                           " :disk-columnar / :sqlite / :pg-memory).")
                       {:type :unknown-option :unknown [:dir]
+                       :records rkind :index ikind}))))
+  (if (= :pg rkind)
+    (let [pg (:pg opts)]
+      (when-not (or (and (map? pg) (seq pg)) (and (string? pg) (seq pg)))
+        ;; A present nil, an empty map and a bare DataSource all reach here.  The first two
+        ;; name no database — and `:or` does not fire on a present nil, so silence would be
+        ;; the default server this option exists to refuse.  A DataSource names one that
+        ;; cannot be *identified*: the derived index and the durable one are both keyed by
+        ;; which database the records are in, and an opaque object answers that with
+        ;; nothing.  Hand the adapter its own pool directly if that is what is wanted.
+        (throw (ex-info (str where " needs :pg to name a database: a next.jdbc db-spec"
+                             " ({:dbtype \"postgresql\" :host … :dbname …}, optionally"
+                             " :schema) or a JDBC URL string, got " (pr-str pg)
+                             ".  Nothing here derives a server, and an index is keyed by"
+                             " which database its records are in — so a KB that took one by"
+                             " default would hold its records somewhere nobody said, and one"
+                             " whose database cannot be named cannot be keyed apart from"
+                             " another's.")
+                        {:type :unknown-option :missing [:pg]
+                         :records rkind :index ikind})))
+      ;; The durable index is files on THIS host describing records on a server, and
+      ;; nothing in a directory says which server.  A derived default would put two KBs
+      ;; over two databases in one directory — `disk-dir` falls back to
+      ;; `<tmpdir>/vaelii-disk/space-<n>`, so two `{:backend :pg-disk-log}` opts that name
+      ;; no directory are the same one — and the coverage check that would otherwise catch
+      ;; it compares *counts*, which two unrelated databases can easily match.
+      (when (and (= :disk-log ikind) (not (contains? opts :dir)))
+        (throw (ex-info (str where " selected :pg-disk-log but named no :dir.  The durable index"
+                             " lives on this host and describes records on a server, so the"
+                             " directory belongs to a database rather than falling out of a"
+                             " space number — and a derived default is one two KBs over two"
+                             " databases would share, each answering out of the other's"
+                             " index.  Name the directory, or take :pg-memory, whose index"
+                             " is in RAM and rebuilt on open.")
+                        {:type :unknown-option :missing [:dir]
+                         :records rkind :index ikind}))))
+    (when (contains? opts :pg)
+      (throw (ex-info (str where " was given :pg but its records are " (pr-str rkind)
+                           ", so nothing connects to that database — the KB opens on the"
+                           " store its records axis names and every write lands there"
+                           " instead.  Want Postgres records? {:backend :pg-memory :pg …}"
+                           " (or :pg-disk-log, which adds a local durable index).")
+                      {:type :unknown-option :unknown [:pg]
                        :records rkind :index ikind})))))
 
 (defn- check-naming!
@@ -627,9 +783,9 @@
   [kb]
   (let [held (into {} (filter (comp true? val)) (dissoc @(:unrecovered kb) :announced?))]
     (cond
-      (empty? held)                                 {}
-      (some? (first (p/sentex-ids (:records kb))))  held
-      :else                                         {})))
+      (empty? held)                                   {}
+      (some? (cap/some-sentex-id (:records kb)))      held
+      :else                                           {})))
 
 (defn discharge-over-empty-store!
   "Retire a standing hazard when a **write door is about to write into an empty store**,
@@ -653,7 +809,7 @@
   [kb]
   (let [held (into {} (filter (comp true? val)) (dissoc @(:unrecovered kb) :announced?))]
     (boolean
-     (when (and (seq held) (nil? (first (p/sentex-ids (:records kb)))))
+     (when (and (seq held) (nil? (cap/some-sentex-id (:records kb))))
        (note-hazards! kb {:no-belief false :no-index false})
        true))))
 
@@ -667,7 +823,7 @@
   "Is this KB the one configuration a mapped index snapshot is for — durable records
   under the derived columnar index, with the snapshot switched on?  Every other pairing
   either has no image to write (a RAM record store's index describes records that vanish
-  at JVM exit) or needs none (`:disk` persists its index outright)."
+  at JVM exit) or needs none (`:disk-log` persists its index outright)."
   [rkind ikind]
   (and (= :disk rkind) (= :columnar ikind) (snapshot/enabled?)))
 
@@ -729,6 +885,20 @@
     (when-let [sub (get opts half)]
       (check-opts! sub (str half))
       (check-mount-opts! sub (backend-axes sub) (str half))))
+  ;; A fork's own writable half needs bookkeeping beside its records (`mount/meta-kv`),
+  ;; which exists for `:memory` and `:disk` and not for a server.  Refused **here**, at the
+  ;; door, rather than where `meta-kv` says no: by then `open-kb` has already built the
+  ;; overlay's record store — a live connection pool, registered for durability — and its
+  ;; index half, which takes the directory's exclusive lock.  No KB value is returned from
+  ;; a throw at that point, so neither is closeable and the directory is unopenable for the
+  ;; life of the JVM.
+  (when-let [ov (:overlay opts)]
+    (when (= :pg (:records (backend-axes ov)))
+      (throw (ex-info (str "a fork's own records cannot be :pg — an overlay keeps tombstones "
+                           "and released premise marks beside its records, and that "
+                           "bookkeeping is written for :memory and :disk.  Fork onto one of "
+                           "those; a :pg KB can still be the frozen base.")
+                      {:type :unknown-backend :records :pg :half :overlay}))))
   (let [recover?                      (check-recover! recover?)
         {rkind :records ikind :index} (backend-axes opts)
         _                             (check-mount-opts! opts {:records rkind :index ikind}
@@ -756,13 +926,28 @@
                           (= (:space b 0) (:space ov-opts 0))
                           :else false)]
               (when same?
-                (throw (ex-info "the fork's own half and its base name one store — a fork cannot write its own base"
+                (throw (ex-info (str "the fork's own half and its base name one store — "
+                                     (if (= :disk brk)
+                                       (str "both are :disk at "
+                                            (disk/canonical-dir (disk/disk-dir b)))
+                                       (str "both are :memory in space " (:space b 0)))
+                                     ", and a fork cannot write its own base.  Give the"
+                                     " fork's own half its own "
+                                     (if (= :disk brk) ":dir" ":space") " under :overlay")
                                 {:type :base-is-overlay})))))
         own-rstore (when (= :overlay rkind) (record-store-for ovr ov-opts))
         own-istore (when (= :overlay ikind) (first (index-store-for ovi ovr ov-opts)))
         _ (when (or (and own-rstore (identical? own-rstore (:records base)))
                     (and own-istore (identical? own-istore (:index base))))
-            (throw (ex-info "the fork's own half and its base resolve to one store — a fork cannot write its own base"
+            (throw (ex-info (str "the fork's own half and its base resolve to one store —"
+                                 " the "
+                                 (if (and own-rstore (identical? own-rstore (:records base)))
+                                   "records"
+                                   "index")
+                                 " half of the fork is the store its base mounts, and a"
+                                 " fork cannot write its own base.  Open that half on its"
+                                 " own :dir or :space under :overlay, or pass"
+                                 " :base-stores from a different KB")
                             {:type :base-is-overlay})))
         rstore  (if (= :overlay rkind)
                   (mount/mount-records own-rstore
@@ -791,8 +976,13 @@
                      ;; short of exiting the JVM.  The base's directory is not this KB's
                      ;; to release — it is mounted read-only and shared by every fork
                      ;; over it, which is exactly why nothing here names it.
+                     ;; The durable **index** puts a directory here too, even when the
+                     ;; records are elsewhere: `:pg-disk-log` writes its index under
+                     ;; `:dir` and takes that directory's exclusive lock on open, and
+                     ;; without this `close!` would leave the lock held for the JVM's life
+                     ;; over a KB whose records are on a server.
                      :dir     (cond
-                                (= :disk rkind)
+                                (or (= :disk rkind) (= :disk-log ikind))
                                 (disk/canonical-dir (disk/disk-dir opts))
 
                                 (and (= :overlay rkind) (= :disk ovr))
@@ -801,10 +991,19 @@
                      :taxonomy (tax/create-taxonomy)
                      :provers  (atom provers/default-provers)
                      :solver   (atom solve/local-solver)
-                     :conflicts (atom [])
+                     ;; The settle's two readings and the memo it rebuilds them from,
+                     ;; in **one** atom because they are one publication: `record-clashes!`
+                     ;; derives all three from a single pass and installs them together,
+                     ;; and `core/conflicts` / `core/contradictions` are read doors a
+                     ;; thread beside the writer may call at any moment.  Three atoms
+                     ;; would let such a reader land between two of the resets and take
+                     ;; one settle's conflicts beside another's contradictions — a reading
+                     ;; of no state the KB was ever in (`settle/record-clashes!`).  Not
+                     ;; `:clashes` below, which is the definitional-pair memo rather than
+                     ;; a reading of one.
+                     :clash-readings (atom {:reports {} :conflicts [] :contradictions []})
                      :program   (atom nil)
                      :violations (atom [])
-                     :contradictions (atom [])
                      :recheck   (atom {})
                      ;; `{rule-handle -> #{refusal} | :overflow}` — the firings
                      ;; `chain/place-conseq` declined to place because a re-checkable
@@ -819,6 +1018,27 @@
                      :settle-stats (atom {:iterations 0 :passes 0 :histogram {}})
                      :chain-stats  (atom {:runs 0 :last nil})
                      :opposed   (atom #{})
+                     ;; `{[P R] -> how many sentexes declare it}` — the argument-preservation
+                     ;; declarations, as storage.  `settle/preserving-nogoods` reads it as
+                     ;; its gate and as its vocabulary, and the point of the roster is that
+                     ;; both reads cost **nothing off the index**: a KB that declares no
+                     ;; preservation — which is nearly every KB — is told so by one
+                     ;; `empty?`, where `inherit/declarations-exist?` is two cardinality
+                     ;; reads and would land on the assert path once per settle.  Kept at
+                     ;; the same two choke points as `:opposed`, from the sentence's shape
+                     ;; alone, and rebuilt by `recover` for the same reason.
+                     ;; Reference-counted rather than a set: one declaration stated in two
+                     ;; contexts is two sentexes, and the first retraction must not retire
+                     ;; what the second still says.
+                     :preserving (atom {})
+                     ;; The candidates `settle/preserving-nogoods` reported a clash for
+                     ;; last settle, so a standing report survives an unrelated assert:
+                     ;; `conflicts` and `contradictions` are recomputed from scratch every
+                     ;; settle and the region is only what that settle moved.  `:clashes`
+                     ;; beside it does the same job for the definitional pairs; this holds
+                     ;; one handle rather than a pair, since the other side of an
+                     ;; inherited clash is not a sentex.
+                     :preserved-clashes (atom #{})
                      ;; `{context -> {except-handle -> hidden-handle}}` — which stored
                      ;; `(except (sentexHandle H))` facts sit in which context, so a
                      ;; reader takes the visible ones off the map rather than fetching
@@ -864,7 +1084,6 @@
                      ;; direction: a stamp that cannot be compared costs a full pass and
                      ;; never a wrong answer
                      :supersessions (atom nil)
-                     :reports   (atom {})
                      :qcn       (atom {})
                      ;; the join baselines beside the network cache, never inside it:
                      ;; the resident cache clears wholesale at its bound, and a baseline
@@ -902,6 +1121,30 @@
      #(seq @(:excepted kb))
      (partial res/supporter-believed? kb))
     (when snapshot? (register-index-snapshot! (disk/disk-dir opts) istore rstore))
+    ;; **Whose records is this index of?**  For `:disk` records the question cannot arise —
+    ;; the index and the records are one directory.  For `:pg` they are a directory and a
+    ;; database, joined by nothing but this opts map, so the directory is stamped with the
+    ;; database identity on first use and a later open over a *different* one is refused
+    ;; rather than answered.  The coverage check below cannot stand in for it: that compares
+    ;; record *counts*, and two unrelated stores of the same size agree — after which
+    ;; handles resolve to the wrong sentences and a re-assert mints a second handle for a
+    ;; sentence already stored, which is the duplicate-canonical-form hazard the trie exists
+    ;; to prevent.
+    (when (and (= :disk-log ikind) (not= :disk rkind))
+      (let [root  (str (disk/disk-dir opts) "/index")
+            ident (pg-identity (:pg opts))
+            seen  (dfiles/records-identity root)]
+        (cond
+          (nil? seen) (dfiles/stamp-records-identity! root ident)
+          (not= seen ident)
+          (throw (ex-info (str "the durable index at " root " was built against "
+                               (pr-str seen) " and this KB's records are " (pr-str ident)
+                               ".  An index is derived from records, so one store's index"
+                               " cannot answer another's reads.  Give this KB its own :dir,"
+                               " or delete that index directory to rebuild it from these"
+                               " records.")
+                          {:type :stale-index-records :dir root
+                           :stamped seen :records ident})))))
     ;; The durable index is gated on its key-layout sentinel before anything reads
     ;; it: a log written under another `kv/index-layout-version` replays cleanly and
     ;; then misses every read whose key shape moved — populated-looking counts over
@@ -909,11 +1152,11 @@
     ;; from the records, `recover?` notwithstanding: an index this open just cleared
     ;; is one this open must repopulate.  The stamp lands only after the rebuild
     ;; (`dfiles/index-layout-decision` for the crash story).
-    (when (and (= :disk ikind)
+    (when (and (= :disk-log ikind)
                ;; The index kind, not `index-durable?`: on the `:overlay` axis that
                ;; flag says the *merged view holds something*, and a fork inherits no
                ;; `:dir`, so `disk/disk-dir` synthesizes the same default directory a
-               ;; bare `{:backend :disk}` uses.  Gating on it clears the fork's merged
+               ;; bare `{:backend :disk-log}` uses.  Gating on it clears the fork's merged
                ;; index and stamps a directory this open never read.  A base mounted
                ;; under `:base` is held to the sentinel by `gate-base-index-layout!`,
                ;; which is the one place a fork's inherited half is checked.
@@ -943,7 +1186,7 @@
         ;; tail (the record log and the index log are separate files with separate
         ;; fsyncs, and truncating a torn tail is what recovery is *designed* to do), a
         ;; directory grown under a derived-index mode — `:disk-dense` writes nothing under
-        ;; `<dir>/index`, so reopening it as `:disk` finds an empty durable index over
+        ;; `<dir>/index`, so reopening it as `:disk-log` finds an empty durable index over
         ;; full records — and a crash between the record write and the index batch.
         ;;
         ;; The failure is silent and compounding: reads answer out of a populated-looking
@@ -972,7 +1215,10 @@
           (let [indexed  (long (p/count-at istore []))
                 sealed   (long (p/count-at istore kv/sealed-prefix))
                 damaged? (boolean (:damaged (:backend istore)))
-                stored   (count (p/sentex-ids (:records kb)))]
+                ;; the record count, not the roster: on a store whose enumeration is a
+                ;; query this is the difference between one row and the whole table, and
+                ;; the coverage gate asks it on every open (`p/Tallying`).
+                stored   (cap/count-sentexes (:records kb))]
             (when (or damaged?
                       (if (pos? sealed) (not= sealed stored) (not= indexed stored)))
               (dfiles/mark-index-rebuilding! root)
@@ -988,7 +1234,7 @@
                                           (if damaged? " (and its log is shorter than its clean marker recorded)" "")
                                           (long sentexes) (long rules) ms)})))))))
     ;; A durable fork's **own** index half is held to the same gates as a plain
-    ;; `:disk` index — the layout sentinel, and the coverage instruments under
+    ;; `:disk-log` index — the layout sentinel, and the coverage instruments under
     ;; `recover?`.  The merged mount above answers reads, but what lives in
     ;; `<fork-dir>/index` is only what the fork itself wrote: a layout bump would
     ;; silently misread it (the base gets a clean `:stale-index-layout` refusal from
@@ -1005,11 +1251,11 @@
     ;; into it would drop every removal (an inherited fact the fork retracted would
     ;; reappear) and leave own-only absolute counters shadowing the base's.  Read
     ;; through the mount, the seal and the root count are the merged index's and
-    ;; compare against the merged records, exactly as on a plain `:disk` KB; and the
+    ;; compare against the merged records, exactly as on a plain `:disk-log` KB; and the
     ;; rebuild is the one `reindex` makes on any fork — `kv-clear!` on the mount sets
     ;; `::cleared` (the base reads absent from then on) and the merged records reindex
     ;; into the own half as absolute entries, which the merged view serves unchanged.
-    (when (and own-istore (= :disk ovi)
+    (when (and own-istore (= :disk-log ovi)
                (.isDirectory (java.io.File. (str (disk/disk-dir ov-opts) "/index"))))
       (let [root     (str (disk/disk-dir ov-opts) "/index")
             decision (dfiles/index-layout-decision
@@ -1025,7 +1271,7 @@
                                                  root (long sentexes) (long rules))})))
           nil)
         (when (and recover? (not= :stale decision))
-          (let [stored   (count (p/sentex-ids (:records kb)))
+          (let [stored   (cap/count-sentexes (:records kb))
                 sealed   (long (p/count-at istore kv/sealed-prefix))
                 indexed  (long (p/count-at istore []))
                 damaged? (boolean (:damaged (:backend own-istore)))]
@@ -1043,7 +1289,7 @@
       ;; A **derived** index opens empty over records that are not, so the repair is
       ;; one step longer than `recover`: rebuild the index from the records first, then
       ;; recover the TMS and taxonomy from both.  That ordering *is* `core/reindex`.
-      (seq (p/sentex-ids (:records kb)))
+      (some? (cap/some-sentex-id (:records kb)))
       (do
         (when recover?
           (if (= :auto recover?)
@@ -1266,7 +1512,7 @@
   type/predicate hierarchy, `:genlCx` for contexts) that `context` sees — `:monotonic` /
   `:default`, or nil when unreachable.  `nil` context is the unscoped read.
 
-  The diagnostic half of reasoning/26: it reports the widest-bottleneck strength a subsuming
+  The diagnostic half of the widest-bottleneck rule: it reports the strength a subsuming
   firing's conclusion now rests on, so a KB with a defeasible taxonomy edge and an alternate
   route can ask how strongly one term subsumes another.  Reads the live JTMS defeat-class of
   each edge supporter (docs/taxonomy.md, \"Strength of a subsumption path\")."
@@ -1569,6 +1815,66 @@
             (into #{} (comp (filter #(opposed? idx %)) (map sx/canon))
                   (p/children idx [:false])))))
 
+;; ---- the argument-preservation roster --------------------------------------
+;; `settle/preserving-nogoods` has to decide, once per settle, whether this KB declares
+;; any argument preservation at all — and the honest read of that (`inherit/declarations-
+;; exist?`) is a set-cardinality read per declaration functor, on the path every assert
+;; runs.  `assert_cost_test` prices exactly that kind of constant.  So the declarations
+;; are kept here as storage instead: `:preserving`'s bargain is `:opposed`'s, except that
+;; nothing is read off the index to maintain it either, because a declaration is
+;; recognized from the sentence's own functor.
+
+(defn- preservation-pair
+  "The `[P R]` an argument-preservation declaration states, or nil for any other
+  sentence — including `(not (transitiveInArg …))`, whose functor is `not`.  The one
+  shape test the roster keys on, so an ordinary fact costs a map lookup on its functor
+  and nothing else."
+  [sentence]
+  (when (and (sequential? sentence) (= 4 (count sentence))
+             (contains? inherit/declarations (first sentence)))
+    (let [[_ pred _ rel] sentence]
+      (when (and (symbol? pred) (symbol? rel)) [pred rel]))))
+
+(defn note-preserving!
+  "Record (`true`) or drop (`false`) an argument-preservation declaration in the
+  `:preserving` roster.  Called at the store primitive (`create-sentex`, every add) and
+  the removal choke point (`integrate/sentex-removed!`, every remove), so no store path
+  can bypass it; `recover` rebuilds the roster with `rebuild-preserving!`.
+
+  A no-op for every sentence that is not a declaration, which on any corpus is all but a
+  handful — and like `note-excepted!` beside it, and unlike `note-opposed!`, it reads
+  **nothing off the index**, so a bulk load whose backing atom is stale mid-load
+  (`memory/*bulk-txn*`) is not a case this has to be correct across.
+
+  Counted, not a set: `(transitiveInArg largerThan 1 genl)` stated in two contexts is two
+  sentexes saying one thing, and retracting the first must not retire what the second
+  still says.  The count is *storage* — belief is the reader's filter here exactly as it
+  is for `:opposed`, since a defeated declaration is one `positions` will decline to read
+  and not one the roster should forget."
+  [kb sentence add?]
+  (when-let [pr (preservation-pair sentence)]
+    (swap! (:preserving kb)
+           (fn [m] (let [n (+ (get m pr 0) (if add? 1 -1))]
+                     (if (pos? n) (assoc m pr n) (dissoc m pr)))))))
+
+(defn rebuild-preserving!
+  "Recompute `:preserving` from storage — the scan `recover` needs, since the roster is
+  derived state no store holds.  One functor-root walk per declaration functor, both
+  empty for nearly every KB.
+
+  Counts what is **stored**, negations included as non-declarations: `preservation-pair`
+  is the same shape test the choke points apply, so a rebuilt roster and an incrementally
+  maintained one cannot disagree about what a declaration is."
+  [kb]
+  (let [idx (:index kb) recs (:records kb)]
+    (reset! (:preserving kb)
+            (reduce (fn [m h]
+                      (if-let [pr (some-> (p/get-sentex recs h) :sentence preservation-pair)]
+                        (update m pr (fnil inc 0))
+                        m))
+                    {}
+                    (mapcat #(p/sentexes-with-functor idx %) (keys inherit/declarations))))))
+
 ;; ---- the visibility roster ------------------------------------------------
 ;; `res/excepted-handles` answers which handles a believed `(except (sentexHandle H))`
 ;; hides from a view context, and it is asked **per placement** and per candidate
@@ -1700,6 +2006,11 @@
                                n))
                            0
                            (p/sentexes-with-functor (:index kb) sx/except-functor))]
+    ;; Two atoms, one logical value — and they may be written in two steps because this
+    ;; runs only where nothing else can read them: `recover` and `fork` both build the KB
+    ;; before handing it to anybody, and the maintenance path (`note-except!`) keeps the
+    ;; count in step one write at a time.  A reader beside the writer reads them only
+    ;; through the query path (`resolution/excepted?`), which is after both.
     (reset! (:excepted kb) roster)
     (reset! (:meta-except-count kb) meta-count)))
 
@@ -1732,7 +2043,11 @@
 
   The keys are the ones the live path writes (`rules/antecedent-predicates`): a positive
   antecedent's predicate, and `[:not pred]` for a negated one.  Reference counts, so the
-  rebuilt roster is entry-for-entry equal to the one a KB that never restarted holds."
+  rebuilt roster is entry-for-entry equal to the one a KB that never restarted holds.
+
+  The two atoms are reset one after the other rather than as one step, and that is
+  enough: this runs inside `recover` and inside a fork, on the writer, before the KB
+  reaches any reader — the same footing as `rebuild-excepted!` above."
   [kb]
   (let [recs (:records kb)
         [antes ctxs]
@@ -1783,6 +2098,9 @@
      (note-opposed! kb (:sentence s))
      ;; ...and the visibility roster, at the same point and with the same mirror
      (note-excepted! kb s true)
+     ;; ...and the argument-preservation roster, third of the same kind: settle's gate on
+     ;; whether preservation can clash with anything is an `empty?` on it
+     (note-preserving! kb (:sentence s) true)
      [h s])))
 
 (defn find-or-create-sentex
@@ -1889,11 +2207,12 @@
       (let [inf (:informant j)
             isx (when (integer? inf) (p/get-sentex recs inf))
             c   (some->> (:consequence j) (p/get-sentex recs))]
-        ;; A **structural** key, compared by `nm/compare-form` — never printed.  Was a
-        ;; `*print-length*`-guarded `pr-str`; the comparator closes both of that key's
-        ;; costs — no String is built per justification, and no ambient `*print-length*`
-        ;; can elide a long sentence to a prefix and drop the tie back onto the id set's
-        ;; own order (`antecedent-order`'s reason).
+        ;; A **structural** key, compared by `nm/compare-form` — never printed.  The
+        ;; comparator closes both of a printed key's costs at once: no String is built
+        ;; per justification, and no ambient `*print-length*` can elide a long sentence to
+        ;; a prefix and drop the tie back onto the id set's own order
+        ;; (`antecedent-order`'s reason).  A key that must print anyway goes through
+        ;; `nm/print-key`, which is where that guard lives.
         [(if (integer? inf) (:sentence isx) inf) (:context isx)
          (mapv sent (:antecedents j))
          ;; sorted, because a small binding map is a `PersistentArrayMap` and iterates in
@@ -1921,22 +2240,9 @@
   second argument in favour of its first; `sameAs` and `equals` deprecate neither."
   [[f a _]] (when (= f 'rewriteOf) a))
 
-(defn- rewrite-symbols
-  "`term` with every non-variable symbol replaced by its equivalence-class
-  representative, recursively — so a merged term nested inside a compound is rewritten
-  at whatever depth it sits.  That is the whole of ground congruence closure: the
-  inverted term index finds the occurrence and this rewrites it, so no congruence
-  algorithm is needed (docs/equality.md, \"Congruence comes free\").
-
-  One definition, in `resolution` beside the flat `representative-in` it recurses with,
-  because `different` normalizes its arguments the same way and two copies of a
-  congruence walk is one copy too many."
-  [kb visible? term]
-  (res/representative-term kb visible? term))
-
 (defn rewrite-term*
   "`term` (a sentence or a term) rewritten to its **normal form**: first every symbol
-  replaced by its class representative (ground congruence, `rewrite-symbols`), then its
+  replaced by its class representative (ground congruence, `res/representative-term`), then its
   argument terms normalized under any schematic rewrite rules (the oriented equational
   rewriting of docs/equality.md — `(equals (fatherOf (fatherOf ?x)) (grandfatherOf
   ?x))` reduces `fatherOf∘fatherOf` to `grandfatherOf`).
@@ -1959,12 +2265,12 @@
   per equality supporter, and `res/visible-supporter-fn` memoizes those — but only within
   the one predicate it returns, so a caller that builds a fresh one per sentence re-fetches
   the same handful of records once per sentence.  `supersession-map` is that caller: it
-  re-examines every entry the closure displaces on each merging assert."
-  ([kb term visible?]
-   (let [sym   (rewrite-symbols kb visible? term)
-         rules (cond->> (tax/rewrite-rules (:taxonomy kb))
-                 visible? (filterv #(visible? (:handle %))))]
-     (rewrite/normalize-sentence rules sym))))
+  re-examines every entry the closure displaces on each merging assert.
+
+  One definition, in `resolution` beside the `representative-in` its congruence half
+  recurses with, because `BeliefProjectionProver` normalizes a projected proposition the
+  same way and two copies of that is one copy too many."
+  ([kb term visible?] (res/normal-form kb term visible?)))
 
 (defn rewrite-term
   "`rewrite-term*` for a caller that has a context rather than a built predicate — the
@@ -2011,14 +2317,16 @@
   the exemption is explicit here rather than resting on the rewrite happening to be a
   no-op.
 
+  **A `modalPredicate`'s proposition is exempt too**, and by the same kind of reason: it
+  is what the *agent* holds true, so the asker's merges must not rewrite it.  That one is
+  not spelled here — it is congruence opacity, held inside `res/representative-term` so
+  the stored belief and the question move together (docs/belief.md).
+
   Rewritten only by the merges `context` can see (`rewrite-term`'s three-arity): a
   question asked from a context is a question about what that context holds,
   so a merge it does not inherit must not rename what it asked."
   ([kb goal] (rewrite-goal kb goal nil))
-  ([kb goal context]
-   (if (and (sequential? goal) (= 'different (nm/functor goal)))
-     goal
-     (rewrite-term kb goal context))))
+  ([kb goal context] (res/goal-normal-form kb goal context)))
 
 (defn- rule-touches-merged-predicate?
   "Does rewriting this rule change a **predicate or type** — a non-individual symbol
@@ -2040,9 +2348,10 @@
   bornIn`, `dog ⇒ canine`): the original is superseded and the twin carries the
   inference (docs/equality.md, round two).  A rule's `exceptWhen` exceptions ride
   separate meta-sentexes keyed by the rule's handle; migration re-points them onto the
-  twin (`special/migrate-rule-exceptions`), and a NAF (`unknown`) antecedent lives
-  *in* the rule sentence, so it rewrites with the rule and re-posts through the twin's
-  own `index-rule-sentex` — so an exception/NAF rule migrates with its guard intact.
+  twin (`special/migrate-handle-metas`, the same path that carries an `except` or a
+  target-following reply), and a NAF (`unknown`) antecedent lives *in* the rule
+  sentence, so it rewrites with the rule and re-posts through the twin's own
+  `index-rule-sentex` — so an exception/NAF rule migrates with its guard intact.
 
   A non-rule is migratable unless it is one of the equality relations themselves:
   rewriting `(rewriteOf Pref Dep)` yields `(rewriteOf Pref Pref)`, the self-edge

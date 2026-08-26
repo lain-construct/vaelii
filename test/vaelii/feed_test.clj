@@ -210,20 +210,22 @@
       (is (= 1 (:derived (v/forward-chain kb))))
       (is (= [(list barks Muffet)] (added @seen))))))
 
-(tu/deftest-kb a-batch-that-throws-leaves-belief-unsettled-and-reports-it-next-time
-  ;; `edit` is not a transaction: a throw mid-batch leaves what was already stored in
-  ;; place with the settle not run.  So the delivery is not *lost* — there was nothing to
-  ;; deliver yet, and the next settle's region still holds the handle.
+(tu/deftest-kb a-batch-that-throws-reports-nothing-then-or-later
+  ;; `edit!` is all-or-nothing, so a batch that throws leaves no belief to report — not
+  ;; at the time and not at the next settle either.  The rollback runs with the feed off,
+  ;; so it accumulates no region of its own, and the one event this door delivers has
+  ;; nothing to hand anybody.
   (tu/with-terms [dog Muffet cat Tom]
     (let [[seen f] (recorder)]
       (v/watch kb f)
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/edit! kb {:add [[(list dog Muffet) 'CxUniverse]
                                       ['(notGround ?x) 'CxUniverse]]})))
-      (is (empty? @seen) "nothing settled, so nothing was reported")
-      (v/assert kb (list cat Tom) 'CxUniverse)
+      (is (empty? @seen) "the batch was taken back, so nothing was reported")
+      (v/edit! kb {:add [[(list dog Muffet) 'CxUniverse] [(list cat Tom) 'CxUniverse]]})
+      (is (= 1 (count @seen)) "one settle, one event — the successful batch's")
       (is (= #{(list dog Muffet) (list cat Tom)} (set (added @seen)))
-          "and the next settle reports the belief the half-applied batch left behind"))))
+          "and it reports its own news, never the rolled-back batch's"))))
 
 (tu/deftest-kb an-equality-merge-agrees-with-the-consequence-report
   ;; The contract is that a feed event and `edit-with-consequences` are the same answer,
@@ -415,6 +417,24 @@
       (v/assert kb (list dog Rex) 'CxUniverse)
       (is (= 1 (count @seen)) "nothing arrived after the token was dropped"))))
 
+(tu/deftest-kb exactly-one-of-several-concurrent-unwatches-of-one-token-says-true
+  ;; The boolean is the whole answer `unwatch` gives, and a caller uses it to decide
+  ;; whether IT was the one that closed the subscription — so two callers both told true
+  ;; is two callers each believing they own a teardown that happened once.  Read-then-swap
+  ;; makes that routine under any real concurrency: both see the listener, both remove it,
+  ;; both answer true.  One `swap-vals!` reads the answer off the CAS that did the removal.
+  (let [rounds 60
+        racers 8]
+    (dotimes [_ rounds]
+      (let [token (v/watch kb (fn [_] nil))
+            start (java.util.concurrent.CountDownLatch. 1)
+            fs    (doall (repeatedly racers
+                                     #(future (.await start) (v/unwatch kb token))))]
+        (.countDown start)
+        (is (= 1 (count (filter true? (map deref fs))))
+            "one caller removed the listener, so exactly one is told it did")
+        (is (empty? (v/watchers kb)) "and the listener is gone either way")))))
+
 (tu/deftest-kb watchers-lists-what-is-registered-without-the-functions
   (tu/with-terms [dog]
     (let [a (v/watch kb (fn [_] nil))
@@ -511,6 +531,7 @@
                   (list 'evaluate '?z '(+ 1 2))
                   (list 'ist 'CxUniverse (list dog '?x))
                   (list 'lessThan '?a '?b)
+                  (list 'or (list dog '?x) (list cat '?x))
                   'notASentence]]
       (let [e (try (v/watch kb goal 'CxUniverse (fn [_] nil))
                    (catch clojure.lang.ExceptionInfo e e))]
@@ -542,3 +563,68 @@
         (is (instance? clojure.lang.ExceptionInfo e) (pr-str ctx))
         (is (= :not-watchable (:type (ex-data e))))))
     (is (empty? (v/watchers kb)))))
+
+;; ---- the delivery on the failure path ------------------------------------
+
+(defn- with-throwing-dispatch
+  "Run `f` with the seam's renderer replaced by one that throws, then put the real one
+  back.  The seam is global (`feed/install-dispatch!`), so restoring it is what keeps
+  this test from being the reason a later namespace sees no events."
+  [f]
+  (let [prior @#'feed/dispatch]
+    (try (feed/install-dispatch!
+          (fn [_ _ _] (throw (ex-info "the renderer fell over" {:type :error}))))
+         (f)
+         (finally (feed/install-dispatch! prior)))))
+
+(deftest a-delivery-that-throws-rides-with-the-refusal-rather-than-replacing-it
+  ;; `with-one-event` delivers on the failure path too, so a half-applied batch still
+  ;; reports the belief it moved.  What the caller must not lose is *why the batch
+  ;; failed* — it asked to write and was told no, and that is the news.  Out of a
+  ;; `finally` a throwing delivery would be the only thing it ever saw.
+  ;;
+  ;; A bare feed rather than a KB: nothing here is about inference, and the renderer has
+  ;; to throw somewhere `notify-listener!`'s own guard does not already catch it.
+  (let [fake {:feed (feed/create-feed)}]
+    (feed/register! fake {:f (fn [_] nil)})
+    (with-throwing-dispatch
+      (fn []
+        (feed/note-region! fake #{1} #{})
+        (let [t (try (feed/with-one-event fake
+                       (throw (ex-info "the batch was refused" {:type :naming})))
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (instance? clojure.lang.ExceptionInfo t))
+          (is (= :naming (:type (ex-data t)))
+              "the caller reads its own refusal, not the renderer's failure")
+          (is (= ["the renderer fell over"]
+                 (mapv ex-message (.getSuppressed ^Throwable t)))
+              "and the delivery's failure rides with it, where a reader finds both"))))))
+
+(deftest a-delivery-that-throws-on-the-way-out-still-throws
+  ;; The other direction, so the change above cannot be read as "the failure path
+  ;; swallows": a body that returns and a renderer that throws is a throw, exactly as
+  ;; the `finally` spelling gave.
+  (let [fake {:feed (feed/create-feed)}]
+    (feed/register! fake {:f (fn [_] nil)})
+    (with-throwing-dispatch
+      (fn []
+        (feed/note-region! fake #{1} #{})
+        (let [t (try (feed/with-one-event fake :answered)
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (instance? clojure.lang.ExceptionInfo t))
+          (is (= "the renderer fell over" (ex-message t)))))))
+  (testing "and a delivery that does not throw hands back the body's value"
+    (let [fake {:feed (feed/create-feed)}]
+      (is (= :answered (feed/with-one-event fake :answered))))))
+
+(tu/deftest-kb a-standing-query-with-a-variable-functor-fires
+  ;; A goal whose functor is a variable — `(?p Muffet)` — is answered by any stored
+  ;; unary fact about Muffet.  `sentexes-matching` and `ask` answer it, so a watch must
+  ;; too; the unary match arm read `specs` of the variable (reflexive, holding no
+  ;; concrete functor) and left it silently unfired.
+  (tu/with-terms [dog Muffet]
+    (let [[seen f] (recorder)]
+      (v/watch kb (list '?p Muffet) 'CxUniverse f)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
+      (is (= [(list dog Muffet)] (added @seen))
+          "a matching unary fact fires the variable-functor goal"))))

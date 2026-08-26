@@ -456,27 +456,10 @@
 ;; ---- live: a real Ollama ------------------------------------------------
 
 (defn- live-model
-  "The model the live tests run against, or nil with a printed reason.  Opting in is
-  checked **first**, before the host is so much as probed; then reachability **and**
-  model presence, because a host that is up but has never pulled the model fails in a
-  way that reads like a bug in this code."
+  "The edit model, or nil with a printed reason.  `tu/live-model` holds the three checks
+  and their order; this names the tier they are reported under."
   []
-  (let [model (ollama/configured-model)]
-    (cond
-      (not (tu/live-llm?))
-      (do (println "  [skip] live Ollama tests: set VAELII_LLM_LIVE=1 to opt in") nil)
-
-      (not (ollama/available? {:timeout-ms 2000}))
-      (do (println (str "  [skip] live Ollama tests: no server at " (ollama/base-url)
-                        " — set VAELII_OLLAMA_HOST to point at one"))
-          nil)
-
-      (nil? (ollama/capabilities model))
-      (do (println (str "  [skip] live Ollama tests: " (ollama/base-url) " has no model "
-                        model " — set VAELII_OLLAMA_MODEL"))
-          nil)
-
-      :else model)))
+  (tu/live-model "live Ollama tests"))
 
 (tu/deftest-kb ^:llm a-live-model-reports-what-it-can-do
   (when-let [model (live-model)]

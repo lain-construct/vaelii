@@ -33,8 +33,8 @@
   - `(System/getProperty \"vaelii.…\")` — a literal system property.
   - `(prop-bool \"…\")` / `prop-long` / `prop-double` / `prop-enum`, alias-qualified or
     not — `vaelii.impl.config`'s readers, which take the name as an **argument**.  Ten
-    of the eighteen properties reach `System/getProperty` only this way, so a scanner
-    built on the two literal forms alone finds eight of them and reports itself
+    of the twenty properties reach `System/getProperty` only this way, so a scanner
+    built on the two literal forms alone finds half of them and reports itself
     complete.  `the-scan-catches-the-helper-form` is the test that says so.
   - `${VAELII_…}` in a shell script.  One regex over `.sh` text rather than a shell
     parser, and it is enough because the name carries its own prefix.
@@ -172,9 +172,9 @@
                  " same commit."))))))
 
 (deftest the-scan-catches-the-helper-form
-  ;; The assertion legacy's version of this scanner did not have, and the five switches
-  ;; it therefore missed are the argument for it: a reader that takes the name as an
-  ;; argument shadows the literal the scan looks for.
+  ;; The assertion a scanner built on the two literal forms alone cannot make, and the
+  ;; ten switches such a scanner misses are the argument for it: a reader that takes the
+  ;; name as an argument shadows the literal the scan looks for.
   (testing "a switch read through a config helper is found"
     (doseq [form ["(prop-long \"vaelii.disk.nonsense\" 1 0 nil)"
                   "(config/prop-bool \"vaelii.disk.nonsense\" false)"

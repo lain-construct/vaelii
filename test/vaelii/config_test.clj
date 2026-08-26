@@ -26,13 +26,15 @@
             [vaelii.impl.web :as web]))
 
 (def ^:private switched
-  "Every property `config/check!` reads, so a test can clear the lot and see the
+  "Every *property* `config/check!` reads, so a test can clear the lot and see the
   defaults — a run with nothing set must be indistinguishable from one with the
-  properties absent."
+  properties absent.  The environment variables it also reads are not here: a JVM cannot
+  clear its own environment, and `prop-bool` is where they are covered."
   ["vaelii.disk.auto-compact" "vaelii.disk.fsync" "vaelii.disk.compress"
    "vaelii.disk.tokens" "vaelii.disk.cache" "vaelii.disk.sync-ms"
    "vaelii.disk.compact-dead-ratio" "vaelii.disk.compact-min-interval-ms"
-   "vaelii.disk.lock" "vaelii.index.snapshot"])
+   "vaelii.disk.lock" "vaelii.index.snapshot" "vaelii.belief.snapshot"
+   "vaelii.asp.solver"])
 
 (defn- with-properties*
   "Run `f` with each `[name value]` set (nil clears), restoring every one afterwards —
@@ -72,6 +74,11 @@
    ;; `(= "true" …)` — everything else was off
    ["vaelii.disk.tokens" "enabled"]
    ["vaelii.index.snapshot" "enabled"]
+   ;; the two snapshot switches are one pair and must be checked as one: a switch that
+   ;; is read only at its call site refuses inside `recover`, where the operator sees a
+   ;; failed rebuild rather than the typo that caused it
+   ["vaelii.belief.snapshot" "enabled"]
+   ["vaelii.asp.solver" "clingoo"]
    ;; `Long/parseLong` with no catch, in a top-level `def`
    ["vaelii.disk.cache" "64k"]
    ["vaelii.disk.cache" "-1"]
@@ -162,9 +169,13 @@
     (is (false? (config/index-snapshot?)))))
 
 (def ^:private switched-elsewhere
-  "The properties read *outside* `vaelii.impl.config` — the disk directory, the
-  browser's port, KB discovery, the solver and the model host all hold their own
-  default at their own call site rather than going through a `prop-*` reader."
+  "The properties cleared before the defaults below are read, so a `-D` on this box
+  cannot answer for one.  The disk directory, the browser's port and KB discovery hold
+  their default at their own call site rather than going through a `prop-*` reader; the
+  solver and the model host each name a **registry member**, so unset is the absence of
+  a choice rather than a default to check — `vaelii.asp.solver` still reads through
+  `config/asp-solver`, and refuses a name outside the roster like every other switch
+  here."
   ["vaelii.disk.dir" "vaelii.web.port" "vaelii.kb.path" "vaelii.kb.catalog"
    "vaelii.asp.solver" "vaelii.llm.provider"])
 

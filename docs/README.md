@@ -73,7 +73,7 @@ rather than a compatibility claim.
 ## Core model & storage
 
 - [namespaces.md](namespaces.md) — the file map: what lives in each namespace under `src/`.
-- [canonicalization.md](canonicalization.md) — the canonical form: how sentences and rules identical up to variable names, literal order, symmetric arguments or comparison direction dedup to one handle.
+- [canonicalization.md](canonicalization.md) — the canonical form: how sentences and rules identical up to variable names, literal order, symmetric arguments or comparison direction dedup to one handle, and how a conjunctive consequent or a disjunctive antecedent unfolds into several.
 - [naming.md](naming.md) — the KB naming invariants (predicates, individuals, types, contexts).
 - [storage.md](storage.md) — record + index stores, the protocols, nippy serialization, the single-writer contract.
 - [indexing.md](indexing.md) — the count-aware trie, the secondary roots and retrieval from them, the rule index, the inverted term index.
@@ -95,7 +95,7 @@ rather than a compatibility claim.
 - [exceptions.md](exceptions.md) — `exceptWhen`: how a rule states its own exception, and why the exception is never stored.
 - [naf.md](naf.md) — negation as failure: `unknown` / `thereExists`, evaluated at level 6, storing nothing (and why the JTMS `out` slot stays reserved).
 - [aggregate.md](aggregate.md) — aggregation as a query operator: the five reductions over a query's solutions, where GROUP BY comes from, and how a firing that rests on a count is maintained.
-- [belief.md](belief.md) — modal belief projection: `(believes Agent P)` answered by proving `P` in the agent's own context, `modalPredicate` / `register-modal-predicate!` to open the same machinery to `knows` / `desires` / `intends`, and why contradictory agents coexist without a contradiction.
+- [belief.md](belief.md) — modal belief projection: `(believes Agent P)` answered by proving `P` in the agent's own context, `modalPredicate` / `register-modal-predicate` to open the same machinery to `knows` / `desires` / `intends`, why contradictory agents coexist without a contradiction, and the opacity of the proposition — whose merges may rewrite a term inside a belief.
 - [nmtms.md](nmtms.md) — the non-monotonic TMS: assumption strengths, soft prioritized contradictions, the solver seam.
 - [defenses.md](defenses.md) — the design defenses: why a non-obvious decision across the engine is shaped the way it is and why the tempting alternative is worse, collected out of the subsystem docs so each states the mechanism and links the argument.
 - [preview.md](preview.md) — `preview`: the belief a batch would add and take away, read off and then rolled back at the same handles.
@@ -110,9 +110,10 @@ rather than a compatibility claim.
 
 - [qcn.md](qcn.md) — the generic qualitative-constraint-network engine behind all six relation algebras: an algebra as a parameter, a network as a value, arc-queue path consistency, entailment *and* refutation, the support a derived relation carries, and the prover shape every calculus over it shares.
 - [space.md](space.md) — the four spatial algebras over it: RCC-8 topology, cardinal direction, relative direction (whose frame of reference is the context) and qualitative distance (whose composition is the triangle inequality over the class bounds).
-- [time.md](time.md) — the two temporal algebras over it: Allen's thirteen interval relations, with the composition table written twice so a transcription error is a test failure, and the three-relation point algebra over instants.
+- [time.md](time.md) — the two temporal algebras over it: Allen's thirteen interval relations, with the composition table written twice so a transcription error is a test failure, and the three-relation point algebra over instants. Also the calendar constructors that name an interval, the clock that reads a calendar term's two bounding instants out of its fields, and the shipped event calculus whose inertia says what holds when.
 - [duration.md](duration.md) — the quantitative half of interval reasoning: `totalDuration` / `overlapDuration` computed over stored lengths and the unit table, on `[lo hi]` bounds so an over-approximation renders as an interval and says so.
 - [stp.md](stp.md) — metric time over the same instants: bounds on the gap between two timepoints, closed by all-pairs shortest paths, with `startOf` / `endOf` bridging the numbers back onto Allen's intervals and sharpening an overlap into a figure.
+- [sign.md](sign.md) — sign arithmetic over quantities nobody has put a figure on: three values, three declared relations, the one ambiguous entry in the addition table and the magnitude comparison that resolves it, and the `derivativeOf` edge that makes a trend the sign of a rate.
 - [scenario.md](scenario.md) — scenario extraction over any constraint network: one consistent base relation per pair, by fewest-possibilities-first backtracking — lazy, because the count is exponential, and deterministic, because every tie breaks on content.
 
 ## Contradiction solving (ASP)
@@ -126,12 +127,12 @@ rather than a compatibility claim.
 - [feed.md](feed.md) — `watch`: an application told that belief moved instead of asking again, off the settle that already computed it — one settle one event, standing queries as a filter over the moved region rather than a re-run, and what is refused because the region cannot answer it.
 - [operations.md](operations.md) — the operational surface: the `cli` driver, the headless EDN-over-HTTP daemon that is the single writer, and the zero-dep client threading an explicit connection.
 - [koinii.md](koinii.md) — multi-agent coordination over one KB: agents as contexts, moves as sentexes, the change feed as medium; the single-writer deployment shape, identity and the write boundary, speech acts, disputes and the split-by-policy adjudication, belief projection, CDC catch-up, and the content-addressed independent-seat topology.
-- [quality.md](quality.md) — `kb-quality`: five readings about the knowledge rather than the engine — which rules never fire, how skewed the predicate extents are, how deep the rule graph's chains reach, how much of the taxonomy reaches a root, which argument declarations name a position their predicate does not have — each off state that already exists, and none of them a gate.
+- [quality.md](quality.md) — `kb-quality`: seven readings about the knowledge rather than the engine — which rules never fire, how skewed the predicate extents are, how deep the rule graph's chains reach, how much of the taxonomy reaches a root, which argument declarations name a position their predicate does not have, which rules another rule already covers, which rule pairs would contradict each other if both fired — each off state that already exists, and none of them a gate.
 - [profile.md](profile.md) — the workload instrument: which shapes of question a KB is asked, which index families answer them, what a trie walk costs in node probes, and what one assert or one retraction costs each family — off by default and a deref when off. Also the count-based gate built on it, which fails the suite when a change adds an index operation to either write path, the class `lein perf`'s ratios cannot see.
 - [web.md](web.md) — the reitit-ring browser for terms, sentexes, and justifications;
   a term page opens with its shape drawn, server-side and inside a read budget.
 - [catalog.md](catalog.md) — the KB catalog: what a process can load (shipped, generated, corpus, dump, on-disk store), loading one in the background with progress and cancellation, and switching which one every page reads.
-- [caches.md](caches.md) — the cache register: the derived, droppable structures a process holds beside the stores, each self-declared with its scope, unit and bound; the wholesale-clear policy; `caches` / `clear-caches`; and a snapshot roster of all seventeen with their sizes.
+- [caches.md](caches.md) — the cache register: the derived, droppable structures a process holds beside the stores, each self-declared with its scope, unit and bound; the wholesale-clear policy; `caches` / `clear-caches`; and a snapshot roster of all eighteen with their sizes.
 - [llm.md](llm.md) — the pluggable LLM that reads a KB through generated tools and *proposes* an edit batch, graded by the engine's own well-formedness checks.
 - [reading.md](reading.md) — English in: a candidate generator with a reviewer between it and the store, resolving the document's own words against the KB's vocabulary before anything is asked, carrying the span each candidate came from, reporting what it could not translate — and scored against the hand-written fables.
 - [foreign.md](foreign.md) — the formats we read and do not write: no reader ships here, and a bridge is a plugin that declares itself in one edn resource on the classpath.

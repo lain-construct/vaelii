@@ -11,8 +11,10 @@
             [vaelii.core :as v]
             [vaelii.impl.catalog :as cat]
             [vaelii.impl.disk.backend :as disk]
+            [vaelii.impl.io.import :as import]
             [vaelii.impl.jobs :as jobs]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.protocols :as p]
             [vaelii.test-util :as tu]))
 
 ;; The catalog is process-global (one registry, one active KB), so every test starts and
@@ -59,6 +61,22 @@
     (testing "ids are unique — the registry keys entries by them"
       (is (apply distinct? (map :id (cat/sources)))))))
 
+(deftest a-source-nothing-offers-is-refused-by-its-id
+  ;; The refusal is for a caller naming a KB this machine does not have — a bookmarked
+  ;; key, a catalog entry whose directory moved.  Registered as an entry that then loads
+  ;; nothing, it would sit in the list saying `:running` with no loader behind it.
+  (let [e (is (thrown? clojure.lang.ExceptionInfo (cat/load-source "no-such-source")))]
+    (is (= :unknown-source (:type (ex-data e)))))
+  (is (empty? (cat/entries)) "and no entry was registered for it")
+  (testing "and the loader's own arm, for a source whose kind nothing here reads: the
+            key is claimed by the time `run-load` is reached, so the refusal has to be
+            one the entry can be dropped on"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (#'cat/run-load {:kind :not-a-kind :path "/nowhere"} {}
+                                         (fn [_] nil) (fn [_ _] nil))))]
+      (is (= :unknown-source (:type (ex-data e))))
+      (is (= :not-a-kind (:kind (ex-data e))) "and it names the kind it could not read"))))
+
 (deftest a-directory-is-classified-by-the-marker-its-writer-left
   (let [root (io/file (System/getProperty "java.io.tmpdir")
                       (str "vaelii-catalog-test-" (System/nanoTime)))]
@@ -95,6 +113,52 @@
           (is (nil? (cat/classify plain)))))
       (finally
         (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
+
+(deftest a-blank-search-path-is-unset-rather-than-no-directories-at-all
+  ;; A blank value is *unset* everywhere else this build reads a switch
+  ;; (`vaelii.impl.config`, `guard/api-token`).  Read as a value here it splits to
+  ;; nothing and discovery walks **no** directory at all, so `/kbs` offers the built-ins
+  ;; and reports nothing found — which reads as a machine holding no KBs rather than as
+  ;; a variable somebody exported empty.  The catalog file's name is the same shape: a
+  ;; blank one named the empty path, which is no file, so every entry in it went missing.
+  (let [path (System/getProperty "vaelii.kb.path")
+        cat  (System/getProperty "vaelii.kb.catalog")]
+    (try
+      (System/setProperty "vaelii.kb.path" "  ")
+      (System/setProperty "vaelii.kb.catalog" "")
+      (is (seq (cat/search-path))
+          "a blank value falls through, so discovery still has somewhere to walk")
+      (is (not-any? str/blank? (cat/search-path))
+          "and no entry of what it walks is the empty path")
+      (is (not (str/blank? (str (#'cat/catalog-file))))
+          "the catalog file falls through to a name rather than to the empty path")
+      (finally
+        (if path
+          (System/setProperty "vaelii.kb.path" path)
+          (System/clearProperty "vaelii.kb.path"))
+        (if cat
+          (System/setProperty "vaelii.kb.catalog" cat)
+          (System/clearProperty "vaelii.kb.catalog"))))))
+
+(deftest a-misspelt-belief-choice-reaches-the-importer-rather-than-defaulting
+  ;; The form speaks in verbs and `import-dump` speaks in `true` / `:stored` / `false`,
+  ;; so the catalog widens one into the other.  What it must not do is *swallow* the
+  ;; importer's own refusal: defaulted here, `{:belief? :store}` — one letter off
+  ;; `:stored` — reads as the records-only load, which never opens the justification
+  ;; stream, so what the typo dropped is dropped for good and nothing says so.
+  (let [mode #'cat/belief-mode]
+    (testing "the three verbs, and the importer's own vocabulary, translate"
+      (is (= true    (mode :rebuild)))
+      (is (= :stored (mode :stored)))
+      (is (false?    (mode :skip)))
+      (is (= true    (mode true)))
+      (is (false?    (mode false)))
+      (is (false?    (mode nil)) "no choice submitted is the form's own default")
+      (is (every? #(contains? import/belief-modes (mode %))
+                  [:rebuild :stored :skip true false nil])))
+    (testing "and anything else is handed on, so import-dump refuses it by name"
+      (is (= :store (mode :store)))
+      (is (not (contains? import/belief-modes (mode :store)))))))
 
 ;; ---- the lifecycle -------------------------------------------------------
 
@@ -166,6 +230,21 @@
         (wait-for)
         (is (not= a b))
         (is (= 3 (count (cat/entries))))))))
+
+(deftest a-key-the-registry-already-holds-is-not-loaded-over
+  ;; The refusal is for a second load under one key.  It would open a second set of
+  ;; stores, file them over the first, and leave that one resident for the life of the
+  ;; JVM with nothing pointing at it.  A KB `register!` filed under a source's own id is
+  ;; that key taken — how a browser started on one files it — so asking for the source
+  ;; is asking for it twice.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (cat/register! "core" "My KB" kb {:source (cat/source "core")})
+    (let [e (is (thrown? clojure.lang.ExceptionInfo (cat/load-source "core")))]
+      (is (= :already-loaded (:type (ex-data e))))
+      (is (= "core" (:key (ex-data e))) "the refusal names the entry that is in the way"))
+    (is (= 1 (count (cat/entries))) "and nothing was registered beside it")
+    (is (false? (cat/loading?)) "nor was a loader started")
+    (cat/unload! "core")))
 
 (deftest activating-switches-what-the-holder-yields
   (let [a (cat/load-source "core")
@@ -289,7 +368,7 @@
       (is (wait-for))
       (let [e (first (cat/entries))]
         (is (= :done (:status e)))
-        (is (= :disk (get-in e [:where :backend])))
+        (is (= :disk-log (get-in e [:where :backend])))
         ;; The claim is that closing *removes* nothing a reopen needs — not that the
         ;; directory is byte-identical.  A clean close legitimately writes: `counters.nippy`
         ;; (the id counter) and `clean.nippy` (the log lengths that let the next open skip
@@ -309,7 +388,7 @@
         ;; having destroyed a file — which is how this failed on one backend and no
         ;; other, the backend deciding only how long the preceding namespaces took and
         ;; hence where the snapshot fell against the tick.  Neither file is one a reopen
-        ;; needs: `compact!` deletes both on the way out, and `recover-log-compaction!`
+        ;; needs: `compact!` deletes both on the way out, and `recover-compaction!`
         ;; deletes any a crash left behind, before the log opens.
         (let [data   (fn [] (set (->> (file-seq (io/file dir))
                                       (filter #(.isFile ^java.io.File %))
@@ -324,7 +403,7 @@
             (is (empty? (set/difference before (data)))
                 (str "unload deleted " (pr-str (set/difference before (data)))))))
         (testing "and it can be picked up again, with its content intact"
-          (let [kb (v/open-kb {:backend :disk :dir dir :recover? :auto})]
+          (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? :auto})]
             (is (pos? (v/sentex-count kb)))
             ((requiring-resolve 'vaelii.impl.disk.backend/close-dir!) dir))))
       (finally
@@ -358,6 +437,29 @@
         (try (disk/close-dir! dir) (catch Exception _))
         (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^java.io.File f))))))
 
+(deftest an-unload-whose-loader-has-not-stopped-refuses-rather-than-releasing
+  ;; The refusal is for the entry a release cannot be safe on: its loader is still this
+  ;; process's writer, and clearing or closing the stores under one leaves a KB two
+  ;; things had a hand in.  A job the registry has already dropped — one still running
+  ;; six hours later is presumed wedged — answers no status at all, which is not a
+  ;; settled one either, so it refuses on the same ground and asks to be tried again.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (v/assert kb '(genl tmp_still_stopping_type thing) 'CxUniverse)
+    (let [key (cat/register! "mine" "My KB" kb)]
+      (#'cat/put-entry! key #(assoc % :status :running :job "a-job-the-registry-dropped"))
+      (is (= :running (:status (cat/entry key))) "the entry reads as one still loading")
+      (let [e (is (thrown? clojure.lang.ExceptionInfo (cat/unload! key)))]
+        (is (= :still-stopping (:type (ex-data e))))
+        (is (= key (:key (ex-data e)))))
+      (testing "and nothing was taken: the entry is whole, and says what it waits on"
+        (is (some? (cat/entry key)))
+        (is (re-find #"still stopping" (:error (cat/entry key))))
+        (is (pos? (v/sentex-count kb))))
+      (testing "settled, the same unload takes"
+        (#'cat/put-entry! key #(-> (dissoc % :job :error) (assoc :status :done)))
+        (is (true? (cat/unload! key)))
+        (is (nil? (cat/entry key)))))))
+
 (deftest a-failed-load-says-why-and-can-still-be-cleaned-up
   (let [root (io/file (System/getProperty "java.io.tmpdir")
                       (str "vaelii-catalog-bad-" (System/nanoTime)))
@@ -388,6 +490,38 @@
       (finally
         (if prop (System/setProperty "vaelii.kb.path" prop) (System/clearProperty "vaelii.kb.path"))
         (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
+
+(deftest a-store-this-build-cannot-read-is-refused-rather-than-opened-empty
+  ;; The refusal is for the one failure that otherwise reads as success: a record frozen
+  ;; with a class name this build does not resolve thaws to nippy's placeholder, so every
+  ;; read answers and every answer is empty — a KB that looks loaded and holds nothing.
+  ;; One record settles it, and a store holding none has nothing to disagree about.
+  ;;
+  ;; A `reify` rather than a redef, because `p/get-sentex` dispatches on the store's own
+  ;; type and never reads the var root.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (v/assert kb '(genl tmp_unreadable_type thing) 'CxUniverse)
+    (let [real (:records kb)
+          unthawable #_{:clj-kondo/ignore [:missing-protocol-method]}
+          (reify p/RecordStore
+            (sentex-ids [_] (p/sentex-ids real))
+            (get-sentex [_ _id]
+              {:nippy/unthawable {:type :record
+                                  :class-name "vaelii.impl.sentex.AtomicSentex"}}))
+          nothing-stored #_{:clj-kondo/ignore [:missing-protocol-method]}
+          (reify p/RecordStore
+            (sentex-ids [_] #{})
+            (get-sentex [_ _id] nil))]
+      (is (nil? (#'cat/check-readable! kb "/a/store/this/build/reads"))
+          "the KB's own records come back as sentexes")
+      (is (nil? (#'cat/check-readable! {:records nothing-stored} "/an/empty/store"))
+          "and an empty store is nothing to disagree about")
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (#'cat/check-readable! {:records unthawable}
+                                                  "/a/store/from/another/build")))]
+        (is (= :unreadable-store (:type (ex-data e))))
+        (is (= "/a/store/from/another/build" (:path (ex-data e)))
+            "and it names the directory, which is what an operator has to act on")))))
 
 (deftest a-search-path-entry-is-probed-to-a-cap-that-says-so
   ;; `sources` is recomputed per `/kbs` request, and every candidate under a
@@ -597,12 +731,24 @@
                   (str "exactly one takes the KB — unload " (pr-str u) ", export " (pr-str x)))
               (deliver gate true)
               (is (wait-for-export))
-              (when (= :started x)
+              ;; Which side reaches the monitor first is a scheduling race, and both
+              ;; outcomes are legal — so each arm states the three things ITS winner is
+              ;; owed, rather than one arm asserting and the other standing aside.  The
+              ;; assertion count is a gate, so a loaded box resolving the race the other
+              ;; way would read as a run that skipped something rather than as the other
+              ;; legal outcome.
+              (if (= :started x)
                 (testing "and the walk it let through dumped a KB that was still there"
                   (is (= before (v/sentex-count kb)))
                   (is (= :done (:status (jobs/latest :export))))
                   (is (pos? (:sentexes (:summary (jobs/latest :export)) 0))
-                      "the dump is of the KB, not of what was left of it"))))))
+                      "the dump is of the KB, not of what was left of it"))
+                (testing "and the unload it let through took the KB whole, dumping nothing"
+                  (is (zero? (v/sentex-count kb))
+                      "a memory-backed KB is cleared by the unload that claimed it")
+                  (is (nil? (cat/entry "mine")) "and the entry went with it")
+                  (is (not (.exists dump))
+                      "the export lost inside the monitor, before it opened a directory"))))))
         (when (cat/entry "mine") (cat/unload! "mine")))
       (finally
         (doseq [f (reverse (file-seq root))] (.delete ^java.io.File f))))))
@@ -690,6 +836,44 @@
     (testing "none of that started anything"
       (is (false? (cat/exporting?)))
       (is (nil? (jobs/latest :export))))
+    (cat/unload! "mine")
+    (cat/unload! "daemon")))
+
+(deftest the-export-refusals-name-themselves-in-the-type-a-caller-catches
+  ;; Three things an export cannot be correct in the face of, each read off the `:type`
+  ;; rather than off the prose, because the keyword is what a caller discriminates on:
+  ;; nowhere for the dump to go, a KB whose records are on another host, and a KB
+  ;; something is still writing — a walk of which is a dump of no single state.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (v/assert kb '(genl tmp_export_refusal_type thing) 'CxUniverse)
+    (cat/register! "mine" "My KB" kb {:where {:backend :memory}})
+    ;; how `vaelii.impl.web`'s `--attach` files a daemon: an entry like any other, whose
+    ;; KB is in another process
+    (cat/register! "daemon" "Daemon host:4200" {:mode :remote :conn ::stub})
+    ;; a directory no walk reaches: every refusal below runs before the destination is
+    ;; touched, so nothing is created and nothing needs cleaning up
+    (let [nowhere "/vaelii-export-that-is-never-written"]
+      (let [e (is (thrown? clojure.lang.ExceptionInfo (cat/export-entry! "mine" "" {})))]
+        (is (= :no-destination (:type (ex-data e)))))
+      (let [e (is (thrown? clojure.lang.ExceptionInfo (cat/export-entry! "daemon" nowhere {})))]
+        (is (= :not-in-process (:type (ex-data e))))
+        (is (= "daemon" (:key (ex-data e)))))
+      (testing "and a KB a job holds the writer of — the walk fetches record by record
+                with no snapshot to take instead, so it gives way rather than dumping
+                around the writer"
+        (let [gate (promise)
+              job  (jobs/submit {:label "a chaining run" :kind :chain :writes kb}
+                                (fn [_progress!] @gate nil))]
+          (try
+            (is (true? (cat/write-blocked? kb)))
+            (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                 (cat/export-entry! "mine" nowhere {})))]
+              (is (= :still-loading (:type (ex-data e)))))
+            (finally
+              (deliver gate true)
+              (jobs/wait job 30000)))))
+      (is (false? (cat/write-blocked? kb)) "the writer let go, so the refusal was its doing")
+      (is (nil? (jobs/latest :export)) "and none of the three started a walk"))
     (cat/unload! "mine")
     (cat/unload! "daemon")))
 

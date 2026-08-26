@@ -8,13 +8,19 @@
 #   BACKENDS — where the sentexes live.  Seven legal record×index pairs, spelled
 #              `<records>-<index>`, plus `overlay`, which is not an eighth pair but the
 #              fork decorator over an empty base (docs/overlay.md).
-#   SWEEPS   — which implementation answers, storage held at the default.  Five
+#   SWEEPS   — which implementation answers, storage held at the default.  Six
 #              components the engine otherwise picks for itself.
 #
 # `test-backends.sh` runs the first list, `test-sweeps.sh` the second, and
 # `test-matrix.sh` runs both at once — so the roster lives here rather than in the
 # script that happened to need it first.  Adding a backend or a sweep is an edit to this
 # file and to nothing else.
+#
+# Three more readings of the same table live here for the same reason: the GROUP words a
+# runner takes in place of a list of names (`config_group`), the ROUTINE roster a bare
+# run uses against the full thirteen (`ROUTINE_SKIP`), and what a changed FILE owes
+# (`config_owed_for_path`), which is how a change runs the configurations that could
+# disagree about it instead of all of them.
 #
 # Sourced, never executed:
 #   . scripts/lib/suite-configs.sh
@@ -26,20 +32,154 @@
 # four durable-record ones — derived indexes before the durable one, so the runs that
 # write least go first — then the decorator.
 ALL_BACKENDS=(memory memory-dense memory-columnar
-              disk-memory disk-dense disk-columnar disk
+              disk-memory disk-dense disk-columnar disk-log
               overlay)
 
 # Cheapest first, so a matrix that is going to fail on the retrieval switch says so
 # before spending twenty minutes on the node engine.  Kept as parallel arrays rather
 # than one associative array: bash 3.2 is what macOS ships, and `declare -A` is bash 4.
-ALL_SWEEPS=(tms-reference rete hier-off query-engine tactician)
+ALL_SWEEPS=(tms-reference rete hier-off plan-off query-engine tactician)
 SWEEP_ENVS=(
   "VAELII_TEST_TMS=reference"
   "VAELII_RETE=1"
   "VAELII_HIER=0"
+  "VAELII_PLAN=0"
   "VAELII_QUERY_ENGINE=inference"
   "VAELII_QUERY_ENGINE=inference VAELII_QUERY_STRATEGY=breadth-first"
 )
+
+# ---- the ROUTINE roster ---------------------------------------------------
+#
+# What a bare `test-matrix.sh` runs, against the fourteen `full` runs.  Two
+# configurations sit it out, and both are the same one claim written a third time.
+#
+# `disk-memory`, `disk-dense` and `disk-columnar` are durable records under a DERIVED
+# index.  Each index half already runs under RAM records in the list above, the records
+# half runs under `disk-log`, and what the pairing adds beyond those is the `reindex` on
+# open — the same rebuild whichever derived index it fills.  `mixed_backend_test` holds
+# that seam in an ordinary `lein test` and `backend_parity_test` runs its scripted
+# session on all three, so one of them stands for the composition here and the other two
+# are the cross-product for its own sake.
+#
+# They are also three of the four longest runs, at the head of a longest-first schedule,
+# which is what makes the difference readable rather than notional: the routine roster
+# finishes in about two thirds of the full one's wall clock.
+#
+# `full` is what a release runs, and what to run when the change is to the record/index
+# seam itself.  Nothing is DROPPED here — a skipped configuration is named on the
+# console every time, because a roster that quietly shrank is a matrix that means less
+# than the word does.
+ROUTINE_SKIP=(disk-dense disk-columnar)
+
+# The GROUP words a runner takes in place of a list of configuration names.  One line
+# per group, so a caller can `while read`.  Non-zero for a word that is not a group,
+# which is how a runner tells a group from a configuration without a second table.
+config_group() {
+  local want="$1" c s
+  case "$want" in
+    backends) printf '%s\n' "${ALL_BACKENDS[@]}"; return 0 ;;
+    sweeps)   printf '%s\n' "${ALL_SWEEPS[@]}"; return 0 ;;
+    full)     printf '%s\n' "${ALL_BACKENDS[@]}" "${ALL_SWEEPS[@]}"; return 0 ;;
+    routine)
+      for c in "${ALL_BACKENDS[@]}" "${ALL_SWEEPS[@]}"; do
+        for s in "${ROUTINE_SKIP[@]}"; do [[ "$c" == "$s" ]] && continue 2; done
+        printf '%s\n' "$c"
+      done
+      return 0 ;;
+  esac
+  return 1
+}
+
+# Expand any GROUP words among the arguments and drop repeats, printing one
+# configuration per line in the ROSTER's own order rather than the caller's:
+# `backends hier-off` and `hier-off backends` name the same set, a matrix reorders by
+# measured seconds anyway, and `config_owed_for_path` emits group words and
+# configuration names in the same breath.  Anything in neither table is dropped, so a
+# caller validates names with `config_kind` first if it wants a refusal.
+expand_configs() {
+  local want g out=() c seen
+  for want in "$@"; do
+    if g=$(config_group "$want"); then
+      while IFS= read -r c; do out+=("$c"); done <<< "$g"
+    else
+      out+=("$want")
+    fi
+  done
+  (( ${#out[@]} )) || return 0
+  for c in "${ALL_BACKENDS[@]}" "${ALL_SWEEPS[@]}"; do
+    for seen in "${out[@]}"; do
+      [[ "$c" == "$seen" ]] && { printf '%s\n' "$c"; break; }
+    done
+  done
+}
+
+# ---- what a changed FILE owes ----------------------------------------------
+#
+# The matrix's claim is that the suite is failing-set-identical across configurations,
+# so what a change owes is decided by which configurations could disagree ABOUT IT.
+# Three answers, and the third is the one that keeps this honest:
+#
+#   SWAPPED     the file is one half of a configuration — a record store, an index, a
+#               decorator, a matcher, a TMS, an executor, a planner.  The
+#               configurations that swap it are named exactly.
+#   SHARED      the file is what the configurations disagree THROUGH: retrieval, the
+#               index logic every backend runs, the belief and settle readers a
+#               backend's answers reach a caller by.  Owes `routine`.
+#   NOTHING     `lein gate` runs this same suite on `memory`, and a file no
+#               configuration swaps or reads through cannot answer differently under
+#               one.  Prints nothing.
+#
+# **This is a floor, not a proof.**  A configuration disagreeing about a third-bucket
+# file is possible — it is a bug in one of the first two, reached from an odd angle —
+# so a change whose blast radius you cannot see owes `routine`, and saying so costs one
+# argument.  What the floor buys is that the common case stops running fourteen suites
+# to learn something twelve of them were never asked.
+config_owed_for_path() {
+  case "$1" in
+    # --- swapped: the file IS half of a configuration ---
+    src/vaelii/impl/disk/*)              printf 'disk-log disk-memory' ;;
+    src/vaelii/impl/overlay/*)           printf 'overlay' ;;
+    src/vaelii/impl/columnar.clj)        printf 'memory-columnar disk-columnar' ;;
+    src/vaelii/impl/dense_kv.clj)        printf 'memory-dense disk-dense' ;;
+    # the roots backend is shared by BOTH dense index families, so either alone would
+    # leave half of what the file answers unrun
+    src/vaelii/impl/dense_roots.clj)     printf 'memory-dense memory-columnar' ;;
+    src/vaelii/impl/jtms.clj \
+    |src/vaelii/impl/dense_jtms.clj \
+    |src/vaelii/impl/jtms_protocol.clj)  printf 'tms-reference' ;;
+    src/vaelii/impl/rete.clj)            printf 'rete' ;;
+    src/vaelii/impl/inference.clj \
+    |src/vaelii/impl/tactics.clj)        printf 'query-engine tactician' ;;
+    # the ranking is read by BOTH executors — `tactics` sums `explain`'s estimates for
+    # node selection — so a change here owes the node engine's two as well as its own
+    src/vaelii/impl/plan.clj)            printf 'plan-off query-engine tactician' ;;
+    # the chainer is the matcher's reference half, and the join it leads is read
+    # through the index — so it owes the alternative matcher and the backends both
+    src/vaelii/impl/chain.clj)           printf 'rete backends' ;;
+    # retrieval is the swept half AND what every backend is read through
+    src/vaelii/impl/resolution.clj)      printf 'hier-off backends' ;;
+    # --- swapped on both store axes at once: every backend ---
+    src/vaelii/impl/memory.clj \
+    |src/vaelii/impl/kv.clj \
+    |src/vaelii/impl/kb.clj \
+    |src/vaelii/impl/protocols.clj \
+    |src/vaelii/impl/capabilities.clj \
+    |src/vaelii/impl/reads.clj \
+    |src/vaelii/impl/sentex.clj)         printf 'backends' ;;
+    # --- shared: what the configurations disagree through ---
+    src/vaelii/impl/checks.clj \
+    |src/vaelii/impl/settle.clj \
+    |src/vaelii/impl/taxonomy.clj \
+    |src/vaelii/impl/inherit.clj \
+    |src/vaelii/impl/rewrite.clj \
+    |src/vaelii/impl/caches.clj \
+    |src/vaelii/impl/literal_cache.clj)  printf 'routine' ;;
+    # the roster itself, and the harness that installs the switches: a change here
+    # changes what every other run MEANS, so it owes all of them
+    scripts/lib/suite-configs.sh \
+    |test/vaelii/test_util.clj)          printf 'full' ;;
+  esac
+}
 
 # backend | sweep, or nothing and a non-zero status for a name in neither list.  A
 # caller checks this before running anything: an unknown name would otherwise run the
@@ -72,7 +212,7 @@ config_env() {
 # its command line that means nothing.
 config_wants_disk() {
   case "$1" in
-    disk|disk-*) return 0 ;;
+    disk-*) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -86,27 +226,20 @@ config_wants_disk() {
 # failed to load, a `deftest` that stood aside without saying so, a switch that turned a
 # gate off — and every one of those reads as a green run.
 #
-# Two tests stand aside on purpose, and they are the whole table:
+# No configuration stands aside, and the table is empty by design.  Where an assertion
+# pins an artifact of one implementation — the columnar trie's absent `:fan`
+# (`profile_test/the-fan-tally-counts-what-the-walk-touched`, docs/profile.md), the node
+# engine's one-solution-per-answer `prove` (the `tu/query-engine-override` sites in
+# `backward_test`, `query_test` and `inference_test`, docs/inference.md) — the test
+# asserts that configuration's own expectation rather than skipping, so every
+# configuration runs the same number of assertions and any shortfall is a skip.
 #
-#   4   `profile_test/the-fan-tally-counts-what-the-walk-touched` — the `:fan` tally is
-#       the one that is not index-independent, since the columnar trie walks natively and
-#       counts no node probes.  It asserts that instead of standing aside (docs/profile.md).
-#   8   the four `tu/query-engine-override` sites in `backward_test`, `query_test` and
-#       `inference_test` — `prove` returns one solution per derivation on the DFS and one
-#       per answer on the node engine, so counting its results is a DFS question.
-#
-# MEASURED, at both selectors, so the table does not depend on which one is running:
-# `logs/test-matrix/run-92715` at `:all` puts the two columnar runs 4 below and the two
-# node-engine runs 8 below, and the contributing namespaces alone reproduce both at
-# `:default` (profile_test 86 -> 82, the three query namespaces 356 -> 348).  Neither
-# stand-aside sits in a `^:slow` test, which is why the two selectors agree.
-#
-# A new stand-aside belongs here with its reason, in the commit that adds it.
+# The function stays so the runners have one place to read an expected delta from.  A
+# configuration that has to stand aside would be recorded here with its reason, in the
+# commit that adds it — and the point of the empty table is that none has.
 config_expected_delta() {
   case "$1" in
-    memory-columnar|disk-columnar) printf '4' ;;
-    query-engine|tactician)        printf '8' ;;
-    *)                             printf '0' ;;
+    *) printf '0' ;;
   esac
 }
 

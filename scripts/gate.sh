@@ -49,8 +49,8 @@
 #   lein gate --sequential     # the old shape: one test JVM, one stage at a time
 #   lein gate --brief          # stage verdicts only, without each stage's roster
 #
-# A passing stage prints WHAT IT CHECKED under its row — lint's ten checks by name
-# and summary, perf's thirty-nine, the suite's shard banner and totals.  Four green
+# A passing stage prints WHAT IT CHECKED under its row — lint's checks by name
+# and summary, perf's every claim, the suite's shard banner and totals.  Four green
 # rows say a gate passed and not what it covered, and "what did that green actually
 # check" is the question a reader of one is being asked.  `stage_detail` says why it
 # reads those out of the stage logs rather than keeping a list here.
@@ -301,7 +301,7 @@ gate_rev=$(revision_hash)
 # line copy-pastes to re-run it and the `#` turns the blurb and log path into a
 # shell comment.  No `==>`/label gutter before the command — that would break the
 # paste.  The gate affords this where the matrix cannot: three short stages, not a
-# thirteen-wide column of `-Dvaelii.disk.dir=…` launches (test-matrix.sh says why).
+# dozen-wide column of `-Dvaelii.disk.dir=…` launches (test-matrix.sh says why).
 printf '%s%s%s  %s# %s — logs in %s%s\n' \
   "$BOLD" "$gate_cmd" "$RST" "$DIM" "$(revision_line)" "$OUT" "$RST"
 
@@ -316,8 +316,8 @@ announce () {                  # announce <name> <blurb> <cmd...>
 
 # ---- what each stage actually checked ------------------------------------
 #
-# A stage row is a verdict and not a roster.  `✓ lint` is ten independent checks
-# and `✓ perf` is thirty-nine, and four green rows cannot tell a gate that covered
+# A stage row is a verdict and not a roster.  `✓ lint` is nine independent checks
+# and `✓ perf` is forty-odd, and four green rows cannot tell a gate that covered
 # something from one that skipped it — which is the question somebody quoting a
 # green gate is actually being asked, and the reason `--only` and `--skip` exist
 # at all.  So each passing stage prints what it ran.

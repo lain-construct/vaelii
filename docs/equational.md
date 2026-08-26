@@ -143,12 +143,15 @@ assertion order — the invariant [nmtms.md](nmtms.md) makes non-negotiable:
 - **Orientation** is content-derived (weight, then a total symbol precedence), so the
   same equation always orients the same way.
 - **Rule application** tries rules in a **content-sorted** order (`tax/rewrite-rules`
-  sorts by printed LHS/RHS), so two overlapping rules that could rewrite one term pick
+  keys on LHS then RHS, compared structurally by `nm/compare-form` — never printed, since
+  an ambient `*print-length*` would elide two long left-hand sides to one prefix and drop
+  the choice back onto `:rewrite-active`'s handle-keyed iteration order), so two
+  overlapping rules that could rewrite one term pick
   the same winner regardless of which was asserted first — order-independence holds
   even for a non-confluent rule set. The order is derived once per rule *set*, not per
   call: it is memoized in the taxonomy's `:rewrite-order` side atom, stamped on the
   identity of the `:rewrite-active` map, so every writer of that map retires it and no
-  writer has to remember to. Without it, every `sentexes-matching` carrying a context paid the sort
+  writer has to remember to. Without it every read carrying a context would pay the sort
   — `kb/rewrite-goal` calls `rewrite-term`, which reads this.
 
 ## Recover
@@ -167,14 +170,18 @@ engine does not *complete* a non-confluent set (Knuth-Bendix completion can loop
 it does **detect and report** the conflicts. When a schematic equation is asserted,
 `rewrite/non-joining-pairs` computes the critical pairs between the new rule and the
 other active rules — a non-variable subterm of one LHS **unifies** with the other LHS,
-giving two ways to rewrite the overlap — and normalizes both reducts; a pair that does
+giving two ways to rewrite the overlap — and normalizes both reducts. The subterms it
+overlaps at are exactly the ones `normalize` reduces at: a term's own root and its
+arguments, never a compound in **functor** position, which `normalize` rebuilds
+untouched. A conflict reported over a head would be a warning about a reduction the
+engine does not perform. A pair that does
 not join is recorded in the [violations](api.md) ledger as `:non-confluent` (naming
 both rules and both forms) and logged. So two equations that disagree about a shared
 term — `f∘f = g` alongside `f∘f = h` — are surfaced to the author.
 
 It is **detection, not resolution**: nothing is dropped. The normal form stays
-deterministic (rules applied in content-sorted order), and `unify` remains the arbiter
-of every match, so a non-confluent set can only make a term written one way miss a
+deterministic (rules applied in content-sorted order), and `match` remains the arbiter
+of every rewrite, so a non-confluent set can only make a term written one way miss a
 theory-equal term written another — never match wrongly. **Self-overlaps are
 excluded**: a lone rule's abstract non-confluence (`f³` reduces two ways) is absorbed
 by the deterministic normalization — the same syntactic term always normalizes the

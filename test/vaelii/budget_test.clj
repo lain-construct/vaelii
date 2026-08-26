@@ -29,7 +29,10 @@
     (is (= :complete (:status r)))
     (is (= 5 (:count r)))
     (is (nil? (:resume r)))
-    (is (<= 0 (:elapsed-ms r)))))
+    ;; a wall-clock delta is never negative, so `(<= 0 …)` would be a reading of the
+    ;; clock rather than of the collector; what the report promises is the key, carrying
+    ;; `ms-since`'s fractional millisecond rather than a rounded one
+    (is (double? (:elapsed-ms r)))))
 
 (deftest collect-empty-source-is-complete
   (let [r (budget/collect () {:max-results 3})]
@@ -177,6 +180,25 @@
         (is (= #{B C} (set (map #(get % '?y)
                                 (:results (v/ask-within kb goal CxFam {:max-cost :compute}))))))))))
 
+(tu/deftest-kb the-lookup-ceiling-keeps-the-closed-world-prover
+  ;; `UnknownProver` costs `:compute`, and every other `:compute` member falls out under a
+  ;; `:lookup` ceiling.  This one does not, and the asymmetry is what an honest empty rests
+  ;; on: dropping a `:compute` prover makes a run *under-report*, which is the trade a
+  ;; ceiling asks for, while dropping the closed-world one **inverts** it — an empty result
+  ;; for `(unknown S)` reads as "S is derivable" and the run reports `:complete` while
+  ;; saying it.  So both directions are pinned here: with the prover dropped, the second
+  ;; assertion would read the same and the first would go quietly false.
+  (tu/with-terms [flies Tweety CxFam]
+    (let [goal (list 'unknown (list flies Tweety))]
+      (testing "an underivable argument is unknown, even at the lowest ceiling"
+        (let [r (v/ask-within kb goal CxFam {:max-cost :lookup})]
+          (is (= :complete (:status r)))
+          (is (= [{}] (:results r))
+              "an empty answer here would read as (flies Tweety) being derivable")))
+      (v/assert kb (list flies Tweety) CxFam)
+      (testing "and a derivable one is not, at the same ceiling"
+        (is (empty? (:results (v/ask-within kb goal CxFam {:max-cost :lookup}))))))))
+
 ;; ---- prove-within -------------------------------------------------------
 ;; A single-expansion grandparentOf rule (backward-only, so nothing is forward-
 ;; materialized) gives a clean handle on both the result cap and :max-depth without
@@ -251,7 +273,97 @@
           (is (some? (:deadline b)))
           (is (= 3 (:max-results b)))
           (is (= 2 (:max-depth b)))
-          (is (nil? (:max-term-growth b)) "unnamed is the default ceiling, not no ceiling"))))))
+          (is (nil? (:max-term-growth b)) "unnamed is the default ceiling, not no ceiling")))
+      ;; ...and the public door reaches `prove-from` through that same translation rather
+      ;; than through a bounds map of its own.  The bound is rostered, so `check-budget!`
+      ;; admits it — a door that then dropped it would answer under the shipped ceiling
+      ;; with nothing to say the raise had not been read.
+      ;; Under the shipped executor whatever the sweep installed: the claim is about the
+      ;; DFS arm's translation, and the node engine takes neither this map nor this bound.
+      (testing "prove-within carries it, and builds no bounds map of its own"
+        (tu/with-shipped-config
+          (is (empty? (:results (v/prove-within kb (list p A) CxRaise nil)))
+              "the shipped ceiling, through the public door")
+          (is (= [{}] (:results (v/prove-within kb (list p A) CxRaise {:max-term-growth 20})))
+              "and a raised one reaches the fact the bounds map already reaches"))))))
+
+;; ---- the plain doors under a bound ----------------------------------------
+;; `ask` / `ask?` / `prove` / `provable?` each take a trailing bound of their own, and the
+;; two kinds of bound answer differently on purpose: a depth PRUNES, so the answer is the
+;; whole of what that depth admits, while a clock SUSPENDS, so what the search holds is a
+;; prefix — and a solution vector and a boolean have no room to say so.  These pin both
+;; halves, and the second is what stops a deadline from reading as a KB that knows less.
+
+(tu/deftest-kb a-bound-it-runs-dry-inside-answers-what-the-unbounded-door-does
+  (tu/with-terms [parentOf grandparentOf Tom Bob Ann Zed CxFam]
+    (grandparent-kb kb parentOf grandparentOf Tom Bob Ann Zed CxFam)
+    (let [goal (list grandparentOf Tom '?who)
+          who  (fn [ms] (set (map #(get % '?who) ms)))]
+      (is (= #{Ann Zed} (who (v/prove kb goal CxFam {:max-ms 60000}))))
+      (is (= (who (v/prove kb goal CxFam)) (who (v/prove kb goal CxFam {:max-ms 60000})))
+          "a generous bound changes no answer")
+      (is (true? (v/provable? kb goal CxFam {:max-ms 60000})))
+      (is (= (set (v/ask kb (list parentOf Tom '?y) CxFam))
+             (set (v/ask kb (list parentOf Tom '?y) CxFam {:max-ms 60000})))
+          "and the registry's answers are the registry's answers")
+      (is (true? (v/ask? kb (list parentOf Tom '?y) CxFam {:max-ms 60000}))))))
+
+(tu/deftest-kb a-depth-prunes-so-it-answers-rather-than-refusing
+  ;; The space under a depth is genuinely exhausted, so `false` there is a statement about
+  ;; derivations within that depth — a question a caller may ask — where `false` under an
+  ;; exhausted clock would be a statement about the clock wearing the KB's face.
+  (tu/with-terms [parentOf grandparentOf Tom Bob Ann Zed CxFam]
+    (grandparent-kb kb parentOf grandparentOf Tom Bob Ann Zed CxFam)
+    (let [goal (list grandparentOf Tom '?who)]
+      (is (empty? (v/prove kb goal CxFam {:max-depth 0}))
+          "no rule expansion, so a rule-derived goal has nothing")
+      (is (false? (v/provable? kb goal CxFam {:max-depth 0}))
+          "and the boolean says so rather than refusing")
+      (is (= #{Ann Zed} (set (map #(get % '?who) (v/prove kb goal CxFam {:max-depth 1}))))
+          "one expansion is enough, and the answer is complete for that depth"))))
+
+(tu/deftest-kb an-exhausted-clock-is-a-refusal-and-never-a-short-answer
+  ;; `{:max-ms 0}` is a deadline already past, so the search stops at its first bound check
+  ;; whatever the box is doing — the honest reading of "no time at all", and the only
+  ;; spelling of this that reads the same on an idle box and under a dozen JVMs.
+  (tu/with-terms [p SuccFn A CxLoop]
+    ;; a rule whose every expansion wraps one more term around its subgoal, so it asks a
+    ;; fresh goal each time: a search that runs until a guard stops it rather than until
+    ;; the data does, which is what a bound on these doors is for
+    (v/assert-rule kb [(list p (list SuccFn '?x))] (list p '?x) CxLoop {:direction :backward})
+    (v/assert kb (list p A) CxLoop)
+    (let [goal (list p A)]
+      (doseq [[door run] [["prove"     #(v/prove kb goal CxLoop {:max-ms 0})]
+                          ["provable?" #(v/provable? kb goal CxLoop {:max-ms 0})]
+                          ["ask"       #(v/ask kb goal CxLoop {:max-ms 0})]
+                          ["ask?"      #(v/ask? kb goal CxLoop {:max-ms 0})]]]
+        (let [d (ex-data (is (thrown? clojure.lang.ExceptionInfo (run))))]
+          (is (= :budget-exhausted (:type d))
+              (str door " refused rather than answering off a prefix"))
+          (is (= [door :timeout] [(:door d) (:status d)])
+              "naming the door that ran out and what stopped it"))))))
+
+(tu/deftest-kb each-bounded-door-reads-its-own-roster
+  (tu/with-terms [dog Muffet CxRoster]
+    (v/assert kb (list dog Muffet) CxRoster)
+    (let [goal    (list dog '?x)
+          refusal (fn [f] (:type (ex-data (is (thrown? clojure.lang.ExceptionInfo (f))))))]
+      (testing "a misspelt bound is refused rather than run unbounded"
+        (is (= [:unknown-option :unknown-option :unknown-option :unknown-option]
+               [(refusal #(v/prove kb goal CxRoster {:max-mss 10}))
+                (refusal #(v/provable? kb goal CxRoster {:max-mss 10}))
+                (refusal #(v/ask kb goal CxRoster {:max-mss 10}))
+                (refusal #(v/ask? kb goal CxRoster {:max-mss 10}))])))
+      (testing "a depth is prove's and not ask's — nothing in the registry expands a
+                rule, so a depth there would be a bound accepted and never consulted"
+        (is (= :unknown-option (refusal #(v/ask kb goal CxRoster {:max-depth 1}))))
+        (is (= :unknown-option (refusal #(v/ask? kb goal CxRoster {:max-depth 1}))))
+        (is (= #{Muffet} (set (map #(get % '?x)
+                                   (v/prove kb goal CxRoster {:max-depth 1}))))))
+      (testing "and a bound that is not the kind of number it names, since one that is
+                not reads as no bound at all"
+        (is (= :unknown-option (refusal #(v/prove kb goal CxRoster {:max-depth -1}))))
+        (is (= :unknown-option (refusal #(v/ask kb goal CxRoster {:max-ms :soon}))))))))
 
 ;; ---- the budget roster ----------------------------------------------------
 

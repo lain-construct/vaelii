@@ -64,6 +64,7 @@
             [vaelii.impl.nat :as nat]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]))
@@ -167,11 +168,11 @@
 (defn- level-0
   "Raw handles at an index location.  No records are fetched and nothing is
   interpreted — not belief, not polarity, not the goal's arguments beyond what the
-  path already encodes.  `p/lookup` is one trie walk regardless of how much of the
+  path already encodes.  `reads/as-stored-at-path` is one trie walk regardless of how much of the
   result you consume."
   [kb goal context]
   (map (fn [h] {:level 0 :handle h :sentence nil :context nil :bindings nil})
-       (p/lookup (:index kb) (goal-path kb goal context))))
+       (reads/as-stored-at-path (:index kb) (goal-path kb goal context))))
 
 (defn- root-refs
   "The secondary roots that constrain a level-1 lookup, each with its O(1)
@@ -182,11 +183,11 @@
         pred (when (sequential? goal) (nm/functor goal))]
     (cond-> []
       (and (some? context) (not (sx/variable? context)))
-      (conj {:count (p/count-in-context idx context)
-             :fetch #(p/sentexes-in-context idx context)})
+      (conj {:count (reads/stored-count-in-context idx context)
+             :fetch #(reads/as-stored-in-context idx context)})
       (symbol? pred)
-      (conj {:count (p/count-with-functor idx pred)
-             :fetch #(p/sentexes-with-functor idx pred)}))))
+      (conj {:count (reads/stored-count-with-functor idx pred)
+             :fetch #(reads/as-stored-with-functor idx pred)}))))
 
 (defn- level-1
   "One literal context, no inheritance, no rules: the context's extent, narrowed to
@@ -348,7 +349,8 @@
   seq of uniform result maps: {:level :handle :sentence :context :bindings}."
   [kb level goal context]
   (when-not (and (integer? level) (<= 0 level max-level))
-    (throw (ex-info (str "level must be 0-" max-level) {:type :bad-level :level level})))
+    (throw (ex-info (str "level must be an integer 0-" max-level ", got " (pr-str level))
+                    {:type :bad-level :level level})))
   ((nth level-fns level) kb goal context))
 
 (defn escalate
@@ -365,14 +367,15 @@
    ;; would make `tried` empty and answer {:level nil} — a plausible "nothing
    ;; answered" for what is an off-by-one in the caller's arithmetic
    (when-not (and (integer? floor) (<= 0 floor max-level))
-     (throw (ex-info (str "floor must be 0-" max-level) {:type :bad-level :floor floor})))
+     (throw (ex-info (str "floor must be an integer 0-" max-level ", got " (pr-str floor))
+                     {:type :bad-level :floor floor})))
    (let [tried (range floor (inc max-level))
          ;; `some`, not `(first (keep ...))`: `(range 2 8)` is a **chunked** seq, and
          ;; `keep`'s chunked path runs its function over the whole chunk before
-         ;; yielding anything — so a goal answered at level 2 still probed levels 3-7,
-         ;; backward chaining included.  The reported `:tried` said `[2]` while six
-         ;; levels had run, which is the expensive half of the claim silently false.
-         ;; `some` walks with `recur` and stops at the first hit.
+         ;; yielding anything — so a goal answered at level 2 would still probe levels
+         ;; 3-7, backward chaining included, and report `:tried [2]` while six levels
+         ;; ran: the expensive half of the climb's claim, silently false.  `some` walks
+         ;; with `recur` and stops at the first hit.
          hit   (some (fn [n]
                        (let [rs (lookup kb n goal context)]
                          (when (seq rs) [n rs])))

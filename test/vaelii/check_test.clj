@@ -251,6 +251,79 @@
           (is (seq (:cycle (first ps)))))
         (is (= :not-stratified (assert-type kb cyclic CxThe)))))))
 
+;; A `different` antecedent is negation as failure over the equality closure
+;; (`checks/negative-predicates`), so a rule reading it carries a negative edge while
+;; carrying no exception — and nothing registers such a rule for re-checking, so the
+;; roster of watched rules does not name it.  Both stratification doors have to find it
+;; anyway (`checks/negative-edge-rules`), or the same pair of rules is refused in one
+;; arrival order and stored in the other.
+
+(defn- different-cycle-rules
+  "The unstratified pair: the negative half reads `different` and concludes `qP`, the
+  positive half concludes an equality from `qP`.  `equality` is what closes the ring —
+  `sameAs` directly, or a predicate a `genl` edge later puts underneath it."
+  [aP qP equality]
+  [(list 'implies (list 'and (list aP '?x '?y) (list 'different '?x '?y))
+         (list qP '?x '?y))
+   (list 'implies (list qP '?x '?y) (list equality '?x '?y))])
+
+(deftest a-different-antecedent-closes-a-cycle-in-either-arrival-order
+  (testing "the positive half arrives last — the negative edge is a stored rule's"
+    (tu/with-neutral-kb [kb kb-with-starter]
+      (tu/with-terms [aP qP CxThe]
+        (let [[neg pos] (different-cycle-rules aP qP 'sameAs)]
+          (v/assert kb neg CxThe)
+          (is (= #{:not-stratified} (types-of-check kb pos CxThe)))
+          (is (= :not-stratified (assert-type kb pos CxThe)))
+          (is (empty? (v/sentexes-matching kb pos '?ctx)))))))
+  (testing "the negative half arrives last — the same rule set, the same refusal"
+    (tu/with-neutral-kb [kb kb-with-starter]
+      (tu/with-terms [aP qP CxThe]
+        (let [[neg pos] (different-cycle-rules aP qP 'sameAs)]
+          (v/assert kb pos CxThe)
+          (is (= :not-stratified (assert-type kb neg CxThe))))))))
+
+(deftest a-genl-edge-closing-a-cycle-round-a-different-antecedent-is-refused
+  ;; the edge path: both rules are stratified until the edge puts `zSame` under `sameAs`,
+  ;; which is when the negative edge out of the `different` rule reaches the rule
+  ;; concluding `zSame`.
+  (tu/with-neutral-kb [kb kb-with-starter]
+    (tu/with-terms [aP qP zSame unrelated CxThe]
+      (let [[neg pos] (different-cycle-rules aP qP zSame)
+            edge      (list 'genl zSame 'sameAs)]
+        (v/assert kb neg CxThe)
+        (v/assert kb pos CxThe)
+        (is (= #{:not-stratified} (types-of-check kb edge CxThe)))
+        (is (= :not-stratified (assert-type kb edge CxThe)))
+        (testing "and it leaves nothing behind"
+          (is (empty? (v/sentexes-matching kb edge '?ctx))))
+        (testing "an edge that closes no cycle still lands, so the refusal is the cycle"
+          (is (some? (v/assert kb (list 'genl zSame unrelated) CxThe))))))))
+
+;; ---- encodability: what a sentence's content may be ----------------------
+;; A map or a set has no canonical form, so `sentex/canon` cannot normalize one and
+;; `nm/form-rank` cannot order one — the door refuses it rather than storing a sentence
+;; whose durable bytes and whose content order both depend on how it was built.
+
+(deftest a-map-or-set-anywhere-in-a-sentence-is-refused
+  (tu/with-neutral-kb [kb kb-with-starter]
+    (tu/with-terms [holds Tom CxThe]
+      (doseq [[label arg] [["a map argument"            {:a 1}]
+                           ["a set argument"            #{1 2}]
+                           ["a map inside a vector"     [1 {:a 1}]]
+                           ["a set inside a compound"   (list 'ListFn #{1 2})]]]
+        (testing label
+          (let [sentence (list holds Tom arg)]
+            (is (= #{:not-encodable} (types-of-check kb sentence CxThe)))
+            (is (= :not-encodable (assert-type kb sentence CxThe)))
+            (is (empty? (v/sentexes-matching kb sentence CxThe))))))
+      (testing "a rule literal is walked too — the whole rule is one sentence"
+        (is (= :not-encodable
+               (assert-type kb (list 'implies (list holds '?x {:a 1}) (list holds '?x Tom))
+                            CxThe))))
+      (testing "the sequential the refusal points at is accepted"
+        (is (some? (v/assert kb (list holds Tom [[:a 1] [:b 2]]) CxThe)))))))
+
 ;; ---- the batch form -----------------------------------------------------
 
 (deftest check-edit-points-at-the-entry-that-is-wrong
@@ -335,6 +408,27 @@
               (is (some? p) "both declarations convict, so a violation is reported")
               (is (= (nth winner 2) (:position p)))
               (is (= (nth winner 3) (:expected p))))))))))
+
+;; ---- an imperative is an instruction, so there is no verdict to predict ---
+
+(deftest a-do-imperative-is-reported-not-checkable-rather-than-refused
+  ;; `check` promises what `assert` would do, and what `assert` does with a `do/` form is
+  ;; *run* it — nothing is stored, so there is no admissibility to answer.  The answer is
+  ;; a problem row rather than a throw because the caller is an editor grading lines: an
+  ;; imperative is a line it may not grade, not a request it got wrong.  The `:type` is
+  ;; how it tells the two apart, since every other row on this route is a refusal.
+  (tu/with-neutral-kb [kb kb-with-starter]
+    (tu/with-terms [CxPlan]
+      (let [before (v/sentex-count kb)]
+        (doseq [imperative [(list 'do/label CxPlan CxPlan :one)
+                            (list 'do/labeling CxPlan)]]
+          (testing (str (first imperative) " is reported rather than graded")
+            (let [problems (v/check kb imperative 'CxUniverse)]
+              (is (= [:not-checkable] (mapv :type problems)))
+              (is (= imperative (:sentence (first problems)))
+                  "and the row names the form, so an editor can say which line"))))
+        (testing "and reporting ran none of them — check reads, it does not act"
+          (is (= before (v/sentex-count kb))))))))
 
 ;; ---- ist and the wrappers dispatch the way assert does ------------------
 
@@ -440,20 +534,21 @@
                   (list 'implies (list 'and (list person '?x) (list 'thereExists '?x (list adult '?x)))
                         (list loner '?x))
                   :quantifier-not-local]
-                 ["a conjunction under a quantifier, which needs a join"
+                 ["a quantified variable no generator conjunct of the query produces"
                   (list 'implies (list 'and (list person '?x)
                                        (list 'unknown (list 'thereExists '?c
-                                                            (list 'and (list kidOf '?x '?c)
-                                                                  (list sick '?c)))))
+                                                            (list 'and (list kidOf '?x '?x)
+                                                                  (list 'unknown (list sick '?c))))))
                         (list loner '?x))
-                  :quantified-conjunction]
-                 ["an aggregate body that spells the same shape"
+                  :naf-not-closed]
+                 ["an aggregate whose reduction variable no census conjunct produces"
                   (list 'implies (list 'and (list person '?x)
-                                       (list 'agg/count '?n '?c (list 'and (list kidOf '?x '?c)
-                                                                      (list sick '?c)))
+                                       (list 'agg/count '?n '?c
+                                             (list 'and (list kidOf '?x '?x)
+                                                   (list 'unknown (list sick '?c))))
                                        (list 'lessThan 1 '?n))
                         (list loner '?x))
-                  :quantified-conjunction]
+                  :naf-not-closed]
                  ["an aggregate reducing over a constant"
                   (list 'implies (list 'and (list person '?x)
                                        (list 'agg/count '?n 'Ada (list kidOf '?x 'Ada)))
@@ -471,6 +566,22 @@
           (is (= [] (v/check kb (list 'implies (list 'and (list person '?x)
                                                      (list 'unknown (list 'and (list adult '?x)
                                                                           (list sick '?x))))
+                                      (list loner '?x))
+                             'CxUniverse))))
+        (testing "and so is the quantified conjunction the join now answers"
+          (is (= [] (v/check kb (list 'implies (list 'and (list person '?x)
+                                                     (list 'unknown
+                                                           (list 'thereExists '?c
+                                                                 (list 'and (list kidOf '?x '?c)
+                                                                       (list sick '?c)))))
+                                      (list loner '?x))
+                             'CxUniverse))))
+        (testing "and so is the conjunctive census body, which is joined the same way"
+          (is (= [] (v/check kb (list 'implies (list 'and (list person '?x)
+                                                     (list 'agg/count '?n '?c
+                                                           (list 'and (list kidOf '?x '?c)
+                                                                 (list sick '?c)))
+                                                     (list 'lessThan 1 '?n))
                                       (list loner '?x))
                              'CxUniverse))))
         (testing "and nothing any of it named was stored"

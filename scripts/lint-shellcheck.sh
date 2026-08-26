@@ -32,6 +32,7 @@ SCRIPTS=(
   scripts/lint-glossary.sh
   scripts/lint-versions.sh
   scripts/lint-shellcheck.sh
+  scripts/lint-conflict-markers.sh
   scripts/check-reflection.sh
   scripts/check-breaking-siblings.sh
   scripts/coverage.sh

@@ -9,7 +9,7 @@
   (:require [vaelii.impl.cli :as cli]))
 
 (defn open-kb-from
-  "The KB a set of parsed CLI options names — `--dir` for the durable `:disk` backend
+  "The KB a set of parsed CLI options names — `--dir` for the durable `:disk-log` backend
   (recovered on open), `--starter` for a starter-loaded in-memory one, else empty."
   [opts]
   (cli/open-kb-from opts))

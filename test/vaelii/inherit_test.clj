@@ -847,3 +847,61 @@
     (v/assert kb (list chihuahua_t Other) 'CxUniverse)
     (is (empty? (v/sentexes-matching kb (list fitsIn Other) 'CxUniverse))
         "and a fresh firing agrees with it")))
+
+;; ---- the memo's growth claim, counted -------------------------------------
+;;
+;; docs/inherit.md's memo claim is that the reach walk is **linear in the claims**:
+;; `positions` is asked by four callers, and `witness-terms` once per preserved position
+;; and then again per *pair* of claims inside `undercut?` — so an unmemoized walk is
+;; quadratic in how many claims reach the term.  The answers are identical either way and
+;; only the cost moves, so nothing but a count can see it.  `res/matches-visible` is the
+;; seam: a reach over a fact-relation reads it once per node walked (`inherit/fact-reach`).
+;;
+;; A ratio of **second differences** rather than a pinned number: linear growth doubles the
+;; step from 4→8 claims to 8→16 and quadratic growth quadruples it, so 3.0 sits between the
+;; two with room on either side.  `lein perf`'s `inherit-reach-memo` holds the same claim as
+;; a duration, and neither subsumes the other — a count cannot see a slower walk and a
+;; duration cannot see a constant.
+
+(defn- visible-reads
+  "How many `res/matches-visible` calls `run` makes."
+  [run]
+  (let [n (atom 0), orig @#'res/matches-visible]
+    (with-redefs-fn {#'res/matches-visible (fn [& args] (swap! n inc) (apply orig args))}
+      (fn [] (run) @n))))
+
+(defn- preserved-fan!
+  "`rel` transitive with `base` a part of every one of `owners`, `pred` preserved along
+  `rel` at position 1, and `pred` stated of every owner.  So a goal about `base` has one
+  claim per owner and no two of them are comparable — every claim survives, and
+  `undercut?` asks for a reach once per *pair* on the way to saying so."
+  [kb rel pred base owners]
+  (v/with-deferred-settle kb
+    (v/assert kb (list 'transitive rel) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArg pred 1 rel) 'CxUniverse)
+    (doseq [o owners]
+      (v/assert kb (list rel base o) 'CxUniverse)
+      (v/assert kb (list pred o) 'CxUniverse))))
+
+(defn- reach-reads
+  "What `inherit/surviving` costs in visible reads over `n` incomparable claims about one
+  term — each size gets its own relation, predicate and term, so the three do not share a
+  reach."
+  [kb n]
+  (tu/with-terms [partOf needsWork]
+    (let [base   (tu/tmp-ind "Part")
+          owners (into [] (repeatedly n #(tu/tmp-ind "Whole")))
+          drain  #(doall (inherit/surviving kb (list needsWork base) 'CxUniverse))]
+      (preserved-fan! kb partOf needsWork base owners)
+      (drain)                                  ; warm whatever caches persist between asks
+      (is (= n (count (drain))) "one surviving claim per owner, none comparable")
+      (visible-reads drain))))
+
+(tu/deftest-kb the-reach-walk-is-linear-in-the-claims-and-not-quadratic
+  (let [r4  (reach-reads kb 4)
+        r8  (reach-reads kb 8)
+        r16 (reach-reads kb 16)]
+    (is (< r4 r8 r16) "the reading really does grow with the claims")
+    (is (< (/ (double (- r16 r8)) (double (- r8 r4))) 3.0)
+        (str "the second difference must double and not quadruple — got "
+             r4 " / " r8 " / " r16 " reads at 4 / 8 / 16 claims"))))

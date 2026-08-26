@@ -56,7 +56,7 @@
     (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
     (v/assert kb (list bird eagle) 'CxUniverse)
     (testing "with no contrary evidence the default conclusion holds"
-      (is (v/in? kb (:id (first (v/sentexes-matching kb (list flies eagle) 'CxUniverse))))))))
+      (is (v/in? kb (v/handle-of kb (list flies eagle) 'CxUniverse))))))
 
 ;; ---- nogood discovery is driven off the opposed bodies (settle F1) -------
 ;; `negation-nogoods` enumerates the negated bodies and gates each on whether a

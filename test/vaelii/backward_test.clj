@@ -166,13 +166,15 @@
     (v/assert-rule kb [(list viaB '?x)] (list shared '?x) CxDeriv)
     (v/assert kb (list viaA Someone) CxDeriv)
     (v/assert kb (list viaB Someone) CxDeriv)
-    (let [proofs (v/prove kb (list shared '?x) CxDeriv)]
-      (when-not (tu/query-engine-override)
-        (testing "every derivation is its own solution, and equal maps repeat"
-          (is (< 1 (count proofs))
-              "two rules concluding one goal are two derivations")
-          (is (apply = proofs)
-              "and the maps are equal — the repeat carries no binding the others lack")))
+    (let [proofs (v/prove kb (list shared '?x) CxDeriv)
+          ;; the DFS answers one solution per derivation, the node engine one per answer —
+          ;; the sweep runs the second, so the multiplicity asserted is the engine's own
+          per-derivation? (nil? (tu/query-engine-override))]
+      (testing "every derivation is its own solution under the DFS, and equal maps repeat"
+        (is (= per-derivation? (< 1 (count proofs)))
+            "two rules concluding one goal are two derivations, or one answer")
+        (is (apply = proofs)
+            "and the maps are equal — a repeat carries no binding the others lack"))
       (testing "the answer set is one binding, however many derivations reached it"
         (is (= 1 (count (distinct proofs)))
             "so `distinct` is what recovers the answer set"))
@@ -181,8 +183,7 @@
         (is (= 1 (count (v/query kb (list shared '?x) CxDeriv {:max-depth 3})))))
       (testing "a ground goal binds nothing, so the repeats are empty maps"
         (let [ground (v/prove kb (list shared Someone) CxDeriv)]
-          (when-not (tu/query-engine-override)
-            (is (< 1 (count ground))))
+          (is (= per-derivation? (< 1 (count ground))))
           (is (every? empty? ground))
           (is (v/provable? kb (list shared Someone) CxDeriv)
               "provable? asks whether there is one, not how many"))))))

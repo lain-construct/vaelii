@@ -24,7 +24,9 @@
             [vaelii.core :as v]
             [vaelii.impl.catalog :as catalog]
             [vaelii.impl.client :as client]
+            [vaelii.impl.config :as config]
             [vaelii.impl.guard :as guard]
+            [vaelii.impl.llm.tools :as tools]
             [vaelii.impl.serve :as serve]
             [vaelii.impl.subscribe :as sub]
             [vaelii.test-util :as tu])
@@ -152,6 +154,42 @@
           (is (= 400 (:status r)))
           (is (false? (:ok r)))
           (is (= :bad-args (:type r))))))))
+
+(tu/deftest-kb a-fault-the-daemon-cannot-name-still-answers-with-a-type
+  ;; The floor under the one-vocabulary promise `docs/operations.md` makes.  A door that
+  ;; fails for a reason nothing here classifies — a record store that will not answer, a
+  ;; solver binary that is not on the host — must still hand a caller a keyword to catch
+  ;; on: `:type nil` is the key present and useless, which is the one answer worse than
+  ;; either.  Both arms, because a throw reaches the handler two ways and only one of
+  ;; them carries `ex-data` at all.
+  (let [handler (open-app kb)
+        answer  (fn [thrown]
+                  ;; the fault is logged at :warn on the way past, which is the daemon
+                  ;; doing its job rather than something for a test run to print
+                  (binding [trove/*log-fn* (fn [& _] nil)]
+                    (with-redefs [serve/ops (assoc serve/ops :sentex-count
+                                                   (fn [_kb _args] (throw thrown)))]
+                      (post-op handler :sentex-count []))))]
+    (testing "an ex-info whose ex-data names no type"
+      (let [r (answer (ex-info "the record store would not answer" {:handle 7}))]
+        (is (= 500 (:status r)))
+        (is (false? (:ok r)))
+        (is (= :internal-error (:type r)))))
+    (testing "and a bare Java exception, which carries no ex-data at all"
+      (let [r (answer (RuntimeException. "the record store would not answer"))]
+        (is (= 500 (:status r)))
+        (is (false? (:ok r)))
+        (is (= :internal-error (:type r)))))
+    (testing "a fault that does name itself keeps its own :type, so the default is a
+              floor rather than a flattening"
+      (let [r (answer (ex-info "belief was never rebuilt" {:type :unrecovered-kb}))]
+        (is (= 500 (:status r)))
+        (is (= :unrecovered-kb (:type r)))))
+    (testing "and the op answers normally with nothing redefined, so the three above are
+              the throw's doing and not the handler's"
+      (let [r (post-op handler :sentex-count [])]
+        (is (:ok r))
+        (is (nat-int? (:result r)))))))
 
 ;; ---- the guards' refusal paths -------------------------------------------
 
@@ -366,8 +404,9 @@
   ;; and would fail on a laptop that throttled mid-run.  What is pinnable is that the
   ;; comparison is one fn (`MessageDigest/isEqual` over UTF-8 bytes, which reads every
   ;; byte whatever the lengths) and that it answers correctly either side of equal
-  ;; length — the two cases a `=` on strings would short-circuit differently.
-  (let [matches? #'serve/token-matches?]
+  ;; length — the two cases a `=` on strings would short-circuit differently.  It lives
+  ;; in `guard` because both servers compare a token through it.
+  (let [matches? guard/bearer-matches?]
     (testing "equal length"
       (is (true?  (matches? "s3cret-token" "s3cret-token")))
       (is (false? (matches? "s3cret-token" "s3cret-tokeN")))
@@ -437,6 +476,113 @@
                  "VAELII_ALLOWED_HOSTS is set in this environment")
         (is (= :open (posture "0.0.0.0")))))))
 
+;; ---- the search ceiling --------------------------------------------------
+;;
+;; The other thing a caller spends: not the daemon's heap but its **writer**.  Every op
+;; runs under the one monitor, so a read a caller sized holds every other request behind
+;; it — and the two dials a caller sizes it with are `:max-depth` and `:max-ms`.  The
+;; ceiling is applied in `serve/ops` rather than at this route, because the model's tool
+;; surface dispatches through the same table; the test below reads both doors.
+
+(tu/deftest-kb a-bound-over-the-ceiling-is-refused-and-one-under-it-is-not
+  (tu/with-terms [dog Muffet CxServe]
+    (let [handler (open-app kb)]
+      (post-op handler :assert [(list dog Muffet) CxServe])
+      (testing "a depth inside the ceiling answers"
+        (let [r (post-op handler :query [(list dog '?x) CxServe {:max-depth 3}])]
+          (is (true? (:ok r)))
+          (is (= [{'?x Muffet}] (:result r)))))
+      (testing "the ceiling itself is admitted — the bound is what a request may name"
+        (is (true? (:ok (post-op handler :query
+                                 [(list dog '?x) CxServe
+                                  {:max-depth (config/max-query-depth)}])))))
+      (testing "and one past it is refused by name, with the figure both sides"
+        (let [r (post-op handler :query [(list dog '?x) CxServe
+                                         {:max-depth (inc (config/max-query-depth))}])]
+          (is (false? (:ok r)))
+          (is (= :over-ceiling (:type r)) "the ex-data :type rides the wire")
+          (is (= 400 (:status r)) "a caller's request, so a client error")
+          (is (re-find #"ceiling" (:error r)))))
+      (testing "a wall clock past the ceiling is refused the same way"
+        (let [r (post-op handler :ask-within [(list dog '?x) CxServe
+                                              {:max-ms (inc (config/max-query-ms))}])]
+          (is (false? (:ok r)))
+          (is (= :over-ceiling (:type r)))))
+      (testing "and an anytime read that names no clock is given the ceiling's, since
+                absent there means no clock at all"
+        (let [r (post-op handler :ask-within [(list dog '?x) CxServe {}])]
+          (is (true? (:ok r)))
+          (is (= :complete (:status (:result r))) "a small KB finishes well inside it")))
+      (testing "an op with no bound of its own is untouched — there is nothing to raise"
+        (is (true? (:ok (post-op handler :handle-of [(list dog Muffet) CxServe]))))
+        (is (true? (:ok (post-op handler :sentexes-matching
+                                 [(list dog '?x) CxServe]))))))))
+
+(tu/deftest-kb the-four-backward-search-doors-are-held-to-the-ceiling-too
+  ;; `:ask`, `:ask?`, `:prove` and `:provable?` each take a bound now, and each runs on
+  ;; the daemon's single write monitor — so a caller sizing one sizes every other
+  ;; caller's wait.  What is different from `:query` is that a request may name no option
+  ;; map at all, and absent `:max-ms` is *no clock*: the daemon fills its own in rather
+  ;; than serving an unbounded backward search.
+  (tu/with-terms [dog Muffet CxServe]
+    (let [handler (open-app kb)]
+      (post-op handler :assert [(list dog Muffet) CxServe])
+      (testing "a clock past the ceiling is refused by name"
+        (let [r (post-op handler :ask [(list dog '?x) CxServe
+                                       {:max-ms (inc (config/max-query-ms))}])]
+          (is (false? (:ok r)))
+          (is (= :over-ceiling (:type r)))
+          (is (= 400 (:status r)) "a caller's request, so a client error")))
+      (testing "and a depth past it, at the two doors that expand rules"
+        (let [r (post-op handler :prove [(list dog '?x) CxServe
+                                         {:max-depth (inc (config/max-query-depth))}])]
+          (is (false? (:ok r)))
+          (is (= :over-ceiling (:type r))))
+        (let [r (post-op handler :provable? [(list dog '?x) CxServe
+                                             {:max-depth (inc (config/max-query-depth))}])]
+          (is (false? (:ok r)))
+          (is (= :over-ceiling (:type r)))))
+      (testing "a request that names no option map is padded out to the arity that has
+                one, so the ceiling's clock reaches a short call too"
+        (is (true? (:ok (post-op handler :ask [(list dog '?x) CxServe]))))
+        (is (true? (:ok (post-op handler :ask? [(list dog '?x) CxServe]))))
+        (is (true? (:ok (post-op handler :provable? [(list dog '?x) CxServe]))))
+        (is (= [Muffet] (mapv #(get % '?x) (:result (post-op handler :prove
+                                                             [(list dog '?x)]))))
+            "including one that named no context either — the arguments in between are
+             filled with the door's own defaults, so the read is the ?ctx fan it would
+             have been in process"))
+      (testing "and a search that reaches its clock is a 400 rather than a run that
+                holds the writer while nobody waits for the answer"
+        (let [r (post-op handler :prove [(list dog '?x) CxServe {:max-ms 0}])]
+          (is (false? (:ok r)))
+          (is (= :budget-exhausted (:type r)))
+          (is (= 400 (:status r))))))))
+
+(tu/deftest-kb the-models-tool-surface-is-held-to-the-same-ceiling
+  ;; `vaelii.impl.llm.tools` generates its schemas from `serve/ops` and calls back into
+  ;; it, so a ceiling applied at the HTTP route would be a ceiling the model does not
+  ;; have — which is the door a prompt-injected model would find first.
+  (tu/with-terms [dog Muffet]
+    (v/assert kb (list dog Muffet) 'CxUniverse)
+    (testing "a depth inside the ceiling answers"
+      (is (true? (:ok (tools/call kb "kb_query" {"goal" (str (list dog '?x))
+                                                 "context" "CxUniverse"
+                                                 "opts" "{:max-depth 3}"})))))
+    (testing "and one past it comes back as the refusal a tool result carries"
+      (let [r (tools/call kb "kb_query" {"goal" (str (list dog '?x))
+                                         "context" "CxUniverse"
+                                         "opts" (str {:max-depth
+                                                      (inc (config/max-query-depth))})})]
+        (is (false? (:ok r)))
+        (is (re-find #"over-ceiling" (:error r)) "the :type is named for the model too")))
+    (testing "and the same at kb_ask, whose ceiling is the clock"
+      (let [r (tools/call kb "kb_ask" {"goal" (str (list dog '?x))
+                                       "context" "CxUniverse"
+                                       "opts" (str {:max-ms (inc (config/max-query-ms))})})]
+        (is (false? (:ok r)))
+        (is (re-find #"over-ceiling" (:error r)))))))
+
 ;; ---- the body ceiling ----------------------------------------------------
 ;;
 ;; A caller who can reach `POST /op` is a caller who can spend the daemon's heap by
@@ -504,18 +650,41 @@
           (testing "health"
             (is (:ok (client/health conn))))
           (testing "assert / query round-trip over the socket"
-            (is (nat-int? (client/assert! conn (list bird Tweety) CxWire)))
+            (is (nat-int? (client/assert conn (list bird Tweety) CxWire)))
             (let [rs (client/sentexes-matching conn (list bird '?x) CxWire)]
               (is (= (list bird Tweety) (:sentence (first rs))))))
           (testing "a forward rule fires server-side and the derived fact is asked back"
-            (client/assert-rule! conn [(list bird '?b)] (list flies '?b) CxWire)
+            (client/assert-rule conn [(list bird '?b)] (list flies '?b) CxWire)
             (is (client/ask? conn (list flies Tweety) CxWire)))
           (testing "why over the wire returns a proof tree"
             (let [h (client/handle-of conn (list flies Tweety) CxWire)]
               (is (map? (client/why conn h)))))
+          (testing "and a truncated one is re-askable deeper, which is what the opts
+                    arity is for: the bound clips a branch to `{:truncated? true}`, and a
+                    remote reader with no way to raise it sees that a proof was clipped
+                    and never sees the rest of it"
+            (let [h     (client/handle-of conn (list flies Tweety) CxWire)
+                  clipped? (fn clipped? [node]
+                             (boolean (or (:truncated? node)
+                                          (some (fn [j] (some clipped? (:because j)))
+                                                (:support node)))))]
+              (is (clipped? (client/why conn h {:max-depth 1})))
+              (is (not (clipped? (client/why conn h {:max-depth 32}))))
+              (is (thrown? clojure.lang.ExceptionInfo (client/why conn h {:max-dpeth 32}))
+                  "and the daemon holds the opts to the same roster the in-process door
+                   does, rather than taking a default in silence")))
           (testing "a remote refusal surfaces as an ex-info carrying the daemon error"
             (is (thrown? clojure.lang.ExceptionInfo
-                         (client/assert! conn (list bird '?anything) CxWire))))
+                         (client/assert conn (list bird '?anything) CxWire))))
+          (testing "the deprecated spelling is the same call, which is the whole of what
+                    keeping it promises"
+            ;; kept because a caller outside this repo may hold it; `!` means
+            ;; *irreversible* and an assertion is not, so the wrapper carrying one said
+            ;; the opposite of what the door does
+            #_{:clj-kondo/ignore [:deprecated-var]}
+            (let [h (client/assert! conn (list penguin Tweety) CxWire)]
+              (is (nat-int? h))
+              (is (= h (client/handle-of conn (list penguin Tweety) CxWire)))))
           (testing "retract over the wire tears the fact down"
             (let [h (client/handle-of conn (list bird Tweety) CxWire)]
               (client/retract! conn h)
@@ -535,7 +704,7 @@
               tokenless (client/client "localhost" p {:token nil})]
           (testing "a client holding the token drives the daemon like any other"
             (is (:ok (client/health held)))
-            (is (nat-int? (client/assert! held (list bird Tweety) CxWire)))
+            (is (nat-int? (client/assert held (list bird Tweety) CxWire)))
             (is (= (list bird Tweety)
                    (:sentence (first (client/sentexes-matching held (list bird '?x)
                                                                CxWire))))))
@@ -570,7 +739,15 @@
                          (#'serve/listen-host ["4200" "/tmp/kb" "--listen"])))]
       (is (= :unknown-option (:type (ex-data e))))
       (is (= "--listen" (:flag (ex-data e))))
-      (is (re-find #"needs an address" (ex-message e))))))
+      (is (re-find #"needs an address" (ex-message e)))
+      (is (re-find #"line ends after it" (ex-message e)))))
+  (testing "and the next flag is not an address — it would bind an interface named
+            after a token, which is a Jetty failure rather than this door's refusal"
+    (doseq [args [["--listen" "--port"] ["4200" "--listen" "--listen" "0.0.0.0"]]]
+      (let [e (is (thrown? clojure.lang.ExceptionInfo (#'serve/listen-host args))
+                  (pr-str args))]
+        (is (= :unknown-option (:type (ex-data e))) (pr-str args))
+        (is (re-find #"the next word is the flag" (ex-message e)) (pr-str args))))))
 
 (clojure.test/deftest positionals-survive-a-flag-in-any-position
   ;; A positional silently dropped is a disk daemon running in memory — every client

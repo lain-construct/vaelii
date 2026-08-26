@@ -1,9 +1,9 @@
 # Reified-NAT contexts and structural genlCx
 
 - **Covers:** how a `Cx*Fn` function application reifies to a **context** — a `cx/`
-  constant a sentex can be stored in and a `genlCx` node — and how a declared argument
+  constant a sentex can be stored in and a `genlCx` node — how a declared argument
   ordering makes one such context a computed **spec** of another with nobody asserting the
-  edge.
+  edge, and when the orphan sweep collects one.
 - **Not here:** object-denoting NATs, which reify to a `nat/` constant that is a *term* and
   never a context → [nat.md](nat.md); the `genlCx` closure the produced edges feed →
   [contexts.md](contexts.md); the lexical conventions the roles rest on →
@@ -100,12 +100,16 @@ and the ordinary JTMS relabel withdraws the edge and `sees?` flips. Nothing hunt
 and the taxonomy's depth/SCC potential and witness support are the derivation path's, not a
 second mechanism ([contexts.md](contexts.md), the consumers).
 
-**Both arrival orders converge.** A declaration arriving after the contexts sweeps them
-(`reconcile-function`); a context arriving after a declaration is swept when it is stored
-into. The maintenance hook sits beside the correspondence reconcile at the tail of `assert`
-and behind the same free in-memory reifiable gate — a `contextDenotingFunction` is a
-reify-kind, so any KB with a context NAT to order already passes it, and a KB that reifies
-nothing pays neither the hook nor the `any-context-subrelations?` index read.
+**Every arrival order converges.** Three things can arrive last, and each has an arm. A
+declaration arriving after the contexts sweeps them (`reconcile-function`); a context
+arriving after a declaration is swept when it is stored into; and an `(R a b)` **evidence
+fact** arriving after both sweeps the functions declared to order by `R`
+(`functions-ordered-by`), which is the arm a comparator dimension never needs and a
+stored-fact one cannot do without. The maintenance hook sits beside the correspondence
+reconcile at the tail of `assert` and behind the same free in-memory reifiable gate — a
+`contextDenotingFunction` is a reify-kind, so any KB with a context NAT to order already
+passes it, and a KB that reifies nothing pays neither the hook nor the
+`any-context-subrelations?` index read.
 
 ### The bounded R oracle — no proof inside the relabel loop
 
@@ -121,55 +125,160 @@ A comparator answer is a pure function of the two expressions, already carried b
 `termOfUnit` antecedents, so it contributes no extra supporter; a stored fact contributes
 its own handle, so defeating it withdraws the edge.
 
-## The datetime dimension
+## The calendar dimension
 
-`vaelii.impl.datetime` is the first shipped dimension. `DatetimeFn` is an
-`unreifiableFunction` taking a reduced-precision **ISO 8601** string that denotes an
-*interval*: `"2000"` the year, `"2000-01"` its January, `"2000-01-15"` a day, down through
-hour, minute, second. Containment is **field nesting** — a more-precise instant is inside a
-less-precise one it shares every field with:
+`vaelii.impl.datetime` is the first shipped dimension, and it reads **two spellings of one
+interval**.
+
+`DatetimeFn` is an `unreifiableFunction` taking a reduced-precision **ISO 8601** string:
+`"2000"` the year, `"2000-01"` its January, `"2000-01-15"` a day, down through hour,
+minute, second. `YearFn` / `MonthFn` / `DayFn` are the **calendar constructors** over the
+same three coarsest fields, written as numbers rather than as a string — `(YearFn 2000)`,
+`(MonthFn 2000 1)`, `(DayFn 2000 1 15)`. Each takes one field per argument, coarsest
+first, so **its arity is its precision** and there is no string to parse or to mis-parse;
+each is unreifiable for the reason `DatetimeFn` is, since the fields are exactly what the
+ordering reads and a minted constant would hide them.
+
+Containment is **field nesting** — a more-precise interval is inside a less-precise one it
+shares every field with, whichever spelling each was written in:
 
 ```
-"2000-01"     ⊆ "2000"        ; January is inside the year
-"2000-01-15"  ⊆ "2000-01"     ; the day is inside January
-"2001"        ⊄ "2000"        ; different year
-"2000"        ⊄ "2000-01"     ; the year is the COARSER interval, so it contains the month
+(MonthFn 2000 1)  ⊆ (YearFn 2000)     ; January is inside the year
+(DayFn 2000 1 15) ⊆ (MonthFn 2000 1)  ; the day is inside January
+(MonthFn 2000 2)  ⊄ (MonthFn 2000 1)  ; siblings nest neither way
+"2000-01"         ⊆ (YearFn 2000)     ; the two spellings order against each other
+"2001"            ⊄ "2000"            ; different year
+"2000"            ⊄ "2000-01"         ; the year is the COARSER interval, so it contains the month
 ```
 
-`subinterval?` parses each string into a vector of integer fields and tests prefix
-equality — pure, total (it declines any non-`DatetimeFn` term), and bounded, so the
-producer may call it inside the settle loop. Fields are numeric, so `"2000-1"` and
-`"2000-01"` denote the same month.
+`subinterval?` reads each term to a vector of integer fields and tests prefix equality —
+pure, total (it declines any term that is neither), and bounded, so the producer may call
+it inside the settle loop. **One field vector for both spellings** is the whole of the
+bridge between them: the comparator never learns which constructor it was handed, so
+`(MonthFn 2000 1)` and `(DatetimeFn "2000-01")` name the same interval, and a KB told the
+year one way and the month the other still orders the two contexts. Fields are numeric, so
+`"2000-1"`, `"2000-01"` and `(MonthFn 2000 1)` are one month.
+
+Three constructors and not six: a year, a month and a day are the granularities somebody
+writes a holiday or a policy *for*, and each finer field is a spelling ISO already gives.
+The three are declared in `resources/kb/upper/CxTime.txt` — they are about time, and CxTime
+is the upper context that owns time — each with a `(result … temporal_thing)`, so a
+calendar term is an interval and not an instant. That is also why it cannot stand in an
+`instantBefore`, and why the moments it lies between are a separate term with a separate
+constructor: see [What this does not cover](#what-this-does-not-cover).
+
+## Orphan collection: a context is a place as well as a name
+
+A context NAT is collected at the gate an object NAT is ([nat.md](nat.md), "Rename and
+remove") — `remove-orphaned-nats!` on the `retract!` / `edit!` sweep, over the region the
+teardown removed. What differs is the liveness question, because a `cx/` constant is
+somewhere sentexes *are* as well as something sentences name. It is orphaned when all
+three of these are empty:
+
+- **its extent** — nothing is stored in its context slot;
+- **its mentions** — no stored sentence names it as a term;
+- **its edges** — no stored `genlCx` edge mentions it.
+
+Stored, not believed, for the reason an object NAT's uses are counted that way: a defeated
+fact still sits in the slot and a relabel can restore it.
+
+**A computed edge is not one of the three.** The structural edges above are derived from
+the two contexts' own `termOfUnit` maps, so reading one as a reference makes an ordered
+pair immortal — each end held up by an edge read off the other. The discriminant is
+**authorship**, as it is for an object NAT's materialized result types: the producer
+deduces under the `contextArgSubrelation` informant and nothing else does, so an edge that
+is no premise and whose every support carries that informant is the engine's own wiring.
+An edge somebody **asserted** is a premise and holds its contexts up; one a rule concluded
+carries that rule's informant and holds them up too.
+
+The map is a context's whole bookkeeping — the mint writes no result types for one — so
+the collection retracts the `termOfUnit` and stops there. The computed edges are derived,
+so withdrawing that one premise takes them through the ordinary dependency-directed sweep,
+and *their* removal is what puts the far end of each edge in the next round's candidate
+set. A chain of ordered contexts collapses by the rule that collapsed the first, and an
+object NAT standing inside a collected context's expression is the round after that.
+
+An **empty** context goes even while a spec of it is live, and that is the reading and not
+an edge case: a year holding nothing, named by nothing and wired only by what the producer
+computed answers no reader, and stating a fact for it again re-mints it and recomputes the
+edge down to its January.
+
+### What triggers it, and what it costs
+
+The sweep is the teardown's, so a removal is what makes a candidate. A context is
+referenced **two** ways, and `nat/constants-named-by` reads both off each removed sentex:
+in its **sentence**, at any nesting, and as its own **context slot** — which is how the
+last fact leaving an empty context is the removal that orphans it. Whichever of the three
+sources goes last is the retraction that collects, and the end state is the same in every
+order.
+
+Each candidate costs one **`count-in-context`**, an O(1) secondary-root read on every
+backend ([indexing.md](indexing.md)), and — only when that is zero — one inverted-term-index
+read over the constant's own footprint. So a live context holding a million facts costs a
+count rather than a million record fetches, and a KB that declares no
+`contextDenotingFunction` mints no `cx/` constant and pays nothing: the sweep sits behind
+the free in-memory reifiable gate, which a context function turns on.
+
+Nothing here can reach a context that is not a `cx/` constant. The three **query contexts**
+([contexts.md](contexts.md)) are `Cx…` names for a way of reading, refused at every write
+door and never minted, so no `termOfUnit` maps one and the candidate set cannot hold one —
+a query holding one holds a symbol the sweep cannot name. An **agent or channel** context
+([koinii.md](koinii.md)) is a `Cx…` name computed from an id, in the same position. In a
+**fork** the sweep runs through the ordinary `retract!`, which tombstones an inherited
+record rather than deleting it, so a context the fork empties is collected in the fork's
+view and stands in the base ([overlay.md](overlay.md), base immutability).
+
+### Re-minting after a sweep
+
+Re-minting a swept expression dedups to **one** constant, exactly as it does when nothing
+was collected: the mint's dedup probe reads the `termOfUnit` map, the map is gone, so a
+fresh constant is minted and every later occurrence of the expression finds that one. The
+KB that results is indistinguishable from one the sweep never touched — one constant per
+expression, the same computed edges, the same answers through the compound context at
+every read door.
+
+The `cx/` **symbol** and the **handle** are not part of that, and nothing may read them as
+though they were. A reified constant is opaque and minted per KB, handles are allocated in
+assertion order, and belief may never tie-break on one — so a caller holding the old symbol
+across a sweep holds a name for nothing, and gets its answer back by naming the expression,
+which is the only spelling the map is keyed by.
 
 ## What this does not cover
 
-- **One dimension ships.** `DatetimeFn`/`subintervalOf` is the worked example; other
-  dimensions are added by declaring a `contextDenotingFunction`, a `contextArgSubrelation`,
-  and either registering a comparator or asserting the `R` facts. `YearFn`/`MonthFn` as
-  structural calendar constructors reducing to a datetime are **not** built.
-- **A context NAT is not orphan-swept.** An object NAT is collected when no sentence names
-  it ([nat.md](nat.md)); a context's liveness is instead the facts stored *in* it (its
-  context slot), which the term index does not post — so contexts are left out of the sweep
-  and **persist** until torn down explicitly. Re-minting the same expression still dedups to
-  the one constant.
-- **The stored-fact oracle is not retroactive on its own.** A comparator dimension needs
-  nothing but the contexts; a dimension resolved by stored `(R a b)` facts has its edge
-  swept when a context or the declaration arrives, but an `(R a b)` fact arriving *after*
-  both contexts does not itself re-trigger the producer in this version.
+- **One dimension ships.** The calendar — `DatetimeFn` / `YearFn` / `MonthFn` / `DayFn`
+  under `subintervalOf` — is the worked example; other dimensions are added by declaring a
+  `contextDenotingFunction`, a `contextArgSubrelation`, and either registering a comparator
+  or asserting the `R` facts.
+- **A calendar term's endpoints are somebody else's job.** `(YearFn 2000)` is a
+  `temporal_thing`, so it takes the interval relations and not `instantBefore`, which is a
+  claim about moments. The moments it lies between are computed — half-open, so 2000 ends
+  where 2001 begins — by the calendar clock, which answers `startOf` / `endOf` with an
+  `(InstantFn Y M D h m s)` term and stores nothing ([time.md](time.md), "The calendar
+  clock"). Nothing here reads them: the two mechanisms share the field reader in
+  `vaelii.impl.datetime` and nothing else, and they agree exactly — `b`'s fields being a
+  prefix of `a`'s is the same claim as `a`'s bounds lying inside `b`'s, so the `genlCx`
+  edge this page produces and the `subintervalOf` the clock answers hold of the same pairs.
 
 ## Where it lives
 
 - `vaelii.impl.nat` — `context-namespace`, the `cx/` mint path (`mint-nat!` picks the
   namespace and skips result-types for a context), `maybe-reify-context`,
   `context-denoting-ground-nat?` (what the context-slot shape check admits — a *declared,
-  ground* context function, so the check does not depend on the naming policy), and the
-  `reified-context-symbol?` / `reified-object-symbol?` discriminants.
+  ground* context function, so the check does not depend on the naming policy), the
+  `reified-context-symbol?` / `reified-object-symbol?` discriminants, and the orphan
+  question's context arm — `orphan?`'s extent gate, `computed-genlCx-edge?` (the
+  authorship test), and `constants-named-by`'s reading of a removed sentex's context slot.
 - `vaelii.impl.naming` — `context?` (the `cx/` namespace).
 - `vaelii.core` — the context-arg reify in `assert` and the read doors (`ist-goal`), the
-  context-slot shape gate (`context-shape-problem`), the producer maintenance hook, and its
-  revival re-run on `retract!` / `edit!` (`context-nat/reconcile-revivals!`).
+  context-slot shape gate (`context-shape-problem`), the producer maintenance hook, its
+  revival re-run on `retract!` / `edit!` (`context-nat/reconcile-revivals`), and
+  `remove-orphaned-nats!`, which collects both kinds of constant at one gate.
 - `vaelii.impl.special` / `wff` — the `contextDenotingFunction` prop mark and the
   `contextArgSubrelation` well-formedness check.
-- `vaelii.impl.context-nat` — the producer and the comparator registry.
-- `vaelii.impl.datetime` — the ISO 8601 containment comparator.
+- `vaelii.impl.context-nat` — the producer, the comparator registry, and
+  `functions-ordered-by`, the evidence-arrived-last arm of the stored-fact oracle.
+- `vaelii.impl.datetime` — the calendar containment comparator, over the ISO strings and
+  the three calendar constructors alike, and beside it the half-open `bounds` the calendar
+  clock reads a term's two moments out of ([time.md](time.md)).
 - `resources/kb/CxCore.txt` — the two declarations documented in the KB's own representation.
+- `resources/kb/upper/CxTime.txt` — `YearFn` / `MonthFn` / `DayFn`, each with its `result`.

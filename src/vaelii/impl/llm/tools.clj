@@ -44,7 +44,23 @@
   the writes for that reason.  `:clear-caches` mutates the process's measurement
   state, which is nothing to hand a model that is being measured through it."
   #{:assert :assert-rule :assert-many :retract :edit :edit-with-consequences
-    :forward-chain :preview :clear-caches})
+    :forward-chain :preview :clear-caches
+    ;; `:abduce` mints its hypotheses through the whole assert pipeline into a scratch
+    ;; context, and `:abduce-discard` tears one down; `:add-provenance` stores.  The
+    ;; first and the last are spelled without a `!` — provenance is metadata, and an
+    ;; abduction without `{:keep? true}` cleans up after itself — so the `!` sweep below
+    ;; cannot see either
+    :abduce :abduce-discard :add-provenance})
+
+(def host-path-ops
+  "Reads the model may not reach for a different reason than `write-ops`: an argument names
+  a **path on the daemon's host**, not a value carried on the wire, so exposing the read
+  hands the model the host filesystem.  `:kb-diff`'s second side is a directory the daemon
+  reads (`serve.clj`), so the reads-only sweep would otherwise generate a `kb_kb_diff` tool
+  that loads and diffs an arbitrary host path — a path-recon primitive for a prompt-injected
+  model.  `:export` names a host path too but is a write, so its `!` already excludes it;
+  this set is the read half the `!` backstop cannot see."
+  #{:kb-diff})
 
 (defn- core-var
   "The `vaelii.core` var an op keyword names, or nil."
@@ -57,11 +73,12 @@
   (boolean (some #(some #{'&} %) (arglists v))))
 
 (defn read-ops
-  "The op keywords the model may call: `serve/ops` minus the writes, minus anything
-  that does not resolve to a non-variadic `vaelii.core` var.  Sorted, so the generated
-  tool list is byte-stable and the prompt cache survives a rebuild."
+  "The op keywords the model may call: `serve/ops` minus the writes and the host-path
+  reads, minus anything that does not resolve to a non-variadic `vaelii.core` var.
+  Sorted, so the generated tool list is byte-stable and the prompt cache survives a
+  rebuild."
   []
-  (->> (set/difference (set (keys serve/ops)) write-ops)
+  (->> (set/difference (set (keys serve/ops)) write-ops host-path-ops)
        (filter (fn [op]
                  (when-let [v (core-var op)]
                    (and (not (str/ends-with? (name (:name (meta v))) "!"))
@@ -79,10 +96,20 @@
   [op]
   (str "kb_" (-> (name op) (str/replace "-" "_") (str/replace "?" "_p"))))
 
+(def ^:private by-tool-name
+  "Every exposed read keyed by the tool name it answers to.
+
+  Held, because `read-ops` is not a lookup: it walks `serve/ops`, resolves each keyword in
+  `vaelii.core` and reads two pieces of metadata off every var it finds — and `op-of` ran
+  that whole walk once per tool name, which is once per tool call in a turn that makes a
+  dozen.  Both inputs are fixed at load, `serve/ops` being a literal table and an op's
+  arglists being its var's metadata, so one walk answers every call."
+  (delay (into {} (map (juxt tool-name identity)) (read-ops))))
+
 (defn op-of
   "The op keyword a tool name came from, or nil if it names no exposed read."
   [tname]
-  (first (filter #(= tname (tool-name %)) (read-ops))))
+  (get @by-tool-name tname))
 
 ;; ---- parameter shapes ---------------------------------------------------
 
@@ -119,6 +146,8 @@
                   "depth the read expands no rule at all and answers only from stored "
                   "facts and cached closures — which is a real answer, not an error, so "
                   "pass a depth when the conclusion you want follows from rules. "
+                  "Send context alongside it: the argument shapes nest, so opts with no "
+                  "context names the shape that has neither and is refused. "
                   "Elsewhere, per-op options such as \"{:limit 20}\".")})
 
 (defn- param-schema [p]
@@ -142,15 +171,21 @@
   "The op's parameter lists, minus the leading `kb`, shortest first.  An op can have
   genuinely *different* shapes rather than nested ones — `why-not` takes `[handle]` or
   `[sentence context]` — so a schema and a call must both work off the whole set, not
-  off one longest arity."
-  [v]
-  (vec (sort-by count (map #(vec (rest %)) (arglists v)))))
+  off one longest arity.
+
+  A `serve/kbless-ops` op keeps its whole list: the daemon supplies a KB to every row of
+  its table, but these fns take none, so their first parameter is an argument the caller
+  sends (`quality-report`'s reading, `readable-sentence`'s sentex).  Dropping it here
+  published a one-argument read as a no-argument tool that then threw on arity."
+  [op v]
+  (let [drop-kb (if (serve/kbless-ops op) identity rest)]
+    (vec (sort-by count (map #(vec (drop-kb %)) (arglists v))))))
 
 (defn- op-params
   "`[all required]` for an op: every parameter any signature takes (first-seen order),
   and the ones **every** signature takes."
-  [v]
-  (let [sigs (signatures v)
+  [op v]
+  (let [sigs (signatures op v)
         all  (vec (distinct (apply concat sigs)))]
     [all (filterv (fn [p] (every? #(some #{p} %) sigs)) all)]))
 
@@ -158,8 +193,8 @@
   "The tool schema for one op keyword."
   [op]
   (let [v (core-var op)
-        sigs (signatures v)
-        [all required] (op-params v)
+        sigs (signatures op v)
+        [all required] (op-params op v)
         doc (summary v)
         doc (if (str/blank? doc) (str "Read `" (name op) "` from the knowledge base.") doc)
         doc (if (next sigs)
@@ -303,6 +338,15 @@
   actually supplied.  Dispatch goes through `serve/ops`, the same table the schemas
   were generated from.
 
+  **An argument the chosen signature does not take is refused, never dropped.**  The
+  shapes nest — `query` takes `(goal)`, `(goal, context)`, `(goal, context, opts)` —
+  so an input of goal *and* opts with no context satisfies only the first, and passing
+  it on would answer facts-only with the depth discarded, which reads exactly like a
+  goal no rule can reach.  That is `opts/check!`'s failure one level out: an argument
+  nothing reads takes the default in silence.  So the refusal names the shape the
+  input selected and the shapes the op has, and the model supplies the argument in
+  between.
+
   Never throws: a bad argument, an unknown tool, or a refusal from the KB comes back
   as `{:ok false :error \"…\"}`, which is what a `tool_result` block wants — the model
   reads the error and tries again.
@@ -312,12 +356,24 @@
   ([kb tname input] (call kb tname input {}))
   ([kb tname input {:keys [max-result-chars] :or {max-result-chars 4000}}]
    (if-let [op (op-of tname)]
-     (let [sigs (signatures (core-var op))
-           sig  (last (filter (fn [s] (every? #(contains? input (name %)) s)) sigs))]
-       (if (nil? sig)
+     (let [sigs   (signatures op (core-var op))
+           sig    (last (filter (fn [s] (every? #(contains? input (name %)) s)) sigs))
+           shapes (str/join " or " (map #(str "(" (str/join ", " %) ")") sigs))
+           unread (when sig (sort (remove (set (map name sig)) (keys input))))]
+       (cond
+         (nil? sig)
          {:ok false
-          :error (str "missing arguments — " tname " takes "
-                      (str/join " or " (map #(str "(" (str/join ", " %) ")") sigs)))}
+          :error (str "missing arguments — " tname " takes " shapes)}
+
+         (seq unread)
+         {:ok false
+          :error (str tname " cannot read " (str/join ", " unread)
+                      " beside the arguments given: they select the shape ("
+                      (str/join ", " (map name sig)) "), and " tname " takes "
+                      shapes ".  A shape is chosen by what is supplied, so give"
+                      " every argument of the one you want.")}
+
+         :else
          (try
            (let [args (mapv (fn [p] (coerce p (get input (name p)))) sig)]
              {:ok true
@@ -327,8 +383,13 @@
            ;; stack with a `StackOverflowError`, which an `Exception` catch lets escape
            ;; — out of a fn documented never to throw, and up into the turn loop, where
            ;; a bad argument is the ordinary answer this exists to give.
+           ;; The class name when there is no message, as `session/parse-batch` does: a
+           ;; `StackOverflowError` carries none, so `.getMessage` is nil and the arm that
+           ;; exists to name the failure hands the model `{:error ""}` — a refusal that
+           ;; says nothing, which reads as a tool that answered emptily rather than as an
+           ;; argument it should fix.
            (catch Throwable e
              {:ok false
-              :error (str (.getMessage e)
+              :error (str (or (ex-message e) (.getName (class e)))
                           (when-let [t (:type (ex-data e))] (str " [" t "]")))}))))
      {:ok false :error (str "unknown tool: " tname)})))

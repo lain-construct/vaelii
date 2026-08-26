@@ -19,7 +19,11 @@
             [vaelii.impl.plan :as plan]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh tu/fresh))
+;; The cost ranking is pinned on here whatever the run installed: every question below
+;; is about which literal the RANKING chose, and `VAELII_PLAN=0` removes the ranking
+;; rather than reordering it.  Pinning keeps the assertion count identical across
+;; configurations, which standing aside would not (`tu/pinning`).
+(use-fixtures :each (tu/neutral-fresh tu/fresh) (tu/pinning [#'plan/*enabled*]))
 
 ;; ---- the negative-literal cost path ------------------------------------
 

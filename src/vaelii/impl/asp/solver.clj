@@ -1,10 +1,10 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.asp.solver
-  "Backend selector for vaelii's ASP solver. Callers (reason.clj) use
-   `solver/solve`/`solver/available?` so the engine can run the in-process
-   clingo backend (default, when libclingo + JNA are present) or fall back to
-   the clasp subprocess — without any caller change.
+  "Backend selector for vaelii's ASP solver. Callers (`asp.edge`, `asp.label` and
+   `asp.solve-context`) use `solver/solve`/`solver/available?` so the engine can run
+   the in-process clingo backend (default, when libclingo + JNA are present) or fall
+   back to the clasp subprocess — without any caller change.
 
    The clingo backend is loaded LAZILY via requiring-resolve so JNA/libclingo
    stay optional: a plain build (without the `:with-clingo` profile) has no JNA
@@ -97,7 +97,7 @@
    backend (AUTO routing) the program is loaded ONCE and `solve.enum_mode` is
    switched between the two enumerations; on clasp it is two separate solves.
    Returns `{:cautious <result> :brave <result>}` (each shaped like `solve`).
-   Lets `reason/classify-context` avoid a redundant second control_new + load."
+   Lets `edge/classify-program` avoid a redundant second control_new + load."
   [aspif-text]
   (if (= :clingo (backend-for (count aspif-text)))
     ((:classify-both @clingo-backend) aspif-text)

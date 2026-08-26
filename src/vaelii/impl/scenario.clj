@@ -33,7 +33,8 @@
   sequence — one scenario costs one path down the search tree, not the tree — and takes a
   `:limit` for a caller that would rather say how many it wants than remember to bound the
   sequence itself.  See docs/scenario.md."
-  (:require [vaelii.impl.qcn :as qcn]
+  (:require [vaelii.impl.naming :as nm]
+            [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.resolution :as res]))
 
@@ -41,9 +42,15 @@
 
 (defn- node-order
   "Every node of `net`, ordered by how it is written.  Content-keyed, so it is the same
-  order in any KB holding the same facts."
+  order in any KB holding the same facts.
+
+  Printed through `nm/print-key`, never a bare `str`: `qkb/nodes` answers with a **set**,
+  and a node can be a compound term, so under an ambient `*print-length*` two nested
+  nodes print to one prefix, the key collapses and the order falls back to that set's
+  iteration order — which decides `node-pairs`, which pair the search commits to first,
+  and therefore *which* scenario is returned."
   [net]
-  (vec (sort-by str (qkb/nodes net))))
+  (nm/sort-by-content-key nm/print-key compare (qkb/nodes net)))
 
 (defn- node-pairs
   "Every unordered pair of nodes, each written once in node order.  A scenario decides all
@@ -59,7 +66,7 @@
   them in, and the reason two runs agree on *which* scenario they return."
   [rels]
   ;; relations are unqualified keywords, so a bare sort orders them by name identically
-  ;; to `sort-by str` — without a `str` allocation per comparison on this per-branch call
+  ;; to a printed key — without an allocation per comparison on this per-branch call
   (sort rels))
 
 (defn- next-pair

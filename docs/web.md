@@ -15,7 +15,7 @@ on `http://127.0.0.1:3000`).
 ```
 lein run -m vaelii.web                            # loopback, a fresh starter KB
 lein run -m vaelii.web --port 8080
-lein run -m vaelii.web --listen 0.0.0.0           # reachable off-machine (opt-in)
+VAELII_API_TOKEN=… lein run -m vaelii.web --listen 0.0.0.0   # off-machine (opt-in, and required)
 lein run -m vaelii.web --attach HOST PORT [WEBPORT]
 
 lein browser                                           # ...or a REPL with it running in it
@@ -23,12 +23,24 @@ VAELII_WEB_PORT=3010 lein browser
 VAELII_WEB_PORT=3010 lein run -m vaelii.web            # the variable moves either one
 ```
 
-`VAELII_WEB_PORT` is the default rather than an override: an explicit `--port` wins, and
-a value that does not parse falls back to 3000 rather than refusing to start.
+`VAELII_WEB_PORT` is the default rather than an override: an explicit `--port` wins. Three
+sources are read in order — the variable, the `vaelii.web.port` system property (what a
+test sets, a JVM being unable to change its own environment), then 3000 — and a value that
+does not parse falls through to the next one rather than refusing to start
+([operations.md](operations.md) tabulates both).
 
 `--listen` and `--attach` are independent axes: `--listen` says who may reach the
 browser, `--attach` says whose KB it shows. The startup log names the interface it
 took.
+
+**`--listen` naming a non-loopback address requires `VAELII_API_TOKEN`.** Without one the
+browser prints a line and exits **2** before it opens a KB; with one, every request to
+that bind carries `Authorization: Bearer <token>` or is answered 401. The routes on the
+other side are why: `/edit` writes belief, and `/kbs/export` and `/kbs/load` write the
+host filesystem at a path the request names. The **loopback** default is unchanged — no
+token, no header, no 401 — and the daemon holds the identical rule through the identical
+fn ([operations.md](operations.md)).
+[why a refusal rather than a warning](defenses.md#what-a-server-binds-decides-what-it-requires)
 
 ### Working on it: `lein browser`
 
@@ -148,7 +160,7 @@ reason a term page is slow**, so the bound is part of the work and not a follow-
 - **Measured** twice. Over the shipped schema plus the test-world cast: **2–10 reads** and
   **0.7–2.9 ms** a page (`dog` +3 reads / +0.7 ms, `animal` +10, a synthetic 5,000-subtype
   hub +9 / +2.9 ms). Over a generated 148k-sentex corpus — 44k terms, 4k types — a type
-  page costs **+0.4 to +0.8 ms**, and the five widest individuals in it, up to 12,093
+  page costs **+0.4 to +0.8 ms**, and the five widest individuals in it, up to ~12k
   incident facts each, cost **−0.4 to +2.5 ms**: inside the run-to-run noise of the page
   they sit on. A hub with 400 subtypes costs exactly what one with 40 does (`web_test`),
   which is the claim a render cap alone would never make.
@@ -436,13 +448,19 @@ silent no-op the whole page shape exists to avoid. So every route that changes a
 content goes through **`writing`**: `/assert`,
 `/edit`, `/retract`, `/demo`, `/reasoning`, `/sandbox/reset`, `/propose/apply` — and
 `/propose/preview`, which reads by really asserting and rolling back, and is therefore a
-writer for the duration. `/chain` goes through **`writing-job`**, the same guard for a
-write that *is* a job (below). `/kbs/load`, `/kbs/unload`, `/kbs/activate` and
+writer for the duration. `/chain` and POST `/funnel` go through **`writing-job`**, the same
+guard for a write that *is* a job (below); the two submit the same chaining run and differ
+only in the page it lands on. `/kbs/load`, `/kbs/unload`, `/kbs/activate` and
 `/jobs/cancel` are **not** guarded: they write this process's registry rather than a KB,
 and cancelling a job has to stay reachable precisely *because* one is running. `/kbs/unload`
 still hands `catalog/unload!` the write monitor, because *releasing* an entry is the end of
 a KB's stores: a synchronous write already past the write doors has to drain before they go
 rather than interleave with the clear, exactly as the export route's does.
+
+`/kbs/load` is the one KB write that runs outside this monitor altogether, and that is
+deliberate: a loader opens brand-new stores nothing else can name yet, so there is no KB on
+screen for it to interleave with, and its `:writes` claim in the job registry is what keeps
+it the only writing job for as long as it runs.
 
 The refusal renders as a **page**, not an error status, for the reason a catalog refusal
 does: an error status leaves htmx not swapping at all, so the write would look like it
@@ -475,6 +493,41 @@ write that slipped past a door in the moment before the job was submitted. Holdi
 across the walk instead parks every later `/kbs/unload` on a Jetty worker for the length
 of a multi-minute dump, with no page and no progress, on ring-jetty's default pool of 50.
 
+### A parameter the page cannot read is a 400, not a default
+
+A request parameter arrives as a string, and reading an unreadable one as "absent" gives
+every route a *second* meaning for a typo — one it then acts on without saying so.
+`?max-derivations=abc` is the sharp case: absent, that parameter means **no bound**, so a
+mistyped one ran the fixpoint unbounded. `?d=abc` took the search page's default depth,
+`?calc=rcc9` drew a different algebra's matrix under the name that was asked for, and the
+assert form's `strength` was tested for presence alone, so any value at all — including
+`default`, which a caller could send meaning the opposite — asserted `{:strength
+:monotonic}`.
+
+So each is validated and each refusal is `bad-parameter`: **400**, rendered as a page (the
+chrome is how a reader who hand-edited a URL gets back), naming the parameter, quoting the
+value and saying what would have been legal. `?d=` is held to the range its own form
+declares — `debug-depth-max`, the number the `<input max>` is written from — because a form
+offering 12 beside a route accepting any depth is a control that describes nothing. An
+*empty* control is the control not being submitted, and still takes the default: what is
+refused is a value, never an absence.
+
+`/levels` and `/levels/rows` refuse one more thing, and it is a value their own context box
+will send: a **query context**. `CxEverything`, `CxInference` and `CxNothing` are readings
+rather than places ([contexts.md](contexts.md)), and the levels read through doors that do
+not resolve one — so the engine answers `:unsupported-context`, which this handler stack
+has no exception middleware to render, and Jetty answers 500. Checked before the read, it
+is the same 400 page, naming the context and the three that are not places. The fragment
+route answers it too rather than an empty list: htmx swaps only a 2xx, so a reader
+scrolling keeps the rows they had.
+
+`&offset=` is the other one, and it is capped rather than refused. A continuation cursor is
+*arithmetic* — `/find/rows` asks the term roster for `offset + find-cap + 1` names — so an
+unbounded one overflows that addition into an `ArithmeticException` and the same 500. One
+ceiling in `->offset` covers all six continuation routes, a billion rows past anything a
+sentinel writes. An offset past the end is not a bad request but a cursor pointing past the
+last row, and the honest answer to that is the empty page it already gives.
+
 ## Long work as jobs
 
 Three things here take minutes rather than milliseconds — filling a KB from a corpus,
@@ -490,6 +543,11 @@ of anything.
 at its next progress report, which for a phase that reports none (opening a large store
 scans its whole record log before it says anything) can be a while. An entry on `/kbs`
 wears its load's status, so the two never disagree about what a load is doing.
+
+It answers **whether there was a run to stop**, which is not the same question as whether
+the registry still holds the id: a settled job keeps its report there for an hour, so the
+reader who clicks stop the moment a run finishes gets false, and `/jobs/cancel` says
+nothing happened rather than reporting a cancellation over work already done.
 
 **The 250 ms fast path is the detail that makes this usable.** A job that settles inside
 `jobs/fast-path-ms` is answered with its *result* — `/chain` on the shipped schema still
@@ -519,6 +577,16 @@ stops two jobs interleaving is the claim.
 **Cancellation never interrupts a job that writes a KB.** A thread interrupt landing
 mid-cascade on a durable store surfaces as `ClosedByInterruptException` and can leave a
 torn write, so a KB-writing job is flagged and left to notice, however long that takes.
+
+Where a job *is* interruptible — one that writes nothing and says so — the interrupt is
+fenced at both ends, because a job runs on a **pooled** thread and `cancel!` decides from
+one read of the registry. The job's body publishes `:released` under the job's own monitor
+as it unwinds, and `cancel!` re-reads it there: past that point the thread belongs to the
+pool, and an interrupt sent then would land on whatever ran next — a task nobody cancelled,
+unwinding on somebody else's request. The other end is the caller's: the bounded wait for a
+job to publish its thread is itself interruptible, and clears the *canceller's* flag on the
+way out, so `cancel!` restores it and answers rather than letting an
+`InterruptedException` out into the handler that asked.
 What a stopped run leaves is stated where the run is started: a cancelled chaining run
 leaves the conclusions it had already placed, a cancelled load leaves the sentexes that
 had already landed, and neither is a corrupt KB — it is the ordinary open-world prefix.
@@ -599,8 +667,9 @@ than by hard-coding them.
 a rendering question: a row whose rates belong to the process keeps them through a clear —
 the entries dropped are this KB's alone, and the hit and miss counters every other KB's
 page is reading keep running, since they are a measurement a second reader may be partway
-through. The literal cache is that row — its entries go for this KB alone, its counters
-belong to all of them — and no other KB loses an entry, a counter or a belief. Zeroing
+through. The literal cache and the closure neighbours are those rows — their entries go for
+this KB alone (or for the step holding them), their counters belong to every KB — and no
+other KB loses an entry, a counter or a belief. Zeroing
 the process-wide rates is `clear-caches`' `:counters?` option, which the button does not
 pass. The page says which rows those are the same way it says which are left alone, by
 asking the rows for `:clearable?` and `:counters` rather than by naming a cache in prose
@@ -626,6 +695,12 @@ this KB. `VAELII_PROFILER` starts `clj-async-profiler`'s UI with the browser and
 `VAELII_PROFILER_PORT` moves it off 8080; the call site is a `requiring-resolve`, so it
 exists without the dependency, which ships in the `:repl` profile. With the class absent
 the page says so plainly instead of rendering a link to a port nothing is listening on.
+
+**One UI, whoever asks.** Both entry points call `start-profiler` and a namespace reload
+calls it again, so the state is a `defonce` — and the claim on it is a
+`compare-and-set!` rather than a read followed by a start, since two callers at once both
+pass a read and then race for the port. A start that *fails* puts the state back: nothing
+holds the port, so a later call is free to try again.
 
 **Something links to it.** A diagnostics page with no anchor pointing at it is a page
 nobody reads, so `/stats`, `/kbs` and `/jobs` each carry a line here — the three places a
@@ -655,6 +730,13 @@ round-trip under `--attach`.
   sentexes it is rendering; `sentex-ref` takes one. `handle-ref` is the variant for a
   caller that genuinely holds only a handle (a justification's antecedent, a
   contradictor), and it fetches exactly the one record it needs.
+- **The three type lines are `vaelii.core/describe`'s**, not a second computation beside
+  it. One call answers the supertype, subtype and disjointness closures, each already a
+  window with its size beside it — `{:terms :total :exact? :sorted?}` — so the page renders
+  what `describe` answered and applies no cap of its own. Two things follow. The page and
+  the API cannot come to disagree about what a term is, which they would the moment either
+  side's copy of the disjointness pass was edited. And against a remote daemon
+  (`--attach`) the three lines cost **one** round trip rather than a read apiece.
 - **Disjointness is one pass.** `disjoint?` holds when some supertype of x and some
   different supertype of y are separated. Read from the term's side that inverts: the
   separated partners of the term's own supertypes are what matter, and the types
@@ -662,17 +744,18 @@ round-trip under `--attach`.
   partner (there are one or two) instead of a `disjoint?` per type in the KB.
 - **The three type lines are capped, and the widest of them is bounded before it is
   built.** Supertypes and subtypes come off cached closures, so their counts are free and
-  exact and only the sort has to be given up past `sortable-cap`. The separation line is a
+  exact and only the sort has to be given up past the sort budget. The separation line is a
   *union* of the partners' closures, and building one to show fifty entries is the same
   defect the graph avoids: an imported ontology gives one NAT collection 43 partners
-  spanning 289,947 subtypes, and a union over all of them costs a second and a half to
+  spanning ~290k subtypes, and a union over all of them costs a second and a half to
   produce a list nobody can read. The sum of the closure sizes is free — every closure is
   a cached set — so it is taken as an upper bound (it counts an overlap twice) and, past
-  the budget, only the window is walked and the caption says "up to". The bound is what
+  the budget, only the window is walked, `:exact?` comes back false and the caption says
+  "up to". The bound is what
   keeps a term page of a real ontology usable rather than merely slow: on that ontology
-  `/term?q=thing` renders in **229 KB and 0.39 s**, the NAT collection's page in 19 KB and
-  0.24 s. Unbounded, both are megabytes, and a browser cannot be clicked through either
-  once it arrives.
+  `/term?q=thing` renders in a few hundred KB and well under half a second, the NAT
+  collection's page in tens of KB and less again. Unbounded, both are megabytes, and a
+  browser cannot be clicked through either once it arrives.
 - **The concept graph is bounded before its first read, not after.** Its relation flank is
   read off the index groups the term page built anyway, its taxonomy is probed only where
   the closures the page already read say there is something, and every expansion is spent
@@ -791,10 +874,11 @@ Clear.
   name — a reverse proxy preserving the original `Host`, a local alias. A request
   with **no** `Host` header passes: every browser sends one, so its absence marks a
   non-browser client with no ambient browser context to ride.
-  The second layer is the write guard. Nine routes go through
-  `writing` above: `/edit`, `/assert`, `/retract`, `/chain`, `/demo`, `/reasoning`,
+  The second layer is the write guard. Ten routes go through it: eight through
+  `writing` above — `/edit`, `/assert`, `/retract`, `/demo`, `/reasoning`,
   `/sandbox/reset`, `/propose/apply` and `/propose/preview` (a writer for the length of
-  the rollback it does). Nothing authenticates them, so each compares the request's
+  the rollback it does) — and `/chain` and POST `/funnel` through `writing-job`, which
+  submits the same run from either page. Nothing authenticates them, so each compares the request's
   `Origin` (falling back to `Referer`) to its own `Host` and answers 403 on a mismatch.
   A browser stamps that header on a form or fetch
   POST and a page on another site cannot forge it, so another tab cannot drive the
@@ -848,8 +932,8 @@ What the browser adds is the bounds:
 - **No model configured is a first-class state.** With nothing set, `provider/provider`
   hands back the offline stub, which proposes nothing, and the panel says so rather than
   reporting a parse failure. `-main` warms a configured backend on a daemon thread at
-  start (`warm-model`), because the latency of a local turn is model *load*: 11.33 s,
-  then 0.39 s, then 0.30 s for three identical turns.
+  start (`warm-model`), because the latency of a local turn is model *load*: ~11 s, then
+  ~0.4 s, then ~0.3 s for three identical turns ([llm.md](llm.md)).
 - **POST, and origin-checked.** The turn writes nothing but it *spends* something — a
   model, and on a local host a GPU — so a page on another site must not be able to make
   this browser run one.
@@ -976,14 +1060,14 @@ comments open with a template:
 a **signature** naming the argument positions with variables, then a clause saying what
 the predicate means *in those names*. Glossing `(genl penguin bird)` is a lookup and a
 substitution — "Every penguin is a bird." — and everything past that first clause is
-documentation for a reader rather than template. 175 of the 277 comments the starter
-ships carry such a signature; the 102 that do not are read as descriptions instead. 96 of
+documentation for a reader rather than template. 210 of the 328 comments the starter
+ships carry such a signature; the 118 that do not are read as descriptions instead. 111 of
 those are types, units and dimensions, whose comments are noun phrases — which is what a
 type gloss wants, since it reads "X is a dog" and the comment is the apposition after it.
-The other six declare a compound or variable-arity argument (`(implies (and ?antecedent
+The other seven declare a compound or variable-arity argument (`(implies (and ?antecedent
 …) ?consequent)`, `(lessThan ?number1 ?number2 …)`), which cannot be substituted into
-position by position. Measured over every believed sentex in the shipped schema, 1,317 of
-1,321 gloss with zero model calls — **99.7%**. `gloss_test` holds the composition rate to
+position by position. Measured over every believed sentex in the shipped schema, 1,839 of
+1,843 gloss with zero model calls — **99.8%**. `gloss_test` holds the composition rate to
 a **95% floor**, so the percentage is a reading of the schema as it stands and the floor
 is what is guaranteed.
 
@@ -1204,57 +1288,59 @@ instead is the section below.
 ### A cap is not an answer: rank first, then cap
 
 Bounding a list stops a page being megabytes. It does not make the page *useful*, and on a
-real corpus the two came apart completely: fifty of 13,196 contexts alphabetically, fifty
-of 27,196 separated pairs, `thing` → fifty of 6,260 subtypes in index order. Each was a
-short answer to nobody's question — an arbitrary sample of a long one — and no amount of
-scrolling fixes it, because nobody scrolls 27,196 pairs looking for the interesting one.
+real corpus — an OpenCyc import, whose figures are [kbs.md](kbs.md)'s — the two came apart
+completely: fifty of ~13k contexts alphabetically, fifty of ~27k separated pairs, `thing`
+→ fifty of ~6,000 subtypes in index order. Each was a short answer to nobody's question —
+an arbitrary sample of a long one — and no amount of scrolling fixes it, because nobody
+scrolls tens of thousands of pairs looking for the interesting one.
 
 So where a **cheap ranking** exists, the page shows the top of it and says what the whole
 is; where one does not, it caps and continues. Cheap is the constraint, and it is a real
 one — the rankings taken are the ones the index already answers in O(1):
 
 - **Contexts, by what they hold.** `count-in-context` is one set-size read each, so the whole
-  ranking is `n` O(1) reads (150 ms over 13,196, and past `context-rank-cap` the page says
-  it cannot rank rather than spending it). This is the ranking that earns its keep: a
-  corpus's mass is not spread evenly over its contexts, and the four largest name the
-  subject outright — `CxUniversalVocabulary` 609,798, `CxGeneOntologyContent`
-  119,192, `CxBaseKB` 63,497, `CxComputerSoftwareData` 32,469. Fifty alphabetical
-  context names said none of that. It is the front page's lattice fallback and the whole
-  of the stats table.
+  ranking is `n` O(1) reads (~150 ms over ~13k contexts, and past `context-rank-cap` the
+  page says it cannot rank rather than spending it). This is the ranking that earns its
+  keep: a corpus's mass is not spread evenly over its contexts, and on that import the
+  four largest name the subject outright — `CxUniversalVocabulary` around 600k sentexes,
+  then `CxGeneOntologyContent`, `CxBaseKB` and `CxComputerSoftwareData` at roughly a
+  fifth, a tenth and a twentieth of it. Fifty alphabetical context names said none of
+  that. It is the front page's lattice fallback and the whole of the stats table.
 - **Types, by how many things they are separated from.** One frequency pass over the pairs.
   Below the cap the pairs themselves are the answer and are listed as before; above it,
   what a reader can use is which types the ontology's partitions are *about*, each linking
   to its own page where its partners are now listed.
 
-And one ranking deliberately **not** taken: ordering the type tree's 6,260 children of
+And one ranking deliberately **not** taken: ordering the type tree's ~6,000 children of
 `thing` by subtree size reads far better than index order — `individual` and
-`partially_intangible` instead of `aura_flight` — and measured **2.2 s**, because it is a
-closure read per child rather than per row shown. The tree stays in index order and stays
-lazy. A ranking that costs more than the page is not a ranking the page can have.
+`partially_intangible` instead of `aura_flight` — and measured **a couple of seconds**,
+because it is a closure read per child rather than per row shown. The tree stays in index
+order and stays lazy. A ranking that costs more than the page is not a ranking the page can have.
 
 The front page also opens with **what the KB is** — sentexes, types, contexts, terms, four
 O(1) reads, the question a reader landing on an unfamiliar corpus asks before anything
 about its contents. The section titled "Core predicates" says "Documented terms" wherever the KB has more commented
 terms than it can sort: on the shipped schema every one of them is engine vocabulary, and
-on an imported corpus there are 105,882 and calling those core predicates is a claim the
-page cannot make.
+on an imported corpus there are of the order of a hundred thousand, and calling those core
+predicates is a claim the page cannot make.
 
-Measured on an imported OpenCyc corpus (1,173,442 sentexes — exact counts move with the
-import profile), `/` renders **36,045 B in
-250 ms** and `/stats` **24,759 B in 86 ms**. What the ranking and the cap buy is visible
-in what they decline to do: sorting 27,196 separated pairs by name to show fifty of them
-is a second of front page, and 4,721 context rows beside fifty contradictions — each of
-those a pair of whole sentences with every subterm linked — is a megabyte of stats page.
+Measured on an imported OpenCyc corpus of roughly a million sentexes — [kbs.md](kbs.md)
+carries the import's figures, and the exact counts move with the profile and the plugin
+version — `/` renders **tens of KB in a quarter of a second** and `/stats` **tens of KB in
+under a tenth**. What the ranking and the cap buy is visible in what they decline to do:
+sorting tens of thousands of separated pairs by name to show fifty of them is a second of
+front page, and thousands of context rows beside fifty contradictions — each of those a
+pair of whole sentences with every subterm linked — is a megabyte of stats page.
 
 Measured against a synthetic wide taxonomy, the bounded front page holds flat where
 reading the whole edge set does not:
 
 | genl edges | reading every edge | `/` |
 |---|---|---|
-| 47 | 1.9 ms | 2.9 ms |
-| 2,047 | 19.3 ms | 3.7 ms |
-| 8,047 | 77.7 ms | 3.4 ms |
-| 32,047 | 357.7 ms | 9.8 ms |
+| 47 | ~2 ms | ~3 ms |
+| 2,047 | ~19 ms | ~4 ms |
+| 8,047 | ~78 ms | ~3 ms |
+| 32,047 | ~360 ms | ~10 ms |
 
 The middle column is the reads alone; drawing a node per edge grows the document with the
 KB on top of that. The bounded page holds at ~15–22 KB throughout.
@@ -1262,7 +1348,19 @@ KB on top of that. The bounded page holds at ~15–22 KB throughout.
 **This is the only pagination there is**, so it has to hold at any size — a term with
 thousands of sentexes is walkable one sentinel at a time, every row reachable, none
 served twice, and the walk terminates. `web_test` proves it over 2400 sentexes on one
-predicate: 40 pages of 60, then the sentinel stops.
+predicate: 40 pages of 60, then the sentinel stops, and the handles the walk yields are
+compared as a *set* against the group's extent rather than counted.
+
+**A listing is ordered by handle, and that is the ordering by design.** Handle order is
+allocation order, so a listing reads oldest-first; the sentex lists, the justification
+lists and every index group on a term page share it (`group-order`). It is chosen for
+exactly one property — paging is a re-slice of the same sequence at an offset, so the
+order has to be one a later request reproduces exactly, and a content ordering moves under
+every write, which would show a reader who scrolled past an offset a row twice or not at
+all. Two things it is not. It is not a **ranking**: the previous section is where the page
+ranks, and nothing about being asserted first makes a sentex more interesting. And it is
+not a **cap**: nothing is dropped by it, the sentinel walks the whole group, and the count
+beside a group's heading is its stored total rather than the page's.
 
 ## Rendering sentences
 
@@ -1284,8 +1382,9 @@ A sentence is rendered structurally, not as one opaque string:
   membership in the genl taxonomy, so `dog` colors as a type while `parentOf`
   colors as a predicate — and that membership is checked **before** the non-symbol
   fallback, because a type node need not be a symbol: an imported ontology names a type
-  it has no atomic name for with a function term, and 17,211 of OpenCyc's 132,352 are
-  compounds. Reading those as numbers is a page in the wrong colour. A legend is shown
+  it has no atomic name for with a function term, and over ten thousand of the types in
+  the OpenCyc import [kbs.md](kbs.md) is the route to are compounds.
+  Reading those as numbers is a page in the wrong colour. A legend is shown
   on the home page.
 
 ### A reified term is never shown as its constant

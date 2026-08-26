@@ -54,3 +54,10 @@
     (v/assert kb (list 'binaryPredicate rel) 'CxCore)
     (is (thrown? clojure.lang.ExceptionInfo
                  (v/assert kb (list 'arity rel 7) 'CxCore)))))
+
+(tu/deftest-kb the-core-vocabulary-is-the-size-docs-kbs-says
+  ;; docs/kbs.md's shipped-KB table quotes this number, and nothing else pins it —
+  ;; the figure went stale once already (a 62% shortfall against the doc).  The
+  ;; fixture loads CxCore alone, which is exactly the row's claim.
+  (is (= 392 (v/sentex-count kb))
+      "the Core vocabulary row of docs/kbs.md quotes this count — update both together"))

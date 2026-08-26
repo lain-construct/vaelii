@@ -47,6 +47,19 @@ is `retract!` and re-assert — the retraction takes the mark with it, so nothin
 inherited across one. Why a bare re-assert's silence is not a downgrade:
 [why](defenses.md#a-bare-re-assert-never-downgrades-the-class).
 
+**A premise's strength is written in two places, and the record is the authoritative
+one.** `core/put-premise-mark` writes both halves together — `jtms/add-premise` into the
+network and `p/mark-premise` into the record store, where every backend keeps it as the
+sentex's own `:strength` field and nothing else. The record is what `recover` replays
+(`rebuild-tms` reads `p/premise-strength`, never the network), so it is the copy that
+survives a restart and the copy an import writes. The network's copy exists because the
+class fixpoint reads it once per in-region node per worklist pop, under the dense
+representation's exclusive write stamp: on the disk store that read is a lock and a slot
+decode, and on a server store a round trip, so the resident copy is what keeps
+[locality](#2-locality) a claim about every representation. It is also the only copy
+`preview` can move — a suspended premise is suspended in the network alone, which is
+what makes that retraction reversible without writing a frame.
+
 ### Strength propagates from the antecedents
 
 A justification confers **`min(its own strength, the weakest of its antecedents'
@@ -148,12 +161,12 @@ what locality is worth at that size:
 
 | nodes | `add-justification` | `defeat` | `clear-defeats!` | `sweep!` (2 nodes) |
 |-------|--------------------|----------|------------------|--------------------|
-| 500   | 762µs / **18µs**   | 3063µs / **9µs** | 2792µs / **2µs** | 153µs / **38µs** |
-| 1000  | 1297µs / **20µs**  | 5639µs / **9µs** | 4607µs / **2µs** | 339µs / **40µs** |
-| 2000  | 2107µs / **20µs**  | 8245µs / **9µs** | 8074µs / **1µs** | 540µs / **41µs** |
-| 4000  | 4006µs / **20µs**  | 16946µs / **8µs** | 15946µs / **1µs** | 1189µs / **48µs** |
-| 8000  | —                  | —                | —                | 2536µs / **40µs** |
-| 16000 | —                  | —                | —                | 5636µs / **46µs** |
+| 500   | ~760µs / **~18µs**  | ~3,100µs / **~9µs** | ~2,800µs / **~2µs** | ~150µs / **~38µs** |
+| 1000  | ~1,300µs / **~20µs** | ~5,600µs / **~9µs** | ~4,600µs / **~2µs** | ~340µs / **~40µs** |
+| 2000  | ~2,100µs / **~20µs** | ~8,200µs / **~9µs** | ~8,100µs / **~1µs** | ~540µs / **~41µs** |
+| 4000  | ~4,000µs / **~20µs** | ~17,000µs / **~8µs** | ~16,000µs / **~1µs** | ~1,200µs / **~48µs** |
+| 8000  | —                  | —                | —                | ~2,500µs / **~40µs** |
+| 16000 | —                  | —                | —                | ~5,600µs / **~46µs** |
 
 The `sweep!` column collects a fixed two-node chain out of a graph of N
 premise→conclusion pairs, so the region is the same size at every N and only the
@@ -197,9 +210,41 @@ Belief is a least fixpoint, recomputed region-locally rather than accumulated:
   sweeping routine rather than a retraction-only path — a blocked justification leaves
   its conclusion ungroundable and the sweep collects it on ordinary fact arrival — so
   a sweep that scanned the whole graph would make a run of them quadratic.
-- `relabel` (the whole-graph version) survives for exactly one caller: `recover`,
-  which rebuilds the network from the durable store and so has no smaller region to
-  start from. Nothing on the assert / retract / settle path calls it.
+- `relabel` (the whole-graph version) has **no engine caller at all**. The assert /
+  retract / settle path relabels regions, and a rebuild composes the region relabels its
+  own adds run rather than closing with a global pass (`core/rebuild-tms`), because a
+  region relabel over the affected closure is equal to a global one. What `relabel` is
+  for is the differential oracle: a whole-graph operation both representations implement,
+  so the two can be compared on one.
+
+### Belief filtering is a namespace boundary
+
+`jtms/in?` is the whole of the belief question, and the fourth invariant — a stored sentex
+is not a believed one — is a claim about who asks it. The `IndexStore` postings are
+storage: they hold a defeated default, a conclusion whose support was withdrawn and a
+spelling an equality retired, because all three are revivable and belief lives here rather
+than there. So a caller reading a posting owes an answer to *which* it wants, and read
+straight off `vaelii.impl.protocols` a forgotten filter and a deliberate as-stored read are
+the same three characters.
+
+**`vaelii.impl.reads` is where the question gets asked, in the name of the read.**
+`as-stored-…` takes the index store, because an as-stored read *is* an index operation, and
+each door's docstring says what a stored-but-disbelieved answer is for. `believed-…` takes
+the KB, because belief is a question about the KB — and it filters with `in?`, which drops a
+superseded spelling along with a defeated one, so a believed door means what
+`kb/sentexes-matching` means. A door is a wrapper and never a rewrite: one call to the
+protocol method it names, the same laziness, the same count-aware path, so it adds no index
+operation. The cardinalities, the vocabulary roster and the watched-rule roster carry one
+door each, and each says why there is no second.
+
+`lein lint`'s **E16** is what makes it a boundary rather than a habit: a raw index read
+anywhere under `src/` but the implementers fails, and the roster in that check is the one
+place an exception is written down. The implementers are the doors themselves, the protocol,
+the retrieval a believed read is built from (`kb`, `resolution`), the storage backends, and
+the dump that copies every entry the index holds. `RecordStore` is deliberately outside the
+check — a record *is* the storage, so fetching one asks nothing about belief. Why the
+as-stored half is named rather than assumed:
+[why](defenses.md#an-as-stored-read-is-named-never-implied).
 
 ### Two representations of the same network
 
@@ -235,7 +280,9 @@ equal to each other's however a caller spelled the justification.)
 every *report* reads it as a list. Three of the seven builders get there by **sorting on
 content** (`kb/antecedent-order`) — forward chaining's two placement sites and
 `special/derive-equality`, the three handed a vector whose order is an arrival. The order
-is the printed sentence then the context, and the informant is ordered with the rest
+is the sentence then the context — a **structural** key, walked in place by
+`nm/compare-form` rather than printed, so no ambient `*print-length*` can elide two long
+sentences to one prefix and drop the tie back onto arrival — and the informant is ordered with the rest
 rather than pinned to a position (the record names it in its own `:informant` slot, and
 symbol informants like `rewriteOf` are no part of the vector at all). Nothing reads a
 position — `valid?` and `has-justification?` read the set, and `why` lifts the rule out by
@@ -260,10 +307,11 @@ never on the handle is one rule with one home:
 
 **The key is built once per entry, not once per comparison.** `sort-by` calls its key fn
 from inside the comparator, so a naive sort builds it ~2·n·log₂n times — and each build
-is a `get-sentex` per antecedent plus a `pr-str`. A rule handle is an antecedent of every
+is a `get-sentex` per antecedent. A rule handle is an antecedent of every
 firing it licenses, so `dependent-justifications` pays that multiple on the whole history:
 at 100k firings, ~3.3M key builds where 100k would do. All three sites decorate, sort and
-undecorate, which is the same `compare` over the same keys and stable either way.
+undecorate through `nm/sort-by-content-key`, which is the same comparator over the same
+keys and stable either way.
 
 Two properties are easy to assume and would be wrong — a dense network cannot simply
 replace the reference (`RoaringBitmap` is mutable, and `jtms_atomicity_test` pins that a
@@ -287,14 +335,16 @@ justification's strength), and does not make its consequence groundable — whic
 what lets the ordinary retraction sweep garbage-collect an excepted conclusion instead
 of retaining it. See [exceptions.md](exceptions.md), "Garbage collection, not defeat".
 
-**Recovery starts unblocked.** Nothing about an exception is stored, so the blocked set
-cannot be read back from the durable store — `relabel` therefore *clears* it before
-rebuilding. Merging into whatever was there could only ever add, leaving a block
-standing for a justification whose exception no longer holds (the bug
-[taxonomy.md](taxonomy.md) records for the transitive closures). The window between
-the rebuild and the caller's re-evaluation believes an excepted conclusion; the next
-settle withdraws it. `retract!` prunes the blocked set of swept justification ids for
-the same reason: a stale id must not survive to be reapplied.
+**Recovery starts unblocked**, because it starts from an empty network: nothing about an
+exception is stored, so the blocked set cannot be read back from the durable store, and
+`core/rebuild-tms` has nothing to clear. The window between the rebuild and the caller's
+re-evaluation believes an excepted conclusion; the next settle withdraws it, and it
+*replaces* the set rather than merging into it — merging could only ever add, leaving a
+block standing for a justification whose exception no longer holds (the bug
+[taxonomy.md](taxonomy.md) records for the transitive closures). The whole-graph
+`relabel` clears both the blocked set and the supersession map for that same reason.
+`retract!` prunes the blocked set of swept justification ids for the same reason too: a
+stale id must not survive to be reapplied.
 
 Both premises and justifications carry a **strength**: a premise its assumption strength
 (on the sentex record), a `Justification` a `strength` field (the defeat-class it
@@ -333,7 +383,7 @@ assert / retract / `forward-chain` / `recover`:
 1. `clear-defeats!` then `relabel` — fresh labels and classes; previously-defeated
    defaults tentatively return so revival can happen.
 2. Find the active **nogoods** — sets of believed sentexes that cannot all hold.
-   Two sources:
+   Three sources:
    - every believed `(not X)` paired with a believed `X` **when some context sees
      both** (`negation-nogoods`), asked each round;
 
@@ -361,6 +411,30 @@ assert / retract / `forward-chain` / `recover`:
      reads, while a `genlCx` edge retires the whole carry. Why the memo, and how the
      carry stays sound: [why](defenses.md#the-settle-memoizes-standing-clashes).
 
+   - a stored claim against a **known-true claim reached by argument preservation**
+     (`preserving-nogoods`), where the second side of the pair was never stored at all.
+     `(largerThan dog cat)` asserted `{:strength :monotonic}` reaches `(largerThan
+     chihuahua maine_coon)`, and a stored `(not (largerThan chihuahua maine_coon))`
+     denies a claim with no handle — `:opposed` holds bodies stored in *both* polarities
+     and this body is stored in one. The members are the stored claim together with
+     everything the reading rests on: the general claim, the declaration that permits the
+     move, the relation edges the reach travelled, and any `(transitive R)` or
+     `(symmetric …)` the reading hangs on besides. That is what makes it a nogood in the
+     ordinary sense — an inherited claim has no sentex to defeat *instead of* its
+     reasons — and it is the whole of the belief consequence, since `decide-nogood` then
+     weighs the set as it weighs any other and the weakest member decides.
+     [inherit.md](inherit.md) has the readings that follow, and why a `:default` general
+     claim produces no pair at all. Priority is the rebuttal range: two claims disagree
+     about the world, and no declaration of what the vocabulary means has been violated.
+     Discovery is the settle's region, the pairs already standing (`:preserved-clashes`,
+     which is `:clashes`' job done for a candidate rather than for a pair), and the
+     extents of the predicates whose *licence* the region moved — the one channel neither
+     of the first two can see, since a `genl` edge changes what reaches whose tuple
+     without either side of the pair going near the region. Gated on `kb`'s `:preserving`
+     roster, maintained at the same choke points as `:opposed` and from the sentence's
+     shape alone, so a KB declaring no preservation is told so by one `empty?` rather
+     than by an index read on the path every assert runs.
+
    The argument constraints (`arg` / `genlArg` / `interArg`) are deliberately
    *not* here. One is convicted by the **absence** of a path from the argument's types to
    the constraint type — an open-world negation-as-failure judgement — so there is no
@@ -376,12 +450,15 @@ assert / retract / `forward-chain` / `recover`:
    ([taxonomy.md](taxonomy.md#what-each-constraint-does-in-each-arrival-order) has the
    measurement). The rule it generalizes to: **a nogood whose detection reads a
    belief-following cache its own member supports is not stable.**
-3. Resolve each nogood from its members' **defeat-classes** (`decide-nogood`):
-   - **different defeat-class** → defeat the strictly-weaker member. No solver.
-     (Monotonic beats default.)
-   - **equal, and defeasible** → a **dilemma**. Both sides stay believed at
-     `:default` and the pair is reported by `contradictions`. Nothing is arbitrated.
-   - **equal `:monotonic`** → irreducible; report it in `conflicts` (never throw).
+3. Resolve each nogood from its members' **defeat-classes** (`decide-nogood`), read over
+   the whole member set rather than over two — a nogood is a set that must not hold in
+   full, and `antiTransitive` forms one over three sentexes:
+   - **a unique weakest member** → defeat it. No solver. (Monotonic beats default.)
+   - **a minimum shared by several, and defeasible** → a **dilemma**. Every member stays
+     believed at `:default` and the set is reported by `contradictions`. Nothing is
+     arbitrated.
+   - **a minimum shared by several `:monotonic` members** → irreducible; report it in
+     `conflicts` (never throw).
 4. Loop until no active nogood remains.
 
 A default/default clash is **not** decided, and defeat-class is the only axis it could
@@ -445,8 +522,8 @@ every conclusion is already placed:
 
 | | one datum | the rule | |
 |---|---|---|---|
-| n=80 (6,400 conclusions) | 2.9 ms | 222.6 ms | 76x |
-| n=240 (57,600 conclusions) | 8.1 ms | 1953.3 ms | 241x |
+| n=80 (6,400 conclusions) | ~3 ms | ~220 ms | ~76x |
+| n=240 (57,600 conclusions) | ~8 ms | ~2 s | ~240x |
 
 So the gap widens with the KB rather than sitting at a constant, which is the answer to
 whether the re-check triggers want to be one mechanism: they are one *idea* over
@@ -454,7 +531,7 @@ several different populations — the rules a taxonomy edge queued, an aggregate
 value, a refused firing's recorded bindings, a relabelled revival, and the spelling an
 un-merge gives back — each with an instrument narrow enough for its own, and a single
 pass would have to fall back on the widest of them. That is the coarse re-join
-[exceptions.md](exceptions.md) measures at 122x through the other door.
+[exceptions.md](exceptions.md) measures at 4.9x through the other door.
 
 They split on granularity, and the table above is why. The three that can name a
 **datum** — a released refusal's re-derived conclusion, a relabelled revival, and an
@@ -584,7 +661,7 @@ reads it as the set it is:
 - **Decision** is `settle/decide-nogood`, unchanged in substance and read over the whole
   member set: the **unique weakest** member is defeated, a minimum shared by several
   defeasible members is a dilemma reported whole, and all-monotonic is the irreducible
-  conflict. Over two members that is the older reading term for term; over three it says
+  conflict. Over two members that is a pairwise decision term for term; over three it says
   what a pairwise engine could not — three equal defaults are one three-sided dilemma,
   and nothing here picks a loser among them.
 - **Reporting** follows: `contradictions` hands back one entry whose `:sides` are three,
@@ -683,10 +760,11 @@ clashing pairs than it will file, naming whichever bound it met — its cut walk
 entry cap.
 
 The kinds are not only this path's. An aggregate prover that cannot reduce an extent
-files `:aggregate`, and the qualitative and metric-temporal networks file
+files `:aggregate`; the qualitative and metric-temporal networks file
 `:qualitative-inconsistency`, `:metric-temporal-mixed-dimensions` and
-`:metric-temporal-inconsistency` when a context's constraints cannot be satisfied — all
-of them reports, none of them a dropped conclusion. The whole roster, kind by kind with
+`:metric-temporal-inconsistency` when a context's constraints cannot be satisfied; and
+the sign arithmetic files `:sign-inconsistency` when they leave a quantity with no
+possible sign at all — all of them reports, none of them a dropped conclusion. The whole roster, kind by kind with
 the `:detail` keys each carries, is the set of tables in `core/violations`' docstring,
 and `violation_roster_test` fails on a kind the engine files with no row there, on a row
 naming a kind nothing files, and on a row whose `:detail` keys are not the ones the
@@ -745,8 +823,15 @@ both sides' justifications:
 ```clojure
 {:nogood #{h1 h2} :handles [h1 h2] :priority int :kind kw-or-nil
  :sentence (contradicts X Y)
- :sides [{:handle :sentence :context :defeat-class :justifications [...]} ...]}
+ :sides [{:handle :sentence :context :defeat-class :justifications [...]} ...]
+ :inherited {:sentence :context :claim handle :via [handle …]}}   ; :kind :inherited only
 ```
+
+`:inherited` is the one part of a report that is **not** a stored sentex, so it cannot be
+a side: the claim nobody wrote, the context it was read in, the handle of the sentex it
+was inherited from, and the handles that licensed carrying it there. Every one of those
+handles is also a member, so the sides carry them with their own justifications and `why`
+explains the reach rather than asserting it. The key is absent on every other kind.
 
 The two differ in *why* the pair was left standing — a defeasible tie the engine
 declines to break, or a known-true clash it has no grounds to break — not in what a
@@ -754,36 +839,39 @@ caller needs in order to act on one. The known-true case is where the engine has
 declined hardest and the application has the most to do, so giving it less material
 than the easier case had it backwards.
 
-**`:sides` and `:handles` name the pair in content order**, the same rule the sentence
-inside `(contradicts X Y)` follows, and it is the tie-break invariant reaching the
-reading a caller actually holds. A nogood is a *set*, so something has to linearize it;
-sorting by handle is the tempting answer and it is the one that fails, because handles
-are allocated in assertion order — "which side is `(first (:sides c))`?" would then mean
-"which side was typed first", on a report whose `:sentence` said the same thing either
-way. So the sides are ordered by printed sentence, then by context (one sentence can
-clash with itself across two contexts), then by handle for a pair a reader cannot
-tell apart regardless. `:handles` is `:sides`' handles in that order, so the two agree.
+**`:sides` and `:handles` name the pair in content order, and so does the list of reports
+around them** — the same rule the sentence inside `(contradicts X Y)` follows, reaching
+the reading a caller actually holds. A nogood is a *set* and the reports are held in a
+hash set keyed by handle, so both need linearizing and neither may be linearized on the
+handle:
+[why](defenses.md#tie-breaks-and-orderings-key-on-content-not-the-handle).
 
-**The list is ordered by the same rule the sides are.** Ordering the pair inside a report
-and leaving the vector of reports unordered would move the problem out one level rather
-than solve it: the nogoods are held in a hash set keyed by handle, so
-`(first (contradictions kb))` would be an answer about which pair was typed first, on a
-call whose every other reading is order-independent. Both readings are ordered by printed
-sentence, then context — the sides' rule applied to the reports.
+The sides are ordered by sentence, then by context (one sentence can clash with itself
+across two contexts) — a **structural** key, compared by `nm/compare-form` rather than
+printed. Those two keys are **total**, so there is no third and no handle enters the key
+at all: sentence-plus-context is what identifies a sentex, and two sides agreeing on both
+are one canonical sentex and one handle, which is not a pair. `report_order_test` reads
+that line of `clash-report` and fails on a handle in it. `:handles` is `:sides`' handles
+in that order, so the two agree. `conflicts` and `contradictions` take that same key —
+sentence, then context — over the reports themselves, and need no handle either, since a
+report is already ordered inside.
 
 **The ordering is the read's, not the settle's**, and that is a claim about where the
 guarantee lives rather than about whether it holds. `settle` stores the two vectors in
 arrival order and `settle/ranked` orders a reading at the point it is asked for;
 `conflicts`, `contradictions` and the preview's standing filter each call it, and any
-further reader of `(:conflicts kb)` or `(:contradictions kb)` owes the same call. The
+further reader of `settle/conflicts-of` or `settle/contradictions-of` owes the same call.
+The two readings and the memo behind them sit in **one** atom, written once per settle:
+they describe one settle, and the read doors run on threads beside the writer, so three
+atoms would let a reader take one settle's conflicts beside another's contradictions. The
 alternative home is the settle path, which a mutation always runs — so ordering there
 charges every assert O(standing log standing) comparisons for a reading nobody asked for:
-1.60 ms per assert against 800 standing dilemmas, where ordering at the read costs 1.07
+~1.6 ms per assert against 800 standing dilemmas, where ordering at the read costs ~1.1
 ms. A reading is asked for far more rarely than a KB is written to.
 
 The sort key rides each report's metadata, built once when the report is built and
 carried through the memo, so ordering a reading compares prepared keys instead of
-`pr-str`ing every side per comparison. Nothing inside the engine leans on the stored
+rebuilding every side's per comparison. Nothing inside the engine leans on the stored
 order: the labeling solver re-sorts the dilemmas by priority then content for itself,
 because an earlier choice constrains every later one
 (`vaelii.impl.solve`, and `solve_test/the-result-does-not-depend-on-the-order-the-nogoods-arrive-in`).
@@ -800,8 +888,8 @@ settle and a settle follows every mutation: rebuilding all of them is a per-asse
 proportional to how many clashes are standing, which is the defaults phase's shape in a
 new place. `lein perf`'s `clash-arbitration` check is the gate: across a **32x** rise in
 standing clashes an assert costs 9.5x more with both memos, 12.3x with this one removed,
-and 46.5x with the carry-forward removed as well — 2.0µs of bookkeeping per standing
-pair against 29µs to re-derive one.
+and 46.5x with the carry-forward removed as well — a couple of microseconds of
+bookkeeping per standing pair against tens of microseconds to re-derive one.
 
 That carry is only sound because the region covers every input to a report, and one of
 them is not belief: a **redundant justification** moves a conclusion's *reason* without
@@ -902,10 +990,11 @@ The second pass is **`:refuse`-only**, gated before any root is read, and behind
 check that the KB declares either property at all. Under `:arbitrate` the vantages are
 already asked, so reporting there as well would have the ledger and `contradictions`
 both claim one clash — which is also why a pair *this settle arbitrated* is excluded
-from both passes. Each entry names the predicate, the two `[sentence context]` halves in
-printed order, and the vantage; the halves are ordered by content rather than by which
-side the region held, so the same knowledge in either arrival order files the same entry
-once.
+from both passes. Each entry names the predicate, the `[sentence context]` halves — two
+for a pair, three for an `anti-transitive` chain — and the contexts the whole set is
+jointly visible from; the halves are ordered structurally by `nm/compare-form` rather
+than by which side the region held, so the same knowledge in either arrival order files
+the same entry once.
 
 **One sentence stated in two visible contexts is two sentexes**, and a claim that denies
 it denies both. The same membership in a general context and in one that sees it can
@@ -918,13 +1007,13 @@ converse are read beside it and merged on the handle.
 
 ### Where conviction is one-sided
 
-One shape convicts one way only, **through argument preservation**.  (A second was a
-defect rather than a shape and is gone: `asymmetry-problems` keyed *self* on the context
-it was asked from rather than on the sentence's own, so a stored `(P a a)` asked from a
-vantage threw away the twin **stored in that vantage** as though it were itself — and the
-pair was reported or not according to which of the two contexts was written last.  The
-check takes the sentence's `home` context now, and the door, where the two are one, is
-unchanged.) `(outranks animal
+One shape convicts one way only, **through argument preservation** — and it is the only
+one. (`asymmetry-problems` keys *self* on the sentence's own context, `home`, and never
+on the vantage it is asked from, which is what keeps `(P a a)` written in a general
+context and again in one that sees it a real pair: key it on the asker and the twin
+**stored in the vantage** is thrown away as though it were the candidate, and the pair
+is reported or not according to which of the two contexts was written last. At the door
+the two contexts are one.) `(outranks animal
 cat)` denies the more specific `(outranks cat reptile)`, because preservation reads a
 goal's arguments upwards: the specific claim asks whether the general one denies it, and
 the general one never asks about the specific. Written specific-first, both stand and
@@ -1023,8 +1112,8 @@ canonicalized record's `:antecedent`, so `implies`, a `set/*Rule` wrapper, and a
 nesting of the two are classified alike. Every rejection carries an `ex-info` `:type`,
 so a caller discriminates on that rather than guessing from which keys are present:
 `:naming` `:not-well-formed` `:not-ground` `:not-range-restricted` `:not-indexable`
-`:not-assertible` `:arity` `:arg-type` `:arg-genl` `:arg-position` `:inter-arg-type`
-`:arg-constraint-kind` `:disjoint` `:functional` `:asymmetric` `:not-stratified`
+`:disjunction-too-wide` `:not-assertible` `:arity` `:arg-type` `:arg-genl` `:arg-position` `:inter-arg-type`
+`:arg-constraint-kind` `:arg-variable` `:disjoint` `:functional` `:asymmetric` `:not-stratified`
 `:exception-not-closed`, plus the two about the *request* rather than the knowledge —
 `:shape` (the context is not a symbol, the sentence is not an s-expression, or it is a
 vector — which is how a query spells a conjunction, so one spelling would store a

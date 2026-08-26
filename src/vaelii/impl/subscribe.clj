@@ -194,11 +194,25 @@
   refuses it in process (`:not-watchable`), and the two cannot drift because there is
   only one check.
 
+  **A context with no goal is refused**, and that one cannot be left to `core/watch`:
+  its whole-feed arity takes no context at all, so a `[nil CxDeploy]` would register an
+  unscoped listener while this registry stored `CxDeploy` and `subscriptions` reported
+  it back — the daemon naming a scope it is not applying.  Scoping is the goal's
+  (`core/watch` refuses a goal without one for the mirror-image reason), so a context
+  arriving alone is a request this door cannot honour rather than one to drop.
+
   The entry lands in the registry **before** the listener is registered, so an event
   fired between the two has somewhere to go; a refused goal takes the entry back out
   again.  The token is read inside the swap that allocates it, so two concurrent
   registrations cannot be handed one."
   [reg kb goal context]
+  (when (and (nil? goal) (some? context))
+    (throw (ex-info (str "a whole-feed subscription is not scoped, and " (pr-str context)
+                         " arrived with no goal for it to scope — watch with no"
+                         " arguments for every belief change, or name a goal beside"
+                         " the context.")
+                    {:type :not-watchable :context context
+                     :reason "a context scopes a goal, and this subscription has none"})))
   (let [at (now)
         _  (reap reg kb at)
         [old new]
@@ -241,7 +255,8 @@
         (when-not (get-in old [:subs token])
           (core/unwatch kb wt)
           (throw (ex-info (str "feed subscription " (pr-str token)
-                               " was dropped while it was being registered")
+                               " was dropped while it was being registered — watch again"
+                               " to open one")
                           {:type :unknown-subscription :token token}))))
       {:token token :cursor 0 :max-events max-events})))
 
@@ -273,15 +288,26 @@
   obvious spelling — read the registry, then wait — loses an event filed between the two
   and then answers empty for the full wait, which is the one failure a long poll must
   not have.  `.wait` releases the monitor while parked, so holding it here costs the
-  writer a compare rather than the wait."
+  writer a compare rather than the wait.
+
+  **An interrupt ends the park the way the deadline does**, and puts itself back.  A
+  parked poll holds a server thread, so it is exactly what a shutting-down container
+  interrupts — and `.wait` clears the flag on its way out, so letting the exception
+  travel would answer a 500 for a request the caller reads as a feed stopping, and would
+  lose the interrupt for whoever owns the thread.  Returning instead answers the events
+  it has, which is what a wait that ran out answers too."
   [reg token cursor ^Object sig deadline]
   (locking sig
     (loop []
       (let [sub       (get-in @reg [:subs token])
             remaining (- deadline (now))]
         (when (and sub (<= (:delivered sub) cursor) (pos? remaining))
-          (.wait sig (long remaining))
-          (recur))))))
+          (if (try (.wait sig (long remaining)) true
+                   (catch InterruptedException _
+                     (.interrupt (Thread/currentThread))
+                     false))
+            (recur)
+            nil))))))
 
 (defn poll
   "Read a subscription forward: the events past `cursor`, the cursor to send next time,
@@ -341,7 +367,9 @@
                             :token token})))))
      (let [current (or (get-in @reg [:subs token])
                        (throw (ex-info (str "feed subscription " (pr-str token)
-                                            " was dropped while this poll was waiting")
+                                            " was dropped while this poll was waiting —"
+                                            " watch again, and poll the new token from"
+                                            " cursor 0")
                                        {:type :unknown-subscription :token token})))]
        (swap! reg (fn [r] (cond-> r
                             (get-in r [:subs token])

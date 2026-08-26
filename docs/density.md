@@ -28,7 +28,7 @@ oracles compare *sets*, not summaries.
 ## Selecting one
 
 The records and the index are chosen on **separate axes** — `open-kb`'s `:records`
-(`:memory` / `:disk`) and `:index` (`:memory` / `:dense` / `:columnar` / `:disk`), with
+(`:memory` / `:disk`) and `:index` (`:memory` / `:dense` / `:columnar` / `:disk-log`), with
 `:backend` as sugar naming a pair (see [storage.md](storage.md)). That split is what
 lets the density work run durably: a dense index is *derived* state, so pairing one with
 durable records costs only a rebuild on open.
@@ -41,13 +41,16 @@ durable records costs only a rebuild on open.
 | `:disk-memory` | paged from disk | `KvIndexStore` over a map, rebuilt on open | durable records, nothing written for the index |
 | `:disk-dense` | paged from disk | int-postings values, rebuilt on open | Phase 1's index, measured at durable scale |
 | `:disk-columnar` | paged from disk | native int-token trie, rebuilt on open | Phase 2's index, measured at durable scale |
-| `:disk` | paged from disk | `KvIndexStore` over a WAL-backed map | durability; the record side of the density work |
+| `:disk-log` | paged from disk | `KvIndexStore` over a WAL-backed map | durability; the record side of the density work |
 | `:overlay` | a decorator | a decorator | a fork over a frozen base — [overlay.md](overlay.md) |
 
 The whole test suite runs on any of them: `VAELII_TEST_BACKEND=memory-columnar lein
 test`. `backend_parity_test` runs a scripted KB session across all eight configurations
-— the seven legal record×index pairs plus the overlay decorator — in an ordinary `lein
-test`, so a divergence fails without anyone remembering to.
+the engine carries alone — the seven record×index pairs above plus the overlay decorator
+— in an ordinary `lein test`, so a divergence fails without anyone remembering to. The
+`:sqlite` and `:pg` record axes are legal too and are not here: they live in sibling
+adapters that core does not depend on, so their parity is each adapter's own suite
+([storage.md](storage.md)).
 
 `:backend` names the *storage*. The third resident structure, the truth-maintenance
 network, is orthogonal to it and is selected separately by `:tms` — `:dense`
@@ -523,12 +526,79 @@ remains a one-keyword pin for the simpler baseline.
 `int`-keyed, so a handle or justification id must fit a 32-bit int — 2^31-1 ≈ 2.1B.
 Handles allocate in assertion order and never reuse, so that bounds a KB's *cumulative*
 allocations, not its live nodes: 21× the 100M target, but a long-lived writer churning
-assert/retract can climb to it. Crossing it throws an actionable error naming the ceiling
-and the `{:tms :reference}` remedy — checked where a new id first enters, so an operator
-sees that rather than the cast's bare "integer overflow" — and never a silent truncation
+assert/retract can climb to it. Crossing it throws `:type :handle-ceiling`, an actionable
+error naming the ceiling and carrying `:remedy {:tms :reference}` — checked where a new id
+first enters, so an operator sees that rather than the cast's bare "integer overflow", and
+a supervisor discriminates on the type as it does on every other refusal — and never a
+silent truncation
 that would collide two handles and corrupt belief. A KB that expects to churn past 2^31
 pins `{:tms :reference}`, whose `Long`-keyed maps have no ceiling. The reference costs the
 RAM this page measures; that is the trade.
+
+## The budget at 100M
+
+Every section above prices one structure. This one adds them up, because the question the
+dense backends exist to answer is not *"what does the trie cost"* but **"what does a
+100M-sentex KB hold in heap, and where does it go?"** `lein bench-budget` is the report,
+and it re-runs: three geometric corpus sizes per backend at two justification ratios, one
+row per resident structure, each row carried to the target only on a shape it passes
+twice. What follows is its output at the default size, extrapolated to 100,000,000 facts
+against a 40 GB heap.
+
+`:disk-log`, at j/n 1.1 — the ratio [below](#at-corpus-scale-and-why-it-is-the-default-item-09)
+calls the shape a common-sense KB actually takes:
+
+| Structure | At 100M | Shape |
+|---|---|---|
+| flat KV index (resident, whole map) | **310.30 GB** | linear |
+| dense JTMS | **16.32 GB** | linear |
+| record live-id rosters | **9.47 GB** | linear |
+| record store, rest | 2.00 GB | linear |
+| hot-record cache | 39.7 MB | capped at 65,536 records/kind |
+| naming / match / feed / qcn | 7.3 MB | affine |
+| taxonomy `:up`/`:down` | 0.2 MB | flat in the extent |
+| **total** | **338.13 GB** | **8.45× the budget** |
+
+At j/n 0.5 the two justification-sensitive rows fall — the JTMS to 10.43 GB and the
+rosters to 7.69 GB — and the total to 326.08 GB. The index does not move with j/n.
+
+**The index is the whole problem, and it is worse than its coefficient suggests.** 310 GB
+is 7.6× the entire budget on one row. Nothing that compresses what the map holds closes a
+gap that size; only taking it off the heap does.
+
+**Everything else fits.** The non-index rows sum to 27.8 GB at j/n 1.1 — inside 40 GB,
+though two thirds of it. So an index that goes fully off-heap is sufficient on its own,
+and the roster and JTMS work is headroom rather than a precondition.
+
+### What the columnar image does and does not take off the heap
+
+`:disk-columnar` maps its image, and the index row falls from 310.30 GB to **37.89 GB** —
+a total of 65.73 GB, still 1.64× over. The image is not one structure, though, and its
+sections do not share a shape. `bench-budget` reports each on its own, as a decomposition
+of the index row:
+
+| Section | At 100M | Shape |
+|---|---|---|
+| roots fallback blob ← argument roots | **34.10 GB** | linear |
+| CSR skeleton | 3.37 GB | linear |
+| token dictionary | 1.3 MB | flat in the extent |
+| roots handle column *(mapped)* | 2.19 GB | linear |
+| CSR leaves *(mapped)* | 1.22 GB | linear |
+| roots key + offset columns *(mapped)* | 0.1 MB | flat in the extent |
+
+The dictionary and the roots' key columns are vocabulary-bounded and measure flat, which
+is what the image was argued to be. The fallback blob is not: it carries the
+predicate-scoped argument roots, whose four-part key does not pack, and it is read whole
+on open. It is **90% of the image's remaining heap**, and it is the difference between
+this backend being over budget and under it — 65.73 GB with it, 31.63 GB without.
+
+### What these numbers are not
+
+The corpus holds its vocabulary fixed at every size, so only the extent grows. That is
+what makes a growth ratio mean anything, and it is also why the total is a **floor**: every
+row that measures flat is carried to 100M at the value 8,000 individuals gave it, and a KB
+of 100M facts does not have 8,000 individuals. The two flat sections above are flat for
+exactly that reason. Read the total as the extent's price, not as a KB of that size.
 
 ## Reading these numbers honestly
 

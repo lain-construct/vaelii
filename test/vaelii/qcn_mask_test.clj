@@ -121,6 +121,17 @@
 
 ;; ---- the two table strategies --------------------------------------------
 
+(deftest the-two-numbers-that-bound-this-layer-are-the-documented-ones
+  ;; Neither is a cache — nothing is held and nothing is evicted — so neither has a row
+  ;; on the caches page, and docs/qcn.md ("Two numbers bound this layer, and neither is a
+  ;; cache") is where a reader meets them instead.  The tests below spell the threshold
+  ;; out again as an arithmetic bound, so a constant that moved with nothing else moving
+  ;; would leave three readings disagreeing rather than one.
+  (is (= 62 @#'qcn/max-base-relations)
+      "a constraint is the bits of a long, and 62 is what one holds")
+  (is (= (bit-shift-left 1 18) @#'qcn/dense-table-limit)
+      "the whole-mask composition table is built at or under this many entries"))
+
 (deftest every-shipped-algebra-takes-the-dense-table
   (testing "the whole-mask table is affordable for all six, Allen's thirteen included"
     (doseq [[nm algebra] algebras]

@@ -1,6 +1,6 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
-(ns vaelii.impl.koinii.belief
+(ns vaelii.koinii.belief
   "Koinii belief projection and own-statement disregard — reasoning about what agents
   hold, built on modal belief projection (`vaelii.impl.modal`, `docs/belief.md`) and
   `except` visibility masking.
@@ -28,10 +28,10 @@
     keeps both sides visible; `except` is only ever an agent editing the visibility of
     what it *itself* said.
 
-  Additive, like the other koinii modules: only the public core API plus `modal`,
-  `sentex`, and koinii `identity` — nothing in core loads it."
+  Additive, like the other koinii modules: only the public core API plus koinii
+  `identity` — nothing under `vaelii.impl`, and nothing in core loads it."
   (:require [vaelii.core :as v]
-            [vaelii.impl.koinii.identity :as id]))
+            [vaelii.koinii.identity :as id]))
 
 ;; ---- projection: read what an agent holds, from its own context ----------
 

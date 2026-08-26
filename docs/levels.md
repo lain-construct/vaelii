@@ -161,14 +161,26 @@ one.
 What stops that claim from over-reaching is not the prover but the **engine**.
 `provers/sole-prover` asks `provers/shadowing-channels` whether this KB could reach the
 goal by a route no computed prover reads — an `(transitiveInArg P n R)` declaration
-(`:preserving`), a rule concluding the goal's predicate or a spec of it (`:rules`), or a
-declared `(inverse P Q)` (`:inverse`) — and if any of the three bears, nobody runs alone
-and the union runs instead, whatever was claimed. So above level 4 a result never
-*disappears* going up the stack; it can only lose its handle.
+(`:preserving`), a rule concluding the goal's predicate or a spec of it (`:rules`), a
+declared `(inverse P Q)` (`:inverse`), or a **calendar term** in an argument, whose fields
+carry an ordering no stored fact does (`:calendar`, [time.md](time.md)) — and if any of the
+four bears, nobody runs alone and the union runs instead, whatever was claimed. So above
+level 4 a result never *disappears* going up the stack; it can only lose its handle.
 
 That is the engine being honest about its own dispatch rather than the stack
 papering over it. If you want the stored sentex behind an answer, ask at the level
 that reads the store.
+
+**Level 7 does not answer against belief either**, and that is the one thing rule
+expansion could plausibly have added and does not. Opening the rule that concluded a
+**defeated** datum and proving it again would answer a question belief has already
+settled — `(flies Tweety)` beaten by a monotonic `(not (flies Tweety))` is OUT, and a
+level that read it IN would be answering a stale state rather than a harder question. So
+an answer a rule expansion produces whose sentence names a stored sentex the JTMS holds
+defeated, visible from the query's context, is dropped: level 7 climbs *reach* over level
+6 without ever climbing past belief ([inference.md](inference.md), "Answers belief has
+already decided against"). Retract the defeater and the datum revives, and level 7
+answers it again with nothing else having changed.
 
 ## Operators
 

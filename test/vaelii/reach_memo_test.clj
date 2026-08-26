@@ -19,48 +19,27 @@
             [vaelii.core :as v]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.provers :as provers]
-            [vaelii.impl.resolution :as res]
-            [vaelii.test-util :as tu])
-  (:import [java.util.concurrent.atomic AtomicLong]))
+            [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
-
-(defn- counting-closure-lookups
-  "Wrap `matches-visible`, counting only the closure's neighbour probes for `pred` —
-  those `succs`/`preds-of` issue, which always carry the `?rv` variable.  A
-  `FactProver` lookup of the same predicate uses the goal's own variables, so it is
-  not counted; this isolates the closure walk."
-  [pred calls]
-  (let [orig res/matches-visible]
-    (fn [kb s c]
-      (when (and (sequential? s) (= pred (first s)) (some #(= '?rv %) s))
-        (swap! calls inc))
-      (orig kb s c))))
 
 (tu/deftest-kb succs-is-memoized-only-under-a-bound-cache
   (tu/with-terms [before A B CxFarm]
     (v/assert kb (list 'transitive before) CxFarm)
     (v/assert kb (list before A B) CxFarm)
-    (let [calls (atom 0)]
-      (with-redefs [res/matches-visible (counting-closure-lookups before calls)]
-        (testing "no memo bound -> each succs call hits the store"
-          (reset! calls 0)
-          (binding [observe/*reach-memo* nil]
-            (#'provers/succs kb before A CxFarm)
-            (#'provers/succs kb before A CxFarm))
-          (is (= 2 @calls)))
-        (testing "a bound memo -> repeated succs of the same node hits the store once"
-          (reset! calls 0)
-          (binding [observe/*reach-memo* (atom {})]
-            (#'provers/succs kb before A CxFarm)
-            (#'provers/succs kb before A CxFarm))
-          (is (= 1 @calls)))
-        (testing "preds-of shares the cache without colliding with succs (different dir)"
-          (reset! calls 0)
-          (binding [observe/*reach-memo* (atom {})]
-            (#'provers/succs kb before A CxFarm)
-            (#'provers/preds-of kb before A CxFarm))    ; a different direction of A
-          (is (= 2 @calls) "succ and pred of the same node are distinct keys"))))))
+    (testing "no memo bound -> each succs call hits the store"
+      (is (= 2 (tu/neighbours-built #(binding [observe/*reach-memo* nil]
+                                       (#'provers/succs kb before A CxFarm)
+                                       (#'provers/succs kb before A CxFarm))))))
+    (testing "a bound memo -> repeated succs of the same node hits the store once"
+      (is (= 1 (tu/neighbours-built #(binding [observe/*reach-memo* (atom {})]
+                                       (#'provers/succs kb before A CxFarm)
+                                       (#'provers/succs kb before A CxFarm))))))
+    (testing "preds-of shares the cache without colliding with succs (different dir)"
+      (is (= 2 (tu/neighbours-built #(binding [observe/*reach-memo* (atom {})]
+                                       (#'provers/succs kb before A CxFarm)
+                                       (#'provers/preds-of kb before A CxFarm))))   ; a different direction of A
+          "succ and pred of the same node are distinct keys"))))
 
 (tu/deftest-kb two-transitive-antecedents-stay-correct-and-linear
   (tu/with-terms [before twoHop CxFarm]
@@ -71,15 +50,17 @@
       ;; forward-materialized and the join genuinely walks the `before` closure twice
       (v/assert-rule kb [(list before '?a '?b) (list before '?b '?c)]
                      (list twoHop '?a '?c) CxFarm {:direction :backward})
-      (let [calls (atom 0)]
-        (with-redefs [res/matches-visible (counting-closure-lookups before calls)]
-          (let [ans (set (map #(get % '?c) (v/query kb (list twoHop (nodes 0) '?c) CxFarm {:max-depth 2})))]
-            (testing "correct: N0 two-hops to every node from N2 onward"
-              (is (= (set (subvec nodes 2)) ans)))
-            (testing "the closure is walked once, not once per join binding"
-              ;; ~11 distinct nodes each probed once; un-memoized is ~66 (11+10+…+1)
-              (is (< @calls 25)
-                  (str "closure lookups " @calls " should be ~linear, not quadratic")))))))))
+      (let [ans   (atom nil)
+            built (tu/neighbours-built
+                   #(reset! ans (set (map (fn [b] (get b '?c))
+                                          (v/query kb (list twoHop (nodes 0) '?c) CxFarm
+                                                   {:max-depth 2})))))]
+        (testing "correct: N0 two-hops to every node from N2 onward"
+          (is (= (set (subvec nodes 2)) @ans)))
+        (testing "the closure is walked once, not once per join binding"
+          ;; ~11 distinct nodes each built once; un-memoized is ~66 (11+10+…+1)
+          (is (< built 25)
+              (str "neighbour sets built " built " should be ~linear, not quadratic")))))))
 
 ;; ---- the closure ANSWER cache (`:closure-answers`) -----------------------
 ;;
@@ -92,15 +73,6 @@
 (defn- ancestors-of
   [kb pred x context]
   (set (map #(get % '?y) (v/ask kb (list pred x '?y) context))))
-
-(defn- counting-neighbour-probes
-  "A `matches-visible` that tallies only the walk's own neighbour probes — the ones
-  carrying `?rv`.  A second ask that issues none was answered from the closure cache."
-  [^AtomicLong n]
-  (let [orig res/matches-visible]
-    (fn [kb s c]
-      (when (and (sequential? s) (some #(= '?rv %) s)) (.incrementAndGet n))
-      (orig kb s c))))
 
 (tu/deftest-kb a-defeated-edge-moves-the-cached-closure
   ;; Write this one first: a closure held across a relabel is the failure that reports a
@@ -165,15 +137,15 @@
     (v/assert kb (list 'transitive before) CxFarm)
     (let [nodes (vec (repeatedly 8 tu/tmp-ind))]
       (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) CxFarm))
-      (let [n (AtomicLong. 0)]
-        (with-redefs [res/matches-visible (counting-neighbour-probes n)]
-          (let [first-answer (ancestors-of kb before (nodes 0) CxFarm)
-                walked       (.get n)]
-            (.set n 0)
-            (is (= first-answer (ancestors-of kb before (nodes 0) CxFarm))
-                "the same answer")
-            (is (pos? walked) "the first ask walked")
-            (is (zero? (.get n)) "and the second walked nothing at all")))))))
+      (let [first-answer (atom nil)
+            walked        (tu/neighbours-built #(reset! first-answer
+                                                        (ancestors-of kb before (nodes 0) CxFarm)))
+            again         (atom nil)
+            walked-again  (tu/neighbours-built #(reset! again
+                                                        (ancestors-of kb before (nodes 0) CxFarm)))]
+        (is (= @first-answer @again) "the same answer")
+        (is (pos? walked) "the first ask walked")
+        (is (zero? walked-again) "and the second walked nothing at all")))))
 
 (tu/deftest-kb a-closed-goal-reads-the-cache-without-filling-it
   ;; The asymmetry: an entry answers a pair by membership, and a closed goal that misses
@@ -188,17 +160,21 @@
         (is (zero? (count (:entries @(:closures kb))))))
       (testing "and once an open ask has filled it, a pair from that node is answered from the set"
         (ancestors-of kb before (nodes 0) CxFarm)
-        (let [n (AtomicLong. 0)
-              stranger (tu/tmp-ind)]                        ; in no edge, so in no reach
-          (with-redefs [res/matches-visible (counting-neighbour-probes n)]
-            (is (v/ask? kb (list before (nodes 0) (nodes 7)) CxFarm))
-            (is (not (v/ask? kb (list before (nodes 0) stranger) CxFarm)))
-            (is (zero? (.get n)) "neither answer walked — both came out of the held set"))))
+        (let [stranger (tu/tmp-ind)                         ; in no edge, so in no reach
+              hit      (atom nil)
+              miss     (atom nil)
+              walked   (tu/neighbours-built (fn []
+                                              (reset! hit  (v/ask? kb (list before (nodes 0) (nodes 7)) CxFarm))
+                                              (reset! miss (v/ask? kb (list before (nodes 0) stranger) CxFarm))))]
+          (is @hit)
+          (is (not @miss))
+          (is (zero? walked) "neither answer walked — both came out of the held set")))
       (testing "a pair from a node no ask has filled still walks, and still stops early"
-        (let [n (AtomicLong. 0)]
-          (with-redefs [res/matches-visible (counting-neighbour-probes n)]
-            (is (not (v/ask? kb (list before (nodes 7) (nodes 0)) CxFarm)))
-            (is (pos? (.get n)) "the miss falls through to the walk rather than inventing one")))))))
+        (let [answered (atom nil)
+              walked   (tu/neighbours-built #(reset! answered
+                                                     (v/ask? kb (list before (nodes 7) (nodes 0)) CxFarm)))]
+          (is (not @answered))
+          (is (pos? walked) "the miss falls through to the walk rather than inventing one"))))))
 
 (tu/deftest-kb a-closure-past-the-bound-is-not-held
   ;; The bound counts members, because an entry is a whole reach: bounding entries would

@@ -56,7 +56,9 @@ predicates, forward-chained from the same agenda, and placed in the maximal cont
 sees both it and the facts it fired on. A conjunctive necessary condition
 `(and (male ?x) (unmarried ?x))` polycanonicalizes into one rule per conjunct like any
 conjunctive consequent, and a sufficient conjunction becomes a conjunctive rule body that
-needs every conjunct met.
+needs every conjunct met. A **disjunctive** sufficient condition becomes a rule body that
+disjoins, polycanonicalized into one companion rule per alternative — which is how "a pet
+is a dog or a cat" is written ([canonicalization.md](canonicalization.md)).
 
 ## The rule is derived, so retraction and belief follow it
 
@@ -124,7 +126,7 @@ stay on the positive side of that line.
 predicates. The first argument names a collection (a kind, so `genlArg … 1 thing`); the
 second is the condition sentence, a term (`arg … 2 thing`). They relate a kind to a
 sentence, so they are honestly mixed and marked neither `instanceRelationPredicate` nor
-`typeRelationPredicate`, the way `resultIsa` is ([argtypes.md](argtypes.md)).
+`typeRelationPredicate`, the way `result` is ([argtypes.md](argtypes.md)).
 
 The condition carries the member variable `?x`, so a `defn*` fact is not ground — and it
 is exempted from the ground check the way a schematic equation is

@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.11.1-SNAPSHOT"
+(defproject com.vaelii/vaelii "0.13.1-SNAPSHOT"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -59,17 +59,29 @@
   ;; line above then reports as a reflection warning on every `lein run`. This keeps
   ;; the hint. Needs lein 2.10+; an older one ignores the key.
   :preserve-eval-meta true
-  ;; `^:slow` defers a test costing about a second or more, `^:llm` one that can reach
-  ;; a model provider. What each mark selects, and the separate consent gate beside the
-  ;; llm one: CONTRIBUTING.md §5.
+  ;; Three marks, each deferring a test for its own reason: `^:slow` a test costing
+  ;; about a second or more, `^:llm` one that can reach a model provider, `^:multi-jvm`
+  ;; one that forks a second JVM. What each selects, and the separate consent gate
+  ;; beside the llm one: CONTRIBUTING.md §5.
+  ;; **Two of the three are opt-in only**, so neither `:default` nor `:all` selects
+  ;; them and every other selector has to exclude them by name. `:all` is therefore
+  ;; not `(complement :llm)`: a complement of one mark silently adopts the next one
+  ;; added, which is how a forked JVM would end up in the fast gate.
   ;; `[m & _]`, not `#(… %)`: `lein test :slow some.ns` hands the selector the trailing
   ;; `some.ns` as an argument — leiningen splits namespaces (symbols) from selectors and
   ;; passes the var metadata first, then any tokens after the selector — so a one-arg
   ;; selector throws ArityException there. Swallow the rest; filter on the metadata alone.
-  :test-selectors {:default (fn [m & _] (not (or (:slow m) (:llm m))))
-                   :slow    (fn [m & _] (and (:slow m) (not (:llm m))))
-                   :llm     :llm
-                   :all     (complement :llm)}
+  ;; **A bare keyword is not a shorthand for that**, and it fails the same way and
+  ;; silently: `(:llm m "some.ns")` is a lookup with a DEFAULT, so the trailing
+  ;; namespace becomes the answer for every test whose metadata lacks the key, and
+  ;; `lein test :llm some.ns` runs the whole suite instead of one marked namespace.
+  ;; Every selector here is a fn for that reason.
+  :test-selectors {:default   (fn [m & _] (not (or (:slow m) (:llm m) (:multi-jvm m) (:fuzz m))))
+                   :slow      (fn [m & _] (and (:slow m) (not (or (:llm m) (:multi-jvm m) (:fuzz m)))))
+                   :llm       (fn [m & _] (boolean (:llm m)))
+                   :multi-jvm (fn [m & _] (boolean (:multi-jvm m)))
+                   :fuzz      (fn [m & _] (boolean (:fuzz m)))
+                   :all       (fn [m & _] (not (or (:llm m) (:multi-jvm m) (:fuzz m))))}
   :profiles {;; `:aot :all` plus a no-op SLF4J binding: silences Jetty's "no providers"
              ;; line inside the standalone jar. Not top-level `:dependencies` — that would
              ;; make it a transitive dependency of every application that depends on
@@ -108,7 +120,7 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.11.0"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.13.0"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
@@ -156,10 +168,20 @@
                     ;; Runtime `resolve` rather than the symbol itself because
                     ;; injections compile as one `do`: a var in the same form as the
                     ;; `require` that loads it is not there to resolve yet.
+                    ;;
+                    ;; `VAELII_TEST_NS_COUNTS` prints one assertion count per namespace
+                    ;; (`vaelii.ns-counts`), for the run whose total moved.  Off unless
+                    ;; set, and inert when on: it reads counters clojure.test already
+                    ;; maintains.  Installed here rather than from a test namespace so it
+                    ;; is in place before the first one loads, and so the counting cannot
+                    ;; depend on which namespace happened to require it.
                     :injections
                     [(require 'vaelii.impl.logging)
                      ((resolve 'vaelii.impl.logging/set-level)
-                      (keyword (or (System/getenv "VAELII_TEST_LOG_LEVEL") "error")))]}
+                      (keyword (or (System/getenv "VAELII_TEST_LOG_LEVEL") "error")))
+                     (when (System/getenv "VAELII_TEST_NS_COUNTS")
+                       (require 'vaelii.ns-counts)
+                       ((resolve 'vaelii.ns-counts/install!)))]}
              ;; sampling profiler for a repl: `(prof/profile (…))`, flamegraphs under
              ;; /tmp/clj-async-profiler/results/, `(prof/serve-ui 8080)`. The -XX pair
              ;; keeps inlined frames off their caller's line; the attach flag is how it
@@ -177,7 +199,7 @@
              ;; the verdict here in the way the assertion is there. A workload provokes
              ;; the engine's own logging *by construction* — the clash rows drop
              ;; conclusions, and every `fresh-kb` opens over the space the row before it
-             ;; filled — so `lein perf` printed 1,307 log lines around 39 verdicts, and
+             ;; filled — so `lein perf` printed 1,307 log lines around its verdicts, and
              ;; the row that failed was somewhere in them. Same floor at `:error`, same
              ;; escape hatch: `VAELII_BENCH_LOG_LEVEL=info lein perf` when a reading needs
              ;; explaining, and a level outside the five fails the run rather than
@@ -271,7 +293,6 @@
             "lint-unused"     ["shell" "python3" "scripts/check-unused-publics.py"]
             ;; the `authorship` CI gate's rules, against synthetic commits — the gate
             ;; runs only on a pull request, so this is where they are exercised first
-            "lint-authorship" ["shell" "python3" "scripts/check-authorship.py" "--selftest"]
             ;; lint, the suite and the perf claims in one run, not fail-fast
             ;; (scripts/gate.sh says why)
             "gate"            ["shell" "bash" "scripts/gate.sh"]
@@ -286,10 +307,27 @@
             ;; deliberate surface change is recorded, and never how a red golden is
             ;; silenced
             "regen-goldens"   ["run" "-m" "vaelii.regen-goldens"]
+            ;; rewrite the client's wrapper sections from the daemon's op table — one
+            ;; wrapper per op, spelled as `vaelii.core` spells the fn.  Generated rather
+            ;; than macroexpanded because the client requires neither the table nor the
+            ;; engine, and read `vaelii.regen-client` before reaching for it: a red
+            ;; `client_surface_test` is an op somebody added, not a chore
+            "regen-client"    ["run" "-m" "vaelii.regen-client"]
             ;; the suite across JVMs — what the gate's test stage runs.  Memory stores
             ;; only: a durable half is one lock and three usable space blocks, so the
             ;; script refuses one rather than sharding into it.
             "test-parallel"   ["shell" "bash" "scripts/test-parallel.sh"]
+            ;; the cross-process tests, which run only when named — `:multi-jvm` is
+            ;; opt-in, so `lein test`, `lein test :all` and the gate all pass over
+            ;; them.  An alias because a selector nothing types is a selector nothing
+            ;; runs: this is the name `deep.yml` and a reviewer both reach for.
+            "test-multi-jvm"  ["test" ":multi-jvm"]
+            ;; the exhaustive truncation sweep, opt-in for a different reason than
+            ;; `:multi-jvm`: it is not that no other selector *can* run it, it is that
+            ;; no configuration *varies* it — the sweep names its own four backends, so
+            ;; a matrix row would repeat identical work.  Once, not once per row.  Set
+            ;; `VAELII_TEST_TMPDIR` to a tmpfs: a couple of minutes rather than ten.
+            "test-fuzz"       ["test" ":fuzz"]
             ;; feeds the README deps badge, via scripts/update-badges.sh --deps
             "antq"            ["with-profile" "+antq" "run" "-m" "antq.core" "--skip=pom"]
             ;; the whole suite once per backend — seven record×index pairs plus the
@@ -351,11 +389,18 @@
             ;; counted rather than timed, over the same layout table.
             "bench-alloc"     ["with-profile" "+bench,+with-foreign" "run" "-m" "vaelii.bench.alloc"]
             "bench-qcn"       ["with-profile" "+bench" "run" "-m" "vaelii.bench.qcn"]
+            ;; the metric half of time beside the qualitative one: what a closure costs
+            ;; from nothing, what an arriving constraint costs the answer after it, and
+            ;; what a repeat ask costs when nothing moved (docs/stp.md, "Cost")
+            "bench-stp"       ["with-profile" "+bench" "run" "-m" "vaelii.bench.stp"]
             "bench-qcnchain"  ["with-profile" "+bench" "run" "-m" "vaelii.bench.qcnchain"]
             "bench-aggchain"  ["with-profile" "+bench" "run" "-m" "vaelii.bench.aggchain"]
             "bench-corpus"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.corpus"]
             "bench-reindex"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.reindex"]
             "bench-residency" ["with-profile" "+bench" "run" "-m" "vaelii.bench.residency"]
+            ;; the whole-KB budget beside `bench-residency`'s one structure: every
+            ;; resident structure at two sizes, extrapolated to a named target
+            "bench-budget"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.budget"]
             "bench-cyclic"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.cyclic"]
             "bench-checks"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.checks"]
             ;; the argument-root index's cost on the belief-settle (recover) hot path —
@@ -364,6 +409,11 @@
             "bench-argindex"  ["with-profile" "+bench" "run" "-m" "vaelii.bench.argindex"]
             "bench-inherit"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.inherit"]
             "bench-tactics"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.tactics"]
+            ;; would a cross-query subgoal table be hit?  The census over the fables'
+            ;; question set, the commonsense examples and the debugger's render, and the
+            ;; A/B that prices a prototype one.  Reads the test-world, so it wants
+            ;; `test/` on the classpath, which leiningen puts there
+            "bench-subgoal"   ["with-profile" "+bench" "run" "-m" "vaelii.bench.subgoal"]
             ;; the two per-firing reads `perf` cannot gate: a cost that is constant per
             ;; operation moves both of a ratio's readings, so it gets a report and a
             ;; per-firing number instead of a bound

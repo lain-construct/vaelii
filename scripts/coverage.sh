@@ -90,7 +90,12 @@ CLOVERAGE_ARGS=(--no-colorize --selector "$SELECTOR")
 #      kv, asp.clingo, jtms-protocol (the 40-method `Tms` protocol, split out of
 #      vaelii.impl.jtms into its own file precisely so the rest of the JTMS —
 #      the whole algorithm — stays instrumented; the protocol carries no code to
-#      cover, so excluding only it loses nothing).
+#      cover, so excluding only it loses nothing), and protocols (the 31-method
+#      `IndexStore`, split the same way: it declares and holds no code, while the
+#      capability fallbacks that go with the optional protocols are next door in
+#      vaelii.impl.capabilities and stay measured).  Cloverage's
+#      `--exclude-call clojure.core/defprotocol` rescues neither — the form still
+#      compiles whole — so the split is the fix, not the flag.
 #   2. Broken protocol dispatch — a defrecord/deftype that inline-implements a
 #      protocol defined in the SAME file loses its method table under cloverage's
 #      per-form eval, so calls throw "No implementation of method ... found for
@@ -107,7 +112,7 @@ CLOVERAGE_ARGS=(--no-colorize --selector "$SELECTOR")
 # while whatever actually trips the limits today went uninstrumented-and-uncovered
 # or failed the run outright. Keep this list discovered, not remembered: when a run
 # dies on "Method code too large!", add the namespace it names and say so here.
-DEFAULT_EXCLUDE='^vaelii\.impl\.kv$ ^vaelii\.impl\.asp\.clingo$ ^vaelii\.impl\.jtms-protocol$'
+DEFAULT_EXCLUDE='^vaelii\.impl\.kv$ ^vaelii\.impl\.asp\.clingo$ ^vaelii\.impl\.jtms-protocol$ ^vaelii\.impl\.protocols$'
 for ns in ${COVERAGE_EXCLUDE-$DEFAULT_EXCLUDE}; do
   CLOVERAGE_ARGS+=(-e "$ns")
 done

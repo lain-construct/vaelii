@@ -6,7 +6,7 @@
   or independently-replicated seats). The design decisions the koinii modules cite by
   number (D1, D3–D9) are tabled here.
 - **Not here:** the per-function API — that is in the module docstrings under
-  `vaelii.impl.koinii.*`; the change feed the channel rides →
+  `vaelii.koinii.*`; the change feed the channel rides →
   [feed.md](feed.md); the single-writer daemon and client → [operations.md](operations.md);
   modal belief projection → [belief.md](belief.md); paraconsistent contradiction and
   strength defeat → [nmtms.md](nmtms.md); the `except` visibility mask →
@@ -23,11 +23,19 @@ group of agents needs to coordinate — identity, a shared medium, provenance, c
 handling, truth maintenance — so coordination is not a new transport bolted on the side but a
 small vocabulary and a handful of conventions expressed **in the KB itself**.
 
-It is **additive**. Nothing in `vaelii.core` loads it; every koinii module is built on the
-public core API and the thin `vaelii.client`, exactly as `vaelii.impl.argue` is. Load a
-koinii context explicitly (`identity/load-registry`, `speech-acts/load-speech-acts`) — the
-starter walks only `upper/` and `middle/`, so a KB pays for koinii only when a deployment
-asks for it.
+It is an **application, not part of the engine**, and the tree says so: koinii lives at
+`src/vaelii/koinii/`, beside `impl/` rather than inside it, and requires nothing under
+`vaelii.impl` — every module is built on the public core API and the thin `vaelii.client`,
+exactly as an outside consumer would be (`public_api_test/koinii-reaches-into-no-impl`
+checks it). That is also why it is out of the engine's pinned rosters (the API golden, the
+SPI seams, the refusal-type roster): koinii's own development would otherwise churn the
+engine's compatibility contract. When koinii needs something the API does not publish, the
+answer is to publish it — `sort-by-content` is here for that reason — never to reach past
+it.
+
+It is **additive**. Nothing in `vaelii.core` loads it. Load a koinii context explicitly
+(`identity/load-registry`, `speech-acts/load-speech-acts`) — the starter walks only
+`upper/` and `middle/`, so a KB pays for koinii only when a deployment asks for it.
 
 ## The model: agents are contexts, moves are knowledge
 
@@ -88,8 +96,9 @@ The transport an agent coordinates over is the `Medium` protocol, with two imple
   apparatus. The callback runs on the writing thread, so a slow one still slows the writer —
   fine single-process, wrong across agents.
 
-Everything above the protocol — `reply` / `assert` / `reply-many`, the recovery reads — runs
-the same over either medium. Only `subscribe` differs, because only the feed does.
+Everything above the protocol — `assert`, the five reply verbs (`answer` / `endorse` /
+`justify` / `dispute` / `vote`), `reply-many`, and the recovery reads — runs the same over
+either medium. Only `subscribe` differs, because only the feed does.
 
 ### When to stop
 
@@ -112,6 +121,27 @@ is a **deterministic function of its id** — `AgentAtlas` → `CxAtlas` (`ident
 context that is not its own. The one context every governed agent may *not* write is the
 admin-only registry `CxRegistry`: the governed may not write the authority that governs them.
 
+The boundary is checked at **both ends of the edge**. An agent's writes land in its own
+context; a *join* grafts that context under a coordination channel, which widens what the
+**parent** sees — every cone read of the parent returns the newcomer's claims from then on —
+so the parent is held to the same standard the destination is. The registry, the agent's own
+context, and any context already placed as an agent's own are refused
+(`:koinii/not-a-channel`). A placed context **says so in the KB**: `(agentContext CxAtlas
+AgentAtlas)`, written into that context by the one placement every route goes through
+(`identity/place-agent-context`), and therefore true of an agent context however it was
+placed. It has to be written rather than inferred, because neither the spelling nor the
+lattice distinguishes the two — `CxAtlas` and `CxDeploy` are spelled alike, and a placement's
+`genlCx` edges are the ordinary wiring of any nested context, so reading the role off them
+would make admission depend on what else had landed and in which order. A context nothing has
+claimed is admissible: the door refuses what a placement told it, not what it could guess.
+
+The **stamp** is fixed by the same id, and refused rather than bent: `channel/assert` stamps
+`:creator` the agent the handle names, and a caller passing a *different* `:creator` is
+refused (`:koinii/creator-mismatch`). Neither silent outcome is honest — honouring it lets an
+agent sign another's name, dropping it leaves a call that looks like it took — and ownership
+is load-bearing downstream, since `belief/disregard` will only withdraw a statement whose
+creator is the withdrawing agent. Passing the agent's own id is redundant and allowed.
+
 The auth **strength** is conditional on policy (decision D4):
 
 - **Cooperative** (the default) — `*creator*` trusted by convention, the write routed to the
@@ -127,10 +157,11 @@ The registry itself carries three facts per agent — a membership mark (`agent`
 name (`displayNameOf`), and a **trust value** (`trustLevel`). Trust is a *mutable number*,
 not a fixed rank (decision D3): an operator-assigned tier at bootstrap, overwritten by earned
 reputation later. `trustLevel` is `functional`, so an update retracts the old value and
-asserts the new rather than accumulating two. The number must support one constraint the
-reputation math will later compute into — an endorsement is a trust signal only across
-**distinct** principals, so homogeneous agents endorsing each other are discounted to one
-signal — but here trust is only *stored*.
+asserts the new rather than accumulating two. The number must support one constraint any
+reputation math would have to honour — an endorsement is a trust signal only across
+**distinct** principals, so homogeneous agents endorsing each other are worth one signal
+between them. No such math ships: nothing computes `trustLevel` from endorsements, and no
+resolution policy reads it. Here trust is only *stored*.
 
 ## Speech acts: reply is an assertion
 
@@ -142,9 +173,11 @@ whether a move stands on its own or answers another:
   provenance already records who spoke. So `asserts` is documentary vocabulary, never minted
   — *an assertion in koinii is just an assertion*. A `queries` node **is** minted, because a
   question must be told apart from a claim.
-- **Response** (`answers`, `disputes`, `endorses`, `justifies`) — a **meta-sentex on the
-  target**, naming it by handle, asserted in the responder's own context and stamped with the
-  responder as creator.
+- **Response** (`answers`, `disputes`, `endorses`, `justifies`, `votesFor`,
+  `votesAgainst`) — a **meta-sentex on the target**, naming it by handle, asserted in the
+  responder's own context and stamped with the responder as creator. The two ballots are
+  response acts like the rest, marks included: a vote is cast *on* a claim, so retracting
+  the claim withdraws the votes rather than leaving a count standing over nothing.
 
 Two independent facts force the response shape, and together they are decision D1:
 
@@ -229,6 +262,14 @@ records the dispute, pushes it to whoever is watching, and manages its life. Thr
   round. An arbiter who is **a party** to the dispute is refused (`:arbiter-is-party`): a
   ruling lands in the arbiter's own context, so for a party it would restamp their own
   claim or retract it, deleting the disputed sentence rather than settling the clash.
+
+  Both of those reads follow **belief**, not storage. A defeated sentex stays stored on
+  purpose (it can revive), so an unfiltered enumeration of an agent's context sees claims
+  and rulings the agent no longer holds — and each has a consequence: a defeated ruling
+  read back as standing is *withdrawn as stale*, which for the majority policy's tie arm
+  means retracted, so a ruling that had already lost its force is destroyed rather than
+  left to revive; a defeated claim read back as a side convicts its holder of being a
+  party to a dispute they have stepped out of.
 - **Majority vote** — a ballot is a meta-sentex on the disputed claim (`votesFor` /
   `votesAgainst`), knowledge like every other move, so `why` explains a decision as "the
   majority voted, here are the ballots." The decision reuses the arbiter's reversible
@@ -238,6 +279,11 @@ records the dispute, pushes it to whoever is watching, and manages its life. Thr
   neither side. The count is the authority every time it is taken: a house that swings
   withdraws the standing ruling and rules the other side, and one that dissolves into a
   tie withdraws it and stays open (`:withdrawn` in the result names what was retired).
+  Turning the count into a ruling **requires the proof-tier policy** — a defeating verdict
+  tallied by claimed voter name is spoofable under cooperative (one operator, many names),
+  which is exactly the trust-weighting the identity design forbids, so `resolve-by-majority`
+  refuses there (`:koinii/identity-unverified`). Counting stays open for transparency; only
+  the ruling is gated.
 
 **Trust-resolve** — automatic resolution by source trust — is deliberately out of scope for
 this layer; it is engine-side reputation work, and reaching for it here would resolve
@@ -246,9 +292,19 @@ disagreements by weighing spoofable identities.
 An open dispute does **not** block dependent reasoning — the KB keeps deriving and both sides
 stay believed. But a conclusion resting on a contested premise should be *visible as such*:
 `contested-premises` / `rests-on-contested?` are pure reads that surface the risk without
-hiding anything. The heavier option, `quarantine`, reversibly masks a contested claim from a
-channel via `except` — off by default, because it over-suppresses (with the claim masked the
-channel can no longer see the *dispute* either).
+hiding anything. Both resolve the conclusion **up the `genlCx` cone**, the scoping the
+dispute reads and `ask?` already use: a channel's answer is usually placed in the agent
+context that holds its premises rather than in the channel, so a flag keyed on the reading
+context's own store would call a conclusion built on a disputed claim uncontested. Where
+several contexts in the cone hold the conclusion their support closures are unioned — a
+reader is trusting whichever derivation answered — and only believed ones count, since a
+defeated sentex holds up no answer. `contested-premises` reports its handles in **content
+order**: the support
+walk collects them into a set, and the handles in it are allocated in assertion order, so
+ranking on either would make the list a fact about how the KB was loaded. The heavier option,
+`quarantine`, reversibly masks a contested claim from a channel via `except` — off by default,
+because it over-suppresses (with the claim masked the channel can no longer see the *dispute*
+either).
 
 ## Belief: what an agent holds
 
@@ -300,6 +356,30 @@ Catch-up is **wire-only**: the ring, the cursor, and lag exist on the wire feed.
 medium has no ring to fall off, so a single-process agent needs none of this and the
 `-feed-open` / `-feed-poll` operations throw there.
 
+**A poll that fails is a failure, whatever it threw.** `sync!` reads a `:type` off a refusal
+to tell a reaped subscription from anything else, but a transport is free to throw something
+carrying no type at all — and treating that as "no error" drops it into the drained-to-head
+arm, which persists a nil cursor and hands the caller its stale view as though the stream were
+current. Silent loss is the failure this module exists to prevent, so any exception out of the
+poll is re-thrown with the original as its cause, and a poll answering no cursor is refused
+rather than stored.
+
+**Recovery is bounded, and one budget covers both ways of needing it.** Two replies send
+`sync!` back for a re-read — the cursor off the ring (`:lagged`) and the subscription reaped
+out from under the poll (`:unknown-subscription`) — and a pass gets eight re-reads between
+them, not eight apiece: what the bound protects is the work of re-reading the whole context
+per turn, which costs the same whichever reply asked for it. Spending the budget throws
+`:koinii/catchup-thrashing` carrying a `:condition` that names the reply that spent it, so a
+consumer that cannot keep up with the ring is told apart from one whose subscription never
+survives long enough to be polled. Either way the pass ends in a refusal the caller can act
+on rather than in a `sync!` that re-reads forever without returning.
+
+**A consumer has one driving thread.** `sync!` is a read-modify-write over the stored cursor
+and the materialized view, and the cursor is a claim about what *this* replica has applied —
+two drivers each advancing it apply half the stream apiece. `sync!` takes the consumer's own
+monitor (uncontended when the contract is kept), which stops an interleaving from corrupting
+the view outright; it does not make two drivers a sensible arrangement.
+
 ## The other deployment shape: independent seats
 
 The default topology is N agents funnelling writes through one daemon — the daemon *is* the
@@ -311,7 +391,7 @@ locator travels over a transport; the proof comes from the KB; neither seat trus
 Complements the daemon, not rivals it: the daemon for live co-writing, seats for disconnected
 or independently-replicated deployments.
 
-Three ideas, each grounded on a primitive that ships:
+Five ideas, each grounded on a primitive that ships:
 
 - **The locator is content-addressed.** A handle is a number one store minted and does not
   travel; a locator is a self-describing `"sha256:"` digest over a sentex's **canonical
@@ -321,20 +401,47 @@ Three ideas, each grounded on a primitive that ships:
   build's own constructor. The digest input is an explicit type-tagged byte encoding, not
   `pr-str`: injective across the value space a sentence holds, and independent of ambient
   print vars, so a symbol never digests as the like-spelled string.
-- **The commit is a Merkle function of state.** `commit-id` is an RFC-6962 Merkle root over
+- **The commit is a Merkle function of belief.** `commit-id` is an RFC-6962 Merkle root over
   the seat's *sorted* per-sentex leaf digests, domain-separated (`0x00` leaf, `0x01` node) so
   a leaf cannot be forged as an internal node. Order- and handle-independent by construction,
   because belief and storage are order-independent ([nmtms.md](nmtms.md)) — so two seats that
-  reached the same set of assertions by different routes compute the same commit id. The tree
+  reached the same beliefs by different routes compute the same commit id. The tree
   shape buys pure auditability: `inclusion-proof` yields an audit path and `verify-inclusion`
   recomputes the root from just a `(locator, proof)` pair, with **no KB**. (`commit-id`
   fingerprints *knowledge*; `state-root` folds provenance in for a git-commit-like *snapshot*
   identity that moves when who/when moves.)
+
+  **The leaves are what the seat believes, not what it stores.** A defeated default and a
+  conclusion whose support was withdrawn stay stored on purpose ([nmtms.md](nmtms.md)) — they
+  can revive — and they are no part of what the seat *holds*. Folding them in would make the
+  id a function of a seat's retraction history as well as its knowledge: two seats agreeing
+  on every belief but differing in what each had once stored would compute different ids and
+  read as disagreeing about the knowledge, which is the one question these ids answer. So
+  `commit-id`, `state-root` and `inclusion-proof` all enumerate the believed records, and a
+  defeat moves the id exactly as a retraction does. `inclusion-proof` on an unbelieved
+  record's locator is `nil`: there is no leaf, and a path that verified against the published
+  root would be claiming otherwise.
 - **The marker is untrusted.** `dereference` finds the sentence in the seat's own KB and
   rehashes what it found; a stale or tampered marker fails that check and is rejected, and a
   marker the seat cannot resolve means the commit was not received — never that the payload
   should be believed. Attribution is trustworthy only as far as the identity model above makes
   it: a distributed KB inherits the same cooperative-vs-proof-tier question.
+- **Resolution follows belief, exactly as the commit does.** `dereference` and
+  `resolve-by-locator` answer from the *believed* records, not the stored ones, so the two
+  halves of a seat agree about what it holds: a defeated default resolves nowhere, which is
+  the same set `inclusion-proof` will not prove. `dereference`, which is handed the sentence,
+  distinguishes the two absences (`:not-received` vs `:not-believed`); a bare locator cannot,
+  so `resolve-by-locator` reports `:not-received` for both.
+- **Both resolvers fail closed on a malformed payload**, the way `verify-inclusion` does on a
+  malformed proof. A marker that is not a map, one whose `:locator` is not the `"sha256:"` +
+  64-hex format, one missing `:sentence` or `:context`, and one whose sentence the engine
+  declines to be asked about all answer `:reason :malformed` with a `:problem` naming the
+  part — never an engine refusal thrown out of the resolve path, which would let a peer crash
+  a receiving seat by sending garbage. A distinct reason from `:not-received` because the two
+  say different things about the peer: one is out of sync and the next pull fixes it, the
+  other is sending garbage. Sentence grammar stays the engine's: the resolver asks
+  `handle-of` and translates its typed refusal rather than keeping a copy of the grammar
+  that would drift from the door that decides.
 
 ## Design decisions
 
@@ -354,20 +461,28 @@ adding one, or to keep an honest limit over a convenient fiction.
 
 ## Where it lives
 
-Every module is additive over the public core API; nothing in core loads any of them.
+`src/vaelii/koinii/`. Every module is additive over the public core API; nothing in core
+loads any of them, and none of them requires anything under `vaelii.impl`.
 
-- `vaelii.impl.koinii.identity` — per-agent contexts, the write boundary, the admin registry,
+- `vaelii.koinii.identity` — per-agent contexts, the write boundary, the admin registry,
   the `authenticate` seam. KB: `resources/kb/koinii/CxRegistry.txt`.
-- `vaelii.impl.koinii.speech-acts` — the `CxSpeechActs` vocabulary and the origination /
+- `vaelii.koinii.speech-acts` — the `CxSpeechActs` vocabulary and the origination /
   response acts. KB: `resources/kb/koinii/CxSpeechActs.txt`.
-- `vaelii.impl.koinii.channel` — the coordination library: the `Medium` protocol (`wire` /
-  `local`), `join` / `assert` / `reply` / `subscribe` / `reply-many`, and the recovery reads.
-- `vaelii.impl.koinii.dispute` — the per-channel dispute reads and the lifecycle vocabulary.
-- `vaelii.impl.koinii.adjudication` — the leave-open / arbiter / majority policies, the notify
+- `vaelii.koinii.channel` — the coordination library: the `Medium` protocol (`wire` /
+  `local`), `join` / `assert` / `pose-query`, the reply verbs `answer` / `endorse` /
+  `justify` / `dispute` / `vote` / `reply-many`, `subscribe` / `unsubscribe`, and the
+  recovery reads `answers-to` / `endorsements-of` / `open-queries` / `query`.
+- `vaelii.koinii.dispute` — the per-channel dispute reads and the lifecycle vocabulary.
+  The stored half of that lifecycle — the `:notified` and `:stale` marks — lives in
+  `CxDisputes` (`dispute/state-context`), the one well-known place a dispute id is
+  looked up in. No shipped file seeds it and no loader creates it: the marks are
+  bookkeeping rather than channel knowledge, so the context comes into being when
+  `assert` writes the first one.
+- `vaelii.koinii.adjudication` — the leave-open / arbiter / majority policies, the notify
   and stale sweeps, and the contested-premise reads.
-- `vaelii.impl.koinii.belief` — belief projection, `convene` / `disagreements`, and
+- `vaelii.koinii.belief` — belief projection, `convene` / `disagreements`, and
   own-statement `disregard`.
-- `vaelii.impl.koinii.catchup` — the CDC snapshot+tail consumer and the client-side
+- `vaelii.koinii.catchup` — the CDC snapshot+tail consumer and the client-side
   `CursorStore`.
-- `vaelii.impl.koinii.deref` — the independent-seat topology: content-addressed locators,
+- `vaelii.koinii.deref` — the independent-seat topology: content-addressed locators,
   Merkle commits, and untrusted-marker dereference.

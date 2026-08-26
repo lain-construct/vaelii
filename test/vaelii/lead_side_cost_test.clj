@@ -5,9 +5,10 @@
   of `matches_hierarchical_test`, which pins that the three lead sides return the same
   *set*.  Same set, different cost, and this is the cost half.
 
-  `f59d6b70` led a broad-type clash retrieval from the term's own postings (a handful)
-  rather than one predicate-scoped bucket per sub-predicate (`O(|spec-closure|)`), which
-  is what collapsed a 12M-sentex cold rebuild's closing settle.  The win is a *shape*: the
+  `:auto` leads a broad-type clash retrieval from the term's own postings (a handful)
+  rather than from one predicate-scoped bucket per sub-predicate (`O(|spec-closure|)`),
+  which is what collapses a 12M-sentex cold rebuild's closing settle.  The win is a
+  *shape*: the
   argument reads a broad retrieval costs are flat in how wide the predicate hierarchy is,
   where the per-spec lead grows with it.  `lein perf` would hold a shape like this as a
   ratio, but this one runs in the default suite so a change that quietly widens `:auto`'s

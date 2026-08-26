@@ -6,8 +6,8 @@
   `vaelii.impl.llm.prompt` renders the whole vocabulary — every context, type and
   predicate — and `vaelii.impl.llm.tools` renders every read as a tool schema.  Both
   are fixed costs that grow with the KB, and against the schema-only starter (no
-  individuals, no facts) they already come to ~16,000 tokens before the user has said
-  anything — 25,597 characters of system prompt and 31,192 of tool schema, at
+  individuals, no facts) they already come to ~24,000 tokens before the user has said
+  anything — 31,818 characters of system prompt and 53,862 of tool schema as sent, at
   `chars-per-token`.  A KB heading for 100M sentexes cannot pay that per request, and a model
   with no `tools` capability cannot spend half of it at all.
 
@@ -37,7 +37,8 @@
   front of the reader's own selection."
   (:require [clojure.string :as str]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]))
+            [vaelii.impl.core-context :as core-context]
+            [vaelii.impl.naming :as nm]))
 
 ;; ---- the editor's line format -------------------------------------------
 ;; **The format has one owner, and this is it.**  The browser's editor seeds its
@@ -150,12 +151,12 @@
 (defn- disjoint-with
   "The types declared disjoint from `t`, both spellings of the pair."
   [kb t]
-  (sort-by str
-           (distinct
-            (concat (for [{:keys [sentence]} (v/sentexes-matching kb (list 'disjoint t '?b) '?ctx)]
-                      (nth sentence 2))
-                    (for [{:keys [sentence]} (v/sentexes-matching kb (list 'disjoint '?a t) '?ctx)]
-                      (nth sentence 1))))))
+  (nm/by-print-key
+   (distinct
+    (concat (for [{:keys [sentence]} (v/sentexes-matching kb (list 'disjoint t '?b) '?ctx)]
+              (nth sentence 2))
+            (for [{:keys [sentence]} (v/sentexes-matching kb (list 'disjoint '?a t) '?ctx)]
+              (nth sentence 1))))))
 
 (defn- props-of
   "The algebraic metadata a predicate carries, as keyword names."
@@ -173,9 +174,9 @@
   built per selected term.  That is the price of a content-ordered card: the first `n`
   by name cannot be taken without ordering all of them."
   [kb t n]
-  ;; str, never bare sort: a genl/spec node may be a NAT rather than a symbol
-  [(take n (sort-by str (disj (set (v/genls kb t)) t)))
-   (take n (sort-by str (disj (set (v/specs kb t)) t)))])
+  ;; `by-print-key`, never bare sort: a genl/spec node may be a NAT rather than a symbol
+  [(take n (nm/by-print-key (disj (set (v/genls kb t)) t)))
+   (take n (nm/by-print-key (disj (set (v/specs kb t)) t)))])
 
 (defn- functor-entry
   "The card line for a predicate or type: what it means, what its arguments must be,
@@ -201,7 +202,7 @@
 
 (defn- individual-entry
   [kb term {:keys [max-relatives] :or {max-relatives 12}}]
-  (let [ts (take max-relatives (sort-by str (v/types-of kb term)))]   ; NAT-safe type sort
+  (let [ts (take max-relatives (nm/by-print-key (v/types-of kb term)))]   ; NAT-safe type sort
     (str "- " (tick term) (when (seq ts) (str " — a " (ticks ts))))))
 
 (defn- context-entry

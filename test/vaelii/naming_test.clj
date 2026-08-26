@@ -568,6 +568,19 @@
       (is (neg? (under nil nil)))
       (is (= (under nil nil) (under 2 1) (under 1 1) (under 0 0))
           "the verdict is the same however the printer is configured")))
+  (testing "and insensitive to it on the last-resort branch too —"
+    ;; The `:else` rank is the one branch that PRINTS, so it is the one a print bound can
+    ;; collapse: `str` on a collection honours them, and two distinct maps then compare 0
+    ;; — a comparator reporting equal for values that are not, in the branch whose job is
+    ;; to leave no pair uncompared.  Sentence content never reaches it; `sort-by-content`
+    ;; is public, so a caller's key can.
+    (doseq [[a b] [[{:a 1 :b 2 :c 3 :d 4} {:a 1 :b 2 :c 3 :d 5}]
+                   [#{#{1}} #{#{2}}]]]
+      (let [under (fn [pl lv] (binding [*print-length* pl *print-level* lv]
+                                (nm/compare-form a b)))]
+        (is (not (zero? (under nil nil))) "distinct values are distinguished")
+        (is (= (under nil nil) (under 3 1) (under 1 1) (under 0 0))
+            "and stay distinguished however the printer is configured"))))
   (testing "a mixed vector of forms sorts stably and reproducibly"
     (let [forms ['(dog Rex) '(cat Rex) '(not (dog Rex)) 'CxUniverse 3 "s" :k]]
       (is (= (sort nm/compare-form forms)

@@ -42,6 +42,7 @@
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [vaelii.core :as v]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.sentex :as sx]))
 
 ;; ---- the gold set --------------------------------------------------------
@@ -126,7 +127,7 @@
         gold-named (into #{} (comp (filter symbol?)
                                    (filter #(= :individual (v/term-role %))))
                          (mapcat #(tree-seq sequential? seq %) gold-sentences))
-        pairs (sort-by (fn [[g c n]] [(- n) (str g) (str c)])
+        pairs (sort-by (fn [[g c n]] [(- n) (nm/print-key g) (nm/print-key c)])
                        (for [[g gt] gold-types
                              [c ct] cand-types
                              :let [n (count (set/intersection gt ct))]
@@ -220,12 +221,19 @@
      :aligned  (counts (count (:gold-hit aligned)) (count gold) (count cands)
                        (:derivable aligned))
      :renaming renaming
-     :missing  (vec (sort-by pr-str (for [h gold :when (not ((:gold-hit aligned) h))]
-                                      (v/readable-sentence (v/sentex kb h)))))
+     ;; `nm/print-key`, never a bare `pr-str`: both lists are read as a score report, and
+     ;; an ambient `*print-length*` would elide two claims to one prefix and leave the
+     ;; reading in `gold`'s handle order
+     :missing  (nm/sort-by-content-key
+                nm/print-key compare
+                (for [h gold :when (not ((:gold-hit aligned) h))]
+                  (v/readable-sentence (v/sentex kb h))))
      ;; `distinct` after the renaming, not before it: two candidates that named one
      ;; character two ways collapse to one sentence once they are aligned, and reporting
      ;; the same spurious claim twice would read as two mistakes.
-     :spurious (vec (sort-by pr-str (distinct (remove #(get (:hits aligned) %) renamed))))}))
+     :spurious (nm/sort-by-content-key
+                nm/print-key compare
+                (distinct (remove #(get (:hits aligned) %) renamed)))}))
 
 ;; ---- reporting ----------------------------------------------------------
 

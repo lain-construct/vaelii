@@ -15,7 +15,7 @@
   model call.  Opted in, it still skips when the host or the model is missing."
   (:require [cheshire.core :as json]
             [clojure.string :as str]
-            [clojure.test :refer [is testing use-fixtures]]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.llm.inventory :as inv]
@@ -132,6 +132,22 @@
         cut (inv/render i {:max-tokens 40})]
     (is (> (count whole) (count cut)))
     (is (str/includes? cut "not listed here"))))
+
+(deftest the-trim-counts-what-it-left-out-and-a-nil-line-is-not-the-end
+  ;; The count is what the card says out loud — "and N further predicates, not listed
+  ;; here" — so a trim that stops early and reports nothing dropped tells the reader they
+  ;; are looking at the whole vocabulary.  The recursion has to test the **seq**: a nil
+  ;; entry is a line like any other, and reading one as exhaustion does both wrong things
+  ;; at once.
+  (let [fit #'inv/fit]
+    (testing "everything fits: nothing dropped"
+      (is (= [["a" "b"] 0] (fit ["a" "b"] 1000)))
+      (is (= [["a" "b"] 0] (fit ["a" "b"] nil)) "no bound is no trim"))
+    (testing "an early stop reports the rest, the line it stopped on included"
+      (is (= [[] 3] (fit ["aaaa" "bbbb" "cccc"] 1))))
+    (testing "and a nil line is kept and walked past, not read as the end of the list"
+      (is (= [[nil "b"] 0] (fit [nil "b"] 1000)))
+      (is (= [[nil] 2] (fit [nil "bbbb" "cccc"] 0))))))
 
 (tu/deftest-kb the-scan-bound-is-counted-rather-than-silent
   ;; the fact scan is the only tier that reads facts, so a predicate used with the term and
@@ -340,6 +356,30 @@
     (testing "rows built without the metadata still get a plain count"
       (is (= "2" (page/stored-heading [{:line "(a)"} {:line "(b)"}]))))))
 
+(tu/deftest-kb one-sentence-in-two-contexts-keeps-the-content-first-context
+  ;; A row carries its `:context`, and `page-context` reads the modal one off the rows —
+  ;; so the deduplication that collapses a repeated `:line` decides what the page files
+  ;; new assertions in.  Two contexts stating one sentence tie on the line alone, and the
+  ;; tie would fall to `scanned`'s handle order: the same knowledge loaded the other way
+  ;; round would file the proposal somewhere else.
+  (let [{:keys [likes ctx]} (world kb)]
+    (tu/with-terms [Tux CxOther]
+      (v/assert kb (list 'genlCx CxOther 'CxCore) 'CxUniverse)
+      (let [line-of (fn [order]
+                      (let [hs (mapv (fn [[s c]] (v/assert kb s c)) order)
+                            rows (page/stored-lines kb Tux {:max-lines 20})
+                            ;; the sentence stated in both contexts, as the page kept it
+                            row (first (filter #(= (list likes Tux Tux) (:sentence %)) rows))]
+                        (doseq [h (flatten hs)] (v/retract! kb h))
+                        (:context row)))
+            both    [[(list likes Tux Tux) ctx]
+                     [(list likes Tux Tux) CxOther]]]
+        (is (some? (line-of both)) "the shared sentence is on the page")
+        (is (= (line-of both) (line-of (reverse both)))
+            "the context it is shown under is the same in either arrival order")
+        (is (= (first (sort-by str [ctx CxOther])) (line-of both))
+            "and it is the content-first of the two, not whichever was asserted first")))))
+
 (tu/deftest-kb the-page-context-is-modal-and-never-the-vocabulary-head
   (let [{:keys [penguin ctx]} (world kb)
         rows (page/stored-lines kb penguin)]
@@ -414,7 +454,7 @@
     (is (= 1 (count (:entries split))))
     (is (= [(list 'genl penguin bird)] (:known split)) "re-asserting is a no-op, so it is noise")
     (is (= 1 (count (:duplicates split))))
-    (is (= {:proposed 3 :new 1 :known 1 :duplicate 1}
+    (is (= {:proposed 3 :new 1 :known 1 :duplicate 1 :monotonic 0}
            (session/assertion-summary [1 2 3] split)))))
 
 ;; ---- propose-page, end to end against the stub -------------------------
@@ -431,7 +471,7 @@
     (is (= [[(list 'implies (list penguin '?x) (list eats '?x food)) ctx]] (:add (:batch r)))
         "the stored genl edge is not proposed again")
     (is (empty? (:remove (:batch r))) "generation never removes")
-    (is (= {:proposed 2 :new 1 :known 1 :duplicate 0} (:summary r)))
+    (is (= {:proposed 2 :new 1 :known 1 :duplicate 0 :monotonic 0} (:summary r)))
     (is (= "reused what was on the card" (:notes r)))
     (is (empty? (:coined r)))
     (testing ":lines is what a browser panel drops into the editor — entries, with context"
@@ -539,23 +579,11 @@
 ;; ---- live: a real Ollama -----------------------------------------------
 
 (defn- live-model
-  "The generation model to run against, or nil with a printed reason.  Opting in is
-  checked first, before the host is so much as probed."
+  "The **generation** model, or nil with a printed reason.  `tu/live-model` holds the three
+  checks and their order; this names the tier and the model they are asked about."
   []
-  (let [model (ollama/configured-generation-model)]
-    (cond
-      (not (tu/live-llm?))
-      (do (println "  [skip] live page tests: set VAELII_LLM_LIVE=1 to opt in") nil)
-
-      (not (ollama/available? {:timeout-ms 2000}))
-      (do (println (str "  [skip] live page tests: no server at " (ollama/base-url))) nil)
-
-      (nil? (ollama/capabilities model))
-      (do (println (str "  [skip] live page tests: " (ollama/base-url) " has no model " model
-                        " — set VAELII_OLLAMA_GENERATION_MODEL"))
-          nil)
-
-      :else model)))
+  (tu/live-model "live page tests" {:model (ollama/configured-generation-model)
+                                    :env "VAELII_OLLAMA_GENERATION_MODEL"}))
 
 (tu/deftest-kb ^:llm a-live-model-fleshes-out-a-page
   (when-let [model (live-model)]

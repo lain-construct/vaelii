@@ -2,7 +2,7 @@
 
 - **Covers:** how the `genl` type hierarchy is cached and queried, how `disjoint` /
   `disjointMetatype` are enforced, and how `arg` / `genlArg` constrain arguments as a
-  rejection check.
+  rejection check — of a ground sentence, and of a rule's shared variables.
 - **Not here:** `genlCx`, the sibling closure over contexts rather than types →
   [contexts.md](contexts.md); `arg` / `genlArg` read as an entailment that mints a
   stored, justified fact → [argtypes.md](argtypes.md).
@@ -28,15 +28,25 @@ as a sentence.
 `(genl Sub Super)` — every `Sub` is a `Super`. Types are unary predicates, rooted
 at `thing`. We cache the reflexive-transitive closure both ways:
 
-- `genls tax t` — supertypes of `t`, incl. `t` (up-closure).
-- `specs tax t` — subtypes of `t`, incl. `t` (down-closure).
-- `genl? tax sub super`.
+- `genls tax t context` — supertypes of `t`, incl. `t` (up-closure).
+- `specs tax t context` — subtypes of `t`, incl. `t` (down-closure).
+- `genl? tax sub super context`.
+
+Each has a `-global` twin — `genls-global tax t`, `specs-global`, `genl?-global`, and
+`context-up-global` over on the `genlCx` side — which walks **every** active edge rather
+than the edges a context sees. The two are spelled apart rather than distinguished by
+arity because on a KB where no edge is context-restricted they return the *same object*:
+a caller that meant to scope and did not is right until the KB it is wrong on. Who reads
+globally, and why: [below](#the-global-readers-and-who-may-use-one).
 
 ### Three uses of genl
 
 1. **Arg constraints.** `(arg pred n type)` sentexes constrain arguments;
    `assert` checks arg *n* with `isa?` (does the arg have a type whose `genls`
-   reaches the constraint). Open-world: an untyped arg can't violate.
+   reaches the constraint). Open-world about a **symbol**: an untyped one can't
+   violate. A **literal** carries its type in its syntax and is checked against it.
+   A **function application** is checked against what its function is declared to
+   yield.
 2. **Specificity.** Matching a unary type predicate fans out over `specs`, so an
    antecedent `(animal ?x)` is satisfied by a stored `(dog Muffet)` — no need to
    materialize `(animal Muffet)`. `isa?` answers membership on demand.
@@ -71,7 +81,13 @@ Three properties follow, each of which a cache is easy to get wrong:
   an edge nothing believes. `refresh-beliefs` reconciles at the end of every
   `settle`, which is the only point a supporter's label flips without a sentex being
   added or removed, and it costs what *moved* rather than what the taxonomy holds — the
-  next subsection is how.
+  next subsection is how. Inside a `with-deferred-settle` batch there is not yet
+  anything to reconcile against: `add-edge` runs on the assert path, where the JTMS has
+  not labelled the new sentex, so an edge is active from the moment it is stored and the
+  closing settle is what narrows the active set to the believed one. A mid-batch `isa?` /
+  `genl?` / `disjoint?` reads that belief-blind set — a superset, so it answers through an
+  edge it should not rather than missing one it should — and the batch's own answer is the
+  one after it closes (`deferred_settle_test` holds the witness).
 - **Reference counting.** The same edge asserted in two contexts is two sentexes.
   Retracting one leaves the edge standing while the other still asserts it.
 - **Derived edges count.** A rule concluding `(genl a b)` reaches the taxonomy via
@@ -80,7 +96,7 @@ Three properties follow, each of which a cache is easy to get wrong:
   entails, so a restart silently changes the answer. The same question is owed by every
   other declaration a rule can conclude, and the next subsection is the answer for each.
 
-`recover` calls `clear-relations!` — which empties all eight caches — before rebuilding.
+`recover` calls `clear-relations!` — which empties all ten caches — before rebuilding.
 A rebuild that merged into the existing cache could only ever *add*, so an edge whose
 sentex was gone would survive the recovery meant to re-derive it. `rebuild-taxonomy`
 reads **stored** rather than believed sentexes, so `:support` / `:cache-support` record
@@ -112,7 +128,7 @@ walks the `:derived?` subset (`special/integrate-transitive`) plus what
 | `genl` `genlCx` | the two closures | `:derived?` |
 | `disjoint` `disjointMetatype` `siblingDisjoint` `siblingDisjointException` | disjointness, the metatype and sibling marks, and the exemption | `:derived?` |
 | `arity` `inverse` | the arity and inverse caches | `:derived?` |
-| `transitive` `symmetric` `asymmetric` `reflexive` `functional` `forcedDecontextualizedPredicate` `abduciblePredicate` `reifiableFunction` `unreifiableFunction` | the predicate-metadata marks | `:derived?` |
+| `transitive` `symmetric` `asymmetric` `reflexive` `functional` `forcedDecontextualizedPredicate` `abduciblePredicate` `closedExtentPredicate` `reifiableFunction` `unreifiableFunction` | the predicate-metadata marks | `:derived?` |
 | `rewriteOf` `sameAs` `equals` | the equality partition, and migration | by name — the arm's return value is the twins and the violations, which `:derived?` would discard ([equality.md](equality.md)) |
 | `arg` `genlArg` `interArg` | the roster of predicates some declaration of that kind names (`:declares-arg-isa` / `:declares-arg-genl` / `:declares-inter-arg-isa`), and the declarations themselves read back through the index per query | `:derived?` — the roster is what lets the descension ask *whose* declarations bind a tuple without an index probe per super-predicate |
 | `transitiveInArg` `transitiveInArgInverse` `functionCorrespondingPredicate` | none — read back through the index per query | nothing to reach |
@@ -143,7 +159,7 @@ forward off the moved set through it, never backward off the relation.
 The direction is the whole of it. Read backward, both halves of the reconcile are
 O(vocabulary): asking "did anything here move" walks every supporter, and answering
 "which edges are active now" evaluates belief for every edge. Neither is visible to a
-test, because both are merely slow — 176 ms per flip in a 64k-edge relation, and 8 ms
+test, because both are merely slow — ~180 ms per flip in a 64k-edge relation, and ~8 ms
 even to decide the relation was untouched. Read forward, one flip costs ~10µs at any size.
 `perf`'s `taxonomy-belief-flip` is the gate on that: defeat and revive one edge in a
 taxonomy of n, and the per-op cost must not track n. Across an 8× taxonomy the backward
@@ -192,9 +208,9 @@ a crash. A set per handle costs the single-key case one small set and holds the 
 
 The reason to scope them is the reason `:cache-support` is one map: it holds every
 disjoint pair, predicate property, `inverse` and declared `arity` in the KB at once, so a
-reconcile drawn over it is drawn over the vocabulary. Read backward it measured 95 ms per
-flip over 32k declarations and 5.0 ms merely to decide nothing had moved; forward, 5 µs
-and 1 µs, and neither moves with the count. `perf`'s `flat-cache-belief-flip` is the gate:
+reconcile drawn over it is drawn over the vocabulary. Read backward it measured ~95 ms per
+flip over 32k declarations and ~5 ms merely to decide nothing had moved; forward, ~5 µs
+and ~1 µs, and neither moves with the count. `perf`'s `flat-cache-belief-flip` is the gate:
 across an 8× KB the backward reading grows 7.0×, the forward one 1.2×.
 
 Two caches do **not** scope, and gate instead: the equality partition and the rewrite
@@ -305,8 +321,9 @@ census (`:ctx-counts`): every edge's context set is a subset of the census, so t
 readers with the same `vis` induce the identical filtered edge set — `vis` is the
 memo key, interned per `[genlCx-gen ctxs-gen]` (`:vis-index`), and the scoped
 walk memoizes one level deeper under it, bounded by `*scoped-memo-budget*` distinct
-vissets per relation (OpenCyc's census: 445 asserting contexts, 561 distinct vissets
-across 13,196 readers). Depth pruning survives unchanged — the potential holds over
+vissets per relation (the census on the OpenCyc import [kbs.md](kbs.md) is the route to:
+~450 asserting contexts, ~560 distinct vissets across ~13k readers). Depth pruning
+survives unchanged — the potential holds over
 the global edge set and the visible set is a subset — so `reachable-filtered?` keeps
 both prunings, with the direct-edge test behind the same filter.
 
@@ -326,9 +343,38 @@ the *active* adjacency, which no longer holds the defeated one — then revive t
 The **`genlCx` closure itself is the stated exception and stays global**:
 visibility scoped by visibility would be circular, every `genlCx` edge is forced
 universal, and the interning above rests on it. So do the identity, storage, trigger,
-and stratification reads, each marked `global on purpose` at its site. The
-scoped-or-not split per check, and the exposure of clashes only a descendant can see
-whole, are docs/contexts.md's story.
+and stratification reads. The scoped-or-not split per check, and the exposure of clashes
+only a descendant can see whole, are docs/contexts.md's story.
+
+### The global readers, and who may use one
+
+Every one of those reads goes through a reader whose **name** says it is global —
+`genls-global`, `specs-global`, `genl?-global`, `context-up-global` — rather than through
+a shorter arity of the scoped one. The reason is that the two agree far more often than
+they differ: `visible-ctxs` hands back the global closure itself, the identical object,
+for any reader that sees every context an edge was asserted from, which is most readers of
+most KBs. A caller that dropped the context by accident would therefore pass every test
+anybody wrote, and answer wrongly only once somebody restricted an edge.
+
+`lein lint`'s **E17** rosters the callers as `(file, definition)` pairs, so a new global
+read is a decision somebody wrote down rather than a shorter line somebody reached for.
+The roster records *that* a caller has a reason; the reason lives in that definition's own
+docstring. What is on it:
+
+| Caller class | Why it must not be scoped |
+|---|---|
+| `vaelii.core`'s own 2-arity `genls` / `specs` / `genl?` | the public API offers both readings, and this arity **is** the global one |
+| assert-time refusals (`wff`, `checks`) | a refusal is a claim about the KB: a cycle refused when asked from one context and allowed from another is a coin toss, not a rule |
+| the forward join and the trigger keys (`rules/trigger-keys`, `chain`, `inherit/moved-predicates`, `vantage`) | a firing is placed in a context the join decides, so the candidate fan cannot be scoped by one — the narrowing happens at placement |
+| the exception re-check triggers (`special`) | a trigger over-approximates in the direction the answer is: a declaration this edge cannot see still qualifies a rule in some context that can, and a missed trigger is a wrong belief where a spare one is a query |
+| settle's candidate discovery | an over-approximated candidate merely checks and yields nothing; the arbitration that follows is scoped |
+| `resolution`'s exception index and `hidden-fn` | the visibility filter cannot be scoped by the filter it is itself derived from |
+| `quality/taxonomy-coverage` | a report on the whole taxonomy has no vantage to read from |
+| `quality/clash-partners` | a rule pair is decided from a common descendant of the two rules' contexts, a vantage belonging to neither, so the candidate fan cannot be scoped by either |
+
+One caller reads **both** on purpose: `settle/genl-view` compares `genls-global` with the
+scoped answer, because where the two are equal every asker between them reads the same set
+and an unchanged reading is unchanged for all of them at once.
 
 A visibility `except` (docs/contexts.md) can hide a *supporter* from a reader, and then
 the context-only filter is not enough: the scoped walk asks the KB, per supporter, whether
@@ -388,8 +434,8 @@ When one **is** broken the relation goes `:loose?`: the potential is no longer s
 reverse-topological O(V+E) pass at the next `settle`. That is the fallback, not the
 normal path, because going loose is expensive in its own right — an unpruned
 `reachable?` walks the source's whole ancestor set where the potential answered in
-O(1) (measured 1340× on an 8k-deep chain), and `wff` runs one per taxonomy edge
-asserted. Deferring by simply marking the relation loose would only move the
+O(1) (measured at roughly 1,300× on an 8k-deep chain), and `wff` runs one per taxonomy
+edge asserted. Deferring by simply marking the relation loose would only move the
 quadratic: child-first would get cheap and parent-first — the order hierarchies are
 actually written in — would get expensive. The local lift is what keeps *both* orders
 flat, since parent-first arrival never breaks an edge above a fresh node.
@@ -446,8 +492,8 @@ witness the reachability rests on — since a scoped `genl?` disagreeing with th
 
 **Scope.** The belief discipline applies to the two transitive relations, to the
 equality partition, and — through the shared `:cache-support` reference count, keyed by
-`[kind key]` — to the five flat caches too: `disjoint`, the disjoint metatypes and their
-members, the predicate properties
+`[kind key]` — to the six flat caches too: `disjoint`, the disjoint metatypes and their
+members, the `siblingDisjoint` marks and their exemptions, the predicate properties
 (`transitive`/`symmetric`/`asymmetric`/`reflexive`/`functional`), `inverse`, and the
 declared `arity`. Only `genlCx` is forced-decontextualized, so only it is guaranteed one
 sentex per claim; `(disjoint dog cat)` asserted in two contexts is two sentexes folding
@@ -469,8 +515,8 @@ same two fields: `:cache-handle-keys`, the `{handle #{[kind key]}}` transpose of
 reconcile is scoped to the moved region" above is the whole of the reasoning; what is
 particular to these caches is that a *single* map holds every disjoint pair, property,
 `inverse` and declared arity in the KB, so a reconcile drawn over it is drawn over the
-vocabulary — 95 ms per flip over 32k declarations, and 5.0 ms to decide none of them
-moved, against 5 µs and 1 µs read forward.
+vocabulary — ~95 ms per flip over 32k declarations, and ~5 ms to decide none of them
+moved, against ~5 µs and ~1 µs read forward.
 
 The index is therefore a **contract** — it must be exactly the live `:cache-support`
 map's transpose, or the scope quietly stops being one. `support-add` / `support-drop` are
@@ -490,29 +536,31 @@ the node a walk **began** at — so nested roots share nothing and n edges cost 
 edges arrive nested because that is what a hierarchy is, and what a load writes.
 
 - **The retroactive arity report expands the union, not the sum.**
-  `settle/report-arity-reach!` expanded each arriving edge's spec subtree separately, so
-  1,024 chained edges took 252 ms — none of it bounded, since the instance budget counts
-  facts examined and this examined none. `tax/specs-of-all` seeds one traversal with
-  every root under one `seen`: 512 edges go from 60.6 ms to 1.0, growth from 59.5× to
-  7.5–11.3× per doubling. `lein perf`'s `arity-reach-batch-roots` pins it at 25.0.
+  `settle/report-arity-reach!` takes its extent through `tax/specs-of-all`, which seeds one
+  traversal with every arriving edge's root under one `seen`. Expanding each root's spec
+  subtree separately instead costs 1,024 chained edges ~250 ms — none of it bounded, since
+  the instance budget counts facts examined and this examines none — where the shared walk
+  takes 512 edges from ~60 ms to ~1, growth from 59.5× to 7.5–11.3× per doubling. `lein
+  perf`'s `arity-reach-batch-roots` pins it at 25.0.
 - **The `functional` and `asymmetric` marks are read down, once per pass.** Four gates
   ask the one question — is a mark at or above this predicate: `could-clash?` per
   candidate sentex, `declaration-implicates` per arriving edge, and the cross-context
-  exposure pass's region filter and `genl` arm per binary fact. Each ran `props-over`,
-  which is `genls(f)` and two sets built off it. `settle/clash-marked-below` walks
-  `specs-of-all` over the **marked roster** instead, once per pass behind a `delay`, with
-  the gates asking set membership of the result: 1,000 askers over a 1,000-predicate
-  chain go from 213 ms to 1.1, and 2,000 from 1,239 ms to 3.2, with the closure memo
-  retired. Warm, it is 22 ms to 0.9 and 151 to 1.7. The new reading grows with the chain
-  where the old one grew with its square, and the deferred batch *around* it moves
-  1.04–1.21×, the marks being a small share of a pass that also pairs and reports.
+  exposure pass's region filter and `genl` arm per binary fact. Answering each ask with its
+  own `props-over` — `genls(f)` and two sets built off it — is a walk per asker.
+  `settle/clash-marked-below` walks `specs-of-all` over the **marked roster** instead, once
+  per pass behind a `delay`, with the gates asking set membership of the result: 1,000
+  askers over a 1,000-predicate chain go from ~210 ms to ~1, and 2,000 from over a second
+  to ~3, with no closure memo behind it. Warm, it is ~20 ms to ~1 and ~150 to ~2. The
+  roster reading grows with the chain where the per-asker one grows with its square, and the
+  deferred batch *around* it moves 1.04–1.21×, the marks being a small share of a pass that
+  also pairs and reports.
 
   What that gives up is the shape a hybrid would win — a pass carrying a single trigger
   under a mark near the root of a wide hierarchy. The shipped ontology is not it,
-  declaring ten marked predicates with no sub-predicate between them.
-- **The two `special` arms decide before reading the subtree.** `equate-under-edge` had
-  no gate at all, so every `genl` write on every KB materialized the subtree's extent to
-  discover nothing was functional; it reads `tax/props` once now, and `entail-under-edge`
+  declaring eleven marked predicates with no sub-predicate between them.
+- **The two `special` arms decide before reading the subtree.** `equate-under-edge` reads
+  `tax/props` once before it looks at anything; ungated, every `genl` write on every KB
+  materializes the subtree's extent to discover nothing was functional. `entail-under-edge`
   is gated on the KB storing an argument constraint. Both take their extent through one
   `subtree-sentexes`, filtered by index cardinality first. No curve moves —
   `subsumption-seeds` walks the same subtree and must.
@@ -638,10 +686,22 @@ way the domain is: `(relationKind …)` is a `disjointMetatype` over
 is refused exactly as `Muffet` being both a `dog` and a `cat` is. The same widening makes
 `arg` constrain predicate-valued positions — `(arg typeToInstancePred 1
 typeRelationPredicate)` refuses a link whose first argument is not classified
-type-level. Numbers, strings and compounds stay outside both checks, since no type
-membership can be asserted of one (a NAT reifies to its constant first, so a reified
-term is checked under its constant). Open-world is unchanged: a term carrying no type
-membership at all still cannot violate anything.
+type-level. A **literal** is typed by what it *is* rather than by what somebody
+asserted: `checks/literal-type` reads its EDN kind, and the kinds sit in the lattice
+(CxCore) precisely so the comparison can be made — a `string` is not a `dog`, and `arg`
+says so. There is one per leaf kind a sentence can carry, and the set is complete on
+purpose: a kind with no name is one both argument checks must wave through, which is a
+hole in a declaration rather than a policy. A **compound** stays outside that lattice: what
+`(QuantityFn 5 Meter)` denotes is its function's business, not its syntax's, so no kind
+would be the right answer — and its function is what answers instead. `arg` reads
+`(result F T)` and `genlArg` reads `(genlResult F T)`, from the asking context's
+vantage, so the declaration binds every application of `F` whether or not `F` mints one:
+a *reifiable* application arrives as its minted constant carrying the same types
+materialized, an *unreifiable* one is read through the declaration itself, and both meet
+one verdict ([nat.md](nat.md)). A function that declares no result exempts its
+applications, exactly as an unclassified symbol exempts itself.
+Open-world is unchanged for a **symbol**: a term carrying no type membership at all
+still cannot violate anything.
 
 `disjoint? kb a b` decides disjointness via the genl closure. Disjointness is
 enforced as **contradiction detection**: `assert` of a type membership `(T X)`
@@ -682,7 +742,8 @@ testing every type](defenses.md#the-answer-is-not-found-by-testing-every-type)
 So it is read off the same frame, the other way round. `tax/separating-partners` is
 every `y` a visible declaration separates `a` from — the pairs `a`'s supertypes carry
 in `:disjoint-index`, plus the other members of any disjoint metatype one of them
-belongs to. Every type disjoint from `a` is a subtype of one of those partners and
+belongs to, plus the specializations of a `siblingDisjoint` parent one of them stands
+beside. Every type disjoint from `a` is a subtype of one of those partners and
 nothing else is, since inheritance through `genl` is how a separation reaches a
 candidate at all; so the answer is `specs` of the partner set, and its size is the
 answer's own. `tax/separating-pairs` is the same question with neither side given,
@@ -799,7 +860,7 @@ question about one KB: a pair that one reached and the other did not would be re
 as merely *visible* by `violations` or as *decided* by `contradictions` depending on
 which route happened to run.
 
-**Six of the seven shapes are named by a functor and the seventh is not**, which is the
+**Seven of the eight shapes are named by a functor and the eighth is not**, which is the
 one thing both routes have to spell out separately. `(M T)` is an ordinary unary
 membership whose functor is whatever the metatype is called, so no fixed vocabulary of
 declaration functors can recognize it — only `tax/disjoint-metatype?` says it declares
@@ -809,19 +870,21 @@ one. It is the shape most likely to be reached by one and not the other, and the
 consequence is exactly the split above — the clique closes, the exposure pass files the
 pair, and nothing ever weighs it.
 
-Measured on OpenCyc. Over its 27,195 distinct declared disjoint pairs, sweeping below
-*either* side asks for 26,518,841 instance enumerations against the intersection's
-1,694,193 — **15.7×** — so the 4,096-instance budget is spent after **27** declarations
-rather than 8,372. The candidate sets are further apart than the enumerations: on a
-2,092-declaration spread the union rule calls 1,808,288 terms candidates, of which 34
-can convict.
+Measured on the OpenCyc import [kbs.md](kbs.md) is the route to, in one run. Over its
+~27k distinct declared disjoint pairs, sweeping below
+*either* side asks for roughly 26M instance enumerations against the intersection's
+roughly 1.7M — **about 16×** — so the 4,096-instance budget is spent after **27**
+declarations rather than several thousand. The candidate sets are further apart than the
+enumerations: on a 2,092-declaration spread the union rule calls roughly 1.8M terms
+candidates, of which 34 can convict.
 
-Run per trigger over all 37,701 `disjoint` sentexes with the budget out of the way, the
-pass costs 52 s where the union rule costs 321 s for the first 3,000 alone — **49× on
-the same 3,000**. And it loses nothing: `core/exposed-clashes`, which uses no candidate
+Run per trigger over all ~38k `disjoint` sentexes with the budget out of the way, the
+pass costs under a minute where the union rule costs several for the first 3,000 alone —
+**roughly 50× on the same 3,000**. And it loses nothing: `core/exposed-clashes`, which
+uses no candidate
 rule and no budget at all and is complete by construction, reports **638** clashes;
 the narrowed pass reports the same 638, with both set differences empty. The union
-rule reaches 638 from only 3,000 of the 37,701 triggers precisely *because* it
+rule reaches 638 from only 3,000 of those triggers precisely *because* it
 over-collects — those extra reports are clashes it stumbles on while sweeping a
 declaration that does not implicate them, filed against the wrong trigger.
 
@@ -853,7 +916,8 @@ walking the memberships finds every candidate exactly, which is what
 `core/exposed-clashes` does. It is complete where the settle pass is budgeted, and it
 is the one to ask of a KB that arrived all at once — a `recover` rebuilds belief rather
 than changing it, so the settle pass sits it out (`settle/*rebuilding?*`) and left
-unbounded there it was 27% of an OpenCyc import.
+unbounded there it was a quarter of the wall clock of an OpenCyc import — the one
+[kbs.md](kbs.md) is the route to, measured the once.
 
 ## Predicate metadata
 
@@ -915,6 +979,43 @@ maintained by `integrate-sentex`:
   outside the step relation for the same reason. Materialize the hop with a forward rule
   and the walk crosses it, because then it is a stored fact.
 
+  #### The other direction: a forward join reads the walk
+
+  A rule *conclusion* is not a hop, and a rule *antecedent* on a declared-transitive
+  predicate is answered by the walk. The two are not in tension: the first would put a
+  proof search inside the closure, and the second puts the closure inside a join, which is
+  bounded by one node's reach.
+
+  `chain/join-antecedent` unions the walk's answers with the matcher's, so a rule whose
+  antecedent is `(causes ?a ?c)` fires across two stored hops and not only across one —
+  and `TransitivePredicateProver` is a `provers/SupportingProver`, so each answer carries
+  the handles of one chain of edges (a breadth-first pass with parent pointers, so a
+  shortest one) and the firing rests on exactly those. Retracting a hop of the chain
+  withdraws the conclusion by the ordinary relabel; retracting an edge the chain never
+  crossed withdraws nothing. An arriving edge re-joins the rules carrying such an
+  antecedent in full (`chain/transitive-rejoin-rules`), because the trigger index offers
+  only the tuple the edge is *stated* at and the pairs it licenses *through* itself are
+  reached by joining. Details, and what the seam does not carry, are
+  [inference.md](inference.md), "What a computed answer rests on".
+
+  The bounded arms are the ones that answer, here as anywhere: an antecedent with both
+  ends open contributes nothing from the walk, for the quadratic reason below.
+
+  **A rule that concludes on what it would walk takes the matcher alone**
+  (`chain/walks-its-own-conclusion?`), and that is about the support rather than the
+  answer. A forward-derived edge *is* a hop — it is stored and believed, and an `ask`
+  crosses it like any other — but a rule deriving `(P x z)` from `(P x y)` and `(P y z)`
+  stores its conclusions *inside* the fixpoint, so which chain was shortest would depend on
+  how far the rule had got, and two chainers agreeing about every belief would record
+  different antecedents for one conclusion. Nothing is lost by declining: that rule **is**
+  the closure written out, it reaches every pair the walk would, and each conclusion rests
+  on the two hops it joined. The test is a property of the rule, so it answers the same
+  whatever else the KB holds and in whatever order it arrived.
+
+  **The `(transitive P)` declaration re-joins too**, exactly as a `(symmetric P)` does: it
+  is what turns the antecedent into a walk, and the edges it walks have already arrived, so
+  nothing about `P` would otherwise bring the rule round again.
+
   **With both arguments open the walk answers nothing, and the extent answers instead** —
   the stored `P` facts and those of `P`'s `genl` sub-predicates, through the ordinary
   match path, exactly as for a predicate carrying no marker at all. The prover's
@@ -958,7 +1059,7 @@ maintained by `integrate-sentex`:
   `LinkedHashMap` read against a nested-map lookup — and the two mounts walk at the same
   speed. Past it the fetch is a real page-in at 3.03 µs, which is the warm figure
   `density.md` publishes, and the disk walk falls to 0.61× the memory one. `:disk-memory`
-  (durable records, RAM index) lands with `:disk` at every size, which is what says the
+  (durable records, RAM index) lands with `:disk-log` at every size, which is what says the
   **record store** is the whole of the difference and the index half is none of it.
 
   The rest of a hop — canonicalizing the pattern, the scoped argument-root read, the
@@ -1109,6 +1210,17 @@ Predicates are **reified** and classified in the genl hierarchy under `predicate
 - by algebra — `symmetric` / `asymmetric` / `transitive` / `reflexive` / `functional`,
   each a subtype of `binaryPredicate`.
 
+**The three arity classes separate each other**, as three `(disjoint …)` pairs in CxCore.
+A predicate takes one number of arguments, so a second classification is refused where it
+is written (`:disjoint`) rather than stored and convicted a step later as two values in
+the `functional` `(arity P N)` table. It is stated pairwise and **not** as
+`(siblingDisjoint predicate)`: `predicate`'s specializations are every classification of a
+relation there is, and a predicate is rightly several of those at once — `arity` is a
+`binaryPredicate` and an `instanceRelationPredicate` — so the mark would separate pairs
+that must coexist. The separation closes under `genl` like any other, so the algebraic
+marks above are separated from `unaryPredicate` and `ternaryPredicate` along with the
+`binaryPredicate` they specialize.
+
 The algebraic marks are **the classification itself** — no derived `…Predicate` twin.
 Each mark is one predicate doing two jobs: `(symmetric siblingOf)` maintains the
 `:symmetric` taxonomy property (canonicalization, the generic prover) **and**, through
@@ -1188,7 +1300,9 @@ convict harder the less a context sees.
 `checks/arity-problem` holds a sentence to the arity its predicate is **bound** to —
 from `(arity P N)` or from a `unaryPredicate` / `binaryPredicate` / `ternaryPredicate`
 membership, which the CxCore rules derive from each other, so either spelling binds, and
-from a super-predicate's where the predicate declares nothing of its own (below). The **top literal only**, exactly like `arg`: a rule reaches the check as its
+from a super-predicate's where the predicate declares nothing of its own (below). One
+predicate binds one length: the three classes are pairwise `disjoint` (above), so a second
+classification never lands to derive a second value. The **top literal only**, exactly like `arg`: a rule reaches the check as its
 `implies` form, whose own arity is 2 and is checked as such, and its antecedents are
 not. Open-world in the same shape — a predicate the KB has never declared can be used
 at any arity, since the declaration may simply not have arrived.
@@ -1280,6 +1394,66 @@ rejects a wrongly-typed argument), and as an *inference* when querying — the
 from the arg-constrained position it fills, so a thing's type can follow from
 how it is used, not only from a stored membership.
 
+### And against the variables of a rule
+
+`args-problem` reads a **ground** argument. Every argument of a rule is a variable, so
+it passes over all of them vacuously — and a rule whose variable-binding chain feeds an
+impossible term into a position is stored, fires, and is then convicted one conclusion
+at a time by a complaint naming the conclusion and never the rule that wrote it.
+
+A variable is one term standing in several positions at once, so
+`checks/check-variable-constraints!` holds the positions to **each other** before the
+rule is stored — on both storage doors and in `check`, since it rides `check-rule!`.
+It refuses `:arg-variable`:
+
+```clojure
+(v/check kb '(implies (comment ?x ?string) (genl ?x ?string)) 'CxUniverse)
+;; [{:type :arg-variable :variable ?string :expected [string unaryPredicate]
+;;   :message "arg constraint: ?string must be a string (arg 2 of comment)
+;;             and a type (arg 2 of genl, a typeRelationPredicate), and the two types
+;;             are disjoint"}]
+```
+
+`(implies (arg ?pred ?n ?kind) (genl ?pred ?kind))` is the shape that must *pass*, and
+does: `?kind` is asked for a kind at both ends.
+
+**A type-level position asks for a `unaryPredicate`**, which is what makes the two
+demands comparable at all — `disjoint` separates *memberships*, and a subtype demand is
+not one until it is read as the membership every type carries. A position is type-level
+when a `genlArg` names it **or** when its predicate is a `typeRelationPredicate`, the
+mark saying that of every position at once; that second half is how `genl`'s second
+argument is constrained, since it deliberately carries no declaration of its own
+(CxCore says why).
+
+Four restrictions keep the arm to what it can actually prove:
+
+- **Instance demand against instance demand only.** Two *subtype* demands are left
+  alone: a type below two disjoint types is empty, not impossible, and nothing else in
+  the KB refuses an empty type.
+- **Positive literals only.** A negated antecedent says the variable does *not* fill
+  that position, so `(implies (and (dog ?x) (not (plant ?x))) …)` is saying exactly what
+  its author meant; an existential is skipped because its variables are local.
+- **Declared disjointness only**, so the arm stays as open-world as the ground one. The
+  literal types carry the declaration that makes the case above bite —
+  `(disjoint string predicate)` and `(disjoint number predicate)` in CxAbstract, text and
+  a number each being a thing no relation is, and the second carrying `integer` with it.
+  `symbol` deliberately carries neither: a name is exactly how a predicate is written, so
+  the disjointness would be false. CxCore adds `(disjoint function predicate)`, which is
+  what `function`'s own comment has always said in prose, and it is what refuses
+  `(implies (result ?f ?t) (genl ?f ?t))`: `?f` is asked for a function at one end and
+  a kind at the other.
+- **Two constraint kinds of the four**, and the other two are a *result* rather than a
+  scope decision. `arg` and `genlArg` are read; `quotedArg` and `interArg` are not,
+  because each pairing has a binding both ends accept — refusing the rule would refuse
+  one that works. Both `quotedArg` pairings admit a **compound**, the one thing
+  `literal-type` declines to answer for; and `interArg`'s trigger is a
+  *demand*, not a fact — `(arg P i T)` does not make argument `i` a `T`, since an
+  unclassified term satisfies it vacuously, so no rule's own bindings entail the trigger.
+  For the same reason there is no reading of `arg` against `genlArg` sharper than the
+  `unaryPredicate` mapping above: a term may be an instance of one type and a subtype of
+  another at once, and the meta-ontology depends on it. Each of those has a witness in
+  `rule_variable_arg_test`, so widening the arm turns one red first.
+
 ## What is cached, what is not, and why
 
 - **A transitive predicate's closure is not held as a *relation*, but the answer is
@@ -1290,15 +1464,20 @@ how it is used, not only from a stored membership.
   finds is **cached per `[direction predicate node context]` on the KB** and dropped —
   not repaired — the moment anything moves.
 
-  Three layers, at three scopes, and they are not alternatives:
+  Two layers, at two scopes, and they are not alternatives:
 
   | | holds | scope | retired by |
   |---|---|---|---|
-  | `literal-cache` | one literal's visible matches | the KB | the change clock |
   | `observe/*reach-memo*` | one node's neighbours | one search step | going out of scope |
   | `:closure-answers` | one whole reach | the KB | the change clock |
 
-  The clock is the whole invalidation story, and it is what makes the top layer follow
+  The KB's `literal-cache` is **not** a third: a walk visits each node once, so it asks
+  each neighbour literal once and leaves that cache nothing to serve, while its insertion
+  per node would clear the whole cache part-way through. The neighbour probes read with
+  `res/matches-visible`'s `cached?` false — [caches.md](caches.md) states the rule a scan
+  follows.
+
+  The clock is the whole invalidation story, and it is what makes `:closure-answers` follow
   **belief**: a relabel moves it, so a defeated edge retires the closure that crossed it
   without anything having to know which entry the edge was in. It is also what makes a
   scope that *writes while it reads* — forward chaining, whose own conclusions move the
@@ -1314,9 +1493,10 @@ how it is used, not only from a stored membership.
   computing a closure to store would charge a two-hop question for the whole extent and
   lose `reaches?`'s early exit. Measured (`lein bench-walk`): a second identical ask over
   an unmutated KB costs 0.10–0.14× the first on a 2,000- to 8,000-node chain and fetches
-  no records. The layer below cannot reach that on its own: it bounds itself by **entry**
-  count and a walk spends one entry per node, so a closure with more nodes than that
-  bound clears it as the walk proceeds and leaves nothing for the repeat. Note that genl
+  no records. Nothing under it could answer that repeat anyway: the neighbour probes go
+  with `res/matches-visible`'s `cached?` false, so a walk neither consults the KB's solution
+  cache nor fills it — a walk asks each node once, and the entries it would spend, one
+  per node, would clear that cache under a reader who does re-ask. Note that genl
   changes are **not** a dependency of the walk itself: subtype fan-out applies only to
   unary goals, and `(P x y)` is binary.
 - **Metatype membership is cached rather than stored**, so `disjointness-test` scans
@@ -1491,9 +1671,10 @@ three.
 **A wide subtree is a ledger question, so the pass caps its own entries.** One binding
 can convict a thousand predicates, against a ledger that keeps the newest 1,000 entries
 and logs each at `:warn` — so a pass filing one apiece evicts every other violation in it,
-which is the failure `settle/expose-clashes!` records at 41,500 identical complaints. The
-findings are therefore capped at **8** for a pass, the content-first 8 of the predicates
-convicted, and a ninth brings one **`:arity-report-truncated`** entry: how many predicates
+which is the failure `settle/expose-clashes!` records at tens of thousands of identical
+complaints. The findings are therefore capped at **8** for a pass, the content-first 8 of
+the predicates convicted, and a ninth brings one **`:arity-report-truncated`** entry: how
+many predicates
 convicted in all, how many entries were filed, how many facts between them, and up to
 three predicates no entry names (`:predicates` `:filed` `:facts` `:sample` `:message`).
 Read it as `:constraint-exposure-truncated` and not as the notice above it. Nothing is

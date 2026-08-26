@@ -114,7 +114,10 @@
       ;; four-element `[:argument-root pred pos term]`, whose predicate the packed
       ;; long has no room for (see `route`).  Throwing pins that — reusing the tag
       ;; means designing a decode, not inheriting one with the wrong shape.
-      2 (throw (ex-info "F-ARG is reserved; no packed key carries family 2"
+      2 (throw (ex-info (str "packed key " pk " names family 2 (F-ARG), which is reserved"
+                             " and nothing packs: an argument root is the four-element"
+                             " key [:argument-root pred pos term], whose predicate a"
+                             " packed long has no room for")
                         {:type :reserved-family :packed pk}))
       3 [:term-index term]
       4 [:rule-index :antecedent term]
@@ -152,7 +155,20 @@
     ones).  The roster key holds no term, so it is passed through unmapped.")
   (install-mapped! [b keys offsets handles n]
     "Install mapped columns (a `LongBuffer` and two `IntBuffer`s over a snapshot), replacing
-    whatever the routed families held."))
+    whatever the routed families held.")
+  (sections [b]
+    "What this backend **holds**, by section — `{:routed :keys :offsets :handles
+    :fallback}` — for a residency measurement (`vaelii.bench.budget`).  The objects
+    themselves, never a copy: `snapshot-columns` builds fresh heap arrays to write, and
+    sizing those would size a temporary rather than what a running KB holds.
+
+    `:routed` is the mutable map the routed families use before a snapshot is installed
+    and after a write thaws one; `:keys` / `:offsets` / `:handles` are the installed
+    columns, which are buffers over the image and belong in a caller's *mapped* total
+    rather than its heap one; `:fallback` is the backend under everything the routed
+    families do not claim, and carries the fact-scaled argument roots
+    (`fallback-entries`).  The split is the caller's to make from the objects — a
+    buffer says whether it is direct — so this reports the shape and judges nothing."))
 
 (defn- members
   "The set at `k`, from whichever place the routed families live in."
@@ -264,6 +280,9 @@
     (set! mkeys keys) (set! moff offsets) (set! mhandles handles) (set! mn (int n))
     nil)
 
+  (sections [_]
+    {:routed m :keys mkeys :offsets moff :handles mhandles :fallback fallback})
+
   kv/KvBackend
   ;; scalars / counters are never a routed family — only the fallback holds them
   (kv-get  [_ k]   (kv/kv-get  fallback k))
@@ -349,7 +368,9 @@
               :increment (kv/kv-increment this k)
               :decrement (kv/kv-decrement this k)
               :add-to-set (do (kv/kv-add-to-set this k a) nil)
-              :remove-from-set (do (kv/kv-remove-from-set this k a) nil)))
+              :remove-from-set (do (kv/kv-remove-from-set this k a) nil)
+              ;; the one refusal every adapter spells — see `vaelii.impl.dense-kv`
+              (kv/unknown-op! op)))
           ops))
   ;; The portable projection has to undo *both* of this backend's compressions: the
   ;; interned key (through `unpack`, against the shared dictionary) and the `IntPostings`
@@ -388,14 +409,14 @@
   ;; intersection of scoped leaves.  So the aggregate reads delegate straight to it, ints
   ;; and all, and get the whole collapse.
   ;;
-  ;; Without this, `DenseRoots` took the `Object` default (`vaelii.impl.kv`), which
+  ;; Without these four, `DenseRoots` takes the `Object` default (`vaelii.impl.kv`), which
   ;; reconstructs the four-part `[:argument-root pred pos term]` VECTOR through `arg-key`
   ;; and calls the generic `kv-members`/`kv-count`/`kv-intersect` — routed to `:fallback`
   ;; and re-parsed by the fallback's `arg-root-key?` back into `pos`/`term`/`pred`.  That
   ;; cons-and-reparse per read, and the union rebuilt over the slot roster rather than read
   ;; off the maintained node, is exactly the cost the trie exists to remove; delegating
-  ;; here is what carries the v2/v3 memory-backend win onto the columnar / disk-columnar
-  ;; path, whose argument reads bottom out on this backend.
+  ;; here is what carries the memory backend's trie collapse onto the columnar /
+  ;; disk-columnar path, whose argument reads bottom out on this backend.
   ;;
   ;; **Both routing states, one path.**  The argument roots are resident in the fallback
   ;; whether or not a snapshot is mapped: unmapped they are *written* there (`route ⇒

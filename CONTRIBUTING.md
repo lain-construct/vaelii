@@ -37,21 +37,25 @@ installs:
 - `python3` — usually already present
 
 ```bash
-lein lint    # glossary, versions, doc links, doc drift, clj-kondo, cljfmt, shellcheck,
-             # reflect (a compile pass), unused (a public var nothing calls)
+lein lint    # glossary, versions, doc links, doc drift, conflict markers, clj-kondo,
+             # cljfmt, shellcheck, reflect (a compile pass), unused (a public var nothing calls)
 lein fix     # reformats in place; cljfmt is the only auto-repairable check
-lein gate    # lint, then the suite, then the perf claims — the check before you push
+lein gate    # lint, then the suite — the check before you push
+lein release-gate  # ...and the perf claims, before a tag or a perf-sensitive land
 ```
 
-**`lein gate` is the one to run before opening a pull request.** It runs three stages
-that answer three different questions — well-formed, right, still fast — and it is
-deliberately **not** fail-fast, because the suite takes minutes and learning about all
-three failures once beats learning about them one cycle at a time. Each stage streams
+**`lein gate` is the one to run before opening a pull request.** It runs two stages
+that answer two different questions — well-formed, right — and it is
+deliberately **not** fail-fast, because the suite takes minutes and learning about both
+failures once beats learning about them one cycle at a time. Each stage streams
 to its own log under `target/gate/run-<pid>/`, which `target/gate/latest` points at — a
 run owns its directory, because two gates share a working tree here and neither may read
 the other's verdict. A failing stage prints its tail inline.
-`--only <stage>`, `--skip <stage>`, `--quick`, `--all`, and `PERF_TOLERANCE` on a
-loaded machine.
+**Perf is opt-in**: `lein release-gate` adds the scaling claims before a tag or a
+perf-sensitive land, `--perf` adds them without the release framing, and a fast gate
+that lands a hot-path change without them prints "perf owed".
+`--fail-fast`, `--only <stage>`, `--skip <stage>`, `--quick`, `--all`, and
+`PERF_TOLERANCE` on a loaded machine.
 
 You do not need the lint binaries to build, run or test; only to run the gate locally.
 
@@ -75,11 +79,12 @@ in RAM, and everything on disk. Both run with a read-only token and read no secr
 a pull request from a fork runs them in full.
 
 What the pull-request path leaves out, the `deep` workflow picks up: the `^:slow`
-tests, which carry more than half the suite's assertions; the five record×index pairs
+tests, which carry more than half the suite's assertions; the `^:multi-jvm` and `^:fuzz`
+ones, which neither `:default` nor `:all` selects; the five record×index pairs
 the two-backend gate skips, plus `overlay` (the fork decorator, not a seventh pair); and
-the five **sweeps** — the whole suite re-run through the dense TMS, the incremental
-matcher, the node query engine, one of its tacticians, and the reference retrieval
-fan-out. Each of those replaces something the engine
+the five **sweeps** — the whole suite re-run through the persistent-map JTMS, the
+incremental matcher, the node query engine, one of its tacticians, and the reference
+retrieval fan-out. Each of those replaces something the engine
 otherwise picks for itself, and each must be failing-set-identical with the default it
 replaces, since every one is a cost decision rather than a semantic one.
 
@@ -127,6 +132,14 @@ from the outside, deliberately requiring nothing under `vaelii.impl.*` except th
 scaffolding. The API itself is [`docs/api.md`](docs/api.md); what lives in which
 namespace is [`docs/namespaces.md`](docs/namespaces.md).
 
+`vaelii.koinii.*` is the one thing in the tree that is neither of the two: an
+**application** built on those six ([`docs/koinii.md`](docs/koinii.md)), so it lives at
+`src/vaelii/koinii/` rather than under `impl/` and requires nothing from there — the same
+test pins that. It is not a seventh public namespace: the engine's rosters (the API
+golden, the SPI seams, the refusal types) exclude it, because freezing an app's surface
+there would put its development inside the engine's compatibility contract. What koinii
+needs and the API lacks gets published in `vaelii.core`, never reached around.
+
 ### 2.2 Four properties that hold everywhere
 
 Breaking one of these is a bug however well it tests. They are the reason several
@@ -159,7 +172,7 @@ rejection messages: [`docs/naming.md`](docs/naming.md).
 
 | Role | Convention | Example |
 |------|-----------|---------|
-| predicate | camelCase, lowercase-initial | `parentOf`, `genl`, `argIsa` |
+| predicate | camelCase, lowercase-initial | `parentOf`, `genl`, `arg` |
 | individual | CapitalCamelCase | `Muffet`, `Tom` |
 | type | snake_case, a **unary** predicate | `dog`, `physical_object` |
 | context | `Cx` followed by CapitalCamelCase | `CxCore`, `CxUniverse` |
@@ -208,8 +221,9 @@ value must go through `sentex/sentex`.**
 The only blessed `:refer :all` is `[clojure.test :refer :all]` in test namespaces;
 everywhere else use an explicit `:refer [foo bar]` of exactly the names the file uses.
 Foundational vocabulary uses short `:as` aliases by convention — `sx` for
-`impl.sentex`, `p` for `impl.protocols`, `v` for `vaelii.core`, `tax` for
-`impl.taxonomy`, `nm` for `impl.naming`, `tu` for `vaelii.test-util`. Follow what the
+`impl.sentex`, `p` for `impl.protocols`, `cap` for `impl.capabilities`, `v` for
+`vaelii.core`, `tax` for `impl.taxonomy`, `nm` for `impl.naming`, `tu` for
+`vaelii.test-util`. Follow what the
 file you are editing already does.
 
 ### 3.6 Comments: current code only, no archaeology
@@ -261,7 +275,8 @@ to spell them to ban them.
 ### 3.8 What counts as breaking
 
 A change is classified by who can observe it, and the release number follows the
-classification. Three classes:
+classification. Four classes, and every entry's `*Class:*` line spells one of them —
+**Breaking**, **Refusal**, **Additive**, **Fix**:
 
 1. **A contract change a working caller can observe** — a return shape, a `:type`
    keyword, a status code, a documented default. That is **Breaking**: the changelog
@@ -277,6 +292,16 @@ classification. Three classes:
    claim is the whole justification for the lighter treatment.
 3. **Additive** — a `:type` where none was, a new option key, a new op in the
    daemon's allowlist. Neither label; any release may carry it.
+4. **Fix** — the engine does what it already says it does, at a door where the two
+   disagree: a doc, a docstring, a refusal message or an invariant states one thing
+   and the code answers another, and the code moves to the statement. The contract
+   holds still, so a caller written against what the engine documents is the caller
+   this corrects the answer *for*. **Fix** is patch-eligible and rides any release.
+   It owes no `*Breaks:*` line — nothing is retired, so there is no name a sibling
+   could be grepped for — and a `*Migration:*` line is optional, reading "none"
+   where an entry carries one. A change a working caller can observe *and* is
+   entitled to is class 1 however plainly it is a bug: the counterweight below is
+   what decides, not the word "fix".
 
 **A configuration name is part of that surface.** Renaming or removing a `VAELII_*`
 environment variable or a `vaelii.*` system property is class 1 — a systemd unit or a
@@ -419,9 +444,13 @@ too, with the migration.
 lein test                        # the :default selector, memory stores — the routine loop
 lein test :all                   # ...plus the ^:slow half
 lein test :slow                  # only the marked ones
+lein test-multi-jvm              # the cross-process tests — opt-in, in neither of the above
+lein test-fuzz                   # the exhaustive truncation sweep — likewise opt-in
 lein test-backends               # the whole suite once per backend (all eight)
 lein test-sweeps                 # ...and once per alternative implementation (all five)
 lein test-matrix                 # both at once, concurrently — ~13 min, not ~55
+lein test-shuffle                # the thirteen in a seeded random order, memory first,
+                                 # stopping at the first red — the fresh-angle smoke walk
 ```
 
 **Tests are integration tests against the storage backend**, not unit tests over
@@ -441,8 +470,9 @@ mocks — the in-memory stores by default, with no external dependency.
   fixture retracts everything and asserts the live sentex and justification sets are
   back to baseline, which is a real teardown-completeness check.
 - **`VAELII_TEST_BACKEND` takes a backend name**, spelled `<records>-<index>`
-  (`memory-columnar`, `disk-dense`), with `memory` and `disk` naming the two pairs that
-  are one store on both axes, plus `overlay` for the fork decorator. The suite must be
+  (`memory-columnar`, `disk-dense`) — `memory` is the one pair named for a single store
+  on both axes, `disk-log` is durable records under the write-ahead-logged index, and
+  `overlay` is the fork decorator rather than a pair. The suite must be
   **failing-set-identical across all eight**, and so must the assertion count — which
   the runners check against `config_expected_delta` rather than print for a reader to
   compare, since a configuration that ran fewer assertions than the others is green.
@@ -453,19 +483,20 @@ mocks — the in-memory stores by default, with no external dependency.
 - **`./scripts/test-sweeps.sh` is the other axis**, and a change touching inference,
   the TMS or context retrieval owes it the same run. Five switches re-run the suite
   through an alternative implementation of something the engine otherwise picks for
-  itself — the dense TMS, the sweep chainer, the node engine, one of its tacticians,
-  the reference nested context retrieval — and each is a cost decision rather than a
+  itself — the persistent-map JTMS, the sweep chainer, the node engine, one of its
+  tacticians, the reference nested context retrieval — and each is a cost decision rather than a
   semantic one, so the five must be failing-set-identical with each other and with a
-  plain `lein test`. Their assertion counts may differ where an assertion pins an
-  artifact of one implementation and stands aside under the switch that replaces it —
-  by the amount `config_expected_delta` records, and a new stand-aside belongs there
-  with its reason in the commit that adds it.
+  plain `lein test`, and their assertion counts are identical too: where an assertion
+  pins an artifact of one implementation (`prove`'s multiplicity, a depthless `query`),
+  the test asserts the expectation of the engine in force, read off
+  `tu/query-engine-override`, rather than standing aside — so `config_expected_delta`
+  expects no shortfall anywhere, and any shortfall is a skip.
 - **Run both locally rather than asking CI for them.** The `deep` workflow runs the
-  same sixteen configurations, and one run of it is 209 job-minutes — the local
+  same thirteen configurations, and one run of it is 209 job-minutes — the local
   scripts cost wall time and nothing else, so they are the gate and CI is the
   confirmation.
 - **`^:slow` marks a test costing about a second or more on its own**, and `lein test`
-  skips those by default. Twenty of them carry just under half the suite's assertions,
+  skips those by default. Forty-three of them carry about half the suite's assertions,
   so `:all` is a habit rather than a hook: run it when a change touches inference,
   indexing or the TMS, and occasionally regardless. Mark a *new* test only when it is
   measurably over the line — a mark guessed at is a fast test nobody runs. Not one of
@@ -475,11 +506,44 @@ mocks — the in-memory stores by default, with no external dependency.
   the memory backend, 2026-08-02: `:default` is 2445 tests / 120,281 assertions, `:all`
   2462 / 238,325. Wall-clock depends on the machine, so read the difference as a ratio
   rather than a target.)
-- **`^:llm` marks a test that can reach a language-model provider**, and it is the only
-  mark `:all` does not select. `lein test` makes no model call, and two independent
-  things hold that: the mark picks which tests run, and `VAELII_LLM_LIVE=1` grants
-  permission to dial out. A reachable Ollama on your machine is not consent. Never
-  write the inverted gate — default-off is the invariant.
+- **`^:llm` marks a test that can reach a language-model provider**, and it is one of
+  the three marks `:all` does not select. `lein test` makes no model call, and two
+  independent things hold that: the mark picks which tests run, and `VAELII_LLM_LIVE=1`
+  grants permission to dial out. A reachable Ollama on your machine is not consent.
+  Never write the inverted gate — default-off is the invariant.
+- **`^:multi-jvm` marks a test that forks a second JVM**, and it is the second one `:all`
+  passes over. These are the cross-process tests — not "integration tests", which is
+  what the whole suite already is, and not end-to-end either, since most of them observe
+  a single contract from the only vantage that can see it. What they cover is what a
+  process boundary makes visible and nothing else does: the single-writer lock refusing
+  a second JVM, the OS releasing that lock when a killed one exits, a KB opened cold
+  over a directory another process wrote, and the daemon and CLI contending for one
+  directory. **Nothing runs them for you** — not `lein test`, not `:all`, not `lein
+  gate`. `lein test-multi-jvm` does, and so does `deep`. Fork `java -cp` rather than
+  `lein`, give each child its own temp directory, and handshake on a marker rather than
+  a sleep.
+- **`^:fuzz` marks an exhaustive sweep no configuration varies**, and it is the third
+  `:all` passes over — for a different reason than the two above. `^:slow` means
+  *deferred until something eventually runs it*; `^:multi-jvm` means *one JVM cannot
+  stage this*. `^:fuzz` means *once, not once per configuration*: the truncation sweep
+  names its own four durable backends and never asks for the one the row is testing, so
+  every row of `lein test-matrix` walks the same 9,717 offsets to reach the same answer.
+  (A sweep row's env switch does reach the engine — those alter roots process-wide — but
+  over a three-assertion corpus it is not asking a new question.) One test carries the
+  mark today. `lein test-fuzz` runs it, and so does `deep`; nothing else does at all.
+  Each such sweep keeps a sampled twin at `:default` — a handful of seeded offsets
+  through the same harness, so the thing that would otherwise rot silently between deep
+  runs is the *harness*, and that part still runs on every commit.
+  **Set `VAELII_TEST_TMPDIR` to a tmpfs when you run one.** A probe opens a store over a
+  copied directory and closes it, and a close fsyncs, so the whole cost is one device
+  cache flush per offset: an *empty* directory measures the same as a real probe, and
+  the sweep is ~10 minutes on a disk against a couple on `/dev/shm`. Cheap scratch space
+  is also, for now, the only lever: `F_FULLFSYNC` serializes at the device, so four
+  workers against APFS measured 0.96× one, and where concurrency does pay (2.7× on a RAM
+  disk) a sharded sweep makes a green run print at `:error`. That line is benign —
+  `durability.clj` closes the window a close under a queued auto-compaction opens, and
+  nothing is written — but it is reported beside real failures, so sweeps stay serial
+  until it is classified apart from them.
 - **The suite logs at `:error` and no lower.** Trove's default backend prints from
   `:info` up, and the suite provokes `:warn` on purpose — `::dropped-conclusion`,
   `:no-placement` and the aggregate refusals are what the assertions are *checking
@@ -493,7 +557,7 @@ mocks — the in-memory stores by default, with no external dependency.
   **The bench harnesses take the same floor for the same reason**, since a row's
   *reading* is its verdict the way an assertion is the suite's: the clash rows drop
   conclusions by construction and every `fresh-kb` opens over the space the row before it
-  filled, so `lein perf` printed 1,307 log lines around 39 verdicts. `:bench` raises the
+  filled, so `lein perf` printed 1,307 log lines around its verdicts. `:bench` raises the
   floor, and `VAELII_BENCH_LOG_LEVEL=info lein perf` puts it back.
 - **Never gate on a piped test run.** `lein test 2>&1 | tail -30` reports `tail`'s exit
   status, always 0, so a red suite reads as green *and* the failure list is truncated
@@ -627,10 +691,36 @@ reach. Every page opens with the same three bullets — **Covers**, **Not here**
 | New backend or index | [`docs/storage.md`](docs/storage.md), [`docs/indexing.md`](docs/indexing.md) |
 | Change to the assert path | [`docs/api.md`](docs/api.md), [`docs/nmtms.md`](docs/nmtms.md) |
 | New public fn | [`docs/api.md`](docs/api.md) and its `vaelii.core` docstring |
-| New term or concept | [`docs/glossary.md`](docs/glossary.md): alphabetical placement within its letter section, and exactly one category badge on the term line (`kb` / `inference` / `tms` / `asp` / `backend`). `lein lint`'s glossary check enforces both. |
+| New term or concept | [`docs/glossary.md`](docs/glossary.md): alphabetical placement within its letter section, and exactly one category badge on the term line (`kb` / `inference` / `tms` / `asp` / `backend` / `qr`). `lein lint`'s glossary check enforces both. |
 
 `lein lint` also checks that every relative link in `README.md` and `docs/` resolves,
 and that no link escapes the repository.
+
+**A big measured number is written approximately unless something in the tree pins it.**
+A figure precise to the last digit — a sentex count, a µs/read, a wall clock in
+milliseconds — is a claim a reader can check, so it stays only where a test, a bench or a
+golden reproduces it
+(`assert_cost_test`, `lein perf`, `lein bench-*`) or where the page itself states the
+workload *and* the method it was measured by. Everywhere else write the magnitude and
+name what it was taken on: `~1.2M sentexes on an OpenCyc-sized import`, `about 5 GB`,
+`tens of microseconds`, `roughly 7×`. Keep the argument the figure was carrying — a ratio
+between rows usually is the argument — and cite the pin or the page that measures it
+rather than restating a count of your own. Small exact counts the tree holds (provers,
+tool schemas, caches) stay exact, because a test counts them.
+
+**A `clojure` block that is a whole program is run, and it opts in.** Add `run` to the
+fence's info string — ` ```clojure run ` — and `vaelii.doc-examples-test` evaluates the
+block in a scratch namespace with `v` and `starter` aliased and stores of its own, then
+checks it: a comment following a form whose text begins with `=>` states that form's
+value, and the runner reads **one** EDN form from it and compares with `=` when what
+follows is empty, a `(` opening a parenthetical remark, an em-dash aside or a further
+comment — so `;=> true (via genl)` is a claim while `;=> derived, placed in
+CxNaturalWorld` and anything holding a `…` are prose the runner leaves alone. Opt-in
+rather than opt-out because almost every block in `docs/` is a *fragment* — KB
+sentences written bare, a signature listing, a call over a `kb` the prose introduced —
+and the marker belongs on the handful that are programs rather than on the rest. A
+block that reaches a model provider, a server, or the process-wide log dial never
+carries it, and the test refuses one that does.
 
 Its **versions** check holds the two coordinates this tree states twice. The
 `:with-foreign` pin and `defproject`'s own version are cut together, so a release names
@@ -708,7 +798,7 @@ and requires none of them, so a pull request aimed at `main` is not a lighter pa
 review: it is a path with no review on it at all, and it will be retargeted rather than
 merged.
 
-The **suite** (`memory` / `disk`) is required too, and it runs on **every** pull request —
+The **suite** (`memory` / `disk-log`) is required too, and it runs on **every** pull request —
 a doc-only one included, which it passes in a few minutes. No path filter narrows it, and
 that is what lets it be required: a workflow a filter skips reports nothing at all, not
 even a skip, so a required check naming it would block every pull request the filter

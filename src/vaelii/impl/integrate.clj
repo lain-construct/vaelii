@@ -116,9 +116,13 @@
     ;; ...and the visibility roster, the remove half of `kb/create-sentex`'s add.  Order
     ;; does not matter to this one — it reads the departing sentex rather than the index
     (kb/note-excepted! kb sentex false)
+    ;; ...and the argument-preservation roster, the remove half of `kb/create-sentex`'s
+    ;; add.  Reads the departing sentex rather than the index, so order does not matter
+    ;; to this one either
+    (kb/note-preserving! kb (:sentence sentex) false)
     ;; An except's departure changes the effective belief of the declaration it hid.
     ;; Run after the roster drop so the common reconcile reads the new visibility state;
     ;; report the visibility move explicitly because the exception record is already gone.
     (when except-target
-      (special/reconcile-belief-change! kb #{except-target} true))
+      (special/reconcile-belief-change kb #{except-target} true))
     (special/recheck-on-sentence kb (:sentence sentex))))

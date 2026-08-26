@@ -26,8 +26,9 @@ So it sits on top of three existing subsystems and adds nothing to any of them: 
 normalizes each length through `provers/normalize-quantity` against the KB's
 `dimensionOf` / `conversionFactor` table ([quantity.md](quantity.md)), reads the
 qualitative relation set straight off `interval/possible-allen-relations`
-([time.md](time.md)), and takes the metric overlap window from `stp/overlap-window`
-([stp.md](stp.md)). `res/matches-visible` is its only touch of the KB.
+([time.md](time.md)), and takes the metric overlap window from
+`stp/overlap-window-with-support` ([stp.md](stp.md)). `res/matches-visible` is its only
+touch of the KB.
 
 ## Bounds, not points
 
@@ -67,11 +68,12 @@ magnitude is snapped to that same grid before rendering, so cross-unit normaliza
 last-bit noise never reaches the answer, and an integral result comes back as an integer
 so the bound answer is `=` to the obvious way of writing it.
 
-`interval-length` snaps each stored length to that grid before comparing two of them, which
-is why one interval's duration written as `66 Minute` and as `1.1 Hour` is one length and
-not a disagreement. [stp.md](stp.md) snaps a stated `temporalDistance` the same way and for
-the same reason — a separation and a duration are written alike, so they are read to one
-grid, and the two subsystems cannot reach different verdicts about the same pair of facts.
+`interval-length-with-support` snaps each stored length to that grid before comparing two
+of them, which is why one interval's duration written as `66 Minute` and as `1.1 Hour` is
+one length and not a disagreement. [stp.md](stp.md) snaps a stated `temporalDistance` the
+same way and for the same reason — a separation and a duration are written alike, so they
+are read to one grid, and the two subsystems cannot reach different verdicts about the
+same pair of facts.
 
 ## totalDuration
 
@@ -112,9 +114,12 @@ renders as an interval, so it reads as ignorance rather than as a measurement.
 
 The relation set comes from the *tightened* network, so a relation nobody asserted works
 as well as one that was: `(during A B)` and `(during B D)` compose to put A inside D, and
-the overlap of A and D is all of A. An **inconsistent** network yields an empty relation
-set and therefore no answer at all — the same rule the qualitative prover follows, since
-an unsatisfiable theory should not be mined for a number either.
+the overlap of A and D is all of A. Nor need the constraint be qualitative at all: the
+interval network reads the metric narrowing beside its stored facts ([stp.md](stp.md)),
+so a pair pinned only by endpoint measures arrives here already narrowed. An
+**inconsistent** network yields an empty relation set and therefore no answer at all — the
+same rule the qualitative prover follows, since an unsatisfiable theory should not be mined
+for a number either.
 
 ## Sharpened by the metric network
 
@@ -122,8 +127,9 @@ The last row of that table is the honest answer to "how long do these two overla
 nothing is known, and it is a poor answer when something is. If the KB says where the two
 intervals' endpoints fall relative to one another — `(startOf I P)` / `(endOf I P)` and the
 `temporalDistance` constraints of [stp.md](stp.md) — there is a real figure, and
-`stp/overlap-window` computes it: the shared stretch runs from the later of the two starts to
-the earlier of the two ends, which is four gaps the metric closure already bounds.
+`stp/overlap-window-with-support` computes it: the shared stretch runs from the later of
+the two starts to the earlier of the two ends, which is four gaps the metric closure
+already bounds.
 
 `sharpen-overlap` **intersects** that with the qualitative bound. Both are sound, so the
 tighter of them is:
@@ -162,6 +168,35 @@ same overlap — a stated `(before A D)` against gaps that put D inside A — an
 number to report at all. Bounds that cross by no more than the tolerance are float noise from
 two routes to one figure, and collapse to a point rather than a contradiction.
 
+## What a computed duration rests on
+
+Neither `totalDuration` nor `overlapDuration` is ever stored, so a forward rule joining on
+one draws its conclusion from facts no other antecedent names — the component `length`
+rows, the interval network, the metric constraints. `DurationProver` implements
+`provers/SupportingProver` so the firing names them: each answer comes back paired with the
+handles it was read from, and retracting any of them withdraws the conclusion through the
+ordinary relabel ([inference.md](inference.md), "What a computed answer rests on").
+
+- **`totalDuration`** rests on every component's `length` facts and the unit rows each
+  converted through. A sum moves when any of its terms does, so all of them are named.
+- **`overlapDuration`** rests on those plus two more sources, each only where it was read:
+  the Allen network's support for the pair (`interval/allen-support`, empty for an
+  unconstrained pair — the `[0, min(len1, len2)]` fallback found nothing narrowing it), and
+  the metric constraints where the window actually narrowed the qualitative bound. A KB
+  with no `temporalDistance` gets a conclusion resting on nothing metric, which is the same
+  compatibility guarantee the sharpening itself has.
+- **The check arm** adds the stated measure's own conversion, since whether the computed
+  bounds agree with it is decided after normalizing it through the table.
+
+Every `length` fact matched is named, not the one whose value survived the collapse: two
+rows that agree once normalized are one reading, and a third that disagrees declines it, so
+the reading is a property of the set.
+
+`support-sources` names `length`, the unit table, the interval relations, the
+`startOf`/`endOf` bridge and `temporalDistance` — so a datum on any of them re-joins a rule
+that has already fired, and the answer does not depend on whether the lengths or the rule
+came first.
+
 ## Vocabulary and registration
 
 `length`, `totalDuration` and `overlapDuration` are declared in
@@ -170,9 +205,9 @@ intervals. `length` is a duration, not a spatial extent. The measure terms and t
 table stay CxMeasure's.
 
 The prover is **opt-in**, and needs no other prover registered — `possible-allen-relations`
-and `stp/overlap-window` are both functions of the believed facts rather than queries, so
-duration arithmetic works whether or not the `:allen` or `:metric-time` reasoner is
-registered:
+and `stp/overlap-window-with-support` are both functions of the believed facts rather
+than queries, so duration arithmetic works whether or not the `:allen` or `:metric-time`
+reasoner is registered:
 
 ```clojure
 (v/add-reasoner kb :duration)

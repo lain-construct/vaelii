@@ -47,7 +47,7 @@
     ;; Not firing is the direction's doing, not an absence of either of those — which
     ;; is what separates this from `assert-inert`, whose sentex nothing believes
     ;; (docs/inference.md, "An inert rule is documentation with a handle").
-    (let [h (:id (first (v/find-sentexes kb ancestorOf)))]
+    (let [h (v/handle-of kb (list 'set/inertRule ancestor-rule) 'CxFam)]
       (testing "the rule is believed, at an ordinary class — there is no :inert strength"
         (is (v/in? kb h))
         (is (= :default (:strength (v/sentex kb h))))

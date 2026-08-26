@@ -44,10 +44,10 @@ record writer has stamped with its own `format.edn`. Anything else is not a KB a
 passed over, including a directory whose `meta.edn` does not read as EDN.
 
 **The records half is the whole marker.** Requiring an `index/` beside it hid exactly the
-stores worth finding: only `:disk` keeps a durable index on disk, while `:disk-columnar`,
+stores worth finding: only `:disk-log` keeps a durable index on disk, while `:disk-columnar`,
 `:disk-dense` and `:disk-memory` derive theirs and write no `index/` at all — so a
 large store classified as nothing and could not be offered. Those are
-the backends a corpus past a few million records is loaded into, `:disk`'s index being a
+the backends a corpus past a few million records is loaded into, `:disk-log`'s index being a
 map held in RAM whatever else is on disk ([storage.md](storage.md)).
 
 What it takes to *have* each of these — which ship here, which needs a plugin, which you
@@ -94,10 +94,11 @@ One of those options is worth naming here because its cost is easy to under-read
 `:belief?` (and a store's `:recover?`) governs **two** derived structures, not one: the
 JTMS *and* the cached `genl` / `genlCx` closures. Left off, the KB is findable by
 term and countable but has no type hierarchy at all — `types` and `contexts` come back
-empty and the ontology page has nothing to draw. On a 1.1M-sentex OpenCyc dump that is
-the difference between 0 and 125,385 types. (Exact counts move with the import profile
-and the plugin version — [kbs.md](kbs.md) reports 132,391 types for the `:ontology`
-profile it measures. The figure to read here is 0 versus six figures.) Off is still the right default for a corpus
+empty and the ontology page has nothing to draw. On the OpenCyc import
+[kbs.md](kbs.md) is the route to, that is the difference between 0 types and roughly a
+hundred thousand. (The figure to read is 0 versus six figures; the count itself moves with
+the import profile and the plugin version, which is why it is cited rather than
+restated.) Off is still the right default for a corpus
 past what `recover` can do in reasonable time, which is why it is a switch rather than a
 decision the catalog makes.
 
@@ -229,7 +230,7 @@ question from deriving what the rules conclude.
 
 The KB an entry loads into is in memory by default, over a space the catalog claims
 (from 100 up, clear of the block the test suite owns). Name a `:dir` and it is a durable
-`:disk` KB there instead — which is what a corpus far past what RAM holds wants.
+`:disk-log` KB there instead — which is what a corpus far past what RAM holds wants.
 
 ## Unloading never deletes an on-disk KB
 
@@ -294,9 +295,9 @@ newest export job in the registry is the panel's report — which is what lets i
 the dump went after the job has finished.
 
 That report is the newest export of **any** status, which is why `cancel-export!` does not
-read it: `jobs/cancel!` answers true for any job the registry still holds, so cancelling
-the newest would report a cancellation of a dump that finished an hour ago and is already
-written. It asks the *running* set instead, and answers false when nothing is running.
+read it: cancelling the newest would ask about a dump that finished an hour ago and is
+already written. It asks the *running* set instead, and answers false when nothing is
+running — as `jobs/cancel!` itself does for a job that has already settled.
 
 That closes the loop. `classify` keys on `meta.edn` and `export!` writes it **last**, so
 the moment a dump lands under the search path it is a `:dump` source, and export-then-reload
@@ -413,9 +414,11 @@ how deep the type tree branches, how many contexts the facts spread over, and th
 
 Two properties make it a measurement rather than noise:
 
-* **Deterministic.** Everything is drawn from one seeded `java.util.Random` in a fixed
-  order, so the same parameters give the same KB. `plan` is pure — the whole KB as data,
-  nothing asserted — and `load-into` asserts it.
+* **Deterministic.** Each of `plan`'s three draw streams — memberships, rules, facts —
+  owns a `java.util.Random` seeded from the plan seed and the stream's own constant, so
+  the same parameters give the same KB whichever order a reader realizes the streams
+  in. `plan` is pure — the whole KB as data, nothing asserted — and `load-into` asserts
+  it.
 * **Stratified.** Predicates are split into layers; facts populate layer 0, and a rule
   concluding a layer-*k* predicate draws its antecedents only from below *k*. The rule set
   is acyclic, so forward chaining cascades base → derived → further-derived and
@@ -427,6 +430,12 @@ Two properties make it a measurement rather than noise:
 Individuals and predicates are Zipf-sampled, so the corpus has hot terms and a long tail
 like a real one. Generated names carry their role in their spelling, as the naming
 invariants require: `gen_type_7`, `GenInd42`, `genRel3`, `CxGenBand0`.
+
+A rule's **direction and its defeasibility are two independent draws**, each a percentage
+against the rule stream's own generator, so the four combinations all occur and the mix is
+a share rather than an exact count. Read off one rule index they would be perfectly
+correlated — at any settings where `defeasible` ≤ `forward`, every defeasible rule would
+also be a forward one, and no settings at all would produce a defeasible *backward* rule.
 
 The fact contexts are a **chain**, not a fan of siblings. Two incomparable contexts
 have no common descendant, so a rule joining a fact from each would complete with nowhere

@@ -262,6 +262,14 @@ usually survives: the same very-close chain entails `(withinNearDistanceOf A D)`
 entailing no class at all. Sold as an entailment engine this would disappoint; sold as a
 way to rule arrangements out, it earns its keep.
 
+Exactness is per **pair** of classes, and that is as far as it reaches: composing a
+*result* onward loses the correlation between the two legs that produced it, so this is
+the one algebra here whose composition does not associate — `(a∘b)∘c` and `a∘(b∘c)` can
+differ, both over-approximating the truth. Nothing downstream is affected, because path
+consistency needs composition to *contain* the truth rather than to associate; it is why
+`qcn_algebra_test` holds the relation-algebra laws over all six algebras and leaves
+associativity out of them.
+
 The same reads again under `:distance`, and a `core/possible-relations` set with several
 members is the normal case on a chain this coarse rather than a sign of a thin KB.
 `distance/classify` maps a real number onto its class for anyone bridging to a measured

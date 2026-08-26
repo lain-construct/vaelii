@@ -40,10 +40,33 @@
     (> (count (re-seq #":" h)) 1) h
     :else (if-let [c (str/index-of h ":")] (subs h 0 c) h)))
 
+(defn- parse-allowlist
+  "The host names a `VAELII_ALLOWED_HOSTS` value names, as the set `host-allowed?`
+  compares a request's `Host` against — or **nil** when it names none.
+
+  Each entry gets the same `strip-port` the request side gets, so the two are compared in
+  one shape: an operator writes the name they reach the server by, and
+  `kb.example.com:8080` left unstripped matches nothing at all — every request refused,
+  while the startup line reports the allowlist as set.
+
+  Nil rather than the empty set for a value that names nothing, because those are
+  different answers: an empty allowlist admits no `Host` on any interface, and a
+  whitespace-only variable is the shell saying nothing rather than an operator asking for
+  a server that refuses every request."
+  [raw]
+  (not-empty
+   (into #{} (comp (map str/trim)
+                   (remove str/blank?)
+                   (map str/lower-case)
+                   (map strip-port))
+         (str/split (str raw) #","))))
+
 (defn allowed-hosts
   "The allowlist for a server bound to `bound-host`.
 
-  `VAELII_ALLOWED_HOSTS` (comma-separated) overrides everything.  Otherwise a
+  `VAELII_ALLOWED_HOSTS` (comma-separated **host names**) overrides everything; an entry
+  carrying a port is read as the name alone, since that is what a `Host` header is
+  compared as, and a value naming nothing at all is unset.  Otherwise a
   loopback bind — the default — answers only to loopback names, which is what closes
   rebinding.  A bind that named an address is already an explicit choice made against
   a documented warning, and the operator reaches it under a name only they know, so
@@ -52,16 +75,10 @@
   always enumerate in advance.  Left unset, `serve`'s startup line warns once rather
   than staying silent about it (`allowlist-open?`)."
   [bound-host]
-  (let [env (System/getenv "VAELII_ALLOWED_HOSTS")]
-    (cond
-      (seq env)
-      (into #{} (comp (map str/trim) (remove str/blank?) (map str/lower-case))
-            (str/split env #","))
-
-      (contains? loopback-hosts (str/lower-case (str bound-host)))
-      loopback-hosts
-
-      :else ::any)))
+  (or (parse-allowlist (System/getenv "VAELII_ALLOWED_HOSTS"))
+      (when (contains? loopback-hosts (str/lower-case (str bound-host)))
+        loopback-hosts)
+      ::any))
 
 (defn allowlist-open?
   "Does `allowed` — as `allowed-hosts` returns it — admit every `Host`?  True only for
@@ -96,6 +113,20 @@
            (catch Exception _ nil))
       ::opaque))
 
+(defn- request-scheme
+  "The scheme the **browser** reached this site by, honoring a TLS-terminating reverse
+  proxy: the first value of `X-Forwarded-Proto` when a proxy set one, else the
+  connector's own `:scheme`.  Reading an untrusted header is safe **here**: it only
+  reconstructs the host side of an origin comparison whose security rests on the
+  browser's unforgeable `Origin` — forging the proto cannot forge a matching `Origin`,
+  and a non-browser client that controls both is not the cross-site threat this guards.
+  Without it, a daemon behind the TLS proxy the deployment docs prescribe sees every
+  write as `http` against an `https` `Origin` and refuses all of them."
+  [req]
+  (or (some-> (get-in req [:headers "x-forwarded-proto"])
+              (str/split #",") first str/trim str/lower-case not-empty)
+      (name (:scheme req :http))))
+
 (defn same-origin?
   "Does this request come from the browser's own copy of this site?  A write route
   with no session to authenticate has to ask **who asked**: a browser stamps `Origin`
@@ -111,7 +142,7 @@
   (if-let [claimed (some #(get-in req [:headers %]) ["origin" "referer"])]
     (= (url-origin claimed)
        (when-let [host (get-in req [:headers "host"])]
-         (str (name (:scheme req :http)) "://" host)))
+         (str (request-scheme req) "://" host)))
     true))
 
 (defn edn-body?
@@ -157,6 +188,91 @@
   (let [v (System/getenv "VAELII_API_TOKEN")]
     (when-not (str/blank? v) v)))
 
+;; ---- what a bind requires ------------------------------------------------
+
+(defn public-bind?
+  "Does `host` name an interface other than this machine's own?  Membership in
+  `loopback-hosts` rather than equality with one spelling of it, so the bind that
+  requires a token is exactly the bind that drops the `Host` allowlist:
+  `--listen 127.0.0.1` is the default said out loud and is held to the loopback rule,
+  `--listen 0.0.0.0` is not."
+  [host]
+  (not (contains? loopback-hosts (str/lower-case (str host)))))
+
+(defn require-token!
+  "Refuse (`:unauthorized`) a **public** bind with no token, naming the variable that
+  lifts the refusal and the bind that does not need one.  Returns nil for a loopback
+  bind and for a public bind that has a token.
+
+  **One rule for both servers**, because both have write routes and neither
+  authenticates by default: the daemon's `POST /op` is the KB's only writer, and the
+  browser's `/edit` writes belief while `/kbs/export` and `/kbs/load` write the host
+  filesystem at a path the request names.  Naming an address also drops the `Host`
+  allowlist (`allowed-hosts`), so without this the exposed configuration would be the
+  one with the fewest checks — which is the whole argument, and it is the same argument
+  on either server.
+
+  `what` names the server in the message, since an operator reading one line on stderr
+  has only the message to go on."
+  [what host token]
+  (when (and (public-bind? host) (str/blank? token))
+    (throw (ex-info (str "VAELII_API_TOKEN must be set to bind " host " — naming an"
+                         " address publishes the " what "'s write routes, and they"
+                         " authenticate nobody without it.  Set the variable, or bind"
+                         " loopback (the default, and what --listen 127.0.0.1 says out"
+                         " loud), which answers only this machine")
+                    {:type :unauthorized :host host :server what}))))
+
+;; ---- the shared bearer token, on the wire --------------------------------
+
+(defn bearer-matches?
+  "Is `presented` the `expected` token?  Compared in **constant time**:
+  `MessageDigest/isEqual` folds the length difference into its accumulator and reads
+  every byte either way, so neither the token's length nor the prefix a guess shares
+  with it shows up in how long the answer takes.  `=` on strings leaks both, and a
+  refusal that returns faster for a wrong first byte is a token oracle a caller can
+  walk.
+
+  No timing test asserts this, deliberately: a wall-clock assertion over a nanosecond
+  difference is flaky by construction on a machine running anything else.  What is
+  testable is that one named fn does the comparison and answers correctly for equal- and
+  unequal-length inputs, which is why the comparison lives here rather than inline in the
+  wrapper below — and why it lives *here* rather than in either server: two spellings of
+  a credential comparison is one of them wrong."
+  [expected presented]
+  (java.security.MessageDigest/isEqual
+   (.getBytes (str expected) java.nio.charset.StandardCharsets/UTF_8)
+   (.getBytes (str presented) java.nio.charset.StandardCharsets/UTF_8)))
+
+(defn presented-bearer-token
+  "The token an `Authorization: Bearer …` header carries, or nil when the header is
+  absent or names another scheme.  The scheme is matched case-insensitively, as RFC
+  7235 defines it, and the token's own case is kept."
+  [req]
+  (let [auth (str (get-in req [:headers "authorization"]))]
+    (when (str/starts-with? (str/lower-case auth) "bearer ")
+      (subs auth 7))))
+
+(defn wrap-bearer
+  "Wrap `handler` so every request presents `token` as `Authorization: Bearer <token>`,
+  answering `refusal` (a fn of the request) when it does not.  A blank token means no
+  wrapper at all.  `open` is the set of request URIs answered before the check.
+
+  **The refusal does not distinguish.**  A wrong token, a missing header and a header
+  spelled some other way take the *same* branch: one that said which is a token oracle.
+
+  **Outermost**, outside the `Host` allowlist and the origin check: a caller with no
+  token is answered before the server forms any other opinion about the request."
+  [handler token open refusal]
+  (if (str/blank? token)
+    handler
+    (fn [req]
+      (if (or (contains? open (:uri req))
+              (when-let [presented (presented-bearer-token req)]
+                (bearer-matches? token presented)))
+        (handler req)
+        (refusal req)))))
+
 ;; ---- the request-body ceiling -------------------------------------------
 
 (def max-body-bytes
@@ -190,7 +306,8 @@
   "The one refusal both servers' 413s are built from, so the wire `:type` is the same
   whichever answered."
   []
-  (throw (ex-info (str "request body exceeds " max-body-bytes " bytes")
+  (throw (ex-info (str "request body exceeds " max-body-bytes
+                       " bytes — send less, or raise VAELII_MAX_BODY_BYTES")
                   {:type :body-too-large :limit max-body-bytes})))
 
 (defn read-capped-body-bytes

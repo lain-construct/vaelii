@@ -83,6 +83,26 @@
       (is (= :no-such-format (:kind (ex-data e))))
       (is (set? (:available (ex-data e)))))))
 
+(deftest a-registration-the-seam-cannot-look-up-is-refused-rather-than-stored
+  ;; The refusal is for an entry that would sit in the registry answering nothing: a kind
+  ;; that is not a keyword never matches the kind a loader asks for, and an unqualified
+  ;; symbol names no var for `requiring-resolve` to reach.  Both read from the outside
+  ;; exactly like a plugin nobody installed, so they are refused at the call — and as an
+  ;; `ex-info` rather than a `:pre`, since `*assert*` false would store them in silence.
+  (testing "the kind is what a loader asks for, so it has to be a keyword"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (foreign/register "test-bad-arg" 'some.plugin.ns/reader)))]
+      (is (= :bad-arg (:type (ex-data e))))
+      (is (= :kind (:arg (ex-data e))) "and it names which argument was wrong")))
+  (testing "and the symbol has to name a var, which an unqualified one does not"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (foreign/register :test-bad-arg 'reader)))]
+      (is (= :bad-arg (:type (ex-data e))))
+      (is (= :sym (:arg (ex-data e))))))
+  (testing "neither reached the registry, under either spelling of the kind"
+    (is (nil? (get (foreign/formats) :test-bad-arg)))
+    (is (nil? (get (foreign/formats) "test-bad-arg")))))
+
 (deftest a-registered-format-whose-plugin-is-absent-reads-the-same-way
   ;; The state of a build that declares a format and does not have the jar: the symbol
   ;; resolves to nothing, and that is a clean refusal rather than a missing-namespace
@@ -157,6 +177,32 @@
       (with-manifest-on-classpath
         bad
         (fn []
-          (when-let [e (is (thrown? clojure.lang.ExceptionInfo (foreign/formats)))]
+          ;; `let`, not `when-let`: `is` answers nil when nothing throws, and a
+          ;; `when-let` would then drop the two assertions below along with the one
+          ;; that failed — an assertion count that moves with the outcome, which is
+          ;; the one thing a suite-wide count gate cannot read.  `(ex-data nil)` is
+          ;; nil, so both fail cleanly instead of disappearing.
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (foreign/formats)))]
             (is (= :bad-foreign-manifest (:type (ex-data e))))
             (is (str/includes? (str (:url (ex-data e))) foreign/manifest-resource))))))))
+
+(deftest two-plugins-claiming-one-format-tie-break-on-content
+  ;; Two bridges declaring the same kind is a misconfiguration rather than an error — one
+  ;; of them still reads the format — so the scan warns and keeps going.  What must not
+  ;; depend on the classpath is *which* one it keeps: the entries arrive in whatever order
+  ;; `getResources` enumerated the jars, and a winner picked by arrival would make the
+  ;; reader this build uses a property of how the jars were laid out.  So the tie-break is
+  ;; on the symbol, and the same two manifests answer the same way in either order.
+  (let [merge*  #'foreign/merge-manifests
+        from-a  "jar:file:/aardvark.jar!/vaelii/foreign.edn"
+        from-z  "jar:file:/zebra.jar!/vaelii/foreign.edn"
+        early   [:test-format 'aa.foreign.reader/reader from-a]
+        late    [:test-format 'zz.foreign.reader/reader from-z]]
+    (is (= (merge* [early late]) (merge* [late early]))
+        "the same two manifests in either classpath order pick the same reader")
+    (is (= {:test-format 'aa.foreign.reader/reader} (merge* [late early]))
+        "and it is the lexicographically smaller symbol, not the one that arrived first")
+    (is (= {:test-format 'aa.foreign.reader/reader
+            :other-format 'zz.foreign.reader/reader}
+           (merge* [early (assoc late 0 :other-format)]))
+        "a kind only one plugin claims is kept whatever it sorts against")))

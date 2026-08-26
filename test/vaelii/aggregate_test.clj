@@ -13,6 +13,8 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.provers :as provers]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
@@ -327,6 +329,115 @@
       (is (= :quantifier-not-local (:type (ex-data e)))
           "?a is projected out, so a consequent naming it would store a non-ground fact"))))
 
+;; ---- the census body is joined -------------------------------------------
+;; A conjunctive body is one query whose conjuncts share the reduction variable — the
+;; same join `unknown` and `exceptWhen` read.  "How many of Bob's children are asleep"
+;; is one witness satisfying both conjuncts, never the children counted beside the
+;; sleepers.
+
+(defn- sleepy-house!
+  "Bob, three children, two of them asleep, and a sleeping stranger who is nobody's
+  child.  Read conjunct by conjunct the count would be three children or three
+  sleepers; joined it is two."
+  [kb {:keys [person childOf asleep Bob Kid1 Kid2 Kid3 Stranger]}]
+  (v/assert kb (list person Bob) 'CxWell)
+  (doseq [k [Kid1 Kid2 Kid3]] (v/assert kb (list childOf Bob k) 'CxWell))
+  (v/assert kb (list asleep Kid1) 'CxWell)
+  (v/assert kb (list asleep Stranger) 'CxWell)
+  (v/assert kb (list asleep Kid2) 'CxWell))
+
+(defn- asleep-children
+  "The census `(agg/count ?n ?c (and (childOf ?x ?c) (asleep ?c)))`, for `?x`."
+  [childOf asleep x]
+  (list 'agg/count '?n '?c (list 'and (list childOf x '?c) (list asleep '?c))))
+
+(tu/deftest-kb how-many-of-bob-s-children-are-asleep
+  (tu/with-terms [person childOf asleep Bob Kid1 Kid2 Kid3 Stranger]
+    (sleepy-house! kb {:person person :childOf childOf :asleep asleep :Bob Bob
+                       :Kid1 Kid1 :Kid2 Kid2 :Kid3 Kid3 :Stranger Stranger})
+    (is (= 2 (one kb (asleep-children childOf asleep Bob) '?n))
+        "two — not the three children, and not the three who are asleep")
+    (testing "and the conjuncts are joined rather than read flat"
+      (is (= 3 (one kb (list 'agg/count '?n '?c (list childOf Bob '?c)) '?n)))
+      (is (= 3 (one kb (list 'agg/count '?n '?c (list asleep '?c)) '?n))))))
+
+(defn- restful!
+  "The rule *a parent with more than one sleeping child is restful*, over the joined
+  census."
+  [kb {:keys [person childOf asleep restful]}]
+  (v/assert kb (list 'implies
+                     (list 'and (list person '?x)
+                           (asleep-children childOf asleep '?x)
+                           (list 'lessThan 1 '?n))
+                     (list restful '?x))
+            'CxWell))
+
+(tu/deftest-kb a-child-waking-lowers-the-joined-count-and-withdraws-the-firing
+  (tu/with-terms [person childOf asleep restful Bob Kid1 Kid2 Kid3 Stranger]
+    (let [world {:person person :childOf childOf :asleep asleep :Bob Bob
+                 :Kid1 Kid1 :Kid2 Kid2 :Kid3 Kid3 :Stranger Stranger}]
+      (restful! kb (assoc world :restful restful))
+      (sleepy-house! kb world)
+      (is (v/ask? kb (list restful Bob) 'CxWell)
+          "two of Bob's children are asleep, so the rule fires")
+      (testing "a child wakes: the count falls to one and the conclusion goes with it"
+        (let [awake (v/assert kb (list 'not (list asleep Kid2)) 'CxWell
+                              {:strength :monotonic})]
+          (is (= 1 (one kb (asleep-children childOf asleep Bob) '?n))
+              "the second conjunct's predicate is watched, so the census is re-taken")
+          (is (not (v/ask? kb (list restful Bob) 'CxWell)))
+          (is (nil? (v/handle-of kb (list restful Bob) 'CxWell))
+              "withdrawn, not merely disbelieved")
+          (testing "and retracting the waking restores both"
+            (v/retract! kb awake)
+            (is (= 2 (one kb (asleep-children childOf asleep Bob) '?n)))
+            (is (v/ask? kb (list restful Bob) 'CxWell))))))))
+
+(tu/deftest-kb the-joined-census-reads-the-same-in-either-arrival-order
+  ;; the rule before the facts, and the facts before the rule: a joined census is
+  ;; maintained by re-joining on arrival, so an order-sensitive re-check shows up here.
+  ;; Each arm gets its own cast, so the second reads a baseline the first did not move.
+  (doseq [[label rule-first?] [["rule first" true] ["facts first" false]]]
+    (testing label
+      (tu/with-terms [person childOf asleep restful Bob Kid1 Kid2 Kid3 Stranger]
+        (let [world  {:person person :childOf childOf :asleep asleep :Bob Bob
+                      :Kid1 Kid1 :Kid2 Kid2 :Kid3 Kid3 :Stranger Stranger}
+              rule!  #(restful! kb (assoc world :restful restful))
+              facts! #(sleepy-house! kb world)]
+          (if rule-first? (do (rule!) (facts!)) (do (facts!) (rule!)))
+          (is (= 2 (one kb (asleep-children childOf asleep Bob) '?n)))
+          (is (v/ask? kb (list restful Bob) 'CxWell)))))))
+
+(tu/deftest-kb a-sum-joins-its-census-over-a-variable-local-to-the-body
+  ;; the natural shape of a summed join: `?p` is the join between the two conjuncts and
+  ;; is named nowhere else, so the census binds it itself.  Distinct values, as ever —
+  ;; the parcels are given different weights so the sum is of all three.
+  (tu/with-terms [carries weightOf Bob Parcel1 Parcel2 Parcel3 Crate]
+    (doseq [p [Parcel1 Parcel2 Parcel3]] (v/assert kb (list carries Bob p) 'CxWell))
+    (doseq [[p w] [[Parcel1 2] [Parcel2 3] [Parcel3 5] [Crate 7]]]
+      (v/assert kb (list weightOf p w) 'CxWell))
+    (let [g (list 'agg/sum '?n '?w (list 'and (list carries Bob '?p)
+                                         (list weightOf '?p '?w)))]
+      (is (= 10 (one kb g '?n))
+          "the parcels Bob carries — the crate he does not is not in the join"))))
+
+(tu/deftest-kb every-conjunct-of-a-census-is-a-negative-edge-for-stratification
+  ;; the single-literal body's rule, read through the join: a conclusion reached from a
+  ;; count over it has no settled answer whichever conjunct mentions it.
+  (tu/with-terms [node kidOf bigGroup]
+    (let [e (try (v/assert kb (list 'implies
+                                    (list 'and (list node '?x)
+                                          (list 'agg/count '?n '?a
+                                                (list 'and (list kidOf '?x '?a)
+                                                      (list bigGroup '?a))))
+                                    (list bigGroup '?x))
+                           'CxWell)
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e))
+      (is (= :not-stratified (:type (ex-data e)))
+          "the cycle runs through the census's *second* conjunct"))))
+
 ;; ---- where the census is taken -------------------------------------------
 ;; The aggregate is evaluated per placement context, and it contributes no handles to
 ;; the join — so it is counted *where the conclusion lands* and has no say in where
@@ -571,6 +682,18 @@
           "a reduction must exhaust the body, which :lookup does not buy")
       (is (= 1 (count (:results (v/ask-within kb g 'CxWell {:max-cost :compute}))))
           ":compute is the tier it declares, and it runs there"))))
+
+(tu/deftest-kb a-lookup-budget-keeps-unknown-rather-than-inverting-it
+  ;; `unknown` shares the `:compute` tier with the aggregate, but unlike it, dropping its
+  ;; prover does not merely under-report — it INVERTS the closed-world answer: an empty
+  ;; result for `(unknown S)` reads as "S is derivable".  So it is kept past the cap, and
+  ;; a `:lookup` budget answers the same as no budget, `:complete` and correct.
+  (tu/with-terms [flies Tweety]
+    (let [g (list 'unknown (list flies Tweety))]     ; nothing derives (flies Tweety)
+      (is (v/ask? kb g 'CxWell) "S is not derivable, so (unknown S) holds")
+      (let [r (v/ask-within kb g 'CxWell {:max-cost :lookup})]
+        (is (seq (:results r)) "the lookup budget keeps UnknownProver, not an inverted empty")
+        (is (= :complete (:status r)))))))
 
 ;; ---- nothing is stored ---------------------------------------------------
 
@@ -845,6 +968,116 @@
     (dotimes [_ 12] (v/ask kb (list 'agg/sum '?n '?v (list likesThing Ann '?v)) 'CxWell))
     (is (= 1 (count (filter #(= :aggregate (:violation %)) (v/violations kb))))
         "twelve reductions of one bad extent are one defect")))
+
+;; ---- a post-join literal that answers two ways answers nothing -----------
+;;
+;; Every output the placement phase computes reaches the conclusion — through the
+;; literals still to run, through the `exceptWhen` and `unknown` checks that read these
+;; bindings, and through the consequent itself.  So taking the registry's first solution
+;; would place a *different fact* depending on which solution came first, and which comes
+;; first is a function of how the facts were stored.  The disagreement is declined and
+;; filed, exactly as `provers/table-agreed` declines a unit that declares two conversion
+;; factors.
+;;
+;; Each built-in computation answers once or not at all, so the shape needs a registry
+;; that disagrees with itself — which `core/add-prover` is the public way to build, and
+;; which an application registering a computed relation can reach without meaning to.  The
+;; prover below answers off *stored* facts, so its solution order really is the index's:
+;; the two runs differ in nothing but which candidate was asserted first.
+
+(def ^:private post-join-ctx 'CxPostJoinAmbiguous)
+(def ^:private post-join-above 'CxPostJoinAbove)
+
+(def ^:private ambiguity-marker
+  "The constant that keeps the prover below off every other `evaluate` goal there is."
+  977)
+
+(defn- two-answer-prover
+  "A prover for `(evaluate ?out (+ ?n 977))`, answering with one solution per stored
+  `(pred ?v)` fact — in the order the index yields them.
+
+  `completeness` 100 with `est-bindings` 0 wins `provers/sole-prover` against the
+  built-in `EvaluateProver`, so this is the only prover that runs on the goal and its
+  solutions are exactly the ones below."
+  [pred]
+  (reify provers/Prover
+    (applicable? [_ _ goal _]
+      (and (sequential? goal) (= 3 (count goal)) (= 'evaluate (first goal))
+           (sequential? (nth goal 2)) (= ambiguity-marker (last (nth goal 2)))))
+    (est-bindings [_ _ _ _] 0)
+    (cost         [_ _ _ _] :lookup)
+    (completeness [_ _ _ _] 100)
+    (solve [_ kb goal _]
+      (let [out (nth goal 1)]
+        (mapv (fn [[_ b]] {out (get b '?v)})
+              (res/matches-visible kb (list pred '?v) post-join-ctx))))))
+
+(defn- post-join-run!
+  "One aggregate rule whose `evaluate` is answered by `two-answer-prover`, over
+  `candidates` — `[context value]` pairs, asserted in the order given.  Answers
+  `{:tallies … :entries …}`: what the rule concluded, and the `:post-join-ambiguous`
+  entries the run filed.
+
+  Its own KB on the isolated space, since it rebuilds one per call and registers a prover
+  on it: a registry is KB state, and leaving one on the shared KB would answer another
+  namespace's `evaluate`."
+  [candidates]
+  (tu/with-cleared-kb [kb tu/isolated-fresh]
+    (v/add-prover kb (two-answer-prover 'pjCandidate))
+    (v/assert kb (list 'genlCx post-join-ctx post-join-above) 'CxUniverse)
+    (doseq [[c val] candidates] (v/assert kb (list 'pjCandidate val) c))
+    (v/assert kb '(pjPerson PjAnn) post-join-ctx)
+    (doseq [c '[PjC1 PjC2]] (v/assert kb (list 'pjChildOf 'PjAnn c) post-join-ctx))
+    (v/clear-violations! kb)
+    (v/assert kb (list 'implies
+                       (list 'and '(pjPerson ?x)
+                             '(agg/count ?n ?c (pjChildOf ?x ?c))
+                             (list 'evaluate '?d (list '+ '?n ambiguity-marker)))
+                       '(pjTally ?x ?d))
+              post-join-ctx)
+    {:tallies (into #{} (map :sentence) (v/sentexes-matching kb '(pjTally ?x ?d) '?ctx))
+     :entries (into [] (filter #(= :post-join-ambiguous (:violation %))) (v/violations kb))}))
+
+(deftest a-post-join-literal-with-one-solution-concludes-as-it-always-did
+  (let [{:keys [tallies entries]} (post-join-run! [[post-join-ctx 'PjOnly]])]
+    (is (= #{'(pjTally PjAnn PjOnly)} tallies)
+        "one solution is not a disagreement — the firing places the fact it computed")
+    (is (empty? entries) "and nothing is filed")))
+
+(deftest post-join-solutions-that-agree-conclude-once
+  ;; Two solutions, one value: `pjCandidate` is stated of the same term in two contexts of
+  ;; one cone, so the prover answers twice with the same binding.  Agreement is what is
+  ;; asked for, not a solution count.
+  (let [{:keys [tallies entries]} (post-join-run! [[post-join-ctx 'PjSame]
+                                                   [post-join-above 'PjSame]])]
+    (is (= #{'(pjTally PjAnn PjSame)} tallies)
+        "two solutions agreeing on the variable the conclusion reads are one answer")
+    (is (empty? entries) "so nothing is declined")))
+
+(deftest post-join-solutions-that-disagree-conclude-nothing-in-either-order
+  (let [forward  (post-join-run! [[post-join-ctx 'PjLeft] [post-join-ctx 'PjRight]])
+        backward (post-join-run! [[post-join-ctx 'PjRight] [post-join-ctx 'PjLeft]])]
+    (testing "the firing is declined rather than adjudicated"
+      (is (empty? (:tallies forward))
+          "a literal answering two ways answers nothing — neither value is concluded")
+      (is (empty? (:tallies backward))))
+    (testing "and the ledger names the literal"
+      (is (= 1 (count (:entries forward))))
+      (let [e   (first (:entries forward))
+            lit (get-in e [:detail :literal])]
+        ;; the literal as the placement phase solved it — the rule is stored canonically
+        ;; numbered, so its output variable reads `?varN` rather than the author's `?d`
+        (is (= 'evaluate (first lit)))
+        (is (= '(+ 2 977) (nth lit 2))
+            "the count is substituted in: this is the literal that answered twice")
+        (is (= 2 (count (get-in e [:detail :solutions])))
+            "with both readings it could not choose between")))
+    (testing "the same outcome, entry for entry, in both assertion orders"
+      (is (= (:tallies forward) (:tallies backward)))
+      (is (= (mapv #(dissoc % :run) (:entries forward))
+             (mapv #(dissoc % :run) (:entries backward)))
+          "belief is computed from content, so an entry ordered by solution order would
+           be the arrival dependence this refusal exists to remove"))))
 
 ;; ---- the plan reports it the way the prover declares it -----------------
 

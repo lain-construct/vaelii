@@ -128,9 +128,9 @@
 (defrecord Justification [id informant antecedents consequence bindings strength out])
 
 (defn ->just
-  "Construct a Justification, defaulting `strength` to :monotonic and out to #{} (so a
-  bare monotone justification behaves exactly as before — it adds no defeasibility of its
-  own, and `conferred-class` caps it at its weakest antecedent)."
+  "Construct a Justification, defaulting `strength` to :monotonic and out to #{} — a bare
+  monotone justification adds no defeasibility of its own, so `conferred-class` caps it at
+  its weakest antecedent."
   ([id informant antecedents consequence bindings]
    (->just id informant antecedents consequence bindings :monotonic))
   ([id informant antecedents consequence bindings strength]
@@ -401,20 +401,20 @@
   (relabel-region* state (affected-region state seeds)))
 
 (defn- relabel-all*
-  "Relabel every node.  Only for `recover`, which rebuilds the graph from the durable
-  store and so has no smaller region to work from.
+  "Relabel every node.  No engine path calls it — the assert / retract / settle path
+  relabels regions and a rebuild composes the region relabels its own adds run
+  (`core/rebuild-tms`) — so this is the differential oracle's whole-graph operation, which
+  is why both representations carry it (`relabel`).
 
-  The blocked set is **reset to empty first**.  Nothing about an exception is stored,
-  so blocking cannot be read back from the durable store — it is derived state, and a
-  rebuild that merged into whatever was there could only ever *add*, leaving a block
-  standing for a justification whose exception no longer holds (or that no longer
-  exists).  That is the bug docs/taxonomy.md records for the transitive closures.  So
-  recovery starts unblocked and the caller re-evaluates the exceptions afterwards; the
-  window in between believes an excepted conclusion, which the next settle withdraws."
+  The blocked set is **reset to empty first**, and the supersession map with it.  Neither
+  is stored — blocking is derived from the exception queries and supersession from the
+  equality closure — so a whole-graph relabel can read neither back, and one that merged
+  into whatever was there could only ever *add*: a block standing for a justification
+  whose exception no longer holds, or a spelling held OUT for an equality nothing
+  asserts.  That is the bug docs/taxonomy.md records for the transitive closures.  So
+  this lands unblocked and unsuperseded, and a caller that wants either states the whole
+  answer again (`set-blocked` and `supersede` both replace)."
   [state]
-  ;; Supersession goes with it, and for the same reason: it is derived from the
-  ;; equality closure, which `recover` rebuilds from the store afterwards.  A merge
-  ;; inherited here could hold a spelling OUT for an equality no longer asserted.
   (let [state (assoc state :blocked #{} :superseded {})]
     (relabel-region* state (set (keys (:nodes state))))))
 
@@ -486,11 +486,16 @@
 
 ;; ---- retraction ---------------------------------------------------------
 
-(defn- dissoc-all
+(defn dissoc-all
   "`(apply dissoc m ks)` in one transient pass.  `apply dissoc` walks the map once per
-  key with a full HAMT path copy each time, and `dead` here is the whole swept region of
+  key with a full HAMT path copy each time, and `ks` here is the whole swept region of
   a retraction — which is a routine path rather than a rare one, since an `exceptWhen`
-  block runs the sweep on ordinary fact arrival."
+  block runs the sweep on ordinary fact arrival.
+
+  Public because the dense network sweeps the same region out of the same shape: its
+  `superseded` is the one persistent map it keeps (docs/density.md), so
+  `vaelii.impl.dense-jtms` drops a swept region from it through this rather than
+  through a second copy of the reasoning."
   [m ks]
   (if (seq ks) (persistent! (reduce dissoc! (transient (or m {})) ks)) (or m {})))
 

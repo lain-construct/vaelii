@@ -93,9 +93,11 @@
   0.3s, `:gzip` 463 kB in 1.0s, `:xz` 331 kB in 2.4s.  So `:gzip` is the default — it
   eats most of what the field names cost, at a speed nobody notices — and `:xz`
   (LZMA2) buys another 28% for 2.3x the write, the trade a multi-gigabyte archive is
-  usually willing to make.  Its encoder holds a working set per *stream* (a preset-6
-  dictionary): a fixed cost beside a corpus, not one that grows with it.  `:none` is
-  the opt-out.
+  usually willing to make.  Its encoder is **per chunk** — a chunk is its own compression
+  window, which is what lets a reader decompress any one of them — so one is allocated and
+  dropped per chunk rather than held for the stream, and `vaelii.impl.io.frames` sizes its
+  dictionary to a chunk (`xz-dict-bytes`) so that allocation is 24 MB rather than 93.
+  Either way the peak is one encoder, whatever the corpus.  `:none` is the opt-out.
 
   The reader additionally reads `:zstd` from a dump some other tool wrote, which is why
   it refuses it and we do not write it."

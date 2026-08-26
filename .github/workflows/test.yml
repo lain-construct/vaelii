@@ -127,7 +127,14 @@ jobs:
       - name: Run the suite (${{ matrix.backend }})
         id: suite
         env:
-          VAELII_TEST_BACKEND: ${{ matrix.backend }}
+          # The matrix value is the CHECK name, and branch protection stores that:
+          # `memory` and `disk` are required on `develop`, so a leg that changes
+          # name stops reporting under the required one and leaves every pull
+          # request unmergeable. The name therefore says which END of the storage
+          # axis this leg is, and the `:backend` it selects is named here —
+          # `disk-log`, durable records under the write-ahead-logged index
+          # (docs/storage.md).
+          VAELII_TEST_BACKEND: ${{ matrix.backend == 'disk' && 'disk-log' || matrix.backend }}
         run: |
           set -o pipefail
           if [ "${{ matrix.backend }}" = "disk" ]; then

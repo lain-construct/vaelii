@@ -22,7 +22,7 @@
 
   The overlay is a `KvBackend` decorator, so it forks exactly the index path that is
   written over that protocol: `KvIndexStore` (`vaelii.impl.kv`) and therefore the
-  `:memory`, `:dense` and `:disk` index axes.  The `:columnar` index is a **native**
+  `:memory`, `:dense` and `:disk-log` index axes.  The `:columnar` index is a **native**
   `IndexStore` — its trie is int-id nodes in parallel arrays, with no keys and no backend
   underneath — so a `KvBackend` decorator would fork its roots and leave its trie behind.
   That is refused here rather than half-done.  Forking a columnar index is a different
@@ -59,7 +59,7 @@
       ;; roots, trie) is four internal names before the one usable clause, and a
       ;; reader who has never opened this namespace cannot use any of them.
       (throw (ex-info (str "cannot fork a :columnar index — the forkable index backends are "
-                           ":memory, :dense and :disk.  (A columnar index is not written over "
+                           ":memory, :dense and :disk-log.  (A columnar index is not written over "
                            "a KV backend, so forking it would fork its roots and leave its "
                            "trie behind.)")
                       {:type :unforkable-index :index (class base-index)}))))

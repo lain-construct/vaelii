@@ -77,15 +77,15 @@
     (testing "and does not consume a fresh id"
       (is (= 1 (atoms/count-atoms t))))))
 
-(deftest the-three-namespaces-share-one-counter
-  ;; Sentex, contradiction, and aux atoms all live in one ASPIF atom space, so ids
-  ;; must not collide even though the lookup maps are separate.
+(deftest the-two-namespaces-share-one-counter
+  ;; Sentex and contradiction atoms live in one ASPIF atom space, so ids must not
+  ;; collide even though the lookup maps are separate — a sentex id that happens to
+  ;; equal a contradiction's atom id is what the `s`/`c` label prefixes keep apart.
   (let [t (atoms/new-table)
         s (atoms/intern-sentex! t 1)
-        c (atoms/intern-contradiction! t '(contradiction X))
-        a (atoms/intern-aux! t [:scratch 1])]
-    (is (= 3 (count (distinct [s c a]))))
-    (is (= 3 (atoms/count-atoms t)))))
+        c (atoms/intern-contradiction! t '(contradiction X))]
+    (is (= 2 (count (distinct [s c]))))
+    (is (= 2 (atoms/count-atoms t)))))
 
 (deftest labels-round-trip
   ;; Labels are the whole read-back channel: a solver echoes these strings, so

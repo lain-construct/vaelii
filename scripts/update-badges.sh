@@ -272,16 +272,16 @@ write_deps_report() {
 }
 
 # ---- glossary category badges (docs/glossary.md) ----
-# Five label-only badges tagging each glossary entry's subsystem. Same OKLCH
-# method, 5 evenly-spaced hues, but at the native ~20px (scale 1.0) so they
+# Six label-only badges tagging each glossary entry's subsystem. Same OKLCH
+# method, 6 evenly-spaced hues, but at the native ~20px (scale 1.0) so they
 # render inline in glossary body text. The glossary references them as
 # ../.github/badges/cat-<name>.svg; the entries themselves are hand-tagged —
 # only these SVGs are script-owned. Regenerated on every non-dry run;
 # --glossary-only regenerates just these and exits.
 # Must match CATS in scripts/lint-glossary.sh, which fails the build on a category
-# whose SVG is missing: `qr` was in that list and not in this one, so cat-qr.svg was
-# committed once and could never be regenerated — its hue belongs to no palette this
-# script produces.
+# whose SVG is missing. A category in that list and not in this one has a committed
+# SVG this script can never regenerate — its hue belongs to no palette produced
+# here — so the two lists move together or not at all.
 GLOSSARY_CATS=(kb inference tms asp backend qr)
 glossary_badges() {
   local cat_colors i saved_scale
@@ -314,8 +314,8 @@ commented=$(count g -rhE '^[[:space:]]*;;+[[:space:]]*\([a-z*!?-][^`—]*\)[[:sp
 
 # dev-metric badge values (measured from the tree each run)
 # `(tu/deftest-kb` as well as `(deftest`: the KB-fixture macro defines the majority of
-# the suite, and counting only the bare form reported 868 of 2464 tests — undercounting
-# our own coverage by two thirds, on the badge that advertises it.
+# the suite, so the bare form alone counts barely a third of it — undercounting our own
+# coverage by two tests in three, on the badge that advertises it.
 tests=$(count g -rhoE '\((tu/)?deftest(-kb)?[[:space:]]' "$TEST" "${clj[@]}")
 loc_fmt=$(awk "BEGIN{ printf \"%.0fk\", $loc_src/1000 }")
 

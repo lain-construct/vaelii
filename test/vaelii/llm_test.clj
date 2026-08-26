@@ -46,7 +46,16 @@
     (testing "the writes are named and reachable through serve, just not as tools"
       (doseq [w tools/write-ops]
         (is (contains? serve/ops w) (str w " is declared a write but serve does not serve it"))
-        (is (not (contains? reads w)))))))
+        (is (not (contains? reads w)))))
+    (testing "a host-path read is served for a human caller but kept out of the model's tools"
+      (is (seq tools/host-path-ops) "the host-path exclusion set is not empty")
+      (is (contains? tools/host-path-ops :kb-diff)
+          "kb-diff's second side is a path on the daemon's host")
+      (doseq [h tools/host-path-ops]
+        (is (contains? serve/ops h)
+            (str h " is excluded as a host-path read but serve does not serve it"))
+        (is (not (contains? reads h))
+            (str h " names a host path and must not become a model tool"))))))
 
 (deftest no-write-is-reachable-as-a-tool
   (testing "the write ops have no tool name that dispatches"
@@ -106,6 +115,28 @@
       (let [{:keys [ok error]} (tools/call kb "kb_sentexes_matching" {"sentence" "(unbalanced"})]
         (is (false? ok))
         (is (some? error))))
+    (testing "an argument the chosen shape cannot read is refused, never dropped"
+      ;; The shapes nest — `query` takes (goal), (goal, context), (goal, context, opts) —
+      ;; so goal-plus-opts satisfies only the first.  Handed on, the depth would be
+      ;; discarded and the read would answer facts-only, which reads exactly like a goal
+      ;; no rule can reach: `opts/check!`'s silent default, one level further out.
+      (let [{:keys [ok error]} (tools/call kb "kb_query" {"goal" (pr-str (list animal '?x))
+                                                          "opts" "{:max-depth 3}"})]
+        (is (false? ok))
+        (is (str/includes? error "opts"))
+        (is (str/includes? error "(goal)")))
+      (testing "and the same call with the argument in between is run"
+        (let [{:keys [ok]} (tools/call kb "kb_query" {"goal" (pr-str (list animal '?x))
+                                                      "context" "?ctx"
+                                                      "opts" "{:max-depth 3}"})]
+          (is ok)))
+      (testing "the two disjoint shapes of why-not refuse a mixture rather than picking"
+        (let [{:keys [ok error]} (tools/call kb "kb_why_not"
+                                             {"handle" 1
+                                              "sentence" (pr-str (list dog Muffet))
+                                              "context" "CxUniverse"})]
+          (is (false? ok))
+          (is (str/includes? error "handle")))))
     (testing "results are bounded"
       (let [{:keys [result]} (tools/call kb "kb_terms" {} {:max-result-chars 20})]
         (is (str/includes? result "truncated"))
@@ -177,6 +208,24 @@
       (let [[s cut?] (bounded [:a :b] 300)]
         (is (not cut?))
         (is (= "[:a :b]" s))))))
+
+(tu/deftest-kb a-failure-with-no-message-is-still-named
+  ;; The `Throwable` catch is there because `coerce` reads a model's argument as EDN and a
+  ;; deeply nested form overflows the reader's stack.  A `StackOverflowError` carries **no
+  ;; message**, so the arm that exists to name the failure would hand the model an empty
+  ;; string — a refusal saying nothing, which reads as a tool that answered emptily rather
+  ;; than as an argument to fix.
+  (doseq [[label thrown expected]
+          [["an Error with no message" (StackOverflowError.) "java.lang.StackOverflowError"]
+           ["an Exception with no message" (RuntimeException.) "java.lang.RuntimeException"]
+           ["and one that has a message keeps it" (RuntimeException. "no such term") "no such term"]]]
+    (testing label
+      (let [{:keys [ok error]}
+            (with-redefs [serve/ops (assoc serve/ops :terms (fn [_ _] (throw thrown)))]
+              (tools/call kb "kb_terms" {}))]
+        (is (false? ok))
+        (is (= expected error))
+        (is (not (str/blank? error)) "an empty error is not a diagnosis")))))
 
 ;; ---- the system prompt is generated from the KB -------------------------
 
@@ -491,6 +540,27 @@
       (is (= "sig" (get-in (:content r) [0 :raw "signature"])))
       (is (= {"type" "text" "text" "checking"} (#'anthropic/encode-block (nth (:content r) 1)))))))
 
+(deftest a-content-block-the-encoder-cannot-shape-is-refused-rather-than-dropped
+  ;; The refusal is for a block this namespace has no JSON shape for.  Encoded as nothing
+  ;; it would send a turn missing a block the rest of the turn refers to, and the API's
+  ;; own complaint would name neither the turn nor the block; encoded as a guess it would
+  ;; send an edited thinking block, which the API rejects outright.  A pure encode — no
+  ;; request is built, no credential is read and no host is reached.
+  (let [encode #'anthropic/encode-block]
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (encode {:type :thinking :thinking "weighing it"})))]
+      (is (= :llm-encode (:type (ex-data e))))
+      (is (= :thinking (:block-type (ex-data e)))
+          "and it names the type it could not shape, which is what a caller acts on"))
+    (testing "a block that came off a response carries its original JSON and rides back
+              unchanged, whatever its type — which is why the refusal is for the built
+              ones alone"
+      (is (= {"type" "thinking" "thinking" "weighing it" "signature" "sig"}
+             (encode {:type :thinking
+                      :raw {"type" "thinking" "thinking" "weighing it" "signature" "sig"}}))))
+    (testing "and the three shapes it does model encode without one"
+      (is (= {"type" "text" "text" "checking"} (encode {:type :text :text "checking"}))))))
+
 (deftest sse-frames-reassemble-into-the-same-response-shape
   (let [events (atom [])
         r (#'anthropic/collect
@@ -582,6 +652,102 @@
           (is (not (str/includes? (ex-message e) "xxxx"))
               "the body is data, not the message"))))))
 
+(deftest the-connect-deadline-is-not-the-turns-budget
+  ;; Two different things: `:timeout-ms` bounds the **answer** and is minutes long by
+  ;; design (a cold 14B load, a high-effort turn), while a connection either completes in
+  ;; well under a second or is not going to.  Handed the turn's budget, `connectTimeout`
+  ;; makes a host that never answers the SYN cost five or ten minutes of a caller's
+  ;; thread — a hang wearing a timeout's clothes.
+  (testing "the shared deadline is seconds, not minutes"
+    (is (<= 1000 llm-http/connect-timeout-ms 10000)))
+  (testing "and a client built for a five-minute turn still connects on that deadline"
+    (let [c (#'ollama/new-client)]
+      (is (= (java.time.Duration/ofMillis llm-http/connect-timeout-ms)
+             (.orElse (.connectTimeout c) nil))
+          "the connect deadline is the constant, whatever a turn was allowed")))
+  (testing "the Anthropic backend reads the same constant — one deadline policy, one place"
+    (is (str/includes? (slurp (io/file "src/vaelii/impl/llm/anthropic.clj"))
+                       "(.connectTimeout b (Duration/ofMillis (long http/connect-timeout-ms)))"))))
+
+(deftest the-probes-share-one-http-client
+  ;; A client owns a connection pool and a selector thread.  `available?` runs on every
+  ;; `/propose` the browser posts, so a client per probe is a pool per request, each
+  ;; answering once and left to the collector.
+  ;;
+  ;; **This opens no socket.**  The host is a string no URI can be made of, so each probe
+  ;; takes its client and then throws in `URI/create` — which `version` catches and
+  ;; answers nil to, exactly as it does for a host that is down.
+  (let [built (atom 0)]
+    (with-redefs [ollama/probe-client (delay (swap! built inc) (#'ollama/new-client))]
+      (is (nil? (ollama/version {:host "not a url"})))
+      (is (nil? (ollama/version {:host "not a url"})))
+      (is (= 1 @built) "two probes, one client")
+      (testing "and the probes above available? are the same client again"
+        (is (nil? (ollama/capabilities "nonesuch" {:host "not a url"})))
+        (is (= 1 @built))))))
+
+(deftest an-error-body-rides-bounded-in-the-message-and-whole-in-the-data
+  ;; A failing status carries whatever the far end wrote, and what wrote it is often not
+  ;; the API: a proxy in front of it answers megabytes of HTML.  Unbounded in the message,
+  ;; that megabyte is in every log line the failure reaches — so the message takes
+  ;; `http/excerpt`'s 200 chars and the whole text rides under `:body`, exactly as
+  ;; `http/decode`'s `:excerpt` already does for a 200 that would not parse.
+  (let [big (apply str (repeat 10000 \x))]
+    (doseq [[label api-error prefix json-body]
+            [["ollama"    #'ollama/api-error    "Ollama API"
+              (str "{\"error\": \"" big "\"}")]
+             ["anthropic" #'anthropic/api-error "Anthropic API"
+              (str "{\"error\": {\"type\": \"overloaded_error\", \"message\": \"" big "\"}}")]]]
+      (testing label
+        (testing "a body that is not JSON at all — the proxy case"
+          (let [e (api-error 502 big)]
+            (is (= :llm-api-error (:type (ex-data e))))
+            (is (= 502 (:status (ex-data e))))
+            (is (str/starts-with? (ex-message e) (str prefix " 502: ")))
+            (is (>= 250 (count (ex-message e)))
+                "the message is the excerpt, not the body")
+            (is (= big (:body (ex-data e)))
+                "and the whole 10 KB is there for a caller that asks for it")))
+        (testing "and a JSON body whose own error text is the megabyte"
+          (let [e (api-error 529 json-body)]
+            (is (>= 250 (count (ex-message e))))
+            (is (= json-body (:body (ex-data e))))))))))
+
+(deftest an-error-out-of-the-body-read-is-reported-like-any-other-failure
+  ;; What `f` does is parse bytes a far end chose, so the failures it raises are not all
+  ;; `Exception`s — a deeply nested body overflows the stack, an oversized one exhausts the
+  ;; heap.  Caught narrowly, one raised after the watchdog closed the body escaped as
+  ;; itself, and a caller's `:llm-timeout` handler saw a `StackOverflowError` instead.
+  (let [endpoint {:label "the test endpoint" :slug "error-arm"}
+        under    (partial llm-http/under-read-deadline endpoint)
+        alive?   (fn [] (some (fn [^Thread t]
+                                (and (.isAlive t)
+                                     (= "vaelii-error-arm-deadline" (.getName t))))
+                              (keys (Thread/getAllStackTraces))))]
+    (testing "an Error raised after the deadline fired takes the :llm-timeout rewrite"
+      (let [closed (promise)
+            e (try (under 20 #(deliver closed true)
+                          (fn []
+                            (deref closed 5000 :never)
+                            (throw (StackOverflowError. "a body nested past the stack"))))
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (realized? closed) "the watchdog fired")
+        (is (some? e) "and the Error was rewritten rather than left to escape as itself")
+        (is (= :llm-timeout (:type (ex-data e))))
+        (is (instance? StackOverflowError (ex-cause e)) "the Error rides as the cause")))
+    (testing "with the deadline unspent the Error is the caller's and propagates unchanged"
+      (is (thrown? StackOverflowError
+                   (under 60000 (fn [] nil)
+                          (fn [] (throw (StackOverflowError. "a body nested past the stack")))))))
+    (testing "and the watchdog is cancelled on the way out, whichever arm was taken"
+      (loop [tries 50]                                   ; the interrupt lands promptly
+        (when (and (alive?) (pos? tries))
+          (Thread/sleep 10)
+          (recur (dec tries))))
+      (is (not (alive?))
+          "no 60-second watchdog left running behind an Error that propagated"))))
+
 (deftest a-host-that-goes-quiet-mid-body-releases-the-thread
   ;; The request's own `.timeout` bounds the response *arriving*; a streamed turn is read
   ;; off the socket after that, and the browser's page path always streams.  So the body
@@ -630,16 +796,25 @@
 ;; keeps such a test out of `:default` and `:all` (project.clj), and `tu/live-llm?` is the
 ;; consent to make the call at all.  Neither is worth much without the other, so this
 ;; checks they agree — over the source, because that is where a new test gets it wrong.
+;;
+;; Agreeing is not the whole claim, though, and the gap is the one a *new* test falls
+;; into.  Mark ⟺ gate says the two decorations move together; it says nothing about a
+;; test that carries **neither** and reaches a host anyway.  Such a test is consistent
+;; with both directions of the check and runs under a plain `lein test`.  So the third
+;; scan below reads what a test *calls*: a host probe, or a real backend built and then
+;; driven, is reaching — and a reaching test must be marked or must have pinned the var
+;; it reaches through.
 
 (def ^:private gate-call
   "What consulting the consent gate looks like in a source file: a **call** to
   `live-llm?` under any alias.
 
-  Anchored on the shape of a call — an open paren, then the name, then a close — and not
-  on the bare name, so this does not match the prose around it or its own failure
+  Anchored on the shape of a call — an open paren, then the name, then a delimiter — and
+  not on the bare name, so this does not match the prose around it or its own failure
   messages.  A scanner that flags its own source is worse than no scanner, since the way
-  to make it green is to stop saying what it checks."
-  #"\([\w.-]*/?live-llm\?\)")
+  to make it green is to stop saying what it checks.  The delimiter is a class rather
+  than a close paren: a gate helper that takes an argument is still the gate."
+  #"\([\w.-]*/?live-llm\?[\s)]")
 
 (defn- top-level-starts
   "The index of every top-level form in a source file — a `(` in column zero."
@@ -667,45 +842,216 @@
   (second (re-find #"^\(def\S*\s+(?:\^\S+\s+)*([^\s()]+)" form)))
 
 (defn- call-of
-  "A pattern matching a call to `nm`: the name in functor position, never in prose."
+  "A pattern matching a call to `nm`: the name in functor position, never in prose.  The
+  qualifier is optional, so a helper hoisted into another namespace is recognised through
+  whatever alias the caller gave it — `(live-model …)` and `(tu/live-model …)` are the
+  same call."
   [nm]
-  (re-pattern (str "\\(" (java.util.regex.Pattern/quote nm) "[\\s)]")))
+  (re-pattern (str "\\((?:[\\w.-]+/)?" (java.util.regex.Pattern/quote nm) "[\\s)]")))
 
 (defn- consenting-names
-  "The names a file defines whose own source **reaches** the consent gate — a `live-llm?`
-  call in the body, or a call to another name in this set.
+  "The names these forms define whose own source **reaches** the consent gate — a
+  `live-llm?` call in the body, or a call to another name in this set.
 
   A helper is what sits between a live test and the gate, so a test routing through one
   never mentions the gate in its own body and the check has to follow the call.  Following
   it is the whole point: proof of consent is a **path to `live-llm?`**, so a helper that
   merely reads like a gated one proves nothing, and a bare provider constructor cannot be
   mistaken for the gate however it is named.  Closed to a fixpoint, so a helper two hops
-  out counts too."
-  [forms]
-  (let [defs (into {} (keep (fn [f] (when-let [nm (bound-name f)] [nm f]))) forms)]
-    (loop [ok (set (keep (fn [[nm f]] (when (re-find gate-call f) nm)) defs))]
-      (let [grown (into ok
-                        (keep (fn [[nm f]] (when (some #(re-find (call-of %) f) ok) nm)))
-                        defs)]
-        (if (= grown ok) ok (recur grown))))))
+  out counts too — and the hops cross files: `seed` carries in the names `test_util.clj`
+  hoisted (`hoisted-consenting`), so a local helper calling one of *those* is reached by
+  the same closure rather than having to be named the same thing."
+  ([forms] (consenting-names forms #{}))
+  ([forms seed]
+   (let [defs (into {} (keep (fn [f] (when-let [nm (bound-name f)] [nm f]))) forms)]
+     (loop [ok (into (set seed) (keep (fn [[nm f]] (when (re-find gate-call f) nm)) defs))]
+       (let [grown (into ok
+                         (keep (fn [[nm f]] (when (some #(re-find (call-of %) f) ok) nm)))
+                         defs)]
+         (if (= grown ok) ok (recur grown)))))))
+
+;; ---- what reaching a provider looks like in a source file ---------------
+;; The roster is written in full namespace names and translated per file through that
+;; file's own `:require` aliases, because a test names a namespace however it likes and a
+;; scan keyed on the conventional alias would miss the file that spelled it differently.
+
+(def ^:private probe-calls
+  "Calls that open a socket to a model host **by themselves**.  Every one of these is an
+  HTTP request the moment it is evaluated, so one in a test body is a dial-out however the
+  result is used.
+
+  **The `provider` seam's three selecting entry points are here, not below.**  Each asks
+  `provider/available?` before it builds anything, and for `:ollama` that probes the host
+  — so on a machine whose `VAELII_LLM_PROVIDER` names a real backend, `(provider/provider)`
+  with no kind dials, and `(provider/provider :ollama)` dials whatever the environment
+  says.  `VAELII_LLM_PROVIDER` is configuration, never consent (the consent gate is
+  `VAELII_LLM_LIVE`, read through `tu/live-llm?`), so a test reaching one of these pins a
+  `transport-seam` — which is what `the-stub-is-the-default-and-the-fallback` and
+  `a-backend-that-probes-available-and-then-throws-is-logged` already do."
+  '#{vaelii.impl.llm.ollama/version
+     vaelii.impl.llm.ollama/available?
+     vaelii.impl.llm.ollama/show
+     vaelii.impl.llm.ollama/capabilities
+     vaelii.impl.llm.ollama/supports-tools?
+     vaelii.impl.llm.ollama/context-length
+     vaelii.impl.llm.ollama/warm
+     vaelii.impl.llm.provider/warm
+     vaelii.impl.llm.provider/provider
+     vaelii.impl.llm.provider/generation-provider
+     vaelii.impl.llm.provider/active-kind})
+
+(def ^:private backend-constructors
+  "Calls that hand back a provider bound to a **real** backend.  None of these opens a
+  socket on its own — building an Ollama provider is a map and a `reify`, and
+  `provider/build` goes straight to the constructor without probing — so one of them
+  alone is not a dial-out, and several tests in `:default` build one deliberately to check
+  what happens when a credential is missing or a constructor throws."
+  '#{vaelii.impl.llm.ollama/provider
+     vaelii.impl.llm.ollama/generation-provider
+     vaelii.impl.llm.anthropic/provider
+     vaelii.impl.llm.provider/build})
+
+(def ^:private turn-drivers
+  "Calls that run a turn against whatever provider they are handed.  Harmless over the
+  stub, which is how most of this suite uses them — it is the **pair** that dials: a real
+  backend built, and then driven."
+  '#{vaelii.impl.llm.session/propose
+     vaelii.impl.llm.session/propose-edit
+     vaelii.impl.llm.session/propose-page
+     vaelii.impl.llm.session/propose-text
+     vaelii.impl.llm.oracle/judge
+     vaelii.impl.llm.oracle/judge-batch
+     vaelii.impl.llm.protocol/complete
+     vaelii.impl.llm.protocol/stream})
+
+(defn- require-aliases
+  "The `alias -> namespace` map a file's `:require` declares."
+  [src]
+  (into {} (for [[_ nsname al] (re-seq #"\[([\w.-]+)\s+:as\s+([\w.-]+)\]" src)]
+             [al nsname])))
+
+(defn- spellings
+  "Every way `v` can be written as a call in a file with these aliases — its full name, and
+  the alias this file bound its namespace to."
+  [by-alias v]
+  (let [nsn (namespace v) nm (name v)]
+    (cons (str nsn "/" nm)
+          (for [[al target] by-alias :when (= target nsn)] (str al "/" nm)))))
+
+(defn- calls-in
+  "Which of `vars` this form calls, as the spellings it used."
+  [form by-alias vars]
+  (into #{} (for [v vars
+                  s (spellings by-alias v)
+                  :when (re-find (re-pattern (str "\\(" (java.util.regex.Pattern/quote s)
+                                                  "[\\s)]"))
+                                 form)]
+              s)))
+
+(def ^:private transport-seams
+  "Vars that stand between a roster call and the network.  A test pinning one has taken
+  hold of the transport, so what sits above it is exercised rather than dialled —
+  `probe-client` *is* the client every Ollama probe sends on, and the `provider` seam
+  decides whether a real backend is built at all."
+  '#{vaelii.impl.llm.ollama/probe-client
+     vaelii.impl.llm.provider/configured
+     vaelii.impl.llm.provider/available?
+     vaelii.impl.llm.provider/build
+     vaelii.impl.llm.provider/resolve-fn})
+
+(defn- pinned-in
+  "The names a form's `with-redefs` binding vectors mention.  A test that pins the var it
+  reaches through has neutralized the reach — `(with-redefs [ollama/available?
+  (constantly false)] …)` calls no host.
+
+  Two soft edges, both soft in the same direction: towards a test that has visibly taken
+  hold of the seam rather than one that has not.  The binding is read at the granularity
+  of the whole **form** rather than of its scope, so a test that pins a var and also calls
+  it outside the `with-redefs` still reads as neutralized.  And a pin on a
+  `transport-seam` excuses everything above it, which is evidence that the transport is
+  the test's rather than proof that no packet leaves."
+  [form]
+  (set (mapcat (fn [[_ binds]] (re-seq #"[\w.?!*+<>=-]+/[\w.?!*+<>=-]+" binds))
+               (re-seq #"with-redefs\*?\s*\[([^\]]*)\]" form))))
+
+(defn- reaching
+  "The provider-reaching calls a test form makes, or an empty set.
+
+  Two shapes reach.  A **probe** is a socket on its own.  A **backend constructor** is
+  not, so it counts only alongside a call that drives a turn — which is exactly the
+  counterexample this scan exists for: build an Ollama provider, hand it to
+  `propose-page`, carry no mark, consult no gate, and dial a host under `lein test`.
+
+  A call whose var the form pins with `with-redefs` does not count, and neither does one
+  above a pinned `transport-seam`.  Nor does reaching through something this cannot see —
+  a web route that resolves its own provider is indirection, and `web_propose_test` pins
+  `configured` for that reason rather than relying on this."
+  [form by-alias]
+  (let [pinned  (pinned-in form)
+        seam?   (some (fn [v] (some pinned (spellings by-alias v))) transport-seams)
+        live    (fn [vars] (remove pinned (calls-in form by-alias vars)))
+        probes  (live probe-calls)
+        builds  (live backend-constructors)
+        drivers (seq (calls-in form by-alias turn-drivers))]
+    (if seam?
+      #{}
+      (set (concat probes (when drivers builds))))))
+
+(def ^:private test-util-path "test/vaelii/test_util.clj")
+
+(def ^:private hoisted-consenting
+  "The gate helpers `vaelii.test-util` defines — the names there whose own source reaches
+  `live-llm?`.
+
+  Consent hoisted out of a test file is still consent, and a scan that read only the file
+  in front of it would call every test routed through such a helper unconsenting and fail
+  the converse check.  `test_util.clj` is the one place helpers are hoisted *to*, so it is
+  the one file read beside the test's own."
+  (delay (consenting-names (top-level-forms test-util-path))))
+
+(def ^:private llm-metadata
+  "The `^:llm` mark, in both spellings a reader may write it: the keyword shorthand and a
+  metadata map.  Leiningen reads the merged metadata, so `^{:llm true}` selects exactly as
+  `^:llm` does and must count exactly as much."
+  #"\^:llm\b|:llm\s+true")
+
+(defn- ns-marked?
+  "Does this file's `ns` form carry the mark?  Leiningen merges namespace metadata into
+  what a selector reads, so `(ns ^:llm …)` marks every test in the file at once — and a
+  per-form scan that missed it would report the whole file as unmarked.
+
+  Read from the **metadata position** only, between `(ns` and the namespace name: a file
+  whose docstring explains the mark says `^:llm` in prose, and a scan reading the whole
+  form would take every such file for a marked one."
+  [path]
+  (boolean (some->> (top-level-forms path)
+                    (keep #(re-find #"^\(ns\s+((?:\^(?::\S+|\{[^}]*\})\s+)*)[\w.-]+" %))
+                    first
+                    second
+                    (re-find llm-metadata))))
 
 (defn- test-forms
   "Every top-level test in a test file — `deftest`, `tu/deftest-kb` or `defspec` under any
-  alias — as `[{:file :name :marked? :consents?} …]`.  `:consents?` says the body reaches
-  `tu/live-llm?`, directly or through a helper the same file defines."
+  alias — as `[{:file :name :marked? :consents? :reaches} …]`.  `:consents?` says the body
+  reaches `tu/live-llm?`, directly or through a helper this file or `test_util.clj`
+  defines; `:reaches` is the provider-reaching calls the body makes that nothing in it
+  pins."
   [path]
   (let [forms      (top-level-forms path)
-        consenting (consenting-names forms)]
+        consenting (consenting-names forms @hoisted-consenting)
+        by-alias   (require-aliases (str/join "\n" forms))
+        ns-mark?   (ns-marked? path)]
     (for [f forms
-          :let [m (re-find #"^\((?:[\w.-]+/)?(?:deftest(?:-kb)?|defspec)\s+((?:\^:\S+\s+)*)([^\s()]+)"
+          :let [m (re-find #"^\((?:[\w.-]+/)?(?:deftest(?:-kb)?|defspec)\s+((?:\^(?::\S+|\{[^}]*\})\s+)*)([^\s()]+)"
                            f)]
           :when m]
       (let [[_ marks nm] m]
         {:file path
          :name nm
-         :marked? (boolean (re-find #"\^:llm\b" (str marks)))
+         :marked? (or ns-mark? (boolean (re-find llm-metadata (str marks))))
          :consents? (boolean (or (re-find gate-call f)
-                                 (some #(re-find (call-of %) f) consenting)))}))))
+                                 (some #(re-find (call-of %) f) consenting)))
+         :reaches (reaching f by-alias)}))))
 
 (def ^:private all-tests
   (delay (mapcat test-forms
@@ -728,7 +1074,17 @@
             :when marked?]
       (is consents?
           (str file " / " name " is ^:llm but no path from its body reaches the "
-               "live-llm? gate")))))
+               "live-llm? gate"))))
+  (testing "and the case neither direction covers: a test carrying **neither** decoration
+            that reaches a provider anyway.  Mark ⟺ gate is satisfied by a test with
+            neither, and such a test dials out under a plain `lein test` — so what it
+            calls is read too, and a reaching call must be marked or pinned."
+    (doseq [{:keys [file name marked? reaches]} @all-tests
+            :when (seq reaches)]
+      (is marked?
+          (str file " / " name " reaches a provider — " (str/join ", " (sort reaches))
+               " — with no ^:llm mark and nothing pinning it. Mark it and gate it on "
+               "tu/live-llm?, or redefine what it reaches through.")))))
 
 (deftest the-marked-tests-are-the-ones-we-think-they-are
   (testing "a roster, so adding a live test is a visible change rather than a quiet one"

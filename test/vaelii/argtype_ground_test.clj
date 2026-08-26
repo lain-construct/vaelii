@@ -27,10 +27,10 @@
   different functor, so this isolates the inferred-type scan."
   [calls]
   (let [orig res/matches-visible]
-    (fn [kb s c]
+    (fn [kb s c & more]
       (when (and (sequential? s) (= 'arg (first s)))
         (swap! calls inc))
-      (orig kb s c))))
+      (apply orig kb s c more))))
 
 (defn- typed-individual-in-m-relations!
   "Assert `x` as a `dog` (⊑ `animal`), then M binary relations `(relK x IndK)` each

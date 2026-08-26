@@ -41,7 +41,7 @@
   [{:backend :memory          :space 90}
    {:backend :memory-dense    :space 92}
    {:backend :memory-columnar :space 94}
-   {:backend :disk            :dir (disk-dir)}
+   {:backend :disk-log            :dir (disk-dir)}
    ;; the mixed modes: durable records with the index derived in RAM.  Both halves are
    ;; the ones above, so what these arms actually prove is the *composition* — that a
    ;; record store and an index store chosen on separate axes still reason as one KB.

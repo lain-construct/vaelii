@@ -9,7 +9,7 @@
 
   | how you got there | records | index | TMS | premise roster |
   |---|---|---|---|---|
-  | `:disk`, `:recover? false` | full | durable, full | empty | full |
+  | `:disk-log`, `:recover? false` | full | durable, full | empty | full |
   | a derived index, `:recover? false` | full | **empty** | empty | full |
   | records-only load, our dialect | full | full | empty | full |
   | records-only load, foreign dialect | full | full | empty | **empty** |
@@ -52,15 +52,15 @@
 ;; ---- the shapes, and that each one is recognised -------------------------
 
 (deftest a-durable-store-reopened-without-recovery-refuses-every-write
-  ;; Row 1: `:disk` records under the durable index.  The index is complete, so dedup
+  ;; Row 1: `:disk` records under the log index.  The index is complete, so dedup
   ;; still works; what is missing is belief, and with it every definitional check.
   (with-tmp-dir
     (fn [dir]
-      (let [seed (v/open-kb {:backend :disk :dir dir :space 26 :recover? :auto})]
+      (let [seed (v/open-kb {:backend :disk-log :dir dir :space 26 :recover? :auto})]
         (v/assert seed '(symmetric siblingOf) 'CxUniverse)
         (v/assert seed '(siblingOf Ann Bob) 'CxUniverse)
         (v/close! seed))
-      (let [kb (v/open-kb {:backend :disk :dir dir :space 26 :recover? false})]
+      (let [kb (v/open-kb {:backend :disk-log :dir dir :space 26 :recover? false})]
         (testing "the hazard is named, and it is the belief half alone"
           (is (= {:no-belief true} (kb/write-hazards kb))))
         (testing "every write door refuses, and by the same name"
@@ -224,7 +224,7 @@
   ;; strength test does not cover.
   (with-tmp-dir
     (fn [dir]
-      (let [seed (v/open-kb {:backend :disk :dir dir :space 31 :recover? :auto})]
+      (let [seed (v/open-kb {:backend :disk-log :dir dir :space 31 :recover? :auto})]
         (v/assert seed '(binaryPredicate zsrc) 'CxUniverse)
         (v/assert seed (list 'set/forwardRule (list 'implies '(zsrc ?x ?y) '(zdst ?x ?y)))
                   'CxUniverse {:strength :monotonic})
@@ -233,7 +233,7 @@
         (v/close! seed))
       ;; reopened without recovery: the records are all there and the network is empty,
       ;; so every stored handle reaches the no-node branch
-      (let [kb (v/open-kb {:backend :disk :dir dir :space 31 :recover? false})
+      (let [kb (v/open-kb {:backend :disk-log :dir dir :space 31 :recover? false})
             derived (first (for [h (p/sentex-ids (:records kb))
                                  :let [s (:sentence (p/get-sentex (:records kb) h))]
                                  :when (and (seq? s) (= 'zdst (first s)))]
@@ -244,6 +244,12 @@
         (binding [v/*write-unrecovered?* true]
           (is (= :unrecovered-kb (ex-type #(v/retract! kb derived)))
               "refused even under the opt, the sweep it owes not being computable")
+          (let [d (ex-data (try (v/retract! kb derived)
+                                (catch clojure.lang.ExceptionInfo e e)))]
+            (is (= [:no-belief] (:hazards d))
+                "the hazards are the sorted vector of keys writable-problem carries")
+            (is (= "retract!" (:operation d)))
+            (is (= 'recover (:repair d)) "one :type, one shape at both doors"))
           (is (some? (p/get-sentex (:records kb) derived))
               "and the record is still there"))
         (testing "and after recover it retracts, taking what rested on it"
@@ -259,14 +265,14 @@
   ;; a wrong answer can be re-asked, and none of these can be taken back.
   (with-tmp-dir
     (fn [dir]
-      (let [seed (v/open-kb {:backend :disk :dir dir :space 28 :recover? :auto})]
+      (let [seed (v/open-kb {:backend :disk-log :dir dir :space 28 :recover? :auto})]
         (v/assert seed '(genlCx CxNaturalWorld CxUniverse) 'CxUniverse)
         (v/assert seed '(symmetric siblingOf) 'CxUniverse)
         (v/assert seed '(disjoint dog cat) 'CxUniverse)
         (v/assert seed '(siblingOf Ann Bob) 'CxUniverse)
         (v/assert seed '(dog Muffet) 'CxNaturalWorld)
         (v/close! seed))
-      (let [kb     (v/open-kb {:backend :disk :dir dir :space 28 :recover? false})
+      (let [kb     (v/open-kb {:backend :disk-log :dir dir :space 28 :recover? false})
             before (count (p/sentex-ids (:records kb)))]
         (binding [v/*write-unrecovered?* true]
           (testing "the definitional checks pass vacuously — a disjointness violation lands"
@@ -303,10 +309,10 @@
   ;; hearing about it, which is what `core/clear!` and the suite's own fixtures do.
   (with-tmp-dir
     (fn [dir]
-      (let [seed (v/open-kb {:backend :disk :dir dir :space 29 :recover? :auto})]
+      (let [seed (v/open-kb {:backend :disk-log :dir dir :space 29 :recover? :auto})]
         (v/assert seed '(dog Muffet) 'CxUniverse)
         (v/close! seed))
-      (let [kb (v/open-kb {:backend :disk :dir dir :space 29 :recover? false})]
+      (let [kb (v/open-kb {:backend :disk-log :dir dir :space 29 :recover? false})]
         (is (= {:no-belief true} (kb/write-hazards kb)))
         (p/clear-records! (:records kb))
         (is (= {} (kb/write-hazards kb)))
@@ -334,10 +340,10 @@
   ;; for exactly that reason; this is the third, and it says which repair applies.
   (with-tmp-dir
     (fn [dir]
-      (let [seed (v/open-kb {:backend :disk :dir dir :space 30 :recover? :auto})]
+      (let [seed (v/open-kb {:backend :disk-log :dir dir :space 30 :recover? :auto})]
         (v/assert seed '(dog Muffet) 'CxUniverse)
         (v/close! seed))
-      (let [kb   (v/open-kb {:backend :disk :dir dir :space 30 :recover? false})
+      (let [kb   (v/open-kb {:backend :disk-log :dir dir :space 30 :recover? false})
             app  (web/app kb)
             post (fn [uri params]
                    (app {:request-method :post :uri uri :scheme :http :params params

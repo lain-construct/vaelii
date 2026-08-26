@@ -15,8 +15,10 @@
   `exceptWhen` (docs/exceptions.md); an *inherited* claim has no rule to except, and is
   stopped instead by a more specific claim — which works only for a default, never for a
   monotonic one, and both halves of that are tested because the asymmetry is the design."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.io.text :as text]
             [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
@@ -137,6 +139,50 @@
     (is (empty? guilty)
         (str "shipped facts their own declarations convict: " (vec guilty)))))
 
+(def ^:private untyped-positions
+  "The argument positions the shipped text contexts leave undeclared, each with the
+  reason no `arg` / `genlArg` / `quotedArg` can name it.  A position that is not here
+  and not declared fails the test below; a position here that gains a declaration
+  fails it too, so the roster stays a list of reasons rather than a list of debts."
+  (merge
+   {'[genl 2]  "the root: (genlArg genl 2 thing) would entail (genl thing thing), refused as irreflexive"
+    '[not 1]   "a sentence, canonicalized into the record's truth slot; no argument type names one"}
+   ;; the five aggregation operators: a result variable, a census variable, a sentence body
+   (into {} (for [op '[agg/count agg/sum agg/avg agg/min agg/max] i [1 2 3]]
+              [[op i] "an operator slot — a variable, a variable and a sentence body"]))
+   ;; koinii's speech acts name their target as (sentexHandle H) — a mention the engine
+   ;; mints with no result type — or carry a proposition; a demand on either would
+   ;; convict every meta-sentex the app writes
+   (into {} (for [[p i] '[[asserts 2] [queries 2] [answers 2] [answers 3] [justifies 2]
+                          [justifies 3] [disputes 2] [endorses 2] [refuse 2] [retracts 2]
+                          [votesFor 2] [votesAgainst 2] [notUnderstood 2] [contested 1]]]
+              [[p i] "a sentex handle or a proposition, a mention no argument type names"]))))
+
+(deftest every-position-of-a-shipped-arity-is-typed-or-excused
+  ;; Read off the text files rather than a loaded KB, because the claim is about what the
+  ;; contexts *write*: an author declaring (arity P n), or a class that fixes n, owes a
+  ;; type for every one of the n positions — `check` reads only what is declared, so an
+  ;; undeclared position admits any term and a bad index or a wrong-kinded argument
+  ;; stores clean.  Every kb/*.txt is read, the app's koinii contexts included.
+  (let [files    (->> (file-seq (io/file "resources/kb"))
+                      (filter #(.endsWith (.getName ^java.io.File %) ".txt")))
+        sents    (mapcat text/read-forms files)
+        of       (fn [functors] (filter #(and (seq? %) (contains? functors (first %))) sents))
+        arities  (merge (into {} (for [s (of '#{unaryPredicate binaryPredicate ternaryPredicate})]
+                                   [(second s) ('{unaryPredicate 1 binaryPredicate 2 ternaryPredicate 3}
+                                                (first s))]))
+                        (into {} (for [s (of '#{arity})] [(second s) (nth s 2)])))
+        declared (set (for [s (of '#{arg genlArg quotedArg}) :when (integer? (nth s 2))]
+                        [(second s) (nth s 2)]))
+        gaps     (set (for [[p n] arities i (range 1 (inc n)) :when (not (declared [p i]))] [p i]))
+        excused  (set (keys untyped-positions))]
+    (is (seq arities) "the text contexts were found and read")
+    (is (empty? (remove excused gaps))
+        (str "positions the shipped contexts leave untyped: " (pr-str (sort (remove excused gaps)))))
+    (is (empty? (remove gaps excused))
+        (str "excused positions that are now declared (drop them from the roster): "
+             (pr-str (sort (remove gaps excused)))))))
+
 ;; ---- the exception mechanism itself, apart from birds --------------------
 
 (tu/deftest-kb an-inherited-default-is-undercut-and-an-inherited-monotonic-one-is-not
@@ -171,15 +217,31 @@
       ;; both polarities and returns `:ambiguous`, which `ask?` renders as false.  Not
       ;; the same as the negative winning: the general claim above is still believed.
       (is (not (v/ask? kb (list carriesLoad cart_kind 'Bone1) 'CxUniverse))))
-    (testing "and the dilemma is not reported anywhere a caller would find it"
-      ;; `inherit`'s own docstring calls a contrary specific claim against a monotonic
-      ;; one "a contradiction to report rather than a refinement to defer to".  Nothing
-      ;; is reported: the pair reaches neither list, because an inherited claim is not a
-      ;; stored sentex and the clash machinery pairs handles.  Pinned as it stands so the
-      ;; gap is visible rather than discovered again from a wrong answer.
-      (is (empty? (filter #(= (:sentence %) (list carriesLoad cart_kind 'Bone1))
-                          (map :sentence (v/conflicts kb)))))
-      (is (empty? (v/contradictions kb))))))
+    (testing "and the dilemma is reported, which is what makes it a dilemma and not silence"
+      ;; `inherit`'s own docstring calls a contrary specific claim against a monotonic one
+      ;; "a contradiction to report rather than a refinement to defer to", and this is
+      ;; where it is reported.  The inherited claim has no handle, so the nogood's members
+      ;; are the stored claim and everything the reading rests on — the general claim, the
+      ;; declaration and the `genl` edge — and `:inherited` carries the claim nobody wrote.
+      ;; The mule/pack_animal half above is a `:default` general claim and is undercut, so
+      ;; it contributes nothing: one entry, from the monotonic half.
+      (let [rs (filter #(= :inherited (:kind %)) (v/contradictions kb))
+            r  (first rs)]
+        (is (= 1 (count rs)))
+        (is (empty? (v/conflicts kb))
+            "at :default against :monotonic the pair is a dilemma, not an unsolved clash")
+        (is (= (list carriesLoad cart_kind 'Bone1) (:sentence (:inherited r)))
+            "the report names the claim that was never stored")
+        (is (= (list carriesLoad hauler_kind 'Bone1)
+               (:sentence (first (filter #(= (:handle %) (:claim (:inherited r)))
+                                         (:sides r)))))
+            "and the sentex it was inherited from, by handle")
+        (is (contains? (set (map :sentence (:sides r)))
+                       (list 'genl cart_kind hauler_kind))
+            "and the genl edge it travelled, so `why` can explain the reach")
+        (is (contains? (set (map :sentence (:sides r)))
+                       (list 'transitiveInArg carriesLoad 1 'genl))
+            "and the declaration that licensed the move")))))
 
 ;; ---- what is a type, and what is only a property ------------------------
 
@@ -208,6 +270,98 @@
         "a type with no path to thing answers nothing and is a type in spelling only")
     (is (= (:edged (:taxonomy q)) (:rooted (:taxonomy q)))
         "every name with a genl edge reaches the root")))
+
+;; ---- the shipped rules, read against each other --------------------------
+
+(tu/deftest-kb no-shipped-rule-is-covered-by-another
+  ;; `kb-quality`'s subsumption reading over the shipped schema and the test-world's
+  ;; fables.  Zero is the claim: nothing here fires wherever another rule fires and
+  ;; concludes no more than it does, so no rule in the ontology is carrying its weight
+  ;; only because somebody wrote it twice at two levels of the hierarchy.
+  (let [q (:subsumption (v/kb-quality kb {:limit 100}))]
+    (is (pos? (:total q)) "the reading ran over rules rather than over nothing")
+    (is (zero? (:subsumed-count q))
+        (str "covered: " (pr-str (mapv (juxt :by-sentence :sentence) (:subsumed q)))))))
+
+(tu/deftest-kb every-negated-conclusion-the-ontology-can-clash-with-is-stated-as-an-exception
+  ;; The other rule-hygiene reading, and the shape of what it finds here is the finding.
+  ;; Every pair whose conclusions contradict outright — a bird's flight against a
+  ;; penguin's, wakefulness against sleep, life against death, and the shepherd boy's
+  ;; credibility against his lying — is one of the two rules **stating** the other as an
+  ;; `exceptWhen`, which is what `:excepted` marks.  Nothing else is left: the arity table
+  ;; would be three `:functional` pairs, each two of the classification rules concluding a
+  ;; different `(arity ?p n)` for one `?p`, and the three classes are declared pairwise
+  ;; `disjoint`, so no `?p` satisfies two antecedents and the pairs are unreachable rather
+  ;; than unstated (docs/quality.md).
+  (let [pairs (:pairs (:clashes (v/kb-quality kb {:limit 100})))
+        kinds (frequencies (map :kind pairs))]
+    (is (= {:negation 4} kinds)
+        (str "clashes: " (pr-str (mapv (juxt :kind :sentences) pairs))))
+    (is (every? :excepted pairs)
+        "a conclusion contradicting another outright is always the exception's own case")))
+
+(tu/deftest-kb the-arity-cycle-clashes-with-itself-in-neither-direction
+  ;; The reading's own half of the arity separation, and both directions of the cycle are
+  ;; asked because they are excluded for two different reasons.  Class-to-arity is the
+  ;; disjointness on the antecedents; arity-to-class is one term bound to two arities,
+  ;; which is `(functional arity)` plus the same disjointness read off the classes the
+  ;; two rules conclude.  Either way no `?p` satisfies both antecedents, so the pair is
+  ;; unreachable rather than unstated (docs/quality.md).
+  (let [pairs   (:pairs (:clashes (v/kb-quality kb {:limit 100})))
+        about   (fn [f] (filter (fn [p] (some #(some #{f} (flatten %)) (:sentences p)))
+                                pairs))]
+    (is (empty? (about 'arity))
+        (str "the arity table pairs with nothing: " (pr-str (mapv :sentences (about 'arity)))))
+    (is (empty? (about 'unaryPredicate))
+        (str "nor do the classes: " (pr-str (mapv :sentences (about 'unaryPredicate)))))))
+
+(tu/deftest-kb a-predicate-is-at-most-one-of-the-three-arity-classifications
+  ;; The declaration that empties the reading above, read as the refusal it is.  A
+  ;; predicate takes one number of arguments, so the second classification is refused
+  ;; where it is written rather than stored and convicted a step later as two values in
+  ;; the `functional` `(arity P n)` table.
+  (testing "the three pairs are separated, and pairwise — not by a mark on predicate"
+    (is (v/disjoint? kb 'unaryPredicate 'binaryPredicate))
+    (is (v/disjoint? kb 'unaryPredicate 'ternaryPredicate))
+    (is (v/disjoint? kb 'binaryPredicate 'ternaryPredicate))
+    (is (not (v/disjoint? kb 'binaryPredicate 'instanceRelationPredicate))
+        "arity is both, so a siblingDisjoint mark on predicate would be too wide"))
+  (testing "and the second classification is refused, in either order"
+    (tu/with-terms [zebraOf yakOf]
+      (v/assert kb (list 'unaryPredicate zebraOf) 'CxUniverse)
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list 'binaryPredicate zebraOf) 'CxUniverse)))
+      (v/assert kb (list 'binaryPredicate yakOf) 'CxUniverse)
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list 'unaryPredicate yakOf) 'CxUniverse)))
+      (testing "so the arity table holds one value for each"
+        (is (= [1] (mapv #(last (:sentence %))
+                         (v/sentexes-matching kb (list 'arity zebraOf '?n) '?ctx))))
+        (is (= [2] (mapv #(last (:sentence %))
+                         (v/sentexes-matching kb (list 'arity yakOf '?n) '?ctx)))))))
+  (testing "a mark below binaryPredicate carries the separation with it"
+    (tu/with-terms [emuOf]
+      (v/assert kb (list 'functional emuOf) 'CxUniverse)
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list 'ternaryPredicate emuOf) 'CxUniverse)))))
+  (testing "belief-filtered: retracting the first frees the second"
+    (tu/with-terms [oxOf]
+      (let [h (v/assert kb (list 'unaryPredicate oxOf) 'CxUniverse)]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (v/assert kb (list 'ternaryPredicate oxOf) 'CxUniverse)))
+        (v/retract! kb h)
+        (is (v/assert kb (list 'ternaryPredicate oxOf) 'CxUniverse)))))
+  (testing "and scoped: two contexts neither of which sees the other keep both"
+    (tu/with-terms [ibisOf CxLeft CxRight CxBelowLeft]
+      (v/assert kb (list 'genlCx CxLeft 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxRight 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxBelowLeft CxLeft) 'CxUniverse)
+      (v/assert kb (list 'unaryPredicate ibisOf) CxLeft)
+      (is (v/assert kb (list 'binaryPredicate ibisOf) CxRight)
+          "neither context sees the other, so both classifications stand")
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list 'ternaryPredicate ibisOf) CxBelowLeft))
+          "the descendant sees the first classification, so it refuses the third"))))
 
 (tu/deftest-kb a-social-agent-is-a-person-but-not-a-mammal
   ;; The person/human split (#11): `human` is the biological type — a mammal — while
@@ -243,3 +397,57 @@
     (is (v/genl? kb 'time_point 'temporal_thing)))
   (testing "and an animal reaches spatial_thing, so a spatial relation admits one"
     (is (v/genl? kb 'dog 'spatial_thing))))
+
+;; ---- the literal types: one vocabulary, and one exception ----------------
+;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers
+;; and names, and both argument declarations read the same four (docs/argtypes.md).  The
+;; distinction between them is carried by *which predicate you write* — `arg` types what
+;; an argument denotes, `quotedArg` the term written there — so a second set of type
+;; names would be redundancy plus a trap, a `quotedArg` outside the syntactic lattice
+;; convicting nothing for the life of the KB.  These pin the modelling half of that: the
+;; placement, the two disjointness claims, and the one type the pattern does not reach.
+
+(tu/deftest-kb the-literal-types-are-placed-in-the-domain-lattice
+  (testing "text and a number have no mass and no location"
+    (is (v/genl? kb 'string 'intangible))
+    (is (v/genl? kb 'number 'intangible)))
+  (testing "integer reaches intangible through number, carrying no edge of its own"
+    (is (v/genl? kb 'integer 'number))
+    (is (v/genl? kb 'integer 'intangible))
+    (is (empty? (v/sentexes-matching kb '(genl integer intangible) 'CxUniverse))
+        "the reach is transitive: no second parent is asserted for it"))
+  (testing "and neither of them is a relation"
+    (is (v/disjoint? kb 'string 'predicate))
+    (is (v/disjoint? kb 'number 'predicate))
+    (is (v/disjoint? kb 'integer 'predicate)
+        "the declaration on number carries integer with it")))
+
+(tu/deftest-kb symbol-is-mention-only-and-carries-neither-claim
+  ;; the deliberate absence, and the one a later reader is most likely to "fix": a symbol
+  ;; does not denote itself, so the set of names and the set of things named are two sets
+  ;; — parentOf is written as a symbol and denotes a predicate.  Both claims below would
+  ;; be false of every predicate name in the KB.
+  (is (not (v/disjoint? kb 'symbol 'predicate))
+      "a name is exactly how a predicate is written")
+  (is (not (v/genl? kb 'symbol 'intangible))
+      "and nothing places it in the domain lattice, there being no use-level reading"))
+
+(tu/deftest-kb the-comment-text-position-refuses-a-relation-and-exempts-a-name
+  ;; `(arg comment 2 string)` at the ground level, and the mechanism is `args-problem`'s
+  ;; own rather than the disjointness above: a term already in the hierarchy that reaches
+  ;; no path to the declared type is convicted, and one the KB classifies not at all is
+  ;; exempt.  The disjointness does two other jobs — it refuses a term asserted both at
+  ;; once, and it is what the rule-variable arm reads (docs/taxonomy.md).
+  (tu/with-terms [SomeDoc]
+    (testing "a predicate in the text position is convicted"
+      (is (= :arg-type (:type (first (v/check kb (list 'comment 'thing 'genl) 'CxUniverse))))))
+    (testing "an unclassified name is exempt — nothing says what it denotes"
+      (is (= [] (v/check kb (list 'comment 'thing SomeDoc) 'CxUniverse))))
+    (testing "and a string literal is what the position is for"
+      (is (= [] (v/check kb (list 'comment 'thing "some text") 'CxUniverse))))))
+
+(tu/deftest-kb a-term-cannot-be-both-a-string-and-a-relation
+  (tu/with-terms [Thing1]
+    (v/assert kb (list 'string Thing1) 'CxUniverse)
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (v/assert kb (list 'predicate Thing1) 'CxUniverse)))))

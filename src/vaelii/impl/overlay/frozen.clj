@@ -10,7 +10,7 @@
   silently mutating what every other fork is reading.  That is invariant 1 of
   docs/overlay.md, held by construction.
 
-  Two calls are deliberately *not* refusals.
+  Three calls are deliberately *not* refusals.
 
   * `next-id` on the frozen record store.  It hands out a handle nobody holds and
     stores no record, and it is what the overlay's id watermark is seeded from
@@ -21,16 +21,23 @@
     handle is never reused, and recovery takes `max(blob, 1 + highest slot)`.  One JVM
     holds the base's directory lock, so there is no second mounter to agree with.
   * `kv-entries` / `sentex-ids` and friends.  Enumeration is a read.
+  * `prefetch-sentexes!` / `prefetch-justifications!`.  A hint returns nothing and warms
+    a cache; every record still comes back through `get-sentex`, so it changes what the
+    base *holds* not at all — and refusing it would cost a `:pg` base its one defence
+    against a fork's recovery walk (`vaelii.impl.protocols`, `Prefetching`).
 
   This is a decorator, not a file mode: it says nothing about how the underlying store
   was opened.  Opening the base's files read-only at the OS level is the disk backend's
   business and orthogonal — this is what makes the *composition* safe whatever the base
   is (memory, disk, or a later SQL store)."
-  (:require [vaelii.impl.kv :as kv]
+  (:require [vaelii.impl.capabilities :as cap]
+            [vaelii.impl.kv :as kv]
             [vaelii.impl.protocols :as p]))
 
 (defn- refuse [op]
-  (throw (ex-info (str "the overlay's base is mounted read-only — " op " is refused")
+  (throw (ex-info (str "the overlay's base is mounted read-only — " op " is refused."
+                       "  A fork writes through its own half, so call it on the fork's"
+                       " stores rather than on the base's")
                   {:type :frozen-base :op op})))
 
 ;; ---- the index half --------------------------------------------------------
@@ -81,7 +88,34 @@
   (delete-provenance!   [_ _]   (refuse "delete-provenance!"))
   (mark-premise         [_ _ _] (refuse "mark-premise"))
   (unmark-premise!      [_ _]   (refuse "unmark-premise!"))
-  (clear-records!       [_]     (refuse "clear-records!")))
+  (clear-records!       [_]     (refuse "clear-records!"))
+
+  ;; A frozen base is a read of its base, tallies included — and through the *helpers*,
+  ;; not the protocol ops, so a base without the capability falls back to its own
+  ;; enumeration here rather than throwing.  Always answering it is what lets the fork
+  ;; above ask the question at all: `OverlayRecordStore` answers its own `Tallying` out of
+  ;; these, and a base that refused them would put every `open-kb` emptiness probe back on
+  ;; the merged roster — which over a `:pg` base is the whole table.
+  p/Tallying
+  (sentex-tally        [_] (cap/count-sentexes        base))
+  (justification-tally [_] (cap/count-justifications  base))
+  (a-sentex-id         [_] (cap/some-sentex-id        base))
+  (a-justification-id  [_] (cap/some-justification-id base))
+  (a-premise-id        [_] (cap/some-premise-id       base))
+
+  ;; **Forwarded, not refused.**  A hint is a read — it returns nothing, and every record
+  ;; still arrives through `get-sentex` — so freezing a base is no reason to withhold it,
+  ;; and every reason to pass it on: the store a fork is most worth taking over is the one
+  ;; whose fetch is a network round trip, which is the store `Prefetching` exists for
+  ;; (docs/storage.md).  Guarded, so a base that does not prefetch — every store the engine
+  ;; ships — is a no-op here rather than a throw.
+  p/Prefetching
+  (prefetch-sentexes! [_ ids]
+    (when (satisfies? p/Prefetching base) (p/prefetch-sentexes! base ids))
+    nil)
+  (prefetch-justifications! [_ ids]
+    (when (satisfies? p/Prefetching base) (p/prefetch-justifications! base ids))
+    nil))
 
 (defn frozen-records
   "`base` as a read-only `RecordStore`."

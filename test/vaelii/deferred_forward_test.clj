@@ -24,6 +24,7 @@
       than reporting a comparison that was never run as one that failed."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.chain :as chain]
             [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
@@ -81,6 +82,18 @@
     (testing "the computed value reaches the conclusion"
       (is (= #{(list nextAge Ann 11) (list nextAge Bob 42)}
              (sentences kb nextAge))))))
+
+(tu/deftest-kb an-evaluate-written-before-its-binder-is-pulled-forward
+  ;; the deferred literal is written FIRST, but its input `?a` is bound by the generator
+  ;; that follows.  `ready` gates it on that input, not on its own written `?next` (which
+  ;; no generator binds), so it is pulled forward to where the input arrives and computes;
+  ;; gating on every variable would strand it in the tail.
+  (tu/with-terms [ageOf nextAge Ann]
+    (v/assert kb (list ageOf Ann 10) 'CxNaturalWorld {:chain? false})
+    (v/assert kb (fwd [(list 'evaluate '?next (list '+ '?a 1)) (list ageOf '?x '?a)]
+                      (list nextAge '?x '?next))
+              'CxNaturalWorld)
+    (is (= #{(list nextAge Ann 11)} (sentences kb nextAge)))))
 
 ;; ---- what a computed literal contributes to the justification ------------
 
@@ -143,3 +156,26 @@
       (is (some? e) "an unbound comparison input throws rather than joining to nothing")
       (is (re-find #"unbound" (ex-message e)))
       (is (seq (:unbound (ex-data e)))))))
+
+(tu/deftest-kb the-join-itself-refuses-an-unbound-input-rather-than-reporting-a-failure
+  ;; The guard above runs at assert time, and it is the one a caller meets.  The join
+  ;; carries a second one, because the assert-time check is not the only way a deferred
+  ;; literal arrives: `planned-join` withholds the ones an aggregate supplies per
+  ;; placement, and a literal released to the join with its input still open is that
+  ;; arrangement having broken.  So the join is asked directly here — an empty answer
+  ;; would report a comparison that never *ran* as one that *failed*, and the two are
+  ;; not the same fact about the KB.
+  (let [e (try (doall (#'chain/solve-deferred kb (list 'lessThan '?a '?b) {}))
+               nil
+               (catch clojure.lang.ExceptionInfo ex ex))]
+    (is (some? e) "the join refuses rather than answering with no bindings")
+    (is (= :unbound-deferred (:type (ex-data e))))
+    (is (= '[?a ?b] (:unbound (ex-data e))) "naming the inputs nothing bound")
+    (testing "and a bound input is answered, so the guard is about the binding rather
+              than about the literal"
+      (is (= [{'?a 1 '?b 2}]
+             (mapv first (#'chain/solve-deferred kb (list 'lessThan '?a '?b)
+                                                 {'?a 1 '?b 2})))
+          "the comparison runs and holds")
+      (is (empty? (#'chain/solve-deferred kb (list 'lessThan '?a '?b) {'?a 2 '?b 1}))
+          "and runs and fails — which is the empty answer the throw keeps distinct"))))

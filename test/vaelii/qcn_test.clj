@@ -11,6 +11,7 @@
   composition table is small enough to read: `lt∘lt = lt`, `lt∘gt` is unconstrained,
   `eq` is the identity."
   (:require [clojure.test :refer [deftest is testing]]
+            [vaelii.impl.projection :as proj]
             [vaelii.impl.qcn :as qcn]))
 
 ;; ---- a toy point algebra ------------------------------------------------
@@ -183,3 +184,39 @@
     (let [n  (net ['A 'B #{:eq}] ['B 'C #{:lt}])
           pc (qcn/path-consistent n '[A B C] point-algebra)]
       (is (= #{:lt} (qcn/constraint pc point-algebra 'A 'C))))))
+
+;; ---- an algebra derived from two axes rather than written out -----------
+;;
+;; The algebra above is a parameter, and `vaelii.impl.projection/algebra` is the other
+;; way to obtain one: give it each relation's `[x y]` projection onto two independent
+;; point axes and it derives the composition and converse a nine-relation table would
+;; otherwise state in 81 cells.  The derivation is total only while the projection is a
+;; **bijection** onto the nine pairs, so that is checked where the algebra is built —
+;; the engine here would otherwise store a composed `nil` as though it were a relation.
+
+(deftest a-projection-that-is-not-a-bijection-is-refused-where-the-algebra-is-built
+  (let [relations [:r1 :r2 :r3 :r4 :r5 :r6 :r7 :r8 :r9]
+        pairs     (for [x [:lt :eq :gt] y [:lt :eq :gt]] [x y])
+        bijection (zipmap relations pairs)]
+    (testing "a bijection derives an algebra this engine runs"
+      (let [alg (proj/algebra bijection)]
+        (is (= (set relations) (:universe alg)))
+        (is (= #{:r5} (:identity alg)) "the relation projecting to [:eq :eq]")
+        ;; `:r1` is [:lt :lt] and `:r9` is its converse [:gt :gt]; `:r5` is the identity,
+        ;; so composing A-r1-B with B-r5-C has to leave A?C at r1
+        (let [n  {['A 'B] #{:r1} ['B 'A] #{:r9} ['B 'C] #{:r5} ['C 'B] #{:r5}}
+              pc (qcn/path-consistent n '[A B C] alg)]
+          (is (= #{:r1} (qcn/constraint pc alg 'A 'C))
+              "composing through the identity leaves the relation as it was"))))
+    (testing "a repeated pair still covers all nine, and is refused on the count"
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (proj/algebra (assoc bijection :r10 [:lt :lt]))))]
+        (is (= :bad-algebra (:type (ex-data e))))
+        (is (= [[:lt :lt]] (:repeated (ex-data e)))
+            "naming the pair two relations share, which map-invert would drop one of")))
+    (testing "and a pair nothing projects to is refused on the coverage"
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (proj/algebra (dissoc bijection :r1))))]
+        (is (= :bad-algebra (:type (ex-data e))))
+        (is (= [[:lt :lt]] (:missing (ex-data e)))
+            "naming the pair a composition would have answered nil for")))))

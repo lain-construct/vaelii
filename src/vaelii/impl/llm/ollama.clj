@@ -18,7 +18,7 @@
   * **Constrained decoding instead of tool calls.**  `:format` carries a JSON schema
     that the sampler is restricted to, so a model with no `tools` capability still
     answers in an exact shape.  `capabilities` reads what a model can actually do, and
-    `supports-tools?` is the gate — sending 55 tool schemas to a completion-only model
+    `supports-tools?` is the gate — sending 88 tool schemas to a completion-only model
     spends the whole window on something it will never emit.
   * **Streaming is newline-delimited JSON**, not SSE: one object per token-ish chunk,
     the last carrying `done: true` and the run's counts.
@@ -159,11 +159,28 @@
 
 ;; ---- transport primitives -----------------------------------------------
 
-(defn- client
-  ^HttpClient [timeout-ms]
+(defn- new-client
+  "A fresh `HttpClient` on the shared connect deadline (`http/connect-timeout-ms`).  The
+  turn's own `:timeout-ms` rides on the *request* (`post-builder`), where it bounds the
+  answer arriving rather than the socket opening."
+  ^HttpClient []
   (let [^HttpClient$Builder b (HttpClient/newBuilder)]
-    (.connectTimeout b (Duration/ofMillis (long timeout-ms)))
+    (.connectTimeout b (Duration/ofMillis (long http/connect-timeout-ms)))
     (.build b)))
+
+(def probe-client
+  "The one `HttpClient` every probe shares — `version`, `show` and `warm`, and so
+  `available?` and `capabilities` above them.
+
+  A client owns a connection pool and a selector thread, so building one per call leaks
+  both: `available?` runs on every `/propose` the browser posts, and each of those was a
+  fresh pool that answered one request and was left to the collector.  Nothing here varies
+  per call — a probe's host rides on the request URI and its deadline on the request — so
+  one client serves them all.
+
+  A provider keeps its **own** client (`provider`): a turn is long-lived and streams, and
+  its connections are not a probe's to share."
+  (delay (new-client)))
 
 (defn- post-builder
   ^HttpRequest$Builder [conn path payload]
@@ -177,18 +194,27 @@
   "The exception for a failed call.  **Ollama's `error` field is the message** — it is
   where a real diagnosis lives (a corrupt model blob answers 500 with
   `failed to load model … sha256-…`), and a body read only as JSON-to-parse turns that
-  into an unrelated parse failure downstream."
+  into an unrelated parse failure downstream.
+
+  **The message is bounded, the body is data** — `http/decode`'s rule, and for the same
+  reason: the failing body is whatever answered, a proxy in front of the host answers
+  megabytes of HTML, and a megabyte in a message is a megabyte in every log line that
+  reports it.  `http/excerpt` bounds what the message carries; the whole text rides under
+  `:body`, where a caller that wants it reads it deliberately."
   [status ^String body-text]
   (let [parsed (try (json/parse-string body-text) (catch Exception _ nil))]
-    (ex-info (str "Ollama API " status ": " (or (get parsed "error") body-text))
-             {:type :llm-api-error :status status :error (get parsed "error")})))
+    (ex-info (str "Ollama API " status ": "
+                  (http/excerpt (str (or (get parsed "error") body-text))))
+             {:type :llm-api-error :status status :error (get parsed "error")
+              :body body-text})))
 
 (defn- throw-on-error-field
   "Ollama also reports a failure **inside a 200** — and inside a streamed chunk — so the
   field is checked whatever the status line said.  Returns the body."
   [m]
   (if-let [e (and (map? m) (get m "error"))]
-    (throw (ex-info (str "Ollama error: " e) {:type :llm-api-error :error e}))
+    (throw (ex-info (str "Ollama error: " (http/excerpt (str e)))
+                    {:type :llm-api-error :error e}))
     m))
 
 (def ^:private endpoint
@@ -213,7 +239,7 @@
   ([{:keys [host timeout-ms] :or {timeout-ms 2000}}]
    (try
      (let [url (or host (base-url))
-           ^HttpClient http (client timeout-ms)
+           ^HttpClient http @probe-client
            ^HttpRequest$Builder rb (HttpRequest/newBuilder (URI/create (str url "/api/version")))
            _ (.timeout rb (Duration/ofMillis (long timeout-ms)))
            ^HttpResponse resp (.send http (.build (.GET rb)) (HttpResponse$BodyHandlers/ofString))]
@@ -235,7 +261,7 @@
    (try
      (let [conn {:base-url (or host (base-url))
                  :timeout-ms timeout-ms}
-           ^HttpClient http (client timeout-ms)
+           ^HttpClient http @probe-client
            ^HttpResponse resp (.send http (.build (post-builder conn "/api/show" {"model" model}))
                                      (HttpResponse$BodyHandlers/ofString))]
        (when (<= 200 (.statusCode resp) 299)
@@ -300,7 +326,7 @@
                   "keep_alive" (or keep-alive (configured-keep-alive))}
          out {:model model :prefill-tokens prefill-tokens}]
      (try
-       (let [^HttpClient http (client timeout-ms)
+       (let [^HttpClient http @probe-client
              ^HttpResponse resp (.send http (.build (post-builder conn "/api/chat" payload))
                                        (HttpResponse$BodyHandlers/ofString))]
          (assoc out :loaded? (<= 200 (.statusCode resp) 299)
@@ -450,16 +476,17 @@
   (let [sb    (StringBuilder.)
         think (StringBuilder.)
         acc   (reduce (fn [acc m]
-                        (let [msg (get m "message")
-                              d   (get msg "content")
-                              t   (get msg "thinking")]
+                        (let [msg   (get m "message")
+                              d     (get msg "content")
+                              t     (get msg "thinking")
+                              calls (tool-blocks msg)]
                           (when (not (str/blank? d))
                             (.append sb ^String d)
                             (on-event {:type :text-delta :text d}))
                           (when (not (str/blank? t)) (.append think ^String t))
                           (cond-> acc
-                            (seq (tool-blocks msg)) (update :calls into (tool-blocks msg))
-                            (get m "done")          (assoc :final m))))
+                            (seq calls)    (update :calls into calls)
+                            (get m "done") (assoc :final m))))
                       {:calls []}
                       chunks)
         final (or (:final acc) {})]
@@ -522,7 +549,7 @@
      :or {timeout-ms 300000}}]
    (let [conn (cond-> {:base-url (normalize-host (or host (base-url)))
                        :timeout-ms timeout-ms
-                       :http (client timeout-ms)}
+                       :http (new-client)}
                 model      (assoc :model model)
                 num-ctx    (assoc :num-ctx num-ctx)
                 keep-alive (assoc :keep-alive keep-alive))]

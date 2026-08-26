@@ -109,7 +109,7 @@
         (is (v/ask? kb (list 'genlCx alpha gamma)))            ; alpha -> beta -> gamma
         (is (not (v/ask? kb (list 'genlCx gamma alpha)))))
       (testing "retracting a forced genlCx removes the sentex and the closure edge"
-        (let [h (:id (first (v/sentexes-matching kb (list 'genlCx alpha beta) 'CxUniverse)))]
+        (let [h (v/handle-of kb (list 'genlCx alpha beta) 'CxUniverse)]
           (v/retract! kb h)
           (is (empty? (v/sentexes-matching kb (list 'genlCx alpha beta) 'CxUniverse)))
           (is (not (v/ask? kb (list 'genlCx alpha beta))))
@@ -134,8 +134,8 @@
           (is (v/ask? kb2 (list 'decontextualizedPredicate pred)))
           (is (v/has-prop? kb2 :decontextualized pred)))
         (testing "the copy made before the restart is still there, still justified"
-          (let [u (:id (first (v/sentexes-matching kb2 (list pred ann) 'CxUniverse)))]
-            (is (some? u))
+          (let [u (v/handle-of kb2 (list pred ann) 'CxUniverse)]
+            (is (v/in? kb2 u))
             (is (= 'decontextualizedPredicate
                    (:informant (first (v/supporting-justifications kb2 u)))))))
         (testing "and a fact asserted after recovery is lifted like any other"
@@ -296,8 +296,8 @@
   ;; derived morals come back IN with support.  This verifies the real starter +
   ;; test-world recover, so its terms stay literal.
   (tu/with-cleared-kb [kb1 starter-world-kb]
-    (let [moral (:id (first (v/sentexes-matching kb1 '(repaidKindness MouseA LionA) 'CxLionMouse)))]
-      (is (some? moral) "the moral was derived before the restart")
+    (let [moral (v/handle-of kb1 '(repaidKindness MouseA LionA) 'CxLionMouse)]
+      (is (v/in? kb1 moral) "the moral was derived before the restart")
       (let [kb2 (tu/test-kb)]                     ; same dbs, empty memory
         (testing "before recover, the in-memory graph is empty"
           (is (not (tax/sees? (:taxonomy kb2) 'CxWell 'CxCore)))

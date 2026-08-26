@@ -67,7 +67,7 @@
          "(FatherFn ?animal) means the father of ?animal. A reifiableFunction, so a ground application denotes an object rather than being computed, and it reifies to an opaque constant before it reaches the index. Corresponding to fatherOf is what keeps it from minting a second name for a father the KB already knows: (FatherFn Muffet) resolves to the father of a believed (fatherOf Muffet F). Where none is known it mints a placeholder and projects that back onto fatherOf, so the placeholder still answers whose father it is, and a father arriving later is equated with it. See docs/nat.md.")
 (reifiableFunction FatherFn)
 (functionCorrespondingPredicate FatherFn fatherOf)
-(resultIsa FatherFn animal)
+(result FatherFn animal)
 
 (comment fatherOf
          "(fatherOf ?child ?father) means that ?father is the biological father of ?child. The child comes FIRST, which is what lets FatherFn read off it — a correspondence puts the value last. Declared functional, one biological father to a child, so a second, different father is not a second fact: the two names merge. A rule concludes parentOf from it and never the other way about, since a parent may be either.")
@@ -98,7 +98,7 @@
 (transitiveInArgInverse capabilityType 2 genl)
 
 (comment hasCapability
-         "(hasCapability ?animal ?capability) means that ?animal can do ?capability. The instance-level reading: (hasCapability Tweety flying) says this bird flies and says nothing about birds, where the claim about the kind is capabilityType. The descent from the one to the other is a rule written where the kinds are, never an inference from the pairing. Carries no relationKind because it is MIXED — the first position holds one animal and takes arg, the second names a capability KIND and takes genlArg — and the metatype classifies a predicate whose two ends sit at one level, so resultIsa and functionCorrespondingPredicate are left unmarked for the same reason. Declared transitiveInArgInverse along genl on the second position, which carries a claim up the capability hierarchy: whatever flies travels.")
+         "(hasCapability ?animal ?capability) means that ?animal can do ?capability. The instance-level reading: (hasCapability Tweety flying) says this bird flies and says nothing about birds, where the claim about the kind is capabilityType. The descent from the one to the other is a rule written where the kinds are, never an inference from the pairing. Carries no relationKind because it is MIXED — the first position holds one animal and takes arg, the second names a capability KIND and takes genlArg — and the metatype classifies a predicate whose two ends sit at one level, so result and functionCorrespondingPredicate are left unmarked for the same reason. Declared transitiveInArgInverse along genl on the second position, which carries a claim up the capability hierarchy: whatever flies travels.")
 (binaryPredicate hasCapability)
 (arg hasCapability 1 animal)
 (genlArg hasCapability 2 capability)
@@ -129,7 +129,7 @@
          "(MotherFn ?animal) means the mother of ?animal. The same shape as FatherFn, over motherOf.")
 (reifiableFunction MotherFn)
 (functionCorrespondingPredicate MotherFn motherOf)
-(resultIsa MotherFn animal)
+(result MotherFn animal)
 
 (comment motherOf
          "(motherOf ?child ?mother) means that ?mother is the biological mother of ?child. The child comes first, as in fatherOf, and for the same reason. Functional, and a rule concludes parentOf from it.")
@@ -140,11 +140,12 @@
 (functional motherOf)
 
 (comment olderThan
-         "(olderThan ?animal1 ?animal2) means that ?animal1 was born before ?animal2. Derived rather than asserted — a rule compares the two birthYearOf values with the evaluable lessThan — so it holds exactly when both birth years are known and ordered.")
+         "(olderThan ?animal1 ?animal2) means that ?animal1 was born before ?animal2. Derivable rather than only asserted — a rule compares the two birthYearOf values with the evaluable lessThan — so it holds whenever both birth years are known and ordered. Declared transitive, the same instance-level strict order heavierThan and tallerThan are: born-before composes, so two stated comparisons carry the third and a chain is answered off the closure with no birth year written down.")
 (binaryPredicate olderThan)
 (instanceRelationPredicate olderThan)
 (arg olderThan 1 animal)
 (arg olderThan 2 animal)
+(transitive olderThan)
 
 (comment parentOf
          "(parentOf ?parent ?child) means that ?parent is a biological parent of ?child. Both arguments are individual animals, and step- or adoptive parenthood is not this predicate. The primitive of the kinship theory: childOf, siblingOf, grandparentOf and ancestorOf are all read off it rather than asserted beside it.")

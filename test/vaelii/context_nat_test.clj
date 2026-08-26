@@ -144,7 +144,7 @@
   ;; `contextArgSubrelation` declaration can flip OUT→IN with NO assert — retracting a
   ;; monotonic defeater above it revives it.  An edge never built while the declaration was
   ;; OUT has no justification to revive, so `retract!` must re-run the producer
-  ;; (`reconcile-revivals!`) against the settled belief (docs/context-nat.md).
+  ;; (`reconcile-revivals`) against the settled belief (docs/context-nat.md).
   (let [cxfn  (declare-datetime-dimension! kb)
         year  (list cxfn 'CxMonad (list 'DatetimeFn "2000"))
         month (list cxfn 'CxMonad (list 'DatetimeFn "2000-01"))
@@ -245,3 +245,170 @@
             ev   (first (filter #(= rfact (:sentence (v/sentex kb %))) (:antecedents just)))]
         (testing "its R-evidence supporter is the fact in the smallest context, not the first"
           (is (= 'CxCore (:context (v/sentex kb ev)))))))))
+
+;; ---- the context slot reads back through the ranks it was written under ---
+
+(tu/deftest-kb a-context-slot-resolves-the-same-way-reading-and-writing
+  ;; `maybe-reify-context` mints on the write path and dedups on the read one, and the
+  ;; two have to resolve an application to the same term or a fact stored under one
+  ;; spelling is unreachable by the other.  A `(rewriteOf T E)` is the rank that shows it:
+  ;; the write path resolves the slot to `T` and mints no `termOfUnit`, so a read that
+  ;; consulted the dedup probe alone would answer `no-match` for a context it had just
+  ;; stored into.
+  (tu/with-terms [CxAlias Slot likes Tom Ann]
+    (let [cxfn (fresh-cxfn "Alias")
+          app  (list cxfn Slot)]
+      (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxAlias 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'rewriteOf CxAlias app) 'CxUniverse)
+      (let [h (v/assert kb (list likes Tom Ann) app)]
+        (testing "the write path resolves the slot to the rewriteOf target"
+          (is (= CxAlias (:context (v/sentex kb h)))))
+        (testing "and the read path resolves it the same way"
+          (is (= [CxAlias]
+                 (mapv :context (v/sentexes-matching kb (list likes Tom Ann) app))))
+          (is (v/ask? kb (list likes Tom Ann) app)))))))
+
+;; ---- a declared position the function does not have ----------------------
+
+(tu/deftest-kb a-subrelation-position-past-the-arity-orders-nothing-and-throws-nothing
+  ;; Nothing at the assert door ties a declaration's `pos` to the arity of the function
+  ;; it names, so a wide one is storable.  The producer runs on the assert maintenance
+  ;; path, so masking that position blind would throw out of an unrelated assert; a
+  ;; position that does not index the expression simply names no sibling group.
+  (let [cxfn  (declare-datetime-dimension! kb)
+        year  (list cxfn 'CxMonad (list 'DatetimeFn "2000"))
+        month (list cxfn 'CxMonad (list 'DatetimeFn "2000-01"))]
+    (v/assert kb (list 'contextArgSubrelation cxfn 9 'subintervalOf) 'CxUniverse)
+    (testing "storing into the contexts still works, declaration first"
+      (is (some? (v/assert kb '(holiday NewYear) year)))
+      (is (some? (v/assert kb '(weather Cold) month))))
+    (let [ky (:context (tu/sentex-matching kb '(holiday NewYear) year))
+          km (:context (tu/sentex-matching kb '(weather Cold) month))]
+      (testing "and no edge is invented from a position the expression does not have"
+        (is (not (v/sees? kb km ky)))
+        (is (not (v/sees? kb ky km)))))
+    (testing "a second declaration on a real position still orders them"
+      (v/assert kb (list 'contextArgSubrelation cxfn 2 'subintervalOf) 'CxUniverse)
+      (let [ky (:context (tu/sentex-matching kb '(holiday NewYear) year))
+            km (:context (tu/sentex-matching kb '(weather Cold) month))]
+        (is (v/sees? kb km ky))))))
+
+;; ---- the calendar constructors, as a person would ask about them --------
+
+(defn- declare-calendar-dimension!
+  "Declare a fresh `Cx*Fn` context function ordered by `subintervalOf` on its calendar
+  argument, plus the three calendar constructors as structural (unreifiable) ones.
+  Returns the context-function symbol."
+  [kb]
+  (let [cxfn (fresh-cxfn "Cal")]
+    (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
+    (doseq [f '[YearFn MonthFn DayFn]]
+      (v/assert kb (list 'unreifiableFunction f) 'CxUniverse))
+    (v/assert kb (list 'contextArgSubrelation cxfn 2 'subintervalOf) 'CxUniverse)
+    cxfn))
+
+(tu/deftest-kb a-holiday-declared-for-the-year-holds-in-march
+  ;; Nobody says March and the 15th of March are inside 2000.  The calendar constructors
+  ;; keep their fields readable, and the declared ordering computes the containment.
+  (let [cxfn  (declare-calendar-dimension! kb)
+        year  (list cxfn 'CxMonad '(YearFn 2000))
+        march (list cxfn 'CxMonad '(MonthFn 2000 3))
+        day   (list cxfn 'CxMonad '(DayFn 2000 3 15))]
+    (v/assert kb '(holiday NewYear) year)
+    (v/assert kb '(weather Rainy) march)
+    (v/assert kb '(weather Sunny) day)
+    (testing "what holds all year holds in March, and on a day in March"
+      (is (= [{'?h 'NewYear}] (v/ask kb '(holiday ?h) march)))
+      (is (= [{'?h 'NewYear}] (v/ask kb '(holiday ?h) day))))
+    (testing "and March's own weather is not the year's"
+      (is (empty? (v/ask kb '(weather ?w) year))))
+    (testing "the day sits inside its month as the month sits inside its year"
+      (is (= #{'Rainy 'Sunny} (set (map #(get % '?w) (v/ask kb '(weather ?w) day))))))))
+
+(tu/deftest-kb a-rule-about-march-does-not-reach-february
+  ;; Sibling months are ordered neither way, so a theory stated for one month is not a
+  ;; theory about the next.
+  (let [cxfn (declare-calendar-dimension! kb)
+        feb  (list cxfn 'CxMonad '(MonthFn 2000 2))
+        mar  (list cxfn 'CxMonad '(MonthFn 2000 3))]
+    (v/assert kb '(implies (and (blooms ?x)) (springHasCome ?x)) mar)
+    (v/assert kb '(blooms Snowdrop) feb)
+    (v/assert kb '(blooms Crocus) mar)
+    (testing "the rule fires for its own month"
+      (is (v/ask? kb '(springHasCome Crocus) mar)))
+    (testing "and reaches neither the month beside it nor back up into the year"
+      (is (not (v/ask? kb '(springHasCome Snowdrop) feb)))
+      (is (not (v/ask? kb '(springHasCome Snowdrop) mar)))
+      (is (not (v/ask? kb '(springHasCome Crocus)
+                       (list cxfn 'CxMonad '(YearFn 2000))))))))
+
+(tu/deftest-kb the-same-month-written-twice-is-one-context
+  (let [cxfn  (declare-calendar-dimension! kb)
+        march (list cxfn 'CxMonad '(MonthFn 2000 3))
+        h1    (v/assert kb '(weather Rainy) march)
+        h2    (v/assert kb '(weather Windy) (list cxfn 'CxMonad '(MonthFn 2000 3)))]
+    (testing "the second writing resolves to the constant the first minted"
+      (is (= (:context (v/sentex kb h1)) (:context (v/sentex kb h2)))))
+    (testing "so both facts are in the one context"
+      (is (= #{'Rainy 'Windy} (set (map #(get % '?w) (v/ask kb '(weather ?w) march))))))))
+
+(tu/deftest-kb the-calendar-edge-does-not-depend-on-what-arrived-first
+  ;; The facts before the ordering declaration, rather than after it: the declaration
+  ;; arriving last must sweep the contexts already stored into.
+  (let [cxfn  (fresh-cxfn "Cal")
+        year  (list cxfn 'CxMonad '(YearFn 2000))
+        march (list cxfn 'CxMonad '(MonthFn 2000 3))]
+    (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
+    (doseq [f '[YearFn MonthFn]]
+      (v/assert kb (list 'unreifiableFunction f) 'CxUniverse))
+    (v/assert kb '(holiday NewYear) year)
+    (v/assert kb '(weather Rainy) march)
+    (testing "no ordering declared yet, so the two contexts are unrelated"
+      (is (empty? (v/ask kb '(holiday ?h) march))))
+    (v/assert kb (list 'contextArgSubrelation cxfn 2 'subintervalOf) 'CxUniverse)
+    (testing "the declaration arriving last computes the same edge"
+      (is (= [{'?h 'NewYear}] (v/ask kb '(holiday ?h) march)))
+      (is (empty? (v/ask kb '(weather ?w) year))))))
+
+(tu/deftest-kb a-calendar-month-and-the-iso-month-are-one-interval
+  ;; The comparator reads both spellings to one field vector, so a KB told the year one
+  ;; way and the month the other still orders them.
+  (let [cxfn (declare-calendar-dimension! kb)]
+    (v/assert kb '(unreifiableFunction DatetimeFn) 'CxUniverse)
+    (let [year  (list cxfn 'CxMonad '(YearFn 2000))
+          march (list cxfn 'CxMonad '(DatetimeFn "2000-03"))]
+      (v/assert kb '(holiday NewYear) year)
+      (v/assert kb '(weather Rainy) march)
+      (is (= [{'?h 'NewYear}] (v/ask kb '(holiday ?h) march)))
+      (is (empty? (v/ask kb '(weather ?w) year))))))
+
+;; ---- the stored-fact oracle is retroactive ------------------------------
+
+(tu/deftest-kb r-evidence-arriving-after-both-contexts-still-orders-them
+  ;; A comparator dimension needs nothing but the contexts.  A dimension resolved by
+  ;; stored `(R a b)` facts has its evidence arrive on its own schedule, and the producer
+  ;; sweeps on that arrival too — otherwise the edge would wait for the next assert that
+  ;; happened to touch one of the two contexts, and what the KB answers would depend on
+  ;; the order the three arrived in (docs/context-nat.md).
+  (let [cxfn  (fresh-cxfn "Time")
+        yterm (list 'DatetimeFn "2000")
+        mterm (list 'DatetimeFn "2000-01")
+        year  (list cxfn 'CxMonad yterm)
+        month (list cxfn 'CxMonad mterm)]
+    (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
+    (v/assert kb '(unreifiableFunction DatetimeFn) 'CxUniverse)
+    (v/assert kb (list 'contextArgSubrelation cxfn 2 'subFooOf) 'CxUniverse)
+    (v/assert kb '(holiday NewYear) year)
+    (v/assert kb '(weather Cold) month)
+    (let [ky (:context (tu/sentex-matching kb '(holiday NewYear) year))
+          km (:context (tu/sentex-matching kb '(weather Cold) month))]
+      (testing "no evidence yet, so no edge"
+        (is (not (v/sees? kb km ky))))
+      (v/assert kb (list 'subFooOf mterm yterm) 'CxUniverse)
+      (testing "the evidence arriving last builds the edge it entails"
+        (is (v/sees? kb km ky))
+        (is (= [{'?h 'NewYear}] (v/ask kb '(holiday ?h) month))))
+      (testing "and retracting it withdraws the edge again"
+        (v/retract! kb (:id (tu/sentex-matching kb (list 'subFooOf mterm yterm) 'CxUniverse)))
+        (is (not (v/sees? kb km ky)))))))

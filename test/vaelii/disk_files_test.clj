@@ -7,6 +7,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.impl.disk.files :as f])
   (:import [java.io File]
+           [java.nio.channels FileChannel]
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
@@ -357,7 +358,7 @@
             o0  (f/append-record! log {:v 1})]
         (f/write-slot! idx 0 o0 (- (f/log-length log) o0 4) 0 0)   ; valid
         (f/write-slot! idx 1 (+ (f/log-length log) 1000) 50 0 0)   ; frame past EOF
-        (is (= 1 (f/validate-idx-tail! idx log (f/slot-count idx))))
+        (is (= 1 (f/validate-idx-tail! idx log)))
         (is (some? (f/read-slot idx 0)) "the valid slot is untouched")
         (is (:tombstone? (f/read-slot idx 1)) "the past-EOF slot is tombstoned")
         (f/close! log) (f/close! idx)))))
@@ -382,7 +383,8 @@
   (with-tmp
     (fn [dir]
       (let [lp (str dir "/x.log") ip (str dir "/x.idx")
-            {:keys [log-tmp idx-tmp marker]} (f/compact-temp-paths lp ip)]
+            {:keys [temps marker]} (f/compact-temp-paths lp ip)
+            [[_ log-tmp] [_ idx-tmp]] temps]
         (write-one-record! lp ip {:v :orig})            ; the original (pre-compaction) content
         (write-one-record! log-tmp idx-tmp {:v :compacted})  ; the finished compaction temps
         (f/write-commit-marker! marker {:log lp})       ; commit point crossed, then "crash"
@@ -397,7 +399,7 @@
     (fn [dir]
       (testing "temps present but NO marker (crashed before commit) ⇒ drop temps, keep original"
         (let [lp (str dir "/a.log") ip (str dir "/a.idx")
-              {:keys [log-tmp idx-tmp]} (f/compact-temp-paths lp ip)]
+              [[_ log-tmp] [_ idx-tmp]] (:temps (f/compact-temp-paths lp ip))]
           (write-one-record! lp ip {:v :orig})
           (write-one-record! log-tmp idx-tmp {:v :half})
           (is (= :discarded-incomplete (f/recover-compaction! lp ip)))
@@ -416,18 +418,22 @@
           (write-one-record! lp ip {:v :orig})
           (is (= :none (f/recover-compaction! lp ip))))))))
 
-;; ---- crash-safe compaction: the single log (the KV WAL) -----------------
+;; ---- crash-safe compaction: one target rather than two (the KV WAL) -----
+;; The same family, handed a single log: `compact-temp-paths` and `recover-compaction!`
+;; are variadic in their targets, so the KV backend's one-file compaction and a record
+;; kind's (log, idx) pair take the same three branches through the same code.
 
-(deftest recover-log-compaction-branches
+(deftest recover-compaction-branches-over-a-single-target
   (with-tmp
     (fn [dir]
       (testing "committed (marker + temp) ⇒ replay the temp onto the log"
         (let [lp (str dir "/w.log")
-              {:keys [tmp marker]} (f/log-compact-paths lp)]
+              {:keys [temps marker]} (f/compact-temp-paths lp)
+              [[_ tmp]] temps]
           (let [log (f/open-log lp)] (f/append-record! log {:v :orig}) (f/close! log))
           (let [t (f/open-log tmp)] (f/append-record! t {:v :compacted}) (f/close! t))
           (f/write-commit-marker! marker {:log lp})
-          (is (= :replayed (f/recover-log-compaction! lp)))
+          (is (= :replayed (f/recover-compaction! lp)))
           (let [log (f/open-log lp)]
             (is (= {:v :compacted} (f/read-record log 0)))
             (f/close! log))
@@ -435,16 +441,52 @@
           (is (not (exists? marker)))))
       (testing "temp only (crashed before commit) ⇒ drop the temp, keep the log"
         (let [lp (str dir "/w2.log")
-              {:keys [tmp]} (f/log-compact-paths lp)]
+              [[_ tmp]] (:temps (f/compact-temp-paths lp))]
           (let [log (f/open-log lp)] (f/append-record! log {:v :orig}) (f/close! log))
           (let [t (f/open-log tmp)] (f/append-record! t {:v :half}) (f/close! t))
-          (is (= :discarded-incomplete (f/recover-log-compaction! lp)))
+          (is (= :discarded-incomplete (f/recover-compaction! lp)))
           (is (not (exists? tmp)))
           (let [log (f/open-log lp)]
             (is (= {:v :orig} (f/read-record log 0)))
             (f/close! log))))
+      (testing "marker but no temp ⇒ discard the partial state and keep the log"
+        (let [lp (str dir "/w4.log")
+              {:keys [marker]} (f/compact-temp-paths lp)]
+          (let [log (f/open-log lp)] (f/append-record! log {:v :orig}) (f/close! log))
+          (f/write-commit-marker! marker {:log lp})
+          (is (= :discarded-incomplete (f/recover-compaction! lp)))
+          (is (not (exists? marker)))
+          (let [log (f/open-log lp)]
+            (is (= {:v :orig} (f/read-record log 0)))
+            (f/close! log))))
       (testing "clean ⇒ :none"
-        (is (= :none (f/recover-log-compaction! (str dir "/w3.log"))))))))
+        (is (= :none (f/recover-compaction! (str dir "/w3.log"))))))))
+
+(deftest a-transfer-that-moves-nothing-is-refused-rather-than-called-done
+  ;; The post-marker install copies the finished temp over the original, so at that moment
+  ;; the temp is the only whole copy of the file.  `transferFrom` is documented as free to
+  ;; return 0 with bytes still outstanding, and a loop that took that for the end would
+  ;; leave a truncated file where the original was and report a finished compaction.  The
+  ;; throw is what lets the compaction paths retry and then mark the store failed.
+  ;;
+  ;; The stalling channel is a `proxy` rather than a staged disk: a real `transferFrom`
+  ;; returning 0 is a kernel condition no test can arrange, and the destination is the one
+  ;; seam where a stand-in answers exactly the two calls the copy makes.
+  (with-tmp
+    (fn [dir]
+      (let [src     (str dir "/src.bin")
+            _       (spit src "the bytes the install owes the original")
+            stalled (proxy [FileChannel] []
+                      (truncate [_n] this)
+                      (transferFrom [_src _pos _count] 0)
+                      (implCloseChannel [] nil))
+            e       (is (thrown? clojure.lang.ExceptionInfo
+                                 (#'f/copy-into-channel! stalled src)))]
+        (is (= :short-transfer (:type (ex-data e))))
+        (is (= src (:path (ex-data e))) "naming the file whose copy stalled")
+        (is (= 0 (:copied (ex-data e))))
+        (is (= (.length (File. src)) (:total (ex-data e)))
+            "and how many bytes it owed")))))
 
 ;; ---- whole-blob metadata + markers --------------------------------------
 

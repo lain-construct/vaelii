@@ -3,14 +3,18 @@
 # stopping at the first configuration that fails.
 #
 # `test-backends.sh` runs the eight storage backends in a fixed order and
-# `test-sweeps.sh` the five engine sweeps in theirs; both run every configuration
+# `test-sweeps.sh` the six engine sweeps in theirs; both run every configuration
 # and report a row each.  This runs BOTH lists as one, SHUFFLED, and stops the
 # moment one fails.  It is the smoke test the full matrix is not: a single walk
 # that starts where a break is likeliest to matter — a bare `lein test` on memory,
 # the cheapest configuration and the one every other is compared against — and, if
 # that holds, spreads out across the rest in an order that differs run to run.
 #
-# WHY SHUFFLE.  The matrix's promise is that all thirteen configurations agree, and
+# The assertion counts are compared at the foot, as the fixed-order runners compare
+# them: `config_expected_delta` expects no shortfall anywhere, so a run that counted
+# fewer assertions than the rest is a skip and fails the walk like a red run would.
+#
+# WHY SHUFFLE.  The matrix's promise is that all fourteen configurations agree, and
 # a fixed order tests that promise the same way every time.  A random order does
 # not find more bugs in one run, but across runs it reaches a different
 # configuration first, so an interrupted walk has still covered a random subset
@@ -84,9 +88,12 @@ while [[ $# -gt 0 ]]; do
     :*) echo "unknown selector $1 (:all, :slow, :default)" >&2; exit 2 ;;
     -*) echo "unknown flag $1 (try --help)" >&2; exit 2 ;;
     # named rather than left to run time: an unknown configuration would otherwise
-    # run the suite with no switch set and report a clean pass for one nothing ran
-    *) config_kind "$1" >/dev/null \
-         || { echo "unknown configuration $1 (${ALL_BACKENDS[*]} ${ALL_SWEEPS[*]})" >&2; exit 2; }
+    # run the suite with no switch set and report a clean pass for one nothing ran.
+    # A GROUP word (`backends`, `sweeps`, `routine`, `full`) stands for its list and is
+    # expanded below, so `test-shuffle sweeps` is a random walk over one axis.
+    *) config_group "$1" >/dev/null 2>&1 || config_kind "$1" >/dev/null \
+         || { echo "unknown configuration $1 (${ALL_BACKENDS[*]} ${ALL_SWEEPS[*]}," \
+                   "or a group: backends sweeps routine full)" >&2; exit 2; }
        WANTED+=("$1"); shift ;;
   esac
 done
@@ -112,7 +119,9 @@ shuffle_inplace() {
 
 SHUF=()
 if [[ ${#WANTED[@]} -gt 0 ]]; then
-  SHUF=("${WANTED[@]}")
+  # groups expanded and repeats dropped first, so `full memory` is fourteen runs and
+  # not fifteen with one of them twice
+  while IFS= read -r c; do SHUF+=("$c"); done < <(expand_configs "${WANTED[@]}")
   shuffle_inplace
   CONFIGS=("${SHUF[@]}")
 else
@@ -163,6 +172,9 @@ current_cfg=""
 current_log=""
 diskdir=""
 DONE_RUNS=()
+# the per-run assertion count and revision, for the comparison at the foot
+COUNT_PAIRS=()
+REVS=()
 
 # shellcheck disable=SC2317,SC2329  # invoked from the INT/TERM trap below
 stop_child() {
@@ -236,6 +248,9 @@ for cfg in "${CONFIGS[@]}"; do
   summary=$(run_summary "$log")
   counts=$(run_counts "$log")
   rev=$(revision_hash)
+  run_asserts=$(run_assertions "$log")
+  [[ -n "$run_asserts" ]] && COUNT_PAIRS+=("$cfg:$run_asserts")
+  REVS+=("$rev")
 
   if [[ $code -eq 0 ]]; then
     printf '  %s %-16s %-52s %8s  %s\n' \
@@ -260,7 +275,28 @@ for cfg in "${CONFIGS[@]}"; do
   exit 1
 done
 
+# Thirteen green runs have still said nothing if one of them ran fewer assertions than
+# the rest — the same check the fixed-order runners make.  `config_expected_delta`
+# expects no shortfall anywhere; any shortfall is a skip and fails the walk.  Skipped
+# when the runs did not all compile one revision.
 echo
+if [[ ${#COUNT_PAIRS[@]} -gt 1 ]]; then
+  if [[ $(printf '%s\n' "${REVS[@]}" | sort -u | wc -l) -le 1 ]]; then
+    if ! delta_report=$(assertion_deltas_ok "${COUNT_PAIRS[@]}"); then
+      echo "${BOLD}assertion counts: a run did not run what the others ran${OFF}"
+      echo "$delta_report"
+      echo "  ${DIM}Every run passed, so this is a test that did not run rather than one that"
+      echo "  failed.  Find what the short run skipped — or, where an artifact really is"
+      echo "  one implementation's, assert that configuration's own expectation.${OFF}"
+      echo
+      echo "${RED}${BOLD}stopped: the counts differ${OFF}" \
+           "${DIM}(all ${#CONFIGS[@]} run, at $(revision_hash) — $OUT_DIR/)${OFF}"
+      exit 1
+    fi
+  else
+    echo "${DIM}assertion counts: not compared — the runs did not all compile one revision${OFF}"
+  fi
+fi
 echo "${GREEN}${BOLD}all ${#CONFIGS[@]} configurations green${OFF}" \
-     "${DIM}at $(revision_hash) — seed $SEED ($OUT_DIR/)${OFF}"
+     "${DIM}at $(revision_hash) — seed $SEED ($OUT_DIR/), assertion counts equal${OFF}"
 exit 0

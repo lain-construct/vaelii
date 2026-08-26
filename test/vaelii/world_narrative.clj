@@ -12,7 +12,13 @@
     * temporal reasoning — `beforeEvent` is transitive, so events order themselves
       along the chain; a *direct* link also reads backwards via its inverse
       `afterEvent` (a transitively-derived order does not, since the inverse prover
-      inverts stored facts only);
+      inverts stored facts only).  A story that dates its events gets the ordering
+      for nothing: a rule reads `beforeEvent` off two `happens` facts and the
+      instants' own order;
+    * change over time — the Tortoise and the Hare is retold in CxRaceClock as events
+      and fluents, so CxChange's inertia answers whether the hare is asleep while the
+      tortoise goes past, and whether the tortoise is ahead at the finish, with
+      neither stated;
     * goal reasoning — an agent that wants a goal and brings about an event that
       achieves it is deduced to *achieve its goal* (a joined forward rule); an agent
       is *responsible for* what its action directly causes;
@@ -95,6 +101,42 @@
     (brings FoxF FoxGetsCheese)
     (achieves FoxGetsCheese HasCheese)])
 
+(def tortoise-timeline
+  "The Tortoise and the Hare on a clock, so CxChange's inertia can be asked about it.
+  Five moments in order, and three events: the hare lies down, the tortoise goes past, the
+  hare wakes.  Nobody writes down that the hare is asleep while the tortoise passes — that
+  is what a state persisting until something ends it *means*, and it is the one thing the
+  fable turns on.
+
+  In **CxRaceClock**, a context of its own below CxTortoiseHare, rather than in the fable.
+  A fable context is also a scoring document: its own sentexes are the gold set a reader of
+  the English text is measured against (docs/reading.md), and the prose says nothing about
+  instants and orderings, so putting them there would drop that fable's recall for a reason
+  that has nothing to do with reading.  Below it, the timeline sees the fable's facts and
+  every character keeps its name.
+
+  The four consecutive links are stated and no more: `instantBefore` is transitive, and a
+  forward join over a transitive antecedent reads the closure, so the race's beginning
+  comes before its end without anybody writing that down (CxChange).  The events are left
+  untyped, exactly as CheeseFalls is above: `happens`
+  constrains its first argument to a temporal_thing and `beforeEvent` constrains its own to
+  an event, and an untyped individual satisfies both readings where a stored membership
+  could only satisfy one."
+  '[(time_point RaceBegins) (time_point HareLiesDown) (time_point TortoisePasses)
+    (time_point HareWakes)  (time_point RaceEnds)
+
+    (instantBefore RaceBegins HareLiesDown)     (instantBefore HareLiesDown TortoisePasses)
+    (instantBefore TortoisePasses HareWakes)    (instantBefore HareWakes RaceEnds)
+
+    (happens HareNaps HareLiesDown)
+    (initiates HareNaps (AsleepFn HareA) HareLiesDown)
+
+    (happens TortoiseGoesPast TortoisePasses)
+    (initiates TortoiseGoesPast (AheadOfFn TortoiseA) TortoisePasses)
+
+    (happens HareStirs HareWakes)
+    (terminates HareStirs (AsleepFn HareA) HareWakes)])
+
 ;; the Tortoise and the Hare, re-read with the same schema (its context already exists)
 (def tortoise-goal
   '[(agent TortoiseA)
@@ -111,6 +153,7 @@
   starter (and its stories) to be loaded first, so CxStories exists.  Returns kb."
   [kb]
   (v/assert kb '(genlCx CxFoxCrow CxStories) 'CxUniverse)
+  ;; the timed retelling hangs below the fable rather than in it — see `tortoise-timeline`
   (assert-all kb 'CxStories type-hierarchy)
   (assert-all kb 'CxStories type-docs)
   (assert-all kb 'CxStories predicate-metadata)
@@ -124,9 +167,19 @@
                  '(achievesGoal ?a ?g) 'CxStories)
   ;; agency: an agent is responsible for what its action directly causes
   (v/assert-rule kb '[(does ?a ?act) (causes ?act ?e)] '(responsibleFor ?a ?e) 'CxStories)
+  ;; and the two ways of ordering events are one claim: an event whose moment comes first
+  ;; happens first.  beforeEvent stays the story-level spelling and keeps its transitivity;
+  ;; this is what lets a story that dates its events get the ordering for nothing.
+  (v/assert-rule kb '[(happens ?e1 ?t1) (happens ?e2 ?t2) (instantBefore ?t1 ?t2)]
+                 '(beforeEvent ?e1 ?e2) 'CxStories)
   (assert-all kb 'CxFoxCrow fox-and-crow)
   (v/assert kb '(comment CxFoxCrow
                          "The Fox and the Crow — moral: do not trust flatterers; the flattery serves the flatterer.")
             'CxStories)
   (assert-all kb 'CxTortoiseHare tortoise-goal)          ; the same schema on an existing fable
+  (v/assert kb '(genlCx CxRaceClock CxTortoiseHare) 'CxUniverse)
+  (assert-all kb 'CxRaceClock tortoise-timeline)         ; and the same fable on a clock
+  (v/assert kb '(comment CxRaceClock
+                         "The Tortoise and the Hare, dated: the same race written as events and fluents, so what holds when is inertia's answer rather than the story's.")
+            'CxStories)
   kb)

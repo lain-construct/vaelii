@@ -328,10 +328,10 @@
               (is (< (:bytes without) (:bytes with*))
                   "and the dump is smaller, which is the point"))
 
-            ;; the destination is its own `:disk` store in a temp directory rather than
+            ;; the destination is its own `:disk-log` store in a temp directory rather than
             ;; the shared scratch space, which the outer KB is still holding
             (testing "what is left still imports, into the same KB minus the annotation"
-              (let [target (v/open-kb {:backend :disk :dir (.getPath ^File store-dir)
+              (let [target (v/open-kb {:backend :disk-log :dir (.getPath ^File store-dir)
                                        :recover? false})]
                 (try
                   (tu/clear-kb! target)
@@ -355,7 +355,7 @@
         (tu/with-cleared-kb [mem-kb #(doto (v/open-kb tu/plain-memory-space)
                                        (tu/clear-kb!))]
           (let [store-path (.getPath ^File store-dir)
-                disk-kb    (v/open-kb {:backend :disk :dir store-path :recover? false})]
+                disk-kb    (v/open-kb {:backend :disk-log :dir store-path :recover? false})]
             (try
               (build! mem-kb  t)
               (build! disk-kb t)
@@ -491,3 +491,42 @@
                                          :on-progress (fn [_] (swap! seen inc))})]
               (is (map? s))
               (is (pos? @seen) "the callback ran at the named cadence"))))))))
+
+(deftest an-export-destination-that-is-a-file-is-refused
+  ;; A dump is a directory of streams plus the `meta.edn` that vouches for them, so a
+  ;; destination that is already a regular file is a name no dump can be written under.
+  ;; Refused rather than resolved to something near it: `mkdirs` over an existing file
+  ;; answers false, and the export would then write its streams into a directory that is
+  ;; not there and report a dump nobody can read.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (with-dirs* 1 "onto-a-file"
+      (fn [^File dir]
+        (.mkdirs dir)
+        (let [^File f (io/file dir "already-a-file")]
+          (spit f "a file where a directory was named")
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (export/export! kb f)))]
+            (is (= :not-a-directory (:type (ex-data e))))
+            (is (= (.getPath f) (:dir (ex-data e))) "naming the path it was given"))
+          (is (.isFile f) "and the file it refused is the file it found"))))))
+
+(deftest a-chunk-length-the-framing-never-writes-is-refused-before-it-is-allocated
+  ;; A dump is untrusted input, and the chunk length is four bytes the file states: a
+  ;; crafted two-billion length would be a two-gigabyte allocation before a byte of it was
+  ;; read, and a negative one an untyped throw.  Both are `:truncated-dump` at the read.
+  (let [dir     (java.nio.file.Files/createTempDirectory
+                 "vaelii-chunk" (make-array java.nio.file.attribute.FileAttribute 0))
+        f       (java.io.File. (.toFile dir) "torn.stream")
+        refusal (fn [^long len]
+                  (with-open [out (java.io.DataOutputStream. (java.io.FileOutputStream. f))]
+                    (.writeInt out (int len))
+                    (.write out (byte-array 8)))
+                  (try (doall (fr/read-chunked-seq f :none)) nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+    (try
+      (doseq [len [Integer/MAX_VALUE -1]]
+        (let [d (refusal len)]
+          (is (= :truncated-dump (:type d)) (str "length " len))
+          (is (= len (:length d)) "the refusal names the length it read")))
+      (finally
+        (.delete f)
+        (.delete (.toFile dir))))))

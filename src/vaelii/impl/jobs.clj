@@ -38,7 +38,11 @@
   `ClosedByInterruptException` and can leave a torn removal, so a job with `:writes` is
   flagged and never interrupted however long it takes to notice.  A job that writes
   nothing may say `:interruptible? true` and be cancelled the hard way as well; the
-  registry checks both, so the two can never be confused for one another.
+  registry checks both, so the two can never be confused for one another.  A job's thread
+  is the *pool's* once its body has unwound, so the hard tier is fenced: the body
+  publishes `:released` under the job's `:monitor` and `cancel!` re-reads it there, which
+  is what stops an interrupt aimed at a job that has already finished from landing on
+  whatever the pool runs next.
 
   **A finished job's report outlives the job**, for an hour — long enough to read what it
   did, since the page that would have shown it is usually the page you navigated away
@@ -88,13 +92,13 @@
 (defn- settled? [j] (not (#{:running :cancelling} (:status j))))
 
 (defn- view
-  "A job as something safe to render or send: the cancel flag, the future and the KB it
-  writes dropped, elapsed time filled in.  `:writes?` survives the dropping because it is
-  what decides the cancel tier and what a refusal is about; the KB itself is nobody's to
-  hand out."
+  "A job as something safe to render or send: the cancel flag, the future, the thread and
+  its release fence, and the KB it writes all dropped, elapsed time filled in.  `:writes?`
+  survives the dropping because it is what decides the cancel tier and what a refusal is
+  about; the KB itself is nobody's to hand out."
   [j]
   (when j
-    (-> (dissoc j :cancel :future :thread :writes)
+    (-> (dissoc j :cancel :future :thread :writes :monitor :released)
         (assoc :writes?    (some? (:writes j))
                :elapsed-ms (- (or (:finished j) (now)) (:started j))))))
 
@@ -210,6 +214,11 @@
         ;; catch and files its own status — a cancelled future's `deref` throws instead of
         ;; answering, which would have `wait` return before the job had settled.
         thread (promise)
+        ;; the fence around that interrupt.  A `future` runs on a pooled thread, so the
+        ;; thread stops being this job's the moment the body unwinds; `released` says so
+        ;; and `monitor` is what makes the saying and the interrupting one step.
+        released (atom false)
+        monitor  (Object.)
         id     (locking claim-monitor
                  (when writes
                    (when-let [w (writer)]
@@ -226,7 +235,14 @@
                                                         :progress (or progress {:phase :starting :done 0})
                                                         :result-url result-url
                                                         :started (now)
-                                                        :cancel cancel}))
+                                                        :cancel cancel
+                                                        ;; registered with the job rather
+                                                        ;; than filed after it starts, so a
+                                                        ;; cancel arriving in between reads
+                                                        ;; a fence rather than a nil one
+                                                        :thread thread
+                                                        :monitor monitor
+                                                        :released released}))
                                       (update :order conj id))))
                    id))
         f      (future
@@ -260,37 +276,82 @@
                    (finally
                      ;; a `future` runs on a pooled thread, so an interrupt this job was
                      ;; sent and never blocked long enough to observe would otherwise be
-                     ;; delivered to whatever ran next on it.  Reading the flag clears it.
-                     (Thread/interrupted))))]
-    (update-job! id #(assoc % :future f :thread thread))
+                     ;; delivered to whatever ran next on it.  Reading the flag clears it —
+                     ;; and saying `released` in the same breath, under the monitor
+                     ;; `cancel!` re-reads it under, is what stops one being sent *after*
+                     ;; this point, where no clearing of ours could reach it.
+                     (locking monitor
+                       (reset! released true)
+                       (Thread/interrupted)))))]
+    (update-job! id #(assoc % :future f))
     id))
+
+(defn- interrupt-jobs-own-thread!
+  "Interrupt the thread job `j`'s work is running on — and **only while that thread is
+  still the job's**.  A `future` runs on a pooled thread, so the moment the body unwinds
+  the thread goes back to the pool and an interrupt aimed at the job lands on whatever
+  runs next: a task nobody cancelled, unwinding on somebody else's request.  `submit`'s
+  `finally` publishes `:released` under `:monitor`, this takes the same monitor, and so
+  the two orders are the only two — the interrupt is delivered while the thread is still
+  the job's, or it is not sent at all.
+
+  The wait for the thread to publish itself is bounded, because a thread that has not
+  published one yet is a job the cooperative flag already covers, and waiting on it
+  forever would hang the request that asked for the cancel."
+  [j]
+  (let [monitor  (:monitor j)
+        released (:released j)]
+    (try
+      (locking monitor
+        (when-not @released
+          (when-let [published (:thread j)]
+            (some-> ^Thread (deref published 1000 nil) .interrupt))))
+      (catch InterruptedException _
+        ;; that bounded wait is itself interruptible, and it clears *this* thread's flag on
+        ;; the way out.  Put it back — a caller asking a job to stop is no reason for it to
+        ;; lose an interrupt of its own, and the web handler above this would otherwise see
+        ;; the exception instead of an answer — and read the job as one that never published
+        ;; a thread, which the cooperative flag already covers.
+        (.interrupt (Thread/currentThread)))))
+  nil)
 
 (defn cancel!
   "Ask job `id` to stop at its next progress report, and answer whether there was one to
   ask.  `!` because of what a stopped job leaves behind: a KB holding a prefix of a load
   or of a chaining run, or a directory holding part of a dump.
 
+  **A job that has already settled answers false**, exactly as an id the registry never
+  held does.  The registry keeps a settled job's report for an hour, so *is it still here*
+  and *was there anything to stop* are different questions, and the second is the
+  one a caller acts on: a caller that cannot tell them apart reports a cancellation over a
+  load that finished or a dump already written.  There is nothing to undo either way —
+  asking a finished job to stop changes nothing about it — so the answer is the whole of
+  what this reports.
+
   A job that writes a KB is flagged and **never** interrupted, however long it takes to
   notice — an interrupt landing mid-cascade on a durable store tears the write it lands
   in.  A job that writes nothing and says `:interruptible? true` is flagged *and*
   interrupted, so it unwinds promptly rather than at a report it may not reach.  Both are
   checked, not one: a job that says it may be interrupted and writes a KB anyway is not
-  interrupted, since the reason is about the store rather than about the promise."
+  interrupted, since the reason is about the store rather than about the promise.
+
+  Every decision here is made from **one** read of the registry, which by the time it is
+  acted on may name a job that has settled — so the interrupt is fenced rather than
+  trusted to that read (`interrupt-jobs-own-thread!`), and this returns an answer rather
+  than an `InterruptedException` when the caller's own thread is interrupted meanwhile."
   [id]
-  (when-let [j (get-in @state [:jobs id])]
-    (when-not (settled? j)
-      (reset! (:cancel j) true)
-      ;; guarded inside the swap: the job's own thread may file its terminal status
-      ;; between the read above and this write, and :cancelling stamped over :done
-      ;; is a job that never settles — the sweep keeps it, `writer` keeps naming it,
-      ;; and every later writing job is refused against a job that already finished
-      (update-job! id (fn [j] (cond-> j (not (settled? j)) (assoc :status :cancelling))))
-      (when (and (:interruptible? j) (nil? (:writes j)))
-        ;; bounded, because a thread that has not published itself yet is one the
-        ;; cooperative flag already covers — waiting on it forever would hang the request
-        ;; that asked for the cancel
-        (some-> ^Thread (deref (:thread j) 1000 nil) .interrupt)))
-    true))
+  (boolean
+   (when-let [j (get-in @state [:jobs id])]
+     (when-not (settled? j)
+       (reset! (:cancel j) true)
+       ;; guarded inside the swap: the job's own thread may file its terminal status
+       ;; between the read above and this write, and :cancelling stamped over :done
+       ;; is a job that never settles — the sweep keeps it, `writer` keeps naming it,
+       ;; and every later writing job is refused against a job that already finished
+       (update-job! id (fn [j] (cond-> j (not (settled? j)) (assoc :status :cancelling))))
+       (when (and (:interruptible? j) (nil? (:writes j)))
+         (interrupt-jobs-own-thread! j))
+       true))))
 
 (defn wait
   "Block up to `ms` for job `id` to settle, then answer its view — settled or not, so the

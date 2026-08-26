@@ -40,9 +40,9 @@
   its single-writer lock behind on it."
   [f]
   (doseq [opts [{:backend :memory :space 96}
-                {:backend :disk}]]
+                {:backend :disk-log}]]
     (testing (str (:backend opts))
-      (let [dir (when (= :disk (:backend opts)) (temp-dir))
+      (let [dir (when (= :disk-log (:backend opts)) (temp-dir))
             kb  (v/open-kb (cond-> (assoc opts :recover? false)
                              dir (assoc :dir (.getPath dir))))]
         (try

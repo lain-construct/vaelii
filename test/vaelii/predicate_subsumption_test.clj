@@ -74,7 +74,7 @@
                  (list parentOf E F)]]
       (let [got   (proj (res/match-pattern kb pat '?ctx))
             manual (proj (mapcat (fn [f'] (res/raw-match kb (cons f' (rest pat)) '?ctx))
-                                 (tax/specs (:taxonomy kb) parentOf)))]
+                                 (tax/specs-global (:taxonomy kb) parentOf)))]
         (is (= manual got) (str "match-pattern diverged from the spec-union on " (pr-str pat)))))))
 
 (tu/deftest-kb forward-chaining-fires-through-subsumption
@@ -127,7 +127,7 @@
           (is (contains? (res/concluding-rule-handles kb parentOf) rule)))
         (testing "and it is exactly specs(parentOf) ∩ rules-by-consequent"
           (is (= (into #{} (mapcat #(seq (p/rules-by-consequent (:index kb) %)))
-                       (tax/specs (:taxonomy kb) parentOf))
+                       (tax/specs-global (:taxonomy kb) parentOf))
                  (res/concluding-rule-handles kb parentOf))))
         (testing "retracting the edge withdraws the rule from the parentOf goal"
           (v/retract! kb edge)

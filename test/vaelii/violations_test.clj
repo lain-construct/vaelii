@@ -59,3 +59,27 @@
       (testing "and an untruncated run clears the flag"
         (v/forward-chain kb)
         (is (not (:truncated? (:last (v/chain-stats kb)))))))))
+
+(deftest the-ledger-keeps-its-newest-entries-rather-than-growing
+  ;; The ledger accumulates across chaining runs, so a load that keeps dropping
+  ;; conclusions would otherwise grow it without bound.  It is capped — and which end the
+  ;; cap drops is the whole question.  Keeping the OLDEST would fill the ledger once and
+  ;; then swallow every drop after it: a run whose conclusions are being refused, and a
+  ;; ledger with nothing new to say about it, which is the silence the ledger exists to
+  ;; break.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [report (requiring-resolve 'vaelii.impl.violations/report)
+          cap    @(requiring-resolve 'vaelii.impl.violations/max-violations)
+          n      (+ cap 200)
+          filed  (mapv (fn [i] {:violation :arg-type :sentence (list 'p i)}) (range n))]
+      (v/clear-violations! kb)
+      ;; each entry logs at :warn, and the point here is the arithmetic rather than the
+      ;; logging — a thousand lines would bury whatever else the run had to report
+      (with-bindings* {(requiring-resolve 'taoensso.trove/*log-fn*) (fn [& _] nil)}
+        (fn [] (report kb filed)))
+      (let [ledger (v/violations kb)]
+        (is (= cap (count ledger)) "the ledger stops at its cap instead of growing")
+        (is (= (mapv (fn [i] (list 'p i)) (range (- n cap) n)) (mapv :sentence ledger))
+            "and what it kept is the newest entries, in the order they were filed")
+        (is (every? :run ledger) "each still stamped with the chaining run that filed it"))
+      (v/clear-violations! kb))))

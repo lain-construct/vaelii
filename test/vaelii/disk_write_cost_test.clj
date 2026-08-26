@@ -44,7 +44,7 @@
 
   ## The KB is pinned, and to its own directory
 
-  `{:backend :disk}` whatever `VAELII_TEST_BACKEND` selected, for `assert_cost_test`'s
+  `{:backend :disk-log}` whatever `VAELII_TEST_BACKEND` selected, for `assert_cost_test`'s
   reason: the counts are file operations, and the memory stores perform none — inheriting
   the run's backend would make this gate read zero on six of the eight and pass by
   measuring nothing.  A private temp directory rather than the suite's disk space, so it
@@ -111,14 +111,14 @@
   (.delete file))
 
 (defn- with-disk-kb
-  "Run `f` over a `:backend :disk` KB in a directory of its own, closed and deleted
+  "Run `f` over a `:backend :disk-log` KB in a directory of its own, closed and deleted
   afterwards.  `close!` first and always: it releases the exclusive directory lock and
   drops the store from the durability daemon, so a failing assertion cannot leave a
   registrant fsyncing a directory this then removes."
   [f]
   (let [dir (java.nio.file.Files/createTempDirectory
              "vaelii-disk-write-cost" (into-array java.nio.file.attribute.FileAttribute []))
-        kb  (v/open-kb {:backend :disk :dir (str dir) :recover? false})]
+        kb  (v/open-kb {:backend :disk-log :dir (str dir) :recover? false})]
     (try (f kb)
          (finally
            (v/close! kb)
@@ -135,7 +135,7 @@
 (def ^:private per-assert
   "What one plain fact costs the durable stores, family by family.
 
-  A fact reaching a `:backend :disk` KB writes **two** records — the sentex frame and the
+  A fact reaching a `:backend :disk-log` KB writes **two** records — the sentex frame and the
   provenance frame beside it — and **one** index WAL batch, the batch that carries every
   index op of that one sentex.  So three log appends and two idx slots, and the
   positional-write count is their sum: five, with no seek among them."

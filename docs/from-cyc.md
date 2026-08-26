@@ -43,11 +43,12 @@ hierarchy **places** `Fern` and the place it puts him does not reach `animal`. T
 `(disjoint animal plant)` sitting beside those types is not what does the work — a type
 the constraint's own type does not subsume is enough on its own.
 
-There is one open-world escape and it is deliberate: an argument the `genl` hierarchy
+There is one open-world escape and it is deliberate: a **symbol** the `genl` hierarchy
 places nowhere *the asserting context can see* cannot contradict anything, so it passes.
-`(parentOf Zork Mary)` stores when nothing is known about `Zork`, and `(parentOf 212
-Mary)` stores for the harder version of the same reason — a number can hold no type
-membership, so no declaration has anything to convict it on.
+`(parentOf Zork Mary)` stores when nothing is known about `Zork`. A **literal** is not in
+that escape: its EDN kind is knowable from the literal itself and those kinds sit in the
+same `genl` lattice, so `(parentOf 212 Mary)` is refused `:arg-type` — 212 is a `number`,
+and `number` does not reach `animal` ([argtypes.md](argtypes.md)).
 
 The *entailment* reading — the same declaration minting `(animal Fred)` from
 `(parentOf Fred Mary)` — is real but **opt-in**, behind
@@ -80,18 +81,18 @@ be decided → [solving.md](solving.md).
 | `SymmetricBinaryPredicate` | `(symmetric P)` | |
 | `AsymmetricBinaryPredicate` | `(asymmetric P)` | convicts a claim whose **converse** is believed; it does not make `P` irreflexive, and `(P a a)` is admitted |
 | `genlInverse` | a forward rule | `(inverse P Q)` exists but is the stronger biconditional |
-| `unk` | `unknown` | negation as failure, ground-only, evaluated at level 6 and storing nothing → [naf.md](naf.md) |
+| `unk` | `unknown` | negation as failure, ground-only, evaluated at level 6 and storing nothing. A conjunctive argument is joined, so its conjuncts may share a quantifier's variable, and `forall` is sugar for the nested case → [naf.md](naf.md) |
 | — | `(contradictions kb)` | no Cyc equivalent: the pairs that coexist, ordered by content |
 | `assertedMoreSpecifically` | — | no equivalent. Specificity is behavioral: a stated specific claim undercuts an inherited general one, so nothing is derived to arbitrate → [inherit.md](inherit.md) |
-| `completeExtentEnumerable` | — | no equivalent. Closure is chosen per goal by `unknown` / `thereExists` / the aggregates, never declared of an extent |
+| `completeExtentEnumerable` | `(closedExtentPredicate P)` | a **counterpart**, not a translation. Both say a predicate's extent is complete, and three things differ: it is **belief-following** (a defeated or retracted member leaves the extent) rather than a claim about what is stored; it is **context-scoped**, read from the asking context's `genlCx` up-cone, so one theory may close what a sibling reading the same predicate leaves open; and the extent it closes is what level 6 derives, so a member reachable only by backward chaining is not in it. Closure stays choosable per goal as well, by `unknown` / `thereExists` / `forall` → [naf.md](naf.md) |
 | `notAssertible` | — | no equivalent |
 
 Binary mutual exclusion is written as the two rules, and `(not S)` is a stored sentex
 with its own handle rather than an absence:
 
 ```clojure
-(v/assert-rule kb ['(P ?x ?y)] '(not (Q ?x ?y)) 'CxSomeContext)
-(v/assert-rule kb ['(Q ?x ?y)] '(not (P ?x ?y)) 'CxSomeContext)
+(v/assert-rule kb ['(likes ?x ?y)]    '(not (dislikes ?x ?y)) 'CxSomeContext)
+(v/assert-rule kb ['(dislikes ?x ?y)] '(not (likes ?x ?y))    'CxSomeContext)
 ```
 
 `(inverse P Q)` is worth knowing properly, because it is stronger than `genlInverse` in
@@ -122,10 +123,51 @@ The content constraints above are a separate stage. `check` runs both.
 | `CoreCycLMt` | `CxCore` | the spindle head: the vocabulary code interprets |
 | `UniversalVocabularyMt` / `BaseKB` | `CxUniverse` | the mid anchor, and where a decontextualized claim lands |
 | `CurrentWorldDataCollectorMt` | `CxWell` | the collector — sees the whole shipped ontology |
-| `InferencePSC` / `EverythingPSC` | `?ctx` | **not a context at all**: omit the argument or pass a variable to read unscoped |
+| `InferencePSC` | `CxInference` | a **reading**, not a place: what one reader's cone sees whole |
+| `EverythingPSC` | `CxEverything` | likewise, and blind to belief — a syntactic read of the store |
 
-That last row is the one that catches people. There is no everything-context to assert
-into; scope is a property of the read.
+Those last two rows are the ones that catch people. Both spell like contexts and neither
+is one: **there is no everything-context to assert into**, and asserting into either is
+refused, as is any `genlCx` edge naming one. Scope is a property of the read, and these
+are names for readings rather than places to stand.
+
+A **variable** context — `?ctx`, the default of every short arity, or any name you
+choose — is the joint reading too, so `?ctx` and `CxInference` are one reading with two
+spellings, differing only in where the witness lands:
+
+| you pass | belief | whose view must hold the answer | where the witness goes |
+|---|---|---|---|
+| `CxEverything` | **ignored** | — *(the store, not a view)* | — |
+| `?var` (incl. the default `?ctx`) | followed | every literal in **one** view | unified into that variable |
+| `CxInference` | followed | every literal in **one** view | `:context`, beside the bindings |
+| a real `Cx…` | followed | every literal in **this** view | — |
+| `CxNothing` | followed (vacuously) | the empty view — the provers alone | — |
+
+Two axes, not a ladder. `CxEverything` is the odd one out and not by a degree: it is a
+named opt-out of the fourth invariant, so its answers are not belief claims and say a
+derivation is *spelled* in the store rather than held. Everything else asks what the KB
+holds, and differs only in whose view has to hold it. That is the row Cyc has no equivalent
+of, because an `Mt` there is always somewhere to stand.
+
+**Not naming a context does not mean the union.** A conjunctive read will not join a fact
+in `CxA` to a fact in `CxB` when no context sees both, because that is an answer no reader
+of the KB actually has; the union is `CxEverything`, and you ask for it by name. The
+difference is not exotic in the shipped layout: data contexts hang as *siblings* below
+`CxWell`, so nothing sees two of them and a join across `CxNaturalWorld` and
+`CxSocialWorld` has no reader at all. It is the read-side face of the `(owns Tom Engine1)`
+non-derivation in [contexts.md](contexts.md).
+
+One exception, and `unknown` is why. A goal every literal of which is *computed* rather than
+matched — `different`, `evaluate`, `unknown` — names no context, so there is no witness to
+pick and it is read whole-KB. Fanning over readers is existential over them, and negation as
+failure is not monotone, so a fanned `(unknown X)` would be satisfied by the most ignorant
+reader in the KB. A *mixed* goal needs no exception: its monotone literals decide which
+readers can answer, and the `unknown` is evaluated at those and nowhere else.
+
+`CxNothing` answers to no Cyc name at all. It is the vantage that sees nothing — no fact,
+no inherited vocabulary, not one `genl` edge — leaving whatever the provers can compute:
+arithmetic, an evaluable, `different`. What it is for is asking what a goal owes to the
+KB rather than to the engine.
 
 ## The call you would have made
 
@@ -201,13 +243,14 @@ position. Nesting is not capped. → [generators.md](generators.md)
   `transitive`, `reflexive`, `functional`, `inverse`, `irreflexive`, `antiSymmetric`,
   `antiTransitive`, `equivalenceRelation`, `arity` and `variableArity`
   → [taxonomy.md](taxonomy.md)
-- Polycanonicalization, so a conjunctive consequent becomes one rule per conjunct
+- Polycanonicalization, so a conjunctive consequent becomes one rule per conjunct and a
+  disjunctive antecedent one rule per alternative → [canonicalization.md](canonicalization.md)
 
 ## What you lose
 
 - Rename
 - Natural-language generation
-- `completeExtentEnumerable`, `notAssertible`, `assertedMoreSpecifically`
+- `notAssertible`, `assertedMoreSpecifically`
 - `negationPreds` above arity 1 — the paired rules above are the translation
 - `arg1Isa` / `arg2Isa` sugar
 - Strict well-formedness mode

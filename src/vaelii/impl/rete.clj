@@ -243,18 +243,25 @@
   (genl spec) closure at **every arity** — a unary type literal over its subtypes, an
   n-ary literal over its predicate-genl specs — and a functor with a singleton closure
   is one raw match, which is the common case.  A variable or absent functor pins
-  nothing and fans not at all, as the reference's does."
+  nothing and fans not at all, as the reference's does.  A **negation** fans its body's
+  functor over the genl closure instead, the direction a `genl` edge carries through a
+  negation, and rebuilds the `not` around each member."
   [kb by-functor sentence context]
-  (let [f (when (sequential? sentence) (first sentence))]
+  (let [neg?    (sx/negation? sentence)
+        body    (if neg? (second sentence) sentence)
+        f       (when (sequential? body) (first body))
+        rebuild (if neg?
+                  (fn [f'] (list sx/not-functor (cons f' (rest body))))
+                  (fn [f'] (cons f' (rest body))))]
     (if (and (symbol? f) (not (sx/variable? f)))
-      ;; the same fan definition as the reference matcher — `chain` only ever joins
-      ;; at `'?ctx`, so this is the global closure there, but sharing the helper is
+      ;; the same fan definitions as the reference matcher — `chain` only ever joins
+      ;; at `'?ctx`, so this is the global closure there, but sharing the helpers is
       ;; what keeps the two matchers incapable of drifting
-      (let [subs (res/sub-predicates kb f context)]
-        (if (= subs #{f})
+      (let [fan ((if neg? res/super-predicates res/sub-predicates) kb f context)]
+        (if (= fan #{f})
           (raw-match-via-alpha kb by-functor sentence context)
-          (mapcat (fn [f'] (raw-match-via-alpha kb by-functor (cons f' (rest sentence)) context))
-                  subs)))
+          (mapcat (fn [f'] (raw-match-via-alpha kb by-functor (rebuild f') context))
+                  fan)))
       (raw-match-via-alpha kb by-functor sentence context))))
 
 (defn rete-match-pattern

@@ -260,6 +260,25 @@
                 "a rebuild after a discarded image left the KB unqueryable"))))
       (finally (rm-rf! dir)))))
 
+(deftest a-frame-that-is-not-a-key-value-pair-is-refused-rather-than-installed
+  ;; An index image is several entries per record, so the install checks a batch rather
+  ;; than realizing the stream to inspect it — and the check is what stands between a
+  ;; stream some other tool wrote and an index quietly holding whatever `index-load` made
+  ;; of it.  Both places an index arrives from a file take this one install, so both
+  ;; refuse alike.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (let [index   (:index kb)
+          refused (fn [frames]
+                    (try (snap/install-entries! index frames)
+                         nil
+                         (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+      (is (= :malformed-entry (:type (refused [:not-a-pair]))) "a frame that is not a pair")
+      (is (= :malformed-entry (:type (refused [[:k 1 2]]))) "a triple is not a pair either")
+      (testing "the whole batch is checked before any of it is installed"
+        (is (= :malformed-entry (:type (refused [[[:functor-root 'dog] #{1}] :not-a-pair]))))
+        (is (empty? (entries-of kb))
+            "a refused batch left nothing behind for the caller's rebuild to double")))))
+
 ;;; ── constant memory ────────────────────────────────────────────────────
 
 (defn- unchunked

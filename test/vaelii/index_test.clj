@@ -85,7 +85,7 @@
       (is (= #{c1} (set (map :context (v/sentexes-in-context kb c1)))))
       (is (= 2 (count (v/sentexes-in-context kb c1)))))
     (testing "retracting a member decrements it"
-      (v/retract! kb (:id (first (v/sentexes-matching kb (list p a a) c2))))
+      (v/retract! kb (v/handle-of kb (list p a a) c2))
       (is (= 0 (v/count-in-context kb c2))))))
 
 (tu/deftest-kb the-functor-root-spans-arity-and-polarity

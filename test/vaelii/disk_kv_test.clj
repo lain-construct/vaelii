@@ -5,7 +5,7 @@
   over an in-RAM key→value map.  Exercised directly for a close→reopen persistence
   round-trip, WAL compaction, and torn-tail crash recovery.  The full `KvBackend`
   contract is covered by `kv-backend-test`'s suite-backend arm under
-  `VAELII_TEST_BACKEND=disk`; here the concern is durability."
+  `VAELII_TEST_BACKEND=disk-log`; here the concern is durability."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.disk.files :as f]
@@ -197,14 +197,22 @@
         (dkv/close! b)
         (is (= (.length (java.io.File. (str root "/kv.log"))) (get (f/read-clean-marker root) "kv"))
             "a clean close records the length it closed at"))
-      ;; and a crash after that close invalidates it by length alone
-      (with-open [raf (RandomAccessFile. (str dir "/index/kv.log") "rw")]
-        (.seek raf (.length raf))
-        (.writeInt raf 999999)
-        (.write raf (byte-array 8)))
-      (let [b (dkv/open-kv-backend dir)]
-        (is (= 1 (kv/kv-get b [:v :a])) "the stale marker was believed over the bytes")
-        (dkv/close! b)))))
+      ;; and a crash after that close invalidates it by length alone.  Asserted on the
+      ;; two things the length check decides — the damaged flag the open gate reads, and
+      ;; the walk it forces — never on the replayed value, which reads the same whether
+      ;; the marker was believed or not (`scan-log` stops at the torn frame either way).
+      (let [path   (str dir "/index/kv.log")
+            closed (.length (java.io.File. path))]
+        (with-open [raf (RandomAccessFile. path "rw")]
+          (.seek raf (.length raf))
+          (.writeInt raf 999999)
+          (.write raf (byte-array 8)))
+        (let [b (dkv/open-kv-backend dir)]
+          (is (:damaged b) "a log the marker cannot vouch for is flagged, not trusted")
+          (is (= closed (.length (java.io.File. path)))
+              "and the tail it does not describe is walked off rather than kept")
+          (is (= 1 (kv/kv-get b [:v :a])) "what the log does hold still replays")
+          (dkv/close! b))))))
 
 (defn- log-bytes ^long [dir]
   (with-open [raf (RandomAccessFile. (str dir "/index/kv.log") "r")]
@@ -295,7 +303,8 @@
         (dotimes [i 12] (kv/kv-put b [:v :k] i))
         (kv/kv-put b [:v :other] :x)
         (dkv/close! b)
-        (let [{:keys [tmp marker]} (f/log-compact-paths (:log-path b))]
+        (let [{:keys [temps marker]} (f/compact-temp-paths (:log-path b))
+              [[_ tmp]] temps]
           (dkv/compact! b)                        ; must not throw, must not write
           (is (not (.exists (java.io.File. ^String tmp)))
               "no compaction temp for a closed store")
@@ -339,3 +348,82 @@
       (finally
         (dur/deregister! id)
         (dur/resume-compaction!)))))
+
+;; ---- a compaction failure past the commit marker -------------------------
+;; Once the marker is written the fsynced temp is the truth, and installing it over the
+;; live log truncates before copying — so a failure there leaves the log half-copied
+;; while the session runs on.  The install is retried once; if the retry fails too, the
+;; store refuses writes until an open finishes the install off the marker.  Without this,
+;; `frames` stayed unreset and the next compaction appended to the stale temp,
+;; resurrecting keys deleted in between.
+
+(defn- failing-installs
+  "A stand-in for `f/replay-temp-onto-raf!` whose first `n` calls fail; the (n+1)th and
+  every later one is the real install."
+  [n]
+  (let [real  f/replay-temp-onto-raf!
+        calls (atom 0)]
+    (fn [raf tmp]
+      (if (< (long (swap! calls inc)) (inc (long n)))
+        (throw (java.io.IOException. "install failed"))
+        (real raf tmp)))))
+
+(defn- kv-log-path ^String [dir] (str dir "/index/kv.log"))
+
+(deftest a-post-marker-kv-install-failure-is-retried
+  (with-tmp
+    (fn [dir]
+      (let [b (dkv/open-kv-backend dir)]
+        (dotimes [i 10] (kv/kv-put b [:k i] i))
+        (doseq [i (range 2 10 2)] (kv/kv-delete b [:k i]))       ; leave a dead ratio to compact
+        (let [before (into {} (map (fn [i] [[:k i] (kv/kv-get b [:k i])])) (range 10))]
+          (with-redefs [f/replay-temp-onto-raf! (failing-installs 1)]
+            (dkv/compact! b))
+          (testing "the retry installed the compacted log and the session goes on"
+            (is (= before (into {} (map (fn [i] [[:k i] (kv/kv-get b [:k i])])) (range 10))))
+            (let [{:keys [marker temps]} (f/compact-temp-paths (kv-log-path dir))]
+              (is (not-any? #(.exists (java.io.File. ^String %))
+                            (cons marker (map second temps)))
+                  "and the temps are gone")))
+          (testing "the store is still writable"
+            (kv/kv-put b [:k :new] 99)
+            (is (= 99 (kv/kv-get b [:k :new]))))
+          (dkv/close! b))))))
+
+(deftest a-post-marker-kv-install-that-keeps-failing-refuses-writes
+  (with-tmp
+    (fn [dir]
+      (let [b (dkv/open-kv-backend dir)]
+        (dotimes [i 6] (kv/kv-put b [:k i] i))
+        (doseq [i (range 1 6 2)] (kv/kv-delete b [:k i]))
+        (testing "the compaction fails out, and writes refuse rather than tearing the log further"
+          (with-redefs [f/replay-temp-onto-raf! (failing-installs 4)]
+            (is (thrown? java.io.IOException (dkv/compact! b))))
+          (is (= :compaction-failed
+                 (:type (try (kv/kv-put b [:k :x] 1) (catch clojure.lang.ExceptionInfo e (ex-data e))))))
+          (testing "but a read still answers off the valid in-RAM map"
+            (is (= 0 (kv/kv-get b [:k 0])))))
+        (dkv/close! b)
+        (testing "the next open finishes the install off the marker, deleted keys stay deleted"
+          (let [b2 (dkv/open-kv-backend dir)]
+            (is (= 2 (kv/kv-get b2 [:k 2])))
+            (is (nil? (kv/kv-get b2 [:k 1])) "a key deleted before the failed compaction is gone")
+            (dkv/close! b2)))))))
+
+(deftest a-kv-clear-supersedes-a-failed-compaction
+  (with-tmp
+    (fn [dir]
+      (let [b (dkv/open-kv-backend dir)]
+        (dotimes [i 6] (kv/kv-put b [:k i] i))
+        (doseq [i (range 1 6 2)] (kv/kv-delete b [:k i]))
+        (with-redefs [f/replay-temp-onto-raf! (failing-installs 4)]
+          (is (thrown? java.io.IOException (dkv/compact! b))))
+        (testing "a clear wins over the failed compaction: it drops the marker and reopens clean"
+          (kv/kv-clear! b)
+          (kv/kv-put b [:k :fresh] 7)                            ; a write after clear is allowed again
+          (is (= 7 (kv/kv-get b [:k :fresh])))
+          (dkv/close! b)
+          (let [b2 (dkv/open-kv-backend dir)]
+            (is (= 7 (kv/kv-get b2 [:k :fresh])))
+            (is (nil? (kv/kv-get b2 [:k 0])) "the pre-clear snapshot was not replayed back")
+            (dkv/close! b2)))))))

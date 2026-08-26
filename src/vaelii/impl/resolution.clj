@@ -9,6 +9,7 @@
   that applied to its more general types — we consult the genl closure at match
   time rather than materializing supertype facts."
   (:require [clojure.walk :as walk]
+            [vaelii.impl.capabilities :as cap]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.literal-cache :as lc]
             [vaelii.impl.naming :as nm]
@@ -16,6 +17,7 @@
             [vaelii.impl.plan :as plan]
             [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.rewrite :as rewrite]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.wiring :as wiring]))
@@ -78,20 +80,31 @@
 (defn substitute
   "Replace bound variables in a pattern with their values (recursively).  A dotted
   rest pattern `(head ... . ?rest)` is spliced: the substituted tail is concatenated
-  in, so `(?pred . ?args)` with `?args=(Tom Bob)` becomes `(parentOf Tom Bob)`."
+  in, so `(?pred . ?args)` with `?args=(Tom Bob)` becomes `(parentOf Tom Bob)`.
+
+  **Eager, and a `PersistentList`.**  This is the innermost function on every join, every
+  rule expansion and every proof hop, and what it builds goes straight into
+  `sentex/canon`, which flattens any sequential to a `PersistentList` anyway.  Answering
+  with `map`'s lazy seq would allocate a `LazySeq` *and* a `Cons` per element — each with
+  a lock the realizing thread takes — for a sequence three to five elements long that is
+  walked again a microsecond later.  `mapv` fills one transient vector and
+  `PersistentList/create` conses it up in reverse, so a substituted literal costs two
+  eager passes and no lazy machinery at all."
   [pattern bindings]
   (cond
     (sx/variable? pattern) (if-let [b (get bindings pattern)]
                              (substitute b bindings)
                              pattern)
     (and (sequential? pattern) (some #{'.} pattern))
-    (let [head (map #(substitute % bindings) (take-while #(not= '. %) pattern))
+    (let [head (mapv #(substitute % bindings) (take-while #(not= '. %) pattern))
           tail (substitute (second (drop-while #(not= '. %) pattern)) bindings)]
-      (if (sequential? tail)
-        (concat head tail)                 ; bound rest-var → splice the tail in
-        (concat head (list '. tail))))     ; still unbound → keep the dotted form intact
-    (sequential? pattern)  (map #(substitute % bindings) pattern)
-    :else                  pattern))
+      (clojure.lang.PersistentList/create
+       (if (sequential? tail)
+         (into head tail)                  ; bound rest-var → splice the tail in
+         (conj head '. tail))))            ; still unbound → keep the dotted form intact
+    (sequential? pattern)
+    (clojure.lang.PersistentList/create (mapv #(substitute % bindings) pattern))
+    :else pattern))
 
 (defn resolve-bindings
   "Fully dereference every variable in a binding map so chained variables
@@ -313,6 +326,15 @@
   equal (the common case) or the antecedent's functor has no sub-predicates, this is a
   plain unify, so nothing changes for a KB without predicate-genl edges.
 
+  **Under a negation the fan reverses**, because a `genl` edge carries the other way
+  through one: `dog ⊑ animal` makes `(dog Muffet)` satisfy `(animal ?x)` and makes
+  `(not (animal Muffet))` satisfy `(not (dog ?x))` — the contrapositive, so a negated
+  antecedent is met by a negative fact on a **genl** of its body's predicate.  The two
+  directions are exclusive: `(not (dog Muffet))` does not satisfy `(not (animal ?x))`,
+  which is the reading a fan in the positive direction would give it.  Both sides must
+  be negations for this to apply; a negation matched against a positive fact fails on
+  polarity as it does anywhere else.
+
   **The subsumption is scoped when a `context` is given**: the predicate-genl closure is
   walked only through the edges that context can see, so a match reached through a `genl`
   edge stated in a context the reader cannot see is not a match for it — a watcher in one
@@ -323,10 +345,28 @@
   subsumption invisible to the placement context drops out at placement, not here."
   ([kb antecedent fact] (match1 kb antecedent fact nil))
   ([kb antecedent fact context]
-   (if (and (unary? antecedent) (unary? fact))
+   (cond
+     (and (sx/negation? antecedent) (sx/negation? fact))
+     (let [a  (second antecedent)
+           f  (second fact)
+           af (when (sequential? a) (first a))
+           ff (when (sequential? f) (first f))]
+       (if (and (symbol? af) (not (sx/variable? af)) (symbol? ff) (not= af ff)
+                (contains? (tax/genls (:taxonomy kb) af context) ff))
+         (unify (rest a) (rest f))                    ; genl of the body: unify the arguments
+         (unify antecedent fact)))
+
+     (and (unary? antecedent) (unary? fact))
      (let [[t a]  antecedent
            [t' x] fact]
-       (when (contains? (tax/specs (:taxonomy kb) t context) t') (unify a x)))
+       (if (and (symbol? t) (not (sx/variable? t)))
+         (when (contains? (tax/specs (:taxonomy kb) t context) t') (unify a x))
+         ;; a variable functor: `specs` is reflexive, so it never holds a concrete `t'` —
+         ;; unify the whole literal, functor and argument, the way the n-ary `:else` arm
+         ;; already does for its own variable-functor case
+         (unify antecedent fact)))
+
+     :else
      (let [af (when (sequential? antecedent) (first antecedent))
            ff (when (sequential? fact) (first fact))]
        (if (and (symbol? af) (not (sx/variable? af)) (symbol? ff) (not= af ff)
@@ -348,6 +388,12 @@
   *supertype* or an unrelated predicate is correctly rejected (the functors do not
   unify).
 
+  **Under a negation the fan reverses**, exactly as it does in `match1`: a rule
+  concluding `(not (animal ?x))` answers the goal `(not (dog Tom))`, because `dog ⊑
+  animal` entails `¬animal ⊑ ¬dog`.  Both sides must be negations; a negated goal
+  against a positive consequent falls through to the plain `unify`, which rejects it on
+  the functor.
+
   **Scoped in lockstep with `match1`** (its forward twin): with a `context`, the
   predicate-genl closure is walked only through the edges that context can see.  The
   backward callers already scope the *candidate rule set* upstream
@@ -358,13 +404,19 @@
   ([kb goal consequent] (subsuming-unify kb goal consequent no-bindings nil))
   ([kb goal consequent bindings] (subsuming-unify kb goal consequent bindings nil))
   ([kb goal consequent bindings context]
-   (let [gf (when (sequential? goal) (first goal))
-         cf (when (sequential? consequent) (first consequent))]
+   (let [neg? (and (sx/negation? goal) (sx/negation? consequent))
+         g    (if neg? (second goal) goal)
+         c    (if neg? (second consequent) consequent)
+         gf   (when (sequential? g) (first g))
+         cf   (when (sequential? c) (first c))
+         ;; the polarity picks the direction: a *spec* conclusion answers a positive
+         ;; goal, a *genl* conclusion answers a negated one
+         reach (if neg? tax/genls tax/specs)]
      (if (and (symbol? gf) (not (sx/variable? gf))
               (symbol? cf) (not (sx/variable? cf))
               (not= gf cf)
-              (contains? (tax/specs (:taxonomy kb) gf context) cf))
-       (unify (rest goal) (rest consequent) bindings)
+              (contains? (reach (:taxonomy kb) gf context) cf))
+       (unify (rest g) (rest c) bindings)
        (unify goal consequent bindings)))))
 
 (defn concluding-rule-handles
@@ -433,6 +485,56 @@
   (or (not (and (symbol? context) (not (sx/variable? context))))
       (tax/sees? (:taxonomy kb) context rule-ctx)))
 
+(def ^:dynamic *belief-blind*
+  "Read the store as **stored** rather than as believed — `CxEverything`, and nothing
+  else.
+
+  This is a named opt-out of the fourth invariant (\"a stored sentex is not a believed
+  one\", README.md), which is why it is a dynamic var scoped to one read by the door that
+  resolves the symbol, and not an option any caller can set.  What it buys is a
+  *syntactic* query: unification against the store with no JTMS read at all, which is both
+  the cheapest question the engine can be asked and the only one that can see a defeated
+  default.
+
+  What it does **not** license is a belief claim.  An answer taken under this flag is not
+  a justification and must not reach `why` or read as one — `provable?` under
+  `CxEverything` says a derivation is *spelled* in the store, not that the KB holds it."
+  false)
+
+(defn belief-blind?
+  "`*belief-blind*`, read **once** by a retrieval path rather than once per candidate.
+
+  The distinction is the whole reason this is a function and not a bare deref at each
+  filter.  A `^:dynamic` deref is a thread-bound check on every read, and the belief filter
+  sits in the innermost loop retrieval has — once per *candidate handle*, of which a broad
+  literal has thousands.  Read into a local at the top of the path and the per-candidate
+  cost is an `or` against a boolean that short-circuits; read at the filter and it is a
+  var deref per handle, which `negation-arbitration` is close enough to its bound to see.
+
+  Correct to hoist because the value cannot change under a path: the door binds it around
+  the whole read and `blind-seq` re-establishes it per realization step, so whichever of
+  those constructed this seq had it bound already."
+  []
+  *belief-blind*)
+
+(defn blind-seq
+  "`s`, realized under `*belief-blind*` — one element at a time, with the binding
+  re-established for each.
+
+  A plain `(binding [*belief-blind* true] (read …))` is **wrong here and silently so**,
+  which is the whole reason this exists.  Every read door answers with a lazy seq, so the
+  binding frame is popped the moment the door returns and long before the first element is
+  computed: the belief filter then runs unbound, the read answers exactly what an ordinary
+  belief-following one would, and nothing anywhere reports that the flag did not take.
+  Wrapping the seq puts the binding back on the stack for each realization step — the
+  `seq` call and the `first` below both force inside it, chunk and all — so laziness
+  survives and so does the flag."
+  [s]
+  (lazy-seq
+   (binding [*belief-blind* true]
+     (when-let [c (seq s)]
+       (cons (first c) (blind-seq (rest c)))))))
+
 (defn rule-believed?
   "May the rule at `handle` chain — is it believed?
 
@@ -457,7 +559,8 @@
   rather than an absence (docs/inference.md)."
   [kb handle]
   (let [tms (:tms kb)]
-    (or (not (jtms/known-datum? tms handle))
+    (or *belief-blind*
+        (not (jtms/known-datum? tms handle))
         (jtms/in? tms handle))))
 
 (defn supporter-believed?
@@ -531,29 +634,100 @@
       (tax/spelling-representative tax term visible?)
       term)))
 
-(defn- representative-term-plain
-  "The ordinary congruence walk — every non-variable symbol to its class representative,
-  recursively.  The path every KB with no `quotingFunction` takes."
+(def ^:private equality-mention-heads
+  "The equality relations whose **argument positions are mentions** — the names the
+  sentence relates, not uses of the concept — so a `sameAs` / `equals` identity merge must
+  not fold them onto a class representative.  A `rewriteOf` spelling rename still applies,
+  since that renames the name itself; the args are treated exactly like a quoted position.
+
+  Without this a stored `(not (sameAs A B))` is congruence-rewritten to the vacuous
+  `(not (sameAs A A))` by the very merge it denies — superseding the real denial, so a
+  monotonic denial of a default equality is silently lost (docs/equality.md).  `different`
+  is not here: it is never stored and `goal-normal-form` exempts it whole at the goal.
+
+  Mirrors `kb/equality-predicates`, which cannot be required here (`kb` requires this
+  namespace); `equality_mention_test` pins the two in step."
+  '#{rewriteOf sameAs equals})
+
+(defn- spelling-term-plain
+  "The spelling-only congruence walk — every non-variable symbol to its `rewriteOf`
+  spelling representative (`spelling-representative-in`), never a `sameAs` / `equals`
+  identity merge, recursively.  What an equality relation's argument positions take."
   [kb visible? term]
   (cond
-    (sequential? term) (apply list (map #(representative-term-plain kb visible? %) term))
+    (sequential? term) (apply list (map #(spelling-term-plain kb visible? %) term))
+    (symbol? term)     (if (sx/variable? term) term (spelling-representative-in kb visible? term))
+    :else              term))
+
+(defn- representative-term-plain
+  "The ordinary congruence walk — every non-variable symbol to its class representative,
+  recursively.  The path every KB with no `quotingFunction` takes.  An equality relation's
+  arguments are a mention: rewritten by spelling only, never folded onto a `sameAs`
+  referent (`equality-mention-heads`)."
+  [kb visible? term]
+  (cond
+    (sequential? term)
+    (if (equality-mention-heads (first term))
+      (apply list (first term) (map #(spelling-term-plain kb visible? %) (rest term)))
+      (apply list (map #(representative-term-plain kb visible? %) term)))
     (symbol? term)     (if (sx/variable? term) term (representative-in kb visible? term))
     :else              term))
 
+(defn- attitude-application?
+  "Is `term` `(P agent proposition)` for a declared `modalPredicate` `P` — the shape
+  `BeliefProjectionProver` projects?  Its **third** argument is what the agent holds true,
+  and the shape test is the prover's own: arity 2, over a sentence-shaped proposition.  A
+  `(believes A Foo)` naming a bare term is not one — that argument refers rather than
+  quotes, and stays transparent."
+  [modal term]
+  (and (= 3 (count term))
+       (contains? modal (first term))
+       (sequential? (nth term 2))))
+
+(defn- any-mention-position?
+  "Does `term` contain a quoted position at all — a `quotingFunction` application, or an
+  attitude?  The gate that keeps the flat reads flat: a KB granting `believes` has marks,
+  but almost every sentence in it quotes nothing, and this answers that with a structural
+  walk and two set lookups per compound head."
+  [marks term]
+  (boolean
+   (when (sequential? term)
+     (or (contains? (:quoting marks) (first term))
+         (attitude-application? (:modal marks) term)
+         (some #(any-mention-position? marks %) term)))))
+
 (defn- representative-term-mention
-  "The mention-aware walk.  Inside a `quotingFunction`'s arguments, symbols are rewritten
-  by spelling (`rewriteOf`) only, so a quoted term does not fold onto a `sameAs` / `equals`
-  referent.  `spelling?` turns on at a quoting function's arguments and stays on all the way
-  down — the whole quoted expression is syntax.  The quoting function's *head* is rewritten
-  normally, since opacity is about what it mentions, not the operator itself."
-  [kb visible? term spelling?]
+  "The mention-aware walk.  Inside a **quoted position** — a `quotingFunction`'s arguments,
+  or the proposition a `modalPredicate` attributes to its agent — symbols are rewritten by
+  spelling (`rewriteOf`) only, so a quoted term does not fold onto a `sameAs` / `equals`
+  referent.  `spelling?` turns on there and stays on all the way down: the whole quoted
+  expression is syntax.
+
+  Two positions stay transparent and are the point of the distinction.  The **operator's
+  own head** is rewritten normally, since opacity is about what it mentions rather than
+  about the operator.  So is an attitude's **agent**, which the asker refers with — merge
+  `Oedipus` with `KingOfThebes` and it is one agent under two names, where merging
+  `Jocasta` with `MotherOfOedipus` is precisely what he does *not* believe."
+  [kb visible? marks term spelling?]
   (cond
     (sequential? term)
-    (if (and (not spelling?) (tax/quoting-function? (:taxonomy kb) (first term)))
+    (cond
+      (and (not spelling?) (equality-mention-heads (first term)))
+      (apply list (first term)
+             (map #(representative-term-mention kb visible? marks % true) (rest term)))
+
+      (and (not spelling?) (contains? (:quoting marks) (first term)))
       (apply list
-             (representative-term-mention kb visible? (first term) false)
-             (map #(representative-term-mention kb visible? % true) (rest term)))
-      (apply list (map #(representative-term-mention kb visible? % spelling?) term)))
+             (representative-term-mention kb visible? marks (first term) false)
+             (map #(representative-term-mention kb visible? marks % true) (rest term)))
+
+      (and (not spelling?) (attitude-application? (:modal marks) term))
+      (list (representative-term-mention kb visible? marks (first term) false)
+            (representative-term-mention kb visible? marks (second term) false)
+            (representative-term-mention kb visible? marks (nth term 2) true))
+
+      :else
+      (apply list (map #(representative-term-mention kb visible? marks % spelling?) term)))
     (symbol? term)
     (if (sx/variable? term)
       term
@@ -573,40 +747,76 @@
   difference is congruence — with `(sameAs Kilogram Kg)` believed, `(QuantityFn 5
   Kilogram)` and `(QuantityFn 5 Kg)` normalize to one term here and to two there.
 
-  **Mention opacity.** When the KB declares a `quotingFunction` (`Quote`, `Quasiquote`),
-  that function's arguments are a *mention* — a term named as syntax — rewritten by
-  *spelling* (`rewriteOf`) only, never by a `sameAs` / `equals` identity merge, so a quoted
-  term does not fold onto its referent's class.  Gated on `any-quoting-functions?`: a KB
-  declaring none takes the plain walk unchanged, one prop read at entry."
+  **Mention opacity.** Two declarations make a position a *mention* — a term named as
+  syntax, rewritten by *spelling* (`rewriteOf`) only and never by a `sameAs` / `equals`
+  identity merge, so a quoted term does not fold onto its referent's class.  A
+  `quotingFunction` (`Quote`, `Quasiquote`) quotes its arguments; a `modalPredicate`
+  (`believes`, and whatever else is granted) quotes the **proposition** it attributes,
+  because an attitude is opaque: from *Oedipus believes he married Jocasta* and *Jocasta is
+  his mother* it does not follow that he believes he married his mother, and the asker's
+  merges are not his.  What the agent's *own* context merges does apply, and applies where
+  the projection reads it (`provers/BeliefProjectionProver`).  Gated on `tax/mention-marks`: a
+  KB declaring neither takes the plain walk unchanged, two prop reads at entry.
+
+  This covers ground congruence, which is what an identity merge does.  The oriented
+  equational rewriting `kb/rewrite-term*` applies after it (`rewrite/normalize-sentence`)
+  is a walk over argument terms that does not read these marks, so a schematic `equals`
+  normalizes inside a quoted position as it does outside one."
   [kb visible? term]
-  (if (tax/any-quoting-functions? (:taxonomy kb))
-    (representative-term-mention kb visible? term false)
+  (if-let [marks (tax/mention-marks (:taxonomy kb))]
+    (representative-term-mention kb visible? marks term false)
     (representative-term-plain kb visible? term)))
 
 (defn- displacements-plain
-  "Flat: every non-variable symbol of `sentence` mapped to its class representative when
-  that differs — the `{old rep}` a plain congruence rewrite records."
+  "Every non-variable symbol of `sentence` mapped to its class representative when that
+  differs — the `{old rep}` a plain congruence rewrite records.  Structure‑aware for one
+  reason: an equality relation's arguments are a mention (spelling‑only), so a
+  `sameAs`‑merged term inside a `(sameAs …)` is **not** recorded displaced — matching what
+  `representative-term-plain` rewrites, so `why-not` and the supersession agree with it."
   [kb visible? sentence]
-  (into {}
-        (keep (fn [t]
-                (when (and (symbol? t) (not (sx/variable? t)))
-                  (let [r (representative-in kb visible? t)]
-                    (when (not= r t) [t r])))))
-        (tree-seq sequential? seq sentence)))
+  (letfn [(walk [term spelling? acc]
+            (cond
+              (sequential? term)
+              (if (and (not spelling?) (equality-mention-heads (first term)))
+                (reduce #(walk %2 true %1) (walk (first term) false acc) (rest term))
+                (reduce #(walk %2 spelling? %1) acc term))
+              (and (symbol? term) (not (sx/variable? term)))
+              (let [r (if spelling?
+                        (spelling-representative-in kb visible? term)
+                        (representative-in kb visible? term))]
+                (if (not= r term) (assoc acc term r) acc))
+              :else acc))]
+    (walk sentence false {})))
 
 (defn- displacements-mention
   "Mention-aware collector, the traversal `representative-term-mention` rewrites by: inside
-  a `quotingFunction`'s arguments a symbol moves by *spelling* (`rewriteOf`) only, so a
-  quoted term whose referent merged under a `sameAs` is **not** recorded displaced — the
-  `why-not` map then names only the terms the rewrite actually moved."
-  [kb visible? term spelling? acc]
+  a quoted position — a `quotingFunction`'s arguments, or a `modalPredicate`'s proposition —
+  a symbol moves by *spelling* (`rewriteOf`) only, so a quoted term whose referent merged
+  under a `sameAs` is **not** recorded displaced.  The `why-not` map then names only the
+  terms the rewrite actually moved."
+  [kb visible? marks term spelling? acc]
   (cond
     (sequential? term)
-    (if (and (not spelling?) (tax/quoting-function? (:taxonomy kb) (first term)))
-      (reduce #(displacements-mention kb visible? %2 true %1)
-              (displacements-mention kb visible? (first term) false acc)
+    (cond
+      (and (not spelling?) (equality-mention-heads (first term)))
+      (reduce #(displacements-mention kb visible? marks %2 true %1)
+              (displacements-mention kb visible? marks (first term) false acc)
               (rest term))
-      (reduce #(displacements-mention kb visible? %2 spelling? %1) acc term))
+
+      (and (not spelling?) (contains? (:quoting marks) (first term)))
+      (reduce #(displacements-mention kb visible? marks %2 true %1)
+              (displacements-mention kb visible? marks (first term) false acc)
+              (rest term))
+
+      (and (not spelling?) (attitude-application? (:modal marks) term))
+      (displacements-mention
+       kb visible? marks (nth term 2) true
+       (displacements-mention
+        kb visible? marks (second term) false
+        (displacements-mention kb visible? marks (first term) false acc)))
+
+      :else
+      (reduce #(displacements-mention kb visible? marks %2 spelling? %1) acc term))
     (and (symbol? term) (not (sx/variable? term)))
     (let [r (if spelling?
               (spelling-representative-in kb visible? term)
@@ -617,12 +827,46 @@
 (defn displaced-terms-in
   "The `{old-term representative}` rewrites `sentence` undergoes under `visible?`, computed
   the way `representative-term` actually rewrites it — so a quoted mention held opaque to a
-  `sameAs` is not reported displaced by `why-not`.  Gated on `any-quoting-functions?`: a KB
-  declaring none takes the flat walk unchanged, one prop read at entry."
+  `sameAs` is not reported displaced by `why-not`.  Gated on `tax/mention-marks`: a KB declaring
+  no `quotingFunction` and no `modalPredicate` takes the flat walk unchanged."
   [kb visible? sentence]
-  (if (tax/any-quoting-functions? (:taxonomy kb))
-    (displacements-mention kb visible? sentence false {})
+  (if-let [marks (tax/mention-marks (:taxonomy kb))]
+    (displacements-mention kb visible? marks sentence false {})
     (displacements-plain kb visible? sentence)))
+
+(defn normal-form
+  "`term` (a sentence or a term) in the **equality normal form** the KB stores and asks in:
+  every symbol to its class representative (`representative-term`), then argument terms
+  reduced by the oriented schematic equations visible to the same reader
+  (`rewrite/normalize-sentence`).  Migration and query both go through here, so a stored
+  term and a goal meet at one form.
+
+  Both halves are belief-following and both are gated: a KB with no merges pays a
+  representative lookup per symbol, one with no schematic equations skips normalization
+  entirely (`tax/rewrite-rules` is empty).  `visible?` is the supporter predicate already
+  built (`visible-supporter-fn`), so a caller normalizing many sentences under one reader
+  builds it once; nil is the unscoped read, which asks about the KB rather than from a
+  vantage.  `kb/rewrite-term` is the spelling for a caller holding a context instead."
+  [kb term visible?]
+  (let [sym   (representative-term kb visible? term)
+        rules (cond->> (tax/rewrite-rules (:taxonomy kb))
+                visible? (filterv #(visible? (:handle %))))]
+    (rewrite/normalize-sentence rules sym)))
+
+(defn goal-normal-form
+  "`normal-form` for a **goal**, as `context` sees the merges, with `different` exempt —
+  rewriting its arguments would map each to its class representative, so a merged pair
+  would compare equal and reading class membership is the whole job of `different`.  The
+  prover normalizes its own arguments instead.
+
+  A question asked from a context is a question about what that context holds, so a merge
+  it does not inherit must not rename what it asked.  `kb/rewrite-goal` is the read doors'
+  spelling; `BeliefProjectionProver` calls this one directly, to put a proposition held
+  opaque to the asker into the normal form of the **agent** whose belief it is."
+  [kb goal context]
+  (if (and (sequential? goal) (= 'different (nm/functor goal)))
+    goal
+    (normal-form kb goal (visible-supporter-fn kb context))))
 
 (defn kb-sentex
   "Build a sentex canonicalized against this KB's taxonomy: a symmetric predicate's
@@ -638,6 +882,83 @@
   (sx/sentex sentence context
              {:symmetric? #(tax/has-prop? (:taxonomy kb) :symmetric %)}))
 
+(def ^:dynamic *prefetch-candidates*
+  "Candidate handles per **prefetch hint** a retrieval path gives its record store, or
+  `false` to give it none.  `false` is the default, and it is the code that was here
+  before: no chunking, no hint, one `get-sentex` per candidate that survives the belief
+  filter.
+
+  Turned on, a walk takes its candidates a chunk at a time and tells the store which
+  handles the chunk is about to ask for, so a store that can answer many at one cost
+  (`protocols/Prefetching`) may do that instead of being asked one at a time.  Nothing
+  about the result moves: the hint returns nothing and every record still arrives through
+  `get-sentex`, so this is a cost setting and never a semantic one.
+
+  **It is off because it is only ever worth it over a fetch that is not local.**  On the
+  RAM and disk record stores no store implements the capability, so the hint would have
+  nobody to give it to; over a networked store it is worth it exactly when the candidates
+  are not already cached, which the store itself checks — so turning this on hands the
+  decision to the party that can make it, rather than making it here.  The evidence that
+  says to turn it on is a `:fetches` tally (`vaelii.impl.profile`) large against a query's
+  wall clock on a corpus whose working set does not fit that store's cache.
+
+  The chunk is the unit of over-fetch: a consumer that takes one solution and stops has
+  hinted at most this many handles, so a large chunk amortizes better and wastes more.
+
+  **`false` or a positive integer, and anything else is refused where it is bound** —
+  `true` above all, which is what a var with an off-value of `false` invites and which is
+  truthy enough to reach the chunk arithmetic before it fails."
+  false)
+
+;; Refused at the `binding` form, which is the only place the wrong value is legible.
+;; `true` is the obvious wrong guess for a var whose documented off-value is `false`, and
+;; it is truthy, so it would otherwise pass every gate here and reach `(long n)` inside
+;; `cap/hinting` — a ClassCastException raised from within a lazy seq several frames into
+;; the walk, naming neither the var nor what was bound to it.  A validator runs on
+;; `pushThreadBindings`, so the `binding` that set it is the frame that throws.  It throws
+;; rather than answering false because a false answer raises "Invalid reference state",
+;; which names neither of them either.
+(set-validator!
+ #'*prefetch-candidates*
+ (fn [v]
+   (or (false? v)
+       (and (integer? v) (pos? v))
+       (throw (ex-info (str "*prefetch-candidates* is a positive chunk size, or `false` to "
+                            "hint nothing — not " (pr-str v))
+                       ;; `:unknown-option`, the same type `vaelii.impl.config` refuses a
+                       ;; switch outside its domain with: this is a setting bound to a
+                       ;; value it does not read, and a caller discriminating on the one
+                       ;; vocabulary should not have to know it came from a var rather
+                       ;; than from the environment.
+                       {:type     :unknown-option
+                        :setting  'vaelii.impl.resolution/*prefetch-candidates*
+                        :value    v
+                        :expected "false, or a positive integer (256 is the measured plateau)"})))))
+
+(defn- hinting
+  "`cands` unchanged, with a **prefetch hint** issued a chunk ahead of the walk when the
+  setting is on and the record store can act on one.
+
+  It yields the same handles in the same order — `mapcat` over `partition-all` is
+  identity on the sequence — so a retrieval path wraps its candidates in this and is
+  otherwise the code it was: the hint returns nothing, every record still arrives through
+  `get-sentex`, and no answer can move.  Lazy at chunk granularity, so a consumer that
+  stops at the first solution has hinted one chunk and not the extent.
+
+  The belief filter runs before the hint, so the store is never asked to warm a record the
+  walk would skip; the walk tests it again, which is a RAM read and the price of hinting.
+
+  **Both** retrieval paths wrap their candidates here — the set-algebra one that answers a
+  positive literal by default and the `match-one` fan-out behind it — because a hint given
+  to only one of them is a hint the default query does not get."
+  [kb cands]
+  (let [pf     (when *prefetch-candidates* (cap/prefetcher (:records kb)))
+        tms    (:tms kb)
+        blind? (belief-blind?)]
+    (cap/hinting (when pf (fn [chunk] (pf (filterv #(or blind? (jtms/in? tms %)) chunk))))
+                 (or *prefetch-candidates* 1)
+                 cands)))
+
 (defn- match-one
   "Matches are *belief-sensitive*: a handle that is stored but currently OUT (e.g. a
   default defeated by a contradiction) does not match.  This is what lets a
@@ -648,28 +969,36 @@
   unify against, so it rides along rather than making a caller that wants the
   matched sentence pay for a second round trip; callers that only want the bindings
   destructure `[_ b]` or take `second` and ignore it.  `keep` keeps this lazy — one
-  solution costs one `get-sentex`, not one per candidate handle."
+  solution costs one `get-sentex`, not one per candidate handle.  Under
+  `*prefetch-candidates*` it costs one *chunk*'s worth of hint instead, which is the
+  over-fetch that setting trades for."
   [kb sentence context]
-  (let [pat (kb-sentex kb sentence context)]
-    (keep (fn [h]
-            (when (jtms/in? (:tms kb) h)
-              (let [stored (p/get-sentex (:records kb) h)]
-                ;; an exceptWhen meta-sentex is internal bookkeeping (a rule's
-                ;; exception), not a domain fact, and it is the one *non-ground* stored
-                ;; Atomic — so it is skipped here, keeping the trie and argument-root
-                ;; retrieval paths in agreement and ordinary queries clear of it.  A
-                ;; rule's exceptions are read through `provers/rule-exceptions`.
-                (when (and (not (sx/exceptWhen-meta? (:sentence stored)))
-                           ;; match polarity too: a positive pattern like (?p ?x) must not
-                           ;; bind ?p to `not` against a stored negation (the wildcard trie
-                           ;; lookup can surface a `[:false ..]` key, but the truths differ).
-                           (= (:truth pat) (:truth stored)))
-                  (when-let [b (unify (:context pat) (:context stored)
-                                      (unify (:sentence pat) (:sentence stored)))]
-                    [h b stored])))))
-          ;; a superset of the trie hits when an argument root is tighter than a
-          ;; leading-variable fan-out; the unify above filters it to the same set
-          (candidate-handles kb pat))))
+  (let [pat   (kb-sentex kb sentence context)
+        tms   (:tms kb)
+        recs  (:records kb)
+        blind? (belief-blind?)
+        match (fn [h]
+                (when (or blind? (jtms/in? tms h))
+                  (let [stored (p/get-sentex recs h)]
+                    ;; an exceptWhen meta-sentex is internal bookkeeping (a rule's
+                    ;; exception), not a domain fact, and it is the one *non-ground*
+                    ;; stored Atomic — so it is skipped here, keeping the trie and
+                    ;; argument-root retrieval paths in agreement and ordinary queries
+                    ;; clear of it.  A rule's exceptions are read through
+                    ;; `provers/rule-exceptions`.
+                    (when (and (not (sx/exceptWhen-meta? (:sentence stored)))
+                               ;; match polarity too: a positive pattern like (?p ?x) must
+                               ;; not bind ?p to `not` against a stored negation (the
+                               ;; wildcard trie lookup can surface a `[:false ..]` key, but
+                               ;; the truths differ).
+                               (= (:truth pat) (:truth stored)))
+                      (when-let [b (unify (:context pat) (:context stored)
+                                          (unify (:sentence pat) (:sentence stored)))]
+                        [h b stored])))))
+        ;; a superset of the trie hits when an argument root is tighter than a
+        ;; leading-variable fan-out; the unify above filters it to the same set
+        cands (candidate-handles kb pat)]
+    (keep match (hinting kb cands))))
 
 (defn raw-match
   "Match a literal in one **literal** context — no genlCx inheritance, no subtype
@@ -713,6 +1042,21 @@
   [kb f context]
   (tax/specs (:taxonomy kb) f context))
 
+(defn super-predicates
+  "The **genl** closure of `f` from the vantage `context`: `sub-predicates` mirrored,
+  and what a *negative* pattern fans over.
+
+  A `genl` edge carries the opposite way through a negation — `dog ⊑ animal` puts
+  `(dog Muffet)` under the pattern `(animal ?x)` and `(not (animal Muffet))` under the
+  pattern `(not (dog ?x))` — so the negative fan walks up where the positive one walks
+  down.  The up set is bounded by the hierarchy's depth where the down set is a whole
+  subtree, which is why the negative fan is the cheaper of the two on a broad ontology
+  and the positive one is the fan the retrieval paths are written around.  Shared by
+  `match-pattern` and the rete alpha matcher for the same reason `sub-predicates` is:
+  so the two cannot drift."
+  [kb f context]
+  (tax/genls (:taxonomy kb) f context))
+
 (defn match-pattern
   "Seq of [handle bindings] for stored sentexes matching `sentence` within
   `context` (default the wildcard ?ctx).  The **functor fans out over its sub-predicate
@@ -721,6 +1065,12 @@
   by its sub-predicates (`(parentOf a ?x)` ← `(fatherOf a v)`).  A functor with no
   sub-predicates has a singleton closure, so this is a no-op for it (the overwhelming
   common case — one cached set lookup, no fan).
+
+  **A negation fans its body's functor the other way**, over `super-predicates`:
+  `(not (dog ?x))` is answered by `(not (animal Muffet))`, since `dog ⊑ animal` entails
+  `¬animal ⊑ ¬dog`.  The `not` itself heads nothing and has no closure of its own, so
+  the fan reads inside it and rebuilds the negation around each member; each rebuilt
+  pattern is retrieved by the negative key it names, exactly as the written one is.
 
   The fan is scoped to the genl edges visible from `vantage` — by default the
   literal context itself, and the global closure for a `?ctx` match.  The four-arity
@@ -731,12 +1081,20 @@
   ([kb sentence] (match-pattern kb sentence '?ctx))
   ([kb sentence context] (match-pattern kb sentence context context))
   ([kb sentence context vantage]
-   (let [f (when (sequential? sentence) (first sentence))]
+   (let [neg?  (sx/negation? sentence)
+         body  (if neg? (second sentence) sentence)
+         f     (when (sequential? body) (first body))
+         rebuild (if neg?
+                   (fn [f'] (list sx/not-functor (cons f' (rest body))))
+                   (fn [f'] (cons f' (rest body))))]
      (if (and (symbol? f) (not (sx/variable? f)))
-       (let [subs (sub-predicates kb f vantage)]
-         (if (= subs #{f})
-           (raw-match kb sentence context)                  ; no sub-predicates: as before
-           (lazy-mapcat (fn [f'] (raw-match kb (cons f' (rest sentence)) context)) subs)))
+       (let [fan ((if neg? super-predicates sub-predicates) kb f vantage)]
+         ;; Both closures are reflexive, so a singleton *is* `f` and there is nothing to
+         ;; fan — the same reading `chain/fanning-functor?` takes of the same set, and a
+         ;; count rather than a `#{f}` built per call to compare against.
+         (if (= 1 (count fan))
+           (raw-match kb sentence context)                  ; singleton closure: as written
+           (lazy-mapcat (fn [f'] (raw-match kb (rebuild f') context)) fan)))
        (raw-match kb sentence context)))))
 
 (defn matches-visible*
@@ -823,10 +1181,10 @@
   Every choice is a **pure cost decision**, like `*hierarchical-retrieval*`: the result
   is a subset of the single leading column and still a *superset* of the true matches
   (each match holds every bound term at its position), so `unify` and the context filter
-  run exactly as before and the answer *set* is identical.  A symmetric literal is left
-  on the mirror-widened single-column path — intersecting its forward columns would drop
-  the mirror-stored matches — as is a literal with fewer than two ground columns (the
-  belief-settle diet), so those paths are byte-for-byte the pre-v3 lead.
+  run over fewer candidates and the answer *set* is identical.  A symmetric literal is
+  left on the mirror-widened single-column path — intersecting its forward columns would
+  drop the mirror-stored matches — as is a literal with fewer than two ground columns
+  (the belief-settle diet), so those paths take the single-column lead unchanged.
 
     :two   intersect the two lowest-`count-with-arg` ground columns (default)
     :all   intersect every indexable ground column
@@ -919,13 +1277,12 @@
       (let [cnt (fn [[pos term]]
                   (cond-> (p/count-with-arg ix pos term)
                     sym? (+ (p/count-with-arg ix (mirror-pos pos) term))))
-            ;; A lone ground column needs no count: the old `min-key` returned its single
-            ;; argument without ever calling `cnt`, so pricing it here would be a read the
-            ;; belief-settle diet (`≤1` ground column) never spent.  Count only with ≥2
-            ;; columns — one agnostic count read each, the reads the old `min-key` took —
-            ;; sorted smallest first so the head is the tightest column to lead and the pair
-            ;; below is the one to intersect; `sort-by` is stable, so a tie resolves to the
-            ;; column `min-key` would have.
+            ;; A lone ground column needs no count: there is nothing to compare it
+            ;; against, so pricing it here would be a read the belief-settle diet (`≤1`
+            ;; ground column) never spends.  Count only with ≥2 columns — one agnostic
+            ;; count read each — sorted smallest first so the head is the tightest column
+            ;; to lead and the pair below is the one to intersect; `sort-by` is stable, so
+            ;; a tie resolves to the leftmost column.
             sorted (when (next ground)
                      (sort-by first (mapv (fn [g] [(long (cnt g)) g]) ground)))
             [pos term] (if sorted (second (first sorted)) (first ground))
@@ -1030,7 +1387,8 @@
           ;; once — the instrument does not toggle inside one call — so when off the
           ;; per-candidate cost is a `false` test, not a deref (zero perturbation on the
           ;; timing path); on, it is what multi-column narrowing moves and `record-sift`
-          ;; reports.
+          ;; reports.  Every instrument decision in this fn reads *this* local, so one
+          ;; call cannot record a literal it then declines to sift.
           prof? (prof/profiling?)
           unifs (volatile! 0)
           ;; The pattern sentex is a function of the candidate's functor and context
@@ -1064,65 +1422,84 @@
                    (not (some sx/indexable-term? args)) :hier-functor-extent
                    (seq specs)                          :hier-scoped-roots
                    :else                                :hier-agnostic-roots)
-            _    (when (prof/profiling?) (prof/record-literal sentence path))
-            cands (lead-candidates kb specs args sym?)
+            _    (when prof? (prof/record-literal sentence path))
+            cands (hinting kb (lead-candidates kb specs args sym?))
+            ;; A candidate that can answer at all: live, fetched, and past the
+            ;; predicate-hierarchy filter (the sub-predicate closure) and the
+            ;; context-hierarchy filter (the genlCx up-closure), in memory.  An
+            ;; exceptWhen meta-sentex is internal bookkeeping and skipped, as in
+            ;; `match-one` (the one non-ground stored Atomic).  Both branches below
+            ;; admit a candidate exactly here, and differ only in how many answers one
+            ;; admitted record may yield.
+            blind? (belief-blind?)
+            admit (fn [h]
+                    (when (or blind? (jtms/in? (:tms kb) h))
+                      (when-let [stored (p/get-sentex (:records kb) h)]
+                        (when (and (not (sx/exceptWhen-meta? (:sentence stored)))
+                                   (pred-ok? (some-> (sx/body stored) first))
+                                   (ctx-ok? (:context stored)))
+                          stored))))
+            ;; the unify attempt in one argument order.  Concrete view: bind no ?ctx
+            ;; (match at the fact's own context, which is in the up-closure); variable
+            ;; view: bind ?ctx, exactly as match-one does.
+            order (fn [stored rev?]
+                    (let [pat (pat-for (some-> (sx/body stored) first)
+                                       (if up? (:context stored) '?ctx)
+                                       rev?)]
+                      (when (= (:truth pat) (:truth stored))
+                        (unify (:context pat) (:context stored)
+                               (unify (:sentence pat) (:sentence stored))))))
             out
-            (lazy-mapcat
-             (fn [h]
-               ;; The `seen` guard is keyed on the handle alone while nothing can
-               ;; match twice, which is the cheap case and skips the record fetch
-               ;; for a candidate a second bucket names again.  Under `sym?` one
-               ;; candidate really can answer twice — an all-variable pattern binds
-               ;; a stored `(sibOf Rex Tib)` both ways round — so there the dedup
-               ;; moves to `[handle bindings]` below and this early exit goes,
-               ;; which is what makes the two retrieval paths return one set
-               ;; (`raw-match` says why the pair is the honest key).
-               (when (and (or sym? (not (contains? @seen h))) (jtms/in? (:tms kb) h))
-                 (when-let [stored (p/get-sentex (:records kb) h)]
-                   (let [f' (some-> (sx/body stored) first)]
-                     ;; predicate-hierarchy filter (the sub-predicate closure) and
-                     ;; context-hierarchy filter (the genlCx up-closure), in memory;
-                     ;; an exceptWhen meta-sentex is internal bookkeeping and skipped, as
-                     ;; in `match-one` (the one non-ground stored Atomic)
-                     (when (and (not (sx/exceptWhen-meta? (:sentence stored)))
-                                (pred-ok? f') (ctx-ok? (:context stored)))
-                       (let [;; concrete view: bind no ?ctx (match at the fact's own
-                             ;; context, which is in the up-closure); variable view:
-                             ;; bind ?ctx, exactly as match-one does
-                             pctx  (if up? (:context stored) '?ctx)
-                             _     (when prof? (vswap! unifs inc))
-                             order (fn [rev?]
-                                     (let [pat (pat-for f' pctx rev?)]
-                                       (when (= (:truth pat) (:truth stored))
-                                         (unify (:context pat) (:context stored)
-                                                (unify (:sentence pat) (:sentence stored))))))
-                             mirror? (and sym? (contains? sym-preds f'))
-                             b0 (order false)
-                             ;; both orders, not the first that answers: a pattern
-                             ;; with two variable arguments binds one stored fact
-                             ;; twice and differently, and those are two answers
-                             ;; about one handle.  A palindrome, or any pattern the
-                             ;; mirror binds as the direct order did, is one — the
-                             ;; `not=` is what keeps it one.
-                             b1 (when mirror? (order true))
-                             bs (cond-> []
-                                  b0                     (conj b0)
-                                  (and b1 (not= b1 b0))  (conj b1))]
-                         (into []
-                               (comp (remove #(contains? @seen [h %]))
-                                     (map (fn [b]
-                                            ;; the key the guard above reads: the
-                                            ;; handle where it is the early exit,
-                                            ;; the pair where it is the dedup
-                                            (vswap! seen conj (if sym? [h b] h))
-                                            [h b stored])))
-                               bs)))))))
-             cands)]
+            (if-not sym?
+              ;; Nothing under this functor is symmetric, so one candidate answers at
+              ;; most once and the handle is the whole dedup key — the shape all but a
+              ;; handful of literals have, and the one the closure walks ask for a node
+              ;; at a time.  A `keep` over the candidates, so a candidate costs the
+              ;; triple it answers with: the mirror branch's answer vector, transducer
+              ;; chain and `lazy-mapcat` cell are all for a second answer this shape
+              ;; cannot have.  The handle-keyed guard also skips the record fetch for a
+              ;; candidate a second bucket names again.
+              (keep (fn [h]
+                      (when-not (contains? @seen h)
+                        (when-let [stored (admit h)]
+                          (when prof? (vswap! unifs inc))
+                          (when-let [b (order stored false)]
+                            (vswap! seen conj h)
+                            [h b stored]))))
+                    cands)
+              ;; A symmetric sub-predicate, so one candidate really can answer twice —
+              ;; an all-variable pattern binds a stored `(sibOf Rex Tib)` both ways
+              ;; round — and the dedup keys on `[handle bindings]`, which leaves no
+              ;; handle-keyed early exit to skip the fetch with.  That pairing is what
+              ;; makes the two retrieval paths return one set (`raw-match` says why the
+              ;; pair is the honest key).
+              (lazy-mapcat
+               (fn [h]
+                 (when-let [stored (admit h)]
+                   (when prof? (vswap! unifs inc))
+                   (let [;; both orders, not the first that answers: a pattern with two
+                         ;; variable arguments binds one stored fact twice and
+                         ;; differently, and those are two answers about one handle.  A
+                         ;; palindrome, or any pattern the mirror binds as the direct
+                         ;; order did, is one — the `not=` is what keeps it one.
+                         b0 (order stored false)
+                         b1 (when (contains? sym-preds (some-> (sx/body stored) first))
+                              (order stored true))
+                         bs (cond-> []
+                              b0                     (conj b0)
+                              (and b1 (not= b1 b0))  (conj b1))]
+                     (into []
+                           (comp (remove #(contains? @seen [h %]))
+                                 (map (fn [b]
+                                        (vswap! seen conj [h b])
+                                        [h b stored])))
+                           bs))))
+               cands))]
         ;; returned-vs-matched, opt-in.  Realizing `out` walks the whole candidate seq,
         ;; so `(count cands)` then reads the returned count and `(count v)` the matched;
         ;; both only while the instrument is on, leaving the lazy short-circuit intact for
         ;; a timing run (`vaelii.impl.profile/record-sift`).
-        (if (prof/profiling?)
+        (if prof?
           (let [v (vec out)]
             (prof/record-sift sentence path (count cands) (count v) @unifs)
             v)
@@ -1155,7 +1532,7 @@
   [kb view-context]
   (let [by-ctx @(:excepted kb)]
     (when-not (or (empty? by-ctx) (sx/variable? view-context))
-      (let [up (tax/raw-context-up (:taxonomy kb) view-context)]
+      (let [up (tax/context-up-global (:taxonomy kb) view-context)]
         (not-empty
          (reduce-kv
           (fn [m ctx entries]
@@ -1243,9 +1620,9 @@
   `{context -> {hidden-handle -> #{except-handle}}}`, maintained at the store and removal
   choke points (`kb/note-excepted!`) exactly as `:opposed` is, so what this does per call
   is a deref, one `contains?` per context *holding* an except, and one `jtms/in?` per
-  except in a visible one.  What it no longer does is fetch a record per except in the KB
-  and re-derive its target from its sentence — which on a chaining run is per placement
-  and per candidate justification, and was 89% of the run's wall clock at 1,000 excepts
+  except in a visible one.  No record is fetched per except in the KB and no target is
+  re-derived from a sentence: that read runs per placement and per candidate
+  justification on a chaining run, which at 1,000 excepts is 89% of the run's wall clock
   (`lein bench-hotreads`).
 
   **Meta-exception cascade.**  An except whose handle is itself hidden by another
@@ -1253,8 +1630,8 @@
   `except-in-force?`, which walks the roster's own entries rather than the index.
   Most KBs store zero meta-exceptions, so the cascade adds no cost to the common path.
 
-  **The O(1) gate is the empty roster**, which is where the functor-root count used to
-  be and is both cheaper and tighter: a KB storing only `(not (except H))` roots under
+  **The O(1) gate is the empty roster**, which is both cheaper and tighter than a
+  functor-root count: a KB storing only `(not (except H))` roots under
   `except` and counts non-zero, while the roster — which holds only sentences that
   actually hide something — is empty and says so.
 
@@ -1319,7 +1696,7 @@
   [kb view-context]
   (let [by-ctx @(:excepted kb)]
     (when-not (or (empty? by-ctx) (sx/variable? view-context))
-      (let [up   (tax/raw-context-up (:taxonomy kb) view-context)
+      (let [up   (tax/context-up-global (:taxonomy kb) view-context)
             ;; only the contexts that both state an except and are visible from here —
             ;; computed once, so the predicate walks nothing it will always reject
             live (into [] (comp (filter #(contains? up (key %))) (map val)) by-ctx)
@@ -1386,17 +1763,23 @@
   unmerged sentence never reaches the election.  `visible` is the caller's **delay** over
   the supporter memo, forced only by a symbol that got that far.  Public for the reads
   whose match shape `without-retired` cannot take — `qcn-kb/refuted-pairs` yields
-  `[handle a b]` triples with no sentex at index 2, so it filters with this directly."
+  `[handle a b]` triples with no sentex at index 2, so it filters with this directly.
+
+  **A sentence that quotes takes the mention-aware read instead.**  Inside a quoted
+  position — a `quotingFunction`'s arguments, or the proposition an attitude attributes to
+  its agent — a symbol is retired by a *spelling* rename and not by a `sameAs` / `equals`
+  identity merge, which makes the flat per-symbol shortcut unsound there and would retire a
+  belief nobody renamed.  Whether the sentence quotes at all is asked first
+  (`any-mention-position?`), so an ordinary sentence in a KB that merely grants `believes`
+  keeps the flat read."
   [kb visible merged? sentence]
-  (if (tax/any-quoting-functions? (:taxonomy kb))
-    ;; mention-aware: a symbol inside a quoting function's arguments is retired only by a
-    ;; *spelling* rename, not by a `sameAs` / `equals` identity merge, so the flat
-    ;; per-symbol shortcut is unsound — compare the mention-aware normal form instead.
-    (not= (representative-term-mention kb @visible sentence false) sentence)
-    (sx/some-symbol? (fn [t]
-                       (and (merged? t) (not (sx/variable? t))
-                            (not= t (representative-in kb @visible t))))
-                     sentence)))
+  (let [marks (tax/mention-marks (:taxonomy kb))]
+    (if (and marks (any-mention-position? marks sentence))
+      (not= (representative-term-mention kb @visible marks sentence false) sentence)
+      (sx/some-symbol? (fn [t]
+                         (and (merged? t) (not (sx/variable? t))
+                              (not= t (representative-in kb @visible t))))
+                       sentence))))
 
 (defn without-retired
   "Drop the matches whose stored spelling `view-context` has **retired** — the
@@ -1426,6 +1809,17 @@
       (let [visible (delay (visible-supporter-fn kb view-context))]
         (remove (fn [m] (retired-for? kb visible merged? (:sentence (nth m 2)))) matches)))))
 
+(defn- visible-matches
+  "The retrieval both of `matches-visible`'s arities perform: the chosen path, then the
+  two visibility filters.  One definition, so a cached and an uncached read cannot come
+  to answer differently."
+  [kb sentence view-context]
+  (->> (if *hierarchical-retrieval*
+         (matches-hierarchical kb sentence view-context)
+         (matches-visible* kb sentence view-context))
+       (without-excepted kb view-context)
+       (without-retired kb view-context)))
+
 (defn matches-visible
   "Type-aware matches of `sentence` *visible from* `view-context`.  A variable
   context means any context; a concrete context sees a fact iff the fact's
@@ -1449,23 +1843,38 @@
   on the answer set, and so must the structural-trie and functor-extent candidate
   sources, which is what `retrieval_completeness_test` and `structural_index_test` check
   — a cache that served one path's answers to the other would be checking a result
-  against itself.  With `literal-cache/*enabled*` false this is the bare call."
-  [kb sentence view-context]
-  (let [compute (fn [s]
-                  (->> (if *hierarchical-retrieval*
-                         (matches-hierarchical kb s view-context)
-                         (matches-visible* kb s view-context))
-                       (without-excepted kb view-context)
-                       (without-retired kb view-context)))]
-    (if-not lc/*enabled*
-      (compute sentence)
-      (let [[canonical rename] (lc/canonicalize sentence)]
-        (lc/rename-matches
-         rename
-         (lc/lookup (:matches kb)
-                    [canonical view-context
-                     *hierarchical-retrieval* *arg-root-retrieval* *structural-index*]
-                    #(compute canonical)))))))
+  against itself.  With `literal-cache/*enabled*` false this is the bare call.
+
+  `*belief-blind*` is in the key for the same reason and a sharper one: a `CxEverything`
+  read and an ordinary one ask the *same literal at the same context* and must not answer
+  each other.  Left off, the first read of a pair fills the entry and the second is served
+  it — so a blind read would hide a defeated default it was asked for, or an ordinary one
+  would report a default it must not, whichever happened to run first.
+
+  **`cached?` false asks the same question and neither consults the cache nor fills
+  it** — for a caller whose repeats that cache cannot serve.  A transitive closure walk
+  asks each node's neighbour literal once (`provers/reach` visits a node once), so there
+  is no repeat there for a solution cache to catch, while its insertion per node would
+  push the cache past its bound and clear it wholesale part-way through, evicting the
+  metadata literals a rule-heavy query really does re-ask.  An argument rather than a
+  rebinding of `literal-cache/*enabled*`, for two reasons: a `binding` covers every read
+  *under* the walk rather than the neighbour probe alone, and it marks the var
+  thread-bound for the life of the process — so every later `matches-visible` on every
+  thread would take the thread-local path to read a flag nothing had rebound.  The
+  repetition a walk does have is held where it is: `provers/cached-reach` for the whole
+  closure, `observe/*reach-memo*` for the neighbour sets a join re-walks."
+  ([kb sentence view-context] (matches-visible kb sentence view-context true))
+  ([kb sentence view-context cached?]
+   (if-not (and cached? lc/*enabled*)
+     (visible-matches kb sentence view-context)
+     (let [[canonical rename] (lc/canonicalize sentence)]
+       (lc/rename-matches
+        rename
+        (lc/lookup (:matches kb)
+                   [canonical view-context
+                    *hierarchical-retrieval* *arg-root-retrieval* *structural-index*
+                    *belief-blind*]
+                   #(visible-matches kb canonical view-context)))))))
 
 ;; ---- whose declarations bind a tuple ------------------------------------
 
@@ -1719,16 +2128,114 @@
 ;; ---- scope markers on the goal stack -------------------------------------
 ;; The loop guard is a property of a goal's own *derivation path*, not of the frame it
 ;; happens to ride in.  Expanding a goal pushes its antecedents and the conjuncts still
-;; queued behind them into one frame, so a `:seen` grown for the expansion stayed in
-;; force for those siblings too: a later conjunct repeating that goal-key was refused
-;; rule expansion and answered nothing, which made `[(anc Tom ?y) (anc Tom ?z)]` empty
-;; while each conjunct alone answered.  A marker behind the antecedents restores the
+;; queued behind them into one frame, so a `:seen` grown for the expansion would stay in
+;; force for those siblings too: a later conjunct repeating that goal-key would be
+;; refused rule expansion and answer nothing, leaving `[(anc Tom ?y) (anc Tom ?z)]` empty
+;; where each conjunct alone answers.  A marker behind the antecedents restores the
 ;; scope the expansion started from, exactly where that subtree ends — the same place,
 ;; and the same one-stack-entry cost, as the guard marker above.
 
 (defn- ->scope-marker [seen] [::scope seen])
 (defn- scope-marker? [g] (and (vector? g) (= ::scope (first g))))
 (defn- marker-seen   [g] (second g))
+
+;; ---- defeat markers on the goal stack ------------------------------------
+;; The same trick a third time, and for the third version of the same reason: a rule
+;; expansion's *answer* is the goal it was opened for, instantiated by the bindings its
+;; antecedents finally produce — and by then the frame that opened it is gone.  A marker
+;; behind the antecedents puts the check exactly where the answer becomes ground, which is
+;; also the only place it can be asked: earlier the goal is still a pattern, and later it
+;; has already flowed into the conjuncts queued behind it.
+;;
+;; Behind the guard and inside the scope, so an excepted firing is refused before this and
+;; the check reads the same completed bindings the guard did.  Pushed only for a goal
+;; `defeatable-goal?` claims, so a KB with no defeat on that predicate carries no extra
+;; stack entry.
+
+(defn- ->defeat-marker [goal] [::defeat goal])
+(defn- defeat-marker? [g] (and (vector? g) (= ::defeat (first g))))
+(defn- marker-goal    [g] (second g))
+
+;; ---- answers belief has already decided against -------------------------
+;; A backward chainer filters *rules* by belief (`rule-believed?`) and *facts* by belief
+;; (`matches-visible`), and until an answer is one of those two it filters nothing.  So a
+;; conclusion the JTMS holds **defeated** — a `(flies Tweety)` beaten by a monotonic `(not
+;; (flies Tweety))` — is re-derivable by opening the rule that concluded it and proving it
+;; again, which would answer both sides of a clash belief has settled.
+;;
+;; The contract is that they do not: **the proving levels agree with belief.**  Belief has
+;; decided that datum is OUT under the current state, and a chainer that reads it IN is not
+;; answering a harder question, it is answering a stale one.  That holds for a defeated
+;; *premise* a rule re-derives from other believed premises too, and deliberately: the
+;; defeat is a claim about the datum, not about one derivation of it, so a second route to
+;; the same sentence reaches the same OUT.  Retract the defeater and the datum revives, and
+;; the chainers answer it again with nothing else having changed.
+;;
+;; **Only `defeated`.**  The other two non-belief states are handled elsewhere and must not
+;; be folded in here: a `blocked` justification is swept, so nothing survives for a chainer
+;; to find, and a `superseded` spelling is displaced by an equality merge, which the goal
+;; rewrite applies before any prover sees the goal (docs/equality.md).
+;;
+;; **The stored-fact leaf is not on this path.**  `matches-visible` filters belief already,
+;; so a defeated stored fact never matches; what this adds is a check on the answers *rule
+;; expansion* produces, one lookup apiece and only for a goal whose functor some defeated
+;; datum carries.
+
+(defn defeated-index
+  "What the backward chainers filter a rule-expanded answer against: `{:by-sentence
+  {sentence #{context}} :functors #{functor}}` over the datums the JTMS currently holds
+  **defeated** — or **nil** when nothing is defeated.
+
+  Nil is the gate every caller reads, and it is the common case: a KB with no
+  contradiction pays one set deref per query and nothing else.  `:functors` is the second
+  gate, and the one that keeps the cost off a KB that *has* a defeat somewhere: a goal
+  whose functor no defeated datum carries can produce no defeated answer, so it is never
+  checked.
+
+  Built once per query rather than asked per answer.  The defeated set is a *derived*
+  state recomputed each settle (`vaelii.impl.jtms`), and a query writes nothing, so it
+  cannot move underneath the search that read it."
+  [kb]
+  (let [ds (jtms/defeated (:tms kb))]
+    (when (seq ds)
+      (reduce (fn [idx h]
+                (if-let [sx (p/get-sentex (:records kb) h)]
+                  (-> idx
+                      (update-in [:by-sentence (:sentence sx)] (fnil conj #{}) (:context sx))
+                      (update :functors conj (nm/functor (:sentence sx))))
+                  idx))
+              {:by-sentence {} :functors #{}}
+              ds))))
+
+(defn defeatable-goal?
+  "Could an answer to `goal` be one belief has already defeated — is its functor one some
+  defeated datum carries?  False for every goal when `idx` is nil.
+
+  The push-time gate: a chainer that answers false here adds no check to the goal at all,
+  so a KB with no defeat on that predicate runs the search it always ran."
+  [idx goal]
+  (boolean (and idx (contains? (:functors idx) (nm/functor goal)))))
+
+(defn defeated-answer?
+  "Is `sentence` — an answer a rule expansion produced — a stored sentex the JTMS holds
+  defeated and `context` can see?
+
+  Canonicalized against the KB before the lookup (`kb-sentex`), since the answer is built
+  from a goal and its bindings while the defeated set holds stored sentences: a symmetric
+  literal's arguments are sorted in one and not the other, and comparing them raw would
+  miss the very answer being filtered.
+
+  **Visible from the query's context**, because a defeat is a claim about a stored sentex
+  and a reader that cannot see that sentex is not the reader it was decided for.  An
+  unscoped read (a nil or variable context) sees every context, so any defeat counts —
+  the same reading `matches-visible` gives the wildcard."
+  [kb idx sentence context]
+  (boolean
+   (when idx
+     (when-let [ctxs (get (:by-sentence idx) (:sentence (kb-sentex kb sentence context)))]
+       (if (or (nil? context) (sx/variable? context))
+         true
+         (boolean (some #(tax/sees? (:taxonomy kb) context %) ctxs)))))))
 
 ;; ---- dead ends -----------------------------------------------------------
 
@@ -1739,7 +2246,8 @@
   A dead end is a subgoal the search could neither match nor expand: no visible
   believed fact unified with it, and no rule concluding it unified either.  It is
   reported only when the branch was not merely **cut short** — by the per-path loop
-  guard or by `:max-depth` — and that distinction is the whole of what makes the
+  guard, by `:max-depth`, or by the term-growth ceiling
+  (`default-max-term-growth`) — and that distinction is the whole of what makes the
   callback worth having.  A truncated branch is a search that ran out of *budget*; a
   dead end is a search that ran out of *knowledge*, and only the second names something
   the KB could be told (`vaelii.impl.abduce`, docs/abduction.md).
@@ -1753,7 +2261,7 @@
   whenever a consumer happened to realize the seq, and the thread binding would
   already be gone — so abduction rides `prove`, which is a loop.
 
-  nil costs one var deref per exhausted subgoal."
+  nil costs one var deref per expanded goal."
   nil)
 
 (defn- leaf-solutions
@@ -1845,121 +2353,147 @@
   ;; precondition.  A segment, not a query — `prove-seq` drives the same search in
   ;; several calls, and each opens a scope of its own, which is sound because a query
   ;; writes nothing for the pin to hold still against.
-  (observe/with-search-scope
-    (loop [stack stack, solutions solutions]
-      (cond
-        ;; Exhaustion is checked first, so `:complete` means the space was genuinely
-        ;; emptied — never "we hit the cap on the last element".
-        (empty? stack)
-        {:solutions solutions :status :complete :stack stack}
+  ;;
+  ;; What belief has already defeated, read once for the segment and not per answer — a
+  ;; `delay` rather than a `let`, so a run that expands no rule at all never touches the
+  ;; TMS.  The set is derived state recomputed each settle and a query writes nothing, so
+  ;; a resumed segment reading it again reads the same thing.
+  (let [defeated (delay (defeated-index kb))]
+    (observe/with-search-scope
+      (loop [stack stack, solutions solutions]
+        (cond
+          ;; Exhaustion is checked first, so `:complete` means the space was genuinely
+          ;; emptied — never "we hit the cap on the last element".
+          (empty? stack)
+          {:solutions solutions :status :complete :stack stack}
 
-        (and max-results (>= (count solutions) max-results))
-        {:solutions solutions :status :capped :stack stack}
+          (and max-results (>= (count solutions) max-results))
+          {:solutions solutions :status :capped :stack stack}
 
-        (and deadline (>= (System/nanoTime) deadline))
-        {:solutions solutions :status :timeout :stack stack}
+          (and deadline (>= (System/nanoTime) deadline))
+          {:solutions solutions :status :timeout :stack stack}
 
-        :else
-        (let [{:keys [goals bindings seen depth answer-vars term-base]} (peek stack)
-              stack (pop stack)
-              ;; the ceiling a subgoal's nesting may reach on this path: the deepest
-              ;; term the path has met — the query's own, raised by whatever a leaf
-              ;; match bound below it — plus the growth allowance.  Stacks carry the
-              ;; base, bounds the allowance, so a `resume` under a different bound
-              ;; measures the same path from the same base.
-              ceiling (+ (long (or term-base 0))
-                         (long (or max-term-growth default-max-term-growth)))]
-          (cond
-            (empty? goals)
-            (recur stack (conj solutions (project-answer bindings answer-vars)))
+          :else
+          (let [{:keys [goals bindings seen depth answer-vars term-base]} (peek stack)
+                stack (pop stack)
+                ;; the ceiling a subgoal's nesting may reach on this path: the deepest
+                ;; term the path has met — the query's own, raised by whatever a leaf
+                ;; match bound below it — plus the growth allowance.  Stacks carry the
+                ;; base, bounds the allowance, so a `resume` under a different bound
+                ;; measures the same path from the same base.
+                ceiling (+ (long (or term-base 0))
+                           (long (or max-term-growth default-max-term-growth)))]
+            (cond
+              (empty? goals)
+              (recur stack (conj solutions (project-answer bindings answer-vars)))
 
-            ;; A guard marker: the antecedents ahead of it have all been solved, so this
-            ;; is where an `exceptWhen` exception is asked of the completed binding.  It
-            ;; rides the goal stack rather than being checked at the rule frame because
-            ;; this chainer solves antecedents by *pushing* them — there is no other
-            ;; moment at which "the argument is now complete" is observable.  A marker is
-            ;; a **vector**, and a goal never is (see `core/goal-conjunction`), so the two
-            ;; are told apart structurally.
-            (guard-marker? (first goals))
-            (recur (cond-> stack
-                     ((marker-guard (first goals)) bindings)
-                     (conj {:goals (rest goals) :bindings bindings :seen seen :depth depth
-                            :answer-vars answer-vars :term-base term-base}))
-                   solutions)
+              ;; A guard marker: the antecedents ahead of it have all been solved, so this
+              ;; is where an `exceptWhen` exception is asked of the completed binding.  It
+              ;; rides the goal stack rather than being checked at the rule frame because
+              ;; this chainer solves antecedents by *pushing* them — there is no other
+              ;; moment at which "the argument is now complete" is observable.  A marker is
+              ;; a **vector**, and a goal never is (see `core/goal-conjunction`), so the two
+              ;; are told apart structurally.
+              (guard-marker? (first goals))
+              (recur (cond-> stack
+                       ((marker-guard (first goals)) bindings)
+                       (conj {:goals (rest goals) :bindings bindings :seen seen :depth depth
+                              :answer-vars answer-vars :term-base term-base}))
+                     solutions)
 
-            ;; the expanded goal's subtree ends here: the conjuncts still queued behind
-            ;; it are siblings, not descendants, and answer under the scope it started in
-            (scope-marker? (first goals))
-            (recur (conj stack {:goals (rest goals) :bindings bindings
-                                :seen (marker-seen (first goals)) :depth depth
-                                :answer-vars answer-vars :term-base term-base})
-                   solutions)
+              ;; the rule expansion behind this marker has produced an answer for the goal
+              ;; it was opened for, and belief may already have decided against that answer
+              (defeat-marker? (first goals))
+              (recur (cond-> stack
+                       (not (defeated-answer? kb @defeated
+                              (substitute (marker-goal (first goals)) bindings)
+                              context))
+                       (conj {:goals (rest goals) :bindings bindings :seen seen :depth depth
+                              :answer-vars answer-vars :term-base term-base}))
+                     solutions)
 
-            ;; A deferred goal (`different` / `evaluate` / `unknown`) is *computed* by the
-            ;; registry, not matched or expanded: push one continuation frame per extension
-            ;; binding, and no rule frames (see the `*deferred-solver*` section above).
-            (sx/deferred-literal? (substitute (first goals) bindings))
-            (let [g          (substitute (first goals) bindings)
-                  rest-goals (rest goals)
-                  frames     (for [b (solve-deferred kb g context)]
-                               {:goals rest-goals :bindings (merge bindings b)
-                                :seen seen :depth depth :answer-vars answer-vars
-                                :term-base term-base})]
-              (recur (into stack frames) solutions))
+              ;; the expanded goal's subtree ends here: the conjuncts still queued behind
+              ;; it are siblings, not descendants, and answer under the scope it started in
+              (scope-marker? (first goals))
+              (recur (conj stack {:goals (rest goals) :bindings bindings
+                                  :seen (marker-seen (first goals)) :depth depth
+                                  :answer-vars answer-vars :term-base term-base})
+                     solutions)
 
-            :else
-            (let [g          (substitute (first goals) bindings)
-                  rest-goals (rest goals)
-                  k          (goal-key g)
-                  ;; a leaf match may hand the conjuncts behind it a deep *stored* term,
-                  ;; and nothing about that is a rule growing one — so the basis rises
-                  ;; with it (`grown-term-base`), and only a rule's own nesting is
-                  ;; measured against the allowance
-                  fact-frames (for [b (leaf-solutions kb g context leaf-solver)]
-                                {:goals rest-goals :bindings (merge bindings b) :seen seen
-                                 :depth depth :answer-vars answer-vars
-                                 :term-base (grown-term-base term-base b)})
-                  ;; expansion cut short rather than exhausted: the goal is re-entering
-                  ;; its own derivation path, the depth bound bit, or its arguments have
-                  ;; grown past the term ceiling (`default-max-term-growth`).  Either way
-                  ;; the branch says nothing about what the KB is missing (see
-                  ;; `*dead-end*`).  The facts above are still read: a goal at the
-                  ;; ceiling may be stored, and only its *expansion* is refused.
-                  cut?        (or (contains? seen k)
-                                  (boolean (and max-depth (>= depth max-depth)))
-                                  (> (long (term-depth g)) ceiling))
-                  ;; every name already in play on this path: what the bindings speak
-                  ;; for, the goal's own variables, and the conjuncts still queued — the
-                  ;; last of which are outer rules' unsolved antecedents, equally
-                  ;; capturable by an instance expanded under them
-                  taken       (when-not cut?
-                                (-> (spoken-for bindings)
-                                    (into (form-variables g))
-                                    (into (form-variables rest-goals))))
-                  rule-frames (when-not cut?
-                                (for [rule (rules-fn g)
-                                      :let [{:keys [antecedents consequent guard]}
-                                            (freshen-rule rule taken)
-                                            b (subsuming-unify kb g consequent bindings context)]
-                                      :when b]
-                                  {:goals    (into (-> (planned-antecedents
-                                                        kb antecedents consequent context b
-                                                        est-override)
-                                                       (cond-> guard (conj (->guard-marker guard)))
-                                                       ;; behind the guard: the scope is
-                                                       ;; restored once this rule's own
-                                                       ;; subtree is finished with it
-                                                       (conj (->scope-marker seen)))
-                                                   rest-goals)
-                                   :bindings b
-                                   :seen     (conj seen k)
-                                   :depth    (inc depth)
-                                   :answer-vars answer-vars
-                                   :term-base term-base}))]
-              (when (and *dead-end* (not cut?)
-                         (empty? fact-frames) (empty? rule-frames))
-                (*dead-end* g depth))
-              (recur (into stack (concat fact-frames rule-frames)) solutions))))))))
+              ;; A deferred goal (`different` / `evaluate` / `unknown`) is *computed* by the
+              ;; registry, not matched or expanded: push one continuation frame per extension
+              ;; binding, and no rule frames (see the `*deferred-solver*` section above).
+              (sx/deferred-literal? (substitute (first goals) bindings))
+              (let [g          (substitute (first goals) bindings)
+                    rest-goals (rest goals)
+                    frames     (for [b (solve-deferred kb g context)]
+                                 {:goals rest-goals :bindings (merge bindings b)
+                                  :seen seen :depth depth :answer-vars answer-vars
+                                  :term-base term-base})]
+                (recur (into stack frames) solutions))
+
+              :else
+              (let [g          (substitute (first goals) bindings)
+                    rest-goals (rest goals)
+                    k          (goal-key g)
+                    ;; a leaf match may hand the conjuncts behind it a deep *stored* term,
+                    ;; and nothing about that is a rule growing one — so the basis rises
+                    ;; with it (`grown-term-base`), and only a rule's own nesting is
+                    ;; measured against the allowance
+                    fact-frames (for [b (leaf-solutions kb g context leaf-solver)]
+                                  {:goals rest-goals :bindings (merge bindings b) :seen seen
+                                   :depth depth :answer-vars answer-vars
+                                   :term-base (grown-term-base term-base b)})
+                    ;; expansion cut short rather than exhausted: the goal is re-entering
+                    ;; its own derivation path, the depth bound bit, or its arguments have
+                    ;; grown past the term ceiling (`default-max-term-growth`).  Either way
+                    ;; the branch says nothing about what the KB is missing (see
+                    ;; `*dead-end*`).  The facts above are still read: a goal at the
+                    ;; ceiling may be stored, and only its *expansion* is refused.
+                    cut?        (or (contains? seen k)
+                                    (boolean (and max-depth (>= depth max-depth)))
+                                    (> (long (term-depth g)) ceiling))
+                    ;; every name already in play on this path: what the bindings speak
+                    ;; for, the goal's own variables, and the conjuncts still queued — the
+                    ;; last of which are outer rules' unsolved antecedents, equally
+                    ;; capturable by an instance expanded under them
+                    taken       (when-not cut?
+                                  (-> (spoken-for bindings)
+                                      (into (form-variables g))
+                                      (into (form-variables rest-goals))))
+                    ;; asked once per expanded goal rather than once per rule: whether an
+                    ;; answer to this goal *could* be one belief has defeated is a property
+                    ;; of the goal, and it is false for every goal on a KB with no defeats
+                    defeatable? (and (not cut?) (defeatable-goal? @defeated g))
+                    rule-frames (when-not cut?
+                                  (for [rule (rules-fn g)
+                                        :let [{:keys [antecedents consequent guard]}
+                                              (freshen-rule rule taken)
+                                              b (subsuming-unify kb g consequent bindings context)]
+                                        :when b]
+                                    {:goals    (into (-> (planned-antecedents
+                                                          kb antecedents consequent context b
+                                                          est-override)
+                                                         (cond-> guard (conj (->guard-marker guard)))
+                                                         ;; behind the guard, so an excepted
+                                                         ;; firing is refused before belief
+                                                         ;; is asked about its answer
+                                                         (cond-> defeatable?
+                                                           (conj (->defeat-marker g)))
+                                                         ;; behind both: the scope is
+                                                         ;; restored once this rule's own
+                                                         ;; subtree is finished with it
+                                                         (conj (->scope-marker seen)))
+                                                     rest-goals)
+                                     :bindings b
+                                     :seen     (conj seen k)
+                                     :depth    (inc depth)
+                                     :answer-vars answer-vars
+                                     :term-base term-base}))]
+                (when (and *dead-end* (not cut?)
+                           (empty? fact-frames) (empty? rule-frames))
+                  (*dead-end* g depth))
+                (recur (into stack (concat fact-frames rule-frames)) solutions)))))))))
 
 (defn prove
   "A simple depth-first backward chainer using loop/recur over an explicit goal

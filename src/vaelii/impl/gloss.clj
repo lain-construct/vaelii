@@ -37,9 +37,9 @@
   This is why the composer is a lookup and a substitution rather than a table of
   hand-written patterns: adding a predicate with a documented signature gives it a gloss
   for free, and a comment edited to say something else changes the gloss with it.  Of the
-  277 shipped comments, 175 carry a signature; the 102 that do not are nouns — 86 types
-  and 16 unit individuals — which need none, because a type gloss is \"X is a dog\" and
-  the comment is the apposition after it.
+  328 shipped comments, 210 carry a signature; the 118 that do not are nouns — 100 types
+  and 18 individuals (the units, the dimensions, the three signs) — which need none,
+  because a type gloss is \"X is a dog\" and the comment is the apposition after it.
 
   What the composition rate does **not** measure is whether a gloss is worth reading.  It
   earns its place where the predicate name is opaque — `genl` glossed as \"Every dog is an
@@ -62,7 +62,8 @@
   `docs/web.md` states it for the browser."
   (:require [clojure.string :as str]
             [taoensso.trove :as trove]
-            [vaelii.core :as v]))
+            [vaelii.core :as v]
+            [vaelii.impl.naming :as nm]))
 
 ;; ---- reading a comment as a template -------------------------------------
 
@@ -126,13 +127,18 @@
 (defn- comment-template
   "The template for `term`, or nil when the KB says nothing about it.  A term can
   carry a believed `comment` in more than one context, so the pick is content-least
-  rather than retrieval order — the gloss reads the same however the KB was loaded."
+  rather than retrieval order — the gloss reads the same however the KB was loaded.
+
+  `nm/print-key` because the key is a *printed* one and its lexicographic order is the
+  contract: it releases all three print bounds, where a `*print-meta*` left at the
+  caller's setting keys a form carrying metadata apart from one that does not.  Built
+  once per candidate rather than once per comparison (`min-by-content-key`), which is
+  the whole of what a term commented in one context costs."
   [kb term]
-  (when-let [hit (->> (v/sentexes-matching kb (list 'comment term '?text) '?ctx)
-                      (sort-by (fn [sx]
-                                 (binding [*print-length* nil *print-level* nil]
-                                   (pr-str [(:sentence sx) (str (:context sx))]))))
-                      first)]
+  (when-let [hit (nm/min-by-content-key
+                  #(nm/print-key [(:sentence %) (str (:context %))])
+                  compare
+                  (v/sentexes-matching kb (list 'comment term '?text) '?ctx))]
     (template (nth (:sentence hit) 2 nil))))
 
 ;; ---- rendering a term ----------------------------------------------------
@@ -228,9 +234,8 @@
   `apposition?` is false wherever the gloss is nested — inside a rule or a negation —
   because a clause carrying a dashed definition of each of its terms stops being a
   sentence anyone can read."
-  [kb [pred arg] apposition?]
-  (let [t    (comment-template kb pred)
-        head (articles (str (term-words arg) " is a " (term-words pred)))
+  [[pred arg] t apposition?]
+  (let [head (articles (str (term-words arg) " is a " (term-words pred)))
         d    (some-> t :text str/trim not-empty)]
     (cond
       (and d apposition?) {:text   (str head " — " (str/lower-case (subs d 0 1)) (subs d 1))
@@ -279,9 +284,13 @@
      (let [{:keys [text source]} (literal kb (second sent) false)]
        {:text (str "it is not true that " text) :source source})
 
-     (and (= 2 (count sent))
-          (not= 1 (count (:params (comment-template kb (first sent))))))
-     (type-literal kb sent apposition?)
+     (= 2 (count sent))
+     ;; the template is read once and handed down — `type-literal` needs the same one,
+     ;; and each read is a `sentexes-matching` plus a content sort
+     (let [t (comment-template kb (first sent))]
+       (if (not= 1 (count (:params t)))
+         (type-literal sent t apposition?)
+         (relation-literal kb sent)))
 
      :else (relation-literal kb sent))))
 
@@ -350,10 +359,11 @@
   names — the shape a reader recognizes, rather than the canonical `?var0` the store
   keeps."
   [kb sx]
-  (gloss kb (if (:antecedent sx)
-              {:antecedent (conjuncts (second (v/readable-sentence sx)))
-               :consequent (nth (v/readable-sentence sx) 2 nil)}
-              (v/readable-sentence sx))))
+  (let [sent (v/readable-sentence sx)]
+    (gloss kb (if (:antecedent sx)
+                {:antecedent (conjuncts (second sent))
+                 :consequent (nth sent 2 nil)}
+                sent))))
 
 (defn- terms-of
   "Every symbol in a sentence, as it would be rendered — what `sentence-case` checks the
@@ -389,7 +399,9 @@
       ;; each other and from "this sentence has a named gloss already" — so a reader
       ;; who wires up a provider and sees no generated text has nothing to look at.
       (if-let [said (try (some-> (ask sentence) str str/trim not-empty)
-                         (catch Exception e
+                         ;; Throwable, like every other catch over a model's reply — a
+                         ;; StackOverflowError out of a deep answer is the reply's fault
+                         (catch Throwable e
                            (trove/log! {:level :warn :id ::gloss-failed :error e
                                         :msg "gloss generation failed; using the composed text"
                                         :data {:sentence sentence}})

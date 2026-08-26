@@ -47,7 +47,7 @@
     (nm/individual? sub)   (conj (str sub " is an individual; genl relates types"))
     (nm/individual? super) (conj (str super " is an individual; genl relates types"))
     (= sub super)          (conj (str sub " genl itself"))
-    (and (not= sub super) (tax/genl? tax super sub))
+    (and (not= sub super) (tax/genl?-global tax super sub))
     (conj (str "genl " sub " " super " creates a cycle (" super
                " is already a subtype of " sub ")"))))
 
@@ -56,6 +56,16 @@
     (not= 3 (count s))        (conj "genlCx takes two arguments")
     (not (nm/context? sub))   (conj (str sub " is not a context (must start with Cx)"))
     (not (nm/context? super)) (conj (str super " is not a context (must start with Cx)"))
+    ;; A **query context** spells like a context and is not one: it names a way of
+    ;; reading, is resolved at the read door and never reaches the engine
+    ;; (`nm/query-contexts`).  An edge naming one would be the only way to give it a
+    ;; place in the lattice, which is exactly what must not exist — `CxNothing` sees
+    ;; nothing *because* nothing wires it, and `CxEverything` / `CxInference` would
+    ;; start inheriting facts they are supposed to read past rather than from.
+    (nm/query-context? sub)   (conj (str sub " is a query context, not a place in the "
+                                         "hierarchy — nothing may genlCx it"))
+    (nm/query-context? super) (conj (str super " is a query context, not a place in the "
+                                         "hierarchy — nothing may genlCx it"))
     ;; a self-edge is refused because it claims nothing: the closure is reflexive, so
     ;; the edge was already true before it arrived.  A longer cycle *is* a claim
     ;; (mutual visibility) and is admitted — see the note above.
@@ -67,7 +77,7 @@
     (nm/individual? a)  (conj (str a " is an individual; disjoint relates types"))
     (nm/individual? b)  (conj (str b " is an individual; disjoint relates types"))
     (= a b)             (conj (str a " disjoint with itself"))
-    (and (not= a b) (or (tax/genl? tax a b) (tax/genl? tax b a)))
+    (and (not= a b) (or (tax/genl?-global tax a b) (tax/genl?-global tax b a)))
     (conj (str a " and " b " are genl-related, so they overlap and can't be disjoint"))))
 
 (defn disjointMetatype-problems [_ [_ m :as s]]
@@ -97,7 +107,7 @@
   **The constrained relation is not held to a spelling.**  A *function* has argument
   positions exactly as a predicate does — `(arg Milli 1 unit_of_measure_no_prefix)`
   says what the argument of a NAT `(Milli Meter)` must be, which is the same kind of
-  claim `resultIsa` makes about its result — and a function is CapitalCamelCase, which
+  claim `result` makes about its result — and a function is CapitalCamelCase, which
   is also how an individual is spelled.  So no spelling test can separate the relation
   this check wants to admit from the term it would want to refuse, and refusing on the
   capital costs the whole vocabulary of function argument types.  The position and the
@@ -330,7 +340,7 @@
   cycle.  And **both sides must be the same role** — predicate-with-predicate,
   type-with-type, individual-with-individual (`roles-clash?`): rewriting a term of
   one kind into another is meaningless (merging `Muffet` into `dog`) and a likely
-  import bug.  Unlike round one, a predicate or a type *is* now a legal `rewriteOf`
+  import bug.  A predicate or a type *is* a legal `rewriteOf`
   target — the merge moves its trie keys, functor root, rule-index postings and
   `genl` closure with it (docs/equality.md).  `sameAs` / `equals` stay
   individuals-only (OWL); `rewriteOf` is the spelling relation, so it is the one
@@ -379,10 +389,10 @@
         (str/join " " args) "))")])
 
 (defn naf-problems
-  "`unknown`, `thereExists` and the five **aggregates** are **not assertible**.  They
-  are query operators — closed-world negation, existential closure, and a reduction
-  over a query's solutions — answered by a prover and never stored (docs/naf.md,
-  docs/aggregate.md).  `(unknown S)` states no fact: it is a *test* on what the KB
+  "`unknown`, `thereExists`, `forall` and the five **aggregates** are **not assertible**.
+  They are query operators — closed-world negation, existential closure, the universal
+  that is two of the first around the second, and a reduction over a query's solutions —
+  answered by a prover and never stored (docs/naf.md, docs/aggregate.md).  `(unknown S)` states no fact: it is a *test* on what the KB
   derives, so stored as a premise it would be a fact with a made-up predicate that
   nothing consults.  `(agg/count 3 ?v S)` states no fact for the sharper reason
   that it states a *stale* one: a count is a function of what is believed now, so
@@ -452,8 +462,8 @@
   closure is the **global** one for the same reason — a context-narrowed fan would
   under-approximate the graph and admit an unstratified rule set."
   [tax {:keys [antecedent-preds exception-preds]}]
-  (concat (for [p antecedent-preds, s (tax/specs tax p)] [:depends-on s])
-          (for [p exception-preds,  s (tax/specs tax p)] [:excepts-on s])))
+  (concat (for [p antecedent-preds, s (tax/specs-global tax p)] [:depends-on s])
+          (for [p exception-preds,  s (tax/specs-global tax p)] [:excepts-on s])))
 
 (defn negation-cycle
   "Search the rule dependency graph for a cycle through negation created by adding
@@ -470,9 +480,9 @@
   assert runs this check, so the stored graph is already free of them and whatever
   is being added can only close a cycle that passes through it.  For a *rule* that
   start node is the rule itself; for a *taxonomy edge*, which passes through no
-  single rule, the caller starts the walk at each rule carrying an exception —
-  complete, because every cycle through negation crosses a negative edge and
-  negative edges leave excepted rules only.
+  single rule, the caller starts the walk at each rule a negative edge leaves —
+  complete, because every cycle through negation crosses a negative edge, and
+  `checks/negative-edge-rules` is the roster of the rules one can leave.
 
   The search state is `[rule negative?]` rather than the rule alone: a node reached
   with and without a negative edge behind it are different states, since only the

@@ -39,7 +39,9 @@ query operators `agg/count` / `agg/sum` / `agg/min` / `agg/max` / `agg/avg` —
 namespaced like `set/*Rule`, the bare words being ordinary vocabulary.
 `(agg/count ?n ?v Body)` binds `?n` to a
 reduction over the distinct `?v` satisfying `Body`, evaluated at level 6. `?v`
-is projected out, one answer or none, nothing stored. In a rule antecedent the
+is projected out, one answer or none, nothing stored. A conjunctive `Body` is **joined**,
+its conjuncts sharing `?v` — so *how many of Bob's children are
+asleep* is one witness satisfying both. In a rule antecedent the
 aggregate runs once per binding the generators supply, which is where GROUP BY
 comes from. See [aggregate.md](aggregate.md).
 
@@ -49,19 +51,22 @@ of 13 base relations between two stretches of time — `before`, `meets`,
 `vaelii.impl.interval`, registered as `:allen`. See [time.md](time.md).
 
 **`and`** ![kb](../.github/badges/cat-kb.svg): The conjunction connective.
-`(and S1 S2 …)` holds when every conjunct holds; it is canonicalized into a
-rule's antecedent vector rather than stored as data. See
+`(and S1 S2 …)` holds when every conjunct holds; in an antecedent it is
+canonicalized into the rule's antecedent vector rather than stored as data,
+and in a *consequent* it is polycanonicalized into one rule per conjunct. See
 [canonicalization.md](canonicalization.md).
 
 **Antecedent** ![kb](../.github/badges/cat-kb.svg): The premise side of a rule
 sentex, stored as a vector of literals. Empty for a fact. Canonically ordered
 and variable-renamed so rules identical up to antecedent order dedup to one
-handle. See [inference.md](inference.md).
+handle. A written `or` never reaches the vector: the rule is polycanonicalized
+into one per alternative first. See [inference.md](inference.md).
 
 **Anytime inference** ![inference](../.github/badges/cat-inference.svg):
 Resource-bounded query (`ask-within` / `prove-within` / `resume`): realize a
 lazy answer stream under a budget (`:max-ms` / `:max-results` / `:max-cost` /
-`:max-depth`) and report whether it ran to `:complete` or was cut short. The
+`:max-depth` / `:max-term-growth`) and report whether it ran to `:complete` or was cut
+short. The
 unrealized tail is the resumable continuation. See [anytime.md](anytime.md).
 
 **`arg`** ![kb](../.github/badges/cat-kb.svg): An argument-type constraint.
@@ -119,12 +124,14 @@ so the same knowledge in any order yields the same beliefs. See
 **Brave / cautious** ![asp](../.github/badges/cat-asp.svg): The two readings of
 a tie the solver leaves open. A conclusion is *cautious* when it holds in every
 optimal answer set and *brave* when it holds in at least one; the committed
-labeling believes the cautious ones and leaves the merely brave ones OUT. See
+labeling holds every cautious one, and a merely brave one is believed exactly when
+the answer set that was picked holds it. See
 [labeling.md](labeling.md).
 
 **Budget** ![inference](../.github/badges/cat-inference.svg): The consumer-side
 bound on a lazy answer stream that makes inference anytime — carrying `:max-ms`,
-`:max-results`, `:max-cost`, and `:max-depth`. See [anytime.md](anytime.md).
+`:max-results`, `:max-cost`, `:max-depth` and `:max-term-growth`. See
+[anytime.md](anytime.md).
 
 ## C
 
@@ -144,6 +151,13 @@ sentence is stored in so logically identical knowledge stores once — canonical
 variables, canonical literal order, symmetric-argument sorting, and comparison
 folding. See [canonicalization.md](canonicalization.md).
 
+**`closedExtentPredicate`** ![kb](../.github/badges/cat-kb.svg): The grant that
+a predicate's **believed** extent is complete, so nothing answering `(P a)` at
+level 6 is what answers `(not (P a))`. Read from the asking context's `genlCx`
+up-cone, so it is a policy of the theory that closes the extent; a closed
+`(not (P …))` rule antecedent under it is negation as failure. See
+[naf.md](naf.md).
+
 **`comment`** ![kb](../.github/badges/cat-kb.svg): A documentation sentex —
 `(comment <term> "…")` — that lets the CxCore vocabulary document itself in
 its own representation, read back by `core-context/comment-of`. See
@@ -161,7 +175,8 @@ occurrence and migration rewrites it. See [equality.md](equality.md).
 
 **Consequent** ![kb](../.github/badges/cat-kb.svg): The conclusion side of a rule
 sentex. A rule concluding a conjunction is polycanonicalized into one rule per
-conjunct. See [inference.md](inference.md).
+conjunct; a disjunctive conclusion is refused, being a choice rather than a
+derivation. See [inference.md](inference.md).
 
 **Constraint network** ![qr](../.github/badges/cat-qr.svg): `{[a b] → #{base
 relations}}` over a set of nodes — a value, not a store, read out of the
@@ -226,15 +241,25 @@ condition ⇒ member, `defnIff` both. The companion rule is derived — justifie
 `defn*` fact alone — so retraction and belief follow it. Open-world: nothing concludes a
 non-member from the condition's absence. See [defns.md](defns.md).
 
+**`describe`** ![kb](../.github/badges/cat-kb.svg): Everything the KB holds about
+one term, in one map, keyed by the term's own `term-role` — arity, the argument
+declarations, the relation properties, the closures, the counts and the comment for a
+predicate; the disjointness and the admitting predicates for a type; the types and
+mention counts for an individual; the two `genlCx` cones for a context. Read from the
+asking context's up-cone, since a declaration and a grant are policies of the context
+that states them, and every list is a window carrying its own `:total` / `:exact?` /
+`:sorted?`. The browser's term page renders it. See [api.md](api.md).
+
 **`different`** ![kb](../.github/badges/cat-kb.svg): Provable exactly when no two
 arguments share an equivalence class — negation as failure over the equality
 closure, keeping the unique-name assumption. Variable-arity, ground-only, and
 not assertible. See [equality.md](equality.md).
 
 **Direction** ![kb](../.github/badges/cat-kb.svg): Whether a rule chains
-`:forward`, `:backward`, `:inert`, or `:both`. Written with a `set/*Rule`
-wrapper that canonicalizes into the record's `:direction` field; the chainers
-read the field. See [inference.md](inference.md).
+`:forward`, `:backward`, `:inert`, or `:both`. The first three are written with a
+`set/*Rule` wrapper — `set/forwardRule` / `set/backwardRule` / `set/inertRule` — that
+canonicalizes into the record's `:direction` field; a bare `implies` needs none and
+reads `:both`. The chainers read the field. See [inference.md](inference.md).
 
 **`disjoint` / `disjointMetatype`** ![kb](../.github/badges/cat-kb.svg): Declare
 types share no instance, closed under genl. A metatype's members are pairwise
@@ -298,8 +323,20 @@ cardinality being its own stored count. See [indexing.md](indexing.md).
 called with the belief a settle added and took away, in `preview`'s entry shapes,
 instead of an application re-asking. One settle is one event, so a batch is one
 call; a **standing query** is a filter over the moved region and never a re-run of
-its goal. Silent under `preview` and `recover`, and refuses a goal the region
-cannot answer. See [feed.md](feed.md).
+its goal. Silent under `preview`, `recover` and `reindex`, and refuses a goal the
+region cannot answer. See [feed.md](feed.md).
+
+**Fluent** ![kb](../.github/badges/cat-kb.svg): A state of affairs that holds
+over some stretches of time and not others — a cat asleep, a tortoise ahead. A fluent
+is a **term** rather than a sentence: a reified NAT like `(AsleepFn Whiskers)`, one
+constant per subject, so `holdsAt` stays an ordinary binary predicate over two terms.
+An event `initiates` one and `terminates` another. See [time.md](time.md).
+
+**`forall`** ![inference](../.github/badges/cat-inference.svg): The universal, and
+sugar rather than a mechanism: `(forall ?y (implies Body Head))` is ¬∃?y (Body ∧ ¬Head),
+which in a closed world canonicalizes into the nested NAF
+`(unknown (thereExists ?y (and Body (unknown Head))))`. The binder is local to it;
+the vacuous case (no `?y` satisfies `Body`) reads true. See [naf.md](naf.md).
 
 **Fork** ![backend](../.github/badges/cat-backend.svg): `core/fork` — a private,
 writable KB over another's stores. Reads resolve fork-first and fall through to
@@ -327,8 +364,8 @@ read via `sentexes-with-functor` / `count-with-functor`. See
 ## G
 
 **`genl` / `genlCx`** ![kb](../.github/badges/cat-kb.svg): The two
-transitively-closed relations — `genl` between unary types, `genlCx`
-between contexts. Cached as reflexive-transitive up/down closures, recomputed on
+transitively-closed relations — `genl` between unary types and between
+predicates, `genlCx` between contexts. Cached as reflexive-transitive up/down closures, recomputed on
 edge change, belief-following. See [taxonomy.md](taxonomy.md).
 
 ## H
@@ -337,6 +374,11 @@ edge change, belief-following. See [taxonomy.md](taxonomy.md).
 sentex or justification is referenced by, allocated in assertion order. Belief
 tie-breaks never key on it, or arrival order would leak in. See
 [storage.md](storage.md).
+
+**`holdsAt`** ![kb](../.github/badges/cat-kb.svg): `(holdsAt F T)` — is fluent
+`F` the case at instant `T`? Never stated and never stored: it is what inertia
+derives from the events a narrative gives, and it is backward-only, since a fluent
+holds at every moment between its start and its end. See [time.md](time.md).
 
 ## I
 
@@ -350,9 +392,10 @@ differ in whether the KB *believes* what it stores.
 
 - An **inert rule** — `set/inertRule`, or `{:direction :inert}` — is believed,
   indexed and browsable, and chains in neither direction. It is a rule kept as
-  **documentation**: the transitivity of `genl` is written down where a reader
-  looks for it while the cached closure is what actually computes it
-  ([taxonomy.md](taxonomy.md)). Its own `:strength` is an ordinary class —
+  **documentation**: the shipped one is CxCore's global lifting rule, written down
+  where a reader looks for it while the code is what actually runs it
+  ([taxonomy.md](taxonomy.md)).  `genl`'s transitivity is not written this way — its
+  cached closure is described in the `comment` on the predicate. Its own `:strength` is an ordinary class —
   there is no `:inert` strength, the two assertable classes being `:default`
   and `:monotonic`.
 - An **inert sentex** — `core/assert-inert` — is stored, indexed and durable but
@@ -364,6 +407,13 @@ differ in whether the KB *believes* what it stores.
 
 See [inference.md](inference.md) for the first and [solving.md](solving.md) for
 the second.
+
+**Inertia** ![inference](../.github/badges/cat-inference.svg): A state persists
+until something ends it. The content of the shipped event calculus (`CxChange`): a
+fluent an event `initiates` at one instant still `holdsAt` a later one exactly while
+`(unknown (clipped …))` — nothing terminated it in between. Undercutting rather than
+defeat, so a terminating event heard of later leaves no conclusion to arbitrate.
+See [time.md](time.md).
 
 **`ist`** ![kb](../.github/badges/cat-kb.svg): "Is true in" — `(ist Ctx S)`
 finds-or-creates `S` in `Ctx` and returns its handle. Not stored as data; in a
@@ -384,11 +434,19 @@ valid justification and is not defeated. The **record store** holds it; the JTMS
 holds only the part belief is computed from (`jtms/graph-just`, which drops the
 bindings). See [nmtms.md](nmtms.md).
 
+**`kb-diff`** ![kb](../.github/badges/cat-kb.svg): What two KBs disagree about, as
+content: `{:added :removed :moved :belief-changed}`, keyed on the canonical sentence,
+its context and its strength and never on a handle — so a KB reloaded from its own
+text export diffs empty. `:moved` is one sentence in a different context and
+`:belief-changed` one stored in both and believed in one, which is what a defeated
+default reads as. Premises and derived sentexes alike, told apart by `:premise?`;
+justifications, provenance and handles are not compared. See [api.md](api.md).
+
 ## L
 
 **Labeling** ![asp](../.github/badges/cat-asp.svg): Materializing one optimal
 answer set as belief — every datum in the settled tie assigned `:true`,
-`:false` or `:unknown`, checked against the brave/cautious classification of the
+`:supportable` or `:false`, checked against the brave/cautious classification of the
 same tie. See [labeling.md](labeling.md).
 
 **`lessThan` / `greaterThan`** ![inference](../.github/badges/cat-inference.svg):
@@ -456,6 +514,14 @@ literal keeps its `not` in the index as polarity. See
 
 ## O
 
+**`or`** ![kb](../.github/badges/cat-kb.svg): The disjunction connective, legal in a
+rule **antecedent** and nowhere else. It never reaches a stored sentence: the
+rule is polycanonicalized into one rule per alternative, distributed to DNF and
+capped at 16. A disjunctive *conclusion* is a choice rather than a derivation and
+is written with `set/assumptionRule` ([solving.md](solving.md)); a disjunctive
+*goal* is refused, a read normalizing to one conjunction. See
+[canonicalization.md](canonicalization.md).
+
 **Order independence** ![tms](../.github/badges/cat-tms.svg): The JTMS invariant
 that the same knowledge asserted in any order yields the same beliefs — belief
 is computed from state, and every tie-break keys on content, never on handle id.
@@ -482,10 +548,13 @@ once, so they multiply it) held to the back on structure rather than on an
 estimate. The cost model is the count-aware trie
 itself. See [inference.md](inference.md).
 
-**Polycanonicalization** ![kb](../.github/badges/cat-kb.svg): Splitting a rule
-whose consequent is a conjunction into one rule per conjunct, so
-`(implies A (and C1 C2))` stores as two rules and `assert` returns the vector of
-handles. See [canonicalization.md](canonicalization.md).
+**Polycanonicalization** ![kb](../.github/badges/cat-kb.svg): Storing one written
+rule as several, so a connective that is not about one rule never reaches a
+record. Two causes: a conjunctive consequent splits per conjunct
+(`(implies A (and C1 C2))`), and a disjunctive antecedent distributes per
+alternative (`(implies (or A B) C)`); together they store the product. `assert`
+returns the vector of handles whenever a rule expanded. See
+[canonicalization.md](canonicalization.md).
 
 **Premise** ![tms](../.github/badges/cat-tms.svg): An asserted datum held IN
 unconditionally (subject to defeat/supersession), as opposed to a derived
@@ -515,6 +584,18 @@ exist. Takes a sentence or a **vector** of them (a conjunctive query joining on 
 variables) at any depth. The believed-literal *match* is `sentexes-matching`, which is a
 different question and returns sentexes. See [api.md](api.md),
 [inference.md](inference.md).
+
+**Query context** ![kb](../.github/badges/cat-kb.svg): One of `CxEverything`,
+`CxInference` and `CxNothing` — a `Cx…` symbol naming a **way of reading** rather than a
+place. Resolved at the read door and never reaching the engine; refused at `assert` and in
+the `genlCx` slots, so nothing is stored in one and nothing wires one into the lattice.
+`CxEverything` reads the store as spelled, belief ignored; `CxInference` keeps only what
+one reader's `genlCx` cone sees over the whole derivation and reports that reader as
+`:context`;
+`CxNothing` sees no fact at all, leaving the provers. A **variable** context (`?ctx`, the
+default of every short arity, or any name) is the same reading as `CxInference`, the witness
+being unified into that variable rather than arriving as `:context`. See
+[contexts.md](contexts.md), [from-cyc.md](from-cyc.md).
 
 **`quotedArg`** ![kb](../.github/badges/cat-kb.svg): An argument-type constraint on the
 argument **as a term** — its EDN kind (`string`, `number` with `integer` below it,
@@ -546,7 +627,8 @@ of what changed — the scope a relabel is confined to, with everything outside
 held fixed as a boundary. See [nmtms.md](nmtms.md).
 
 **`reindex`** ![backend](../.github/badges/cat-backend.svg): Rebuild the index store
-(the trie, secondary roots, rule index, and term index) wholesale from the
+(the trie, secondary roots, rule index, exception re-check index, and term index)
+wholesale from the
 records, then recover — the repair for a stale on-disk index layout. See
 [indexing.md](indexing.md).
 
@@ -634,6 +716,14 @@ Costing each conjunct under the bindings the already-chosen literals will
 produce, so the plan reflects the fan-out a literal actually runs with. See
 [inference.md](inference.md).
 
+**Sign** ![qr](../.github/badges/cat-qr.svg): One of the three values
+`SignNegative` / `SignZero` / `SignPositive` a quantity takes — jointly
+exhaustive and pairwise disjoint over the reals, so a *set* of them is a
+constraint and its complement a refutation. `signOf` states one;
+`qualitativeSum` / `qualitativeDifference` / `qualitativeProduct` compute with
+them, and `greaterInMagnitudeThan` settles the one ambiguous entry in the
+addition table. See [sign.md](sign.md).
+
 **Skolemization** ![inference](../.github/badges/cat-inference.svg): Replacing
 a rule conclusion's existential variable with a term built from the variables
 the antecedent bound, so the same binding names the same witness twice and a
@@ -648,6 +738,15 @@ purely positive cycle is ordinary recursion. See [exceptions.md](exceptions.md).
 premise / the class a justification confers — exactly two, `:monotonic` >
 `:default`. It propagates from the antecedents: a conclusion is never stronger
 than what it rests on. See [nmtms.md](nmtms.md).
+
+**Subsumption (rules)** ![inference](../.github/badges/cat-inference.svg): One rule
+covering another — a substitution σ making the covering rule's antecedents a subset of the
+covered rule's and its consequent the covered rule's conclusion, so it fires wherever the
+covered rule does and concludes at least as much. Predicate-genl aware in both halves and
+in opposite directions: an antecedent is covered by one on a *spec*, a consequent covers
+one on a *genl*. A reading (`kb-quality`'s `:subsumption`), never a rewrite — nothing is
+retracted. See [quality.md](quality.md); the matching-time relation it is built out of is
+[inference.md](inference.md)'s predicate subsumption.
 
 **Superseded** ![tms](../.github/badges/cat-tms.svg): The TMS state an equality
 merge puts a stale spelling in — stored but not believed and not matching,
@@ -682,8 +781,9 @@ it and leaves with the last. See [indexing.md](indexing.md).
 
 **`thereExists`** ![inference](../.github/badges/cat-inference.svg): The
 existential closer — `(thereExists ?x S)` projects `?x` out, so
-`(unknown (thereExists ?x S))` reads "there is no `x` such that S". A standalone
-positive one desugars to `S` with `?x` a local matched variable. See
+`(unknown (thereExists ?x S))` reads "there is no `x` such that S". A conjunctive
+`S` is joined, so one witness satisfies all of it. A standalone positive one
+desugars to `S`'s conjuncts with `?x` a local matched variable. See
 [naf.md](naf.md).
 
 **`thing`** ![kb](../.github/badges/cat-kb.svg): The root of the `genl` type
@@ -699,6 +799,12 @@ predicate. `transitiveInArgInverse` reads it the other way. See
 sense, done by cached closures rather than rules for `genl` / `genlCx`, and
 by metadata-driven provers for a `(transitive P)` predicate. See
 [taxonomy.md](taxonomy.md).
+
+**Trend** ![qr](../.github/badges/cat-qr.svg): Whether a quantity is falling,
+steady or rising — the *sign* of its rate of change, stated as `(trendOf Q S)`.
+Not a second theory: `(derivativeOf R Q)` names the rate, and the trend is that
+rate's sign read at the other end of the edge, a constraint running both ways.
+See [sign.md](sign.md).
 
 ## U
 
@@ -720,7 +826,8 @@ preserved even under the equality closure and made provable by `different`. See
 
 **`unknown`** ![inference](../.github/badges/cat-inference.svg): The negation-as-
 failure prover — `(unknown S)` holds iff `S` is not derivable over the level-6
-prover list. Ground/closed only and never stored. See [naf.md](naf.md).
+prover list. A conjunctive `S` is **joined**, so its conjuncts may share a
+quantifier's variable. Ground/closed only and never stored. See [naf.md](naf.md).
 
 ## V
 
@@ -742,9 +849,10 @@ each a pass finding more than it will file — the first naming whichever bound 
 cut walk or the entry cap, the second the cap alone; a retroactive
 `:arity` reach beside a `:non-confluent` pair of equations; and the provers' own —
 `:aggregate` for an extent that will not reduce, `:qualitative-inconsistency` and the two
-`:metric-temporal-*` for a network a context cannot satisfy. An entry about a pair or a
-budget carries no `:sentence` or `:context`, and a network report carries a `:context`
-with no `:sentence`. The roster of every kind, with the `:detail` keys each carries, is
+`:metric-temporal-*` for a network a context cannot satisfy, and `:sign-inconsistency`
+for sign facts that leave a quantity no sign at all. An entry about a term, a pair or
+a budget carries no `:sentence` or `:context`, and a network report or a
+`:post-join-ambiguous` carries a `:context` with no `:sentence`. The roster of every kind, with the `:detail` keys each carries, is
 the set of tables in `core/violations`' docstring, pinned to the sources by
 `violation_roster_test`. See [inference.md](inference.md),
 [nmtms.md](nmtms.md).
@@ -764,4 +872,7 @@ stratification. See [naming.md](naming.md).
 **`why` / `why-not`** ![tms](../.github/badges/cat-tms.svg): Introspection.
 `why` returns the proof tree of a believed handle down to premises; `why-not`
 explains a stored-but-OUT datum (`:defeated` / `:superseded` / `:unsupported`)
-or a blocked conclusion. See [nmtms.md](nmtms.md).
+or a blocked conclusion. `why-not`'s `{:nearest n}` answers the one case with nothing
+stored to explain: it runs a bounded backward search and names the rules that came
+closest, with the antecedents each is still missing. See [nmtms.md](nmtms.md),
+[api.md](api.md).

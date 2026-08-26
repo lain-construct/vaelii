@@ -11,6 +11,7 @@
             [vaelii.core :as v]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.catalog :as catalog]
+            [vaelii.impl.config :as config]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.jobs :as jobs]
             [vaelii.impl.web :as web]
@@ -82,6 +83,47 @@
     (is (re-find #"<h3>Profiler</h3>" body))
     (is (re-find #"Not on the classpath" body))
     (is (not (re-find #"localhost:8080" body)))))
+
+(deftest the-profiler-ui-starts-once-however-many-callers-ask-at-once
+  ;; Two entry points call `start-profiler`, and a namespace reload calls it again — but a
+  ;; read of the state followed by a start is two steps, and two threads both pass the read
+  ;; before either has started anything.  The second start then binds the port the first is
+  ;; already listening on, which is the thing the state exists to prevent.  Eight threads
+  ;; released from one latch, and the dependency stubbed so nothing real binds a port.
+  (let [starts (atom 0)
+        gate   (java.util.concurrent.CountDownLatch. 1)
+        state  @#'web/profiler-state]
+    (try
+      (with-redefs-fn {#'config/profiler?      (constantly true)
+                       #'web/profiler-serve-ui (constantly (fn [_port] (swap! starts inc)))}
+        (fn []
+          (let [threads (into [] (repeatedly 8 #(doto (Thread. ^Runnable
+                                                       (fn [] (.await gate)
+                                                         (web/start-profiler)))
+                                                  (.start))))]
+            (.countDown gate)
+            (doseq [^Thread t threads] (.join t 30000)))))
+      (is (= 1 @starts) "one UI, whoever asked")
+      (is (= {:port (config/profiler-port)} @state) "and the state names the port it is on")
+      (finally (reset! state nil)))))
+
+(deftest a-profiler-that-would-not-start-leaves-the-claim-free
+  ;; The claim is released on the way out of a failed start: nothing holds the port, so a
+  ;; later call — the other entry point, or a reload — must be free to try again rather
+  ;; than find the state permanently claimed by an attempt that started nothing.
+  (let [attempts (atom 0)
+        state    @#'web/profiler-state]
+    (try
+      (with-redefs-fn {#'config/profiler?      (constantly true)
+                       #'web/profiler-serve-ui (constantly (fn [_port]
+                                                             (swap! attempts inc)
+                                                             (throw (java.net.BindException. "in use"))))}
+        (fn []
+          (web/start-profiler)
+          (is (nil? @state) "the failed start put the state back")
+          (web/start-profiler)
+          (is (= 2 @attempts) "so the next caller got its turn")))
+      (finally (reset! state nil)))))
 
 ;; ---- the clear ----------------------------------------------------------
 

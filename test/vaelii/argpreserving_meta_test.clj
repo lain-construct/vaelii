@@ -3,9 +3,10 @@
 (ns vaelii.argpreserving-meta-test
   "The argument-type meta-predicates answer along the `genl` closure on the query
   surface, so `ask` agrees with the generalization `check` already walks internally.
-  Before this, a stored `(arg petMammal 1 mammal)` was the only thing
+  Read literally instead, a stored `(arg petMammal 1 mammal)` is the only thing
   `(ask (arg petMammal 1 animal))` could return — nothing — even though
-  `(genl mammal animal)` holds and `check` would accept an animal there, closing #20.
+  `(genl mammal animal)` holds and `check` accepts an animal there, and the two doors
+  disagree about one declaration.
 
   The engine answers it in `provers/MetaConstraintProver`, a bounded closure walk, and
   NOT by declaring the meta-predicates `transitiveInArg` — that would tax every one of
@@ -39,7 +40,7 @@
     (testing "the literally stored declaration is answerable, and it is stored"
       (is (v/ask? kb (list 'arg petMammal 1 mammal) C))
       (is (seq (v/sentexes-matching kb (list 'arg petMammal 1 mammal) '?ctx))))
-    (testing "the supertype answers even though nobody stored it — the gap #20 names"
+    (testing "the supertype answers even though nobody stored it — the gap this closes"
       (is (v/ask? kb (list 'arg petMammal 1 animal) C))
       (is (empty? (v/sentexes-matching kb (list 'arg petMammal 1 animal) '?ctx))
           "answered on demand, never materialized"))

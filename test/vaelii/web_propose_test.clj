@@ -301,7 +301,35 @@
     (let [r (POST-to "/propose/apply"
                      {"line" (pr-str ['(partOf penguin wing feather) 'CxOrganism])})]
       (is (re-find #"Nothing was stored" (:body r)))
-      (is (empty? (v/sentexes-matching kb '(partOf penguin wing feather) 'CxOrganism))))))
+      (is (empty? (v/sentexes-matching kb '(partOf penguin wing feather) 'CxOrganism)))))
+  (testing "and a target this process does not hold is refused outright, where that same
+            check cannot run at all"
+    ;; The panel, the turn and the preview each say a proposal needs the KB in process.
+    ;; The apply is the one that writes, so it is the one that must not be the exception:
+    ;; `report-only-problems` is a KB read, and without a local KB it is skipped — the
+    ;; line it exists to hold back would be stored on the strength of a field the
+    ;; browser sent.
+    (let [r (web/propose-apply-post
+             {:kb {:mode :remote}}
+             (pr-str ['(partOf penguin wing feather) 'CxOrganism]))]
+      (is (str/includes? (:body r) "KB in this process"))
+      (is (empty? (v/sentexes-matching tu/*kb* '(partOf penguin wing feather) 'CxOrganism))))))
+
+(tu/deftest-kb the-commit-refuses-a-report-only-line-with-a-row-of-its-own
+  ;; The refusals a commit answers with are a mixed list: what `check` says about a
+  ;; sentence, and this — a line the KB would take but the *correction* would not, since
+  ;; `apply-correction` found something it cannot repair and offers no shape to store
+  ;; instead.  They are different answers to the reader, so they carry different `:type`s:
+  ;; the sentence is not malformed, it is the one the warning is about.
+  (let [{:keys [term ctx]} (a-page kb)
+        rows (#'web/report-only-problems kb [['(partOf penguin wing feather) 'CxOrganism]])]
+    (is (= [:report-only] (mapv :type rows)))
+    (is (= '(partOf penguin wing feather) (:sentence (first rows)))
+        "naming the line, since a batch is refused whole and the reader has to know which")
+    (is (str/includes? (:message (first rows)) "not inferable")
+        "and carrying the correction's own reason for reporting rather than repairing")
+    (testing "a line the correction has nothing to say about contributes no row"
+      (is (empty? (#'web/report-only-problems kb [[(list 'genl term 'bird) ctx]]))))))
 
 (tu/deftest-kb the-review-list-is-a-keyboard-grid
   (let [{:keys [term ctx]} (a-page kb)
@@ -672,6 +700,33 @@
     (is (re-find #"class=\"p-level on\"[^>]*>Guided" (:body r)) "at the level asked for")
     (is (= asked-once (count (stub/requests stub)))
         "and the model was not asked a second time")))
+
+(tu/deftest-kb the-level-switch-is-guarded-exactly-as-the-row-it-reposts-is
+  ;; the two routes repost the same hidden fields and are held to the same reading of
+  ;; them — plus one the list has and the row does not: `from` and `ctx` are **zipped**,
+  ;; so a post carrying more of one than the other would re-render the shorter and drop
+  ;; the rest with nothing on the page to say a line went missing
+  (let [{:keys [term ctx]} (a-page kb)
+        one   (list 'genl term 'bird)
+        two   (list 'genl term 'animal)
+        level #(:body (POST-to "/propose/level" %))
+        line  #(:body (POST-to "/propose/line" %))]
+    (testing "the pair the sibling accepts still renders both lines"
+      (let [b (level {"from" [(pr-str one) (pr-str two)] "ctx" [(pr-str ctx) (pr-str ctx)]
+                      "level" "guided"})]
+        (is (re-find (re-pattern (str term)) b))
+        (is (re-find #"p-line" b))))
+    (testing "a sentence that does not read is refused, as it is on the row"
+      (is (= "" (level {"from" "(((" "ctx" (pr-str ctx) "level" "guided"})))
+      (is (= "" (line  {"from" "(((" "ctx" (pr-str ctx) "i" "0" "n" "1"}))))
+    (testing "and a context that is not a symbol, likewise"
+      (is (= "" (level {"from" (pr-str one) "ctx" "(CxNot A Context)" "level" "guided"})))
+      (is (= "" (line  {"from" (pr-str one) "ctx" "(CxNot A Context)" "i" "0" "n" "1"}))))
+    (testing "unequal counts are refused rather than zipped down to the shorter"
+      (is (= "" (level {"from" [(pr-str one) (pr-str two)] "ctx" (pr-str ctx)
+                        "level" "guided"})))
+      (is (= "" (level {"from" (pr-str one) "ctx" [(pr-str ctx) (pr-str ctx)]
+                        "level" "guided"}))))))
 
 (tu/deftest-kb the-guided-level-says-what-a-line-would-mean
   (let [{:keys [term ctx]} (a-page kb)

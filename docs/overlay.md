@@ -30,9 +30,9 @@ for another process.  A fork's own half also never writes into its base's direct
 both halves naming one store is refused outright (`:type :base-is-overlay`).
 
 ```clojure
-(def base (v/open-kb {:backend :disk :dir "/kb/frozen" :recover? :auto}))
+(def base (v/open-kb {:backend :disk-log :dir "/kb/frozen" :recover? :auto}))
 (def f    (v/fork base))                             ; ephemeral: an in-RAM overlay
-(def g    (v/fork base {:backend :disk :dir "/kb/g"})) ; durable: remountable later
+(def g    (v/fork base {:backend :disk-log :dir "/kb/g"})) ; durable: remountable later
 
 (v/assert f '(penguin Pingu) 'CxBird)   ; f believes it; base and g do not
 ```
@@ -46,8 +46,8 @@ remounted, in a later process, over the base it was taken against:
 
 ```clojure
 (v/open-kb {:backend :overlay
-            :base    {:backend :disk :dir "/kb/frozen"}
-            :overlay {:backend :disk :dir "/kb/g"}
+            :base    {:backend :disk-log :dir "/kb/frozen"}
+            :overlay {:backend :disk-log :dir "/kb/g"}
             :recover? :auto})
 ```
 
@@ -83,7 +83,7 @@ Two things follow, and they bound the feature.
 `IndexStore`: its trie is int-id nodes in parallel arrays, with no keys and no backend
 underneath, and only its roots / term / rule / exception families delegate to an embedded
 backend. A KV decorator over it would fork those and silently leave the trie behind, so
-`fork` refuses it by name. The forkable index axes are `:memory`, `:dense` and `:disk`.
+`fork` refuses it by name. The forkable index axes are `:memory`, `:dense` and `:disk-log`.
 
 **The TMS is not storage.** Belief lives behind its own protocol (`vaelii.impl.jtms`,
 with `dense-jtms` as a second implementation) over state derived from the records. A fork
@@ -129,7 +129,7 @@ when every one is inherited the whole narrowing goes to the base, which then doe
 whatever representation it holds rather than in sets the merge would have flattened it
 into first ([density.md](density.md)). Over a flat-map base the two roads read the same, because its
 `kv-members` is a reference return; over a `:dense` base, where the posting has to be
-materialized into a Clojure set first, counting through the merge cost 12.6 ms per call on
+materialized into a Clojure set first, counting through the merge cost ~13 ms per call on
 a 100,000-handle root — a selectivity read, per conjunct, on a key the fork had never
 written to. `lein perf --only overlay-selectivity` is the gate. `kv-member?` is the same
 observation at member granularity: it probes both sides rather than merging them, which is
@@ -176,6 +176,16 @@ deliberately, because that is what the caller asked for.
   Every mutation writes through and a mount rebuilds the atoms from it, so remounting a
   durable fork over the same base serves the merged view it was left in. An in-RAM fork
   gets an in-RAM one and pays nothing for the machinery.
+
+- **The optional capabilities cross the seam.** A base may carry `Tallying` and
+  `Prefetching` ([storage.md](storage.md)), and both are answered *through* the fork
+  rather than lost at it. The three samplers ask each half for one handle instead of
+  building the merged roster, falling back to the roster only when the handle sampled is
+  one this fork tombstoned or released — so `nil` still means *empty*. The two tallies are
+  the merged count and nothing cheaper, since `|base| + |own \ base| − |tombstoned|` needs
+  both sets. The prefetch hint is forwarded to both halves; a fork's own records never
+  prefetch, so it is the base's that matters — a fork `recover`s over the merged view, and
+  a base whose fetch is a round trip is exactly what the hint is for.
 
 **Counts need no delta bookkeeping.** A `RecordStore` exposes handle *sets*, not
 counts, and everything counted — `sentex-count`, `count-in-context`, `count-with-functor` —

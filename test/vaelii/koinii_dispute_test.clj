@@ -8,8 +8,8 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.koinii.dispute :as d]
-            [vaelii.impl.koinii.identity :as id]
+            [vaelii.koinii.dispute :as d]
+            [vaelii.koinii.identity :as id]
             [vaelii.test-util :as tu]))
 
 (defn- dispute-kb [] (doto (tu/fresh) (core-context/load-into)))
@@ -213,10 +213,54 @@
       (is (seq (d/disputes-in kb 'CxDeploy)) "still a live clash")
       (is (= :contradiction (:verdict (v/argue kb P 'CxDeploy)))))
     (testing "the stale mark is a plain fact why can explain"
-      (let [sx (first (v/sentexes-matching kb
-                                           (list 'disputeStale (d/dispute-term did) '?at '?r) d/state-context))]
+      (let [[sx & more] (v/sentexes-matching
+                         kb (list 'disputeStale (d/dispute-term did) '?at '?r) d/state-context)]
+        (is (nil? more) "one stale mark for the dispute, so reading it names no order")
         (is (some? sx))
         (is (:believed? (v/why kb (:id sx))))))
     (testing "reopen! clears it too"
       (is (= 1 (d/reopen! kb did)))
       (is (= :open (d/dispute-state kb did))))))
+
+(tu/deftest-kb reopen-clears-both-mark-kinds-in-one-pass
+  ;; The reopen walks two mark reads and retracts as it goes.  Both kinds present is the
+  ;; case that has the second read running after the first retracts have landed, so the
+  ;; whole mark set is realized before anything is torn down — a live index read is not a
+  ;; snapshot, and a retract in the middle of one is a read of a KB that has moved.
+  (cross-agent-clash! kb)
+  (let [did (:dispute-id (first (d/disputes-in kb 'CxDeploy)))]
+    (d/mark-notified kb did 1750000000000)
+    (d/mark-stale kb did 1750000009999 'TimedOut)
+    (is (d/notified? kb did))
+    (is (d/stale? kb did))
+    (is (= :stale (d/dispute-state kb did)) "stale outranks notified while both stand")
+    (testing "one reopen takes both, and counts both"
+      (is (= 2 (d/reopen! kb did)))
+      (is (not (d/notified? kb did)))
+      (is (not (d/stale? kb did)))
+      (is (= :open (d/dispute-state kb did)) "the still-live clash is back at :open"))
+    (testing "and it is idempotent — a second reopen finds nothing"
+      (is (zero? (d/reopen! kb did))))))
+
+;; ---- a clash with more than two members gets a name of its own -----------
+
+(clojure.test/deftest a-three-member-dispute-is-named-by-all-three-handles
+  ;; A nogood is a SET, and `antiTransitive` forms one over three sentexes
+  ;; (docs/nmtms.md), so `disputes-in` hands back three-handle entries — "a caller
+  ;; destructuring `:handles` as a pair is reading a coincidence."  The lifecycle term is
+  ;; where that bites: the stored `:notified` / `:stale` marks are keyed on it and the
+  ;; sweeps read them as their idempotency key, so a term naming only the two lowest
+  ;; handles would mark one dispute and silently retire another.
+  ;;
+  ;; A pure test — `dispute-term` needs no KB, and the collision is a property of the
+  ;; term rather than of any clash a scenario happens to build.
+  (testing "the pair case is a sorted pair, unchanged"
+    (is (= '(dispute (sentexHandle 478) (sentexHandle 479))
+           (d/dispute-term [479 478]))))
+  (testing "a three-member clash names all three, sorted"
+    (is (= '(dispute (sentexHandle 478) (sentexHandle 479) (sentexHandle 999))
+           (d/dispute-term [999 478 479]))))
+  (testing "so two three-member disputes sharing their lowest pair are told apart"
+    (is (not= (d/dispute-term [478 479 999]) (d/dispute-term [478 479 1234]))))
+  (testing "and a three-member one is not the pair over its two lowest handles"
+    (is (not= (d/dispute-term [478 479 999]) (d/dispute-term [478 479])))))

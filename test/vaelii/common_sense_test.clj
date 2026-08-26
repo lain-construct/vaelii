@@ -10,7 +10,8 @@
   subsystem it exercises, and there are a hundred of those elsewhere.  What is left is
   the sweep: taxonomy and the disjointness that bounds it, inheritance down kinds,
   argument types read as entailments, evaluable arithmetic, defaults and their defeat,
-  aggregation, negation as failure, abduction under a grant, the equality partition,
+  aggregation, negation as failure and the closed extent, abduction under a grant, the
+  equality partition,
   reified functions, skolemized witnesses, measure comparison, mereology, context
   scoping, and how hard each answer was to get.
 
@@ -199,6 +200,19 @@
   (testing "and the answer is nowhere in the store"
     (is (empty? (v/sentexes-with-functor kb 'agg/count)))))
 
+(tu/deftest-kb how-many-of-the-people-are-parents
+  ;; A census over two conditions is a **join**: one witness has to satisfy both, so this
+  ;; counts the people who have a child rather than the people beside the children.  Read
+  ;; conjunct by conjunct it would be seven, which is the answer to a question nobody
+  ;; asked.
+  (testing "how many of the people are parents"
+    (is (= 3 (get (tu/sole-answer
+                   (v/ask kb '(agg/count ?n ?p (and (human ?p) (parentOf ?p ?c))) N))
+                  '?n))
+        "Tom, Bob and Dave — the child is the join, and is counted for nobody"))
+  (testing "against how many people there are at all"
+    (is (= 7 (get (tu/sole-answer (v/ask kb '(agg/count ?n ?p (human ?p)) N)) '?n)))))
+
 (tu/deftest-kb a-count-follows-belief-rather-than-what-is-stored
   ;; The point of computing it: retract a fact and the count moves, with nothing to
   ;; recompute and nothing that could be stale.
@@ -226,6 +240,45 @@
     (is (v/ask? kb '(unknown (thereExists ?p (parentOf ?p Tom))))))  ; Tom's parents: nobody's
   (testing "neither is assertible — a query operator is not a fact"
     (is (= :not-well-formed (refusal kb '(unknown (asleep Whiskers)) N)))))
+
+(tu/deftest-kb a-witness-has-to-satisfy-the-whole-question
+  ;; "Is any child of Tom a sibling of Ann?"  Tom's only child is Bob, and Bob is
+  ;; nobody's sibling — so the answer is no, even though Tom has a child *and* somebody
+  ;; is a sibling of Ann.  Read conjunct by conjunct that would come back yes.
+  (testing "the conjuncts of a quantified question share their witness"
+    (is (v/ask? kb '(unknown (thereExists ?c (and (parentOf Tom ?c) (siblingOf Ann ?c)))) N)))
+  (testing "and one witness satisfying both is what makes it hold"
+    (is (v/ask? kb '(thereExists ?c (and (parentOf Bob ?c) (siblingOf Ann ?c))) N))))
+
+(tu/deftest-kb a-universal-is-true-of-a-domain-with-nothing-in-it
+  ;; "Is every child of X a parent?"  Tom's is; Bob's are not; and a cat with no
+  ;; children at all satisfies it vacuously, which is the classical reading.
+  (testing "every child of Tom is a parent — Bob is"
+    (is (v/ask? kb '(forall ?c (implies (parentOf Tom ?c)
+                                        (thereExists ?g (parentOf ?c ?g)))) N)))
+  (testing "not every child of Bob is — Ann and Carol are nobody's parent"
+    (is (not (v/ask? kb '(forall ?c (implies (parentOf Bob ?c)
+                                             (thereExists ?g (parentOf ?c ?g)))) N))))
+  (testing "and the cat, having no children, satisfies it with nothing to check"
+    (is (v/ask? kb '(forall ?c (implies (parentOf Whiskers ?c)
+                                        (thereExists ?g (parentOf ?c ?g)))) N))))
+
+(tu/deftest-kb a-closed-extent-turns-silence-into-a-denial
+  ;; Open-world by default: nobody having said Tom and Bob are siblings is not a claim
+  ;; that they are not.  A theory may say otherwise about one predicate, and only there.
+  (testing "silence is not a denial"
+    (is (not (v/ask? kb '(not (siblingOf Tom Bob)) N))))
+  (let [h (v/assert kb '(closedExtentPredicate siblingOf) N)]
+    (testing "told the sibling relation is completely known, silence is a denial"
+      (is (v/ask? kb '(not (siblingOf Tom Bob)) N))
+      (is (not (v/ask? kb '(not (siblingOf Ann Carol)) N))
+          "and what is in the extent is not denied by it"))
+    (testing "the grant is a policy of the context that gives it, so the social theory,
+              reading the same predicate, still answers open-world"
+      (is (not (v/ask? kb '(not (siblingOf Tom Bob)) S))))
+    (v/retract! kb h))
+  (testing "and taking the grant away puts the world back"
+    (is (not (v/ask? kb '(not (siblingOf Tom Bob)) N)))))
 
 ;; ---- guessing, under a grant --------------------------------------------
 
@@ -365,6 +418,25 @@
   (testing "and a second, different weight is a contradiction rather than a second fact"
     (is (= :functional (refusal kb '(weightOf Muffet (QuantityFn 30 Kilogram)) N)))))
 
+(tu/deftest-kb two-stated-comparisons-answer-the-third-with-nothing-weighed
+  ;; Nobody weighs an elephant.  heavierThan is a strict order — transitive as well as
+  ;; asymmetric — so a chain of stated comparisons composes off the closure, which is
+  ;; the route a common-sense KB actually has.
+  (tu/with-terms [Ella Nag Pup]
+    (doseq [a [Ella Nag Pup]] (v/assert kb (list 'dog a) N))
+    (v/assert kb (list 'heavierThan Ella Nag) N)
+    (v/assert kb (list 'heavierThan Nag Pup) N)
+    (testing "the two ends of the chain, with no measure anywhere"
+      (is (v/ask? kb (list 'heavierThan Ella Pup) N))
+      (is (not (v/ask? kb (list 'heavierThan Pup Ella) N))))
+    (testing "and the measured route answers the same pair, agreeing with it"
+      ;; the weights are consistent with the chain, so both routes hold and neither
+      ;; contradicts the other — a chain of strict comparisons is a strict comparison
+      (v/assert kb (list 'weightOf Ella '(QuantityFn 4 Tonne)) N)
+      (v/assert kb (list 'weightOf Pup '(QuantityFn 5 Kilogram)) N)
+      (is (v/query? kb (list 'heavierThan Ella Pup) N {:max-depth 2}))
+      (is (not (v/query? kb (list 'heavierThan Pup Ella) N {:max-depth 2}))))))
+
 ;; ---- where a thing is ---------------------------------------------------
 
 (tu/deftest-kb a-part-is-wherever-its-whole-is
@@ -413,3 +485,94 @@
   (testing "and every level agrees about what is true, whatever it costs"
     (is (v/ask? kb '(mortal Muffet)))
     (is (v/provable? kb '(mortal Muffet) N))))
+
+;; ---- what holds when ----------------------------------------------------
+
+(def ^:private asleep-cat  '(AsleepFn Whiskers))
+(def ^:private awake-cat   '(AwakeFn Whiskers))
+(def ^:private indoors-cat '(IndoorsFn Whiskers))
+
+(defn- holds-at?
+  "Is `fluent` the case at `instant`?  A backward question — inertia is a rule, and
+  nothing about a fluent holding at a moment is stored."
+  [kb fluent instant]
+  (v/query? kb (list 'holdsAt fluent instant) N {:max-depth 3}))
+
+(tu/deftest-kb the-cat-fell-asleep-at-three-and-woke-at-five
+  ;; Nobody says the cat is asleep at four.  An event started that state at three,
+  ;; nothing ended it before four, and a state persists until something ends it.
+  (testing "asleep at four, and no longer asleep at six"
+    (is (holds-at? kb asleep-cat 'FourOClock))
+    (is (not (holds-at? kb asleep-cat 'SixOClock))))
+  (testing "awake at six, and not awake at four"
+    (is (holds-at? kb awake-cat 'SixOClock))
+    (is (not (holds-at? kb awake-cat 'FourOClock))))
+  (testing "nor asleep before it fell asleep"
+    (is (not (holds-at? kb asleep-cat 'ThreeOClock))))
+  (testing "and the KB derived what ended the sleep, as an ordinary stored fact"
+    (is (seq (v/sentexes-matching kb (list 'clipped 'ThreeOClock asleep-cat 'SixOClock) N)))
+    (is (empty? (v/sentexes-matching kb (list 'clipped 'ThreeOClock asleep-cat 'FourOClock)
+                                     N))))
+  (testing "over an afternoon that wrote down only the consecutive moments"
+    (is (empty? (v/sentexes-matching kb '(instantBefore ThreeOClock SixOClock) '?ctx))
+        "nobody said three comes before six")
+    (is (v/ask? kb '(instantBefore ThreeOClock SixOClock) N)
+        "the walk did, and that is the ordering the clipped facts joined over")))
+
+(tu/deftest-kb a-fluent-nobody-terminated-still-holds
+  ;; The cat was indoors before the afternoon began and nothing ever put it out, so it
+  ;; is indoors at every moment of the afternoon — the whole of what inertia says, with
+  ;; no event to read at all.
+  (testing "an initially-true fluent holds at every moment nobody clipped it before"
+    (is (holds-at? kb indoors-cat 'ThreeOClock))
+    (is (holds-at? kb indoors-cat 'SixOClock)))
+  (testing "and a fluent nobody started or assumed holds nowhere"
+    (is (not (holds-at? kb '(AheadOfFn Whiskers) 'SixOClock)))))
+
+(tu/deftest-kb an-event-heard-of-later-takes-the-conclusion-back
+  ;; Order independence, on a question whose answer is not stored: told afterwards that
+  ;; the cat was let out at four, the KB stops saying it was indoors at six — and told
+  ;; that never happened after all, it says so again.  Nothing is arbitrated; the
+  ;; conclusion is undercut, exactly as an excepted default is.
+  (is (holds-at? kb indoors-cat 'SixOClock) "baseline: nothing ended it")
+  (v/assert kb '(happens CatLetOut FourOClock) N)
+  (v/assert kb '(terminates CatLetOut (IndoorsFn Whiskers) FourOClock) N)
+  (testing "the later event ends the state, and the moments after it lose the answer"
+    (is (not (holds-at? kb indoors-cat 'SixOClock)))
+    (is (not (holds-at? kb indoors-cat 'FiveOClock)))
+    (is (holds-at? kb indoors-cat 'ThreeOClock) "but the moments before it keep theirs"))
+  (testing "and the KB derived WHY, as an ordinary stored fact it can withdraw"
+    (is (seq (v/sentexes-matching kb (list 'clippedBefore indoors-cat 'SixOClock) N))))
+  (v/retract! kb (v/handle-of kb '(happens CatLetOut FourOClock) N))
+  (testing "retracting the event restores the conclusion and sweeps the reason"
+    (is (holds-at? kb indoors-cat 'SixOClock))
+    (is (empty? (v/sentexes-matching kb (list 'clippedBefore indoors-cat 'SixOClock) N)))))
+
+(tu/deftest-kb an-event-happens-at-a-moment-and-a-day-is-not-one
+  ;; A narrative may be written on the calendar, and the vocabulary is exact about which
+  ;; term is which: `(DayFn 2000 1 15)` is the fifteenth as a *stretch*, so it cannot be
+  ;; when something happened, while `(InstantFn …)` is a moment and can.  The clock is
+  ;; what turns the first into the second (docs/time.md, "The calendar clock").
+  (is (= :arg-type (refusal kb '(happens CatStretches (DayFn 2000 1 15)) N))
+      "a day is a temporal_thing where happens wants a time_point")
+  (let [h (v/assert kb '(happens CatStretches (InstantFn 2000 1 15 9 30 0)) N)]
+    (is (some? h) "the moment that morning is an ordinary argument")
+    (v/retract! kb h)))
+
+(tu/deftest-kb the-hare-is-asleep-while-the-tortoise-goes-past
+  ;; The fable retold on a clock.  Nothing says the hare is asleep at the moment it is
+  ;; overtaken, or that the tortoise is ahead at the finish; both are inertia reading three
+  ;; events and the order of five moments.
+  (let [H 'CxRaceClock
+        holds? (fn [f t] (v/query? kb (list 'holdsAt f t) H {:max-depth 3}))]
+    (testing "the untimed moral is still derived from the untimed facts"
+      (is (seq (v/sentexes-matching kb '(wins TortoiseA HareA) 'CxTortoiseHare))))
+    (testing "asleep while the tortoise goes past, and awake again by the finish"
+      (is (holds? '(AsleepFn HareA) 'TortoisePasses))
+      (is (not (holds? '(AsleepFn HareA) 'RaceEnds))))
+    (testing "and the tortoise is ahead from the moment it passes, not before"
+      (is (holds? '(AheadOfFn TortoiseA) 'RaceEnds))
+      (is (not (holds? '(AheadOfFn TortoiseA) 'HareLiesDown))))
+    (testing "the events order themselves off their moments, with nobody linking them"
+      (is (v/ask? kb '(beforeEvent HareNaps HareStirs) H))
+      (is (not (v/ask? kb '(beforeEvent HareStirs HareNaps) H))))))

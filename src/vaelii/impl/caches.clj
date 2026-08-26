@@ -6,8 +6,8 @@
 
   The stores are measured elsewhere: `catalog/heap` reports the JVM's own figure and
   `catalog/footprint` estimates what a loaded KB costs.  Neither says anything about the
-  **caches** — a dozen atoms and two static maps holding answers the engine would
-  otherwise recompute — and a hit rate is the only evidence a cost model has.  \"The
+  **caches** — the atoms and plain maps holding answers the engine would otherwise
+  recompute — and a hit rate is the only evidence a cost model has.  \"The
   second query was fast\" is a demo; \"the second query was fast because it was served
   from a cache, and here is the rate\" is a measurement.
 
@@ -25,7 +25,9 @@
   separately, because the literal cache is exactly the awkward case — its entries are
   per-KB and its counters are global `AtomicLong`s, \"since they measure the mechanism
   rather than a store\" (`literal-cache/stats`).  Rendering that as one per-KB row would
-  attribute another KB's hits to this one.
+  attribute another KB's hits to this one.  The closure neighbours are awkward the other
+  way round — process counters over entries only a live search step can count — which is
+  the same argument for keeping the two fields apart.
 
   **`:unit` is not decoration.**  One cache counts literals, another counts networks, a
   third counts symbols, and a column of bare integers compares none of them.
@@ -39,8 +41,7 @@
   here runs code this namespace has never seen; one that throws is reported as a row
   carrying `:error` rather than allowed to take the answer down with it.  A diagnostic
   is worth most while something is already wrong, which is exactly when it must not be
-  the next thing to break."
-  (:refer-clojure :exclude []))
+  the next thing to break.")
 
 ;; ---- the bound every registered cache takes ------------------------------
 
@@ -150,6 +151,12 @@
   row walks the KB: each is a count off a map the engine is already holding, which is
   what makes this pollable.
 
+  **A row is data all the way down.**  The descriptor's three function slots — `:read`,
+  `:clear`, `:reset-counters` — are dropped, and what a caller needs of the last two is
+  the `:clearable?` flag and the `:counters` scope beside it.  This is a public read
+  (`vaelii.core/caches`), served over RPC and rendered on a page, so a function left in a
+  row is a value neither can carry.
+
   **A read that throws costs its own row and no other**, and the row carries `:error`
   saying what went wrong.  One broken descriptor taking the whole answer down would fail
   the read exactly when the process is in the state it exists to describe.
@@ -162,7 +169,7 @@
        (mapv (fn [{:keys [read clear] :as d}]
                (let [{:keys [entries hits misses error]}
                      (try (read kb) (catch Throwable t {:error (failed t)}))]
-                 (-> (dissoc d :read :clear)
+                 (-> (dissoc d :read :clear :reset-counters)
                      (assoc :entries    entries
                             :hits       hits
                             :misses     misses

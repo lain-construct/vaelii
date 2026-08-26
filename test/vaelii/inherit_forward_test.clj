@@ -550,8 +550,9 @@
       (v/assert kb (list 'genl maine_coon_t cat_t) CxLower))
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))
               CxUpper)
-    (let [sx (first (v/sentexes-matching kb (list outweighs chihuahua_t maine_coon_t)
-                                         CxLower))]
+    (let [[sx & more] (v/sentexes-matching kb (list outweighs chihuahua_t maine_coon_t)
+                                           CxLower)]
+      (is (nil? more) "one placement, so reading it names no order")
       (is (some? sx) "derived, from the one context that sees the rule, the claim and both edges")
       (is (= CxLower (:context sx))
           "and it descends to the edges rather than sitting above them"))

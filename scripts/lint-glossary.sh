@@ -4,7 +4,7 @@
 # Checks:
 #   1. Every entry line (starts with `**`) carries exactly ONE category badge
 #      `![<cat>](../.github/badges/cat-<cat>.svg)` on the term line, alt text
-#      matching the SVG slug, <cat> one of: kb inference tms asp backend.
+#      matching the SVG slug, <cat> one of: kb inference tms asp backend qr.
 #   2. Entries are strictly alphabetical within each `## <letter>` section
 #      (case-insensitive, backticks stripped, byte order), and the section
 #      letters ascend.

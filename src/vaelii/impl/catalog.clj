@@ -53,11 +53,11 @@
   cleared (they would otherwise hold the corpus for the life of the JVM); a disk-backed
   one is *closed* — the file lock released, the directory left exactly as it was.  The
   same directory can then be loaded again, or opened by another process."
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
+            [vaelii.impl.capabilities :as cap]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.foreign :as foreign]
@@ -79,13 +79,13 @@
     :kind    :core
     :name    "Core vocabulary"
     :blurb   "CxCore alone — the predicates the engine interprets, and nothing else."
-    :scale   "~200 sentexes"
+    :scale   "392 sentexes"
     :options [{:key :chain? :type :flag :label "Forward-chain after loading" :default false}]}
    {:id      "starter"
     :kind    :starter
     :name    "Starter ontology"
     :blurb   "The shipped schema: the vocabulary head, the definitional upper band, and the middle theories. No individuals."
-    :scale   "~1.2k sentexes"
+    :scale   "~1,843 sentexes"
     :default? true
     :options [{:key :chain? :type :flag :label "Forward-chain after loading" :default false}]}
    {:id      "generated"
@@ -110,7 +110,7 @@
               ["core" "Core (Cyc's own upper vocabulary)"]
               ["full" "Full (everything, including natural language)"]]}
    {:key :dir :type :path :label "Target directory" :default ""
-    :help "empty loads into memory; a path makes it a durable :disk KB"}
+    :help "empty loads into memory; a path makes it a durable :disk-log KB"}
    {:key :bulk? :type :flag :label "Bulk load (skip the per-fact checks)" :default false}
    {:key :chain? :type :flag :label "Forward-chain after loading" :default false}
    ;; Bounded for the reason the generator's is, and harder: a generated KB's layer count
@@ -123,9 +123,9 @@
 ;; `recover` rebuilds two things, not one — the JTMS *and* the cached taxonomy — so
 ;; skipping it costs more than belief.  A dump loaded without it has no genl or
 ;; genlCx closure at all: `types` and `contexts` are empty, `genls` answers only the
-;; term it was asked about, and the ontology page has nothing to draw.  Measured on the
-;; 1.1M-sentex OpenCyc dump: off gives 0 types and 0 contexts, on gives 125,385 and
-;; 13,196.  The flag has to say that, or an operator reads "not belief-queryable", leaves
+;; term it was asked about, and the ontology page has nothing to draw.  On the OpenCyc
+;; import `docs/kbs.md` measures: off gives 0 types and 0 contexts, on gives its 132,391
+;; and 13,202.  The flag has to say that, or an operator reads "not belief-queryable", leaves
 ;; it off, and concludes the KB imported wrong.
 ;; Three values rather than a checkbox, because the middle one is the answer for a corpus
 ;; that cannot afford the rebuild *today* and should not be made to throw its
@@ -137,14 +137,20 @@
   The form speaks in verbs (`:rebuild` / `:stored` / `:skip`) because a checkbox cannot
   offer three answers and a tri-state named `true`/`:stored`/`false` reads as a typo in a
   dropdown.  A caller that already speaks the importer's own vocabulary is passed through,
-  so this is a widening rather than a translation layer; anything else is the default,
-  which is the cheapest load and the one that cannot fail to finish."
+  so this is a widening rather than a translation layer.
+
+  **Anything else is handed on unchanged**, which is what leaves `import-dump`'s own
+  refusal (`:unknown-option`, `import/belief-modes`) reachable through this door.
+  Defaulting it here would swallow that refusal and pick the *cheapest* load instead:
+  `{:belief? :store}` — one letter off `:stored` — reads as records-only, and that path
+  never opens the justification stream, so what the typo drops is dropped for good.  An
+  **absent** choice is the one thing that takes a default here, and it takes the form's."
   [v]
   (case v
     (:rebuild true)  true
     :stored          :stored
     (:skip false nil) false
-    false))
+    v))
 
 (def ^:private dump-options
   [{:key :belief? :type :choice
@@ -155,7 +161,7 @@
               [:skip    "Skip it (records and index only)"]]
     :help "\"rebuild now\" is the finished KB. \"store it\" reads and stores every justification and premise mark but leaves the TMS and the genl/genlCx closures empty, so the KB is findable and countable now and can be recovered later without re-reading the dump. \"skip it\" never reads the justification stream, and for a dump in a foreign dialect that is permanent — nothing a later recover could rebuild belief from is stored"}
    {:key :dir :type :path :label "Target directory" :default ""
-    :help "empty loads into memory; a path makes it a durable :disk KB"}])
+    :help "empty loads into memory; a path makes it a durable :disk-log KB"}])
 
 (def ^:private store-options
   [{:key :recover? :type :flag :label "Recover belief and the taxonomy on open (slow)" :default false
@@ -168,10 +174,22 @@
 (defn- readable-edn
   "`f` read as EDN, or nil — a malformed or unreadable file makes a directory *not* a
   source rather than an error, since discovery runs over directories nobody promised
-  anything about."
+  anything about.
+
+  **The size bound is the one thing that is an error.**  Discovery reads the manifest of
+  every directory on the search path, so a file that merely *has* the right name decides
+  how much is pulled into a string; `import/read-edn-manifest` refuses past
+  `import/manifest-bytes`, and that refusal travels rather than reading as \"this is not
+  a KB\".  A gigabyte named `meta.edn` is either a mistake or an attempt, and both are
+  worth a line naming the file — a silent skip would report the directory as holding
+  nothing and say nothing about why.  Its other refusal, a manifest that is not readable
+  EDN, is exactly the \"not a source\" case above and is answered as one."
   [^File f]
   (when (.isFile f)
-    (try (edn/read-string (slurp f)) (catch Exception _ nil))))
+    (try (import/read-edn-manifest f)
+         (catch clojure.lang.ExceptionInfo e
+           (if (= :manifest-too-large (:type (ex-data e))) (throw e) nil))
+         (catch Exception _ nil))))
 
 (defn classify
   "The kind of KB in directory `d`, or nil.  Reads the marker each writer leaves: a
@@ -180,11 +198,11 @@
   stamped with its own `format.edn`.
 
   **The records half is the whole marker**, and requiring an `index/` beside it hid
-  exactly the stores worth finding.  Only `:disk` keeps a durable index on disk;
+  exactly the stores worth finding.  Only `:disk-log` keeps a durable index on disk;
   `:disk-columnar`, `:disk-dense` and `:disk-memory` derive theirs and write no `index/`
   at all — so a large store classified as nothing and could not be
   offered.  Those are the backends a corpus past a few million records is loaded into,
-  `:disk`'s index being a map held in RAM whatever else is on disk."
+  `:disk-log`'s index being a map held in RAM whatever else is on disk."
   [^File d]
   (when (.isDirectory d)
     (let [m (readable-edn (file-at d "meta.edn"))]
@@ -276,21 +294,38 @@
                         :scale (human-bytes (du d))
                         :options store-options})))))
 
+(defn- set-to
+  "A switch's value, or nil when it is unset.  **Blank is unset**, which is the one
+  vocabulary every other switch this build reads holds to (`vaelii.impl.config`'s `raw`,
+  `guard/api-token`): an exported-but-empty variable is the shell's way of saying
+  nothing.  Read as a value instead, an empty `VAELII_KB_PATH` splits to nothing and
+  leaves discovery with **no** directory at all — so `/kbs` offers the built-ins and
+  reports nothing else found, which is the one answer a KB list must not give by
+  accident (`max-discovered` below).
+
+  Spelled as a fn over the value rather than over the switch's *name*, because the
+  configuration-surface scan reads `System/getenv \"VAELII_…\"` literals: a helper taking
+  the name as an argument hides the switch from it, and the two names here appear in no
+  other read."
+  [v]
+  (not-empty (str/trim (str v))))
+
 (defn search-path
   "The directories discovery walks: `VAELII_KB_PATH` (`:`-separated) when set, else the
   `vaelii.kb.path` system property, else `./kbs` and `~/.vaelii/kbs`.  A path entry that
   *is* a KB directory counts as one source; otherwise its children are probed, one level
   down.  (The property mirrors `vaelii.disk.dir`, and is what a test sets — a JVM cannot
-  change its own environment.)"
+  change its own environment.)  Either spelling **blank** is unset — `set-to` for why."
   []
-  (if-let [p (or (System/getenv "VAELII_KB_PATH") (System/getProperty "vaelii.kb.path"))]
+  (if-let [p (or (set-to (System/getenv "VAELII_KB_PATH"))
+                 (set-to (System/getProperty "vaelii.kb.path")))]
     (remove str/blank? (str/split p #":"))
     [(str (System/getProperty "user.dir") "/kbs")
      (str (System/getProperty "user.home") "/.vaelii/kbs")]))
 
 (defn- catalog-file ^File []
-  (io/file (or (System/getenv "VAELII_KB_CATALOG")
-               (System/getProperty "vaelii.kb.catalog")
+  (io/file (or (set-to (System/getenv "VAELII_KB_CATALOG"))
+               (set-to (System/getProperty "vaelii.kb.catalog"))
                (str (System/getProperty "user.home") "/.vaelii/catalog.edn"))))
 
 (defn- configured-sources
@@ -613,7 +648,7 @@
   per render, to learn whether the network holds anything at all.
 
   Two adjustments make it a statement about *this* KB rather than about a generic one:
-  a `:disk` KB pages its records, so the record term is dropped (what stays resident is
+  a `:disk-log` KB pages its records, so the record term is dropped (what stays resident is
   the bounded hot-record LRU, which does not grow with the corpus), and a KB loaded
   without belief — an import with `:belief? false`, a store opened without `:recover?` —
   has no truth-maintenance network at all, so that term goes too.
@@ -625,7 +660,7 @@
   (let [e  (entry key)
         kb (:kb e)]
     (when-let [n (when (:records kb) (try (v/sentex-count kb) (catch Exception _ nil)))]
-      (let [paged?   (= :disk (:backend (:where e)))
+      (let [paged?   (= :disk-log (:backend (:where e)))
             belief?  (jtms/any-node? (:tms kb))
             {:keys [index records tms]} resident-bytes-per-sentex
             parts    {:index   (* n index)
@@ -665,15 +700,15 @@
 
 (defn- open-kb-for
   "The KB an entry loads into: an in-memory one over a freshly claimed space, or —
-  when the params name a directory — a durable `:disk` one there.  Returns
+  when the params name a directory — a durable `:disk-log` one there.  Returns
   `[kb where]`, `where` being what `unload!` needs to take it down again."
   [{:keys [dir]}]
   (if (str/blank? (str dir))
     (let [s (claim-space!)]
       [(v/open-kb {:backend :memory :space s :recover? false})
        {:backend :memory :space s}])
-    [(v/open-kb {:backend :disk :dir (str dir) :recover? false})
-     {:backend :disk :dir (str dir)}]))
+    [(v/open-kb {:backend :disk-log :dir (str dir) :recover? false})
+     {:backend :disk-log :dir (str dir)}]))
 
 (defn- check-readable!
   "Refuse a store whose records do not come back as sentexes.
@@ -683,7 +718,7 @@
   succeeds and every answer is empty, the worst way for this to go wrong.  One record is
   enough to tell, and an empty store is fine (there is nothing to disagree about)."
   [kb path]
-  (when-let [h (first (p/sentex-ids (:records kb)))]
+  (when-let [h (cap/some-sentex-id (:records kb))]
     (let [r (p/get-sentex (:records kb) h)]
       (when-not (:sentence r)
         (throw (ex-info (str "the store at " path " holds records this build cannot read"
@@ -765,14 +800,16 @@
       ;; reports nothing while it runs, so say what is happening before going in
       :store    (let [_  (progress! {:phase :open :done 0
                                      :note "scanning the record log and rebuilding the index"})
-                      kb (v/open-kb {:backend :disk :dir path :recover? false})]
-                  (note-kb! kb {:backend :disk :dir path :attached? true})
+                      kb (v/open-kb {:backend :disk-log :dir path :recover? false})]
+                  (note-kb! kb {:backend :disk-log :dir path :attached? true})
                   (check-readable! kb path)
                   (when (:recover? params)
                     (progress! {:phase :recover :done 0 :note "rebuilding belief"})
                     (v/recover kb))
                   {})
-      (throw (ex-info (str "unknown KB source kind " (pr-str kind)) {:type :unknown-source :kind kind})))))
+      (throw (ex-info (str "unknown KB source kind " (pr-str kind) " — want :core,"
+                           " :starter, :generated, :corpus, :dump or :store")
+                      {:type :unknown-source :kind kind})))))
 
 (defn- entry-key
   "The key an entry is filed under: the source id, suffixed when that source can be
@@ -808,7 +845,11 @@
   ([source-id] (load-source source-id {}))
   ([source-id params]
    (let [src (or (source source-id)
-                 (throw (ex-info (str "no KB source " (pr-str source-id)) {:type :unknown-source})))]
+                 (throw (ex-info (str "no KB source " (pr-str source-id) " — the built-in"
+                                      " ids are \"core\", \"starter\" and \"generated\";"
+                                      " anything else is named in the catalog file or"
+                                      " found on the search path (docs/catalog.md)")
+                                 {:type :unknown-source})))]
      ;; Pick the key, check and claim under one monitor.  The already-loaded test and the
      ;; `swap!` that registers the entry are two separate touches of `@state`, and two
      ;; requests arriving together on Jetty's pool can each pass both — both spawn a
@@ -860,9 +901,13 @@
                            ;; `:progress` settles with the status, as it does on the job
                            ;; itself: the placeholder this entry registered with reads
                            ;; `:starting`, and an hour on that is the only reading left
-                           (put-entry! key #(assoc % :summary summary :stats (stats (:kb %))
-                                                   :status :done :finished (now)
-                                                   :progress {:phase :done}))
+                           ;; `stats` is a four-read census, so it runs BEFORE the swap —
+                           ;; a swap! fn must be cheap and retryable (`start-monitor`'s
+                           ;; own argument), and under contention it re-runs per retry
+                           (let [ks (some-> (get-in @state [:entries key]) :kb stats)]
+                             (put-entry! key #(assoc % :summary summary :stats ks
+                                                     :status :done :finished (now)
+                                                     :progress {:phase :done})))
                            (swap! state (fn [s] (cond-> s (nil? (:active s)) (assoc :active key))))
                            (trove/log! {:level :info :id ::loaded
                                         :msg (str "loaded KB " key) :data summary})
@@ -947,9 +992,12 @@
        ;; this refuses for the same reason: its thread is still going, and the stores are
        ;; still its.
        (when-not (#{:done :cancelled :failed} (:status (jobs/wait (:job e) 30000)))
-         (put-entry! key #(assoc % :error "still stopping — its loader has not reached a
-                                          point at which it can be interrupted"))
-         (throw (ex-info (str (:name e) " is still stopping; unload it again in a moment")
+         (put-entry! key #(assoc % :error (str "still stopping — its loader has not "
+                                               "reached a point at which it can be "
+                                               "interrupted")))
+         (throw (ex-info (str (:name e) " is still stopping — its loader has not reached a"
+                              " point at which it can be interrupted; unload it again in a"
+                              " moment")
                          {:type :still-stopping :key key}))))
      ;; and an export is a reader of exactly this KB, mid-request.  Not cancelled for the
      ;; operator: a dump takes minutes and is nobody's to throw away on the way past, so
@@ -976,8 +1024,8 @@
          (try
            (run-in (fn []
                      (case backend
-                       :memory (when-let [kb (:kb (entry key))] (v/clear! kb))
-                       :disk   (disk/close-dir! dir)
+                       :memory  (when-let [kb (:kb (entry key))] (v/clear! kb))
+                       :disk-log (disk/close-dir! dir)
                        nil)))
            (catch Exception ex
              (let [why (or (.getMessage ex) (str (class ex)))]
@@ -1088,8 +1136,8 @@
             ;; all and has to be loaded again.  Two different instructions, and telling
             ;; the first case to reload sends it back through hours of work for nothing.
             recoverable? (and (not= ::unreadable n)
-                              (boolean (or (first (p/premise-ids (:records kb)))
-                                           (first (p/justification-ids (:records kb))))))]
+                              (boolean (or (cap/some-premise-id (:records kb))
+                                           (cap/some-justification-id (:records kb)))))]
         (when-not (and settled? belief?)
           {:key key :name (:name e) :status (if (= ::unreadable n) :unreadable (:status e))
            :progress (:progress e) :belief? belief? :recoverable? recoverable?})))))
@@ -1150,11 +1198,20 @@
   ;; requests arriving together would otherwise each read `exporting?` false and both start
   (locking start-monitor
     (when (exporting?)
-      (throw (ex-info "an export is already running" {:type :export-busy})))
+      (throw (ex-info (str "an export is already running — one runs at a time, since it"
+                           " claims no writer and two would interleave over one"
+                           " destination.  Wait for it to finish, or cancel it, then"
+                           " export")
+                      {:type :export-busy})))
     (let [e  (entry key)
           kb (:kb e)]
       (when-not e
-        (throw (ex-info (if key (str "no loaded KB " (pr-str key)) "nothing is loaded to export")
+        (throw (ex-info (if key
+                          (str "no loaded KB " (pr-str key) " — loaded now: "
+                               (if-let [ks (seq (map :key (entries)))]
+                                 (str/join ", " ks)
+                                 "none"))
+                          "nothing is loaded to export — load a KB first")
                         {:type :unknown-entry :key key})))
       (when-not (in-process? key)
         (throw (ex-info (str (:name e) " is served by a daemon, so its dump is written on"
@@ -1162,7 +1219,8 @@
                         {:type :not-in-process :key key})))
       (when (write-blocked? kb)
         (throw (ex-info (str (:name e) " is still loading — a dump of a KB something is"
-                             " still writing is a dump of no single state")
+                             " still writing is a dump of no single state.  Wait for the"
+                             " load to finish, or cancel it, then export")
                         {:type :still-loading :key key})))
       (let [run-in (:run-in opts (fn [work] (work)))
             opts   (dissoc opts :run-in)
@@ -1192,10 +1250,9 @@
   part of a dump.
 
   Asked of the running set rather than of `jobs/latest`: the panel shows the last export's
-  report for an hour after it settles, and the newest export of any status is one that
-  finished this morning — `jobs/cancel!` answers true for any job the registry still
-  holds, so cancelling that one reported a cancellation nothing was cancelled by, over a
-  dump already written."
+  report for an hour after it settles, so the newest export of any status is routinely one
+  that finished this morning, and this reports on the dump that is still being written
+  rather than on whichever one the panel happens to be showing."
   []
   (boolean (some-> (first (filter #(= :export (:kind %)) (jobs/running)))
                    :id jobs/cancel!)))
@@ -1210,14 +1267,17 @@
   from, so a KB registered at startup shows as *loaded* rather than being offered again."
   ([key name kb] (register! key name kb nil))
   ([key name kb {:keys [where source]}]
-   (swap! state (fn [s]
-                  (-> s
-                      (assoc-in [:entries key]
-                                {:key key :name name :status :done :kb kb :where where
-                                 :source (or source {:kind :registered}) :started (now)
-                                 :finished (now) :stats (stats kb) :progress {:phase :done}})
-                      (update :order #(vec (distinct (conj % key))))
-                      (update :active #(or % key)))))
+   ;; `stats` is a four-read census, computed before the swap for the same reason as
+   ;; `load-source`'s: a swap! fn re-runs per retry under contention
+   (let [ks (stats kb)]
+     (swap! state (fn [s]
+                    (-> s
+                        (assoc-in [:entries key]
+                                  {:key key :name name :status :done :kb kb :where where
+                                   :source (or source {:kind :registered}) :started (now)
+                                   :finished (now) :stats ks :progress {:phase :done}})
+                        (update :order #(vec (distinct (conj % key))))
+                        (update :active #(or % key))))))
    key))
 
 (defn reset-registry!
@@ -1233,7 +1293,9 @@
   down calls, and stranding four KBs because the first would not close is the wrong
   trade.  Each refusal is logged and the sweep goes on."
   []
-  (when-let [id (:id (jobs/latest :export))]
+  ;; through `cancel-export!` — its docstring says why `jobs/latest` is the wrong ask
+  ;; (the newest export of any status is routinely one that settled this morning)
+  (when-let [id (:id (first (filter #(= :export (:kind %)) (jobs/running))))]
     (jobs/cancel! id)
     (jobs/wait id 30000))
   (doseq [k (:order @state)]

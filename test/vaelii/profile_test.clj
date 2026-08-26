@@ -87,6 +87,27 @@
       (is (empty? (:writes (prof/snapshot))) "a fresh start holds nothing from the last one")
       (prof/stop))))
 
+(deftest stop-is-final-against-a-tally-still-being-filed
+  ;; The instrument is process-wide and its seams sit on every index read, so `stop` can
+  ;; land while another thread is inside one — the browser reading beside a REPL, a
+  ;; portfolio racer, a job.  A tally applied to the cleared instrument must be dropped:
+  ;; recreated instead, it is a fragment with no `:t0`, which leaves `profiling?` true
+  ;; for the life of the process (so every later read pays a CAS the switch promised it
+  ;; would not) and `snapshot` reading `(long nil)` off the missing stamp.
+  (dotimes [_ 10]
+    (prof/start)
+    (let [running (promise)
+          filer   (future (dotimes [_ 20000]
+                            (prof/record-read :trie-lookup)
+                            (deliver running true)))]
+      @running                                  ; the filer is inside the loop, not before it
+      (prof/stop)
+      @filer
+      (is (false? (prof/profiling?))
+          "a tally filed as `stop` landed restarted the instrument")
+      (is (nil? (prof/snapshot))
+          "and left a reading behind for the next run to inherit"))))
+
 ;; ---- the labels ---------------------------------------------------------
 ;;
 ;; One test per access path the tally can name.  Each builds the pattern that forces the
@@ -274,27 +295,30 @@
       (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'binaryPredicate p) ctx)
       (doseq [i inds] (v/assert kb (list p i shared) ctx))
-      (if (native-trie? kb)
-        (testing "the columnar trie walks natively, so it reports no fan rather than a wrong one"
-          (let [snap (collected #(p/lookup (:index kb)
-                                           (sx/path (sx/sentex (list p '?x shared) ctx))))]
-            (is (empty? (:fan snap))
-                "docs/profile.md: :fan is KvIndexStore's, and this store must not fake one")
-            (is (= 1 (get-in snap [:reads :trie-lookup]))
-                "the read tally is index-independent even where the fan tally is not")))
-        (do
-          (testing "a ground lookup walks one node per level"
-            (let [snap (collected #(p/lookup (:index kb)
-                                             (sx/path (sx/sentex (list p (first inds) shared) ctx))))
-                  row  (get (:fan snap) p)]
-              (is (= 1 (:calls row)))
-              (is (= 1 (:widest row)) "nothing ever branched")
-              (is (= 1 (:handles row)))))
-          (testing "a leading-variable lookup expands the whole child set at that level"
-            (let [snap (collected #(p/lookup (:index kb)
-                                             (sx/path (sx/sentex (list p '?x shared) ctx))))
-                  row  (get (:fan snap) p)]
-              (is (= 1 (:calls row)))
-              (is (= 12 (:widest row))
-                  "one frontier node per distinct first argument — the fan the roots exist to avoid")
-              (is (> (long (:visits row)) 12)))))))))
+      ;; One reading per lookup, and one assertion on it per backend, so every
+      ;; configuration runs the same number of assertions: the columnar trie walks
+      ;; natively and counts no node probes, so its reading is the absence of a fan
+      ;; (docs/profile.md) — a contract this pins rather than a gap it stands aside from.
+      (let [ground  (collected #(p/lookup (:index kb)
+                                          (sx/path (sx/sentex (list p (first inds) shared) ctx))))
+            leading (collected #(p/lookup (:index kb)
+                                          (sx/path (sx/sentex (list p '?x shared) ctx))))
+            row     (fn [snap] (get (:fan snap) p))
+            ;; visits count every node touched across the levels, so a ground walk of a
+            ;; few levels visits a few; a leading variable visits its whole frontier and more
+            reading (fn [snap]
+                      (when-let [r (row snap)]
+                        {:calls (:calls r) :widest (:widest r) :handles (:handles r)
+                         :past-the-frontier? (> (long (:visits r)) (count inds))}))]
+        (testing "the read tally is index-independent even where the fan tally is not"
+          (is (= [1 1] [(get-in ground [:reads :trie-lookup])
+                        (get-in leading [:reads :trie-lookup])])))
+        (if (native-trie? kb)
+          (testing "the columnar trie walks natively, so it reports no fan rather than a wrong one"
+            (is (= {:ground nil :leading nil} {:ground (reading ground) :leading (reading leading)})
+                "docs/profile.md: :fan is KvIndexStore's, and this store must not fake one"))
+          (testing "a ground lookup walks one node per level; a leading variable expands the level"
+            (is (= {:ground  {:calls 1 :widest 1 :handles 1 :past-the-frontier? false}
+                    :leading {:calls 1 :widest 12 :handles 12 :past-the-frontier? true}}
+                   {:ground (reading ground) :leading (reading leading)})
+                "one frontier node per distinct first argument — the fan the roots exist to avoid")))))))

@@ -52,7 +52,7 @@
 (tu/deftest-kb an-argument-constraint-may-be-about-a-function
   ;; A function has argument positions exactly as a predicate does — `(arg Milli 1
   ;; unit_of_measure)` says what the argument of a NAT `(Milli Meter)` must be, the same
-  ;; kind of claim `resultIsa` makes about its result — and a function is spelled
+  ;; kind of claim `result` makes about its result — and a function is spelled
   ;; CapitalCamelCase, which is also how an individual is spelled.  So the constrained
   ;; relation cannot be held to a spelling without refusing the whole vocabulary of
   ;; function argument types.

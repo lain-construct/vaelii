@@ -1,7 +1,9 @@
 # Contexts
 
 - **Covers:** how a sentex is scoped to a context, how the `genlCx` closure orders
-  contexts into the shipped spindle, and where a forward-derived or lifted fact is placed.
+  contexts into the shipped spindle, where a forward-derived or lifted fact is placed, and
+  the three **query contexts** — `Cx…` symbols that name a way of reading rather than a
+  place.
 - **Not here:** `genl`, the sibling closure over types rather than contexts →
   [taxonomy.md](taxonomy.md); a storage-level private copy of a whole KB, which a context
   does not provide → [overlay.md](overlay.md).
@@ -69,7 +71,11 @@ and a bottom anchor. Data hangs below the bottom.
     `birthYearOf`, `olderThan`, …) with their arg and metadata.
   - `CxSociety` — the social relations (`marriedTo`, `likes`, `owns`).
   - `CxMeasure` — the theory of measurement: the two measure terms, the
-    `dimensionOf`/`conversionFactor` table, the five comparisons ([quantity.md](quantity.md)).
+    `dimensionOf`/`conversionFactor` table, the five comparisons
+    ([quantity.md](quantity.md)), and measurement said as coarsely as it can be said —
+    `signOf` / `trendOf`, the three qualitative arithmetic relations and the
+    `derivativeOf` edge, for the quantities nobody has a figure for
+    ([sign.md](sign.md)).
   - `CxSpace` — qualitative space, four independent calculi in one context because
     all four are *about* space: RCC-8 topology, cardinal direction, relative direction
     and qualitative distance, fifty predicates between them ([space.md](space.md)).
@@ -78,7 +84,9 @@ and a bottom anchor. Data hangs below the bottom.
     instants with the endpoint predicates that bridge the two, and the metric layer
     (`temporalDistance`) that puts real measures on the gaps ([time.md](time.md),
     [stp.md](stp.md)). The `length` / `totalDuration` / `overlapDuration` vocabulary the
-    duration arithmetic computes over lives here too ([duration.md](duration.md)).
+    duration arithmetic computes over lives here too ([duration.md](duration.md)), and so
+    do the three calendar constructors `YearFn` / `MonthFn` / `DayFn`, which name an
+    interval the calendar already picks out ([context-nat.md](context-nat.md)).
 - **CxUniverse** — the mid *anchor*, left free for **lifting**: universally-true
   facts collect here (`decontextualizedPredicate` justifications and the forced `genlCx`
   extent). It sees every upper context and is seen by every middle context.
@@ -90,6 +98,9 @@ and a bottom anchor. Data hangs below the bottom.
     owning its parts.
   - `CxBiology` — birds fly by default except penguins; living things are mortal;
     flight enables travel.
+  - `CxChange` — a simple event calculus: a state persists until an event ends it,
+    so `holdsAt` is inertia over what `initiates` and `terminates` say
+    ([time.md](time.md)).
   - `CxAnatomy` — what kinds of thing have what kinds of part, entirely in
     `partType` claims. Nothing here concludes anything about an individual, which is
     deliberate: "birds have wings" to "Pingu has a wing" needs a quantifier reading.
@@ -138,6 +149,138 @@ without touching the shipped bands.
 proving a goal *in* a specific context can use facts asserted in the general
 contexts it inherits — but not the other way around.
 
+## The query contexts: reading modes wearing a context's spelling
+
+Three `Cx…` symbols stand where a context stands and name a **way of reading** rather than
+a place. They are resolved at the read door (`core/read-in-context`) and never reach the
+engine; the write side refuses them at `assert` and in the `genlCx` slots, so nothing is
+stored in one and nothing wires one into the lattice.
+
+A **variable** context — `?ctx`, the default of every short arity, or any name you
+choose — is the joint reading too. It is not a fourth mode: it is `CxInference` with
+somewhere to put the answer.
+
+| you pass | belief | whose view must hold the answer | where the witness goes |
+|---|---|---|---|
+| `CxEverything` | **ignored** | — *(the store, not a view)* | — |
+| `?var` (incl. the default `?ctx`) | followed | every literal in **one** view | unified into that variable |
+| `CxInference` | followed | every literal in **one** view | `:context`, beside the bindings |
+| a real `Cx…` | followed | every literal in **this** view | — |
+| `CxNothing` | followed (vacuously) | the empty view — the provers alone | — |
+
+Two axes, not a ladder. `CxEverything` is the odd one out and not by a degree: it is a
+named opt-out of the fourth invariant, so its answers are not belief claims and say a
+derivation is *spelled* in the store rather than held. Everything else asks what the KB
+holds, and differs only in whose view has to hold it.
+
+Rows two and three are the **same reading**. A variable names somewhere to put the witness,
+so it is unified in — and unified, not assoc'd: a variable the goal has already bound to a
+different context drops the answer rather than being overwritten. `CxInference` is a
+constant, names no variable, and so has nothing to bind; its witness goes beside the
+bindings under the keyword `:context`, which cannot collide with the `?`-symbols a goal
+spells.
+
+**The exception, and `unknown` is why.** A goal every literal of which is *computed* rather
+than matched — `different`, `evaluate`, `unknown` — names no context anywhere, so there is
+no witness to pick, and it is read whole-KB with no witness at all
+(`vantage/nothing-to-witness?`). Fanning over readers is **existential** over them, and a
+fanned `(unknown X)` is answered by the most ignorant reader in the KB
+([why](defenses.md#a-goal-every-literal-of-which-is-computed-names-no-context)). A
+**mixed** goal needs no rule and gets none: the monotone literals decide which readers can
+answer at all, and the `unknown` is then evaluated at those readers and nowhere else, so
+`[(p ?x) (unknown (q ?x))]` reads "a reader that sees p and does not know q", which is what
+it should.
+
+**Why they must not leak past the door.** All three are `Cx…` CapitalCamelCase, so
+`nm/context?` calls them contexts and `sx/variable?` does not. Reaching the engine, one
+would be read by every unscoped-path test as an ordinary *concrete* context the taxonomy
+has never heard of — up-closure itself alone — and the read would answer **empty** rather
+than throw. `CxNothing` is that failure mode turned into the feature: it is a context
+nothing can wire, so it sees no fact, inherits no vocabulary, and leaves only what a
+prover can compute.
+
+### CxInference: the joint reading
+
+A **variable** context reads "in some context", and it reads it *per literal*. The
+conjunctive join substitutes the accumulated bindings into each literal but hands every
+conjunct the same wildcard, then merges what comes back — so a fact in `CxA` joins a fact
+in `CxB` even when no context sees both, and the context binding is overwritten by
+whichever literal the plan ordered last. Projection hides that at `query`, which is why it
+has been invisible rather than wrong.
+
+`CxInference` is that reading made joint: an answer survives only if some one reader's
+`genlCx` cone covers the whole derivation, and the reader that covered it comes back
+**beside** the bindings, under the keyword `:context` (`vantage/witness-key`) — the same
+place rows two and three of the table above put it. `CxInference` is a constant and names
+no variable, so there is nothing for the witness to bind; write the context as a variable
+instead and it unifies into that variable, under whatever name you chose. The witness is
+the **most general** such reader (`tax/maximal-contexts`) — the
+readers below it see a superset of the same knowledge and add no claim, so reporting all
+of them would make the answer count a fact about how finely the KB is divided rather than
+about the question.
+
+Two implementations, in `vaelii.impl.vantage`, chosen by `vantage/*strategy*`:
+
+- **`:fan`** (the reference) enumerates the readers and asks each the ordinary scoped
+  question. Sound by construction — every answer is one a real vantage really gives — and
+  it inherits `except`, retired-spelling and closure scoping for free, since each reader
+  runs the path a named context runs. It is the one place a read is **not lazy**: which
+  witness is maximal is a property of the whole answer set.
+- **`:post-hoc`** asks once, unscoped, carrying what each answer *rested on*, and places
+  the result with `maximal-common-descendant-contexts` — the backward twin of what a
+  forward firing does. One pass instead of |readers|.
+
+Post-hoc is the one that can be wrong, because an unscoped pass sees the KB with three
+filters off and has to put them back by reasoning about the placement rather than the read:
+the **`genl` edges a match subsumed through** (a reader that sees the fact but not the edge
+does not have the answer), the **exceptions** (`'?ctx` runs where the hidden set is empty,
+so an answer can land in the context that `except`s one of its own facts), and the
+**retired spellings** (supersession is per reader, so a placement below an equality merge
+sees both a fact and its twin). Each was a real divergence from the fan before it was a
+line of code.
+
+What post-hoc cannot do is declared rather than guessed. A *computed* answer — a closure
+walk, an evaluable, an inferred argument type — names no context to place by, so
+`placeable?` asks the registry whether the stored-fact prover is the only one applicable to
+each literal, and a rule-expanding read is out by construction (an antecedent fact is not
+one of the goals, so its context never reaches a placement). Anything else is handed back
+to the fan, which reports that it was.
+
+The strategy is a cost decision that must not change the answer set, exactly as
+`res/*hierarchical-retrieval*` is for retrieval, and `query_context_test` compares the two
+directly. `:post-hoc` is the default because it is **bounded**, not because it always
+wins: the join meters the rows it builds, a run past `lattice contexts ×
+vantage/*rows-per-reader*` (20) is abandoned mid-stage, and the fan answers whatever was
+abandoned —
+[why](defenses.md#post-hoc-placement-is-the-default-because-it-is-bounded).
+
+The readers are the `genlCx` lattice plus any context holding a fact the goal could match.
+The second half is not redundant: a context wired by **no** edge is not a node of the
+closure, so `tax/contexts` does not list it — while a fact asserted into it is real and
+that context is its own (only) reader.
+
+### CxEverything: syntactic, and a named opt-out of belief filtering
+
+`CxEverything` drops both filters: no context scoping and no JTMS read, so it answers what
+the store *spells*. It is the cheapest question the engine takes and the only one that can
+see a defeated default. It is therefore an explicit opt-out of the fourth invariant, and
+an answer taken under it is not a justification — it says a derivation is spelled in the
+store, not that the KB holds it.
+
+It drops those two filters and **not** the derived relations: the `genl` / `genlCx`
+closures and the equality partition are computed from believed edges either way, so a
+subsumption over a *defeated* `genl` edge stays invisible under it. The reading is
+"what does the store spell", not "what would the store spell with the TMS switched off".
+
+Two implementation notes that are easy to get wrong and silent when you do. The flag is a
+dynamic var, so a plain `binding` around a read door would be popped before the lazy seq
+realized and the flag would simply not take (`res/blind-seq` re-establishes it per
+realization step). And it belongs in **every** cache key on the path, because a blind read
+asks the same question at the same wildcard context as an ordinary one and moves no clock
+doing it: `matches-visible`'s literal cache and the reach cache under `provers/closure-key`
+both hold it, or whichever ran first answers for both — an ordinary read reporting a
+defeated default.
+
 ## Context placement of justifications
 
 Forward chaining matches antecedent facts across *any* context, then places the
@@ -146,7 +289,9 @@ facts: `taxonomy/maximal-common-descendant-contexts` = the most-general elements
 intersection of the facts' + rule's `context-down` closures. This can be several
 (incomparable maxima) or none (no common view ⇒ no justification). A universal rule
 firing on specific facts lands its conclusion in the specific context — unless the
-consequent is an `(ist Ctx S)` form, which directs it into `Ctx` explicitly (below).
+consequent is an `(ist Ctx S)` form, which directs it into `Ctx` explicitly (below) — a
+**query context** excepted, which is refused there as at every other write door, so the
+firing drops its conclusion rather than storing into a way of reading.
 
 The placement's own sightings are **antecedents of the firing**: the `genlCx` edges the
 conclusion's context sees the rule and the facts over join its justification, so
@@ -413,7 +558,8 @@ Two boundaries, both deliberate:
 ### What the shipped ontology declares it of
 
 Every shipped declaration is a claim about a **predicate** rather than about a world.
-`functional`, `inverse`, `reflexive`, `symmetric`, `asymmetric` and `transitive` carry
+`functional`, `inverse`, `reflexive`, `irreflexive`, `symmetric`, `antiSymmetric`,
+`asymmetric`, `transitive`, `antiTransitive` and `equivalenceRelation` carry
 the mark — so a `(symmetric P)` stated in one theory is the KB's claim about `P` and not
 that theory's — and `genlCx` carries the forced variant below. **No domain relation
 carries either**, and two things hold that line:
@@ -609,6 +755,16 @@ just as well when the feature is broken outright.
   seeds nothing, where the ungated version re-seeded the whole ontology above it and
   re-joined rules that had already fired on every fact of it. Measured on the starter
   load: 1.80x ungated, 1.04x with both.
+
+  **Each roster predicate's extent is read fanned by `genl`**, the way the matcher fans
+  it (`special/roster-antecedent-functors`): down the spec closure for a positive
+  antecedent, and up the genl closure for a negated one, since a negation reverses the
+  fan. Reading the antecedent's own functor alone finds the facts a rule *names* and not
+  the facts it *matches*, so the edge re-joins the rule over half of what it newly sees,
+  and one type standing between the rule and the fact is enough to leave the conclusion
+  in the orders that wired the contexts first and nowhere else. A predicate outside the
+  hierarchy closes to itself, so the fan costs a KB with no type hierarchy under its rule
+  antecedents nothing.
 
   **Withdrawal needs no twin of it**: dropping an edge *narrows* what a rule sees, and a
   firing names the edges its placement was seen over, so the dependency-directed sweep

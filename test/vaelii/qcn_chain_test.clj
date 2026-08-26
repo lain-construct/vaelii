@@ -14,6 +14,7 @@
   of them takes it away again."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.space :as space]
             [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
@@ -75,7 +76,10 @@
       (v/assert-rule kb [(list 'properPartOfRegion RegA RegC)] (list deepIn RegA)
                      CxChainWhy)
       (let [[h-ab h-bc] (nest! kb CxChainWhy [RegA RegB RegC])
-            concl (first (v/sentexes-matching kb (list deepIn RegA) '?ctx))
+            ;; `sentexes-matching` promises the set and no order, so the count is asked
+            ;; first: one placement, and `?ctx` sees exactly it
+            concl (tu/sole-answer (v/sentexes-matching kb (list deepIn RegA) '?ctx)
+                                  (list deepIn RegA))
             h     (:id concl)]
         (is (some? h) "the conclusion arrived")
         (testing "why names both stored steps — the support the network reported"
@@ -176,3 +180,45 @@
           (is (true? (:consistent? (v/qualitative-network kb :rcc8 CxClashChain))))
           (is (seq (v/sentexes-matching kb (list contained RegA) '?ctx))
               "blocked, not destroyed — the same revival an excepted conclusion gets"))))))
+
+;; ---- residency, counted -------------------------------------------------
+;;
+;; docs/qcn.md's first claim about the load's cost is that **the read is not the pass**: a
+;; consulting call reads the network out of the KB's `:qcn` atom and rebuilds it only when
+;; the change clock has moved, which takes seventeen thousand reads against thirty-nine
+;; asserts down to seventy-eight.  That is a count the engine computes rather than a
+;; duration, so it is asked here as one: exact, bit-identical across machines, and blind to
+;; a loaded box.  `lein perf`'s `qcn-network-residency` holds the *cost* side of the same
+;; claim; neither subsumes the other.
+
+(defn- networks-built
+  "How many networks `f` made the resident read actually build — the miss half of
+  `qcn-kb/read-network`.
+
+  Counted by wrapping the builder rather than by reading a counter, because the build is
+  a plain private fn and the var is what `observe/cached`'s thunk calls: a `with-redefs`
+  on it sees every miss and no hit."
+  [f]
+  (let [n (atom 0), orig @#'qkb/build-network]
+    (with-redefs-fn {#'qkb/build-network (fn [& args] (swap! n inc) (apply orig args))}
+      (fn [] (f) @n))))
+
+(tu/deftest-kb network-reads-grow-with-the-calls-and-not-with-the-asserts
+  (tu/with-terms [CxResidency]
+    (with-spatial kb
+      (v/assert kb (list 'genlCx CxResidency 'CxWell) 'CxUniverse {:strength :monotonic})
+      (let [chain! (fn [n]
+                     (let [rs (into [] (repeatedly n #(tu/tmp-ind "Rr")))]
+                       (nest! kb CxResidency rs)
+                       rs))
+            asked  (fn [rs] #(dotimes [_ 25]
+                               (v/possible-relations kb :rcc8 CxResidency
+                                                     (first rs) (peek rs))))
+            small  (networks-built (asked (chain! 4)))
+            ;; four times the asserts, over the same context and so the same cache key
+            big    (networks-built (asked (chain! 16)))]
+        (is (pos? small) "the fixture really does read a network")
+        (is (< small 25) "twenty-five calls do not cost twenty-five reads")
+        (is (= small big)
+            (str "the read count is a function of what changed, not of what is stored — "
+                 "4 regions cost " small " builds and 16 cost " big))))))

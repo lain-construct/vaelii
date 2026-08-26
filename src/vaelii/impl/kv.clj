@@ -133,11 +133,22 @@
   (kv-clear! [b] "Remove every entry."))
 
 (defn unknown-op!
-  "Refuse a write op no fold here recognizes.  One throw, because there are two folds —
-  the persistent `apply-op` and the transient twin a bulk load takes — and which of them
-  a write went through is not something the op's readability depends on."
+  "Refuse a write op no adapter recognizes.  **One throw for every one of them**, because
+  which fold a write went through is not something the op's readability depends on: the
+  persistent `apply-op` and the transient twin a bulk load takes (`vaelii.impl.memory`),
+  the dense backends' own `kv-batch` (`vaelii.impl.dense-kv`, `vaelii.impl.dense-roots`)
+  and the fork decorator's (`vaelii.impl.overlay.kv`) all bottom out here.  So a caller
+  discriminating on `:type` reads `:unknown-frame` whatever backend it reached, which is
+  the shape `kv_backend_test`'s adapter contract holds every one of them to.
+
+  `:unknown-frame` and not `case`'s bare `IllegalArgumentException`, because on the disk
+  side it is not a programming error at all — it is a log written by some other build,
+  and a build that cannot read a log must be able to say so by name rather than delete
+  it."
   [op]
-  (throw (ex-info (str "unknown index write op " (pr-str op))
+  (throw (ex-info (str "unknown index write op " (pr-str op) " — a batch op is :put,"
+                       " :delete, :increment, :decrement, :add-to-set or"
+                       " :remove-from-set")
                   {:type :unknown-frame :op op})))
 
 (defn apply-op
@@ -155,13 +166,9 @@
   and the disk side is replay: a seventh op added to the live path and missed in the
   fold would be a write that applies once and never comes back.
 
-  An unrecognized op is `:unknown-frame` rather than `case`'s bare
-  `IllegalArgumentException`, because on the disk side it is not a programming error
-  at all — it is a log written by some other build, and a build that cannot read a log
-  must be able to say so by name rather than delete it.  `unknown-op!` is that throw,
-  named so the transient fold beside this one raises the same thing: a bulk load taking
-  the transient path and an ordinary write taking this one may not disagree about what
-  an unreadable op is.
+  An unrecognized op goes to `unknown-op!`, which every adapter shares: a bulk load
+  taking the transient path, a dense backend's own batch, a fork decorator's, and an
+  ordinary write taking this one may not disagree about what an unreadable op is.
 
   `:decrement` floors at zero, per the `KvBackend` contract: these counters are
   cardinalities.  The floor is in every fold rather than in one of them, because the WAL
@@ -235,10 +242,10 @@
 ;; rebuilt per call.
 ;;
 ;; Every `KvBackend` gets the `Object` default below, which reconstructs the vector keys
-;; and folds the generic set ops — byte-identical to what `KvIndexStore` did inline before
-;; — so a backend that has not specialized the family keeps the exact same answers.  Only
-;; the in-memory backend (`vaelii.impl.memory`) overrides it with the trie; the columnar,
-;; disk and overlay backends ride the default and are unchanged.
+;; and folds the generic set ops — so a backend that has not specialized the family
+;; answers exactly what a flat `key → set` map answers.  Only the in-memory backend
+;; (`vaelii.impl.memory`) overrides it with the trie; the columnar, disk and overlay
+;; backends ride the default.
 (defprotocol ArgColumns
   "Descent reads over the predicate-scoped argument-root family (`pos → term → pred`)."
   (arg-scoped-members [b pred pos term]
@@ -254,9 +261,9 @@
 
 (extend-protocol ArgColumns
   Object
-  ;; the pre-trie behaviour, verbatim: a scoped read is one vector-keyed set fetch, a
+  ;; the flat-map reading of the family: a scoped read is one vector-keyed set fetch, a
   ;; multi-column read one intersection, and an agnostic read a union/sum over the slot
-  ;; roster's predicates.  `arg-key` canonicalizes the term exactly as the stored key did.
+  ;; roster's predicates.  `arg-key` canonicalizes the term exactly as the stored key is.
   (arg-scoped-members [b pred pos term] (kv-members b (arg-key pred pos term)))
   (arg-scoped-intersect [b pred pos-terms]
     (let [ks (mapv (fn [[pos term]] (arg-key pred pos term)) pos-terms)]
@@ -419,6 +426,7 @@
   [backend sentex pth handle]
   (let [n        (count pth)
         terms    (sentex-terms sentex)
+        roots    (root-keys sentex)                                ; derived from the sentex alone
         roster   (roster-retires backend terms handle)             ; reads the pre-write postings
         slots    (slot-retires backend sentex handle)              ; likewise
         prefixes (mapv #(subvec pth 0 %) (range n -1 -1))          ; leaf .. root
@@ -442,7 +450,7 @@
                                   (nth pth (dec (count prefix)))])))
                        dead)
                (map (fn [t] [:remove-from-set (term-key t) handle]) terms)
-               (map (fn [k] [:remove-from-set k handle]) (root-keys sentex))
+               (map (fn [k] [:remove-from-set k handle]) roots)
                roster slots
                ;; the batch seal, last on purpose — `sealed-prefix` says why
                [[:decrement (count-key sealed-prefix)]]))
@@ -453,7 +461,7 @@
     (when (prof/profiling?)
       (prof/record-index-retract sentex {:levels (inc n)
                                          :terms  (count terms)
-                                         :roots  (count (root-keys sentex))
+                                         :roots  (count roots)
                                          :roster (count roster)
                                          :slots  (count slots)
                                          :dead   (count dead)}))
@@ -473,6 +481,7 @@
     (let [pth    (sx/path sentex)
           n      (count pth)
           terms  (sentex-terms sentex)
+          roots  (root-keys sentex)                   ; derived from the sentex alone
           roster (roster-adds backend terms)          ; reads the pre-write postings
           slots  (slot-adds backend sentex)]          ; likewise, before any posting lands
       (kv-batch backend
@@ -485,7 +494,7 @@
                                 [:add-to-set (leaf-key prefix) handle])]))    ; leaf handle
                          (range (inc n)))
                  (map (fn [t] [:add-to-set (term-key t) handle]) terms)
-                 (map (fn [k] [:add-to-set k handle]) (root-keys sentex))
+                 (map (fn [k] [:add-to-set k handle]) roots)
                  roster slots
                  ;; the batch seal, last on purpose — `sealed-prefix` says why
                  [[:increment (count-key sealed-prefix)]]))
@@ -495,7 +504,7 @@
       (when (prof/profiling?)
         (prof/record-index-write sentex {:levels (inc n)
                                          :terms  (count terms)
-                                         :roots  (count (root-keys sentex))
+                                         :roots  (count roots)
                                          :roster (count roster)
                                          :slots  (count slots)}))
       handle))
@@ -557,8 +566,8 @@
   ;;     matched exactly by `count-at`.
   ;; Only child *sets* are read while walking; handles are read solely at the terminus,
   ;; so the skip can never cross into a leaf handle or read a marker as one.  This is a
-  ;; superset filter — `res/unify` is the source of truth — so a markerless (flat)
-  ;; key walks exactly as before.
+  ;; superset filter — `res/unify` is the source of truth — and a markerless (flat)
+  ;; key, holding no marker for the skip to read, walks one level per token.
   (lookup [_ pattern]
     (prof/record-read :trie-lookup)
     (letfn [(child-labels [prefix] (kv-members backend (set-key prefix)))

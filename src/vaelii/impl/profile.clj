@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.profile
-  "What a KB is **asked**, and what each answer costs the index — four tallies behind
+  "What a KB is **asked**, and what each answer costs the index — seven tallies behind
   one switch.
 
   The index has six families and several access paths into them (`docs/indexing.md`),
@@ -89,12 +89,15 @@
     which covers every backend the `KvBackend` adapters reach — the flat map, the dense
     one, the on-disk WAL, an overlay.  `vaelii.impl.columnar` walks its own native trie
     and counts no node probes, so a columnar run reports **no fan at all** rather than a
-    fabricated one, and `profile_test` pins that silence.  Every other tally holds on
-    both: that store keeps the goal, read, write and retract tallies itself, because it
-    writes and walks the index rather than going through `KvIndexStore` to do it.
+    fabricated one, and `profile_test` pins that silence.  The other six hold on both:
+    that store keeps `:reads`, `:writes` and `:retracts` itself, because it writes and
+    walks the index rather than going through `KvIndexStore` to do it, and the remaining
+    three are no index's to keep — `:goals` and `:sift` are the matchers'
+    (`vaelii.impl.resolution`) and `:fetches` is the record store's.
   * A retrieval that reaches the index without going through either matcher has no
-    shape here: the direct `p/lookup` callers (`find-sentex-handle`, the level-0 raw
-    read) appear in `:fan` and `:reads` and not in `:goals`.
+    shape here: the level-0 raw read calls `p/lookup` directly, so it appears in `:fan`
+    and `:reads` and not in `:goals`, while `find-sentex-handle`'s exact `p/leaf-at`
+    probe appears in `:reads` alone — it does not walk, so it has no fan to record.
   * **`:fetches` counts the protocol call, not the work behind it.**  A store's own
     internal reads are its own business — the durable store re-reads a record inside
     `mark-premise` where the RAM one reaches into its state map — so counting those would
@@ -150,11 +153,36 @@
   (read-out @tally))
 
 (defn stop
-  "Stop collecting and return the final snapshot (nil when it was not running)."
+  "Stop collecting and return the final snapshot (nil when it was not running).
+
+  One CAS rather than a deref and a `reset!`: the reading taken and the instrument
+  cleared are the same step, so a tally filed between the two is reported rather than
+  wiped unread."
   []
-  (let [t @tally]
-    (reset! tally nil)
-    (read-out t)))
+  (read-out (first (swap-vals! tally (constantly nil)))))
+
+;; ---- the seam every tally goes through ----------------------------------
+
+(defmacro ^:private tallying
+  "`(update-in tally path f args…)`, applied **only while the instrument is still
+  collecting** — the one shape every `record-*` below files its count in.
+
+  Two guards, and both are load-bearing.  The deref is the fast path: a seam off a
+  timing run pays that and a `nil?` check, which is what every `record-*` promises, and
+  nothing inside is built until it passes.  The `when` *inside* the swap is what makes
+  `stop` final.  A bare `swap!` on a tally `stop` has already cleared does not fail — it
+  **recreates** one, and a `swap!` retries against the fresh value, so an in-flight tally
+  whose compare-and-set `stop` beats is applied to nil on the retry.  What that leaves is
+  a fragment with no `:t0`: `profiling?` answers true for the life of the process, every
+  later read pays the CAS the switch promised it would not, and `snapshot` reads `(long
+  nil)` off the missing stamp.  `jobs/update-job!` guards the same shape against the same
+  recreation.
+
+  Answers nil, since every seam here is called for effect."
+  [path f & args]
+  `(do (when @tally
+         (swap! tally (fn [t#] (when t# (update-in t# ~path ~f ~@args)))))
+       nil))
 
 ;; ---- the goal tally -----------------------------------------------------
 
@@ -184,15 +212,13 @@
   "Tally one `candidate-handles` decision: the pattern sentex it was asked for and the
   access path it chose.  A deref and a `nil?` check when the instrument is off."
   [pat path]
-  (when @tally
-    (swap! tally update-in [:goals (shape-of (sx/body pat) (:truth pat) path)] (fnil inc 0))))
+  (tallying [:goals (shape-of (sx/body pat) (:truth pat) path)] (fnil inc 0)))
 
 (defn record-literal
   "Tally one retrieval decision taken over a bare sentence rather than a pattern sentex —
   the set-algebra matcher's, which is handed the literal and admits only positive ones."
   [sentence path]
-  (when @tally
-    (swap! tally update-in [:goals (shape-of sentence :true path)] (fnil inc 0))))
+  (tallying [:goals (shape-of sentence :true path)] (fnil inc 0)))
 
 ;; ---- the read tally -----------------------------------------------------
 
@@ -202,8 +228,7 @@
   method names: several methods read the argument roots, and what a policy would drop is
   the family."
   [family]
-  (when @tally
-    (swap! tally update-in [:reads family] (fnil inc 0))))
+  (tallying [:reads family] (fnil inc 0)))
 
 ;; ---- the record-fetch tally ---------------------------------------------
 
@@ -222,8 +247,7 @@
 
   A deref and a `nil?` check when the instrument is off, like every seam here."
   [kind]
-  (when @tally
-    (swap! tally update-in [:fetches kind] (fnil inc 0))))
+  (tallying [:fetches kind] (fnil inc 0)))
 
 ;; ---- the sift tally -----------------------------------------------------
 
@@ -255,9 +279,8 @@
   the counts box, which costs nothing off the timing path (this is only reached while
   collecting)."
   [sentence path returned matched unified]
-  (when @tally
-    (swap! tally update-in [:sift (shape-of sentence :true path)]
-           bump-sift (long returned) (long matched) (long unified))))
+  (tallying [:sift (shape-of sentence :true path)]
+            bump-sift (long returned) (long matched) (long unified)))
 
 ;; ---- the fan tally ------------------------------------------------------
 
@@ -283,8 +306,7 @@
   `handles` handles at the terminus.  Keyed by the path's first token, which is the
   functor for a positive fact and `:false` for a negative."
   [pattern ^long visits ^long widest ^long handles]
-  (when @tally
-    (swap! tally update-in [:fan (first pattern)] bump-fan visits widest handles)))
+  (tallying [:fan (first pattern)] bump-fan visits widest handles))
 
 ;; ---- the write tally ----------------------------------------------------
 
@@ -308,8 +330,7 @@
   the flat families took.  Call sites guard on `profiling?` so the counts map is built
   only while collecting."
   [sentex counts]
-  (when @tally
-    (swap! tally update-in [:writes (write-key sentex)] bump-write counts)))
+  (tallying [:writes (write-key sentex)] bump-write counts))
 
 (defn- bump-retract [row {:keys [levels terms roots roster slots dead]}]
   (-> row
@@ -332,5 +353,4 @@
   and from a sparse one costs differently, and a family's retraction cost cannot be
   quoted as a constant the way its assert cost can."
   [sentex counts]
-  (when @tally
-    (swap! tally update-in [:retracts (write-key sentex)] bump-retract counts)))
+  (tallying [:retracts (write-key sentex)] bump-retract counts))

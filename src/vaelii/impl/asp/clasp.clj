@@ -9,7 +9,7 @@
    `Result` field from `--outf=2` and only throw when clasp itself fails
    to run or produces no parseable output.
 
-   The four modes match the user-facing reason API in vaelii.impl.asp.reason:
+   The four modes are the ones `vaelii.impl.asp.edge` asks for:
    :label, :all-optima, :classify-true, :classify-supportable.
 
    Every run carries `--time-limit` from `config/asp-time-limit` (0 lifts it): a
@@ -48,18 +48,23 @@
           (apply shell/sh *clasp-binary* "--outf=2"
                  (concat argv [:in aspif-text]))
           (catch java.io.IOException e
-            (throw (ex-info (str "clasp binary not found: " *clasp-binary*)
+            (throw (ex-info (str "clasp binary not found: " (pr-str *clasp-binary*)
+                                 " — put clasp on PATH, or bind"
+                                 " vaelii.impl.asp.clasp/*clasp-binary* to its path")
                             {:type :solver-unavailable :binary *clasp-binary*} e))))]
-    (cond
-      (str/blank? out)
-      (throw (ex-info (str "clasp produced no output (exit " exit ")")
+    (if (str/blank? out)
+      (throw (ex-info (str "clasp produced no output (exit " exit ") — a solve answers"
+                           " JSON on stdout under --outf=2, so an empty body is clasp"
+                           " failing to run; its stderr held "
+                           (pr-str (str/trim (str err))))
                       {:type :solver-failed :exit exit :err err :argv argv}))
-
-      :else
       (try
         (json/parse-string out true)
         (catch Exception e
-          (throw (ex-info "failed to parse clasp JSON output"
+          (throw (ex-info (str "clasp output does not parse as JSON — a solve runs under"
+                               " --outf=2, so a non-JSON body comes from something"
+                               " answering in clasp's place; exit " exit ", and the body"
+                               " opens " (pr-str (subs out 0 (min 200 (count out)))))
                           {:type :solver-failed :exit exit :out out :err err} e)))))))
 
 (defn- interrupted?
@@ -108,11 +113,11 @@
 (defn- optimal-witnesses
   "Witnesses whose FULL cost vector equals the reported optimum. clasp may
    emit intermediate non-optimal witnesses during the search; we filter
-   them. Comparing the whole `:Costs` vector (not just the first level) is
-   required for multi-priority lexicographic programs — the old
-   single-level compare (`[cost]` vs the witness `:Costs`) matched nothing
-   once more than one minimize tier was present, so `:label` / `:all-optima`
-   came back with no witness."
+   them. The whole `:Costs` vector is compared rather than its first level,
+   because a multi-priority lexicographic program reports one cost per
+   level: a single-level compare (`[cost]` against the witness's `:Costs`)
+   matches no witness at all once more than one minimize tier is present,
+   and `:label` / `:all-optima` then have none to read."
   [parsed]
   (let [costs (optimum-costs parsed)]
     (if (nil? costs)
@@ -139,7 +144,8 @@
    atoms ride beside it are a model found on the way, not the answer."
   [aspif-text mode]
   (let [argv (or (mode-args mode)
-                 (throw (ex-info (str "unknown clasp mode: " mode)
+                 (throw (ex-info (str "unknown clasp mode: " (pr-str mode) " — want one of "
+                                      (pr-str (vec (sort (keys mode-args)))))
                                  {:type :unknown-option :mode mode :valid (keys mode-args)})))
         parsed (invoke-clasp (concat argv (time-limit-args)) aspif-text)
         status (status-of parsed)]

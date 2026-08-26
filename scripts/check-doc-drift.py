@@ -24,8 +24,8 @@ and those files describe the project around it.
       dotfiles repo and gitignored here, so a reader who clones this repo
       does not have them: a pointer at one is a dead end, and the knowledge
       belongs in docs/ instead.  Scans source and scripts as well as docs.
-  E6  A doc under docs/ that nothing links to — index.md is the map, so a
-      doc it does not reach is one nobody finds.
+  E6  A doc under docs/ that nothing links to — docs/README.md is the map, so
+      a doc it does not reach is one nobody finds.
   E7  Archaeology: prose narrating the project's own past ("there used to be",
       "was previously", "the old behaviour", "before the fix").  A doc and a
       comment describe what the code does now; a diff already records how it
@@ -89,6 +89,26 @@ and those files describe the project around it.
       indistinguishable from a sibling that is fine.  The unreleased section only:
       the convention is newer than the released sections, and rewriting those to
       satisfy it is archaeology.
+  E16 A raw `IndexStore` read (`p/sentexes-with-functor`, `p/rules-by-consequent`,
+      `p/count-at`, …) anywhere under src/ but the implementers.  The index answers
+      what is STORED, and a stored sentex is not a believed one — so every read
+      carries a question, and read straight off the protocol nothing says which
+      answer the caller wanted: a forgotten belief filter and a deliberate as-stored
+      read look identical.  `vaelii.impl.reads` asks it in the name of the read, and
+      the roster (`E16_OK_FILES`) is the one place an exception is written down.
+      `RecordStore` is outside the check by design — a record IS the storage.
+  E17 A `tax/…-global` taxonomy read from a `(file, top-level def)` pair not in
+      `E17_ROSTER`.  A read sees what its context sees, and on a KB where no edge is
+      context-restricted the global closure and the scoped one are the same object —
+      so a caller that meant to scope and did not is right on every KB but the one it
+      is wrong on.  The roster records THAT a caller has a reason; the reason itself
+      lives in that definition's own docstring.
+  E18 A `.clj` under src/ that docs/namespaces.md neither glosses in its file map nor
+      names in its "Not glossed above" block — or a name in either list that is no
+      longer a file, or a count in that section's first sentence that disagrees with
+      the two lists.  The map's claim is arithmetic ("covers N of the M namespaces"),
+      and nothing else reads it, so a namespace added without a line goes on being
+      unmapped silently while the number beside it keeps asserting otherwise.
 
   W1  Line-number citations into .clj files (`foo.clj:123`) — warned, not
       failed: cite the var name instead, line numbers always rot.
@@ -129,7 +149,9 @@ ALIASES = {
     "clasp": "vaelii.impl.asp.clasp", "clingo": "vaelii.impl.asp.clingo",
     "edge": "vaelii.impl.asp.edge", "label": "vaelii.impl.asp.label",
     "solver": "vaelii.impl.asp.solver",
-    "budget": "vaelii.impl.budget", "chain": "vaelii.impl.chain",
+    "budget": "vaelii.impl.budget",
+    "cap": "vaelii.impl.capabilities", "capabilities": "vaelii.impl.capabilities",
+    "chain": "vaelii.impl.chain",
     "checks": "vaelii.impl.checks", "core-context": "vaelii.impl.core-context",
     "backend": "vaelii.impl.disk.backend", "disk": "vaelii.impl.disk.backend",
     "dur": "vaelii.impl.disk.durability", "f": "vaelii.impl.disk.files",
@@ -749,8 +771,9 @@ for path in repo_text_files():
 #     the public way to ask for a subsystem, and naming one must not load eight.
 #   - an optional dependency whose entire point is not being loaded — the dense TMS
 #     (RoaringBitmap, fastutil), the clingo bridge (JNA, libclingo), the
-#     embedded-SQLite record store (the Apache-2.0 `com.vaelii/sqlite` sibling the
-#     SSPL engine does not depend on), the sampling profiler, and ring-devel's
+#     embedded-SQLite and Postgres record stores (the Apache-2.0 `com.vaelii/sqlite`
+#     and `com.vaelii/postgres` siblings the SSPL engine does not depend on), the
+#     sampling profiler, and ring-devel's
 #     `wrap-reload` for the hot-reload dev server — the last two shipping in the
 #     `:repl`/`:dev` profiles and therefore absent from a served process by design.  A
 #     require of one of those is not a layering cut this repo could straighten out:
@@ -768,6 +791,7 @@ for path in repo_text_files():
 E8_OK_FILES = {"src/vaelii/impl/wiring.clj"}
 E8_OK_TARGETS = {"vaelii.impl.dense-jtms/create-dense-tms",
                  "vaelii.sqlite.record-store/sqlite-record-store",
+                 "vaelii.postgres.record-store/pg-record-store",
                  "vaelii.impl.asp.clingo/solve",
                  "vaelii.impl.asp.clingo/classify-both",
                  "vaelii.impl.asp.clingo/available?",
@@ -1059,6 +1083,261 @@ if os.path.exists(changelog):
                  f" without one is swept and reports nothing — indistinguishable"
                  f" from a sibling that is fine. One line beside the class, holding"
                  f" each name a caller would have written (CONTRIBUTING §3.8)")
+
+# ── E16: an index read is a door's, and an as-stored one is named ───────────
+# The `IndexStore` posting sets are storage: they hold a defeated default, a
+# conclusion whose support was withdrawn and a spelling an equality retired,
+# because all three are revivable and belief lives in the JTMS instead. So every
+# raw read has a question attached — stored, or believed — and read straight off
+# `vaelii.impl.protocols` there is nothing to say which answer the caller wanted.
+# A forgotten belief filter and a deliberate as-stored read are the same three
+# characters.
+#
+# `vaelii.impl.reads` is where the question gets asked, in the name of the read:
+# `as-stored-…` / `stored-…` over the index store, `believed-…` over the KB. This
+# check is what keeps the doors the only way in, and the roster below is the one
+# place an exception is written down.
+#
+# The roster is not a list of trusted callers — it is the implementers. A store
+# answering the protocol, the retrieval that *builds* the believed reads, and the
+# dump that copies the index wholesale are all below the question rather than
+# ducking it: there is no belief to filter by at the point they run.
+#
+# Scoped to the INDEX reads, and `RecordStore` is deliberately outside it: a record
+# IS the storage, so fetching one asks nothing about belief. `p/get-sentex` beside a
+# door here is the ordinary shape and not a second violation.
+#
+# What this does NOT see, stated so nobody over-trusts it: a read reached through a
+# bound var (`(let [f p/lookup] (f idx path))`) reads as a value and passes, and so
+# does one behind a `resolve`. Closing that would mean banning the value form, which
+# is the shape the planner's injected cost model is built from. The rule catches the
+# read somebody writes without thinking, not the one somebody hides.
+E16_READS = ("lookup", "leaf-at", "count-at", "children", "count-children",
+             "sentexes-in-context", "count-in-context",
+             "sentexes-with-functor", "count-with-functor",
+             "sentexes-with-arg", "count-with-arg", "sentexes-with-args",
+             "rules-by-antecedent", "rules-by-consequent",
+             "rules-with-exception-on", "exception-rules", "exception-rule?",
+             "sentexes-with-term", "sentexes-with-terms",
+             "terms", "term-count", "index-entries")
+E16_OK_FILES = {
+    # the doors themselves
+    "src/vaelii/impl/reads.clj",
+    # the protocol that declares them
+    "src/vaelii/impl/protocols.clj",
+    # retrieval: kb and resolution are what a believed read is BUILT from — the
+    # matcher, the visibility filters, the equality rewrite and `sentexes-matching`
+    "src/vaelii/impl/kb.clj",
+    "src/vaelii/impl/resolution.clj",
+    # storage backends, answering the protocol or decorating another store
+    "src/vaelii/impl/columnar.clj",
+    "src/vaelii/impl/kv.clj",
+    "src/vaelii/impl/disk/index_snapshot.clj",
+    # the portable projection: a dump copies every entry the index holds, by
+    # definition without reading one of them
+    "src/vaelii/impl/io/snapshot.clj",
+}
+E16_BACKTICKED = re.compile(r"`[^`]*`")
+E16_CALL = re.compile(r"\bp/(" + "|".join(re.escape(r) for r in E16_READS) + r")(?![\w?-])")
+
+for path in clj_files():
+    rel = os.path.relpath(path, ROOT)
+    if rel in E16_OK_FILES:
+        continue
+    for i, line in enumerate(open(path, errors="replace"), 1):
+        # a backticked `p/lookup` is prose ABOUT the read, which is what a doc
+        # reference is for and never a call — E2 already checks those resolve
+        m = E16_CALL.search(E16_BACKTICKED.sub("", line))
+        if not m:
+            continue
+        flag("E16", path, f"p/{m.group(1)}",
+             f"{rel}:{i} `p/{m.group(1)}` — a raw index read outside "
+             f"vaelii.impl.reads. The index answers what is STORED, so the read owes "
+             f"an answer to which it wants: `reads/as-stored-…` (and say in the "
+             f"docstring what a stored-but-disbelieved answer is for) or "
+             f"`reads/believed-…`. If this file implements the protocol rather than "
+             f"reading through it, add it to E16_OK_FILES with the reason")
+
+# ── E17: a global taxonomy read is rostered, never reached for ─────────────
+# Context scoping is the third invariant: a read sees what its context sees, up the
+# genlCx cone. `vaelii.impl.taxonomy` answers each closure both ways — `genls` walks
+# the edges visible from a context, `genls-global` walks every active edge whoever
+# can see it — and on a KB where no edge is context-restricted the two return the
+# same object. That is what makes the global read dangerous rather than merely
+# broad: the caller that meant to scope and did not is right on every KB until the
+# one it is wrong on.
+#
+# So a global read is a decision, and this is where the decisions are listed. Each
+# roster entry is a `(file, top-level def)` pair, and the reason lives in that
+# definition's own docstring — the roster records THAT there is one, the docstring
+# says what it is. A caller that cannot state a reason wants the scoped arity.
+#
+# `vaelii.impl.taxonomy` itself is not on the roster and needs no entry: it calls its
+# own readers unqualified, and this rule is about reaching one through the alias.
+E17_GLOBAL = ("genls-global", "specs-global", "genl?-global", "context-up-global")
+E17_ROSTER = {
+    # The public API offers both readings, and its shorter arity IS the global one —
+    # `vaelii.core/genls` documents the pair (docs/taxonomy.md).
+    ("src/vaelii/core.clj", "genls"),
+    ("src/vaelii/core.clj", "specs"),
+    ("src/vaelii/core.clj", "genl?"),
+    # Assert-time refusals. A refusal is a claim about the KB and not about a vantage:
+    # a cycle refused when asked from one context and allowed from another is not a
+    # refusal, it is a coin toss.
+    ("src/vaelii/impl/wff.clj", "genl-problems"),
+    ("src/vaelii/impl/wff.clj", "disjoint-problems"),
+    ("src/vaelii/impl/wff.clj", "rule-edges"),
+    ("src/vaelii/impl/checks.clj", "genls-problem"),
+    ("src/vaelii/impl/checks.clj", "mintable-type?"),
+    # The forward join and the trigger keys. A firing is placed in a context the join
+    # decides, so the candidate fan cannot be scoped by one — the rule index is keyed
+    # on the global closure and the placement narrows afterwards (docs/contexts.md).
+    ("src/vaelii/impl/rules.clj", "trigger-keys"),
+    ("src/vaelii/impl/chain.clj", "subsumption-links"),
+    ("src/vaelii/impl/chain.clj", "symmetric-rejoin-rules"),
+    ("src/vaelii/impl/chain.clj", "transitive-rejoin-rules"),
+    ("src/vaelii/impl/chain.clj", "transitive-source-preds"),
+    ("src/vaelii/impl/chain.clj", "walks-its-own-conclusion?"),
+    ("src/vaelii/impl/inherit.clj", "moved-predicates"),
+    ("src/vaelii/impl/vantage.clj", "subsumption-support"),
+    # Re-check triggers. A trigger must over-approximate in the direction the answer
+    # is: a declaration this edge cannot see still qualifies a rule in some context
+    # that can, and a missed trigger is a wrong belief where a spare one is a query
+    # (`inherit/declared` states the argument in full).
+    ("src/vaelii/impl/special.clj", "recheck-declaration"),
+    ("src/vaelii/impl/special.clj", "arg-declared-types"),
+    ("src/vaelii/impl/special.clj", "recheck-arg-inferred"),
+    ("src/vaelii/impl/special.clj", "recheck-on-predicate"),
+    ("src/vaelii/impl/special.clj", "recheck-genl-edge"),
+    ("src/vaelii/impl/special.clj", "recheck-negated-exceptions"),
+    ("src/vaelii/impl/special.clj", "subtree-sentexes"),
+    ("src/vaelii/impl/special.clj", "negative-subsumption-seeds"),
+    ("src/vaelii/impl/special.clj", "subsumption-seeds"),
+    ("src/vaelii/impl/special.clj", "roster-antecedent-functors"),
+    # Settle's candidate discovery. An over-approximated candidate merely checks and
+    # yields nothing, and the arbitration that follows is context-scoped anyway —
+    # `instances-below` carries the reasoning and the measurement.
+    ("src/vaelii/impl/settle.clj", "reachable-predicates"),
+    ("src/vaelii/impl/settle.clj", "exposed-clashes-for-term"),
+    ("src/vaelii/impl/settle.clj", "instances-below"),
+    ("src/vaelii/impl/settle.clj", "spec-closure"),
+    ("src/vaelii/impl/settle.clj", "member-owners"),
+    ("src/vaelii/impl/settle.clj", "declaration-reach"),
+    ("src/vaelii/impl/settle.clj", "predicate-subtree"),
+    ("src/vaelii/impl/settle.clj", "partner-contexts"),
+    ("src/vaelii/impl/settle.clj", "any-arity-declared?"),
+    # The one that reads BOTH and compares them: `genl-view` is a cheap marker for
+    # "every asker inside this sandwich reads the same set".
+    ("src/vaelii/impl/settle.clj", "genl-view"),
+    # The visibility filter cannot be scoped by the filter it derives — asking
+    # `context-up` here would make except evaluation recursive on itself.
+    ("src/vaelii/impl/resolution.clj", "visible-exception-index"),
+    ("src/vaelii/impl/resolution.clj", "hidden-fn"),
+    # A report on the whole taxonomy, which has no vantage to read from.
+    ("src/vaelii/impl/quality.clj", "taxonomy-coverage"),
+    # The clash reading's candidate fan. A rule pair is decided from a common descendant
+    # of the two rules' contexts — a vantage belonging to neither — so fanning from
+    # either would drop a pair the context that can see both would find, and the pair
+    # itself is decided scoped.
+    ("src/vaelii/impl/quality.clj", "clash-partners"),
+}
+E17_CALL = re.compile(r"\btax/(" + "|".join(re.escape(n) for n in E17_GLOBAL) + r")(?![\w?-])")
+E17_DEF = re.compile(r"\(def[\w-]*\s+(?:\^[^\s]+\s+)*([^\s\)]+)")
+
+for path in clj_files():
+    rel = os.path.relpath(path, ROOT)
+    enclosing = "?"
+    for i, line in enumerate(open(path, errors="replace"), 1):
+        if line.startswith("(def"):
+            m = E17_DEF.match(line)
+            enclosing = m.group(1) if m else "?"
+        m = E17_CALL.search(E16_BACKTICKED.sub("", line))
+        if not m or (rel, enclosing) in E17_ROSTER:
+            continue
+        flag("E17", path, f"tax/{m.group(1)}",
+             f"{rel}:{i} `{enclosing}` calls `tax/{m.group(1)}` — an unscoped taxonomy "
+             f"read outside the roster. A read sees what its context sees (README.md, "
+             f"context scoping), and on a KB where no edge is context-restricted the "
+             f"global and the scoped answer are the same object — so a caller that "
+             f"meant to scope and did not is right until it is not. Pass the context "
+             f"(`tax/{m.group(1)[:-len('-global')]}`), or add `{enclosing}` to "
+             f"E17_ROSTER and say in its docstring why it must not be scoped")
+
+# ── E18: the namespace map accounts for every file under src/ ──────────────
+# docs/namespaces.md is the file map, and it makes a countable claim: the glossed
+# table covers N of the M namespaces under src/, and the "Not glossed above" block
+# names the rest. A map that is one arithmetic sentence away from being wrong is a
+# map a reader stops trusting the moment they find the file it forgot — and the
+# forgetting is silent, because a new namespace changes nothing that any other check
+# reads.
+#
+# So the two lists are checked against the filesystem instead. Every `.clj` under
+# src/ must appear either as a glossed row (in a fence whose header line is
+# `src/vaelii/…`, the path relative to that header) or by name in the closing block,
+# and a name in either list must still be a file. The count in the prose is checked
+# against the same two sets, so it cannot be updated to a number nobody measured.
+E18_DOC = os.path.join(ROOT, "docs", "namespaces.md")
+E18_COUNT = re.compile(r"The map covers (\d+) of the (\d+) namespaces under `src/`")
+
+
+def e18_expand(token):
+    """`impl/llm/{a,b}.clj` -> the names it stands for; anything else, itself."""
+    m = re.match(r"^(.*?)\{([^}]*)\}(.*)$", token)
+    if not m:
+        return [token]
+    pre, inner, post = m.groups()
+    return [n for part in inner.split(",") for n in e18_expand(pre + part.strip() + post)]
+
+
+def e18_lists(text):
+    """(glossed, by_name): the two rosters docs/namespaces.md holds, as paths under
+    src/vaelii/. Brace groups are joined first — the llm and koinii ones wrap."""
+    glossed, by_name, header, fenced = set(), set(), None, False
+    joined = re.sub(r"\{[^}]*\}", lambda m: re.sub(r"\s+", "", m.group(0)), text)
+    for line in joined.split("\n"):
+        if FENCE.match(line):
+            fenced = not fenced
+            header = None
+            continue
+        if not fenced or not line.strip():
+            continue
+        if line.strip().endswith("/") and not line.startswith(" "):
+            header = line.strip()
+            continue
+        if header is None:
+            for token in re.findall(r"[\w./{},-]*\.clj", line):
+                by_name.update(e18_expand(token))
+        elif header.startswith("src/vaelii/"):
+            m = re.match(r"^\s+([\w./-]+\.clj)\s", line)
+            if m:
+                glossed.add(header[len("src/vaelii/"):] + m.group(1))
+    return glossed, by_name
+
+
+if os.path.exists(E18_DOC):
+    e18_text = open(E18_DOC, errors="replace").read()
+    e18_glossed, e18_named = e18_lists(e18_text)
+    e18_actual = {os.path.relpath(p, os.path.join(SRC, "vaelii")) for p in clj_files()}
+    for ns in sorted(e18_actual - e18_glossed - e18_named):
+        flag("E18", E18_DOC, ns,
+             f"src/vaelii/{ns} is in neither list in docs/namespaces.md — give it a "
+             f"glossed row in the file map, or name it in the \"Not glossed above\" "
+             f"block, and move the count in that section's first sentence to match")
+    for ns in sorted((e18_glossed | e18_named) - e18_actual):
+        flag("E18", E18_DOC, ns,
+             f"docs/namespaces.md lists `{ns}`, which is no longer under src/vaelii/ — "
+             f"drop the row and move the count in \"Not glossed above\" to match")
+    e18_m = E18_COUNT.search(e18_text)
+    if not e18_m:
+        flag("E18", E18_DOC, "namespaces-count",
+             "docs/namespaces.md no longer states \"The map covers N of the M "
+             "namespaces under `src/`\" — that sentence is what this check counts "
+             "against, so keep its wording")
+    elif (int(e18_m.group(1)), int(e18_m.group(2))) != (len(e18_glossed), len(e18_actual)):
+        flag("E18", E18_DOC, "namespaces-count",
+             f"docs/namespaces.md says the map covers {e18_m.group(1)} of "
+             f"{e18_m.group(2)} namespaces under src/; it covers "
+             f"{len(e18_glossed)} of {len(e18_actual)}")
 
 for e in errors:
     print(e)

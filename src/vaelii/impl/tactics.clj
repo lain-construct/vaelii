@@ -181,16 +181,22 @@
 
   The weights are large next to a typical base term on purpose: a sign that only broke
   ties would not be a strategy.  `:breadth-bias` scales the depth term alone, for tuning
-  the one weight that decides how far the search commits before it reconsiders."
-  {:tactician           :ground-first
-   :size-penalty        4
-   :depth-weight        1000
-   :tree-weight         1000
-   :breadth-bias        1.0
-   :motivation-weight   1000000000
-   :first-result?       false
-   :estimate-backchain? false
-   :backchain-depth     2})
+  the one weight that decides how far the search commits before it reconsiders.
+
+  It carries `:ground-first`'s three signs, so this is itself a **normalized** strategy —
+  the shape every reader of one expects (`child-bias` reads `:motivation`, `node-estimate`
+  reads the other two).  `strategy` merging the tactician's signs over it is a no-op for
+  this tactician and the override for any other."
+  (merge (:ground-first tacticians)
+         {:tactician           :ground-first
+          :size-penalty        4
+          :depth-weight        1000
+          :tree-weight         1000
+          :breadth-bias        1.0
+          :motivation-weight   1000000000
+          :first-result?       false
+          :estimate-backchain? false
+          :backchain-depth     2}))
 
 (defn strategy
   "Normalize `s` — a tactician keyword, a full or partial strategy map, or nil — into the
@@ -201,9 +207,32 @@
         t (get m :tactician (:tactician defaults))]
     (if-let [signs (get tacticians t)]
       (merge defaults signs m {:tactician t})
-      (throw (ex-info (str "no such tactician: " t)
+      (throw (ex-info (str "no such tactician: " (pr-str t) " — want one of "
+                           (pr-str (vec (sort (keys tacticians)))))
                       {:type :unknown-tactician :tactician t
                        :known (vec (sort (keys tacticians)))})))))
+
+(defn with-tactician
+  "`strat` re-pointed at tactician `t`: `t`'s signs replace whatever signs `strat`
+  carries, and every other weight the caller set is kept.
+
+  `strategy` cannot do this, and must not: an explicit sign in the map it is handed
+  **overrides** the tactician's, which is what lets a caller name a tactician and then
+  bend one term of it.  A strategy that has already been normalized carries all three
+  signs, so re-normalizing it under a different `:tactician` keeps the old ordering
+  under the new name — which is a portfolio racing several copies of one search while
+  reporting three tacticians.  So the swap says which side wins, here, where the answer
+  is the new tactician's.
+
+  The result is a fixed point of `strategy`: its signs are `t`'s, so normalizing it
+  again merges `t`'s signs over the identical values."
+  [strat t]
+  (if-let [signs (get tacticians t)]
+    (merge strat signs {:tactician t})
+    (throw (ex-info (str "no such tactician: " (pr-str t) " — want one of "
+                         (pr-str (vec (sort (keys tacticians)))))
+                    {:type :unknown-tactician :tactician t
+                     :known (vec (sort (keys tacticians)))}))))
 
 (defn complete?
   "Does this strategy return the whole answer set?

@@ -492,21 +492,30 @@
         "B retrieves the mirror, because storage sorted the arguments and storage
          does not vary by reader")))
 
-(tu/deftest-kb an-open-context-query-joins-across-incomparable-contexts
-  ;; Pinned, not endorsed.  `?ctx` is a question about the KB rather than from a
-  ;; vantage, so a conjunctive `prove` joins literals no single context sees together.
-  ;; ../vaelii drops such an answer for want of a common floor and offers `AllContext` /
-  ;; `InferenceContext` for the union; here the union is what `?ctx` means, and a caller
-  ;; wanting the floor names a context.
+(tu/deftest-kb an-open-context-query-requires-one-reader-to-see-the-whole-join
+  ;; A **variable** context is the joint reading: the answer must hold from some one
+  ;; vantage, and that vantage is unified into the variable the caller named.  So a
+  ;; conjunctive read does *not* join literals no single context sees — an answer no reader
+  ;; of the KB actually has.  The union is spelled `CxEverything`, the reading that asks
+  ;; about the store rather than about what any reader holds (docs/contexts.md).
   (tu/with-terms [leftP17 rightP17 Item CxA CxB]
     (siblings! kb CxA CxB)
     (v/assert kb (list leftP17 Item) CxA)
     (v/assert kb (list rightP17 Item) CxB)
-    (is (seq (v/prove kb [(list leftP17 '?x) (list rightP17 '?x)] '?ctx))
-        "the open question unions the two contexts")
-    (is (empty? (v/prove kb [(list leftP17 '?x) (list rightP17 '?x)] CxA))
-        "asked from a context, it answers only what that context holds")
-    (is (empty? (v/prove kb [(list leftP17 '?x) (list rightP17 '?x)] CxB)))))
+    (let [goal [(list leftP17 '?x) (list rightP17 '?x)]]
+      (is (empty? (v/prove kb goal '?ctx))
+          "no context sees both, so the joint reading has no answer")
+      (is (seq (v/prove kb goal 'CxEverything))
+          "the union still joins them, under the name that means the union")
+      (is (empty? (v/prove kb goal CxA))
+          "asked from a context, it answers only what that context holds")
+      (is (empty? (v/prove kb goal CxB))))
+    (testing "and when a reader does see both, it answers and names itself"
+      (tu/with-terms [CxBoth]
+        (v/assert kb (list 'genlCx CxBoth CxA) 'CxUniverse)
+        (v/assert kb (list 'genlCx CxBoth CxB) 'CxUniverse)
+        (is (= [CxBoth] (mapv '?ctx (v/prove kb [(list leftP17 '?x) (list rightP17 '?x)]
+                                             '?ctx))))))))
 
 ;; ---- (ist Ctx S) as a read ----------------------------------------------
 ;;

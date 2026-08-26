@@ -138,6 +138,28 @@
       (let [b2 (:body (GET "/inference" goal-qs))]
         (is (re-find #"The search tree" b2))))))
 
+(deftest a-depth-the-page-cannot-read-is-refused-rather-than-defaulted
+  ;; `?d=` reaching the page as nil is indistinguishable from `?d=` not being there, so a
+  ;; typo ran the search at the *default* depth and drew a page that looks exactly like the
+  ;; one asked for.  And the form declares `max 12`, which is a promise about the route as
+  ;; much as about the control: a URL past it is refused with the range named.
+  (let [base "q=(anc%20%3Fx%20%3Fz)&ctx=CxSmoke"]
+    (testing "a value that is not a number names itself in the refusal"
+      (let [r (GET "/inference" (str base "&d=abc"))]
+        (is (= 400 (:status r)))
+        (is (re-find #"<code>d</code>" (:body r)))
+        (is (re-find #"abc" (:body r)))
+        (is (re-find #"1 to 12" (:body r)) "and the refusal names the range the form offers")))
+    (testing "so is a depth past the bound the form declares, and one below its minimum"
+      (is (= 400 (:status (GET "/inference" (str base "&d=99")))))
+      (is (= 400 (:status (GET "/inference" (str base "&d=0"))))))
+    (testing "a depth inside the range still runs, and so does no depth at all"
+      (is (= 200 (:status (GET "/inference" (str base "&d=4")))))
+      (is (= 200 (:status (GET "/inference" (str base "&d=12")))))
+      (is (= 200 (:status (GET "/inference" base))))
+      (is (= 200 (:status (GET "/inference" (str base "&d="))))
+          "an empty control is the control not being submitted, which is the default"))))
+
 (deftest search-tree-answers-are-reachable-to-the-nodes-they-came-off
   (let [{:keys [answers nodes status]} (v/search-tree tu/*kb* '(anc ?x ?z) 'CxSmoke {:max-depth 4})
         ids (set (map :id nodes))]

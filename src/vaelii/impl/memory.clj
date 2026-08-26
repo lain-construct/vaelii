@@ -131,7 +131,18 @@
     nil)
   (premise-ids [_] (set (:premises @state)))
   (premise-strength [_ id] (or (:strength (get-in @state [:sentexes id])) :default))
-  (clear-records! [_] (reset! state empty-record-state) (reset! counter 0) nil))
+  (clear-records! [_] (reset! state empty-record-state) (reset! counter 0) nil)
+
+  ;; The tallies read the maps this store already holds, so implementing them buys
+  ;; nothing here — except that a caller then reads one number instead of copying the key
+  ;; set to count it, and that a store answering the capability is what keeps the helpers
+  ;; off the fallback on the reference backend the others are compared against.
+  p/Tallying
+  (sentex-tally        [_] (count (:sentexes @state)))
+  (justification-tally [_] (count (:justifications @state)))
+  (a-sentex-id         [_] (first (keys (:sentexes @state))))
+  (a-justification-id  [_] (first (keys (:justifications @state))))
+  (a-premise-id        [_] (first (:premises @state))))
 
 (defn memory-record-store
   "An in-memory `RecordStore`.  Only `:space` in `opts` matters: it selects the shared
@@ -152,11 +163,11 @@
   holding a transient of its map>}`.  While bound, **that** backend's *writes* land on
   the transient (`assoc!` — no per-op HAMT path copy) and the whole load is one
   `persistent!` at the end, instead of a `swap!` per fact.  nil (the default) leaves
-  every op on the persistent atom exactly as before, so nothing outside a bulk load pays
-  for it — and *reads* are left untouched in both modes (they read the backing atom), so
-  the query hot path is unchanged.  The backing atom is therefore stale for the life of
+  every op on the persistent atom, so nothing outside a bulk load pays for the binding's
+  existence — and *reads* go to the backing atom in both modes, so the query hot path
+  never branches on it.  The backing atom is therefore stale for the life of
   the load: correct only because the sole mid-load reader (`note-opposed`'s `[:false b]`
-  probe) reads the always -empty negative side, and every real read happens after the
+  probe) reads the always-empty negative side, and every real read happens after the
   closing `persistent!`.  Use `with-bulk-writes` for a positive/monotonic, distinct load;
   a corpus with `(not …)` facts must `rebuild-opposed!` after it (the atom the opposed
   set is derived from was stale during the load).
@@ -164,16 +175,23 @@
   The binding names the backend it is for, because a dynamic binding is per *thread*,
   not per backend: a write this thread makes to any other `MemoryKvBackend` while the
   load runs — a second KB's index, a chaining callback asserting elsewhere — lands on
-  that backend's own atom (`txn-for`), never on the loaded one's transient."
+  that backend's own atom (`txn-for`), never on the loaded one's transient.
+
+  **The accumulator's life is the batch's, and no longer.**  `with-bulk-writes` clears
+  the volatile as it installs, so the binding a body conveyed somewhere — a future, a
+  lazy seq realized afterwards — finds nothing to write on and takes the atom, which is
+  where a write outside the batch belongs.  A transient reached after its `persistent!`
+  is not a slow write but a thrown one, and on a path nobody expected to be able to throw."
   nil)
 
 (defn- txn-for
   "The bulk transient for the backend whose state atom is `state`, or nil — nil too
   when the bound load is over another backend, whose transient must not take this
-  backend's writes."
+  backend's writes, and nil once the batch has installed its accumulator (`*bulk-txn*`)."
   [state]
   (when-let [b *bulk-txn*]
-    (when (identical? (:state b) state) (:txn b))))
+    (when (identical? (:state b) state)
+      (when (some? @(:txn b)) (:txn b)))))
 
 ;; ---- the argument-column trie --------------------------------------------
 ;; The predicate-scoped argument roots (`[:argument-root pred pos term]`) are the one
@@ -269,12 +287,20 @@
     tree))
 
 (defn- arg-op
-  "Fold one argument-root write op into the trie `tree`."
+  "Fold one argument-root write op into the trie `tree`.
+
+  All four set-shaped ops, because a batch and the protocol method may not disagree about
+  what one op means: `kv-put` and `kv-delete` route an argument-root key to the trie, so
+  `[:put …]` and `[:delete …]` inside a `kv-batch` have to reach the same two folds.  A
+  flat-map backend answers both of them for this family with no arm of its own, so leaving
+  them out here is one adapter refusing a batch the others apply."
   [tree [op k a]]
   (let [pred (nth k 1) pos (nth k 2) term (nth k 3)]
     (case op
       :add-to-set      (arg-tree-add    tree pred pos term a)
       :remove-from-set (arg-tree-remove tree pred pos term a)
+      :put             (arg-tree-put    tree pred pos term a)
+      :delete          (arg-tree-delete tree pred pos term)
       (kv/unknown-op! op))))
 
 (defn- arg-entries
@@ -336,8 +362,8 @@
   ;; an argument-root key reads out of the `::arg` trie for every generic op too, so a
   ;; caller that still names the four-part vector — a direct test, the columnar fallback's
   ;; `kv-load` (which puts a whole posting), a snapshot round-trip — sees the same set the
-  ;; flat layout held.  `kv-get` returns the scoped set (or nil when absent), matching the
-  ;; old backend where a set key's value *was* that set.
+  ;; flat layout held.  `kv-get` returns the scoped set (or nil when absent), which is
+  ;; what a flat key→set map answers for a set key.
   (kv-get  [_ k]
     (if (arg-root-key? k)
       (let [s (arg-scoped (arg-state-key @state) (nth k 2) (nth k 3) (nth k 1))]
@@ -370,8 +396,8 @@
                                             (fn [v] (max 0 (dec (long (or v 0))))))
                                      k))))
   ;; an argument-root write folds into the `::arg` trie; everything else lands at its flat
-  ;; key exactly as before.  Both modes route, so the trie stays consistent whether a fact
-  ;; arrives through the bulk transient or the ordinary swap.
+  ;; key.  Both modes route, so the trie stays consistent whether a fact arrives through
+  ;; the bulk transient or the ordinary swap.
   (kv-add-to-set [_ k m]
     (if (arg-root-key? k)
       (let [op [:add-to-set k m]]
@@ -475,6 +501,49 @@
   (arg-agnostic-members [_ pos term] (arg-union (arg-state-key @state) pos term))
   (arg-agnostic-count   [_ pos term] (count (arg-union (arg-state-key @state) pos term))))
 
+(defn bulk-writes*
+  "`with-bulk-writes`' body as a thunk — the macro is a wrapper over this, so the
+  accumulator's whole life is one function's local and nothing about it is spliced into
+  a caller's code.
+
+  Three steps, in this order, and each is what makes the batch's accumulator **private**
+  to the batch:
+
+  - the state map is read **once**, into `base`, and the transient is built off that
+    value.  `base` is what the install is checked against, so the batch knows what it
+    was accumulating over rather than assuming;
+  - the volatile is cleared before the install, so the binding a body conveyed
+    elsewhere (a future, a lazy seq realized later) finds no accumulator and takes the
+    atom — the correct home for a write outside the batch, and not a `persistent!`-ed
+    transient that would throw;
+  - the install is a **compare-and-set** against `base`, not a `reset!`.  The atom is
+    per *space* and shared by every index store over that space, so a `reset!` would
+    silently discard anything that reached it while the batch ran — a second bulk load
+    stacked over this one being the way to get there without two threads.  Under the
+    single-writer contract nothing does, which is exactly why the check is affordable:
+    it is one CAS per batch, and it fires only where an overwrite would lose data.
+
+  A failed install is `:stacked-batch`.  It is raised only when the body itself
+  returned — a body that threw has a failure of its own to report, and replacing it with
+  this one would hide it."
+  [bk f]
+  (let [state (:state bk)
+        base  @state
+        txn   (volatile! (transient base))
+        done  (volatile! false)]
+    (binding [*bulk-txn* {:state state :txn txn}]
+      (try
+        (let [r (f)] (vreset! done true) r)
+        (finally
+          (let [m (persistent! @txn)]
+            (vreset! txn nil)
+            (when (and (not (compare-and-set! state base m)) @done)
+              (throw (ex-info (str "a bulk load's index state moved while the batch was"
+                                   " accumulating, so installing the batch would discard"
+                                   " whatever moved it — one bulk load at a time over a"
+                                   " space, on the one writing thread")
+                              {:type :stacked-batch})))))))))
+
 (defmacro with-bulk-writes
   "Run `body` with `backend`'s index writes accumulated on one TRANSIENT of its state
   map, persisted back in a single step at the end — the write-side fast path for a bulk
@@ -482,12 +551,12 @@
   instead of a `swap!` per fact).  A no-op wrapper unless `backend` is a MemoryKvBackend,
   so a non-memory store (disk) just runs `body` on its own batched path.  See `*bulk-txn*`
   for the read-staleness contract: a positive/monotonic, distinct load only; a corpus
-  with `(not …)` facts must `rebuild-opposed!` after."
+  with `(not …)` facts must `rebuild-opposed!` after; and `bulk-writes*`, which this
+  delegates to, for what keeps the accumulator the batch's own."
   [backend & body]
   `(let [bk# ~backend]
      (if (instance? vaelii.impl.memory.MemoryKvBackend bk#)
-       (binding [*bulk-txn* {:state (:state bk#) :txn (volatile! (transient @(:state bk#)))}]
-         (try ~@body (finally (reset! (:state bk#) (persistent! @(:txn *bulk-txn*))))))
+       (bulk-writes* bk# (fn [] ~@body))
        (do ~@body))))
 
 (defn memory-kv-backend

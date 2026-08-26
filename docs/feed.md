@@ -38,7 +38,8 @@ moving.
 Nothing here computes anything new to fix that. A settle already knows the **region** it
 relabelled and which of that region was believed when it first touched it; `preview` and
 `edit-with-consequences!` already turn that pair into a belief diff and render it. The
-information a feed needs was being computed on every mutation and then thrown away.
+information a feed needs is already computed on every mutation, and without this it is
+thrown away.
 
 This is not a cache and not a materialized view. The three are easily conflated under
 one heading, and they are three different features; this is the one that exists.
@@ -196,6 +197,19 @@ KB — but it also means a slow listener slows the writer, and this engine has o
 ([storage.md](storage.md), "The single-writer contract"). A listener that does real work
 should hand the event to a queue and return.
 
+**Registering off the writer's thread has a window, and the wire closes it.** `settle-finish`
+reads `feed/wants-region?` *before* assembling a region — that is what keeps a KB nobody is
+listening to from building the two sets it would have nowhere to put — so a `core/watch`
+that lands between that read and the delivery misses the settle in flight: the region was
+never assembled, and there is nothing to hand the new listener. The window is one settle
+wide and only exists for a registration racing a write, which single-threaded callers never
+do. Across the wire it does not exist at all: `:watch` takes the daemon's write monitor
+([operations.md](operations.md)), so every settle that finished before it returned is
+outside the subscription and every one that starts after it is inside — an exact boundary,
+which is what a cursor needs to mean anything. In process there is no such monitor to take,
+and the answer for a late registrant is the one a lagged wire reader gets: re-read the KB
+and start from what it says. A feed is how belief *moves*, never how it is first learned.
+
 ## What does not arrive
 
 - **A mutation that moved no belief.** Re-asserting a stored sentex relabels its region
@@ -223,9 +237,12 @@ should hand the event to a queue and return.
   the equality path posting the displaced handle where a settle can see it, which would
   move `edit-with-consequences!`' answer too — a change to that mechanism, not to this
   one.
-- **A batch that threw.** `edit!` is not a transaction: a throw mid-batch leaves what was
-  already stored in place with the settle not run, so there is nothing to deliver *yet*.
-  Nothing is lost — the region is still uncleared, so the next settle reports it.
+- **A batch that threw.** `edit!` is all-or-nothing ([api.md](api.md)): a throw is
+  followed by a rollback that puts the KB back at the handles it wrote, so there is no
+  belief left for the batch to have moved. The rollback runs with `feed/*enabled?*` off
+  and therefore accumulates no region of its own, and the one event the door delivers has
+  nothing to hand anybody. The next settle reports its own news and never the rolled-back
+  batch's.
 
 ## Cost
 
@@ -351,6 +368,13 @@ daemon*, so two handlers over one KB are two daemons and neither answers the oth
 token. A daemon owns its KB for its lifetime, so a subscription pins nothing the handler
 was not already holding.
 
+**The one refusal the wire adds is a context with no goal.** `core/watch`'s whole-feed
+arity takes no context at all, so `[nil CxDeploy]` would register an unscoped listener
+while the registry stored `CxDeploy` and `:watchers` reported it back — the daemon naming
+a scope it is not applying, which is worse than the contextless goal it mirrors. It is
+refused under the same `:type :not-watchable`: scoping is the goal's, so a context
+arriving alone is a request this door cannot honour rather than one to drop.
+
 Three things the wire inherits rather than restates. A goal `watch` refuses is refused
 identically over `POST /op`, under the same `:type :not-watchable`, because it is the same
 check. `preview`, `recover` and `reindex` deliver nothing here either — the wire is not a
@@ -364,7 +388,7 @@ progress, and progress is not belief moving. Nothing in the browser subscribes.
 
 ## Tests
 
-`test/vaelii/feed_test.clj` — 35 tests over four themes:
+`test/vaelii/feed_test.clj` — 39 tests over four themes:
 
 - **Altitude**: a defeat and its revival arrive as two events in opposite directions; a
   derived conclusion arrives with the rule that derived it; a re-asserted sentex is not
@@ -396,7 +420,7 @@ the standing query is the one that would re-run something. And the `delay` over 
 entries is pinned by counting calls at the renderer: a standing query whose goal matches
 nothing must render **zero** entries, where a plain listener renders the diff.
 
-`test/vaelii/feed_wire_test.clj` — 16 tests over the transport, and none of them re-tests
+`test/vaelii/feed_wire_test.clj` — 20 tests over the transport, and none of them re-tests
 what an event means:
 
 - **One answer, two targets**: a batch driven through `POST /op` produces, on the wire,
@@ -408,9 +432,10 @@ what an event means:
   newest, `:lagged` is on every reply including the ones at zero, and an abandoned
   subscription holds its bound and no more before the idle reap takes it — listener
   included, with its token refused afterwards.
-- **The refusals**: six goal shapes and a contextless goal refused on the wire under the
-  in-process `:type`, registering nothing; the token vocabulary and the ceiling as
-  (status, `:type`) pairs, which `wire_contract_test` pins beside the daemon's own.
+- **The refusals**: six goal shapes, a contextless goal and a goalless context refused on
+  the wire under the in-process `:type`, registering nothing; the token vocabulary and the
+  ceiling as (status, `:type`) pairs, which `wire_contract_test` pins beside the daemon's
+  own.
 - **The monitor**: a write completes while a long poll is parked, and the poll wakes on
   the notify rather than on its timeout; a wait with nothing to report answers empty and
   is capped whatever the caller asks for; dropping a subscription wakes the poll parked

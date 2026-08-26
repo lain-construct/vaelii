@@ -7,6 +7,7 @@
   recovery.  Needs no KB — the store is a plain id→blob engine over the
   disk `files` primitives."
   (:require [clojure.test :refer [deftest is testing]]
+            [vaelii.impl.capabilities :as cap]
             [vaelii.impl.disk.codec :as codec]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.disk.record-store :as drs]
@@ -254,6 +255,101 @@
       (testing "a put, a put carrying :strength, mark and unmark all leave the slot saying"
         (is (= {1 true, 2 false, 3 false} (slot-premises dir [1 2 3]))
             "nothing reads as unknown, so the reopen decodes no records at all")))))
+
+(deftest a-bulk-sink-leaves-the-store-the-loop-would-have-left
+  ;; The sink writes one log frame and one idx range per batch where `put-sentex` writes
+  ;; two syscalls per record, so the risk is entirely in what the *slots* end up saying:
+  ;; the premise bit and the strength rank are packed by the batch rather than one at a
+  ;; time, and a reopen reads the premise set off them without decoding a record.  So the
+  ;; comparison is store-against-store, and then off the slots alone.
+  (let [records (fn [n]
+                  (into [] (for [i (range n)]
+                             (cond-> {:sentence (list 'p i) :context 'C}
+                               (zero? (mod i 3)) (assoc :strength :monotonic)
+                               (= 1 (mod i 3))   (assoc :strength :default)))))
+        state   (fn [s ids]
+                  {:records   (into {} (map (fn [id] [id (:sentence (p/get-sentex s id))])) ids)
+                   :live      (set (p/sentex-ids s))
+                   :premises  (set (p/premise-ids s))
+                   :strengths (into {} (map (fn [id] [id (p/premise-strength s id)]))
+                                    (sort (p/premise-ids s)))})
+        run     (fn [dir sink?]
+                  (let [s   (drs/open-record-store dir)
+                        rs  (records 25)
+                        ids (if sink?
+                              ;; a batch smaller than the stream, so a mid-stream flush runs
+                              (with-open [^java.io.Closeable snk
+                                          (cap/sentex-sink s {:batch 7})]
+                                (mapv #(p/write-record! snk %) rs))
+                              (mapv #(p/put-sentex s %) rs))]
+                    (try [ids (state s ids)] (finally (drs/close! s)))))]
+    (with-tmp
+      (fn [a]
+        (with-tmp
+          (fn [b]
+            (let [[sink-ids sink-state] (run a true)
+                  [loop-ids loop-state] (run b false)]
+              (is (= loop-ids sink-ids) "the same handles, minted the same way")
+              (is (= loop-state sink-state)
+                  "and the same records, live set, premise set and strengths")
+              (testing "and the same thing off the slots, with the stores closed"
+                (is (= (slot-premises b loop-ids) (slot-premises a sink-ids)))
+                (is (every? some? (vals (slot-premises a sink-ids)))
+                    "nothing reads as unknown, so a reopen decodes no records"))
+              (testing "which survives the reopen the slots exist for"
+                (let [s (drs/open-record-store a)]
+                  (try (is (= (:premises sink-state) (set (p/premise-ids s))))
+                       (is (= (:strengths sink-state)
+                              (into {} (map (fn [id] [id (p/premise-strength s id)]))
+                                    (sort (p/premise-ids s)))))
+                       (finally (drs/close! s))))))))))))
+
+(deftest a-bulk-sink-writes-handles-that-are-not-consecutive
+  ;; `write-slots!` coalesces a run of consecutive ids into one positional write, so a
+  ;; batch that is *not* one run is the case that exercises the splitting — a dump whose
+  ;; handles have gaps, which is any dump written after a retraction.
+  (with-tmp
+    (fn [dir]
+      (let [ids [40 1 41 2 900 42]
+            s   (drs/open-record-store dir)]
+        (with-open [^java.io.Closeable snk (cap/sentex-sink s {:batch 100})]
+          (doseq [id ids]
+            (p/write-record! snk {:id id :sentence (list 'p id) :context 'C
+                                  :strength (when (even? id) :monotonic)})))
+        (is (= (set ids) (set (p/sentex-ids s))))
+        (is (= (set (filter even? ids)) (set (p/premise-ids s))))
+        (is (= (list 'p 900) (:sentence (p/get-sentex s 900))))
+        (drs/close! s))
+      (testing "and the gapped slots say the same after a reopen"
+        (let [s (drs/open-record-store dir)]
+          (try
+            (is (= #{40 2 900 42} (set (p/premise-ids s))))
+            (is (= '(p 41) (:sentence (p/get-sentex s 41))))
+            (is (nil? (p/get-sentex s 43)) "the gap is empty, not garbage")
+            (finally (drs/close! s))))))))
+
+(deftest a-bulk-batch-that-is-not-positive-is-refused
+  ;; `:batch` is how many records buffer before one pair of writes, so a batch that is not
+  ;; a positive count is a sink with no flush unit: zero buffers a corpus into heap and
+  ;; never writes it, and a negative one is a size nothing can be partitioned into.  The
+  ;; refusal is at the open, where a caller can still name a different number, rather than
+  ;; part-way through a load that has already stored millions of frames.
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)]
+        (try
+          (doseq [batch [0 -1]]
+            (let [e (is (thrown? clojure.lang.ExceptionInfo (cap/sentex-sink s {:batch batch})))]
+              (is (= :bad-batch (:type (ex-data e))))
+              (is (= batch (:batch (ex-data e))) "naming the number it was handed")))
+          (testing "and the justification half opens through the same door"
+            (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                 (cap/justification-sink s {:batch 0})))]
+              (is (= :bad-batch (:type (ex-data e))))))
+          (testing "a refused sink stored nothing"
+            (is (= #{} (p/sentex-ids s)))
+            (is (= #{} (p/justification-ids s))))
+          (finally (drs/close! s)))))))
 
 (deftest the-premise-set-agrees-with-the-records-it-is-derived-from
   (with-tmp
@@ -543,10 +639,11 @@
             (testing "the retry installed the compacted files and the session goes on"
               (is (= before (into {} (map (fn [id] [id (p/get-sentex s id)])) (p/sentex-ids s))))
               (is (< (drs/dead-ratio s) 1.0e-9) "the compaction took")
-              (let [{:keys [marker log-tmp idx-tmp]}
+              (let [{:keys [marker temps]}
                     (f/compact-temp-paths (str dir "/records/sentexes.log")
                                           (str dir "/records/sentexes.idx"))]
-                (is (not-any? #(.exists (java.io.File. ^String %)) [marker log-tmp idx-tmp])
+                (is (not-any? #(.exists (java.io.File. ^String %))
+                              (cons marker (map second temps)))
                     "and the temps are gone")))
             (testing "the store is still writable"
               (is (= '(p 99) (:sentence (p/get-sentex s (p/put-sentex s {:sentence '(p 99) :context 'C})))))))
@@ -722,16 +819,30 @@
 (deftest hot-cache-is-bounded-and-lru
   (with-tmp
     (fn [dir]
-      (let [s (drs/open-record-store dir)]
+      ;; An explicit capacity, well under the load: at the `vaelii.disk.cache` default of
+      ;; 65,536 a two-thousand-record load evicts nothing, so the bound and the eviction
+      ;; order are both unobservable and every assertion below holds vacuously.
+      (let [cap 100
+            s   (drs/open-record-store dir {:cache-capacity cap})]
         (try
           ;; the cache is capacity-bounded, so a load larger than it must not grow the
           ;; heap without limit — and the survivors must be the recently used ones.
-          (let [cap  (.size ^java.util.Map (:cache (:sentexes (:kinds s))))
-                ids  (vec (for [i (range 2000)]
-                            (p/put-sentex s {:sentence (list 'p (symbol (str "I" i))) :context 'C})))
-                size (.size ^java.util.Map (:cache (:sentexes (:kinds s))))]
-            (is (zero? cap) "starts empty")
-            (is (<= size 2000) "bounded by the configured capacity")
+          (let [size0 (.size ^java.util.Map (:cache (:sentexes (:kinds s))))
+                ids   (vec (for [i (range 2000)]
+                             (p/put-sentex s {:sentence (list 'p (symbol (str "I" i))) :context 'C})))
+                size  (.size ^java.util.Map (:cache (:sentexes (:kinds s))))]
+            (is (zero? size0) "starts empty")
+            (is (= cap size) "bounded by the configured capacity, whatever the load")
+            (testing "and it is the recently used that survive"
+              ;; the load left the last `cap` writes in it; the first are long gone
+              (is (some? (cached s :sentexes (peek ids))) "the newest write is held")
+              (is (nil? (cached s :sentexes (first ids))) "the oldest is not")
+              ;; reading an evicted id re-admits it, which is what makes the order LRU
+              ;; rather than a fixed window over the writes
+              (p/get-sentex s (first ids))
+              (is (some? (cached s :sentexes (first ids))) "a read promotes what it paged in")
+              (is (= cap (.size ^java.util.Map (:cache (:sentexes (:kinds s)))))
+                  "and the promotion evicted one rather than growing the map"))
             (testing "every id still reads correctly whether or not it is cached"
               (doseq [i (range 0 2000 137)]
                 (is (= (list 'p (symbol (str "I" i))) (:sentence (p/get-sentex s (nth ids i))))))))
@@ -837,7 +948,7 @@
             s1 (drs/open-record-store dir {:tokenize? true})
             a  (p/put-sentex s1 (sx/->AtomicSentex '(dog Muffet) 'C nil :true nil))
             ;; the dictionary exactly as of `a` — every later token is `b`'s
-            after-a (do (drs/fsync s1 true) (.length (java.io.File. tl)))
+            after-a (do (drs/fsync s1) (.length (java.io.File. tl)))
             b  (p/put-sentex s1 (sx/->AtomicSentex '(elephant Jumbo) 'CxZoo nil :true nil))]
         (drs/close! s1)
         (is (> (.length (java.io.File. tl)) after-a) "b introduced new vocabulary")
@@ -856,3 +967,67 @@
             (let [c (p/put-sentex s2 (sx/->AtomicSentex '(cat Tom) 'C nil :true nil))]
               (is (= '(cat Tom) (:sentence (p/get-sentex s2 c)))))
             (finally (drs/close! s2))))))))
+
+(deftest an-idle-tick-does-not-rewrite-the-counters-blob
+  ;; The durability daemon calls `fsync` every three seconds for the life of the process,
+  ;; and persisting the handle counter is a temp file, an fsync of it, an ATOMIC_MOVE and
+  ;; an fsync of the directory.  A KB nobody is writing to must not pay those four
+  ;; operations a tick forever, so the blob is rewritten only when the counter moved.
+  (with-tmp
+    (fn [dir]
+      (let [s    (drs/open-record-store dir)
+            blob (java.io.File. (str dir "/records/counters.nippy"))]
+        (try
+          (p/put-sentex s {:sentence '(dog Muffet) :context 'C})
+          (drs/fsync s)
+          (is (.exists blob) "the tick after a write persists the counter")
+          ;; deleting it is the observation, and an unambiguous one: an unconditional
+          ;; write puts the file straight back, a guarded one leaves it absent because
+          ;; there is nothing about the counter it does not already say
+          (.delete blob)
+          (dotimes [_ 5] (drs/fsync s))
+          (is (not (.exists blob)) "five idle ticks rewrite nothing")
+          (p/put-sentex s {:sentence '(cat Tom) :context 'C})
+          (drs/fsync s)
+          (is (.exists blob) "and the tick after the next write writes it again")
+          (is (= 3 (:seq (f/read-nippy-file (.getPath blob) {:seq :missing})))
+              "holding the counter as of that write")
+          (finally (drs/close! s)))))))
+
+(deftest a-slot-whose-frame-the-log-lost-is-dropped-by-a-compaction
+  ;; A slot can outlive the frame it points at — the state a truncated tail leaves under a
+  ;; slot the truncation did not reach — and the read then answers nil.  Re-freezing that
+  ;; nil put the handle back as a **live** record fetching to nothing: an id `sentex-ids`
+  ;; names and `get-sentex` has no answer for, which every walk over the ids trips on.
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)
+            [a b c] (mapv (fn [n] (p/put-sentex s {:sentence (list 'p n) :context 'C
+                                                   :strength :monotonic}))
+                          [1 2 3])]
+        (drs/close! s)
+        ;; blank b's payload length, keeping its offset: the slot stays live (only
+        ;; offset=-1, the tombstone, or an all-zero slot is dead) and no frame can be read
+        ;; back through it, which is exactly what a lost frame looks like
+        (with-open [idx (RandomAccessFile. (str dir "/records/sentexes.idx") "rw")]
+          (let [slot (f/read-slot idx b)]
+            (f/write-slot! idx b (:offset slot) 0 (:flags slot) 0)))
+        (let [s2 (drs/open-record-store dir)]
+          (try
+            (is (contains? (p/sentex-ids s2) b) "the handle is live and its record is gone")
+            (is (nil? (p/get-sentex s2 b)))
+            (drs/compact! s2)
+            (testing "the compaction drops the handle rather than storing it empty"
+              (is (not (contains? (p/sentex-ids s2) b)))
+              (is (nil? (p/get-sentex s2 b)))
+              (is (not (contains? (set (p/premise-ids s2)) b))
+                  "and it leaves the premise set with it"))
+            (testing "its neighbours come through untouched"
+              (is (= #{a c} (p/sentex-ids s2)))
+              (is (= (list 'p 1) (:sentence (p/get-sentex s2 a))))
+              (is (= (list 'p 3) (:sentence (p/get-sentex s2 c)))))
+            (finally (drs/close! s2))))
+        (testing "and the drop is what the next open reads"
+          (let [s3 (drs/open-record-store dir)]
+            (try (is (= #{a c} (p/sentex-ids s3)))
+                 (finally (drs/close! s3)))))))))

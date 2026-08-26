@@ -15,6 +15,12 @@
         CxSocialWorld    social-world facts
         CxStories        the Aesop fables + story-understanding schema
 
+  The cast is told twice over about one of its animals, deliberately.  `(asleep Whiskers)`
+  is the timeless reading CxBiology's awake-until-told-otherwise default handles; the same
+  cat's afternoon is also written as events and fluents, which is what CxChange's inertia
+  reads to answer whether it is asleep at four and awake at six.  The two say different
+  things and neither derives the other.
+
   The cast's type memberships live in CxNaturalWorld, so the biology and kinship
   theories — which every CxWell descendant sees — place their conclusions back in
   CxNaturalWorld, where the tests query them.  Social facts sit in a sibling
@@ -46,6 +52,47 @@
     (partOf Engine1 Car1) (partOf Piston1 Engine1)
     (locatedIn Car1 Garage1) (locatedIn Garage1 House1)])
 
+(def fluent-functions
+  "The fluents the timed narratives below run over, as **reified NATs** — one constant per
+  animal, which is the bounded shape `reifiableFunction` is for (docs/nat.md).  A fluent is
+  a term rather than a sentence, so `holdsAt` stays an ordinary binary predicate over two
+  terms and nothing has to be held opaque to identity congruence.
+
+  In CxWell, the bottom anchor, because two data contexts use them: the cat's afternoon in
+  CxNaturalWorld and the hare's nap in CxTortoiseHare, which are siblings and see each
+  other not at all."
+  '[(reifiableFunction AsleepFn)  (result AsleepFn fluent)
+    (reifiableFunction AwakeFn)   (result AwakeFn fluent)
+    (reifiableFunction IndoorsFn) (result IndoorsFn fluent)
+    (reifiableFunction AheadOfFn) (result AheadOfFn fluent)])
+
+(def timed-day
+  "Whiskers' afternoon, as CxChange reads it: four moments, two events, and what each
+  event starts and stops.  Nobody states that the cat is asleep at four — that is
+  inertia's answer, and the whole point of writing the afternoon this way rather than as
+  the timeless `(asleep Whiskers)` CxBiology already handles.
+
+  The ordering is four moments and the three links between them.  `instantBefore` is
+  declared transitive, and a forward join over a transitive antecedent reads the closure,
+  so `clipped` sees three o'clock before six without the narrative saying so (CxChange)."
+  '[(time_point ThreeOClock) (time_point FourOClock)
+    (time_point FiveOClock)  (time_point SixOClock)
+
+    (instantBefore ThreeOClock FourOClock) (instantBefore FourOClock FiveOClock)
+    (instantBefore FiveOClock SixOClock)
+
+    ;; before the afternoon starts the cat is awake and indoors; nothing ever puts it out
+    (initially (AwakeFn Whiskers))
+    (initially (IndoorsFn Whiskers))
+
+    (happens CatFallsAsleep ThreeOClock)
+    (initiates CatFallsAsleep (AsleepFn Whiskers) ThreeOClock)
+    (terminates CatFallsAsleep (AwakeFn Whiskers) ThreeOClock)
+
+    (happens CatWakes FiveOClock)
+    (initiates CatWakes (AwakeFn Whiskers) FiveOClock)
+    (terminates CatWakes (AsleepFn Whiskers) FiveOClock)])
+
 (def social-facts
   '[(marriedTo Bob Nancy)
     (owns Tom Car1) (owns Tom House1)
@@ -57,10 +104,12 @@
   "Assert the cast — topology, type memberships, and facts — into `kb` (already
   carrying the starter schema). Returns kb."
   [kb]
-  (doseq [s topology]      (v/assert kb s 'CxWell))
-  (doseq [s individuals]   (v/assert kb s 'CxNaturalWorld))
-  (doseq [s natural-facts] (v/assert kb s 'CxNaturalWorld))
-  (doseq [s social-facts]  (v/assert kb s 'CxSocialWorld))
+  (doseq [s topology]         (v/assert kb s 'CxWell))
+  (doseq [s fluent-functions] (v/assert kb s 'CxWell))
+  (doseq [s individuals]      (v/assert kb s 'CxNaturalWorld))
+  (doseq [s natural-facts]    (v/assert kb s 'CxNaturalWorld))
+  (doseq [s timed-day]        (v/assert kb s 'CxNaturalWorld))
+  (doseq [s social-facts]     (v/assert kb s 'CxSocialWorld))
   kb)
 
 (defn load-into
@@ -71,11 +120,3 @@
   (fables/load-into kb)
   (narrative/load-into kb)
   kb)
-
-(defn starter+world
-  "A one-call loader for a `tu/loaded` fixture: the starter schema plus the whole
-  test-world.  Requires vaelii.impl.starter — passed in to avoid a compile-time cycle
-  from a test-support ns into an impl ns."
-  [load-starter kb]
-  (load-starter kb)
-  (load-into kb))

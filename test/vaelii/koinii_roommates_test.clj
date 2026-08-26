@@ -29,19 +29,24 @@
             [vaelii.client :as vc]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.koinii.adjudication :as adj]
-            [vaelii.impl.koinii.channel :as ch]
-            [vaelii.impl.koinii.dispute :as d]
-            [vaelii.impl.koinii.speech-acts :as sa]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.serve :as serve]
+            [vaelii.koinii.adjudication :as adj]
+            [vaelii.koinii.channel :as ch]
+            [vaelii.koinii.dispute :as d]
+            [vaelii.koinii.identity :as id]
+            [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu])
   (:import [org.eclipse.jetty.server Server]))
 
 (defn- household-kb []
   (doto (tu/fresh) (core-context/load-into) (sa/load-speech-acts)))
 
-(use-fixtures :each (tu/neutral-fresh household-kb))
+;; Majority resolution requires the :proof-tier identity policy (R7#1); these tests run
+;; under it — the channel never authenticates, so it touches nothing but that gate.
+(defn- with-proof-tier [f] (binding [id/*policy* :proof-tier] (f)))
+
+(use-fixtures :each (tu/neutral-fresh household-kb) with-proof-tier)
 
 (def ^:private proposal (list 'shouldAdopt 'Apartment 'Dog))
 

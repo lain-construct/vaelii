@@ -93,9 +93,9 @@
   (testing "child-first arrival is the case that does go loose, and reads survive it"
     (let [t (build (chain-edges 40 :child-first) true)]
       (is (loose? t :genl))
-      (is (tax/genl? t (ty 40) (ty 0)) "reachability is answered unpruned, not wrongly")
-      (is (not (tax/genl? t (ty 0) (ty 40))))
-      (is (= (into #{} (map ty) (range 0 41)) (tax/genls t (ty 40)))))))
+      (is (tax/genl?-global t (ty 40) (ty 0)) "reachability is answered unpruned, not wrongly")
+      (is (not (tax/genl?-global t (ty 0) (ty 40))))
+      (is (= (into #{} (map ty) (range 0 41)) (tax/genls-global t (ty 40)))))))
 
 (deftest genlCx-gets-the-same-treatment-as-genl
   ;; Both relations run through one `activate`, so the deferral covers both — and
@@ -138,7 +138,7 @@
   (let [n     30
         base  (chain-edges n :parent-first)
         pairs (for [a (range 0 (inc n)) b (range 0 (inc n))] [(ty a) (ty b)])
-        answers (fn [t] (into #{} (filter (fn [[a b]] (tax/genl? t a b))) pairs))
+        answers (fn [t] (into #{} (filter (fn [[a b]] (tax/genl?-global t a b))) pairs))
         want  (answers (build base false))]
     (doseq [trial (range 6)
             :let  [order (shuffle base)]]
@@ -175,10 +175,10 @@
         "nothing moved — pushing a lift through a stale potential is work that repairs
          nothing, and the cycle check licensing it was made with that same stale base")
     (is (loose? t :genl) "still loose — the repair is `restore-depths`'s to make")
-    (is (tax/genl? t (ty 20) 'droot_t) "and the read is still right")
+    (is (tax/genl?-global t (ty 20) 'droot_t) "and the read is still right")
     (tax/restore-depths t)
     (is (sound? t :genl))
-    (is (tax/genl? t (ty 20) 'droot_t))))
+    (is (tax/genl?-global t (ty 20) 'droot_t))))
 
 (deftest a-cycle-closed-while-loose-is-condensed-where-it-closes
   ;; The loose short-circuit governs the **acyclic** repair and nothing else.  `:scc` is
@@ -252,12 +252,12 @@
         (is (> (depth 'cd_t) (depth 'ca_t)))
         (is (> (depth 'ca_t) (depth 'ce_t)))))
     (testing "and the pruned reads answer the cycle exactly"
-      (is (= '#{ca_t cb_t cc_t ce_t} (tax/genls t 'ca_t)) "reach stays cycle-safe")
-      (is (= '#{ca_t cb_t cc_t cd_t} (tax/specs t 'ca_t)))
-      (is (tax/genl? t 'ca_t 'cc_t))
-      (is (tax/genl? t 'cc_t 'ca_t) "mutual, and answered without a walk")
-      (is (tax/genl? t 'cd_t 'ce_t) "through the whole component")
-      (is (not (tax/genl? t 'ce_t 'ca_t))))))
+      (is (= '#{ca_t cb_t cc_t ce_t} (tax/genls-global t 'ca_t)) "reach stays cycle-safe")
+      (is (= '#{ca_t cb_t cc_t cd_t} (tax/specs-global t 'ca_t)))
+      (is (tax/genl?-global t 'ca_t 'cc_t))
+      (is (tax/genl?-global t 'cc_t 'ca_t) "mutual, and answered without a walk")
+      (is (tax/genl?-global t 'cd_t 'ce_t) "through the whole component")
+      (is (not (tax/genl?-global t 'ce_t 'ca_t))))))
 
 (deftest a-belief-move-remakes-a-component
   ;; `refresh-beliefs` is the one path that changes the active edge set with no sentex

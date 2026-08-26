@@ -60,8 +60,8 @@
     (under! kb CxLow CxHigh)
     (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxHigh)
     (v/assert kb (list bird Tweety) CxLow)
-    (let [derived (:id (first (v/sentexes-matching kb (list flies Tweety) CxLow)))]
-      (is (some? derived) "the rule was inherited into the context holding the fact")
+    (let [derived (v/handle-of kb (list flies Tweety) CxLow)]
+      (is (v/in? kb derived) "the rule was inherited into the context holding the fact")
       (testing "the edge is an antecedent, beside the fact and the rule"
         (is (contains? (antecedent-sentences kb derived) (list 'genlCx CxLow CxHigh))))
       (testing "so `why` shows it, rather than a proof that skips how the rule was seen"
@@ -76,7 +76,7 @@
     (v/assert kb (list 'genlCx CxOne 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxOne)
     (v/assert kb (list bird Tweety) CxOne)
-    (let [derived (:id (first (v/sentexes-matching kb (list flies Tweety) CxOne)))
+    (let [derived (v/handle-of kb (list flies Tweety) CxOne)
           antes   (:antecedents (first (v/supporting-justifications kb derived)))
           named   (into #{} (map #(:sentence (v/sentex kb %))) antes)]
       ;; *which* sentexes, not how many: this file's whole subject is which ingredients a
@@ -99,9 +99,9 @@
     (v/assert kb (list 'genlCx CxLow CxMid) 'CxUniverse)
     (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxHigh)
     (v/assert kb (list bird Tweety) CxLow)
-    (let [derived (:id (first (v/sentexes-matching kb (list flies Tweety) CxLow)))
+    (let [derived (v/handle-of kb (list flies Tweety) CxLow)
           antes   (antecedent-sentences kb derived)]
-      (is (some? derived))
+      (is (v/in? kb derived))
       (is (contains? antes (list 'genlCx CxLow CxMid)))
       (is (contains? antes (list 'genlCx CxMid CxHigh))))))
 
@@ -112,8 +112,9 @@
     (under! kb CxPlace CxRule CxFact)
     (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxRule)
     (v/assert kb (list bird Tweety) CxFact)
-    (let [placed (first (v/sentexes-matching kb (list flies Tweety) '?ctx))
-          antes  (antecedent-sentences kb (:id placed))]
+    (let [[placed & more] (v/sentexes-matching kb (list flies Tweety) '?ctx)
+          antes            (antecedent-sentences kb (:id placed))]
+      (is (nil? more) "one placement, so reading it is not a choice between several")
       (is (= CxPlace (:context placed)) "the one context below both")
       (is (contains? antes (list 'genlCx CxPlace CxRule)))
       (is (contains? antes (list 'genlCx CxPlace CxFact))))))
@@ -123,7 +124,7 @@
     (under! kb CxLow CxHigh)
     (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxHigh)
     (v/assert kb (list bird Tweety) CxLow)
-    (let [derived (:id (first (v/sentexes-matching kb (list flies Tweety) CxLow)))
+    (let [derived (v/handle-of kb (list flies Tweety) CxLow)
           edges   (edge-sentexes kb derived)]
       (is (seq edges))
       (is (every? #(v/sees? kb CxLow (:context %)) edges)
@@ -207,7 +208,7 @@
               (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxHigh)
               (v/assert kb (list bird Tweety) CxLow)
               (when-not edge-first? (v/assert kb (list 'genlCx CxLow CxHigh) 'CxUniverse))
-              (let [derived (:id (first (v/sentexes-matching kb (list flies Tweety) CxLow)))]
+              (let [derived (v/handle-of kb (list flies Tweety) CxLow)]
                 {:asked   (v/ask? kb (list flies Tweety) CxLow)
                  :witness (contains? (antecedent-sentences kb derived)
                                      (list 'genlCx CxLow CxHigh))
@@ -228,7 +229,7 @@
     (under! kb CxLow CxHigh)
     (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxHigh)
     (v/assert kb (list bird Tweety) CxLow {:strength :monotonic})
-    (let [derived (:id (first (v/sentexes-matching kb (list flies Tweety) CxLow)))
+    (let [derived (v/handle-of kb (list flies Tweety) CxLow)
           nope    (v/assert kb (list 'not (list 'genlCx CxLow CxHigh)) 'CxUniverse
                             {:strength :monotonic})]
       (is (not (v/in? kb derived)) "the edge is not believed, so neither is what was seen over it")
@@ -236,7 +237,7 @@
       (is (= :unsupported (:reason (v/why-not kb derived))))
       (v/retract! kb nope)
       (is (v/in? kb derived) "and the edge coming back brings the conclusion back")
-      (is (= derived (:id (first (v/sentexes-matching kb (list flies Tweety) CxLow))))
+      (is (= derived (v/handle-of kb (list flies Tweety) CxLow))
           "at the same handle: a relabel, not a re-derivation"))))
 
 (tu/deftest-kb defeating-either-side-s-edge-puts-the-conclusion-out
@@ -248,8 +249,8 @@
     (under! kb CxPlace CxRule CxFact)
     (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxRule)
     (v/assert kb (list bird Tweety) CxFact {:strength :monotonic})
-    (let [derived (:id (first (v/sentexes-matching kb (list flies Tweety) CxPlace)))]
-      (is (some? derived))
+    (let [derived (v/handle-of kb (list flies Tweety) CxPlace)]
+      (is (v/in? kb derived))
       (doseq [[side edge] [["rule-side" (list 'genlCx CxPlace CxRule)]
                            ["fact-side" (list 'genlCx CxPlace CxFact)]]]
         (testing side
@@ -268,12 +269,12 @@
     (v/assert kb (list bird Tweety) CxLow {:strength :monotonic})
     (testing "seen over a :default edge"
       (is (= :default (v/defeat-class
-                        kb (:id (first (v/sentexes-matching kb (list flies Tweety) CxLow)))))))
+                        kb (v/handle-of kb (list flies Tweety) CxLow)))))
     (testing "the control: no sighting, and the conclusion is as strong as its grounds"
       (tu/with-terms [Robin]
         (v/assert kb (list bird Robin) CxHigh {:strength :monotonic})
         (is (= :monotonic (v/defeat-class
-                            kb (:id (first (v/sentexes-matching kb (list flies Robin) CxHigh))))))))))
+                            kb (v/handle-of kb (list flies Robin) CxHigh))))))))
 
 ;; ---- a reachability that outlives its named witness -----------------------
 
@@ -307,11 +308,11 @@
           via-two (v/assert kb (list 'genlCx CxTwo CxHigh) 'CxUniverse)]
       (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxHigh)
       (v/assert kb (list bird Tweety) CxLow)
-      (let [before (:id (first (v/sentexes-matching kb (list flies Tweety) CxLow)))]
-        (is (some? before))
+      (let [before (v/handle-of kb (list flies Tweety) CxLow)]
+        (is (v/in? kb before))
         (v/retract! kb via-one)
-        (let [after (:id (first (v/sentexes-matching kb (list flies Tweety) CxLow)))]
-          (is (some? after)
+        (let [after (v/handle-of kb (list flies Tweety) CxLow)]
+          (is (v/in? kb after)
               "Low still sees High by the other route, so the rule still reaches the fact")
           (is (not= before after)
               "as a re-derivation, not a survival: the sweep took the old record")))
@@ -337,14 +338,14 @@
     (let [direct (v/assert kb (list 'genlCx CxPlace CxFact) 'CxUniverse)]
       (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxRule)
       (v/assert kb (list bird Tweety) CxFact)
-      (let [before (:id (first (v/sentexes-matching kb (list flies Tweety) CxPlace)))]
-        (is (some? before)
+      (let [before (v/handle-of kb (list flies Tweety) CxPlace)]
+        (is (v/in? kb before)
             "CxPlace sees the rule one way and the fact the other, so it holds the conclusion")
         (is (contains? (set (map :id (edge-sentexes kb before))) direct)
             "and it named the direct edge as the witness for seeing CxFact")
         (v/retract! kb direct)
-        (let [after (:id (first (v/sentexes-matching kb (list flies Tweety) CxPlace)))]
-          (is (some? after)
+        (let [after (v/handle-of kb (list flies Tweety) CxPlace)]
+          (is (v/in? kb after)
               "CxPlace still reaches CxFact through CxVia, so the conclusion is still licensed")
           (is (not= before after)
               "as a re-derivation: the sweep took the record the named edge held up"))))))
@@ -388,7 +389,7 @@
     (under! kb CxLow CxHigh)
     (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxHigh)
     (v/assert kb (list bird Tweety) CxLow)
-    (let [derived (:id (first (v/sentexes-matching kb (list flies Tweety) CxLow)))
+    (let [derived (v/handle-of kb (list flies Tweety) CxLow)
           before  (antecedent-sentences kb derived)]
       (is (contains? before (list 'genlCx CxLow CxHigh)))
       (v/recover kb)
@@ -422,9 +423,9 @@
     (v/assert kb (list 'genlCx CxHeld 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'implies (list bird '?x) (list 'ist CxHeld (list flies '?x))) CxSaid)
     (v/assert kb (list bird Tweety) CxSaid)
-    (let [placed (first (v/sentexes-matching kb (list flies Tweety) CxHeld))]
-      (is (some? placed) "the named target took it, though it sees neither the rule nor the fact")
-      (is (empty? (edge-sentexes kb (:id placed)))
+    (let [placed (v/handle-of kb (list flies Tweety) CxHeld)]
+      (is (v/in? kb placed) "the named target took it, though it sees neither the rule nor the fact")
+      (is (empty? (edge-sentexes kb placed))
           "and rests on no context edge, because its placement was not derived from one")
       (v/retract! kb (v/handle-of kb (list 'genlCx CxHeld 'CxUniverse) 'CxUniverse))
       (is (seq (v/sentexes-matching kb (list flies Tweety) CxHeld))

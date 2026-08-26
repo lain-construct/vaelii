@@ -9,7 +9,7 @@
 Four knowledge bases you can load, and the route to each is a different length: two ship
 in this repo, one ships in the plugin, and one you supply. A fifth source is the
 **generator**, which synthesizes a KB at whatever shape you ask for rather than reading
-one ([catalog.md](catalog.md)).
+one ([catalog.md](catalog.md)) — and a sixth is **text you exported yourself**, below.
 
 The *mechanism* is elsewhere and not repeated here — [catalog.md](catalog.md) for what a
 source is, how one loads and what holding it costs, [foreign.md](foreign.md) for why no
@@ -17,10 +17,10 @@ OpenCyc reader is in this repo. This page is the **sequence**, and what each ste
 
 | KB | comes from | to first load | once loaded |
 |---|---|---|---|
-| Starter ontology | the classpath | seconds | ~1,320 sentexes |
-| Core vocabulary | the classpath | seconds | 212 sentexes |
+| Starter ontology | the classpath | seconds | ~1,843 sentexes |
+| Core vocabulary | the classpath | seconds | 392 sentexes |
 | cyc-tiny | a test fixture in the plugin | one dependency, then seconds | 8,181 sentexes |
-| OpenCyc 4.0 | a distribution you supply | a conversion, then 670s | 1,180,300 sentexes |
+| OpenCyc 4.0 | a distribution you supply | a conversion, then ~10 minutes | ~1.2M sentexes |
 
 ## The shipped pair needs nothing
 
@@ -101,19 +101,30 @@ lein convert convert cyc <opencyc>/server/cyc/run/units/5022 ~/.vaelii/kbs/openc
 `convert` is vaelii-foreign's alias, not this repo's, so both commands on this page run
 from that checkout; the engine has no such task and answers "not a task".
 
-1,889,842 assertions read in 5 seconds and convert to 1,848,561 sentences over 5,423
-contexts. The `lein convert` alias carries a heap that can hold a corpus; a plain `lein
-run` does not. The plugin's own OpenCyc documentation owns these figures — it is where
-the conversion runs and where the drops are accounted for — so read them there rather
-than here when the two ever disagree.
+**The plugin's own OpenCyc page owns these figures**, states them as one run's rather
+than as a guarantee, and is where the conversion runs and where the drops are accounted
+for. It states roughly **1.9M assertions read in seconds** and converted to about
+**1.85M sentences over ~5.4k contexts** — contexts that actually hold a sentence, where
+the vocabulary names ~13.3k of them. The **~214k named terms** come out as about
+**114k types**, **~19.6k predicates**, tens of thousands of individuals and those context
+terms. The `lein convert` alias carries a heap that can hold a corpus; a plain `lein run`
+does not.
 
 From there, two ways in, and they are a genuine trade rather than a better and a worse.
 
-**Through the browser**, exactly as with tiny. The `:ontology` profile takes 670s to
-ready: 1,180,300 sentexes, 234,245 terms, 132,391 types, 13,202 contexts, 13,657 refused,
-peaking around 5.5 GB of heap. It is browsable from its first thousand sentexes rather
-than at the end, and the card's derivation cap is what bounds chaining if you ask for it.
-Name a `:dir` on the card for a durable KB when RAM is the constraint.
+**Through the browser**, exactly as with tiny. One load of the `units/5022` conversion
+above, on the JVM's default heap: the plugin's page puts the `:ontology` profile at
+about **650 s** to ready, over **~1.16M sentexes**, of which the engine's own definitional
+checks refuse well under one percent — and it peaks around **5 GB**. It is browsable from
+its first thousand sentexes rather than at the end, and the card's derivation cap is what
+bounds chaining if you ask for it. Name a `:dir` on the card for a durable KB when RAM is
+the constraint.
+
+**This page is where this repo's OpenCyc figures live**, and a page needing one cites it
+here rather than quoting a count of its own — and these are approximate on purpose. The
+exact numbers move with the import profile and the plugin version, so two pages taking
+their own readings disagree about a corpus neither of them names, and a figure precise to
+the sentex is one nothing in this tree can reproduce.
 
 **Or once, offline, into a store:**
 
@@ -138,6 +149,37 @@ Heap is the other thing this corpus is sensitive to, and the numbers sit close t
 6 GB is not enough for the checked `:ontology` load, and the JVM default on a large
 machine is. Neither `lein browser` nor `lein run -m vaelii.web` sets `-Xmx`, so both
 get that default; a profile that pins a smaller heap wants the `:dir` instead.
+
+## Text you exported yourself
+
+The shipped ontology is text — one `Cx<Name>.txt` per context under `resources/kb/` — and
+`export-text!` writes that same format, so a KB in a store can go back to being files an
+author edits:
+
+```sh
+lein cli export /tmp/mykb --format text --starter   # premises out, one file per context
+$EDITOR /tmp/mykb/CxKinship.txt                     # ordinary sentences, ordinary comments
+lein cli load /tmp/mykb --dir /tmp/store            # and back in, through assert
+```
+
+In process it is `(v/export-text! kb dir)` and `(v/load-text! kb dir)`; `{:context C}` or
+`{:cone C}` narrows the export to one file or to one context and everything it sees
+([api.md](api.md)).
+
+**Two wrappers say how a sentence was asserted rather than what it says.**
+`(set/monotonic S)` is the known-true class: a strength is an option on the assertion, so
+there is nowhere in an s-expression for it to go, and a text KB that could not say it
+would round-trip every known-true premise down to a default. And because an `exceptWhen`
+asserts *two* things — the rule, and the exception qualifying it — a wrapper on the
+**query**, `(exceptWhen (set/monotonic Q) R)`, states the exception's own class where it
+differs from the rule's. Both are peeled before anything is stored, so neither reaches a
+sentence as a functor ([exceptions.md](exceptions.md)).
+
+**This is a round trip through content, not through state.** What is written is the
+*premises* — what somebody asserted — and a reload derives the rest again, so the KB that
+comes back has the same beliefs at different handles. Where handle identity is what you
+need (a backup, a move between stores, a corpus too big to re-derive), the pair is
+`export!` / `import!` instead.
 
 ## Where a KB has to sit to be found
 

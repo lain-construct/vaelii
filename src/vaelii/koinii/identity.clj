@@ -1,6 +1,6 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
-(ns vaelii.impl.koinii.identity
+(ns vaelii.koinii.identity
   "Koinii actor identity: per-agent contexts as the identity substrate AND the
   write boundary, an admin-only agent registry, and the one auth seam whose strength
   is conditional on the adjudication policy.
@@ -57,7 +57,9 @@
           (loop [acc []]
             (let [form (edn/read {:eof eof} r)]
               (if (identical? form eof) acc (recur (conj acc form)))))))
-      (throw (ex-info (str "koinii seed KB file not on the classpath: " path)
+      (throw (ex-info (str "koinii seed KB file not on the classpath: " path
+                           " — koinii ships one file per context under kb/koinii/, so a"
+                           " context named here wants its own file on the classpath")
                       {:type :koinii/missing-seed :context context :resource path})))))
 
 (defn load-seed-context
@@ -106,16 +108,60 @@
   "The admin-only registry context.  The one context governed agents may not write."
   'CxRegistry)
 
+(defn agent-context-mark
+  "The sentence that says `ctx` is `agent`'s own context — `(agentContext CxAtlas
+  AgentAtlas)`, written into `ctx` itself by `place-agent-context`.  Pass `'?agent` for
+  the pattern that reads it back.
+
+  **Why a written fact rather than a shape read off the lattice.**  `context-for` maps
+  `AgentAtlas` to `CxAtlas` by dropping a prefix, so an agent context is spelled exactly
+  like a channel and no name tells them apart; and the placement EDGES do not either,
+  because `(genlCx ?parent ctx)` and `(genlCx ctx ?root)` are the ordinary wiring of any
+  nested context — the same two edges under a channel rolled up into a wider one.
+  Inferring the role from them makes admission a function of what else has landed and of
+  which vocabulary a placement rooted at, which is order dependence in a door.  A
+  positive stored fact is neither: it is written once by whoever placed the context, it
+  reads the same however the rest of the lattice grew, and every koinii placement route
+  writes it.
+
+  It lands in the agent's OWN context, which is the one context D8 already says the agent
+  writes — so recording it needs no privilege the agent does not have, and no agent can
+  mark a context it may not write.  Under cooperative identity that boundary is a door
+  and not a wall (`*policy*`), exactly as it is for everything else the agent asserts."
+  [ctx agent]
+  (list 'agentContext ctx agent))
+
+(defn place-agent-context
+  "Place `agent-id`'s per-agent context (`context-for`) in the lattice: LIFTED under
+  `parent` so the parent sees the agent's writes — `(genlCx parent CxAtlas)` — ROOTED
+  under `roots` so the agent speaks that vocabulary and the rules over it fire, and
+  MARKED as the agent's own (`agent-context-mark`) so a later reader can tell an agent's
+  context from a channel.  All three are `:monotonic` and idempotent, so re-placing an
+  agent is a no-op; the two edges are topology in `CxUniverse`, the mark is a fact about
+  the context and lands in it.  Returns the agent context symbol.
+
+  **The three writes in one place, and `write!` is what lets them be.**  A channel writes
+  through its `Medium` (for a `wire` handle, the daemon), a plain caller writes straight
+  to a KB — so the writer is the argument: `write!` is `(fn [sentence context opts] …)`.
+  Every koinii placement — `agent-context` here, `speech-acts/speaker-context`,
+  `channel/join`, `adjudication`'s arbiter — is this trio under a different parent and a
+  different root, which is what makes the mark true of an agent context however it was
+  placed."
+  [write! parent agent-id roots]
+  (let [actx (context-for agent-id)]
+    (write! (list 'genlCx parent actx) 'CxUniverse {:strength :monotonic})
+    (write! (list 'genlCx actx roots)  'CxUniverse {:strength :monotonic})
+    (write! (agent-context-mark actx agent-id) actx
+            {:strength :monotonic :creator agent-id})
+    actx))
+
 (defn agent-context
   "Create/lift `agent-id`'s per-agent context under the channel `deploy-ctx` so the
   channel sees it — `(genlCx deploy-ctx CxAtlas)` — and root it under `CxCore` so the
   agent speaks the core vocabulary.  Both edges are monotonic topology.  Returns the
   agent context symbol."
   [kb deploy-ctx agent-id]
-  (let [actx (context-for agent-id)]
-    (v/assert kb (list 'genlCx deploy-ctx actx) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'genlCx actx 'CxCore)    'CxUniverse {:strength :monotonic})
-    actx))
+  (place-agent-context #(v/assert kb %1 %2 %3) deploy-ctx agent-id 'CxCore))
 
 ;; ---- the auth seam: authenticate a principal (policy-conditional) --------
 
@@ -163,11 +209,21 @@
        :cooperative (assoc base :policy :cooperative :authenticated? false)
        :proof-tier  (if (and verify (verify id (:credential request)))
                       (assoc base :policy :proof-tier :authenticated? true)
-                      (throw (ex-info "koinii: identity unverified under proof-tier"
+                      (throw (ex-info (str "koinii: identity unverified under proof-tier"
+                                           " — "
+                                           (if verify
+                                             (str (pr-str id) " did not pass the"
+                                                  " verify-fn with the credential it"
+                                                  " sent")
+                                             (str "no verify-fn is bound, so no"
+                                                  " credential passes: bind one as"
+                                                  " :verify-fn or *verify-fn*, or"
+                                                  " authenticate under :cooperative")))
                                       {:type :koinii/identity-unverified
                                        :claimed-id id :policy :proof-tier
                                        :verifier? (boolean verify)})))
-       (throw (ex-info (str "koinii: unknown identity policy " (pr-str policy))
+       (throw (ex-info (str "koinii: unknown identity policy " (pr-str policy)
+                            " — want :cooperative or :proof-tier")
                        {:type :koinii/unknown-policy :policy policy}))))))
 
 (defn admin-principal
@@ -206,8 +262,25 @@
   call site can route a write into a context it does not own."
   [principal target-ctx]
   (when-let [prob (write-boundary-problem principal target-ctx)]
-    (throw (ex-info (str "koinii: write refused — " (name (:type prob)))
-                    prob))))
+    (let [own (if (:admin? principal) registry-context (context-for (:id principal)))]
+      (throw (ex-info (str "koinii: write refused — " (name (:type prob)) ": "
+                           (pr-str (:id principal)) " writes " own ", not " target-ctx)
+                      prob)))))
+
+(defn check-registry-write!
+  "Throw if `target-ctx` is the admin registry; else return nil.  The **one** boundary
+  that holds even in cooperative mode — where an agent may otherwise write across
+  contexts (the speech-act doors take an explicit `ctx` for exactly that) — because the
+  governed may never write the authority that governs them (docs/koinii.md).  Narrower
+  than `check-write-boundary!`, which also enforces own-context-only, a proof-tier rule
+  the cooperative doors do not impose.  `who` is named in the refusal for the log."
+  [who target-ctx]
+  (when (= target-ctx registry-context)
+    (throw (ex-info (str "koinii: write refused — registry-forbidden: " (pr-str who)
+                         " is governed by " registry-context ", and the governed do not"
+                         " write the authority that governs them.  An agent's own"
+                         " context takes the write")
+                    {:type :koinii/registry-forbidden :principal who :context target-ctx}))))
 
 (defn- principal-provenance
   "The open-provenance fields a principal rides onto its writes — `:source` and the
@@ -263,14 +336,46 @@
   (ingest-into kb principal registry-context (list 'trustLevel agent-id trust))
   agent-id)
 
+(defn- sole-registry-match
+  "The one believed sentex matching `pattern` in the registry, or nil — and a refusal
+  (`:koinii/registry-not-functional`) naming every handle when more than one stands.
+
+  **Why this rather than `first`.**  `sentexes-matching` answers with the *set* of
+  matches and promises nothing about the order they come back in, so a bare `first` over
+  two rows names whichever the index enumerated — which is the order the registry was
+  written in.  The trust a read reports, and the row an overwrite retracts, would then
+  depend on the write order rather than on what the registry holds.
+
+  At most one row is what the registry vocabulary already guarantees: `trustLevel` and
+  `displayNameOf` are declared `functional` (`resources/kb/koinii/CxRegistry.txt`), so
+  `assert` refuses a second value outright with a `:functional` violation rather than
+  storing it.  Every registry read and the trust overwrite rest on that refusal, so this
+  is where it is said out loud — and where a KB that ever held two rows is named rather
+  than silently halved."
+  [kb pattern]
+  (let [ms (v/sentexes-matching kb pattern registry-context)]
+    (when (next ms)
+      (throw (ex-info (str "koinii: registry read refused — " (pr-str pattern)
+                           " matches " (count ms) " believed rows in " registry-context
+                           ", which declares its predicates functional and holds one."
+                           "  Retract the extra rows named in :handles")
+                      {:type :koinii/registry-not-functional
+                       :pattern pattern
+                       :context registry-context
+                       :handles (into #{} (map :id) ms)})))
+    (first ms)))
+
 (defn set-trust!
   "OVERWRITE `agent-id`'s trust with `new-value`, as the admin `principal` (D3: trust
   is a mutable number).  `trustLevel` is functional, so the update retracts the old
   value and asserts the new rather than accumulating two.  Refused for a non-admin
-  principal.  Returns the new handle."
+  principal.  Returns the new handle.
+
+  The row it retracts is read through `sole-registry-match`, whose docstring holds the
+  reason: the overwrite must not rest on an unordered set having exactly one member."
   [kb principal agent-id new-value]
   (check-write-boundary! principal registry-context)      ; admin-gate the retract too
-  (when-let [sx (first (v/sentexes-matching kb (list 'trustLevel agent-id '?v) registry-context))]
+  (when-let [sx (sole-registry-match kb (list 'trustLevel agent-id '?v))]
     (v/retract! kb (:id sx)))
   (ingest-into kb principal registry-context (list 'trustLevel agent-id new-value)))
 
@@ -278,10 +383,12 @@
 
 (defn- object-of
   "The last argument of the believed `(pred subject ?o)` sentex in `CxRegistry`, or
-  nil — a plain context-scoped read of one stored fact."
+  nil — a plain context-scoped read of one stored fact, taken through
+  `sole-registry-match` so the answer is what the registry holds and not what the
+  retrieval enumerated first."
   [kb pred subject]
-  (some-> (v/sentexes-matching kb (list pred subject '?o) registry-context)
-          first :sentence last))
+  (some-> (sole-registry-match kb (list pred subject '?o))
+          :sentence last))
 
 (defn trust-of
   "The stored trust number for `agent-id`, or nil — a plain context-scoped read of

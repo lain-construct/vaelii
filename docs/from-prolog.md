@@ -22,7 +22,11 @@ means very nearly the opposite of what it means to you.
 | `X`, `Foo` — a variable | `?x` | the question mark is the marker, and capitalization is doing something else entirely |
 | an atom | a symbol whose role is read off its spelling | see below |
 | compound term | a NAT — reified to a constant, or kept structural → [nat.md](nat.md) |
-| `\+ G` | `(unknown G)` | ground and closed only |
+| `(A ; B)` in a body | `(or A B)` in an antecedent | the rule is stored one per alternative, so the two are separate handles you can retract apart |
+| `(A ; B)` in a head | `set/assumptionRule`, one per alternative | a disjunctive head is a choice for a solve rather than a derivation → [solving.md](solving.md) |
+| `\+ G` | `(unknown G)` | ground and closed; a conjunctive `G` is joined |
+| `\+ (B, C)` over a shared variable | `(unknown (thereExists ?x (and B C)))` | the binder is what gives the conjuncts one witness |
+| `forall/2` | `(forall ?y (implies Body Head))` | sugar for the nested NAF, and true on the empty domain |
 | `dif/2` | `(different A B)` | a prover, never assertible; the unique-name assumption is kept |
 | `p/2` | — | arity is not part of the name; `(arity p 2)` or `arg` declares it |
 | module | context | and a read sees up the `genlCx` cone |
@@ -107,8 +111,21 @@ which one answered → [levels.md](levels.md).
   through negation throws `:not-stratified`, including a cycle that a `genl` edge would
   close. → [naf.md](naf.md)
 
+A conjunctive `G` is **joined**, so `\+ (childOf(tom,C), sick(C))` transfers as
+`(unknown (thereExists ?c (and (childOf Tom ?c) (sick ?c))))` and means what it does in
+Prolog: one witness satisfying both goals, not one apiece. The quantifier is what supplies
+the scope Prolog gets from the clause body.
+
+`forall(B, H)` transfers as `(forall ?y (implies B H))`, and it is sugar for exactly the
+double negation Prolog implements it as — `(unknown (thereExists ?y (and B (unknown H))))`
+— so it is true on the empty domain, as `forall/2` is. The desugar happens at the door, so
+the stored rule shows the nested form.
+
 `(not S)` is a different thing again: a stored negative sentex with its own handle, which
-is neither failure nor absence.
+is neither failure nor absence. Under a `(closedExtentPredicate P)` grant it is *also* a
+closed-world question — a ground `(not (P a))` holds while nothing answers `(P a)`, and a
+closed `(not (P ?x))` rule antecedent under the grant is negation as failure. That is the
+one place `not` and `\+` converge here, and it is opt-in per predicate and per context.
 
 ## Rules
 
@@ -126,12 +143,21 @@ skolemized to a deterministic NAT constant when the rule fires.
 | a defeasible rule | `set/defaultRule` |
 | a stated exception | `exceptWhen` → [exceptions.md](exceptions.md) |
 
-A conjunctive consequent splits into one rule per conjunct. A literal whose functor is a
-**variable** is refused `:not-indexable` — in an antecedent or a consequent, and whether
-or not something binds it, because the index is keyed by predicate and there is nothing
-to key on. A rule whose consequent is itself a rule is the exception: it is a
-**generator**, and a variable in functor position there is a hole the enclosing level
-fills at mint time → [generators.md](generators.md).
+A conjunctive consequent splits into one rule per conjunct, and a disjunctive antecedent
+into one rule per alternative — so the `;` you would have written in a body is legal
+here, distributed to DNF and capped at 16 alternatives
+([canonicalization.md](canonicalization.md)). There is no clause order to lean on: the
+alternatives are separate rules and a conjunction is planned by cost, so a `;` you were
+using as an if-then-else is two independent rules, and the second fires whether or not
+the first did. A rule **antecedent** whose
+functor is a variable is refused `:not-indexable`, whether or not something binds it: the
+antecedent index is keyed by predicate, so a variable there names none for an arriving
+fact to trigger, and the rule would fire over whatever happened to be stored when a
+concrete antecedent beside it arrived. A variable functor in the **consequent** is legal —
+range restriction makes it antecedent-bound, so a forward firing is ground, and the
+consequent slot files it under a catch-all cell every backward goal reads. A rule whose
+consequent is itself a rule is a **generator**, and a variable in functor position there
+is a hole the enclosing level fills at mint time → [generators.md](generators.md).
 
 ## Retraction actually retracts
 
@@ -169,7 +195,8 @@ justification. `(v/why kb handle)` is the proof tree; `(v/why-not kb handle)` an
 
 ## What you lose
 
-- The cut, and control by clause order
+- The cut, and control by clause order — including `;` read as if-then-else, since the
+  alternatives become independent rules
 - Side-effecting builtins, and `assert` during a proof
 - Operator declarations, and DCG notation
 - Term ordering as a general facility. A Knuth-Bendix order exists, but it orients

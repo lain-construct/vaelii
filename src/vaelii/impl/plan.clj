@@ -57,9 +57,14 @@
   `parentOf`; the same literal after `?x` is bound is one person's children.  In the
   summary algebra that is not a special case: the variables already bound are a
   one-row relation, and joining a literal onto it divides its extent by the literal's
-  own distinct count at that position — which is exactly the average branch a
-  per-literal model charges, reached by the general rule instead of by a rule of its
-  own.
+  own distinct count at that position — the textbook N/V selectivity, reached by the
+  general rule instead of by a rule of its own.
+
+  It lives there and **only** there.  The per-literal model does not narrow on a
+  binding, because `est-matches` is a bound and a binding buys an *average*: a bound
+  variable takes one value, and the value it takes may be the one the whole prefix sits
+  under.  Charging the average per literal would put an expectation where the placement
+  rules read a proof (`prefix-estimate`).
 
   **Blocks, on structure rather than on cost** — two literals sharing a variable
   constrain each other; two that share none do not, and no ordering *within* one
@@ -113,9 +118,11 @@
   subset search — is refuted over `est-matches`, and measurably: on randomized joins
   it ran a mean 2.31× the best permutation's actual rows against cheapest-first's
   1.19×, losing 3 trials of 9 and winning none.  The reason is not that a search is
-  the wrong shape but that it was minimizing a sum of incomparable quantities — a
-  bound for some literals and an average for others.  `est-rows` exists to fix
-  that, and once the numbers compose the ordering does not need a search at all: the
+  the wrong shape but that it minimizes the wrong quantity: `est-matches` is a
+  *bound*, one-sided by contract, and a plan's cost is a sum of expected intermediate
+  sizes.  Maxima of products do not factor, so summing bounds across a join adds numbers
+  that answer a different question than the one being minimized.  `est-rows` exists to
+  fix that, and once the numbers compose the ordering does not need a search at all: the
   transposition law sorts.
 
   ## Why the subtype fan is made cheap rather than remembered
@@ -182,19 +189,27 @@
   content, never of iteration order.  Same knowledge, same plan: the order
   independence the rest of the engine holds to (see `vaelii.impl.jtms`) applied to
   execution rather than belief."
-  (:require [vaelii.impl.protocols :as p]
+  (:require [vaelii.impl.reads :as reads]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]))
 
 ;; ---- the cost model -----------------------------------------------------
 
 (def ^:dynamic *enabled*
-  "Bind to false to run every conjunction in the order it was written.
+  "Bind to false to run a conjunction's generators in the order they were written.
 
-  Planning is a pure cost decision — it must never change the answer *set*, only how
-  fast it is reached — and that is a claim worth being able to test rather than
-  assert.  Binding this false gives the unplanned execution to compare against, which
-  is what `plan_test` does over every permutation of a conjunction."
+  Ranking them is a pure cost decision — it must never change the answer *set*, only
+  how fast it is reached — and that is a claim worth being able to test rather than
+  assert.  Binding this false gives the unranked execution to compare against, which is
+  what `plan_test` does over every permutation of a conjunction and what
+  `VAELII_PLAN=0` does over the whole suite (docs/inference.md).
+
+  **What it does not turn off is the readiness discipline**, and that is the line
+  between the two decisions `plan-pairs` makes.  A deferred literal placed ahead of
+  what binds its arguments cannot be evaluated at all — `[(bigEnough ?n) (hasScore ?x
+  ?n)]` answers nothing, silently — and the recursive literal placed anywhere but last
+  is a rule that may not terminate.  Neither is a cost, so neither is behind this
+  switch: it removes the ranking and leaves the order legal."
   true)
 
 (def ^:private unbounded
@@ -286,29 +301,33 @@
   costed by the deep prefix `[mass Obj1 <M> QuantityFn]` (selective) instead of
   stopping at `[mass Obj1]`.
 
-  Three cases per token, and the walk stops at the first token that is not a literal
+  Two cases per token, and the walk stops at the first token that is not a literal
   value, because the trie narrows left to right and cannot skip a level:
 
   - **known value** — extend the prefix and take `count-at` of it.  Exact, not an
     estimate, for everything matching that prefix.
-  - **bound but unknown** — the token will have exactly one value at run time, we
-    just do not know which.  Charge the *average* branch under the prefix:
-    `count-at(prefix) / count-children(prefix)`.  This is what makes sideways
-    information passing pay: the trie's own fan-out is the distinct-value count that
-    a textbook N/V selectivity formula wants, and it is already stored.
-  - **free** — nothing constrains this position or any after it; the prefix count
-    stands."
-  [ix goal bound count-at* kids*]
+  - **anything else** — a variable, whether or not the plan has bound it: nothing
+    constrains this position or any after it, so the prefix count stands.
+
+  **A bound-but-unknown token is not charged an average**, and that is the whole of
+  what keeps `est-matches` one-sided.  `count-at(prefix) / count-children(prefix)` is
+  the branch a bound variable takes *on average*, and a bound variable does not take
+  the average — it takes one value, and the value it takes may be the one the whole
+  prefix sits under.  Three facts over two first arguments read an average of 1 while
+  the busy argument matches twice, so a `:prune?` proof off that number would be a
+  proof of something false (`plan_test`, `a-bound-token-is-not-charged-an-average`).
+  The narrowing a binding really buys is priced where it composes instead:
+  `join-summary` divides the literal's extent by its own distinct count at that
+  position, which is the same N/V selectivity by the general rule rather than by a
+  rule of its own."
+  [ix goal count-at*]
   (loop [toks (sx/key-stream goal), prefix []]
     (if (empty? toks)
       (count-at* ix prefix)
       (let [t (first toks)]
-        (cond
-          (known? t)       (recur (rest toks) (conj prefix t))
-          (closed? t bound) (let [total    (count-at* ix prefix)
-                                  branches (max 1 (kids* ix prefix))]
-                              (max 1 (quot total branches)))
-          :else            (count-at* ix prefix))))))
+        (if (known? t)
+          (recur (rest toks) (conj prefix t))
+          (count-at* ix prefix))))))
 
 (defn- arg-root-estimate
   "The tightest count from the secondary argument roots.  These reach what the trie
@@ -338,10 +357,9 @@
 ;; For the shape that actually costs — `(animal ?x)`, the argument a bare free variable —
 ;; the general walk is provably a long way round to one number.  `sx/key-stream` of
 ;; `(t' ?x)` is two tokens: the functor, which is known and extends the prefix, and the
-;; variable, which is neither known nor closed and stops the walk.  So `prefix-estimate`
-;; returns `count-at [t']` and nothing else — after building a literal, linearizing it,
-;; and running a three-way `cond` per token, per subtype.  `fan-of-roots` reads the same
-;; counts directly.
+;; variable, which is not a value and stops the walk.  So `prefix-estimate` returns
+;; `count-at [t']` and nothing else — after building a literal, linearizing it, and
+;; testing each token, per subtype.  `fan-of-roots` reads the same counts directly.
 ;;
 ;; It is a **constant-factor** change and has to be: the number must not move at all, and
 ;; the equality above is why it cannot.  Any other argument shape — a compound, which puts
@@ -350,9 +368,13 @@
 
 (defn- open-atom?
   "Is `term` a bare variable this literal leaves open — an atom (so it contributes exactly
-  one trie token), a variable (so the token is not a value), and not already bound (so the
-  walk cannot charge it an average branch)?  The three conditions under which
-  `prefix-estimate` over `(t term)` is exactly `count-at [t]`."
+  one trie token) and a variable (so the token is not a value, and the walk stops there)?
+  The conditions under which `prefix-estimate` over `(t term)` is exactly `count-at [t]`.
+
+  A variable the plan has already **bound** satisfies the equality too — the walk stops on
+  a bound token exactly as on a free one — and is excluded here all the same: widening the
+  fast path is a cost decision, and this predicate is written to name the shape the
+  direct read was measured on rather than every shape it would also answer."
   [term bound]
   (and (sx/variable? term)
        (not (sequential? term))
@@ -378,11 +400,13 @@
   compose across a join — see `est-rows`, which is the other estimator and is not a
   bound."
   ([kb goal bound] (est-matches kb goal bound {}))
-  ([kb goal bound {:keys [count-at count-children count-with-arg count-with-functor context]
-                   :or   {count-at           p/count-at
-                          count-children     p/count-children
-                          count-with-arg     p/count-with-arg
-                          count-with-functor p/count-with-functor}}]
+  ;; `:count-children` is part of the shared estimator-option map and is read by
+  ;; `summary` rather than here: the child count is the *distinct-value* reading a join
+  ;; divides by, and this estimator no longer charges one (see `prefix-estimate`).
+  ([kb goal bound {:keys [count-at count-with-arg count-with-functor context]
+                   :or   {count-at           reads/stored-count-at
+                          count-with-arg     reads/stored-count-with-arg
+                          count-with-functor reads/stored-count-with-functor}}]
    (let [ix (:index kb)]
      (cond
        (not (sequential? goal)) 1
@@ -426,12 +450,12 @@
               (if (open-atom? a bound)
                 (fan-of-roots ix specs count-at)
                 (reduce (fn [acc t']
-                          (+ acc (prefix-estimate ix (list t' a) bound count-at count-children)))
+                          (+ acc (prefix-estimate ix (list t' a) count-at)))
                         0
                         specs))))
 
        :else
-       (min (prefix-estimate ix goal bound count-at count-children)
+       (min (prefix-estimate ix goal count-at)
             (or (arg-root-estimate ix goal count-with-arg) unbounded))))))
 
 ;; ---- the join model: summaries, and how two of them compose -------------
@@ -452,10 +476,12 @@
 
 (defn- bound-prefix
   "The variables a conjunction starts with, as a summary: one row, each of them
-  taking exactly one known value.  Joining a literal onto *this* divides its extent
-  by its own distinct count at that variable's position, which is precisely the
-  average branch `prefix-estimate` charges for a bound-but-unknown token — so
-  sideways information passing needs no rule of its own here."
+  taking exactly one known value.  Joining a literal onto *this* divides its extent by
+  its own distinct count at that variable's position — the N/V selectivity a per-literal
+  model would charge as an average, arrived at by the general rule, which is why sideways
+  information passing needs no rule of its own anywhere.  **Here and nowhere else**: this
+  is an expectation, and `est-matches` stays a bound rather than charging the same
+  narrowing a second time in a quantity that may not carry it (`prefix-estimate`)."
   [bound]
   {:rows 1.0 :vars (set bound) :distinct (zipmap bound (repeat 1.0))})
 
@@ -589,10 +615,10 @@
 (defn- summary
   "`est-rows` in the algebra's own units — doubles, and `:vars` present."
   [kb goal {:keys [count-at count-children count-with-arg count-with-functor context]
-            :or   {count-at           p/count-at
-                   count-children     p/count-children
-                   count-with-arg     p/count-with-arg
-                   count-with-functor p/count-with-functor}}]
+            :or   {count-at           reads/stored-count-at
+                   count-children     reads/stored-count-children
+                   count-with-arg     reads/stored-count-with-arg
+                   count-with-functor reads/stored-count-with-functor}}]
   (let [ix   (:index kb)
         ;; A deferred literal is computed from bindings, not looked up: it produces no
         ;; rows of its own, joins on nothing, and multiplies nothing.  How much it
@@ -668,8 +694,10 @@
   There is deliberately no `bound` argument, and the asymmetry with `est-matches` is
   the point: a literal's own shape does not depend on what the plan has bound, and the
   narrowing that binding buys is what the join formula computes.  A planner seeds its
-  prefix with the bound variables as a one-row relation and gets the same number the
-  per-literal model charged for them, by the general rule."
+  prefix with the bound variables as a one-row relation and reads the narrowing off the
+  join, by the general rule.  `est-matches` under the same bindings does **not** narrow,
+  and must not: it is the one-sided quantity, and an average of the same narrowing there
+  can read 1 for a literal that matches twice."
   ([kb goal] (est-rows kb goal {}))
   ([kb goal opts]
    (let [s     (summary kb goal opts)
@@ -852,10 +880,17 @@
      :defs (filterv (fn [[_ l]] (deferred? l)) pairs)}))
 
 (defn- ready
-  "The deferred literals whose variables are all bound — pull them forward to here,
-  in their original relative order (one computation may feed the next)."
+  "The deferred literals whose **input** variables are all bound — pull them forward to
+  here, in their original relative order (one computation may feed the next).
+
+  Gated on the inputs a literal reads (`sentex/deferred-input-vars`), not on every
+  variable it mentions: `(evaluate ?z (+ ?x ?y))` is ready once `?x` and `?y` are bound,
+  and its own written `?z` is never generator-bound, so gating on it would strand the
+  literal in the tail — after the pinned recursive literal — where the docstring above
+  says it must be pulled forward, and a bind-mode `evaluate` parked there can cost the
+  recursive subgoal its per-level distinctness."
   [defs bound]
-  (filterv (fn [[_ l]] (every? bound (vars-of l))) defs))
+  (filterv (fn [[_ l]] (every? bound (sx/deferred-input-vars l))) defs))
 
 (defn- lits [pairs] (mapv second pairs))
 
@@ -865,10 +900,10 @@
   `explain` that reports it, which re-costs every literal and would otherwise re-read
   each subtype's count the ranking already paid for."
   [context]
-  {:count-at           (memoizing p/count-at)
-   :count-children     (memoizing p/count-children)
-   :count-with-arg     (memoizing p/count-with-arg)
-   :count-with-functor (memoizing p/count-with-functor)
+  {:count-at           (memoizing reads/stored-count-at)
+   :count-children     (memoizing reads/stored-count-children)
+   :count-with-arg     (memoizing reads/stored-count-with-arg)
+   :count-with-functor (memoizing reads/stored-count-with-functor)
    :context            context})
 
 (defn- plan-pairs
@@ -881,14 +916,20 @@
   same cache rather than the index again."
   [kb goals context {:keys [bound consequent-pred est-override] :or {bound #{}}}]
   (let [goals (vec goals)]
-    (if (or (not *enabled*) (< (count goals) 2))
+    (if (< (count goals) 2)
       {:pairs (vec (map-indexed vector goals)) :info {}}
       (let [{:keys [gens recs defs]} (partition-literals goals consequent-pred)
             drop-i (fn [pending taken]
                      (let [taken (set (map first taken))]
                        (filterv (fn [[i _]] (not (taken i))) pending)))]
-        (if (< (count gens) 2)
-          ;; Nothing to choose between, but the deferred literals can still be
+        ;; `*enabled*` false lands here too, and that is the whole of what it turns
+        ;; off: the RANKING below.  The partition and the readiness discipline run
+        ;; either way, because they are not cost — a deferred literal ahead of what
+        ;; binds it cannot be evaluated at all, so leaving one there answers nothing
+        ;; and a switch that did leave one there would be changing the answer set.
+        (if (or (not *enabled*) (< (count gens) 2))
+          ;; Nothing to choose between — or nothing allowed to — so the generators
+          ;; keep the order they were written in, and the deferred literals are still
           ;; pulled forward past the recursive one.
           (let [bound' (into bound (mapcat (comp vars-of second) gens))
                 early  (ready defs bound')]

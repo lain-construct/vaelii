@@ -46,11 +46,18 @@
 
 ;; ---- term structure ------------------------------------------------------
 
-(defn- subterms
-  "Every subterm of `term` — each atom and each compound, `term` itself included."
+(defn- rewritable-subterms
+  "Every subterm of `term` that `normalize` can rewrite **at** — `term` itself, and the
+  same of each of its arguments.
+
+  A compound in **functor** position is not one, and that is what makes this narrower
+  than a plain `tree-seq`: `normalize` rebuilds a compound as
+  `(apply list (first term) (map normalize (rest term)))`, so it descends into the
+  arguments and never into the head.  Counting a head as rewritable would let
+  `rule-applies?` claim a rule that cannot touch the term's normal form."
   [term]
   (if (sequential? term)
-    (cons term (mapcat subterms term))
+    (cons term (mapcat rewritable-subterms (rest term)))
     (list term)))
 
 (defn term-size
@@ -163,8 +170,8 @@
   "Orient `(equals l r)` into a terminating rewrite `[big small]`, or nil when no
   terminating orientation exists.  The Knuth-Bendix order (`kbo>`) decides: the heavier
   side rewrites to the lighter, and two **equal-weight** sides are oriented by the
-  symbol precedence — so `(f (g ?x)) = (g (f ?x))` now orients, where a size-only rule
-  refused it.  nil only when the sides are KBO-**incomparable**: a *permutative*
+  symbol precedence — so `(f (g ?x)) = (g (f ?x))` orients, where a size-only rule
+  would refuse it.  nil only when the sides are KBO-**incomparable**: a *permutative*
   equation like `(rel ?x ?y) = (rel ?y ?x)`, which no term order can orient, or one
   whose variable condition fails in both directions."
   [l r]
@@ -217,8 +224,8 @@
 (def ^:private normalize-guard
   "A pure safety net.  The reduction order already guarantees termination, so this
   bound is never reached; it exists only so a would-be bug fails safe (return the
-  partly-normalized term) rather than hanging.  `unify` remains the arbiter of every
-  match, so a partly-normalized form can only *miss*, never match wrongly."
+  partly-normalized term) rather than hanging.  `match` remains the arbiter of every
+  rewrite, so a partly-normalized form can only *miss*, never match wrongly."
   4096)
 
 (defn- rewrite-root
@@ -236,7 +243,10 @@
   safety net."
   [rules term]
   (loop [term term, guard 0]
-    (let [term' (if (sequential? term)
+    ;; `(seq term)` as well as `sequential?`: an empty list has no functor to keep, and
+    ;; rebuilding it as `(apply list (first term) …)` would hand back `(nil)` — a term the
+    ;; caller never wrote, in a form that then keys and matches as itself.
+    (let [term' (if (and (sequential? term) (seq term))
                   (apply list (first term) (map #(normalize rules %) (rest term)))
                   term)]
       (if-let [red (and (< guard normalize-guard) (rewrite-root rules term'))]
@@ -275,9 +285,14 @@
 (defn rule-applies?
   "Does the oriented rule `{:lhs …}` rewrite some argument subterm of `sentence`?  The
   test for whether a schematic equation justifies a migrated twin — a rule that
-  matches nothing in the sentence contributed nothing to its normal form."
+  matches nothing in the sentence contributed nothing to its normal form.
+
+  The positions asked about are exactly the positions `normalize` reduces at
+  (`rewritable-subterms`), so the two agree: a wider read here would justify a twin by a
+  rule that never touched it, and retracting that rule would then withdraw a twin it
+  never made."
   [{:keys [lhs]} sentence]
-  (boolean (some #(some (fn [st] (match lhs st)) (subterms %))
+  (boolean (some #(some (fn [st] (match lhs st)) (rewritable-subterms %))
                  (when (sequential? sentence) (rest sentence)))))
 
 ;; ---- confluence surfacing: critical pairs between rules ------------------
@@ -287,7 +302,7 @@
 ;; rewritten two ways, and if the results normalize to different forms the rules
 ;; disagree about a shared term.  This is **detection, not completion** — the engine
 ;; still gives a deterministic normal form (rules applied in a content-sorted order,
-;; `unify` the arbiter), so a match is never wrong; the report warns that a term
+;; `match` the arbiter), so a match is never wrong; the report warns that a term
 ;; written one way and a theory-equal term written another may not meet.
 ;;
 ;; **Self-overlaps are excluded.**  A single rule's internal non-confluence — `(f (f
@@ -297,8 +312,20 @@
 ;; worth surfacing is two **distinct** equations disagreeing, `f∘f = g` alongside `f∘f
 ;; = h`.
 
+(defn- resolve-var
+  "`t` with a bound variable followed to the **end** of its chain.  One binding may name
+  another — unifying `?a` with `?b` and then `?b` with `?c` leaves `?a → ?b → ?c` — so a
+  single hop can hand back a variable that is itself bound, and reading that as unbound
+  both loses a constraint (the next `assoc` overwrites the binding it should have
+  extended) and hides an occurrence from the occurs check.  Terminates because the occurs
+  check is what forbids a cyclic chain."
+  [subst t]
+  (if (and (sx/variable? t) (contains? subst t))
+    (recur subst (get subst t))
+    t))
+
 (defn- occurs? [subst v t]
-  (let [t (if (and (sx/variable? t) (contains? subst t)) (get subst t) t)]
+  (let [t (resolve-var subst t)]
     (cond
       (= v t)         true
       (sequential? t) (some #(occurs? subst v %) t)
@@ -308,8 +335,8 @@
   [s t subst]
   (if (nil? subst)
     nil
-    (let [s (if (and (sx/variable? s) (contains? subst s)) (get subst s) s)
-          t (if (and (sx/variable? t) (contains? subst t)) (get subst t) t)]
+    (let [s (resolve-var subst s)
+          t (resolve-var subst t)]
       (cond
         (= s t)          subst
         (sx/variable? s) (when-not (occurs? subst s t) (assoc subst s t))
@@ -344,14 +371,22 @@
     {:lhs (subst (:lhs rule) m) :rhs (subst (:rhs rule) m)}))
 
 (defn- positions
-  "Every `[path compound-subterm]` of `term` — `path` a vector of child indices, `[]`
-  the whole term.  Only compound subterms, since a rule LHS (always a compound) can
-  overlap nothing else."
+  "Every `[path compound-subterm]` of `term` a rewrite can happen **at** — `path` a
+  vector of child indices, `[]` the whole term.
+
+  Only compound subterms, since a rule LHS (always a compound) can overlap nothing else;
+  and only **argument** positions, for the reason `rewritable-subterms` narrows
+  `rule-applies?` the same way: `normalize` rebuilds a compound as `(apply list (first
+  term) (map normalize (rest term)))`, so it descends into the arguments and never into
+  the head.  Counting a compound head would report a critical pair over an overlap no
+  term's normal form can reach — a confluence warning about a reduction the engine does
+  not perform."
   [term]
   (letfn [(go [t path]
             (when (and (sequential? t) (seq t))
               (cons [path t]
-                    (apply concat (map-indexed (fn [i c] (go c (conj path i))) t)))))]
+                    (apply concat
+                           (map-indexed (fn [i c] (go c (conj path (inc i)))) (rest t))))))]
     (go term [])))
 
 (defn- replace-at

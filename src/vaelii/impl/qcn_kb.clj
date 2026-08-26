@@ -12,12 +12,24 @@
     {:name        a keyword, naming the cache and the parity oracle
      :algebra     the `qcn` relation algebra
      :denotation  {predicate -> #{base relations}} — base ones are the singletons,
-                  derived ones the wider disjunctions}
+                  derived ones the wider disjunctions
+     :narrowing   an optional second reader (below), nil for a calculus that has none}
 
   Everything else — the reader, the two caches, the four goal shapes, the cost and
   completeness declarations — follows from those three.  `vaelii.impl.space`,
   `vaelii.impl.orientation` and `vaelii.impl.interval` each define an algebra and a
   vocabulary and call `calculus`; a fourth would be the same.
+
+  **A narrowing is a second reader of the same network.**  Stored facts of the calculus
+  are one source of constraint on a pair, and they need not be the only one: the interval
+  algebra takes a second from `vaelii.impl.stp`, where a metric bound between two
+  intervals' endpoints rules Allen relations out that no stored fact mentions.  A
+  narrowing answers `{:net … :support …}` in exactly the shape `build-network`
+  accumulates, so folding it in is one intersection per pair and one support union — and
+  everything downstream (the pass, the entailment reading, the support, the delta join) is
+  unchanged, because what it consumes is still one network value.  Sound for the same
+  reason intersecting two stored facts is: a narrowing only ever removes relations the
+  constraints it read exclude, and a pair it leaves at the universe it does not record.
 
   Both polarities are read and both are answered.  A believed `(not (P a b))` narrows the
   pair by the **complement** of P's denotation, and a goal `(not (P a b))` is answered by
@@ -53,10 +65,12 @@
             [taoensso.trove :as trove]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn :as qcn]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]))
@@ -74,29 +88,47 @@
   `denotation` maps each stored predicate to the set of base relations it denotes, so its
   keys are the predicates the prover claims.
 
+  `narrowing` is the optional second reader — nil for a calculus that has none:
+
+    {:fn        (fn [kb context] → {:net … :support …} | nil)
+     :sources   every predicate whose arrival or departure moves what it answers
+     :contexts  the subset that puts a NODE in the network, so names a reader context}
+
+  The two predicate sets differ, and deliberately.  A `conversionFactor` moves what a
+  metric bound comes to and so must re-check the rules concerned, but a context holding
+  one and nothing else has an *empty* interval network, and enumerating it as a reader
+  would cost a network build per goal to entail nothing.  Both are folded once here rather
+  than per call: `calculus-triggered-by` runs per asserted sentence, and computing a union
+  there would allocate a set per assert.
+
   The value carries the two caches its passes fill, so it is also registered in
   `built-calculi` on the way out — that is how a reader can be told what they hold
   without every calculus namespace having to say so itself."
-  [nm algebra denotation]
-  (let [c {:name       nm
-           ;; the algebra is carried exactly as written — a plain value a test can reason
-           ;; about.  `qcn` compiles it to bitmasks on first use and caches that by the
-           ;; algebra itself, so composition is a table read without the calculus
-           ;; arranging for anything.
-           :algebra    algebra
-           :denotation denotation
-           :predicates (set (keys denotation))
-           :pc-cache   (atom {})
-           ;; a **separate** cache for the support-carrying pass, keyed on the same
-           ;; network value.  Not a second field of one entry: `tighten` is on every
-           ;; query's hot path and support is asked for rarely, so sharing an entry would
-           ;; make every query pay to propagate support nobody reads.  Two caches, each
-           ;; filled only when its own question is asked, and both sound for the same
-           ;; reason — the network is derived from the believed facts, so any change to
-           ;; them is a different key.
-           :support-cache (atom {})}]
-    (swap! built-calculi assoc nm c)
-    c))
+  ([nm algebra denotation] (calculus nm algebra denotation nil))
+  ([nm algebra denotation narrowing]
+   (let [answered (set (keys denotation))
+         c {:name       nm
+            ;; the algebra is carried exactly as written — a plain value a test can reason
+            ;; about.  `qcn` compiles it to bitmasks on first use and caches that by the
+            ;; algebra itself, so composition is a table read without the calculus
+            ;; arranging for anything.
+            :algebra    algebra
+            :denotation denotation
+            :predicates answered
+            :narrowing  narrowing
+            :trigger-predicates (into answered (:sources narrowing))
+            :context-predicates (into answered (:contexts narrowing))
+            :pc-cache   (atom {})
+            ;; a **separate** cache for the support-carrying pass, keyed on the same
+            ;; network value.  Not a second field of one entry: `tighten` is on every
+            ;; query's hot path and support is asked for rarely, so sharing an entry would
+            ;; make every query pay to propagate support nobody reads.  Two caches, each
+            ;; filled only when its own question is asked, and both sound for the same
+            ;; reason — the network is derived from the believed facts, so any change to
+            ;; them is a different key.
+            :support-cache (atom {})}]
+     (swap! built-calculi assoc nm c)
+     c)))
 
 ;; ---- reading the KB into a network --------------------------------------
 
@@ -150,7 +182,7 @@
         retired? (if (and merged? (symbol? context) (not (pvar? context)))
                    #(res/retired-for? kb visible merged? (:sentence %))
                    (constantly false))]
-    (->> (p/sentexes-with-functor ix pred)
+    (->> (reads/as-stored-with-functor ix pred)
          (keep (fn [h]
                  (when (jtms/in? (:tms kb) h)
                    (let [s (p/get-sentex (:records kb) h)
@@ -179,31 +211,58 @@
       (update [a b] (fnil conj #{}) handle)
       (update [b a] (fnil conj #{}) handle)))
 
+(defn- absorb-narrowing
+  "Fold a narrowing's `{:net … :support …}` into the one read from stored facts: intersect
+  each pair's constraint, union each pair's support.  `state` unchanged when there is
+  nothing to fold.
+
+  Each direction is taken **as given** rather than mirrored through the algebra's
+  converse, which is what separates this from `narrow`.  A narrowing answers ordered
+  pairs and answers both — it reads `[i j]` and `[j i]` off the same closure — so
+  mirroring here would intersect a pair with the converse of a claim about itself."
+  [state narrowed universe]
+  (if-let [net (:net narrowed)]
+    (let [support (:support narrowed)]
+      (reduce-kv (fn [st pair rels]
+                   (-> st
+                       (update-in [:net pair] (fnil set/intersection universe) rels)
+                       (update-in [:support pair] (fnil into #{}) (get support pair #{}))))
+                 state net))
+    state))
+
 (defn- build-network
   "The read itself: `{:net <network> :support <{[a b] → #{handle}}>}`.  Support is
   collected on the way past rather than on demand — the reader is already holding the
-  handle it matched, and finding it again later would mean a second read."
-  [kb {:keys [algebra denotation predicates]} context]
+  handle it matched, and finding it again later would mean a second read.
+
+  The calculus's own predicates first, then the **narrowing** if it has one, which is the
+  order intersection makes irrelevant: it is commutative and associative, so a network is
+  a function of what both readers saw and never of which ran first."
+  [kb {:keys [algebra denotation predicates narrowing]} context]
   (let [universe (:universe algebra)
         converse (:converse algebra)
         absorb   (fn [state rels [h a b]]
                    (-> state
                        (update :net narrow universe converse rels a b)
-                       (update :support support-pair h a b)))]
-    (reduce
-     (fn [state pred]
-       (let [denot     (denotation pred)
-             ;; the base relations a believed `(not (pred a b))` rules out.  These
-             ;; algebras are jointly exhaustive and pairwise disjoint, so "not P" is
-             ;; exactly "one of the relations P does not denote" — a constraint, not an
-             ;; absence.  Converse commutes with complement (it is a bijection on the
-             ;; base relations), so `narrow` writes the mirror the same way for both.
-             ruled-out (set/difference universe denot)]
-         (as-> state $
-           (reduce #(absorb %1 denot %2) $ (asserted-pairs kb pred context))
-           (reduce #(absorb %1 ruled-out %2) $ (refuted-pairs kb pred context)))))
-     {:net {} :support {}}
-     predicates)))
+                       (update :support support-pair h a b)))
+        stated
+        (reduce
+         (fn [state pred]
+           (let [denot     (denotation pred)
+                 ;; the base relations a believed `(not (pred a b))` rules out.  These
+                 ;; algebras are jointly exhaustive and pairwise disjoint, so "not P" is
+                 ;; exactly "one of the relations P does not denote" — a constraint, not an
+                 ;; absence.  Converse commutes with complement (it is a bijection on the
+                 ;; base relations), so `narrow` writes the mirror the same way for both.
+                 ruled-out (set/difference universe denot)]
+             (as-> state $
+               (reduce #(absorb %1 denot %2) $ (asserted-pairs kb pred context))
+               (reduce #(absorb %1 ruled-out %2) $ (refuted-pairs kb pred context)))))
+         {:net {} :support {}}
+         predicates)]
+    (if-let [f (:fn narrowing)]
+      (absorb-narrowing stated (f kb context) universe)
+      stated)))
 
 (defn- read-network
   "The **resident** read: `{:net … :support …}` for `calc` visible from `context`, built
@@ -269,8 +328,10 @@
 
 (defn reader-contexts
   "Every context worth reading a network of `calc` at: the contexts holding one of its
-  facts, and the contexts where two or more of those meet (`tax/meet-closure`, which a
-  calculus whose facts all sit in one context closes without reading a closure).
+  facts — or one of its narrowing's node-bearing facts, since a pair the metric layer
+  pins down is as much a constraint as a stored one — and the contexts where two or more
+  of those meet (`tax/meet-closure`, which a calculus whose facts all sit in one context
+  closes without reading a closure).
 
   The contexts are read from the store rather than from belief, which over-approximates
   in the safe direction: a context whose only fact of this calculus is defeated is
@@ -288,9 +349,9 @@
    (:qcn kb) [(:name calc) ::readers]
    (fn [_stale]
      (let [held (into #{}
-                      (comp (mapcat (fn [pred] (p/sentexes-with-functor (:index kb) pred)))
+                      (comp (mapcat (fn [pred] (reads/as-stored-with-functor (:index kb) pred)))
                             (keep (fn [h] (:context (p/get-sentex (:records kb) h)))))
-                      (:predicates calc))]
+                      (:context-predicates calc))]
        (tax/meet-closure (:taxonomy kb) held)))))
 
 ;; ---- the path-consistency pass, memoized on the network value -----------
@@ -332,8 +393,10 @@
                                                    " network visible from " context
                                                    " is unsatisfiable, so no goal of that"
                                                    " calculus is answered there")
-                                     :nodes (vec (sort-by str (nodes net)))}
-                              (seq bad) (assoc :pairs (vec (sort-by str bad))))}]
+                                     ;; a node may be a NAT and a pair always is a vector,
+                                     ;; so both are keyed through the guarded printer
+                                     :nodes (nm/by-print-key (nodes net))}
+                              (seq bad) (assoc :pairs (nm/by-print-key bad)))}]
       (trove/log! {:level :warn :id ::qualitative-inconsistency :data entry})
       (swap! v (fn [entries]
                  (let [e' (conj entries entry) n (count e')]
@@ -692,7 +755,7 @@
   ;; an estimate must not cost what it estimates.
   (est-bindings [_ kb goal _]
     (let [[_ a b] (claimed-literal calculus goal)
-          n (max 1 (reduce + (map #(p/count-with-functor (:index kb) %)
+          n (max 1 (reduce + (map #(reads/stored-count-with-functor (:index kb) %)
                                   (:predicates calculus))))]
       (cond (and (pvar? a) (pvar? b)) (* n n)
             (or (pvar? a) (pvar? b))  n
@@ -729,7 +792,8 @@
 
 (defn prover-for?
   "Is `pr` the prover of the calculus named `nm`?  How a caller asks which calculus a
-  registered prover speaks for, now that they share one record type."
+  registered prover speaks for: the calculi share one record type, so a class test says
+  only that some calculus is registered."
   [nm pr]
   (and (instance? CalculusProver pr) (= nm (:name (:calculus pr)))))
 
@@ -740,25 +804,70 @@
 ;; stored facts it rests on, and those are what the justification lists.  These three
 ;; are the seam chaining reaches through; the wiring itself is `vaelii.impl.chain`.
 
+(def ^:private registry-calculi
+  "`registered-calculi`'s last answer as `[registry answer]`, held against the prover
+  vector's IDENTITY.
+
+  Registration is opt-in and happens at setup, so the answer is constant for the life of
+  a registry value, while the callers are the engine's hottest paths — `calculus-for` is
+  asked per asserted sentence (`special/recheck-on-qualitative`) and per antecedent
+  literal (`chain/qualitative-antecedent`).  Unmemoized, a KB that registered nothing
+  still paid an `instance?` per prover in the default registry of 18, plus a fresh
+  vector, to be told nil again; at a 10M-fact bulk load that is the same nil computed
+  10M times.
+
+  **One entry, and identity rather than value.**  Every KB opens on the same
+  `provers/default-provers` vector, so a single entry answers every KB that registered
+  nothing *and* every stretch of writing on one that did — which is the whole of what is
+  being saved.  A map keyed on the registry would instead hold every vector it ever saw
+  alive for the process's life, one more per `add-prover`, and hashing such a key walks
+  the vector, which is the cost being removed.  A `swap!` on the registry produces a new
+  value, so it simply misses and recomputes.  Last write wins and the pair is written as
+  one value, so a lost race costs a recomputation and cannot answer wrongly."
+  (volatile! nil))
+
 (defn registered-calculi
   "The calculi whose prover is registered on `kb`.  Registration is the opt-in: with no
   prover, a calculus's facts are ordinary facts, matched and chained like any other.
 
-  Rebuilt per call, and the empty answer is a scan rather than an absence — an
-  `instance?` test per prover in the registry plus a fresh vector.  `calculus-for` is
-  the only caller and the paths that ask it (`chain/qualitative-antecedent` per
-  antecedent literal, `special/recheck-on-qualitative` per asserted sentence) each say
-  what that costs them."
+  Memoized against the registry's identity (`registry-calculi`); a miss is a scan rather
+  than an absence — an `instance?` test per prover in the registry plus a fresh vector.
+  `calculus-for` is the only caller and the paths that ask it
+  (`chain/qualitative-antecedent` per antecedent literal,
+  `special/recheck-on-qualitative` per asserted sentence) each say what a miss costs
+  them."
   [kb]
-  (into []
-        (comp (filter #(instance? CalculusProver %)) (map :calculus))
-        (some-> (:provers kb) deref)))
+  (if-let [pv (some-> (:provers kb) deref)]
+    (let [[reg answer] @registry-calculi]
+      (if (identical? pv reg)
+        answer
+        (let [v (into [] (comp (filter #(instance? CalculusProver %)) (map :calculus)) pv)]
+          (vreset! registry-calculi [pv v])
+          v)))
+    []))
 
 (defn calculus-for
   "The registered calculus claiming `pred`, or nil.  Predicates belong to exactly one
-  calculus, so the first hit is the only hit."
+  calculus, so the first hit is the only hit.
+
+  What a calculus *answers*, which is what a rule antecedent is discharged by
+  (`chain/qualitative-antecedent`).  A predicate that merely moves the network is
+  `calculus-triggered-by`'s question, and answering it here would have the join try to
+  discharge a `temporalDistance` antecedent off the interval algebra."
   [kb pred]
   (first (filter #(contains? (:predicates %) pred) (registered-calculi kb))))
+
+(defn calculus-triggered-by
+  "The registered calculus whose network `pred` moves, or nil — every predicate
+  `calculus-for` matches, plus the ones a narrowing reads.  The re-check and re-join
+  triggers ask this, because what has to be put in front of a settle is a rule joining on
+  a relation the network entails, and a metric constraint moves that network without being
+  a predicate any such rule mentions.
+
+  The set is folded into the calculus at construction (`calculus`), so this costs the same
+  membership test `calculus-for` does — it is asked per asserted sentence."
+  [kb pred]
+  (first (filter #(contains? (:trigger-predicates %) pred) (registered-calculi kb))))
 
 (defn solve-with-support
   "Entailed solutions for `goal` in `context`, each paired with the handles it rests on —
@@ -777,7 +886,12 @@
 
   `pairs` narrows the enumeration to those pairs (`solve-goal`), which is what a re-join
   over a delta passes.  It costs nothing here: a pair with no support was never going to
-  be answered, and a pair whose support is what changed is in the delta by construction."
+  be answered, and a pair whose support is what changed is in the delta by construction.
+
+  `goal` is a **positive** literal `(P a b)`, where `solve-goal` takes either polarity.
+  That is the seam's shape rather than a shortcut: what a *refutation* rests on is the
+  whole network rather than a support list, so a negated antecedent is not answered by
+  entailment at all and `chain/qualitative-antecedent` claims only the positive shape."
   ([calc kb goal context] (solve-with-support calc kb goal context nil))
   ([calc kb goal context pairs]
    (let [[_ a b] goal]

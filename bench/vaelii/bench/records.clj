@@ -239,7 +239,7 @@
     (let [t0  (System/nanoTime)
           ids (mapv (fn [r] (p/put-sentex store (assoc r :id nil))) recs)
           ld  (/ (- (System/nanoTime) t0) 1e6)]
-      (drs/fsync store true)
+      (drs/fsync store)
       [store dir (vec ids) ld])))
 
 (defn- ms [^long t0] (/ (- (System/nanoTime) t0) 1e6))
@@ -343,7 +343,7 @@
         t0    (System/nanoTime)
         ids   (mapv (fn [r] (p/put-sentex store (assoc r :id nil))) recs)
         load  (ms t0)
-        _     (drs/fsync store true)
+        _     (drs/fsync store)
         log-b (files/log-length (:log (:sentexes (:kinds store))))
         dic-b (files/log-length (:log (:dict store)))
         n     (count recs)

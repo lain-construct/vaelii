@@ -7,7 +7,7 @@
    emitted program — sentex or contradiction marker — needs a unique id.
    Atom 0 is reserved as the ASPIF terminator and is never allocated.
 
-   The table maps three kinds of source values to atom ids, sharing a
+   The table maps two kinds of source value to atom ids, sharing a
    single counter so ids are unique across kinds:
 
      (1) sentex ids — the :id field of a vaelii sentex record. These
@@ -23,11 +23,11 @@
          contradiction descriptors get weight in the minimize statement;
          the solver avoids models in which they are true.
 
-     (3) aux descriptors — auxiliary atoms used by translators (e.g. the
-         `count ≥ N` heads of cardinality weight rules). They are
-         distinct from contradictions: the minimize statement does not
-         weight them, and clasp witnesses ignore them when reconstructing
-         contradictions for callers.
+   Two kinds because two are what the translator emits: every atom in a
+   program stands for a contested assumption or for a violation. A third
+   namespace for translator scratch would be an interning path nothing
+   calls, which is the same unverified machinery `aspif` keeps out of the
+   emitter.
 
    Labels are short string identifiers that appear in clasp's witness
    output; we read them back during result parsing to recover the
@@ -35,7 +35,6 @@
 
      s<sentex-id>   — sentex-backed atoms
      c<atom-id>     — contradiction-backed atoms
-     a<atom-id>     — aux-backed atoms
 
    Using `s`/`c` prefixes keeps the two namespaces distinct even if a
    sentex id happens to numerically match a contradiction atom id.
@@ -53,8 +52,6 @@
     :atom->sentex        {}   ; reverse
     :contradiction->atom {}   ; descriptor → atom id
     :atom->contradiction {}   ; reverse
-    :aux->atom           {}   ; aux descriptor → atom id
-    :atom->aux           {}   ; reverse
     :atom->label         {}   ; atom id → label string
     :label->atom         {}}))
 
@@ -98,15 +95,6 @@
   [table descriptor]
   (intern! table :contradiction->atom :atom->contradiction descriptor
            (fn [_ atom-id] (str "c" atom-id))))
-
-(defn intern-aux!
-  "Ensure `descriptor` has an atom id, allocated in the aux namespace
-   (distinct from contradictions — aux atoms are translator scratch
-   space and do not appear in the minimize statement). `descriptor`
-   must be an equality-comparable Clojure value."
-  [table descriptor]
-  (intern! table :aux->atom :atom->aux descriptor
-           (fn [_ atom-id] (str "a" atom-id))))
 
 (defn atom-of-sentex
   "Atom id for `sentex-id`, or nil if not yet interned."

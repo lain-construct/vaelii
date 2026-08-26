@@ -10,8 +10,8 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.koinii.speech-acts :as sa]
             [vaelii.impl.sentex :as sx]
+            [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu]))
 
 (defn- speech-acts-kb
@@ -156,3 +156,48 @@
       (is (nil? (v/sentex kb qh)))
       (is (some? (v/sentex kb nh)) "notUnderstood survives — a parse failure is a fact about the exchange")
       (is (some? (v/sentex kb rh))))))
+
+;; ---- ballots are response acts too: marked, and swept with their claim ----
+
+(tu/deftest-kb ballots-cascade-with-the-claim-they-were-cast-on
+  ;; `votesFor` / `votesAgainst` are response acts like `endorses`, so they carry the same
+  ;; family — `targetFollowingPredicate` above all.  Undeclared, a ballot outlives the
+  ;; claim it was cast on: the disputed claim is retracted and the count stands over
+  ;; nothing, which is exactly what the mark exists to prevent.
+  (let [ctxs (into {} (for [a '[AgentAtlas AgentBoreas AgentCiel]]
+                        [a (sa/speaker-context kb 'CxDeploy a)]))]
+    (testing "both ballot predicates carry the mark, as the four reply verbs do"
+      (is (v/has-prop? kb :target-following 'votesFor))
+      (is (v/has-prop? kb :target-following 'votesAgainst)))
+    (doseq [order ['[AgentBoreas AgentCiel] '[AgentCiel AgentBoreas]]]
+      (let [[voter-1 voter-2] order
+            ph   (sa/assert-claim kb 'AgentAtlas '(usesDatabase ProdCluster PostgreSQL14))
+            cast (fn [agent pred]
+                   (v/assert kb (list pred agent (sx/sentex-handle ph)) (ctxs agent)
+                             {:creator agent}))
+            for-h     (cast voter-1 'votesFor)
+            against-h (cast voter-2 'votesAgainst)
+            who  (str " (" voter-1 " voted first)")]
+        (is (some? (v/sentex kb for-h)) (str "the for-ballot is stored" who))
+        (is (some? (v/sentex kb against-h)) (str "and the against-ballot" who))
+        (sa/retract-move kb ph)
+        (is (nil? (v/sentex kb ph)) (str "the disputed claim is gone" who))
+        (testing "and the ballots on it went with it, in either casting order"
+          (is (nil? (v/sentex kb for-h)) (str "the for-ballot was withdrawn" who))
+          (is (nil? (v/sentex kb against-h)) (str "and the against-ballot" who)))))))
+
+;; ---- a response act on a handle that names nothing is refused ------------
+
+(tu/deftest-kb dispute-refuses-a-handle-that-names-no-record
+  ;; `dispute` builds its rebuttal from the target's own sentence, so a handle naming
+  ;; nothing reads `nil` off `sentex` and stores the literal `(not nil)` plus a `disputes`
+  ;; edge on nothing — a challenge to a claim that does not exist, indistinguishable in
+  ;; the KB from one that does.  Refused by type, as `deref/marker` refuses one.
+  (sa/speaker-context kb 'CxDeploy 'AgentBoreas)
+  (let [absent (+ 1000000 (count (v/handles kb)))
+        e (is (thrown? clojure.lang.ExceptionInfo (sa/dispute kb 'AgentBoreas absent)))]
+    (is (= :koinii/no-such-handle (:type (ex-data e))))
+    (is (= absent (:handle (ex-data e))))
+    (testing "and nothing was written on the way to the refusal"
+      (is (empty? (v/sentexes-matching kb '(not ?s) 'CxBoreas)))
+      (is (empty? (v/sentexes-matching kb (list 'disputes 'AgentBoreas '?t) 'CxBoreas))))))

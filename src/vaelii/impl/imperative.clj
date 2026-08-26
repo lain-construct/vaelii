@@ -23,7 +23,9 @@
                'do/classify 'vaelii.impl.asp.solve-context/classify}]
     (if-let [sym (known functor)]
       (or (requiring-resolve sym)
-          (throw (ex-info (str "imperative " functor " is unavailable in this build")
+          (throw (ex-info (str "imperative " functor " is unavailable in this build — it"
+                               " is backed by " sym ", and that namespace is not on the"
+                               " classpath")
                           {:type :not-assertible :form functor :wanted sym})))
       (throw (ex-info (str "unknown imperative " functor
                            "; known: " (str/join ", " (sort (map str (keys known)))))
@@ -51,18 +53,23 @@
       do/labeling (let [[ctx base] args]
                     (when-not (and (ctx-arg? ctx) (or (nil? base) (symbol? base))
                                    (<= (count args) 2))
-                      (throw (ex-info "(do/labeling Ctx [Base]) wants context names"
+                      (throw (ex-info (str "(do/labeling Ctx [Base]) wants one or two"
+                                           " context names, got " (pr-str (vec args)))
                                       {:type :not-assertible :sentence sentence})))
                     (f kb ctx (or base context)))
       do/label    (let [[base into-cx mode] args]
                     (when-not (and (ctx-arg? base) (ctx-arg? into-cx)
                                    (or (= 2 (count args))
                                        (and (= 3 (count args)) (#{:one :sat :all} mode))))
-                      (throw (ex-info "(do/label Base Into [:one|:sat|:all]) wants two context names and an optional mode"
+                      (throw (ex-info (str "(do/label Base Into [:one|:sat|:all]) wants"
+                                           " two context names and an optional mode of"
+                                           " :one, :sat or :all, got "
+                                           (pr-str (vec args)))
                                       {:type :not-assertible :sentence sentence})))
                     (f kb base into-cx (or mode :all)))
       do/classify (let [[into-cx] args]
                     (when-not (and (ctx-arg? into-cx) (= 1 (count args)))
-                      (throw (ex-info "(do/classify Into) wants one context name"
+                      (throw (ex-info (str "(do/classify Into) wants one context name,"
+                                           " got " (pr-str (vec args)))
                                       {:type :not-assertible :sentence sentence})))
                     (f kb into-cx)))))

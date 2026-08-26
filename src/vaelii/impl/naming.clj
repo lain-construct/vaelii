@@ -52,9 +52,9 @@
   "A lexeme: `lex/fool's_gold`.  Parse input, and the only role whose text this makes no
   claim about — what a person typed is not ours to spell.
 
-  Every other namespace stays invisible to the role checks, exactly as before: `nm` reads
-  the name half, so `agg/count` and `set/forwardRule` are the predicates they always
-  were.  `lex` is the one namespace that decides a role."
+  Every other namespace stays invisible to the role checks: `nm` reads the name half, so
+  `agg/count` and `set/forwardRule` are read as the predicates `count` and `forwardRule`.
+  `lex` is the one namespace that decides a role."
   [x]
   (and (symbol? x) (= lexeme-namespace (namespace x))))
 
@@ -74,6 +74,49 @@
   (and (symbol? x) (not (lexeme? x))
        (or (= context-namespace (namespace x))
            (some? (re-matches #"Cx[A-Z][A-Za-z0-9]*" (nm x))))))
+
+(def query-contexts
+  "The **query contexts**: three `Cx…` symbols naming a *reading mode* rather than a
+  place.
+
+  Cyc reifies `InferencePSC` / `EverythingPSC` as contexts you can assert into.
+  Here scope is a property of the read (docs/from-cyc.md), so these are resolved at the
+  read door and **never reach the engine** — nothing is stored in one, no `genlCx` edge
+  names one, and `core/contexts` does not list them.  Each names one of the readings the
+  engine already had and could not spell:
+
+  | symbol | belief | whose view must hold the answer |
+  |---|---|---|
+  | `CxEverything` | **ignored** | — (not a view question at all) |
+  | `CxInference` | followed | every literal in **one** view, handed back as `?ctx` |
+  | `CxNothing` | followed (vacuously) | the empty view: the provers alone |
+
+  A **variable** context (`?ctx`, the default of every short arity) is the fourth spelling
+  of the `CxInference` question.  It follows belief like the last two and reads **joint**
+  like `CxInference`: an answer holds only from some one reader's `genlCx` cone, so two
+  facts no single context sees are never joined — and that reader unifies into the
+  variable, where `CxInference` hands it back as `?ctx` beside the bindings
+  (docs/contexts.md).
+
+  These are **two axes and not a ladder**.  `CxEverything` alone stops following belief,
+  which makes it a different kind of question — its answers are not belief claims — while
+  `?ctx`, `CxInference` and an ordinary context all ask what the KB holds and differ only in
+  whose view has to hold it.  A reader who takes the roster for an ordered list concludes
+  that `?ctx` is a near neighbour of `CxEverything`, and it is not.
+
+  Spelled `Cx…` because they stand where a context stands, and deliberately left **in**
+  `context?`, which is spelling alone and stays that way: a role-read asking what a symbol
+  looks like must not have to know this roster.  What refuses them is the write side,
+  where the difference between a place and a reading is an invariant rather than a naming
+  policy — `core/assert`'s context slot, and the `genlCx` argument slots at
+  `vaelii.impl.wff`."
+  '#{CxEverything CxInference CxNothing})
+
+(defn query-context?
+  "Is `x` a query context — a reading mode wearing a context's spelling?  See
+  `query-contexts` for the roster and what each one reads."
+  [x]
+  (contains? query-contexts x))
 
 (defn individual? [x] (and (symbol? x) (not (lexeme? x))
                            (some? (re-matches #"[A-Z][A-Za-z0-9]*" (nm x)))
@@ -138,6 +181,29 @@
 ;; and dropping the tie back onto arrival order, the very dependence a content order
 ;; exists to remove.  Those sites bind the print vars off; `compare-form` never prints.
 
+(defn print-key
+  "`x` printed as a content key: `pr-str` with the print bounds released.
+
+  **The one home for a printed ordering key.**  `compare-form` is the cheaper answer
+  and the one to reach for first, but a few keys are printed on purpose — a
+  `Comparable` String whose lexicographic order is the contract, or a tuple mixing a
+  form with a rank.  Every one of them owes this guard, and the reason is the paragraph
+  above: an ambient `*print-length*` / `*print-level*` — a REPL's, typically — elides two
+  long sentences to one prefix, the key collapses, and the tie falls back to the
+  enumeration order the content key exists to keep out.  A short sentence is not safe
+  either: `*print-length*` 3 prints `(arg parentOf 1 person)` and `(arg parentOf 1 animal)`
+  as the same string.
+
+  `*print-meta*` is bound off with them, so a form carrying metadata keys the same as one
+  that does not — the metadata is no part of what a sentence says.
+
+  One binding frame per call, which is why a caller ordering a large collection binds
+  once around the whole sort instead and prints inside it.  `sort_by_content_key_test`
+  scans the sources for a printed key that reaches neither this fn nor such a frame."
+  ^String [x]
+  (binding [*print-length* nil *print-level* nil *print-meta* false]
+    (pr-str x)))
+
 (defn- form-rank
   "A total order on the *kinds* of thing a sentence is built from, so `compare-form`
   never throws on a mixed pair — which `clojure.core/compare` does across types — and
@@ -166,7 +232,13 @@
   `form-rank`; same-kind scalars by the natural `compare` (symbols by ns then name,
   numbers numerically, and so on); two sequentials element by element, then shorter
   first — so `(a)` precedes `(a b)`.  The last-resort `:else` is unreachable for
-  well-formed sentence content and totalizes the order for an exotic value alone.
+  well-formed sentence content and totalizes the order for an exotic value alone — a map,
+  a set, a record.  It prints through `print-key` rather than `str`, so it totalizes
+  *honestly*: `str` on a collection honours the ambient print bounds, and two distinct
+  maps compared under a REPL's `*print-length*` come back **equal** — a comparator that
+  reports 0 for values that are not, in the one branch whose whole job is to leave no
+  pair uncompared.  One binding frame per comparison is what that costs, on the branch
+  sentence content never reaches.
 
   The order is arbitrary but stable, which is the contract a content order owes
   (docs/nmtms.md).  It is deliberately **not** the lexicographic order `pr-str` gave —
@@ -184,8 +256,28 @@
                        :else (let [c (compare-form (first xs) (first ys))]
                                (if (zero? c) (recur (next xs) (next ys)) c))))
       (= 0 ra)     0
-      (= 8 ra)     (compare (str a) (str b))
+      (= 8 ra)     (compare (print-key a) (print-key b))
       :else        (compare a b))))
+
+(defn name-key
+  "`x` as an ordering key where the value is a **scalar** — a symbol, keyword, string or
+  number.  `str` on one of those cannot collapse: the print bounds elide a *collection*
+  and never a name, so a scalar key is safe as it stands and this is `str`.
+
+  What it adds is that the scalar is a claim rather than an assumption.  `str` honours
+  the print vars exactly as `pr-str` does, so a key that turns out to be a sentence, a
+  NAT or a binding map collapses under a REPL's `*print-length*` and the tie it was
+  breaking falls back to arrival order — silently, since both readings are legal strings.
+  A collection reaching here is handed to `print-key` instead, which is the guarded
+  answer for one, so a NAT arriving where a symbol was expected is keyed safely rather
+  than wrongly.
+
+  Cheap where `print-key` is not: no binding frame, no printer, so a plain `sort-by` over
+  scalars needs no decorating.  `compare-form` is still the first thing to reach for
+  where the order may be structural; these two are for a key that must be a `Comparable`
+  String."
+  ^String [x]
+  (if (coll? x) (print-key x) (str x)))
 
 (defn sort-by-content-key
   "`coll` ordered by `(keyfn element)` under `cmp` — the decorate-sort-undecorate the
@@ -203,7 +295,9 @@
     shape `supporting-justifications` on a one-justification fact meets on every proof hop.
   * **`cmp` defaults to `compare-form`** — structural, so no String is printed to compare
     two forms.  Pass `compare` when the key is a pre-built `Comparable` tuple (a
-    `[rank …]` priority vector, or a `pr-str` whose lexicographic order is the contract).
+    `[rank …]` priority vector, or a `print-key` whose lexicographic order is the
+    contract).  This does **not** bind the print vars for you: a printed key is built by
+    the caller's `keyfn`, so `print-key` is where that guard lives.
 
   Stable: `sort-by` keeps equal-keyed elements in `coll`'s order, so a tie falls to
   arrival only after the content key has had its say — never onto a handle."
@@ -225,6 +319,18 @@
      (second
       (reduce (fn [a b] (if (neg? (long (cmp (first b) (first a)))) b a))
               (map (fn [x] [(keyfn x) x]) s))))))
+
+(defn by-print-key
+  "`coll` ordered by its elements' `print-key` — the guarded form of `(sort-by str coll)`,
+  and what a caller ordering terms, sentences or pairs wants when the printed order is
+  the contract.
+
+  `sort-by-content-key` underneath, so the key is built **once per element** rather than
+  once per comparison, which is what a printed key costs most in: `sort-by` calls its key
+  fn from inside the comparator, and `print-key` opens a binding frame per call.  `compare`
+  because a printed key's lexicographic order is the whole reason it was printed."
+  [coll]
+  (sort-by-content-key print-key compare coll))
 
 ;; ---- the literals of a sentence ------------------------------------------
 ;; A naming invariant is about a **literal** — a predicate applied to arguments.
@@ -255,7 +361,7 @@
 (def problem-classes
   "What a naming violation *is*, as a keyword, with the human line under it.  A rejection
   reads as prose, but a caller that counts them needs to group without parsing English —
-  an operator auditing a corpus wants five numbers, not eleven million sentences — so the
+  an operator auditing a corpus wants seven numbers, not eleven million sentences — so the
   class is the datum and the message is rendered from it."
   {:context-name   "the KB context named is not a context"
    :functor        "a functor matching no convention"

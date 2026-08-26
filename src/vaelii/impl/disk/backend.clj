@@ -7,7 +7,7 @@
 
   **The two halves open independently.**  A KB's records and its index are chosen on
   separate axes (`vaelii.impl.kb`), and only one of the combinations that reach here
-  wants both: `:disk` is durable records *and* a durable index, while `:disk-memory` /
+  wants both: `:disk-log` is durable records *and* a durable index, while `:disk-memory` /
   `:disk-dense` / `:disk-columnar` keep the derived index in RAM and want the record store
   alone — no index log, no index WAL, nothing written to the directory but the records.  So each
   component is opened on first use rather than as a pair, and the registry records which
@@ -68,7 +68,7 @@
   (case kind
     :records (let [rec (drs/open-record-store dir)]
                (register-or-close!
-                rec {:fsync      (fn [{:keys [fsync?]}] (drs/fsync rec fsync?))
+                rec {:fsync      (fn [_] (drs/fsync rec))
                      :close      (fn [] (drs/close! rec))
                      :compact    (fn [] (drs/compact! rec))
                      :dead-ratio (fn [] (drs/dead-ratio rec))
@@ -76,7 +76,7 @@
     :index   (let [kvb (dkv/open-kv-backend dir)]
                (register-or-close!
                 (kv/->KvIndexStore kvb)
-                {:fsync      (fn [{:keys [fsync?]}] (dkv/fsync kvb fsync?))
+                {:fsync      (fn [_] (dkv/fsync kvb))
                  :close      (fn [] (dkv/close! kvb))
                  :compact    (fn [] (dkv/compact! kvb))
                  :dead-ratio (fn [] (dkv/dead-ratio kvb))
@@ -88,7 +88,7 @@
     ;; never been forked never grows one.
     :overlay-meta (let [kvb (dkv/open-kv-backend (str dir "/overlay-meta"))]
                     (register-or-close!
-                     kvb {:fsync      (fn [{:keys [fsync?]}] (dkv/fsync kvb fsync?))
+                     kvb {:fsync      (fn [_] (dkv/fsync kvb))
                           :close      (fn [] (dkv/close! kvb))
                           :compact    (fn [] (dkv/compact! kvb))
                           :dead-ratio (fn [] (dkv/dead-ratio kvb))
@@ -133,8 +133,9 @@
   (store-for dir :records))
 
 (defn index-for
-  "The durable `IndexStore` for `dir` — the `KvIndexStore` over a write-ahead-logged
-  `DiskKvBackend`."
+  "The `:disk-log` `IndexStore` for `dir` — the `KvIndexStore` over a write-ahead-logged
+  `DiskKvBackend`, whose map is in RAM and whose log buys the restart
+  (`vaelii.impl.disk.kv`)."
   [dir]
   (store-for dir :index))
 

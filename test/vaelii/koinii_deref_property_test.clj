@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.koinii-deref-property-test
   "Generative property tests for koinii cross-seat dereference
-  (`vaelii.impl.koinii.deref`): the invariants the example-based
+  (`vaelii.koinii.deref`): the invariants the example-based
   `koinii_deref_test` pins on a handful of hand-built scenarios, restated as
   test.check properties over randomly generated assertions.
 
@@ -26,11 +26,16 @@
     *set*, so order does not move it and a superset does.
   - `commit-id-is-knowledge-and-state-root-is-snapshot` — content vs. provenance:
     same facts under different provenance share a `commit-id` but not a `state-root`.
-  - `inclusion-proofs-are-sound-and-complete` — every stored locator's proof
+  - `inclusion-proofs-are-sound-and-complete` — every believed locator's proof
     verifies against the real root and is rejected against a wrong root, a tampered
     sibling, or when the locator is absent.
+  - `the-commit-identity-is-belief-not-storage` — a stored-but-defeated record is no
+    leaf: a seat holding it and a seat that never heard of it compute one commit id,
+    one state root, and no inclusion proof for it.
   - `markers-are-untrusted` — an honest marker resolves to its asserting creator; a
-    tampered locator is `:locator-mismatch`; an unreceived sentence is `:not-received`.
+    tampered locator is `:locator-mismatch`; an unreceived sentence is `:not-received`;
+    and every way of corrupting a marker on the wire is ANSWERED `:malformed` with the
+    problem naming the part, never thrown out of the resolve path.
 
   Cleanup is load-bearing: memory seats share a process-global store keyed by
   `:space`, so every seat is opened on its OWN space (already cleared by
@@ -41,7 +46,7 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [vaelii.core :as v]
-            [vaelii.impl.koinii.deref :as d]
+            [vaelii.koinii.deref :as d]
             [vaelii.test-util :as tu]))
 
 ;;; ── seats: independent in-RAM KBs, each on its own space ──────────────────
@@ -77,7 +82,7 @@
 ;; that happens to open the same derived space.
 (def ^:private seat-tags
   [:loc-a :loc-b :inj :enc :cid-a :cid-b :split-a :split-b :split-c :split-d
-   :proof :marker])
+   :proof :marker :belief-a :belief-b])
 
 (use-fixtures :once
   (fn [f]
@@ -141,6 +146,15 @@
   (let [z (str "sha256:" (apply str (repeat 64 \0)))
         o (str "sha256:" (apply str (repeat 64 \f)))]
     (if (= root z) o z)))
+
+(defn- tamper-locator
+  "Flip one hex digit of `locator`'s digest body, leaving the `\"sha256:\"` tag intact — so
+  the result is still a WELL-FORMED locator, just not the one the seat computes, and it is
+  the rehash that rejects it (`:locator-mismatch`).  Mangling the tag instead would make it
+  no locator at all, which the resolvers refuse earlier and differently (`:malformed`)."
+  [locator]
+  (let [body (subs locator (count "sha256:"))]
+    (str "sha256:" (if (= \0 (first body)) \1 \0) (subs body 1))))
 
 (defn- tamper-first-sibling
   "Flip one hex digit of the first sibling hash in a non-empty audit path, so the
@@ -292,10 +306,27 @@
 
 (def ^:private marker-creator 'AgentZeta)
 
+(def ^:private gen-corruption
+  "One way a marker can arrive corrupted over the transport, as a `[corrupt expected]`
+  pair: the mutation, and the `:problem` `dereference` must name for it.  Every one of
+  these is answered — the property fails by THROWING if any reaches the engine unchecked,
+  which is what a peer sending a malformed sentence would otherwise do to the seat."
+  (gen/elements
+   [[#(assoc % :sentence [1 2])       :shape]                ; a vector the engine will not read
+    [#(assoc % :sentence '(or (p A) (q B))) :shape]          ; a disjunctive goal
+    [#(assoc % :context 'CxInference) :unsupported-context]  ; names no stored sentex
+    [#(assoc % :locator "sha256:aa")  :locator]              ; not 64 hex
+    [#(assoc % :locator 42)           :locator]              ; not even a string
+    [#(dissoc % :sentence)            :no-sentence]
+    [#(dissoc % :context)             :no-context]
+    [(constantly "not-a-marker")      :not-a-map]
+    [(constantly nil)                 :not-a-map]]))
+
 (defspec markers-are-untrusted 80
-  (prop/for-all [pairs  gen-distinct-pairs
-                 idx    gen/nat
-                 absent gen-fact+ctx]
+  (prop/for-all [pairs      gen-distinct-pairs
+                 idx        gen/nat
+                 absent     gen-fact+ctx
+                 corruption gen-corruption]
                 (with-seat :marker
                   (fn [seat]
                     (doseq [[f c] pairs] (v/assert seat f c {:creator marker-creator}))
@@ -303,17 +334,58 @@
                           h        (v/handle-of seat f c)
                           mk       (d/marker seat h)
                           honest   (d/dereference seat mk)
-                          ;; reverse the whole locator string (prefix included): stored, but the
+                          ;; a well-formed locator with one digit flipped: stored, but the
                           ;; marker's locator no longer matches what the KB recomputes
-                          tampered (d/dereference seat (assoc mk :locator (apply str (reverse (:locator mk)))))
+                          tampered (d/dereference seat (assoc mk :locator (tamper-locator (:locator mk))))
+                          [corrupt expected] corruption
+                          garbled  (d/dereference seat (corrupt mk))
                           [af ac]  absent]
                       (and (:resolved? honest)
                            (= marker-creator (:seat honest))
                            (false? (:resolved? tampered))
                            (= :locator-mismatch (:reason tampered))
+                           ;; a corrupted marker is answered, with the part named — and a
+                           ;; refusal is never confused with an absence
+                           (false? (:resolved? garbled))
+                           (= :malformed (:reason garbled))
+                           (= expected (:problem garbled))
                            ;; a sentence the seat never received ⇒ :not-received (guard: the
                            ;; "absent" pair may actually be stored)
                            (if (nil? (v/handle-of seat af ac))
-                             (= :not-received
-                                (:reason (d/dereference seat (assoc mk :sentence af :context ac))))
+                             (let [r (d/dereference seat (assoc mk :sentence af :context ac))]
+                               (and (= :not-received (:reason r)) (nil? (:problem r))))
                              true)))))))
+
+;;; ── 8. the commit identity is belief, not storage ────────────────────────
+;;; Seat A stores a defeated default for every generated fact; seat B never heard of one.
+;;; Same belief, different stores — so the same commit id, the same state root, and no
+;;; inclusion proof for a leaf that is not in the tree.
+
+(defspec the-commit-identity-is-belief-not-storage 40
+  (prop/for-all [pairs gen-distinct-pairs]
+                (with-two-seats :belief-a :belief-b
+                  (fn [a b]
+                    ;; identical provenance on the believed half, so `state-root` compares
+                    (binding [v/*clock* (constantly 1000)]
+                      (doseq [seat [a b] [f c] pairs]
+                        (v/assert seat (list 'not f) c {:strength :monotonic
+                                                        :creator 'AgentA})))
+                    (let [cid  (d/commit-id a)
+                          root (d/state-root a)
+                          ;; each positive is beaten by the monotonic negative beside it
+                          defeated (doall (for [[f c] pairs]
+                                            (v/assert a f c {:creator 'AgentB})))]
+                      (and (every? #(and (some? (v/sentex a %)) (false? (v/in? a %))) defeated)
+                           (= cid (d/commit-id a))                 ; the store grew, belief did not
+                           (= root (d/state-root a))
+                           (= (d/commit-id a) (d/commit-id b))     ; and the seats still agree
+                           (= (d/state-root a) (d/state-root b))
+                           (every? #(nil? (d/inclusion-proof a (d/locator-of a %))) defeated)
+                           ;; the resolvers read the same set the proof does: whatever has
+                           ;; no leaf resolves nowhere, by locator or by marker
+                           (every? (fn [h]
+                                     (let [loc (d/locator-of a h)]
+                                       (= (some? (d/inclusion-proof a loc))
+                                          (boolean (:resolved? (d/resolve-by-locator a loc)))
+                                          (boolean (:resolved? (d/dereference a (d/marker a h)))))))
+                                   (concat defeated (filter #(v/in? a %) (v/handles a))))))))))

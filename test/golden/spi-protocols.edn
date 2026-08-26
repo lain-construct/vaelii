@@ -2,7 +2,11 @@
 ;; compiles against. One entry per protocol a doc names as a seam.
 ;; Regenerate: `lein regen-goldens`, and read vaelii.spi-surface-test's
 ;; docstring first — adding a method here is breaking too.
-{vaelii.impl.kv/KvBackend
+{vaelii.impl.io.snapshot/SnapshotSink
+ {commit! "[[sink manifest]]", write-section! "[[sink name frames]]"},
+ vaelii.impl.io.snapshot/SnapshotSource
+ {read-manifest "[[source]]", read-section "[[source name]]"},
+ vaelii.impl.kv/KvBackend
  {kv-add-to-set "[[b k member]]",
   kv-batch "[[b ops]]",
   kv-clear! "[[b]]",
@@ -21,6 +25,12 @@
  vaelii.impl.llm.protocol/Provider
  {complete "[[provider request]]",
   stream "[[provider request on-event]]"},
+ vaelii.impl.protocols/BulkAnnotating
+ {mark-premise-batch "[[store id->strength]]",
+  put-provenance-batch "[[store entries]]"},
+ vaelii.impl.protocols/BulkLoading
+ {open-justification-sink "[[store opts]]",
+  open-sentex-sink "[[store opts]]"},
  vaelii.impl.protocols/IndexStore
  {children "[[store prefix]]",
   clear-index! "[[store]]",
@@ -52,6 +62,10 @@
   unindex-exception! "[[store handle preds]]",
   unindex-rule! "[[store handle ante-preds conseq-pred]]",
   unindex-sentex! "[[store sentex handle]]"},
+ vaelii.impl.protocols/Prefetching
+ {prefetch-justifications! "[[store ids]]",
+  prefetch-sentexes! "[[store ids]]"},
+ vaelii.impl.protocols/RecordSink {write-record! "[[sink rec]]"},
  vaelii.impl.protocols/RecordStore
  {clear-records! "[[store]]",
   delete-justification! "[[store id]]",
@@ -70,10 +84,20 @@
   put-sentex "[[store sentex]]",
   sentex-ids "[[store]]",
   unmark-premise! "[[store id]]"},
+ vaelii.impl.protocols/Tallying
+ {a-justification-id "[[store]]",
+  a-premise-id "[[store]]",
+  a-sentex-id "[[store]]",
+  justification-tally "[[store]]",
+  sentex-tally "[[store]]"},
  vaelii.impl.provers/Prover
  {applicable? "[[prover kb goal context]]",
   completeness "[[prover kb goal context]]",
   cost "[[prover kb goal context]]",
   est-bindings "[[prover kb goal context]]",
   solve "[[prover kb goal context]]"},
+ vaelii.impl.provers/SupportingProver
+ {solve-with-support "[[prover kb goal context]]",
+  support-functors "[[prover]]",
+  support-sources "[[prover]]"},
  vaelii.impl.solve/Solver {solve "[[solver program]]"}}

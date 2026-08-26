@@ -1,6 +1,6 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
-(ns vaelii.impl.koinii.deref
+(ns vaelii.koinii.deref
   "Koinii cross-seat dereference: the DISTRIBUTED topology, where
   independent *seats* — separate processes, each holding its own copy of the KB — stay
   in sync by **content-addressed commits** rather than by sharing one live daemon.  A
@@ -46,17 +46,19 @@
         a symbol never digests as the like-spelled string and `(a b)` never as `(a (b))`.
     Two seats holding the same assertion compute the **same** locator, because `v/import!`
     re-canonicalizes every record through the reading build's own constructor.
-  - **The commit is a Merkle function of state.**  `commit-id` is the RFC-6962-style
+  - **The commit is a Merkle function of belief.**  `commit-id` is the RFC-6962-style
     **Merkle root** over the seat's *sorted* per-sentex leaf digests — leaf hashing
     domain-separated with a `0x00` byte and internal-node hashing with `0x01`, so a leaf
-    can never be forged as an internal node — prefixed `\"sha256:\"`.  Order- and
-    handle-independent by construction, so two seats that reached the same set of
-    assertions by different routes compute the same commit id (belief and storage are
+    can never be forged as an internal node — prefixed `\"sha256:\"`.  The leaves are the
+    records the seat **believes**, not everything it stores: a defeated default is retained
+    on purpose and is no part of what the seat holds, so two seats that agree on every
+    belief compute one id however differently their stores were built.  Order- and
+    handle-independent by construction, so two seats that reached the same beliefs
+    by different routes compute the same commit id (belief and storage are
     order-independent — `docs/nmtms.md`), and a KB exported, pulled and recovered on
-    another seat carries the id across.  The Merkle shape (over the old flat re-hash) buys
-    pure auditability: `inclusion-proof` yields an audit path and `verify-inclusion`
-    recomputes the root from just a `(locator, proof)` pair — no KB — which a flat digest
-    cannot.  `commit-id` fingerprints **knowledge** (what two seats compare to agree they
+    another seat carries the id across.  The Merkle shape buys pure auditability:
+    `inclusion-proof` yields an audit path and `verify-inclusion` recomputes the root from
+    just a `(locator, proof)` pair — no KB — which a flat digest cannot.  `commit-id` fingerprints **knowledge** (what two seats compare to agree they
     hold the same thing); `state-root` is a second root whose leaves fold each record's
     provenance (`:creator` + `:created` + identity), a full **snapshot** identity like a
     git commit (covers who/when), so it moves when provenance moves even when content does
@@ -65,13 +67,21 @@
   - **The marker is untrusted.**  `dereference` finds the sentence in the seat's own KB
     and rehashes what it found; a stale or tampered marker fails that check and is
     rejected, and a marker the seat cannot resolve means the commit was not received —
-    never that the marker's payload should be believed.  Attribution is trustworthy only
-    as far as the identity model makes it: a distributed KB inherits the same
-    cooperative-vs-proof-tier question.
+    never that the marker's payload should be believed.  Resolution is scoped to BELIEF
+    for the reason the commit is: a record the seat stores but does not believe is no part
+    of what it holds, so `dereference` and `resolve-by-locator` decline it exactly as
+    `inclusion-proof` declines to prove it.  Both doors also **fail closed on a malformed
+    payload**, as `verify-inclusion` does on a malformed proof: a marker that is not a
+    map, whose `:locator` is not this format, or whose sentence the engine declines to be
+    asked about is ANSWERED `:malformed` rather than allowed to throw the engine's
+    refusal out of the resolve path — a peer must not be able to crash a receiving seat by
+    sending garbage.  Attribution is trustworthy only as far as the identity model makes
+    it: a distributed KB inherits the same cooperative-vs-proof-tier question.
 
-  Additive, like the other koinii modules: only the public core API plus `protocols`
-  (to walk the record store) and `resolution` (to canonicalize a sentence the store's
-  own way) — nothing in core loads it."
+  Additive, like the other koinii modules: only the public core API — the record walk
+  is `handles` / `sentex`, and the canonicalization is `canonical-sentex`, so a seat
+  digests what the store itself would.  Nothing under `vaelii.impl`, and nothing in core
+  loads it."
   (:require [vaelii.core :as v])
   (:import (java.io ByteArrayOutputStream DataOutputStream)
            (java.math BigDecimal BigInteger)
@@ -171,7 +181,10 @@
                         (.writeInt out (count x))
                         (doseq [e x] (encode! out e)))
     :else (throw (ex-info (str "koinii: non-canonical value in sentence identity: "
-                               (pr-str (class x)))
+                               (pr-str (class x))
+                               " — the encoding takes nil, a boolean, an integer, a"
+                               " double, a ratio, a BigDecimal, a string, a keyword, a"
+                               " symbol, a char, and a sequence of those")
                           {:type :koinii/uncanonical-value :value x :class (class x)}))))
 
 (defn- canonical-bytes
@@ -190,6 +203,29 @@
   "The multihash-style algorithm tag every locator/root string carries, so the primitive
   is explicit in the value and a future migration is unambiguous."
   "sha256:")
+
+(def ^:private sha256-hex-re
+  "The body of every digest this module mints or reads: exactly 64 lowercase hex
+  characters, which is a SHA-256 written out."
+  #"[0-9a-f]{64}")
+
+(def ^:private locator-re
+  "A well-formed locator string: the algorithm tag then the digest body.  Built from
+  `locator-prefix` and `sha256-hex-re` so the format has ONE source — the doors that read
+  a locator off an untrusted transport must accept exactly what `content-locator` mints,
+  and a second spelling of the pattern is a second thing to keep in step."
+  (re-pattern (str locator-prefix sha256-hex-re)))
+
+(defn- locator-string?
+  "Is `x` the self-describing locator string this module specifies — `\"sha256:\"` then 64
+  lowercase hex?
+
+  The one shape test the untrusted doors can make on their OWN authority, because the
+  locator format is this module's (the module docstring specifies it), unlike a sentence,
+  whose grammar belongs to the engine.  So `dereference` and `resolve-by-locator` check it
+  themselves and fail closed, exactly as `verify-inclusion` checks a proof's siblings."
+  [x]
+  (and (string? x) (some? (re-matches locator-re x))))
 
 (defn- sha256
   "The raw 32-byte SHA-256 of `data`.  SHA-256, not SHA-1: the locator is a
@@ -327,23 +363,39 @@
         (conj (audit-path (- m k) (subvec leaves k n))
               {:hash (hex (merkle-node (subvec leaves 0 k))) :side :left})))))
 
+(defn- believed-handles
+  "The handles this seat **believes** — `v/handles` (storage) narrowed by `v/in?` (the JTMS
+  label), which is the belief filter the extent readers spell `{:believed? true}`.
+
+  The one enumeration every commit identity is built from, and the reason is what a commit
+  id is FOR: two seats compare it to agree they hold the same thing, and what a seat holds
+  is what it believes.  Storage is a wider set — a defeated default and a conclusion whose
+  support was withdrawn are both retained on purpose (`docs/nmtms.md`) — and folding those
+  in would make the id a function of a seat's *retraction history* as well as its knowledge,
+  so two seats agreeing on every belief but differing in what they had once stored would
+  compute different ids and read as disagreeing."
+  [kb]
+  (filter #(v/in? kb %) (v/handles kb)))
+
 (defn commit-id
-  "A content-addressed fingerprint of the seat's **materialized knowledge** — the RFC-6962
+  "A content-addressed fingerprint of the seat's **believed knowledge** — the RFC-6962
   Merkle root over its sorted per-sentex content locators, prefixed `\"sha256:\"`.
-  Order-independent and handle-independent by construction, so two seats holding the same
-  stored records compute the same commit id whatever order they were built in, and a KB
+  Order-independent and handle-independent by construction, so two seats believing the same
+  records compute the same commit id whatever order they were built in, and a KB
   exported, pulled and recovered on another seat carries it across — the flow the
   distributed topology uses: 'pull the same commit' is a git operation, 'agree on the
   commit id' is this.
 
-  Scope is every STORED sentex — premises AND anything forward-derived — read as CONTENT
-  (context/truth/sentence, not provenance).  So it fingerprints the materialized *state*,
-  not the bare assertions: two seats agree exactly when their stored sets match, which the
-  pull flow guarantees (pull replicates the store) but which independently-built seats meet
-  only if they also derived to the same extent (same rules, same `*max-depth*`).  For
-  attribution-sensitive snapshot identity, see `state-root`."
+  Scope is every BELIEVED sentex — premises AND anything forward-derived — read as CONTENT
+  (context/truth/sentence, not provenance).  A stored-but-defeated sentex is **not** a leaf:
+  belief is what a seat holds, so a default this seat defeated and one it never heard of
+  are the same knowledge and hash alike.  So it fingerprints the materialized *belief*, not
+  the store: two seats agree exactly when their believed sets match, which the pull flow
+  guarantees (pull replicates the store and recovers belief) but which independently-built
+  seats meet only if they also derived to the same extent (same rules, same `*max-depth*`).
+  For attribution-sensitive snapshot identity, see `state-root`."
   [kb]
-  (merkle-root (map #(locator-of kb %) (v/handles kb))))
+  (merkle-root (map #(locator-of kb %) (believed-handles kb))))
 
 (defn- record-locator
   "The provenance-scoped locator of the record at `handle`: content-locator of
@@ -355,24 +407,32 @@
     (content-locator [(:creator prov) (:created prov) (identity-of sx)])))
 
 (defn state-root
-  "A content-addressed **snapshot** identity of the seat's exported records — the same
-  Merkle construction as `commit-id`, but over leaves that fold each record's provenance
-  (`:creator` + `:created`) in with its identity.  Git-commit-like: it covers who and
-  when, so it moves when provenance moves even if the content (and thus `commit-id`) does
-  not.  Two seats compare `commit-id` to agree they hold the same *knowledge*; they
-  compare `state-root` to agree they hold the same *snapshot* — a clone that pulled and
-  recovered identical provenance matches here too."
+  "A content-addressed **snapshot** identity of the seat's believed records — the same
+  Merkle construction as `commit-id`, over the same believed set, but with leaves that fold
+  each record's provenance (`:creator` + `:created`) in with its identity.  Git-commit-like:
+  it covers who and when, so it moves when provenance moves even if the content (and thus
+  `commit-id`) does not.  Two seats compare `commit-id` to agree they hold the same
+  *knowledge*; they compare `state-root` to agree they hold the same *snapshot* — a clone
+  that pulled and recovered identical provenance matches here too.
+
+  Belief-scoped for `commit-id`'s reason: the two roots answer about one set of records
+  seen two ways, so a leaf in one and not the other would make them roots of different
+  trees."
   [kb]
-  (merkle-root (map #(record-locator kb %) (v/handles kb))))
+  (merkle-root (map #(record-locator kb %) (believed-handles kb))))
 
 (defn inclusion-proof
   "The audit path proving `locator` is a leaf of this seat's `commit-id` tree — a vector of
-  `{:hash <sibling-hex> :side :left|:right}` ordered leaf→root, or nil if the seat holds no
-  record with that locator.  The point of the Merkle shape: a verifier fed this path plus
-  the leaf `locator` and the published root can confirm inclusion via `verify-inclusion`
-  **without** the KB — which the old flat re-hash could not offer."
+  `{:hash <sibling-hex> :side :left|:right}` ordered leaf→root, or nil if the seat does not
+  BELIEVE a record with that locator.  The point of the Merkle shape: a verifier fed this
+  path plus the leaf `locator` and the published root can confirm inclusion via
+  `verify-inclusion` **without** the KB.
+
+  Over the same believed leaves `commit-id` folds, which is what makes the proof check out
+  against the published root: a stored-but-defeated record is absent from the tree, so
+  asking for its proof answers nil rather than a path that verifies against nothing."
   [kb locator]
-  (let [leaves (sorted-leaves (map #(locator-of kb %) (v/handles kb)))
+  (let [leaves (sorted-leaves (map #(locator-of kb %) (believed-handles kb)))
         target (hex (leaf-hash locator))
         m      (first (keep-indexed (fn [i l] (when (= target (hex l)) i)) leaves))]
     (when m (audit-path m leaves))))
@@ -385,7 +445,7 @@
   [step]
   (and (map? step)
        (string? (:hash step))
-       (re-matches #"[0-9a-f]{64}" (:hash step))
+       (re-matches sha256-hex-re (:hash step))
        (contains? #{:left :right} (:side step))))
 
 (defn verify-inclusion
@@ -419,9 +479,23 @@
   carries: `v/export!` with `:compression :none` so the record streams are a
   byte-stable function of the KB — gzip stamps a header timestamp, which would make the
   same state export to different bytes.  `dir` must be absent or empty.  Returns
-  `export!`'s summary; the commit the other seats pull is this directory."
+  `export!`'s summary; the commit the other seats pull is this directory.
+
+  **`:compression` is pinned, not defaulted.**  Byte-stability is the property this
+  function exists to provide — it is what lets two publishes of one state be compared as
+  bytes — so a caller asking for `:gzip` here is asking for something `publish!` cannot be.
+  Passing anything but `:none` is refused (`:koinii/compression-pinned`) rather than
+  quietly honoured; a caller that wants a compressed dump wants `v/export!` directly, which
+  makes no byte-stability claim.  Every other `export!` option passes through."
   ([kb dir] (publish! kb dir {}))
-  ([kb dir opts] (v/export! kb dir (merge {:compression :none} opts))))
+  ([kb dir opts]
+   (when-let [c (:compression opts)]
+     (when-not (= :none c)
+       (throw (ex-info (str "koinii: publish! pins :compression :none — a published commit's"
+                            " record streams are a byte-stable function of the KB, and "
+                            (pr-str c) " stamps bytes that are not; export! takes it directly")
+                       {:type :koinii/compression-pinned :compression c}))))
+   (v/export! kb dir (assoc opts :compression :none))))
 
 (defn pull!
   "Open a pulled commit into the (empty) seat `kb`: `v/import!` the dump at `dir`, which
@@ -446,7 +520,8 @@
   [kb handle]
   (let [sx (v/sentex kb handle)]
     (when (nil? sx)
-      (throw (ex-info (str "koinii: no sentex at handle " (pr-str handle))
+      (throw (ex-info (str "koinii: no sentex at handle " (pr-str handle)
+                           " — it names no record in this KB")
                       {:type :koinii/no-such-handle :handle handle})))
     {:locator  (locator-of kb handle)
      ;; the stored `:sentence` IS the asserted form for BOTH polarities — a `:false`
@@ -460,6 +535,78 @@
 
 ;; ---- dereference: resolve a marker against the seat's OWN KB --------------
 
+(defn- malformed
+  "The answer an untrusted payload gets when it is not the thing it claims to be:
+  `:reason :malformed`, `:problem` naming the part that failed, and the `:locator`
+  echoed back exactly as it arrived (nil when none did).
+
+  A distinct reason from `:not-received` on purpose.  \"I do not hold that\" and \"that is
+  not a marker\" are different facts about a peer — one is out of sync and will catch up
+  with the next pull, the other is sending garbage and never will — and folding them
+  together loses the only signal a seat has for telling them apart."
+  [problem locator]
+  {:resolved? false :reason :malformed :problem problem :locator locator})
+
+(defn- marker-problem
+  "The `:problem` keyword a malformed `marker` earns, or nil when it is shaped like one.
+
+  Exactly three commitments, and no more: it is a **map**; its `:locator` is the string
+  format this module specifies (`locator-string?`); and it carries **both halves of the
+  lookup payload**, `:sentence` and `:context`, since a marker with no sentence is not a
+  marker but a bare locator, which `resolve-by-locator` is the door for.  What is *in*
+  those two keys is not judged here — that is the engine's grammar, and `handle-lookup`
+  asks the engine rather than copying it.
+
+  `:seat` is deliberately not required.  It is the CLAIMED asserter, which `dereference`
+  never reads: the real one comes off the resolved sentex's provenance."
+  [marker]
+  (cond
+    (not (map? marker))                       :not-a-map
+    (not (locator-string? (:locator marker))) :locator
+    (not (contains? marker :sentence))        :no-sentence
+    (not (contains? marker :context))         :no-context))
+
+(def ^:private request-refusals
+  "The `ex-info` `:type`s `v/handle-of` raises about the **request** rather than about the
+  knowledge — the engine's own \"I cannot be asked that\", which is precisely what a
+  malformed marker earns.  `:shape` is a payload the engine will not read as one sentence
+  (a vector spelling, a disjunctive goal); `:unsupported-context` is a query context,
+  which names no stored sentex and would answer empty.
+
+  Any OTHER exception out of that read is this seat's problem and not the peer's, so it is
+  re-thrown: laundering a real failure into a verdict about the marker would report a
+  broken store as a hostile peer."
+  #{:shape :unsupported-context})
+
+(defn- handle-lookup
+  "`v/handle-of` as a value: `{:handle h-or-nil}` when the engine consents to the question,
+  `{:refused <type>}` when it declines the request outright.
+
+  **Why the engine's own refusal, and not a well-formedness checker here.**  A marker's
+  `:sentence` is untrusted transport data and has to be judged before the seat acts on it
+  — but the grammar of a sentence is the ENGINE's, and a copy of it in this module would
+  drift from the one that actually decides.  `v/check` is the public validate-without-
+  writing door (`docs/api.md`), and it is the wrong door for *this* question twice over:
+  it runs `assert`'s whole pipeline — naming, groundness, the definitional constraints —
+  against the CURRENT KB, so a sentence stored before an `argIsa` was declared would fail
+  it while the seat genuinely holds and believes that record, and refusing to dereference
+  a record the seat has is a worse answer than the throw this closes; and it re-reads the
+  taxonomy on every marker, which the resolution then reads again.
+
+  So ask the door the resolution actually goes through and let its typed refusal be the
+  answer: `handle-of` either consents to the question or it does not, and where it
+  consents its nil stands unedited as \"I do not hold that\".  Nothing a seat can STORE
+  trips the refusal — a bare disjunction is not assertable and a rule's `or` is
+  polycanonicalized away before storage — so an honest marker never reads as malformed."
+  [kb sentence context]
+  (try
+    {:handle (v/handle-of kb sentence context)}
+    (catch clojure.lang.ExceptionInfo e
+      (let [t (:type (ex-data e))]
+        (if (request-refusals t)
+          {:refused t}
+          (throw e))))))
+
 (defn dereference
   "Resolve `marker` against the seat's OWN KB — the whole point of the distributed
   model, and where the marker's untrustedness is enforced.  Returns, on success:
@@ -469,37 +616,65 @@
 
   and on failure `{:resolved? false :reason … :locator <sha256:hex>}`:
 
+  - `:malformed` — the payload is not a marker at all, with `:problem` naming the part
+    that failed: `:not-a-map`, a `:locator` that is not this module's `\"sha256:\"` + 64
+    hex string, a missing `:sentence` / `:context` (`:no-sentence` / `:no-context`), or
+    the engine's own refusal type when the sentence or context is something it will not
+    be asked about (`:shape`, `:unsupported-context`).  **Fails closed, like
+    `verify-inclusion` on a malformed proof**: a marker arrives over an untrusted
+    transport, so a garbage or hostile one is ANSWERED, never allowed to throw the
+    engine's refusal out of the resolve path — a peer must not be able to crash the
+    receiving seat's dereference by sending a sentence the engine declines to read.
+    Distinct from `:not-received` because the two say different things about the peer:
+    one is out of sync and the next pull fixes it, the other is sending garbage.
   - `:not-received` — the marker's sentence is not in this seat's store.  The seat has
     not pulled the commit that carries it; it does **not** fall back to trusting the
     marker's payload.
-  - `:locator-mismatch` — the sentence IS stored, but the locator this seat computes for
-    it does not match the marker's.  The marker is stale or tampered: the locator is
-    self-verifying (rehash the *resolved* canonical form and compare), and it is the
-    marker's payload, not the KB, that is rejected.
+  - `:not-believed` — the sentence IS stored, and this seat does not believe it (a
+    defeated default, or a conclusion whose support was withdrawn — both retained on
+    purpose, `docs/nmtms.md`).  What a seat *holds* is what it believes, which is the
+    scope every commit identity is computed over, so a record outside that scope has no
+    leaf in the `commit-id` tree and `inclusion-proof` answers nil for it: resolving it
+    would hand back a record the seat can produce no proof of.
+  - `:locator-mismatch` — the sentence IS stored and believed, but the locator this seat
+    computes for it does not match the marker's.  The marker is stale or tampered: the
+    locator is self-verifying (rehash the *resolved* canonical form and compare), and it
+    is the marker's payload, not the KB, that is rejected.
 
   So the marker is never load-bearing: meaning, attribution and (via `why-marker`) proof
   all come from what this seat's KB actually holds."
   [kb marker]
-  (let [h (v/handle-of kb (:sentence marker) (:context marker))]
-    (cond
-      (nil? h)
-      {:resolved? false :reason :not-received :locator (:locator marker)}
+  (if-let [problem (marker-problem marker)]
+    (malformed problem (:locator marker))
+    (let [{:keys [refused] h :handle} (handle-lookup kb (:sentence marker) (:context marker))]
+      (cond
+        refused
+        (malformed refused (:locator marker))
 
-      (not= (:locator marker) (locator-of kb h))
-      {:resolved? false :reason :locator-mismatch
-       :locator (:locator marker) :actual (locator-of kb h) :handle h}
+        (nil? h)
+        {:resolved? false :reason :not-received :locator (:locator marker)}
 
-      :else
-      (let [sx   (v/sentex kb h)
-            prov (v/provenance kb h)]
-        {:resolved?  true
-         :handle     h
-         :locator    (locator-of kb h)
-         :sentence   (:sentence sx)
-         :context    (:context sx)
-         :truth      (:truth sx)
-         :seat       (:creator prov)
-         :provenance prov}))))
+        ;; `handle-of` is a STORAGE read and the commit family enumerates BELIEF — so
+        ;; without this arm a defeated record resolves here while answering no inclusion
+        ;; proof, and the two halves of one seat disagree about what it holds
+        (not (v/in? kb h))
+        {:resolved? false :reason :not-believed :locator (:locator marker) :handle h}
+
+        (not= (:locator marker) (locator-of kb h))
+        {:resolved? false :reason :locator-mismatch
+         :locator (:locator marker) :actual (locator-of kb h) :handle h}
+
+        :else
+        (let [sx   (v/sentex kb h)
+              prov (v/provenance kb h)]
+          {:resolved?  true
+           :handle     h
+           :locator    (locator-of kb h)
+           :sentence   (:sentence sx)
+           :context    (:context sx)
+           :truth      (:truth sx)
+           :seat       (:creator prov)
+           :provenance prov})))))
 
 (defn why-marker
   "Dereference `marker` and, when it resolves, attach the proof `v/why` builds for it —
@@ -516,32 +691,61 @@
 
 (defn locator-index
   "A `{locator → handle}` index over the seat's own KB — the reverse of `locator-of`,
-  built by one walk of the record store.  Injective: two sentexes share a locator only
-  if they share a canonical identity, which the store already deduped to one handle.
-  This is what lets a **bare** locator (a marker with no payload) resolve at all, so it
-  witnesses that the payload `marker` carries is a convenience, not a trust anchor.  Keyed
-  on the full `\"sha256:\"`-prefixed locator string."
+  built by one walk of the handles the seat **believes**.  Injective: two sentexes share a
+  locator only if they share a canonical identity, which the store already deduped to one
+  handle.  This is what lets a **bare** locator (a marker with no payload) resolve at all,
+  so it witnesses that the payload `marker` carries is a convenience, not a trust anchor.
+  Keyed on the full `\"sha256:\"`-prefixed locator string.
+
+  **Belief, not storage** — `believed-handles`, the same enumeration `commit-id` and
+  `inclusion-proof` fold.  The index is that commit tree's leaf set read backwards, so a
+  locator resolves here exactly when it has a leaf to prove."
   [kb]
   (persistent!
    (reduce (fn [m h] (assoc! m (locator-of kb h) h))
-           (transient {}) (v/handles kb))))
+           (transient {}) (believed-handles kb))))
 
 (defn resolve-by-locator
   "Resolve a bare `locator` string against the seat's own KB via `index` (default: a
   freshly built `locator-index`) — the pure content-addressed dereference, with no payload
   to distrust.  Same success/failure shape as `dereference`; a locator absent from the
-  index is `:not-received` (the seat does not hold the commit that carries it)."
-  ([kb locator] (resolve-by-locator kb locator (locator-index kb)))
+  index is `:not-received`.
+
+  **`:not-received` covers both absences here**, because a bare locator carries no
+  sentence to look up: a locator the seat never received and one whose record it stores
+  but does not believe are equally not in the believed index, and nothing in the argument
+  tells them apart.  `dereference`, which is handed the sentence, does tell them apart
+  (`:not-believed`).
+
+  **A string that is not a locator is `:malformed`, not `:not-received`.**  This argument
+  comes off the same untrusted transport a marker does, so it gets the same treatment:
+  the format is one this module specifies, `locator-string?` decides it, and a peer
+  sending garbage is told so rather than told the seat does not hold it.  The 2-arity
+  checks BEFORE it builds the index, so a garbage locator costs no walk of the believed
+  handles — a peer spamming unparseable strings would otherwise re-digest the whole seat
+  once per string.
+
+  **The 2-arity builds a fresh index per call** — one walk of the believed handles, one
+  `locator-of` each — so a caller resolving several locators against one state builds it
+  once and passes it.  There is no cache: a KB is mutable, and an index held across a
+  write would resolve a locator to a record the seat has since retracted or stopped
+  believing, which is the one answer this function must not give."
+  ([kb locator]
+   (if (locator-string? locator)
+     (resolve-by-locator kb locator (locator-index kb))
+     (malformed :locator locator)))
   ([kb locator index]
-   (if-let [h (get index locator)]
-     (let [sx   (v/sentex kb h)
-           prov (v/provenance kb h)]
-       {:resolved?  true
-        :handle     h
-        :locator    locator
-        :sentence   (:sentence sx)
-        :context    (:context sx)
-        :truth      (:truth sx)
-        :seat       (:creator prov)
-        :provenance prov})
-     {:resolved? false :reason :not-received :locator locator})))
+   (if-not (locator-string? locator)
+     (malformed :locator locator)
+     (if-let [h (get index locator)]
+       (let [sx   (v/sentex kb h)
+             prov (v/provenance kb h)]
+         {:resolved?  true
+          :handle     h
+          :locator    locator
+          :sentence   (:sentence sx)
+          :context    (:context sx)
+          :truth      (:truth sx)
+          :seat       (:creator prov)
+          :provenance prov})
+       {:resolved? false :reason :not-received :locator locator}))))

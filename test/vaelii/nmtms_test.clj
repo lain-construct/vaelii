@@ -16,6 +16,8 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.rules :as vr]
+            [vaelii.impl.settle :as settle]
+            [vaelii.impl.solve :as solve]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -32,7 +34,7 @@
     (v/assert kb (list bird sky) 'CxUniverse)
     (testing "the default conclusion holds first"
       (is (seq (v/sentexes-matching kb (list flies sky) 'CxUniverse))))
-    (testing "a stronger negation asserted LATER withdraws it (the old JTMS could not)"
+    (testing "a stronger negation asserted LATER withdraws it (a monotone JTMS cannot)"
       (v/assert kb (list 'not (list flies sky)) 'CxUniverse {:strength :monotonic})
       (is (empty? (v/sentexes-matching kb (list flies sky) 'CxUniverse)))
       (is (seq (v/sentexes-matching kb (list 'not (list flies sky)) 'CxUniverse)))
@@ -214,10 +216,10 @@
 ;; ---- a plain rebuttal never reaches the solver seam ---------------------
 
 (tu/deftest-kb an-installed-solver-is-never-asked-to-decide-a-plain-rebuttal
-  ;; `set-solver` is still public and the seam still exists — arbitration is the right
-  ;; answer for nogoods that are *not* plain rebuttals.  What changed is what gets
-  ;; routed there: a default/default rebuttal is a dilemma the engine represents, so
-  ;; it is not offered to any solver at all.
+  ;; `set-solver` is public and the seam exists — arbitration is the right answer for
+  ;; nogoods that are *not* plain rebuttals.  What is never routed there is a
+  ;; default/default rebuttal: the engine represents it as a dilemma, so it is not
+  ;; offered to any solver at all.
   ;;
   ;; The solver installed here would happily defeat the positive side if asked.  That
   ;; is the point: the guarantee is not "a solver behaves well", it is "a solver is
@@ -244,3 +246,46 @@
       (is (seq (v/sentexes-matching kb (list pacifist nixon) 'CxUniverse)))
       (is (seq (v/sentexes-matching kb (list 'not (list pacifist nixon)) 'CxUniverse)))
       (is (= 1 (count (v/contradictions kb)))))))
+
+;; ---- the solver split, guarded at both ends -----------------------------
+;;
+;; Only `:default` content is ever decided; `:monotonic` is the fixed background a solve
+;; reasons *from*.  `decide-nogood` already guarantees the input half — a tie is
+;; contested only when every member is defeasible and equal in class — and the test
+;; above guarantees a rebuttal never reaches a solver at all.  The two guards are what
+;; stands between a *third-party* solver and known-true content, since `set-solver`
+;; takes any implementation, and the cost of a regression here is not a wrong answer: it
+;; is the engine handing away something it knows to be true.
+
+(tu/deftest-kb the-input-guard-refuses-a-contested-handle-that-is-not-defeasible
+  ;; The classes are read before any defeat lands, because `defeat-class` reports nil
+  ;; once a datum is OUT — after the fact the question cannot be asked at all.
+  (let [happy (tu/tmp-pred) maybe (tu/tmp-pred) tom (tu/tmp-ind)]
+    (v/assert kb (list happy tom) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list maybe tom) 'CxUniverse)
+    (let [mono (v/handle-of kb (list happy tom) 'CxUniverse)
+          dflt (v/handle-of kb (list maybe tom) 'CxUniverse)]
+      (testing "a plain :default handle is eligible"
+        (is (nil? (#'settle/check-solver-eligible kb #{dflt}))))
+      (testing "a known-true one is refused, and the refusal names it"
+        (let [e (try (#'settle/check-solver-eligible kb #{mono dflt})
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (instance? clojure.lang.ExceptionInfo e))
+          (is (= :not-defeasible (:type (ex-data e))))
+          (is (= [mono] (:handles (ex-data e))))
+          (is (= [:monotonic] (:classes (ex-data e))))
+          (is (= :default (:expected (ex-data e)))))))))
+
+(deftest the-output-guard-drops-a-defeat-the-program-never-offered
+  ;; An overreaching defeat is a bug in the solver, and the engine should neither obey
+  ;; it nor fail because of it — so it is dropped with a warning rather than thrown.
+  ;; No KB: a Program is a self-contained value, which is the whole point of the seam.
+  (let [prog (solve/program #{1 2}
+                            [{:nogood #{1 2} :priority 1 :sentence '(contradicts (a) (b))}]
+                            {1 {:sentence '(a) :context 'CxUniverse}
+                             2 {:sentence '(b) :context 'CxUniverse}})]
+    (is (= #{1 2} (:assumptions prog)) "the program really does offer only these two")
+    (is (= #{1} (#'settle/accepted-defeat prog #{1 9}))
+        "the offered half is kept and the handle outside the program is dropped")
+    (is (= #{} (#'settle/accepted-defeat prog #{9})))
+    (is (= #{} (#'settle/accepted-defeat prog nil)) "and a solver that decided nothing")))

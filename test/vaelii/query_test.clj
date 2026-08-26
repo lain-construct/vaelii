@@ -83,17 +83,16 @@
     (v/assert-rule kb [(list parentOf '?x '?y)] (list anc '?x '?y) CxQ
                    {:direction :backward})
     (let [goal (list anc Ann '?z)]
-      ;; Stood aside under the cross-engine sweep, and not because the contract is soft.
-      ;; The node engine refuses to start without a depth bound, so `VAELII_QUERY_ENGINE`
-      ;; makes `tu` supply one globally (`inference/*max-depth*` 8) for the whole suite —
-      ;; which means "no depth anywhere" is not a state the suite can be in while the
-      ;; sweep runs, and the assertion would be checking the harness rather than the
-      ;; engine.  `tu/query-engine-override` is what a test pinning an engine-specific
-      ;; artifact stands aside on; the depth-carrying halves below run under both.
-      (when-not (tu/query-engine-override)
-        (testing "with no depth the rule is not expanded, and that is the contract"
-          (is (empty? (v/query kb goal CxQ)))
-          (is (not (v/query? kb goal CxQ)))))
+      ;; The node engine refuses to start without a depth bound, so the cross-engine
+      ;; sweep (`VAELII_QUERY_ENGINE`) has `tu` supply one globally (`inference/*max-depth*`
+      ;; 8) for the whole suite — "no depth anywhere" is then not a state the suite can be
+      ;; in, and what a depthless `query` answers is what the depth in force admits: nothing
+      ;; by default, the one hop under the sweep.  Asserted either way, so every
+      ;; configuration runs the same assertions; `tu/query-engine-override` names the side.
+      (testing "with no depth the rule is not expanded — unless the harness set a depth"
+        (let [swept? (some? (tu/query-engine-override))]
+          (is (= (if swept? [{'?z Bob}] []) (vec (v/query kb goal CxQ))))
+          (is (= swept? (v/query? kb goal CxQ)))))
       (testing "a depth reaches it"
         (is (= [{'?z Bob}] (vec (v/query kb goal CxQ {:max-depth 1})))))
       (testing "and `prove`, which needs no depth, reaches it too"
@@ -124,11 +123,11 @@
                         (zs (v/query kb goal CxQ {:max-depth 1}))))
             "depth 1 admits one hop, so the two-hop ancestor is out of reach"))
       (testing "a *query-options* naming only a strategy leaves the depth unset"
-        ;; the unset half stands aside under the sweep for the reason given in
-        ;; `no-depth-anywhere-expands-no-rule` — a depth is set, globally, by the harness
-        (when-not (tu/query-engine-override)
-          (is (empty? (binding [v/*query-options* :depth-first]
-                        (v/query kb goal CxQ)))))
+        ;; unset means the depth in force — none by default, the harness's global one under
+        ;; the sweep (`no-depth-anywhere-expands-no-rule` says why the sweep sets one)
+        (is (= (if (tu/query-engine-override) #{Bob Cid} #{})
+               (zs (binding [v/*query-options* :depth-first]
+                     (v/query kb goal CxQ)))))
         (is (= #{Bob Cid} (binding [v/*query-options* :depth-first]
                             (zs (v/query kb goal CxQ {:max-depth 3})))))))))
 
@@ -163,9 +162,8 @@
       (testing "a non-map opts is refused the same way"
         (is (= :unknown-option (:type (refusal :oops))))
         (is (= :unknown-option (:type (refusal [:max-depth 2])))))
-      (testing "and nil opts is the no-rule-expansion read, as ever"
-        (when-not (tu/query-engine-override)
-          (is (empty? (v/query kb goal CxQ nil))))))))
+      (testing "and nil opts is the no-rule-expansion read, as ever — at the depth in force"
+        (is (= (if (tu/query-engine-override) [{'?z Bob}] []) (vec (v/query kb goal CxQ nil))))))))
 
 (tu/deftest-kb a-bounded-query-answers-a-subset-of-what-prove-answers
   ;; The two engines terminate on different things — `query` on its bound, `prove` on the

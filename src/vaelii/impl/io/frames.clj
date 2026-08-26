@@ -25,26 +25,54 @@
   wrote one compression window over the whole file; the engine's own dumps have been chunked
   since v6."
   (:require [clojure.java.io :as io]
-            [taoensso.nippy :as nippy])
+            [taoensso.nippy :as nippy]
+            [vaelii.impl.io.thaw :as safe])
   (:import (java.io BufferedInputStream BufferedOutputStream ByteArrayInputStream
                     ByteArrayOutputStream DataInputStream DataOutputStream
                     EOFException InputStream OutputStream)
            (java.lang.reflect Constructor)
            (java.util.zip GZIPInputStream GZIPOutputStream)
-           (org.tukaani.xz LZMA2Options XZOutputStream)))
+           (org.tukaani.xz LZMA2Options XZInputStream XZOutputStream)))
 
 ;;; ── writing ───────────────────────────────────────────────────────────
+
+(def ^:private xz-dict-bytes
+  "The LZMA2 dictionary an `:xz` chunk is compressed against.
+
+  A chunk is its own compression window, so the dictionary can never fill past the chunk
+  — and `LZMA2Options`'s default is a preset-6 8 MiB one, against a default 10,000-frame
+  chunk that measures about 1 MB.  Sizing it to the chunk costs nothing and saves the
+  difference: over a 34k-sentex dump's sentex stream the compressed bytes are **identical**
+  from 8 MiB down to 1 MiB (245,816 either way, in the same time), while the encoder's
+  working set falls from 93 MB to 12 MB.  This is that with headroom: a **2 MiB**
+  dictionary, whose encoder allocates about 24 MB (`vaelii.impl.io.export` quotes that
+  figure, so the two move together).  A caller
+  who raises `:chunk-size` past it loses only the matches a window wider than this would
+  have found."
+  (* 2 1024 1024))
 
 (defn- wrap-output
   "The compressing wrapper for one chunk, matching the stream's `:compression`.  Each
   chunk is its own container — closing the wrapper writes the codec's trailer before
   the chunk's length is known, which is what lets a reader decompress any one chunk
-  without the rest."
+  without the rest.  So an `:xz` stream allocates **an encoder per chunk** rather than one
+  for the whole file; `xz-dict-bytes` is what keeps that a small allocation.
+
+  **A codec this cannot write is refused, not written flat.**  The compression a sink
+  is given rides the manifest it commits (`vaelii.impl.io.snapshot`), so a value that
+  fell through to the bare stream would leave plain nippy bytes under a manifest naming
+  a codec — and `wrap-input`, which refuses the same value, would then fail to read back
+  a file this reported as written.  `:zstd` is the live case: the reader accepts a dump
+  some other tool wrote in it and nothing here writes it."
   ^OutputStream [^OutputStream out compression]
   (case compression
-    :gzip (GZIPOutputStream. out)
-    :xz   (XZOutputStream. out (LZMA2Options.))
-    out))
+    :gzip       (GZIPOutputStream. out)
+    :xz         (XZOutputStream. out (doto (LZMA2Options.)
+                                       (.setDictSize (int xz-dict-bytes))))
+    (:none nil) out
+    (throw (ex-info (str "cannot write compression " compression
+                         " — a stream is written :gzip, :xz or :none")
+                    {:type :unsupported-compression :compression compression}))))
 
 (defn write-frames!
   "Write `frames` into `file` in the chunked layout, `chunk-size` frames per chunk.
@@ -73,12 +101,12 @@
 
 (defn- reflective-input
   "Wrap `in` in the input stream named by `class-name` via its `(InputStream)`
-  constructor.  A codec here is one a dump may *arrive* in rather than one this engine writes,
+  constructor.  A codec here is one a dump may *arrive* in and this engine does not write,
   so it is resolved reflectively: the dump imports iff the library is on the classpath,
-  and a clear error names the missing dep otherwise.  `:gzip` and `:none` — the export
-  default and the opt-out — need no dep and never reach here; `:xz` is written too
-  (`vaelii.impl.io.export`) and its library is a declared dependency, so only `:zstd`
-  actually depends on what a build happens to carry."
+  and a clear error names the missing dep otherwise.  **`:zstd` is the only one**, and so
+  the only codec whose readability depends on what a build happens to carry — `:gzip`,
+  `:none` and `:xz` are all written here, from imported classes, and read back from the
+  same ones."
   ^InputStream [^String class-name ^InputStream in]
   (try
     (let [k    (Class/forName class-name)
@@ -96,25 +124,52 @@
   (case compression
     :gzip       (GZIPInputStream. in)
     (:none nil) in
-    :xz         (reflective-input "org.tukaani.xz.XZInputStream" in)
+    :xz         (XZInputStream. in)
     :zstd       (reflective-input "io.airlift.compress.zstd.ZstdInputStream" in)
-    (throw (ex-info (str "unknown compression " compression)
+    (throw (ex-info (str "unknown compression " (pr-str compression)
+                         " — a dump is read :gzip, :xz, :zstd or :none")
                     {:type :unsupported-compression :compression compression}))))
 
+(defn- wrap-file-input
+  "`file`'s bytes under `compression`'s wrapper — with the file **closed** when the
+  wrapper refuses them.
+
+  The acquisition chain is the reason this is not written inline: `wrap-input` throws on a
+  codec this build cannot read, and `GZIPInputStream`'s own constructor throws on a
+  section whose first bytes are not gzip — a dump whose `meta.edn` names a compression its
+  payload does not carry, which is exactly the dump a reader meets.  Either throw out of a
+  nested constructor call leaves the descriptor this line opened with nothing holding a
+  reference to it and nothing that will close it."
+  ^InputStream [file compression]
+  (let [raw (io/input-stream (io/file file))]
+    (try
+      (wrap-input raw compression)
+      (catch Throwable t
+        (try (.close raw) (catch Throwable c (.addSuppressed t c)))
+        (throw t)))))
+
 (defn- thaw-until-eof
-  "Realize every back-to-back nippy frame from `in` into a vector, stopping at EOF."
+  "Realize every back-to-back nippy frame from `in` into a vector, stopping at EOF.
+  Caller holds the class-name door open (`thaw-chunk`)."
   [^DataInputStream in]
   (loop [acc (transient [])]
     (let [item (try (nippy/thaw-from-in! in) (catch EOFException _ ::eof))]
       (if (identical? ::eof item) (persistent! acc) (recur (conj! acc item))))))
 
 (defn- thaw-chunk
-  "Decompress + thaw one v6 chunk payload (`bs`) into a vector of frames."
+  "Decompress + thaw one v6 chunk payload (`bs`) into a vector of frames.
+
+  Behind the class-name door (`vaelii.impl.io.thaw`): a stream file is untrusted input,
+  and a frame naming a class is refused before the name is resolved.  The door is opened
+  once per **chunk** rather than once per frame — a chunk is ten thousand frames by
+  default, and the binding is the same one for all of them."
   [^bytes bs compression]
-  (with-open [in (DataInputStream.
-                  (BufferedInputStream.
-                   (wrap-input (ByteArrayInputStream. bs) compression)))]
-    (thaw-until-eof in)))
+  (safe/guarded
+   (fn []
+     (with-open [in (DataInputStream.
+                     (BufferedInputStream.
+                      (wrap-input (ByteArrayInputStream. bs) compression)))]
+       (thaw-until-eof in)))))
 
 ;; ---- the stream behind a lazy seq -------------------------------------------
 ;; A reader hands back a lazy seq over an open file, and a lazy seq cannot tell when its
@@ -187,20 +242,52 @@
   (when frames (sweep-readers! frames (fn [c] (c))))
   nil)
 
+(defn closer
+  "`frames` as a `java.io.Closeable`, so a consumer can put the stream in the `with-open`
+  it already has rather than wrapping its whole body in a `try`.
+
+  A frame seq closes its own file on being consumed to the end, and on a failure it
+  raises itself — but **not** on a throw out of the consumer's body, which is the exit a
+  cancelled load, a refused frame and a failed write all take.  Every such consumer holds
+  a sink under `with-open` already; one more binding there is the whole of what it takes
+  to give the stream the same lifetime, and `with-open` closes in reverse order, so the
+  stream goes after the sink that was reading against it."
+  ^java.io.Closeable [frames]
+  (reify java.io.Closeable
+    (close [_] (close-frames! frames))))
+
+(def ^:private max-chunk-bytes
+  "The largest chunk `read-chunked-seq` will allocate for.  A chunk is read off a
+  four-byte length the file states, and a dump is untrusted input — a crafted or torn
+  length of two billion is a two-gigabyte allocation before a byte of it is checked, and
+  a negative one an untyped throw.  The writer's default chunk (`chunk-size` frames)
+  measures about a megabyte compressed, so this is generous headroom while still a bound."
+  (* 256 1024 1024))
+
 (defn read-chunked-seq
   "Lazy seq of frames from a v6+ chunked stream file: a run of `[int32 length]
   [compressed chunk]`.  Chunks are read serially and thawed on demand, so the whole
-  file never sits in heap.  The stream closes when fully consumed, when a read or thaw
-  inside it fails, or when the seq is dropped; `close-frames!` closes it sooner."
+  file never sits in heap.  A length outside `[0, max-chunk-bytes]` is refused
+  `:truncated-dump` before anything is allocated for it.  The stream closes when fully
+  consumed, when a read or thaw inside it fails, or when the seq is dropped;
+  `close-frames!` closes it sooner."
   [file compression]
   (let [^DataInputStream in (DataInputStream.
                              (BufferedInputStream. (io/input-stream (io/file file))))
         read-frame! (fn []
                       (try
-                        (let [len (.readInt in)
-                              bs  (byte-array len)]
-                          (.readFully in bs)
-                          bs)
+                        (let [len (.readInt in)]
+                          (when (or (neg? len) (> len max-chunk-bytes))
+                            (throw (ex-info (str "chunk length " len " is not one this framing"
+                                                 " writes — a chunk is 0 to "
+                                                 max-chunk-bytes " bytes, so the stream is"
+                                                 " torn, or is not a vaelii chunked"
+                                                 " stream")
+                                            {:type :truncated-dump :file (str file)
+                                             :length len :max max-chunk-bytes})))
+                          (let [bs (byte-array len)]
+                            (.readFully in bs)
+                            bs))
                         (catch EOFException _ nil)))
         step (fn step []
                (lazy-seq
@@ -215,11 +302,11 @@
   [file compression]
   (let [^DataInputStream in (DataInputStream.
                              (BufferedInputStream.
-                              (wrap-input (io/input-stream (io/file file)) compression)))
+                              (wrap-file-input file compression)))
         step (fn step []
                (lazy-seq
                 (let [item (closing-on-failure
-                            in #(try (nippy/thaw-from-in! in) (catch EOFException _ ::eof)))]
+                            in #(try (safe/thaw-from-in! in) (catch EOFException _ ::eof)))]
                   (if (identical? ::eof item)
                     (do (.close in) nil)
                     (cons item (step))))))]

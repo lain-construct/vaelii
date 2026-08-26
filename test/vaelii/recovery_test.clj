@@ -24,7 +24,7 @@
         (let [before (tu/content-count kb)]    ; {:sentexes 0 :justifications 0}
           (try (f)
                (finally
-                 (tu/clear-kb! kb)                ; durable content is under test — clesh to clean
+                 (tu/clear-kb! kb)                ; durable content is under test — clear to clean
                  (is (= before (tu/content-count kb))
                      "recovery test did not return the store to empty"))))))))
 
@@ -37,7 +37,7 @@
 (tu/deftest-kb recover-rebuilds-taxonomy-and-beliefs
   (starter/load-into kb)
   (world/load-cast kb)                        ; the cast lives in the tests now
-  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))]
+  (let [gp (v/handle-of kb '(grandparentOf Tom Ann) 'CxNaturalWorld)]
     (let [kb2 (restart)]
       (testing "before recover, the in-memory graph is empty"
         (is (not (v/isa? kb2 'Muffet 'animal)))           ; taxonomy not rebuilt yet
@@ -51,7 +51,7 @@
         (is (seq (v/supporting-justifications kb2 gp))))
       (testing "querying and retraction work on the recovered KB"
         (is (seq (v/sentexes-matching kb2 '(grandparentOf Tom Ann) 'CxNaturalWorld)))
-        (let [bob (:id (first (v/sentexes-matching kb2 '(parentOf Bob Ann) 'CxNaturalWorld)))]
+        (let [bob (v/handle-of kb2 '(parentOf Bob Ann) 'CxNaturalWorld)]
           (v/retract! kb2 bob)
           ;; Tom→Bob→Ann gone, but Tom→Bob→Carol keeps grandparentOf via Carol? no —
           ;; retracting (parentOf Bob Ann) removes only (grandparentOf Tom Ann)
@@ -457,3 +457,41 @@
           (is (= 2 (count (chain/rule-firing-report kb2))))
           (is (= (count (chain/rule-firing-report kb))
                  (count (chain/rule-firing-report kb2)))))))))
+
+(tu/deftest-kb recover-skips-a-justification-that-rests-on-a-record-the-store-lost
+  ;; A justification is the one thing a store can hold over a sentex it does not — a
+  ;; `delete-sentex!` that left one behind, a foreign loader under no consistency
+  ;; obligation — and `rebuild-tms` must leave such a justification out of the network
+  ;; rather than believe a conclusion resting on a handle that names nothing.
+  ;;
+  ;; Storedness is read off the live-handle roster first and the record fetch is the
+  ;; fallback, since a store rosters a handle only once the record is there.  That makes
+  ;; the roster the fast answer and the fetch the one that settles a handle the roster does
+  ;; **not** name — which is exactly this case, so it is the case worth pinning.
+  (tu/with-terms [p1 q1 Ind]
+    (v/assert-rule kb [(list p1 '?x)] (list q1 '?x) 'CxUniverse)
+    (v/assert kb (list p1 Ind) 'CxUniverse)
+    (is (seq (v/sentexes-matching kb (list q1 Ind) 'CxUniverse)) "derived before the restart")
+    (let [premise-h (v/handle-of kb (list p1 Ind) 'CxUniverse)]
+      ;; the record goes, the justification that rests on it stays
+      (p/delete-sentex! (:records kb) premise-h)
+      (let [kb2 (restart)]
+        (v/recover kb2)
+        (testing "the conclusion is not believed — its justification rests on nothing"
+          (is (empty? (v/sentexes-matching kb2 (list q1 Ind) 'CxUniverse))))
+        (testing "and the premise itself is gone from the store"
+          (is (nil? (p/get-sentex (:records kb2) premise-h))))))))
+
+(tu/deftest-kb recover-roots-a-justification-whose-antecedents-are-all-stored
+  ;; the mirror of the test above: the ordinary case still lands, so the short-circuit
+  ;; above cannot be passing by skipping everything.
+  (tu/with-terms [p1 q1 Ind]
+    (v/assert-rule kb [(list p1 '?x)] (list q1 '?x) 'CxUniverse)
+    (v/assert kb (list p1 Ind) 'CxUniverse)
+    (is (seq (v/sentexes-matching kb (list q1 Ind) 'CxUniverse)) "derived before the restart")
+    (let [kb2 (restart)]
+      (v/recover kb2)
+      (let [h (v/handle-of kb2 (list q1 Ind) 'CxUniverse)]
+        (is (v/in? kb2 h) "the conclusion is believed again after the restart")
+        (is (seq (v/why kb2 h))
+            "and it is supported by the justification the rebuild rooted")))))

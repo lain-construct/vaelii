@@ -17,7 +17,7 @@
   Everything here runs **offline against the stub** — no host, no model, no socket."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
-            [clojure.test :refer [is testing use-fixtures]]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.llm.session :as session]
@@ -132,6 +132,28 @@
           (is (= (count (:page r)) (:page-found r)))
           (is (false? (:page-truncated? r))))))))
 
+;; ---- a JSON envelope's escapes are undone, not half-undone -------------
+
+(deftest a-json-escaped-sentence-reads-back-with-the-characters-it-carried
+  ;; The scanner reads s-expressions out of the raw response text, so what arrives is
+  ;; still JSON-escaped — and several hosts escape every character above 127.  A pattern
+  ;; that undoes one character per backslash turns `café` into `cafu00e9`: not a
+  ;; parse failure, which is the problem, but a sentence that reads cleanly and says
+  ;; something else.
+  (testing "the escapes a single-character pattern already handled"
+    (is (= "a\nb\tc" (session/unescape "a\\nb\\tc")))
+    (is (= "say \"this\"" (session/unescape "say \\\"this\\\""))))
+  (testing "and the one it could not"
+    (is (= "café" (session/unescape "caf\\u00e9")))
+    (is (= "→" (session/unescape "\\u2192")))
+    (testing "an escaped backslash is not the start of one"
+      (is (= "\\u0041" (session/unescape "\\\\u0041")))))
+  (testing "through read-sentence, which is where a host's escaping actually arrives"
+    (is (= '(comment Cafe "un café")
+           (session/read-sentence "(comment Cafe \\\"un caf\\u00e9\\\")")))
+    (testing "and an unescaped sentence still reads unchanged — the retry is a fallback"
+      (is (= '(dog Muffet) (session/read-sentence "(dog Muffet)"))))))
+
 ;; ---- untrusted EDN cannot leave through the stack ----------------------
 
 (def ^:private deep-nesting
@@ -175,11 +197,11 @@
 
 ;; ---- applying a batch the door refuses part-way through -----------------
 
-(tu/deftest-kb a-batch-that-throws-part-way-is-settled-and-reported
+(tu/deftest-kb a-batch-the-engine-refuses-part-way-is-reported-not-thrown
   ;; `check-edit` grades each add against the KB **as it stands**, so two adds that are
-  ;; jointly inconsistent both pass and the proposal is `:ok`.  `edit!` is not a
-  ;; transaction, so the apply stores the first, throws on the second, and skips the
-  ;; settle — which is the state this reports rather than raises.
+  ;; jointly inconsistent both pass and the proposal is `:ok`.  `edit!` is all-or-nothing,
+  ;; so the apply changes nothing at all — which is the status this reports rather than
+  ;; raises, with the refusal's own index naming the entry to fix.
   (tu/with-terms [a_dog a_cat Rex CxStory]
     (v/assert kb (list 'genlCx CxStory 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'disjoint a_dog a_cat) 'CxUniverse)
@@ -188,20 +210,16 @@
                  :remove []}]
       (testing "the critic passes it — neither add contradicts the KB it was graded against"
         (is (empty? (session/check-batch kb batch))))
-      (v/reset-settle-stats! kb)
       (let [r (session/apply-proposal! kb {:status :ok :batch batch})]
-        (testing "what landed is reported instead of thrown"
-          (is (= 1 (:applied r)))
-          (is (= 1 (:failed-at r)))
+        (testing "the refusal is reported instead of thrown"
+          (is (= 0 (:applied r)) "the batch was taken back, so nothing of it stored")
+          (is (= 1 (:failed-at r)) "and the refusal names the entry itself")
           (is (nil? (:result r)))
           (is (= :disjoint (:type (:error r))))
           (is (instance? Throwable (:exception (:error r)))))
-        (testing "and the store agrees with the count"
-          (is (some? (v/handle-of kb (list a_dog Rex) CxStory)))
-          (is (nil? (v/handle-of kb (list a_cat Rex) CxStory))))
-        (testing "belief was settled by hand, which is what makes the prefix recoverable"
-          (is (pos? (reduce + (vals (:histogram (v/settle-stats kb))))))
-          (is (true? (v/in? kb (v/handle-of kb (list a_dog Rex) CxStory)))))))))
+        (testing "and the store agrees: neither add is there"
+          (is (nil? (v/handle-of kb (list a_dog Rex) CxStory)))
+          (is (nil? (v/handle-of kb (list a_cat Rex) CxStory))))))))
 
 (tu/deftest-kb a-whole-batch-reports-the-same-shape-with-nothing-failed
   (tu/with-terms [a_dog Rex CxStory]
@@ -223,3 +241,31 @@
       (is (= :llm-not-applicable
              (try (session/apply-proposal! kb proposal)
                   (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))))
+
+;; ---- the summary surfaces monotonic known-truth (R7#6) ------------------
+;; A reader may mark a translated fact `:monotonic` (known-true), which strength-defeats a
+;; hand-written `:default` it contradicts.  The capability is allowed, but the summary must
+;; COUNT it, or a reviewer has no number that would flag a guess arriving as known-truth.
+
+(deftest assertion-summary-counts-monotonic-known-truth
+  (let [sentences '[(p A) (q B) (r C) (s D) (t E)]
+        ;; entries are [sentence context opts?]; :strength :monotonic rides the opts only
+        ;; when the candidate claimed it — otherwise absent (default) or the opts are missing
+        split {:entries [['(p A) 'Cx {:strength :monotonic :provenance {:source "doc"}}]
+                         ['(q B) 'Cx {:provenance {:source "doc"}}]   ; default: opts, no :strength
+                         ['(r C) 'Cx {:strength :monotonic}]          ; monotonic, bare opts
+                         ['(s D) 'Cx]]                                ; default: page-path 2-vector
+               :known      ['(t E)]                                   ; bare sentence, no strength
+               :duplicates []}
+        s     (session/assertion-summary sentences split)]
+    (is (= 5 (:proposed s)))
+    (is (= 4 (:new s)))
+    (is (= 1 (:known s)))
+    (is (= 0 (:duplicate s)))
+    (is (= 2 (:monotonic s))
+        "two of the four new entries arrived as :monotonic; a default or no-opts entry is not counted"))
+  (testing "an all-default proposal reports zero, so a non-zero count stands out"
+    (let [s (session/assertion-summary '[(p A) (q B)]
+                                       {:entries [['(p A) 'Cx {:provenance {}}] ['(q B) 'Cx]]
+                                        :known [] :duplicates []})]
+      (is (= 0 (:monotonic s))))))
