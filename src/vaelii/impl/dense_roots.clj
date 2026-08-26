@@ -114,7 +114,10 @@
       ;; four-element `[:argument-root pred pos term]`, whose predicate the packed
       ;; long has no room for (see `route`).  Throwing pins that — reusing the tag
       ;; means designing a decode, not inheriting one with the wrong shape.
-      2 (throw (ex-info "F-ARG is reserved; no packed key carries family 2"
+      2 (throw (ex-info (str "packed key " pk " names family 2 (F-ARG), which is reserved"
+                             " and nothing packs: an argument root is the four-element"
+                             " key [:argument-root pred pos term], whose predicate a"
+                             " packed long has no room for")
                         {:type :reserved-family :packed pk}))
       3 [:term-index term]
       4 [:rule-index :antecedent term]
@@ -152,7 +155,20 @@
     ones).  The roster key holds no term, so it is passed through unmapped.")
   (install-mapped! [b keys offsets handles n]
     "Install mapped columns (a `LongBuffer` and two `IntBuffer`s over a snapshot), replacing
-    whatever the routed families held."))
+    whatever the routed families held.")
+  (sections [b]
+    "What this backend **holds**, by section — `{:routed :keys :offsets :handles
+    :fallback}` — for a residency measurement (`vaelii.bench.budget`).  The objects
+    themselves, never a copy: `snapshot-columns` builds fresh heap arrays to write, and
+    sizing those would size a temporary rather than what a running KB holds.
+
+    `:routed` is the mutable map the routed families use before a snapshot is installed
+    and after a write thaws one; `:keys` / `:offsets` / `:handles` are the installed
+    columns, which are buffers over the image and belong in a caller's *mapped* total
+    rather than its heap one; `:fallback` is the backend under everything the routed
+    families do not claim, and carries the fact-scaled argument roots
+    (`fallback-entries`).  The split is the caller's to make from the objects — a
+    buffer says whether it is direct — so this reports the shape and judges nothing."))
 
 (defn- members
   "The set at `k`, from whichever place the routed families live in."
@@ -263,6 +279,9 @@
     (.clear m)
     (set! mkeys keys) (set! moff offsets) (set! mhandles handles) (set! mn (int n))
     nil)
+
+  (sections [_]
+    {:routed m :keys mkeys :offsets moff :handles mhandles :fallback fallback})
 
   kv/KvBackend
   ;; scalars / counters are never a routed family — only the fallback holds them

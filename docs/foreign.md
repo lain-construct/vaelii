@@ -17,7 +17,10 @@ code that has to keep
 compiling, keep passing tests, and keep being read by whoever changes a record shape, in
 exchange for nothing.
 
-So neither ships here. This engine reads its own dump format and nothing else, and a
+So neither ships here. This engine reads its own two formats and nothing else — the
+**export dump** it writes with `export!`, and the **text KB** it writes with
+`export-text!`, which is the one the shipped ontology under `resources/kb/` is authored in
+([api.md](api.md)) — and a
 bridge is a **separate artifact** that teaches it a format when it is on the classpath —
 `vaelii-foreign` is the one we publish. Retiring a bridge is dropping a dependency; there
 is no file here to delete and none to change when one arrives.
@@ -101,7 +104,7 @@ measures — is [kbs.md](kbs.md).
 
 ## Who asks
 
-Two callers, and each one is a single expression:
+Two callers, and neither holds more than a resolve:
 
 * `vaelii.impl.io.import` — a frame carrying `:sentence` is ours and is decoded inline;
   anything else goes to `:engine-dump`, resolved **once per import** rather than per

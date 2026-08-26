@@ -33,6 +33,7 @@
             [vaelii.impl.llm.selection :as selection]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.sentex :as sx]))
 
 ;; ---- what the page already says -----------------------------------------
@@ -55,7 +56,7 @@
   [kb term n]
   (if (symbol? term)
     (into [] (comp (map #(p/get-sentex (:records kb) %)) (remove nil?))
-          (take n (sort (p/sentexes-with-term (:index kb) (sx/canon term)))))
+          (take n (sort (reads/as-stored-with-term (:index kb) (sx/canon term)))))
     (into [] (take n) (v/find-sentexes kb term))))
 
 (defn- line-of

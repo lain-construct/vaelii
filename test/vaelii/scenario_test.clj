@@ -139,7 +139,10 @@
                  (list 'precedes D A)]]
       (doseq [f facts] (v/assert kb f C))
       (let [first-run  (scen/scenario iv/allen kb C)
-            second-run (scen/scenario iv/allen kb C)]
+            second-run (scen/scenario iv/allen kb C)
+            ;; taken before the reorder below, which is the whole comparison: a prefix
+            ;; read after it and compared with itself would agree whatever the search did
+            first-four (scen/scenarios iv/allen kb C {:limit 4})]
         (testing "repeated calls agree"
           (is (= first-run second-run)))
         (testing "and so does the same content asserted the other way round, at fresh
@@ -149,8 +152,10 @@
           (doseq [f (reverse facts)] (v/assert kb f C))
           (is (= first-run (scen/scenario iv/allen kb C))))
         (testing "the prefixes of the enumeration agree too, not merely its first element"
-          (is (= (scen/scenarios iv/allen kb C {:limit 4})
-                 (scen/scenarios iv/allen kb C {:limit 4}))))))))
+          ;; and there is a prefix to agree about: two empty enumerations are equal
+          ;; whatever the reorder did to the search
+          (is (seq first-four) "the network admits no arrangement at all")
+          (is (= first-four (scen/scenarios iv/allen kb C {:limit 4}))))))))
 
 ;; ---- calculus-generic ----------------------------------------------------
 

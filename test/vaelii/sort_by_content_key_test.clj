@@ -9,12 +9,22 @@
   at all, ties fall to arrival order, and `min-by-content-key` is
   `(first (sort-by-content-key …))` in one pass.
 
-  The last test is a **scan of the sources**, not a unit assertion, and it is here
-  because this is the one class of order-dependence that kept coming back one site at a
-  time: a `pr-str` ordering key with the print vars left ambient.  A REPL binds
-  `*print-length*`, two long sentences elide to one prefix, the key collapses, and the
-  tie falls back to the enumeration order the content key existed to remove — silently,
-  because every value involved is still legal."
+  The last tests are **scans of the sources**, not unit assertions, and they are here
+  because this is the class of order-dependence that keeps coming back one site at a
+  time.  Three shapes, one rule — an order the engine answers off is keyed on content:
+
+    * a `pr-str` or `str` ordering key with the print vars left ambient.  A REPL binds
+      `*print-length*`, two long sentences elide to one prefix, the key collapses, and
+      the tie falls back to the enumeration order the content key existed to remove —
+      silently, because every value involved is still legal.
+    * an ordering keyed on the **handle** (`sort-by :id`, `min-key :id`, `(sort
+      handles)`).  A handle is allocated in assertion order, so this is arrival order
+      written down as a key: the same knowledge typed the other way round reads
+      differently ([docs/defenses.md](../../docs/defenses.md), \"Tie-breaks and
+      orderings key on content, not the handle\").
+    * a positional take off a **match set** — `(first (sentexes-matching …))`.  The
+      retrieval promises the set, never an order, so `first` names whichever member the
+      index enumerated: a KB holding two matches answers by the order it was written in."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
@@ -135,13 +145,30 @@
        (filter #(str/ends-with? % ".clj"))
        sort))
 
+(defn- test-sources
+  "The test tree, for the positional-take scan alone: a test reading a match set by
+  position is right only while the goal happens to have one answer, which is the same
+  arrival-order bet the engine is held to.  This file is left out — its prose names the
+  shape it forbids."
+  []
+  (->> (file-seq (io/file "test/vaelii"))
+       (filter #(.isFile ^File %))
+       (map #(.getPath ^File %))
+       (filter #(str/ends-with? % ".clj"))
+       (remove #(str/ends-with? % "sort_by_content_key_test.clj"))
+       sort))
+
 (defn- key-argument
   "The part of `line` that can be an ordering key: everything after the ordering call,
   or nil when the line makes none.  Printing *before* the call is a different thing — a
-  `(map pr-str (sort-by …))` renders what the sort answered and never keys on it."
-  [line]
-  (when-let [m (re-find ordering-call line)]
-    (subs line (+ (str/index-of line m) (count m)))))
+  `(map pr-str (sort-by …))` renders what the sort answered and never keys on it.
+
+  `call` is which roster of ordering calls to look for, so the scans below share one
+  reading of what a key argument *is* rather than each cutting the line its own way."
+  ([line] (key-argument ordering-call line))
+  ([call line]
+   (when-let [m (re-find call line)]
+     (subs line (+ (str/index-of line m) (count m))))))
 
 (defn- unguarded-printed-keys
   "Every `[path line-number line]` in `src/vaelii` that hands a bare `pr-str` to an
@@ -218,11 +245,145 @@
              "where it is a scalar, or `nm/compare-form` where no key is needed at all:\n"
              (str/join "\n" (map (fn [[p n l]] (str "  " p ":" n "  " l)) bad))))))
 
+;; ---- the handle as a key: arrival order, written down ------------------
+
+(def ^:private handle-ordering-call
+  "The calls whose first argument is an ordering **key**, for the handle scan.  `group-by`
+  is absent where the printed roster has it: bucketing on a handle groups a unique key and
+  orders nothing, so it cannot carry arrival order into an answer."
+  #"sort-by|min-by-content-key|max-key|min-key")
+
+(def ^:private handle-key
+  "A key fn that reads a stored handle — `:id` or `:handle`, alone or inside a `juxt`."
+  #"(?<![\w-]):(?:id|handle)(?![\w-])")
+
+(def ^:private handle-collection-sort
+  "`sort` over a collection **of** handles.  No key fn is passed, so neither key scan can
+  see it, and the elements are the integers themselves — allocated in assertion order,
+  which is the whole hazard."
+  #"\(sort (?:\(map :id|\(map :handle|\(:handles|\(:ids|handles|ids|id\))")
+
+(def ^:private handle-key-allowed
+  "The sources where an ordering **is** keyed on a handle and that is not a hazard, each by
+  a distinctive substring of its own line.  Two kinds, and no third.
+
+  A **display** listing orders rows on a page, or the nodes of a search tree a page draws:
+  nothing is read off the order but the eye, and the handle is the one key a reader sees
+  printed beside the row it ordered.  A **handle-set identity** sorts a vector of handles
+  to name the *set* they form — `dispute-id`'s pair is a key two callers holding it either
+  way round must spell the same way, and sorting the integers is what makes one spelling.
+  Neither decides a belief, a witness, a placement or a report's sides.
+
+  One allowlist for both scans below, for the reason the printed one is shared: they are
+  one rule — an answer's order is a function of content — seen from two sides."
+  #{"(sort-by :id sentexes)"
+    "(sort-by :id justifications)"
+    "(sort-by :id (v/sentexes-matching kb pattern '?ctx))"
+    "(sort-by :id (vals @(:nodes sess)))"
+    "(sort-by (juxt (comp print-key :context) :id) sentexes)"
+    "(sort (:handles entry))"
+    "(vec (sort id))"})
+
+(defn- handle-keyed-orderings
+  "Every `[path line-number line]` in `src/vaelii` that orders on a handle — a `:id` /
+  `:handle` key fn handed to an ordering call, or a bare `sort` over a collection of
+  handles — minus the allowlist above."
+  []
+  (for [path  (clj-sources)
+        :let  [lines (vec (str/split-lines (slurp path)))]
+        i     (range (count lines))
+        :let  [line (nth lines i)
+               key  (key-argument handle-ordering-call line)]
+        :when (and (or (and key (re-find handle-key key))
+                       (re-find handle-collection-sort line))
+                   (not-any? #(str/includes? line %) handle-key-allowed))]
+    [path (inc i) (str/trim line)]))
+
+(deftest no-ordering-key-is-a-handle
+  ;; The half of the rule the printed scan cannot see, and the more direct one: a handle
+  ;; is allocated in assertion order, so keying an order on it *is* keying it on arrival.
+  ;; The same knowledge loaded the other way round then elects the other side of a
+  ;; dilemma, names the other supporter of an edge, or reports the two sides of a clash
+  ;; reversed — and nothing throws, because both readings are legal.
+  (let [bad (handle-keyed-orderings)]
+    (is (empty? bad)
+        (str "an ordering keys on the handle — order by the content instead "
+             "(`nm/sort-by-content-key` with `nm/print-key` / `nm/compare-form`, or "
+             "`solve/content-key` where a total order is needed):\n"
+             (str/join "\n" (map (fn [[p n l]] (str "  " p ":" n "  " l)) bad))))))
+
+;; ---- a positional take off a match SET ---------------------------------
+
+(def ^:private match-call
+  "The reads that answer with the **set** of matching sentexes.  `res/matches-visible`
+  promises that set and nothing about the order it comes back in, and each of these is a
+  door onto it.
+
+  The three **extent** reads are here on the same argument: `sentexes-in-context`,
+  `sentexes-with-functor` and `sentexes-with-arg` each answer everything under one index
+  key, in whatever order that key's postings enumerate — which is the order the facts were
+  written in.  A lazy seq is a bounded read, never a promise about which member comes
+  first."
+  #"\((?:v/|kb/|res/|core/|p/)?(?:sentexes-matching|sentexes-matching-as-stored|matches-visible|matches-hierarchical|sentexes-in-context|sentexes-with-functor|sentexes-with-arg)\b")
+
+(def ^:private positional-take
+  "A take that names ONE member by position, applied directly to the call."
+  #"\((?:first|ffirst|second|last)\s+$")
+
+(def ^:private threaded-take
+  "The same take, one thread away: `(some-> (matches …) first :sentence)`."
+  #"\(some->>?\s+$")
+
+(def ^:private content-ordered
+  "What makes a positional take legal: the set is put in **content** order first, so
+  `first` names what the knowledge says rather than what the index enumerated."
+  #"sort-by-content(?:-key)?|min-by-content-key|sort-by :context|print-key|compare-form")
+
+(defn- positional-takes-on-a-match-set
+  "Every `[path line-number line]` in `src/vaelii` and `test/vaelii` that names one member
+  of a match set by position, with the guard taken out: a content ordering within the
+  three lines the take spans.  Three lines because the thread that does it — call, sort,
+  take — is written down the page, and the guard sits between the two halves of what
+  would otherwise be flagged."
+  []
+  (for [path  (concat (clj-sources) (test-sources))
+        :let  [lines (vec (str/split-lines (slurp path)))]
+        i     (range (count lines))
+        :let  [line   (nth lines i)
+               m      (re-find match-call line)
+               prefix (when m (subs line 0 (str/index-of line m)))
+               window (str/join " " (subvec lines i (min (count lines) (+ i 3))))]
+        :when (and m
+                   (or (re-find positional-take prefix)
+                       (and (re-find threaded-take prefix)
+                            (re-find #"(?<![\w-])(?:first|ffirst|second|last)(?![\w-])"
+                                     window)))
+                   (not (re-find content-ordered window))
+                   (not-any? #(str/includes? line %) handle-key-allowed))]
+    [path (inc i) (str/trim line)]))
+
+(deftest no-positional-take-off-a-match-set
+  ;; `matches-visible` promises the SET of matches, so `(first (sentexes-matching …))` asks
+  ;; a question the retrieval does not answer: with two matching sentexes it names
+  ;; whichever the index enumerated, which is the order they were written in.  The fix is
+  ;; either to order on content before taking one, or to say out loud why there can only be
+  ;; one — a functional predicate refuses the second row, and a caller resting on that
+  ;; refusal should name it rather than lean on it silently
+  ;; (`koinii.identity/sole-registry-match`).  The test tree is held to it too: a test's
+  ;; `first` off a match set is right only while its goal has one answer, and the
+  ;; single-answer door (`v/handle-of`) or a cardinality assertion says so instead.
+  (let [bad (positional-takes-on-a-match-set)]
+    (is (empty? bad)
+        (str "one member of a match set is named by position — order on content first "
+             "(`nm/sort-by-content-key`, or `sort-by :context` where the sentence is "
+             "shared), or refuse the many-match case explicitly:\n"
+             (str/join "\n" (map (fn [[p n l]] (str "  " p ":" n "  " l)) bad))))))
+
 (deftest the-allowlist-still-names-live-code
   ;; An allowlist that has outlived its sites reads as a rule with exceptions when it is
   ;; really a rule with none — so each entry must still match a line that would otherwise
   ;; be flagged.
   (let [text (str/join "\n" (map slurp (clj-sources)))]
-    (doseq [entry printed-key-allowed]
+    (doseq [entry (concat printed-key-allowed handle-key-allowed)]
       (is (str/includes? text entry)
-          (str "allowlisted printed key no longer in the sources: " entry)))))
+          (str "allowlisted ordering key no longer in the sources: " entry)))))

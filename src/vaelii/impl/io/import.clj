@@ -114,6 +114,60 @@
   [meta]
   (= export-format (:format meta)))
 
+(def manifest-bytes
+  "The most an EDN **manifest** may hold — a dump's `meta.edn`, a store's `format.edn`, a
+  corpus's `report.edn`, an index's `index.edn`, a machine's `catalog.edn`.
+
+  Every one of them is a handful of keys: a marker, a version, some counts, a
+  compression name.  They are also the *first* thing read about a directory nobody has
+  promised anything about — `vaelii.impl.catalog` probes every entry of the KB search
+  path this way, and a load reads one before it opens a stream — so an unbounded read is
+  a whole file pulled into a string on the strength of its name.  A megabyte is orders
+  of magnitude above the largest of them (a hand-written `catalog.edn` naming thousands
+  of KBs) and still a bound."
+  (* 1024 1024))
+
+(defn read-edn-manifest
+  "The EDN manifest in `f`, read under `manifest-bytes` — or a refusal
+  (`:manifest-too-large`) naming the file and the bound.
+
+  **The bound is on the read, not on the file's stated length.**  `File.length` answers
+  0 for a FIFO and for most of `/proc`, and a symlink to one of those is a `slurp` that
+  never ends; reading a bounded number of bytes and refusing the one past the bound
+  needs the file to say nothing true about itself.  Bytes rather than characters, so the
+  figure the refusal states is the figure that was read.
+
+  Content the EDN reader cannot parse is refused by name too (`:malformed-manifest`).
+  A manifest cut mid-form — the shape a crashed writer and a half-copied directory both
+  leave — otherwise raises a bare `RuntimeException` (\"EOF while reading\"), which is
+  neither a `:type` a caller can discriminate on nor a fact about the file it names.
+  Which of the two refusals means \"not a KB\" and which means \"a broken one\" is the
+  caller's to decide, and `vaelii.impl.catalog` decides it differently from the loaders."
+  [f]
+  (let [^java.io.File f (io/file f)
+        limit (long manifest-bytes)
+        out   (java.io.ByteArrayOutputStream.)
+        buf   (byte-array 8192)]
+    (with-open [^java.io.InputStream in (io/input-stream f)]
+      (loop []
+        (let [n (.read in buf)]
+          (when (pos? n)
+            (.write out buf 0 n)
+            (when (<= (.size out) limit) (recur))))))
+    (when (> (.size out) limit)
+      (throw (ex-info (str "manifest " (.getPath f) " is longer than " limit
+                           " bytes — a meta.edn / format.edn / report.edn / catalog.edn"
+                           " is a handful of keys, and a file this size under one of"
+                           " those names is not one")
+                      {:type :manifest-too-large :file (.getPath f) :max limit})))
+    (try (edn/read-string (String. (.toByteArray out)
+                                   java.nio.charset.StandardCharsets/UTF_8))
+         (catch Exception e
+           (throw (ex-info (str "manifest " (.getPath f) " is not readable EDN: "
+                                (ex-message e) " — the file was cut mid-form, or was"
+                                " never one")
+                           {:type :malformed-manifest :file (.getPath f)} e))))))
+
 (def ^:private meta-file           "meta.edn")
 (def ^:private sentex-file         "sentexes.nippy.stream")
 (def ^:private justification-file  "justifications.nippy.stream")
@@ -217,13 +271,14 @@
 ;;; ── meta + gates ──────────────────────────────────────────────────────
 
 (defn read-meta
-  "Read a dump's `meta.edn` (the marker + schema) without loading any records."
+  "Read a dump's `meta.edn` (the marker + schema) without loading any records — under
+  `manifest-bytes`, since a dump directory is whatever an operator copied."
   [dir]
   (let [^java.io.File f (io/file dir meta-file)]
     (when-not (.exists f)
       (throw (ex-info (str "no dump at " (.getPath f) " (missing meta.edn)")
                       {:type :no-dump :dir (str dir)})))
-    (edn/read-string (slurp f))))
+    (read-edn-manifest f)))
 
 (defn- assert-supported-version!
   "Gate the version against the numbering its own dialect uses — the two overlap, so one
@@ -747,7 +802,7 @@
       ;; The `.exists` guard already ruled out absence, so this catch fires only on a
       ;; CORRUPT index.edn — a different fact from "there wasn't one", and the caller
       ;; turns both into the same silent full rebuild. Say which happened.
-      (try (edn/read-string (slurp f))
+      (try (read-edn-manifest f)
            (catch Exception e
              (trove/log! {:level :warn :id ::index-meta-corrupt :error e
                           :msg "index.edn present but unreadable; rebuilding the index"
@@ -846,14 +901,14 @@
   "The `{:belief? false}` inline pass: for each sentex frame, re-canonicalize, store it,
   and index it **in the same pass** — indexing the record already in hand rather than
   storing everything and then re-reading it back through `reindex`, which on the `:disk`
-  backend re-pages every record from disk.
+  record store re-pages every record from disk.
 
   The records go through a `capabilities/sentex-sink`, which is that same `put-sentex` on
   every store the engine ships and a bulk write on one that has one (`COPY`, over
   Postgres).  It can be a *sink* rather than a batched put precisely because of the
   sentence above: the handle is decided here and the sink is told it, so the index build
   never waits for a batch to land.  Wrapped in `with-bulk-writes` so a `:memory`
-  index build is one `persistent!` instead of a `swap!` per fact (a no-op on `:disk`,
+  index build is one `persistent!` instead of a `swap!` per fact (a no-op on `:disk-log`,
   which runs its own batched WAL path).
 
   No dedup map / `sx-meta`: each frame is stored once, so frames map 1:1 to handles and
@@ -940,7 +995,10 @@
                         (let [did (long (:id fm))]
                           (when (and (<= 0 did) (< did Integer/MAX_VALUE))
                             (when (.get ids (int did))
-                              (throw (ex-info (str "dump names handle " did " twice")
+                              (throw (ex-info (str "dump names handle " did " twice — a"
+                                                   " handle-preserving import gives each"
+                                                   " record the id the dump names, so two"
+                                                   " records cannot claim one")
                                               {:type :duplicate-handle :handle did})))
                             (.set ids (int did)))
                           (p/write-record! sink (assoc rec :id did)))
@@ -1279,7 +1337,7 @@
               ;; put the index in place — the dump's own entries when they can be proved
               ;; to describe these records, else rebuilt from them — and then recover the
               ;; JTMS + taxonomy and settle belief.  Recovery reads the *records*, so
-              ;; whichever way the index arrived it is the same restart a `:disk` KB makes.
+              ;; whichever way the index arrived it is the same restart a durable KB makes.
               ;;
               ;; `:stored` stops here, and the seam is this one call.  Everything above it
               ;; is a write to the store; `recover` is the only step that builds in-memory

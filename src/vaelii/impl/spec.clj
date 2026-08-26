@@ -26,10 +26,11 @@
   (`genls`, `context-up`, …) are specced too, since a wrong-arity call to one of
   them is exactly the kind of mistake instrumentation should surface early.
 
-  **Fifteen publics that take an option map are outside it**, and instrumenting says
+  **Sixteen publics that take an option map are outside it**, and instrumenting says
   nothing about their arguments: the batch writes (`assert-many`,
   `bulk-assert-facts!`), the fork and the two consequence readers over it (`fork`,
-  `preview`, `edit-with-consequences!`), the store transfers (`import!`, `export!`),
+  `preview`, `edit-with-consequences!`), the store transfers (`import!`, `export!`,
+  `export-text!`),
   the two search-back reads (`search-tree`, `compare-tacticians`), the evaluatable-prover
   registration (`add-evaluatable`), the four-valued epistemic-status read (`argue`), and
   `check`, `abduce`, `kb-quality`, `clear-caches`.
@@ -120,7 +121,8 @@
 (s/def ::prop-kind #{:transitive :symmetric :asymmetric :reflexive :functional
                      :irreflexive :anti-symmetric :anti-transitive
                      :decontextualized :forced-decontextualized :target-following
-                     :abducible :reifiable :unreifiable :quoting :context-denoting :modal
+                     :abducible :closed-extent
+                     :reifiable :unreifiable :quoting :context-denoting :modal
                      :declares-arg-isa :declares-arg-genl :declares-quoted-arg
                      :declares-inter-arg-isa})
 
@@ -193,18 +195,25 @@
   :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context) :opts (s/? (s/nilable map?)))
   :ret  boolean?)
 
+;; The four backward-search doors take a trailing bound, checked against their own roster
+;; at the door (`core/prove-opt-keys`, `core/ask-opt-keys`) — so the spec says `map?` and
+;; leaves which keys are real to the check that carries the message.
 (s/fdef vaelii.core/prove
-  :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context)))
+  :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context)
+               :opts (s/? (s/nilable map?))))
 
 (s/fdef vaelii.core/provable?
-  :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context))
+  :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context)
+               :opts (s/? (s/nilable map?)))
   :ret  boolean?)
 
 (s/fdef vaelii.core/ask
-  :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context)))
+  :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context)
+               :opts (s/? (s/nilable map?))))
 
 (s/fdef vaelii.core/ask?
-  :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context))
+  :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context)
+               :opts (s/? (s/nilable map?)))
   :ret  boolean?)
 
 (s/fdef vaelii.core/query-plan
@@ -352,11 +361,39 @@
   :args (s/cat :kb ::kb :handle ::handle-arg :opts (s/? (s/nilable ::why-opts)))
   :ret map?)
 
+;; `why-not`'s sentence arity reads three: how many near misses to report, and the two
+;; bounds on the search that finds them.  `s/keys` is open here for `why`'s reason — the
+;; unknown key is the fn's own roster to refuse — and what the spec says is that a count
+;; is a count and a millisecond bound is not a string.  `::max-ms` and `::max-depth` are
+;; the specs the budget map above registered: one keyword names one spec in the registry,
+;; so re-`s/def`ing either here would silently retune the budget too.
+(s/def ::nearest pos-int?)
+(s/def ::why-not-opts (s/keys :opt-un [::nearest ::max-depth ::max-ms]))
+
 (s/fdef vaelii.core/why-not
   ;; two shapes: a stored handle, or a proposition (for a blocked/excepted answer
-  ;; that no handle carries — see docs/exceptions.md)
+  ;; that no handle carries — see docs/exceptions.md), the second taking the near-miss
+  ;; options
   :args (s/alt :by-handle   (s/cat :kb ::kb :handle ::handle-arg)
-               :by-sentence (s/cat :kb ::kb :sentence ::sentence :context ::context))
+               :by-sentence (s/cat :kb ::kb :sentence ::sentence :context ::context
+                                   :opts (s/? (s/nilable ::why-not-opts))))
+  :ret  map?)
+
+;; `describe` reads one option, `:limit` — how many entries a bounded list carries.  It is
+;; the `::limit` the term reads registered above: one keyword names one spec.
+(s/def ::describe-opts (s/keys :opt-un [::limit]))
+
+(s/fdef vaelii.core/describe
+  :args (s/cat :kb ::kb :term any? :context (s/? ::context)
+               :opts (s/? (s/nilable ::describe-opts)))
+  :ret  map?)
+
+;; `kb-diff`'s two sides are each a KB or a path to a text KB, which is the one place a
+;; **string** stands where a KB does.
+(s/def ::diff-side (s/or :kb ::kb :text-kb string?))
+
+(s/fdef vaelii.core/kb-diff
+  :args (s/cat :a ::diff-side :b ::diff-side)
   :ret  map?)
 
 ;; ---- persistence / recovery ---------------------------------------------
@@ -372,7 +409,7 @@
   `clojure.spec.test.alpha/instrument` / `unstrument`.  This is the single-item
   shape-carrying surface: everything that takes a handle, context, level, strength
   or direction, the option and budget maps those carry, plus the taxonomy and
-  equality reads.  The fifteen opts-taking publics it does **not** reach are named in
+  equality reads.  The sixteen opts-taking publics it does **not** reach are named in
   this namespace's docstring and pinned by `vaelii.spec-test`."
   '[vaelii.core/open-kb
     vaelii.core/assert
@@ -447,5 +484,7 @@
     vaelii.core/provenance
     vaelii.core/why
     vaelii.core/why-not
+    vaelii.core/describe
+    vaelii.core/kb-diff
     vaelii.core/recover
     vaelii.core/reindex])

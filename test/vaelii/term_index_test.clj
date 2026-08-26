@@ -53,7 +53,7 @@
       ;; narrows a compound on the atoms it contains and verifies the candidates against
       ;; their records, so a term outside either bound costs a read rather than a key.
       (is (= 1 (count (v/find-sentexes kb big))))
-      (is (= (list holds big small) (:sentence (first (v/find-sentexes kb big)))))
+      (is (= #{(list holds big small)} (set (map :sentence (v/find-sentexes kb big)))))
       (is (empty? (v/find-sentexes kb (apply list bagOf (reverse inds))))
           "and a compound that was never stored is still empty"))
     (testing "a small compound in the same fact is still findable by the whole compound"

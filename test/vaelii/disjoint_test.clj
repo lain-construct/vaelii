@@ -321,3 +321,25 @@
     (testing "exposure is a report, not an arbitration: belief is untouched"
       (is (empty? (v/conflicts kb)))
       (is (empty? (v/contradictions kb))))))
+
+(tu/deftest-kb a-disjoint-metatype-does-not-separate-genl-related-members
+  ;; Two members of a disjoint metatype separate only when neither generalizes the
+  ;; other: `(genl bb aa)` says every `bb` is an `aa`, so they overlap and cannot be
+  ;; disjoint — the same rule the explicit-`disjoint` door applies.  Without the guard a
+  ;; type came out disjoint from its own supertype, and from itself.
+  (let [mkind (tu/tmp-pred)
+        aa (tu/tmp-type) bb (tu/tmp-type) x (tu/tmp-ind)]
+    (v/assert kb (list 'genlCx 'CxNaturalWorld 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list mkind aa) 'CxUniverse)
+    (v/assert kb (list mkind bb) 'CxUniverse)
+    (v/assert kb (list 'genl bb aa) 'CxUniverse)          ; bb is a kind of aa
+    (v/assert kb (list 'disjointMetatype mkind) 'CxUniverse)
+    (testing "a type is not disjoint from itself"
+      (is (not (v/disjoint? kb bb bb)))
+      (is (not (v/disjoint? kb aa aa))))
+    (testing "nor from its own supertype it shares the metatype with"
+      (is (not (v/disjoint? kb bb aa)))
+      (is (not (v/disjoint? kb aa bb))))
+    (testing "and the entailed membership is admitted, not refused as a clash"
+      (v/assert kb (list bb x) 'CxNaturalWorld)
+      (is (v/isa? kb x aa 'CxNaturalWorld) "every bb is an aa, so x is an aa"))))

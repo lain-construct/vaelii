@@ -75,8 +75,8 @@ brave/cautious enumeration — which is what makes byte length a sound cross-mod
 one cutoff enough for all of them.
 
 Measured: classify crosses over around 2.9 KB (closure around 80), and a large `:label`
-solve also loses in-process — clasp 471 ms against clingo 673 ms. Hence the 3000-byte
-default.
+solve also loses in-process — roughly half a second out to a subprocess clasp against
+roughly two-thirds of one in-process. Hence the 3000-byte default.
 
 The cutoff is AUTO-mode only; an explicit `VAELII_ASP_SOLVER=clingo` uses clingo whatever
 the size. Rerouting a large program to clasp is safe because a program is only ever plain
@@ -106,8 +106,9 @@ their budgets, not behind one:
 | one `settle` | one per defeat round | up to \|contested\| × budget |
 
 Measured at `VAELII_ASP_TIME_LIMIT=1` on a 78-atom program that finishes under neither:
-`classify-both` returns after **2049 ms**, a single `:label` or `:all-optima` solve after
-about **1015 ms**. Both are correct — every individual solve was cancelled on time.
+`classify-both` returns after **about two budgets**, a single `:label` or `:all-optima`
+solve after **about one**. Both are correct — every individual solve was cancelled on
+time, and what the readings show is the multiplier rather than a wall clock.
 
 So size the variable against the *solve*, and read the table for what an operation then
 costs. `asp_edge_test` and `solve_context_test` pin the counts, because a doc that names

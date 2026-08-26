@@ -156,7 +156,9 @@
                        (:error? block) (assoc "is_error" true))
         :tool-use    {"type" "tool_use" "id" (:id block)
                       "name" (:name block) "input" (or (:input block) {})}
-        (throw (ex-info (str "cannot encode content block of type " (pr-str (:type block)))
+        (throw (ex-info (str "cannot encode content block of type " (pr-str (:type block))
+                             " — want :text, :tool-use or :tool-result, or a block"
+                             " carrying its original JSON under :raw")
                         {:type :llm-encode :block-type (:type block)})))))
 
 (defn- encode-message [{:keys [role content]}]
@@ -325,7 +327,10 @@
         (update :usage merge (get ev "usage")))
 
     "error"
-    (throw (ex-info (str "Anthropic stream error: " (get-in ev ["error" "message"]))
+    (throw (ex-info (str "Anthropic stream error"
+                         (when-let [t (get-in ev ["error" "type"])] (str " (" t ")"))
+                         ": " (http/excerpt (str (or (get-in ev ["error" "message"])
+                                                     (pr-str ev)))))
                     {:type :llm-api-error :error-type (get-in ev ["error" "type"])}))
 
     acc))

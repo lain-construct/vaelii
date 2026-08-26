@@ -6,7 +6,7 @@
 
   Verbosity is otherwise decided before a process starts, and the process that most
   needs a different setting is the one nobody can restart — a daemon a week into a run,
-  on a `:disk` KB that pays `recover` on the way back up.  So the level is an **atom**,
+  on a durable KB that pays `recover` on the way back up.  So the level is an **atom**,
   read per call by the one backend installed here; turning the dial is a `reset!` and
   never a second install, and two dials wrapped around each other is a state this cannot
   reach.

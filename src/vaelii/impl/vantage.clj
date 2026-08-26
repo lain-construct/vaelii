@@ -3,12 +3,11 @@
 (ns vaelii.impl.vantage
   "`CxInference` — which readers can answer a goal, and the two ways of working that out.
 
-  A **variable** context reads \"in some context\", and it reads it *per literal*: the
-  join carries the literal's own bindings forward but hands every conjunct the same
-  wildcard, so two facts no single context sees are joined anyway (docs/contexts.md).
-  `CxInference` is that reading made joint — an answer survives only if some one reader's
-  `genlCx` cone covers the whole derivation — and the reader that covered it is handed
-  back as the answer's **witness**.
+  A **variable** context reads \"in some context\", and it reads it **joint**, exactly as
+  `CxInference` does: an answer survives only if some one reader's `genlCx` cone covers
+  the whole derivation, so two facts no single context sees are never joined
+  (docs/contexts.md).  The reader that covered it is the answer's **witness** — handed
+  back as `?ctx` for `CxInference`, unified into the variable for a variable context.
 
   Two implementations, because they are worth comparing and must not disagree:
 
@@ -22,7 +21,7 @@
 
   Post-hoc is the one that can be wrong, because an unscoped pass sees a KB with three
   filters off and has to put them back by reasoning about the *placement* instead of the
-  read.  Each was a real divergence before it was a paragraph:
+  read.  Remove any of the three below and `vantage_differential_test` goes red:
 
   - **the subsumption edges.**  Retrieval is type-aware, so a matched fact is not the only
     ingredient of its own match — a reader that sees the fact but not the `genl` edge it
@@ -56,9 +55,9 @@
 
   A binding is what a *variable* the caller wrote gets bound to, and `CxInference` is a
   constant — the caller named no variable, so there is nothing to bind and inventing one
-  would be this namespace answering a question nobody asked.  Earlier it assoc'd `?ctx`,
-  which read like a binding and was not one: no `?ctx` appeared in the call.  A keyword
-  cannot collide with a binding either, since those are keyed by the `?`-symbols the goal
+  would be this namespace answering a question nobody asked.  Assoc'ing `?ctx` instead
+  reads like a binding and is not one: no `?ctx` appears in the call.  A keyword cannot
+  collide with a binding either, since those are keyed by the `?`-symbols the goal
   spells.
 
   Pass a **variable** context instead and the witness really is a binding — it unifies into
@@ -136,7 +135,7 @@
   - a **variable** — `?ctx`, `?home`, whatever the caller spelled — names somewhere to put
     the answer, so the witness *unifies* into it.  Already bound to a different context by
     the goal itself, the answer is dropped rather than overwritten: that is what unifying
-    means, and overwriting is what made the old wildcard join report a context chosen by
+    means, and overwriting is what has the plain wildcard join report a context chosen by
     whichever literal the plan happened to order last.
   - **`CxInference`**, a constant, names no variable at all, so there is nothing to bind
     and the witness goes beside the bindings under `witness-key`.
@@ -145,9 +144,9 @@
   above decides where the witness lands in it: a **binding** goes inside `:bindings`, where
   a caller reading that key will find it, and `witness-key` stays beside them — it is a
   side channel by construction, and a third top-level key is what it is for.  Assoc'ed at
-  the top either way, a variable witness was invisible to `(:bindings answer)` and its
-  unify check read a key that is never there, so an already-bound `?ctx` stopped being
-  honoured under `:proof?` alone."
+  the top either way, a variable witness is invisible to `(:bindings answer)` and its unify
+  check reads a key that is never there, so an already-bound `?ctx` would go unhonoured
+  under `:proof?` alone."
   [witness]
   (if (sx/variable? witness)
     (fn [b w]
@@ -171,10 +170,10 @@
 
   **Shared by both strategies, and that is the point.** Maximality is a property of a
   *binding* — of every context that answers it, however many derivations got there — not of
-  one derivation. Post-hoc maximized per derivation and so reported one binding twice, at a
-  reader and at a reader below it, where an equality merge had migrated a twin into both.
-  Computing the witness in one place is what stops the two strategies from disagreeing about
-  a rule neither of them is really free to choose.
+  one derivation. Maximize per derivation instead and post-hoc reports one binding twice,
+  at a reader and at a reader below it, wherever an equality merge migrated a twin into
+  both. Computing the witness in one place is what stops the two strategies from disagreeing
+  about a rule neither of them is really free to choose.
 
   **This is where a read stops being lazy**, and it cannot be otherwise: which witness is
   maximal is not knowable until every reader has been asked.
@@ -331,7 +330,7 @@
   `(hound_t ?x)` is answered by a stored `(pup_t Rex)` over `(genl pup_t hound_t)`, and a
   reader that sees the fact but not that edge does not have the answer. Recording the
   fact's context alone would place the answer wherever the fact is visible, which is how
-  post-hoc came to report an answer from `CxA` that no reader of the KB actually has.
+  post-hoc reports an answer from `CxA` that no reader of the KB actually has.
 
   This is `chain/subsumption-support` asked backwards, and deliberately the same call:
   a forward firing feeds these supporters' contexts to the placement beside the rule's and
@@ -345,7 +344,7 @@
              ;; the global closure is the gate, exactly as it is forward: a functor pair
              ;; the closure does not relate was matched by something else (a variable
              ;; functor, say) and has no path to witness
-             (contains? (tax/genls tax stored-functor) goal-functor))
+             (contains? (tax/genls-global tax stored-functor) goal-functor))
     (tax/reach-support tax :genl stored-functor goal-functor nil)))
 
 (defn- join-carrying-contexts

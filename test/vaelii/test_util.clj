@@ -54,7 +54,7 @@
 ;; is a default that drifts, and a captured one cannot.
 
 (def sweeps
-  "The five configurations `scripts/test-sweeps.sh` runs, as data: the environment
+  "The six configurations `scripts/test-sweeps.sh` runs, as data: the environment
   variable that selects each, and the vars whose root it replaces.  `test_util_test`
   holds the spellings against `scripts/lib/suite-configs.sh`, so a sweep added to that
   table without a row here fails — and the row is where its vars are named, which is what
@@ -66,6 +66,7 @@
   [{:env "VAELII_TEST_TMS"       :vars []}
    {:env "VAELII_RETE"           :vars ['vaelii.impl.chain/*matcher*]}
    {:env "VAELII_HIER"           :vars ['vaelii.impl.resolution/*hierarchical-retrieval*]}
+   {:env "VAELII_PLAN"           :vars ['vaelii.impl.plan/*enabled*]}
    {:env "VAELII_QUERY_ENGINE"   :vars ['vaelii.core/*query-engine*
                                         'vaelii.impl.inference/*max-depth*]}
    {:env "VAELII_QUERY_STRATEGY" :vars ['vaelii.core/*query-options*]}])
@@ -84,8 +85,7 @@
   ['vaelii.impl.resolution/*arg-root-retrieval*
    'vaelii.impl.resolution/*structural-index*
    'vaelii.impl.resolution/*lead-side*
-   'vaelii.impl.sentex/*min-indexed-depth*
-   'vaelii.impl.plan/*enabled*])
+   'vaelii.impl.sentex/*min-indexed-depth*])
 
 (def shipped-defaults
   "`{var -> root}` for every var the two rosters name, read before the switches below
@@ -108,6 +108,43 @@
   `(with-shipped-config (binding [res/*lead-side* :scoped] …))`."
   [& body]
   `(with-shipped-config* (fn [] ~@body)))
+
+(defn pinning
+  "A `:each` fixture binding just the named vars back to the roots the engine SHIPS,
+  whatever switch the run installed — the surgical half of `with-shipped-config`, for a
+  file that answers FOR one implementation and so must keep answering for it under the
+  sweep that replaces it.  `plan_test` measures which order the planner chooses, a
+  question `VAELII_PLAN=0` deletes rather than reorders.
+
+  One rather than all, deliberately: `with-shipped-config` would also take the file off
+  the node engine, the alternative matcher and the reference retrieval, and a file that
+  stops running under five sweeps to answer for one has traded a stand-aside for a
+  larger one.  Pinning is what a file does INSTEAD of standing aside — the assertion
+  count is identical under every configuration, which is what `config_expected_delta`
+  reads.
+
+  Every var must be one `shipped-defaults` rosters: an unrostered var is a pin that
+  binds nil, which installs a third reader rather than the shipped one."
+  [vars]
+  (let [pins (into {}
+                   (map (fn [vr]
+                          (when-not (contains? shipped-defaults vr)
+                            (throw (ex-info (str vr " is not a rostered switch — name it in "
+                                                 "`sweeps` or `read-path-vars` before pinning it")
+                                            {:type :unrostered-pin :var vr})))
+                          [vr (get shipped-defaults vr)]))
+                   vars)]
+    (fn [f] (with-bindings* pins f))))
+
+(defmacro with-pinned
+  "`pinning` around one test rather than a namespace's fixture, for a file the sweep
+  should keep running everywhere else.  Prefer it: a fixture pins every test in the
+  file, and a file loses a sweep it was passing under to answer for one test that was
+  not.
+
+    (tu/with-pinned [#'plan/*enabled*] …)"
+  [vars & body]
+  `((pinning ~vars) (fn [] ~@body)))
 
 ;; Run the *whole* suite through the incremental forward-chaining matcher
 ;; (`vaelii.impl.rete`) rather than the reference `chain` when `VAELII_RETE` is set.
@@ -182,6 +219,24 @@
   (alter-var-root (requiring-resolve 'vaelii.impl.resolution/*hierarchical-retrieval*)
                   (constantly false)))
 
+;; `VAELII_PLAN=0` runs a conjunction's generators in the order they were written — the
+;; cost ranking off, the readiness discipline still on — which is the ranking's own claim
+;; put to the whole suite: ranking is a cost decision and must never change the answer
+;; *set* (`vaelii.impl.plan/*enabled*`).  `plan_test` makes that claim over every
+;; permutation of one conjunction; this makes it over every conjunction the suite runs,
+;; the same shape `VAELII_HIER` takes for retrieval.
+;;
+;; **The claim does not hold unqualified, and the sweep is what established that.**  Six
+;; tests pin the ranking back rather than stand aside, because in each the ranking is
+;; what supplies an answer: a registered evaluatable's placement, where the event
+;; calculus stops, and — the one that is not about a single query — the completeness of
+;; incremental forward chaining over a prover extent that grows.  docs/inference.md,
+;; "Where the ranking is load-bearing", carries all three with their witnesses.
+;;
+;; Spelled positively for `VAELII_HIER`'s reason — the value says what it selects.
+(when-not (config/prop-bool "VAELII_PLAN" true)
+  (alter-var-root (requiring-resolve 'vaelii.impl.plan/*enabled*) (constantly false)))
+
 ;; ---- KBs on the scratch databases ---------------------------------------
 ;;
 ;; The suite owns a **block of two** db numbers, named by its top:
@@ -212,7 +267,7 @@
     15))
 
 ;; The storage the whole suite runs on.  `:memory` (default) keeps everything in RAM
-;; with no external dependency; `VAELII_TEST_BACKEND=disk` runs every test against the
+;; with no external dependency; `VAELII_TEST_BACKEND=disk-log` runs every test against the
 ;; on-disk stores (the durability parity gate).  Either way the db number names a shared
 ;; store, so the block/isolated split and `fresh`'s clear behave identically.
 ;;
@@ -650,11 +705,6 @@
       ;; namespace runs next
       (try (binding [*kb* kb] (f))
            (finally (clear-kb! kb))))))
-
-(defn with-fresh
-  "A `:once` fixture binding an empty cleared KB.  Pair with `neutral`."
-  []
-  (loaded (fn [_])))
 
 (defn neutral
   "An `:each` fixture guarding net-neutrality of the KB bound by a `:once` fixture.

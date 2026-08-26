@@ -11,9 +11,10 @@
   dinner; two things each very close to a third are not far apart.  The engine gets
   there by composing base relations through an algebra's table and tightening the
   network to a fixpoint, and the point of writing them this way is that the answers are
-  checkable by anybody, table or no table.
+  checkable by anybody, table or no table.  The sign arithmetic at the end is the same
+  shape without a table: a tub fills while the tap beats the drain.
 
-  All eight reasoners are registered on the fixture KB.  A network is a property of the
+  All ten reasoners are registered on the fixture KB.  A network is a property of the
   stored facts either way — `possible-relations` and `qualitative-network` read it
   whether or not a prover is registered — but `ask?` is what a caller actually writes,
   and that needs the calculus in the registry."
@@ -26,7 +27,7 @@
                                  (starter/load-into kb)
                                  (v/add-reasoner kb :rcc8 :allen :point :cardinal
                                                  :relative :distance :duration
-                                                 :metric-time))))
+                                                 :metric-time :sign :calendar))))
 (use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
@@ -218,3 +219,57 @@
     (testing "and checked against the way a person would write it"
       (is (v/ask? kb (list 'temporalDistance Dawn Dusk '(QuantityFn 12 Hour)) C))
       (is (not (v/ask? kb (list 'temporalDistance Dawn Dusk '(QuantityFn 11 Hour)) C))))))
+
+;; ---- the calendar: what a date already says ------------------------------
+
+(tu/deftest-kb march-is-inside-the-millennium-and-february-runs-into-it
+  ;; Nobody states anything at all here.  A year, a month and a day carry their own
+  ;; extent in their fields, so where they sit relative to one another is arithmetic —
+  ;; and the moments they lie between are computed the same way, half-open, so the end
+  ;; of one is the start of the next.
+  (testing "a month is inside its year, and the first and last share an end with it"
+    (is (v/ask? kb '(during (MonthFn 2000 3) (YearFn 2000)) C))
+    (is (v/ask? kb '(starts (MonthFn 2000 1) (YearFn 2000)) C))
+    (is (v/ask? kb '(finishes (MonthFn 2000 12) (YearFn 2000)) C))
+    (is (v/ask? kb '(subintervalOf (DayFn 2000 3 15) (YearFn 2000)) C)))
+  (testing "consecutive terms touch, so they meet — before wants a gap, and there is none"
+    (is (v/ask? kb '(meets (MonthFn 2000 2) (MonthFn 2000 3)) C))
+    (is (v/ask? kb '(precedes (YearFn 1999) (YearFn 2000)) C))
+    (is (not (v/ask? kb '(before (YearFn 1999) (YearFn 2000)) C)))
+    (is (v/ask? kb '(before (YearFn 1999) (YearFn 2001)) C)))
+  (testing "and the moment the year turns has one name, whichever side you ask from"
+    (is (= (get (tu/sole-answer (v/ask kb '(endOf (YearFn 1999) ?i) C)) '?i)
+           (get (tu/sole-answer (v/ask kb '(startOf (YearFn 2000) ?i) C)) '?i)
+           '(InstantFn 2000 1 1 0 0 0)))
+    (is (v/ask? kb '(instantBefore (InstantFn 2000 1 1 0 0 0)
+                                   (InstantFn 2000 3 1 0 0 0)) C))))
+
+;; ---- signs: which way a quantity is going -------------------------------
+
+(tu/deftest-kb the-tub-fills-while-the-tap-runs-faster-than-the-drain
+  ;; No numbers anywhere.  Two flows with a sign apiece, a sum, and the one comparison
+  ;; that decides which of the two wins — which is how anybody would say it, and the
+  ;; only thing about a tub a person actually knows.
+  (tu/with-terms [Tap Drain NetFlow WaterLevel]
+    (state! kb (list 'signOf Tap 'SignPositive)
+            (list 'signOf Drain 'SignNegative)
+            (list 'qualitativeSum Tap Drain NetFlow)
+            (list 'derivativeOf NetFlow WaterLevel))
+    (testing "without the comparison the net flow could go either way, and the KB
+              declines all three answers rather than picking one"
+      (is (empty? (v/ask kb (list 'signOf NetFlow '?s) C)))
+      (is (empty? (v/ask kb (list 'trendOf WaterLevel '?s) C))))
+    (testing "the tap runs faster than the drain, so the tub fills"
+      (state! kb (list 'greaterInMagnitudeThan Tap Drain))
+      (is (v/ask? kb (list 'signOf NetFlow 'SignPositive) C))
+      (is (v/ask? kb (list 'trendOf WaterLevel 'SignPositive) C)))))
+
+(tu/deftest-kb a-cooling-bodys-temperature-falls
+  ;; One edge and one sign: a rate known negative makes the quantity it is the rate of
+  ;; fall, and the KB will also say outright that it is not rising — the three values
+  ;; being exhaustive, ruling two out proves the third.
+  (tu/with-terms [HeatLoss BodyTemperature]
+    (state! kb (list 'derivativeOf HeatLoss BodyTemperature)
+            (list 'signOf HeatLoss 'SignNegative))
+    (is (v/ask? kb (list 'trendOf BodyTemperature 'SignNegative) C))
+    (is (v/ask? kb (list 'not (list 'trendOf BodyTemperature 'SignPositive)) C))))

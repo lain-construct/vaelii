@@ -37,13 +37,21 @@
   (atom nil))
 
 (defn install!
-  "Register the add/remove observers (called by `rete` when it engages)."
+  "Register the add/remove observers (called by `rete` when it engages).
+
+  Two atoms written in two steps, which is sound because both ends of the pair belong to
+  the writer: `rete/engage!` and `rete/disengage!` are the only callers, and the only
+  readers are `notify-add` / `notify-remove` at the store's own choke points and the
+  `installed?` those two callers gate on — all of them on the writing thread, under the
+  single-writer contract (docs/storage.md).  Nothing beside the writer can land between
+  the two."
   [add-fn remove-fn]
   (reset! on-add add-fn)
   (reset! on-remove remove-fn))
 
 (defn uninstall!
-  "Clear the observers, so the store choke points go back to doing nothing extra."
+  "Clear the observers, so the store choke points go back to doing nothing extra.
+  `install!`'s pair, written in two steps for `install!`'s reason."
   []
   (reset! on-add nil)
   (reset! on-remove nil))
@@ -330,9 +338,9 @@
 
   Counted here rather than inferred from outside.  `misses` is the walk's real cost —
   neighbour sets built, one store retrieval each — and the only alternative is to
-  intercept `res/matches-visible` and guess which of its calls were the walk's, which is
-  what the tests here used to do: by the `?rv` the walk's own patterns carry, a heuristic
-  that cannot separate a walk's probe from a `FactProver` lookup of the same predicate.
+  intercept `res/matches-visible` and guess which of its calls are the walk's by the
+  `?rv` its patterns carry, a heuristic that cannot separate a walk's probe from a
+  `FactProver` lookup of the same predicate.
   A counter on the memo answers the question the caches page asks anyway (`:hit-rate` on
   the `:closure-neighbours` row) and the question a test asks, in the same number.
 

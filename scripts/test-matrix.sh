@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
-# scripts/test-matrix.sh — every configuration at once: the eight storage backends and
-# the five sweeps, concurrently, with one JVM each.
+# scripts/test-matrix.sh — several configurations at once: the eight storage backends
+# and the six sweeps, concurrently, with one JVM each.
 #
-# ~13 minutes where `test-backends.sh` and `test-sweeps.sh` in sequence take ~55.  Same
-# thirteen runs, same verdicts; what changes is that the box runs more than one of them
-# at a time.  **This is the one to run before landing a change that owes the matrix** —
-# a change touching storage, the index, records, recovery or overlay (the backend half),
-# or inference, the TMS or context retrieval (the sweep half).  The two single-axis
-# scripts remain, and are what to reach for when you want one axis, one config, or a
-# readable per-run wall time.
+# Minutes where `test-backends.sh` and `test-sweeps.sh` in sequence take an hour.  Same
+# runs, same verdicts; what changes is that the box runs more than one of them at a
+# time.  **This is the one to run before landing a change that owes the matrix** — a
+# change touching storage, the index, records, recovery or overlay (the backend half),
+# or inference, the TMS, the planner or context retrieval (the sweep half).  The two
+# single-axis scripts remain, and are what to reach for when you want one axis, one
+# config, or a readable per-run wall time.
+#
+# RUN WHAT THE CHANGE OWES, NOT EVERYTHING.  `--owed` reads the changed files and runs
+# the configurations that could disagree about them, printing the classification as it
+# goes; `scripts/lib/suite-configs.sh` carries the map and the reason each row is what
+# it is.  A bare run is the ROUTINE roster — twelve of the fourteen, the two
+# durable-records-with-a-derived-index pairs that are a third copy of one claim sitting
+# out — and `full` is the fourteen, which is what a release runs and what a change to
+# the record/index seam itself owes.  Every run names what did not run, on the header
+# and again on the verdict.
 #
 # WHY CONCURRENT IS SAFE, given both of those scripts are sequential on purpose:
 #
@@ -20,18 +29,21 @@
 #     lock is never contended and the six-block `VAELII_TEST_SPACE` limit — which is
 #     about sharing one directory — never binds.
 #   - **No test asserts an elapsed-time bound.**  Contention costs wall clock and cannot
-#     cost a verdict, which is what makes thirteen suites on ten cores a scheduling
+#     cost a verdict, which is what makes a dozen suites on ten cores a scheduling
 #     question rather than a correctness one.
 #
 # WHAT IT COSTS.  A run's wall time here is a function of what else was running, so it
 # is not a measurement — read `lein perf` for those, and never while this is going.  The
-# per-namespace progress the single-axis scripts print is dropped too: thirteen
-# interleaved streams are not readable.  On a terminal you get instead a LIVE DASHBOARD
-# — one row per configuration, each a bar that fills as its suite reaches namespaces,
-# repainted in place; the bars are green until something fails and red after.  Off a
-# terminal (a pipe, a redirect, CI, `SUITE_PROGRESS=lines`) that would be cursor-motion
-# noise in a log, so those get the scrolling form: a line per configuration as it starts
-# and finishes, and a heartbeat naming how far each running config has got.
+# per-namespace progress the single-axis scripts print is dropped too: a dozen
+# interleaved streams are not readable.  On a terminal you get instead a LIVE DASHBOARD,
+# repainted in place, in which COMMAND LINES AND BARS ALTERNATE: a configuration that is
+# running shows the command that runs THAT configuration and nothing else, its log file
+# after the `#`, and then a bar on its own line filling as its suite reaches namespaces.
+# A bar shares its line with nothing, which is what keeps a frame inside the terminal's
+# width; the bars are green until something fails and red after.  Off a terminal (a pipe,
+# a redirect, CI, `SUITE_PROGRESS=lines`) that would be cursor-motion noise in a log, so
+# those get the scrolling form: a line per configuration as it starts and finishes, and a
+# heartbeat naming how far each running config has got.
 #
 # LONGEST FIRST.  Whoever starts last sets the finish, so the last thing to start has to
 # be the shortest thing there is: the durable four take ~10-12 minutes under a full box
@@ -48,15 +60,15 @@
 # `failures.tsv` whatever the console prints, and the console shrinks its shape as the
 # count grows: blocks under nine, a line each under thirty, a count past that.
 #
-# THE TREE MOVING UNDER IT.  Several agents write this checkout, and thirteen minutes is
-# long enough for two commits.  Every config records the revision it compiled, and the
+# THE TREE MOVING UNDER IT.  Several agents write this checkout, and a matrix is long
+# enough for two commits.  Every config records the revision it compiled, and the
 # report at the end says whether they all compiled the same one — and if not, lists the
 # commits that landed, marks the ones that touched `src/` or `test/`, and names which
 # configs are on which side.  **A red run under a commit you did not write is that
 # commit's to answer for.**  Report it, re-run that one config, and carry on; the matrix
 # is owed by whoever landed the change, not by whoever happened to be running it.  A
 # tree that was already dirty when the matrix started is the worse case and says so:
-# uncommitted work compiled into all thirteen runs, and the result answers for no commit
+# uncommitted work compiled into every run, and the result answers for no commit
 # at all.
 #
 # **Do not edit the tree while this is running**, and the revision a config compiled is
@@ -69,10 +81,14 @@
 # it cannot say what it cost.
 #
 # Usage:
-#   ./scripts/test-matrix.sh                  # all thirteen, :default
-#   ./scripts/test-matrix.sh :all             # ...with the ^:slow half — before a release
+#   ./scripts/test-matrix.sh                  # the routine roster, :default
+#   ./scripts/test-matrix.sh --owed           # only what the changed files owe
+#   ./scripts/test-matrix.sh --owed -n        # ...and print that set without running it
+#   ./scripts/test-matrix.sh full             # all fourteen — a release, or a seam change
+#   ./scripts/test-matrix.sh full :all        # ...with the ^:slow half — before a tag
+#   ./scripts/test-matrix.sh backends         # one axis (also: sweeps, routine, full)
+#   ./scripts/test-matrix.sh memory disk-log rete   # only these
 #   ./scripts/test-matrix.sh --jobs 4         # fewer at a time, on a box you are using
-#   ./scripts/test-matrix.sh memory disk rete # only these
 #   ./scripts/test-matrix.sh --keep           # keep each durable run's scratch directory
 #   ./scripts/test-matrix.sh --fail-fast      # launch nothing new once one has failed
 #
@@ -95,9 +111,10 @@
 #
 # ^C stops every running suite and then the script.
 #
-# Exit: 0 when all thirteen passed, 1 when one failed, 130 when interrupted.  A tree
+# Exit: 0 when every configuration run passed (and 0 with nothing run when `--owed`
+# finds nothing owed, which it says), 1 when one failed, 130 when interrupted.  A tree
 # that moved does not change the exit status — it is a fact about the runs, not a
-# verdict on them, and a green matrix across two revisions is still thirteen green runs.
+# verdict on them, and a green matrix across two revisions is still that many green runs.
 
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
@@ -120,19 +137,54 @@ esac
 # shellcheck source=scripts/lib/slots.sh
 . scripts/lib/slots.sh
 
-# The live dashboard — one repainted row per configuration, each a bar that fills as
-# its suite reaches namespaces — runs on a terminal.  A pipe, a redirect or CI gets
-# the scrolling heartbeat lines instead: a log wants those, and cursor motion painted
-# into one is noise.  `SUITE_PROGRESS=lines` forces the heartbeat on a terminal too.
+# The live dashboard — a repainted frame in which each configuration's command line and
+# its bar alternate — runs on a terminal.  A pipe, a redirect or CI gets the scrolling
+# heartbeat lines instead: a log wants those, and cursor motion painted into one is
+# noise.  `SUITE_PROGRESS=lines` forces the heartbeat on a terminal too.
 if (( IS_TTY )) && [[ "$PROGRESS" == marks ]]; then LIVE=1; else LIVE=0; fi
-# the bar's cell count, from the terminal width suite-marks measured (80 when it could
-# not), clamped so it neither crowds the counts beside it nor runs off a wide screen
+
+# ---- how wide, and how tall ---------------------------------------------------
+#
+# A BAR GETS ITS OWN LINE, alternating with the `command # log` line above it, and the
+# reason is arithmetic rather than taste.  **NO LINE MAY EXCEED `COLS`.**  A line that
+# does is two screen rows where the frame counts one, and the `\033[<n>A` that repaints
+# it then moves up one row short — every second, so the dashboard walks down the screen
+# leaving a trail of itself.  A bar sharing its line with a command and an absolute log
+# directory cannot be held under that bound: the directory alone runs to about fifty
+# columns and the command to eighteen, which leaves an 80-column terminal no room for a
+# bar at all.  So a bar shares its line with nothing, every line is clamped, and `BLOCK`
+# is counted from the rows actually painted rather than assumed.
+#
+# `BARW` is the COMPACT layout's bar — the one that does share its line, with a name and
+# a count of known width, so a constant is enough for it.  The alternating layout sizes
+# each bar from the text beside it instead (`bar_width`): the suffix there carries a
+# revision and a clock, and a constant that fits one frame is a constant that overflows
+# the next.
 BARW=$(( COLS - 46 )); (( BARW < 12 )) && BARW=12; (( BARW > 32 )) && BARW=32
+
+# How many cells are left for a bar once its indent and the text after it are spoken
+# for.  The suffix is ASCII — counts, a clock, a revision — so its length is its width,
+# which is exactly why the bar is sized from it and not the other way round.  The
+# leading `- 1` is the column of headroom a terminal that wraps ON the last cell needs.
+bar_width() {                                      # bar_width <indent> <suffix>
+  local w=$(( COLS - 1 - $1 - 2 - ${#2} ))
+  (( w < 12 )) && w=12
+  (( w > 56 )) && w=56
+  printf '%s' "$w"
+}
+
+# `ROWS` and `COLS` are suite-marks', measured off `/dev/tty` where there is one.  The
+# height settles one decision here: a frame taller than the terminal cannot be repainted
+# in place at all — it scrolls, and every cursor-up lands somewhere it did not mean to —
+# so `redraw` measures its frame against `ROWS` and falls back to the compact
+# one-line-per-configuration form rather than painting a broken one.
 
 SELECTOR=":default"
 JOBS="${MATRIX_JOBS:-}"
 KEEP=0
 FAIL_FAST=0
+OWED=0
+DRY=0
 HEARTBEAT="${MATRIX_HEARTBEAT:-60}"
 WANTED=()
 
@@ -143,23 +195,88 @@ while [[ $# -gt 0 ]]; do
     --jobs=*) JOBS="${1#*=}"; shift ;;
     --keep) KEEP=1; shift ;;
     --fail-fast) FAIL_FAST=1; shift ;;
+    --owed) OWED=1; shift ;;
+    -n|--dry-run) DRY=1; shift ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
     :all|:slow|:default) SELECTOR="$1"; shift ;;
     :*) echo "unknown selector $1 (:all, :slow, :default)" >&2; exit 2 ;;
     -*) echo "unknown flag $1 (try --help)" >&2; exit 2 ;;
-    *) config_kind "$1" >/dev/null \
-         || { echo "unknown configuration $1" >&2
-              echo "  backends: ${ALL_BACKENDS[*]}" >&2
-              echo "  sweeps:   ${ALL_SWEEPS[*]}" >&2; exit 2; }
-       WANTED+=("$1"); shift ;;
+    # a GROUP word first — `config_group` is the only thing that knows one, so a name
+    # in neither table is refused by the branch below rather than run as nothing
+    *) if config_group "$1" >/dev/null 2>&1 || config_kind "$1" >/dev/null; then
+         WANTED+=("$1")
+       else
+         echo "unknown configuration $1" >&2
+         echo "  backends: ${ALL_BACKENDS[*]}" >&2
+         echo "  sweeps:   ${ALL_SWEEPS[*]}" >&2
+         echo "  groups:   backends sweeps routine full" >&2
+         exit 2
+       fi
+       shift ;;
   esac
 done
 
-if [[ ${#WANTED[@]} -gt 0 ]]; then
-  CONFIGS=("${WANTED[@]}")
-else
-  CONFIGS=("${ALL_BACKENDS[@]}" "${ALL_SWEEPS[@]}")
+# ---- --owed: the configurations THIS working tree's changes owe ---------------
+#
+# Every changed file put to `config_owed_for_path` (scripts/lib/suite-configs.sh, which
+# carries the map and the reason each row is what it is), and the union run.  Changed
+# means: uncommitted, untracked, and — when the branch has an upstream — every commit
+# not yet on it, since a matrix is owed by the change and not by whether it is committed
+# yet.
+#
+# The classification is PRINTED, one line per file that owes something, because a floor
+# somebody cannot see is a floor they cannot correct: a file whose row is wrong is
+# visible here and nowhere else.  Files owing nothing are a count, not a column.
+owed_changed_paths() {
+  { git diff --name-only HEAD
+    git ls-files --others --exclude-standard
+    local up
+    up=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) \
+      && git diff --name-only "$up...HEAD"
+  } 2>/dev/null | sort -u
+}
+
+if (( OWED )); then
+  quiet=0
+  while IFS= read -r path; do
+    [[ -n "$path" ]] || continue
+    got=$(config_owed_for_path "$path")
+    if [[ -n "$got" ]]; then
+      printf '  %s%-44s%s %s\n' "$DIM" "$path" "$OFF" "$got"
+      # deliberately unquoted: a row is a space-separated list of names and groups
+      # shellcheck disable=SC2206
+      WANTED+=($got)
+    else
+      quiet=$((quiet + 1))
+    fi
+  done < <(owed_changed_paths)
+  (( quiet > 0 )) && echo "  ${DIM}${quiet} other changed file(s) owe no configuration${OFF}"
+  if [[ ${#WANTED[@]} -eq 0 ]]; then
+    echo "${GREEN}these changes owe the matrix no configuration${OFF}" \
+         "${DIM}— nothing here swaps a store or an implementation, so \`lein gate\` is the gate${OFF}"
+    exit 0
+  fi
 fi
+
+# A bare run is the ROUTINE roster, not every configuration: `routine` in
+# scripts/lib/suite-configs.sh says which two sit out and why, and the header below
+# names them every time, because a roster that quietly shrank is a matrix that means
+# less than the word does.
+if [[ ${#WANTED[@]} -eq 0 ]]; then WANTED=(routine); fi
+CONFIGS=()
+while IFS= read -r c; do CONFIGS+=("$c"); done < <(expand_configs "${WANTED[@]}")
+[[ ${#CONFIGS[@]} -gt 0 ]] || { echo "no configurations selected" >&2; exit 2; }
+
+# What is NOT running, in the full roster's order — read once here and printed with the
+# header and again with the verdict.  Uniform across every way of choosing: a bare run,
+# a group, `--owed` and a hand-named list all answer the same question the same way.
+SAT_OUT=()
+for c in "${ALL_BACKENDS[@]}" "${ALL_SWEEPS[@]}"; do
+  running=0
+  for r in "${CONFIGS[@]}"; do [[ "$c" == "$r" ]] && { running=1; break; }; done
+  (( running )) || SAT_OUT+=("$c")
+done
+ROSTER_TOTAL=$(( ${#ALL_BACKENDS[@]} + ${#ALL_SWEEPS[@]} ))
 
 # LONGEST FIRST, which is what decides the finish.  A slot count under the configuration
 # count means somebody starts in a second wave, and whoever starts last sets the wall
@@ -204,6 +321,20 @@ CONFIGS=("${ORDERED[@]}")
 [[ -z "$JOBS" ]] && JOBS=$(default_slots)
 [[ $JOBS -gt ${#CONFIGS[@]} ]] && JOBS=${#CONFIGS[@]}
 
+# `-n` prints the plan and runs nothing — what `--owed` selected, in the order it would
+# start them, at the slot count it would use.  A matrix is minutes to an hour, so the
+# question "is this the right set?" wants an answer before it, not after.
+if (( DRY )); then
+  echo "${BOLD}${#CONFIGS[@]} of $ROSTER_TOTAL configuration(s), $JOBS at a time${OFF}" \
+       "${DIM}$SELECTOR${OFF}"
+  [[ ${#SAT_OUT[@]} -gt 0 ]] && echo "${DIM}not run: ${SAT_OUT[*]}${OFF}"
+  echo "${DIM}longest first:${OFF}"
+  for c in "${CONFIGS[@]}"; do
+    printf '  %-16s %s%s%s\n' "$c" "$DIM" "env $(config_env "$c") lein test $SELECTOR" "$OFF"
+  done
+  exit 0
+fi
+
 # Keep a generous tail of past run directories and never delete a recent one.  Nothing
 # pruned before — a stray `lein clean` did the deleting instead, and took live runs with it
 # (their logs live under target/ no longer, see MATRIX_ROOT above).  Delete only a run dir
@@ -247,6 +378,34 @@ FAILED=()
 n=${#CONFIGS[@]}
 state=(); pid=(); pgid=(); rev=(); logf=(); startt=(); secs=(); diskd=(); fin=()
 for ((i = 0; i < n; i++)); do state[i]=queued; pid[i]=0; pgid[i]=0; secs[i]=0; diskd[i]=""; fin[i]=""; done
+
+# ---- the per-row reproducer ---------------------------------------------------
+#
+# What each dashboard row is labelled with: the command that runs THAT configuration
+# and nothing else.  A row's name alone answers "which one is slow"; the command
+# answers the question a red row actually raises, which is "how do I run just this
+# again", and it is the same question the header's `lein lint` / `lein test` lines are
+# there to answer for the matrix as a whole.
+#
+# `lein test-matrix <cfg>` rather than the env-prefixed `lein test` it expands to.  Both
+# run the one configuration; only this one fits — the tactician row's environment is two
+# assignments and 84 columns before a log path is appended, and a label that wraps is the
+# defect this layout exists to fix.  It is also the spelling the docs teach.
+row_cmd() {                                        # row_cmd <config>
+  if [[ "$SELECTOR" == ":default" ]]; then printf 'lein test-matrix %s' "$1"
+  else printf 'lein test-matrix %s %s' "$1" "$SELECTOR"; fi
+}
+
+# One label column for every row including the header's, so the `#` comments line up
+# down the whole frame.  Measured rather than guessed: which configurations run is
+# decided at runtime, and `--owed` can pick any subset of names of any length.
+CMD_W=$(( ${#SELECTOR} + 11 ))                     # `lein test <selector>`
+rcmd=()
+for ((i = 0; i < n; i++)); do
+  rcmd[i]=$(row_cmd "${CONFIGS[i]}")               # once, not once a second: `redraw`
+  (( ${#rcmd[i]} > CMD_W )) && CMD_W=${#rcmd[i]}   # repaints at 1 Hz and a command
+done                                               # substitution there is a fork a row
+(( CMD_W > COLS - 24 )) && CMD_W=$(( COLS - 24 ))  # a narrow terminal wins the argument
 
 # shellcheck disable=SC2317,SC2329  # invoked from the INT/TERM trap below
 stop_all() {
@@ -323,7 +482,7 @@ launch() {                                         # launch <index>
   startt[i]=$SECONDS
   # revision, then the command verbatim: two lines at the top of every log, so the one
   # config that went red is reproducible by copying its second line.  The console cannot
-  # carry it — thirteen launches with a `-Dvaelii.disk.dir=…` each is not a readable
+  # carry it — a dozen launches with a `-Dvaelii.disk.dir=…` each is not a readable
   # column — and the log is where somebody debugging that config is already looking.
   revision_stamp "$cfg" > "$log"
   printf '# env %s lein test %s\n' "${envv[*]}" "$SELECTOR" >> "$log"
@@ -413,6 +572,58 @@ bar() {                                            # bar <reached> <total> <widt
 }
 
 BLOCK=0                                            # rows painted last time; 0 = not yet
+
+# One painted line.  Every line of a frame goes through here, for the two things a
+# repaint needs and a bare `printf` does not: the old content of the row is cleared
+# first (a short line must not leave the tail of a longer one behind it), and the row
+# is COUNTED — `BLOCK` is what the next frame moves the cursor up by, and a frame that
+# guesses its own height is a frame that walks down the screen.
+#
+# Reached through dynamic scope, so `rows` is `redraw`'s local; `ns_lines` in
+# suite-marks.sh takes the same shape for the same reason.
+paint() { printf '\033[K%s\n' "$1"; rows=$((rows + 1)); }
+
+# `…/tail`, never `head…`.  What a path's last components say — which run, which
+# configuration — is the whole of what the reader wants from it; the `/Users/…` in front
+# is what they already know, and a right-truncation keeps exactly that and drops the
+# rest.
+elide() {                                          # elide <text> <room>
+  local tail
+  (( ${#1} <= $2 )) && { printf '%s' "$1"; return; }
+  tail="${1: -$(($2 - 1))}"
+  # cut back to a separator when there is one, so the elision lands between components
+  # rather than inside a name: `…/vaelii/logs/run-48213`, not `…ull/vaelii/logs/…`
+  [[ "$tail" == */* ]] && tail="/${tail#*/}"
+  printf '…%s' "$tail"
+}
+
+# The same for text whose HEAD is the informative end — a run summary, where the counts
+# come first.  Marked, because `154418 assertion` is a number of assertions and a lie,
+# where `154418 assertion…` is a column that ran out of room.
+clip() {                                           # clip <text> <room>
+  (( ${#1} <= $2 )) && { printf '%s' "$1"; return; }
+  printf '%s…' "${1:0:$(($2 - 1))}"
+}
+
+# Pad to a column width in CHARACTERS.  `printf`'s `%-*.*s` counts BYTES, and the two
+# functions above end their work with a three-byte `…`: a precision lands mid-glyph and
+# emits half of it, and a width counts it as three columns and pads two short.  So no
+# padded field in this frame goes through `printf`'s width — `clip` and `elide` have
+# already bounded the text, and this pads it the way they measured it.
+pad() {                                            # pad <text> <width>
+  (( ${#1} >= $2 )) && { printf '%s' "$1"; return; }
+  printf '%s%*s' "$1" $(( $2 - ${#1} )) ""
+}
+
+# A `<command>  # <comment>` label row, clamped to the terminal.  The command sits in
+# the measured column so every `#` in the frame lines up, and the comment is elided
+# rather than allowed to wrap — this is the row whose overflow broke the repaint.
+label() {                                          # label <lead> <command> <comment>
+  local room=$(( COLS - 1 - 4 - CMD_W - 4 ))
+  (( room < 8 )) && room=8
+  printf '%s %s%s  # %s%s' "$1" "$DIM" "$(pad "$2" "$CMD_W")" "$(elide "$3" "$room")" "$OFF"
+}
+
 redraw() {
   (( LIVE )) || return 0
   # up over the block painted last time, so this paint lands on top of it rather than
@@ -421,7 +632,7 @@ redraw() {
   # green until something fails, then red — the bars carry the matrix's verdict-so-far,
   # not just each run's progress
   local barcol="$GREEN"; (( ${#FAILED[@]} > 0 )) && barcol="$RED"
-  local i cfg run=0 donec=0 q=0 reached=0
+  local i cfg run=0 donec=0 q=0 reached=0 rows=0 tall extra sfx room
   local -a rv=()
   # One poll per config, read by both the aggregate bar and its own row, so a running
   # config's log is grepped once a paint rather than twice.  A finished config counts as
@@ -434,53 +645,116 @@ redraw() {
     esac
     reached=$((reached + rv[i]))
   done
-  # the whole matrix as one filling bar — the header's `lein test` line, animated: every
-  # namespace of every configuration is a cell, so it advances even while a row is mid-run
-  printf '\033[K  %s%-19s%s %s  %s# %s%s\n' \
-    "$DIM" "lein test $SELECTOR" "$OFF" \
-    "$(bar "$reached" "$((n * RUN_NS_COUNT))" "$BARW" "$barcol")" \
-    "$DIM" "$ABS_OUT_DIR" "$OFF"
+
+  # WHETHER THE ALTERNATING FRAME FITS.  Two lines per running configuration, one for
+  # every other, plus the aggregate pair and the footer.  A frame taller than the
+  # terminal cannot be repainted in place — the terminal scrolls out from under the
+  # cursor arithmetic — so when it does not fit, the bar lines are dropped and the
+  # compact row carries its bar inline, which is what this dashboard was before.  The
+  # fallback is chosen per frame: a matrix whose last runs are finishing shrinks back
+  # into the alternating form on its own.
+  tall=$(( 3 + n + run ))
+  local alt=1; (( tall > ROWS - 2 )) && alt=0
+
+  # THE MATRIX AS ONE BAR, under its own reproducer.  Every namespace of every
+  # configuration is a cell, so it advances even while a row is mid-run.
+  if (( alt )); then
+    paint "$(label "   " "lein test $SELECTOR" "$ABS_OUT_DIR")"
+    sfx=$(printf '%d/%d  %s' "$reached" "$((n * RUN_NS_COUNT))" "$(hms $((SECONDS - T0)))")
+    paint "$(printf '    %s  %s%s%s' \
+      "$(bar "$reached" "$((n * RUN_NS_COUNT))" "$(bar_width 4 "$sfx")" "$barcol")" \
+      "$DIM" "$sfx" "$OFF")"
+  else
+    paint "$(printf '  %s%-*s%s %s' "$DIM" "$CMD_W" "lein test $SELECTOR" "$OFF" \
+      "$(bar "$reached" "$((n * RUN_NS_COUNT))" "$BARW" "$barcol")")"
+  fi
+
   for ((i = 0; i < n; i++)); do
     cfg="${CONFIGS[i]}"
-    printf '\033[K'                                # clear the line's old content first
     case "${state[i]}" in
       running)
-        printf '  %s⋯%s %-16s %s %s/%s  %s%s %s%s\n' \
-          "$DIM" "$OFF" "$cfg" "$(bar "${rv[i]}" "$RUN_NS_COUNT" "$BARW" "$barcol")" \
-          "${rv[i]}" "$RUN_NS_COUNT" "$DIM" "$(hms $((SECONDS - startt[i])))" "${rev[i]}" "$OFF" ;;
-      passed)
-        printf '  %s %-16s %-44.44s %s%s %s%s\n' \
-          "$TICK" "$cfg" "${fin[i]}" "$DIM" "$(hms "${secs[i]}")" "${rev[i]}" "$OFF" ;;
-      failed)
-        printf '  %s %-16s %-44.44s %s%s %s%s\n' \
-          "$CROSS" "$cfg" "${fin[i]}" "$DIM" "$(hms "${secs[i]}")" "${rev[i]}" "$OFF" ;;
+        if (( alt )); then
+          # the row's own two lines: what to type to run it, where its log is, and then
+          # the bar with nothing else on the line to push it off the edge
+          paint "$(label "  ${DIM}⋯${OFF}" "${rcmd[i]}" "${logf[i]##*/}")"
+          sfx=$(printf '%s/%s  %s %s' "${rv[i]}" "$RUN_NS_COUNT" \
+                       "$(hms $((SECONDS - startt[i])))" "${rev[i]}")
+          paint "$(printf '    %s  %s%s%s' \
+            "$(bar "${rv[i]}" "$RUN_NS_COUNT" "$(bar_width 4 "$sfx")" "$barcol")" \
+            "$DIM" "$sfx" "$OFF")"
+        else
+          paint "$(printf '  %s⋯%s %-16.16s %s %s/%s  %s%s %s%s' \
+            "$DIM" "$OFF" "$cfg" "$(bar "${rv[i]}" "$RUN_NS_COUNT" "$BARW" "$barcol")" \
+            "${rv[i]}" "$RUN_NS_COUNT" "$DIM" "$(hms $((SECONDS - startt[i])))" \
+            "${rev[i]}" "$OFF")"
+        fi ;;
+      passed|failed)
+        # one line: a finished row has no bar to alternate with, and its summary is the
+        # answer its command was asked for
+        local m="$TICK"; [[ "${state[i]}" == failed ]] && m="$CROSS"
+        if (( alt )); then
+          sfx=$(printf '%s %s' "$(hms "${secs[i]}")" "${rev[i]}")
+          room=$(( COLS - 1 - 4 - CMD_W - 2 - ${#sfx} ))
+          (( room < 8 )) && room=8
+          (( room > 34 )) && room=34                # a wide terminal is not a reason to
+                                                    # stretch a summary across it
+          paint "$(printf '  %s %s%s%s %s %s%s%s' \
+            "$m" "$DIM" "$(pad "${rcmd[i]}" "$CMD_W")" "$OFF" \
+            "$(pad "$(clip "${fin[i]}" "$room")" "$room")" "$DIM" "$sfx" "$OFF")"
+        else
+          paint "$(printf '  %s %-16.16s %-44.44s %s%s %s%s' \
+            "$m" "$cfg" "${fin[i]}" "$DIM" "$(hms "${secs[i]}")" "${rev[i]}" "$OFF")"
+        fi ;;
       *)
-        printf '  %s·%s %-16s %squeued%s\n' "$DIM" "$OFF" "$cfg" "$DIM" "$OFF" ;;
+        # `queued` and `skipped` both land here and they are not the same news.
+        # `--fail-fast` sets `skipped` on everything after the failure, and a frame
+        # spelling that `queued` says work is still coming when the run has stopped —
+        # the closing frame is the one a reader keeps, and it would be the lie.  The
+        # summary below already distinguishes them; this makes the frame agree with it.
+        local w="queued"; [[ "${state[i]}" == skipped ]] && w="never started"
+        if (( alt )); then
+          paint "$(printf '  %s·%s %s%-*s%s %s%s%s' \
+            "$DIM" "$OFF" "$DIM" "$CMD_W" "${rcmd[i]}" "$OFF" "$DIM" "$w" "$OFF")"
+        else
+          paint "$(printf '  %s·%s %-16.16s %s%s%s' "$DIM" "$OFF" "$cfg" "$DIM" "$w" "$OFF")"
+        fi ;;
     esac
   done
-  printf '\033[K  %s%d running · %d done · %d queued        %s elapsed%s\n' \
-    "$DIM" "$run" "$donec" "$q" "$(hms $((SECONDS - T0)))" "$OFF"
-  BLOCK=$(( n + 2 ))
+  paint "$(printf '  %s%d running · %d done · %d queued        %s elapsed%s' \
+    "$DIM" "$run" "$donec" "$q" "$(hms $((SECONDS - T0)))" "$OFF")"
+
+  # A frame shrinks when a running row finishes and loses its bar line, leaving the
+  # screen rows below this one still holding the previous frame's text.  Blank them, then
+  # come back up, so the next frame moves over what is actually there.
+  extra=$(( BLOCK - rows ))
+  if (( extra > 0 )); then
+    for ((i = 0; i < extra; i++)); do printf '\033[K\n'; done
+    printf '\033[%dA' "$extra"
+  fi
+  BLOCK=$rows
 }
 
 START_REV=$(revision_hash)
 START_DIRTY=$(revision_dirty)
 T0=$SECONDS
 
-echo "${BOLD}running ${n} configuration(s), $JOBS at a time${OFF}" \
+echo "${BOLD}running ${n} of $ROSTER_TOTAL configuration(s), $JOBS at a time${OFF}" \
      "${DIM}$SELECTOR — $RUN_NS_COUNT of $NS_COUNT namespaces${OFF}"
+if [[ ${#SAT_OUT[@]} -gt 0 ]]; then
+  echo "${DIM}not run: ${SAT_OUT[*]} — \`full\` runs all $ROSTER_TOTAL${OFF}"
+fi
 echo "${DIM}at $(revision_line)${OFF}"
 # The two commands this stands in for, as pasteable reproducers: the `lint` you still owe
 # by hand (the matrix does not run it), and the `test` run itself — its `#` carries the
 # run's log directory, absolute so it pastes from anywhere.  Under a live terminal the
 # test line is repainted as a filling bar by `redraw`; without one it is this static line.
-printf '  %s%-19s # static analysis (run it by hand)%s\n' "$DIM" "lein lint" "$OFF"
-(( LIVE )) || printf '  %s%-19s # %s%s\n' "$DIM" "lein test $SELECTOR" "$ABS_OUT_DIR" "$OFF"
+printf '    %s%-*s  # static analysis (run it by hand)%s\n' "$DIM" "$CMD_W" "lein lint" "$OFF"
+(( LIVE )) || printf '    %s%-*s  # %s%s\n' "$DIM" "$CMD_W" "lein test $SELECTOR" "$ABS_OUT_DIR" "$OFF"
 if [[ "${START_DIRTY:-0}" -gt 0 ]]; then
   echo "  ${RED}⚠${OFF} ${DIM}src/ or test/ is dirty: every run below compiles that"
   echo "     uncommitted work, so this matrix answers for no commit${OFF}"
 fi
-# One suite is one core for minutes; thirteen beside somebody else's is a slower
+# One suite is one core for minutes; a dozen beside somebody else's is a slower
 # everything.  A warning and not a refusal — sharing the box is normal here.
 if pgrep -f 'lein test|vaelii\.bench' >/dev/null 2>&1; then
   echo "  ${RED}⚠${OFF} ${DIM}a suite or bench JVM is already running in this checkout;" \
@@ -592,8 +866,8 @@ echo
 # ---- failures by test --------------------------------------------------------
 # The question a red matrix asks second, after "whose commit is this": is it the SUITE's
 # answer, or a difference between configurations?  Naming the failing namespace per run
-# cannot answer it — the same namespace under thirteen runs is thirteen lines that all
-# say the same word, and reading thirteen logs by hand is what this script exists to
+# cannot answer it — the same namespace under a dozen runs is a dozen lines that all
+# say the same word, and reading a dozen logs by hand is what this script exists to
 # replace.  A test that failed under every run that finished is the suite's answer at
 # this revision; one that failed under only some is a difference between them, and the
 # runs it did NOT fail under are the finding.
@@ -690,13 +964,21 @@ fi
 skipped=0
 for ((i = 0; i < n; i++)); do [[ "${state[i]}" == skipped ]] && skipped=$((skipped + 1)); done
 if [[ ${#FAILED[@]} -eq 0 && $skipped -eq 0 ]]; then
-  echo "${GREEN}${BOLD}all $n configurations green${OFF} ${DIM}in $(hms $ELAPSED) ($OUT_DIR/)${OFF}"
+  # the roster is part of the verdict, not a footnote to it: "all green" over a subset
+  # is a different sentence from "all green" over the fourteen, and this is the line
+  # that gets quoted into a commit message
+  if [[ ${#SAT_OUT[@]} -gt 0 ]]; then
+    echo "${GREEN}${BOLD}all $n of $ROSTER_TOTAL configurations green${OFF}" \
+         "${DIM}in $(hms $ELAPSED) — not run: ${SAT_OUT[*]} ($OUT_DIR/)${OFF}"
+  else
+    echo "${GREEN}${BOLD}all $n configurations green${OFF} ${DIM}in $(hms $ELAPSED) ($OUT_DIR/)${OFF}"
+  fi
 else
   echo "${RED}${BOLD}${#FAILED[@]} of $n failed:${OFF} ${FAILED[*]}" \
        "${DIM}in $(hms $ELAPSED)${OFF}"
   (( skipped > 0 )) && echo "  ${DIM}$skipped never started (--fail-fast)${OFF}"
   # one path each while that is a short list, the directory once when it is not: a
-  # thirteen-line column of near-identical paths is the part of a report people skip
+  # dozen-line column of near-identical paths is the part of a report people skip
   if [[ ${#FAILED[@]} -le 5 ]]; then
     for c in "${FAILED[@]}"; do echo "  ${DIM}$(log_for "$c")${OFF}"; done
   else
@@ -709,8 +991,8 @@ fi
 # that all pass have still told you nothing if one of them ran four hundred fewer
 # assertions than the rest: a namespace that failed to load, a `deftest` that stood aside
 # without saying so, a gate that inherited a switch and measured nothing.  Every one of
-# those is green.  `config_expected_delta` carries the two stand-asides that are real and
-# says why; anything else is reported here.
+# those is green.  `config_expected_delta` expects no shortfall anywhere and says why no
+# configuration stands aside; any shortfall is reported here.
 #
 # Only for a matrix that finished clean.  An error aborts the rest of its namespace, so a
 # red run is short by an amount that means nothing, and saying so beside the failure it
@@ -733,8 +1015,8 @@ if [[ ${#FAILED[@]} -eq 0 ]]; then
         echo "${BOLD}assertion counts: a run did not run what the others ran${OFF}"
         echo "$delta_report"
         echo "  ${DIM}Every run here passed, so this is not a failing test — it is a test that"
-        echo "  did not run.  Either find what the short run skipped, or, if a stand-aside was"
-        echo "  added on purpose, put it in config_expected_delta with its reason.${OFF}"
+        echo "  did not run.  Find what the short run skipped — or, where an artifact really"
+        echo "  is one implementation's, assert that configuration's own expectation.${OFF}"
         deltas_bad=1
       fi
     else

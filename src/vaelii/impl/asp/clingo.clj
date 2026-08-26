@@ -13,7 +13,7 @@
    The four modes map to clingo configuration passed as command-line arguments
    to clingo_control_new (clingo accepts clasp's flags): --opt-mode=optN so
    brave/cautious enumerate over optimal models only, --enum-mode=brave|cautious,
-   --models=0|1. Shown atoms come back as the s/c/a label strings vaelii emits
+   --models=0|1. Shown atoms come back as the s/c label strings vaelii emits
    via ASPIF type-4 show statements; the lexicographic cost vector comes from
    clingo_model_cost.
 
@@ -51,8 +51,12 @@
   (try (when-let [p (cp "clingo_error_message")] (.getString p 0)) (catch Throwable _ nil)))
 
 (defn- chk! [what r]
-  (when (zero? r) (throw (ex-info (str "clingo " what " failed: " (clingo-error))
-                                  {:type :solver-failed :op what})))
+  (when (zero? r)
+    (throw (ex-info (str "clingo " what " failed: "
+                         (or (clingo-error) "libclingo set no error message")
+                         " — the library is " (pr-str *clingo-lib*)
+                         ", named by the vaelii.clingo.lib system property")
+                    {:type :solver-failed :op what})))
   r)
 
 (defn- cstr ^Memory [s]
@@ -84,7 +88,7 @@
       (.getString buf 0))))
 
 (defn- model-symbols
-  "The shown symbols of model `m` — the s/c/a label strings vaelii emits as ASPIF
+  "The shown symbols of model `m` — the s/c label strings vaelii emits as ASPIF
    type-4 show statements — read back as strings."
   [m]
   (let [sz (LongByReference.)]
@@ -242,7 +246,8 @@
 
 (defn- mode-args-or-throw [mode]
   (or (mode-args mode)
-      (throw (ex-info (str "unknown clingo mode: " mode)
+      (throw (ex-info (str "unknown clingo mode: " (pr-str mode) " — want one of "
+                           (pr-str (vec (sort (keys mode-args)))))
                       {:type :unknown-option :mode mode :valid (keys mode-args)}))))
 
 (defn- finalize

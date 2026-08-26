@@ -57,6 +57,19 @@
 ;;   context     the context symbol it holds in
 ;;   id          the integer handle, nil until the record store assigns one
 ;;   truth       :true | :false        (a `(not S)` becomes S at :false)
+;;
+;;               **Literal polarity, and not belief.**  `:true` says the sentence
+;;               asserts rather than denies; whether the KB *holds* it is `jtms/in?`,
+;;               which reads a handle and never this slot.  A sentex at `:false` that
+;;               the JTMS believes is a believed negative fact, and one at `:true` that
+;;               it does not is a defeated positive — the two axes are independent, and
+;;               reading this one as belief is the mistake the name invites.
+;;
+;;               The key is a **durable and wire name**, which is why it is this one:
+;;               a dump frame is `(into {} record)` (`io/export`), the daemon projects
+;;               every record the same way (`serve/wire-safe`), and `core/sentexes-matching`
+;;               documents the map keys as the stable contract.  Renaming the field
+;;               renames the key in all three.
 ;;   strength    :monotonic | :default | nil    (the assumption strength when the
 ;;               sentex is asserted as a premise; nil for a purely-derived one)
 ;;
@@ -74,7 +87,9 @@
 ;;   direction   :forward | :backward | :both | :inert   (from its set/*Rule wrapper;
 ;;               :both for a bare implies)
 ;;   defeasible  true | nil             (a set/defaultRule rule: its conclusions are
-;;               defeasible and fire in the defaults phase)
+;;               defeasible and fire from the one agenda like any other rule's;
+;;               `settle` decides which of them survive a clash, from recomputed
+;;               belief — docs/defenses.md)
 ;;   assumption  true | nil             (a set/assumptionRule: the rule's head is a
 ;;               *choice* for a solve, not a derived truth.  It never forward-chains
 ;;               into belief; a solve grounds it (docs/solving.md).  It is part of the
@@ -322,6 +337,96 @@
   than folded into the rule record (see `exceptWhen-meta`)."
   'exceptWhen)
 
+(def strength-wrapper
+  "`(set/monotonic S)` — `S` asserted **known-true**.  In the `set/` namespace with the
+  rule wrappers above and for their reason: it states how the sentence is *asserted*
+  rather than anything the sentence says, and never reaches the store as a functor.
+
+  Two doors read it, in two positions.  The **text KB format**
+  (`vaelii.impl.io.text`) reads it around a whole form and hands `assert` a
+  `{:strength :monotonic}`.  **`assert` itself** reads it around an `exceptWhen`'s
+  *query*, where it states the **exception's** own class — the one thing an `opts`
+  cannot say, since one `opts` reaches both halves of an `exceptWhen`
+  (`peel-exception-strength`)."
+  'set/monotonic)
+
+(defn- strength-wrapped
+  "`[wrapped]` when `form` is a `(set/monotonic X)`, `::malformed` when it is one written
+  with the wrong number of arguments, nil when it is not one at all.
+
+  Three answers rather than two, because the middle one has to be refused rather than
+  passed through: a bare `(set/monotonic)` handed on would reach the naming checks as a
+  literal whose functor is a namespace-qualified symbol, and be refused there for the
+  wrong reason.  A vector, so a legitimately falsy wrapped form is still a hit."
+  [form]
+  (when (and (sequential? form) (seq form) (= strength-wrapper (first form)))
+    (if (= 2 (count form)) [(second form)] ::malformed)))
+
+(defn- walk-exception-strength
+  "`[form monotonic? problem]` — `form` with a `(set/monotonic …)` taken off every
+  `exceptWhen` query on its wrapper spine, whether one was there, and the `:shape`
+  problem a malformed one is refused with.
+
+  One walk answering three questions, because `check` wants the problem and `assert`
+  wants the peeled form, and a second traversal is a second reading of the spine to keep
+  in step.  Two `exceptWhen`s written together conjoin into **one** meta-sentex, so a
+  wrapper on either query says the whole exception is known-true."
+  [form]
+  (if (and (sequential? form) (seq form))
+    (let [h (first form)]
+      (cond
+        (and (= h except-wrapper) (= 3 (count form)))
+        (let [q     (second form)
+              w     (strength-wrapped q)
+              bad?  (= ::malformed w)
+              mono? (vector? w)
+              [inner inner-mono? inner-problem] (walk-exception-strength (nth form 2))]
+          [(list except-wrapper (if mono? (first w) q) inner)
+           (or mono? inner-mono?)
+           (or (when bad?
+                 {:type :shape :sentence form
+                  :message (str "(" strength-wrapper " …) on an exceptWhen query wraps"
+                                " exactly one query, got " (dec (count q)) ": "
+                                (pr-str q))})
+               inner-problem)])
+
+        (or (= h default-rule-wrapper)
+            (= h assumption-rule-wrapper)
+            (contains? constraint-rule-wrappers h)
+            (contains? rule-direction-wrappers h))
+        (let [[inner mono? problem] (walk-exception-strength (second form))]
+          [(list h inner) mono? problem])
+
+        :else [form false nil]))
+    [form false nil]))
+
+(defn exception-strength-problem
+  "The `:shape` problem a malformed strength wrapper on an `exceptWhen` query is refused
+  with, or nil.  A value for `check`, and the `ex-info` `peel-exception-strength` throws
+  — so the two doors refuse the same input in the same words, differing only in the
+  delivery."
+  [form]
+  (nth (walk-exception-strength form) 2))
+
+(defn peel-exception-strength
+  "`[sentence monotonic?]` — `sentence` with the strength wrapper taken off its
+  `exceptWhen` query, and the class that wrapper stated for the **exception alone**.
+
+  `assert` passes one `opts` to both halves of an `(exceptWhen Q R)`: the rule is stored
+  at that strength and so is the meta-sentex carrying `Q`.  That says everything for
+  three of the four rule×exception pairings and cannot say the fourth — a known-true
+  exception on a default rule — which is what this reads instead.  Nothing below the
+  assert door sees the wrapper: the split, the naming checks and the store all read the
+  sentence they always did.
+
+  **Untouched when there is none**, rather than rebuilt identically, so a sentence with
+  no wrapper is the object it arrived as."
+  [sentence]
+  (let [[peeled mono? problem] (walk-exception-strength sentence)]
+    (when problem
+      (throw (ex-info (:message problem) (dissoc problem :message))))
+    (if mono? [peeled true] [sentence false])))
+
 (defn exception-conjuncts
   "Normalize an `exceptWhen` query to its one internal shape — a vector of literals,
   *all* of which must hold.  A conjunction is written as a vector, the way
@@ -344,7 +449,11 @@
   ;; `_` is an anonymous wildcard: two occurrences are two *different* variables, so
   ;; an antecedent can never bind one for the exception to read.
   (when-let [w (seq (filter #(= '_ %) (mapcat form-vars exception)))]
-    (throw (ex-info "exception uses the anonymous wildcard _, which binds nothing"
+    (throw (ex-info (str "exception " (pr-str (vec exception)) " uses the anonymous"
+                         " wildcard _, which binds nothing — two occurrences of _ are two"
+                         " different variables, so no antecedent can bind one for the"
+                         " exception to read.  Name the variable and bind it in an"
+                         " antecedent")
                     {:type :exception-not-closed :unbound (vec w)
                      :exception (vec exception) :antecedents (vec antecedents)})))
   (let [bound (into #{} (mapcat form-vars) antecedents)
@@ -380,6 +489,7 @@
 (def not-functor  'not)
 (def rule-functor 'implies)
 (def and-functor  'and)
+(def or-functor   'or)
 (def ist-functor  'ist)
 (def dot-marker   '.)
 
@@ -499,8 +609,8 @@
 
 (defn implies?
   "Is `form` a rule form `(implies <ante> <conseq>)`?  Arity checked: an `implies` at
-  any other arity is never read as a rule — `rule-consequent` is an `nth`, and an
-  arity-4 form read as a rule silently dropped its tail.  `connective-problems`
+  any other arity is never read as a rule — `rule-consequent` is an `nth`, so an
+  arity-4 form read as a rule would silently drop its tail.  `connective-problems`
   refuses the malformed form at both doors before this question is asked."
   [form]
   (and (sequential? form) (= rule-functor (first form)) (= 3 (count form))))
@@ -525,6 +635,38 @@
   "The consequent pattern of a rule form."
   [form]
   (nth form 2))
+
+;; ---- disjunction: the connective that never reaches the record ----------
+;; `or` is the one structural connective with **no** slot of its own.  A rule whose
+;; antecedent disjoins is polycanonicalized into one rule per alternative
+;; (`rules/expand-antecedent`), exactly as a conjunctive consequent is split into one
+;; rule per conjunct — so by the time anything is canonicalized, indexed or stored, the
+;; `or` is gone and each alternative is an ordinary rule.  Nothing downstream of the
+;; assert door has to know the connective exists.  See docs/canonicalization.md.
+
+(defn disjunction?
+  "Is `form` a disjunction `(or <alternative> ...)`?  Arity is *not* checked here — an
+  empty `(or)` is a disjunction that no alternative satisfies, and naming it as one is
+  what lets `rules/disjunction-problems` refuse it by that name."
+  [form]
+  (and (sequential? form) (seq form) (= or-functor (first form))))
+
+(defn disjuncts
+  "The alternatives a disjunction offers."
+  [form]
+  (vec (rest form)))
+
+(defn rule-sentence
+  "Build the rule form from antecedent patterns + a consequent pattern — a single
+  antecedent needs no `and`.  This is the spelling the constructor *stores* (it
+  rebuilds the sentence from the canonical antecedents below), so it is the one
+  builder: `rules/rule-sentence` delegates here, so a rule reaches the constructor
+  in exactly one surface spelling rather than two that only canonicalization
+  converges."
+  [antes conseq]
+  (list rule-functor
+        (if (= 1 (count antes)) (first antes) (apply list and-functor antes))
+        conseq))
 
 ;; ---- aggregation: counting what the KB believes --------------------------
 ;; `(agg/count ?n ?v <body>)` and its four siblings are the third member of the
@@ -666,6 +808,24 @@
   [form]
   (and (sequential? form) (= there-exists-functor (first form)) (= 3 (count form))))
 
+(defn conjunction?
+  "Is `form` an `(and …)` conjunction?"
+  [form]
+  (and (sequential? form) (= and-functor (first form))))
+
+(defn conjuncts
+  "`form`'s conjunct literals — an `(and …)` **flattened all the way down**, anything
+  else as a one-element vector.
+
+  Flattened because a nested `and` is not a goal any prover claims: left as one conjunct
+  it would be handed to the registry, come back unanswerable, and read as *not
+  derivable*.  Conjunction is associative, so flattening is the reading rather than a
+  normalization of it.  An `(and)` yields no conjuncts, which is the shape
+  `check-naf-closed` refuses rather than a shape anything evaluates."
+  [form]
+  (letfn [(flat [q] (if (conjunction? q) (mapcat flat (rest q)) [q]))]
+    (vec (flat form))))
+
 (defn naf-query-conjuncts
   "The conjunct literals an `(unknown …)` antecedent's query is evaluated as — the
   inner `(and …)` unwrapped, a single literal as a one-element vector.  The `unknown`
@@ -673,26 +833,24 @@
   `exceptWhen` inlined per literal, so its query is a closed conjunction evaluated
   block-if-**all**-hold, and one evaluator (`provers/exception-holds?`) answers both.
 
-  Closure is what makes the flat reading correct: every variable is bound before the
-  query runs (`check-naf-closed`), so the conjuncts share nothing after substitution
-  and each is an independent ground existence check.  A conjunction under a
-  *quantifier* would not be — that is a join, and `check-naf-closed` refuses it.
-
-  **Flattened all the way down**, because a nested `and` is not a goal any prover
-  claims: left as one conjunct it would be handed to the registry, come back
-  unanswerable, and read as *not derivable* — so the whole conjunction would never hold
-  and the antecedent would guard nothing.  Conjunction is associative, so flattening is
-  the reading rather than a normalization of it."
+  The conjunction is **joined**, left to right in a planned order, so a conjunct may
+  read what an earlier one bound: that is what makes `(unknown (thereExists ?c (and
+  (childOf Tom ?c) (sick ?c))))` mean what it says, one witness satisfying both
+  conjuncts (docs/naf.md).  Closure is still enforced — every variable is either bound
+  before the query runs or bound by a quantifier *inside* it (`check-naf-closed`)."
   [unk]
-  (letfn [(flat [q]
-            (if (and (sequential? q) (= and-functor (first q)))
-              (mapcat flat (rest q))
-              [q]))]
-    (vec (flat (second unk)))))
+  (conjuncts (second unk)))
+
+(def forall-functor 'forall)
+
+(defn forall?
+  "Is `form` a `(forall <var-or-vars> (implies Body Head))` universal?"
+  [form]
+  (and (sequential? form) (= forall-functor (first form)) (= 3 (count form))))
 
 (defn quantified-vars
-  "The variables a `thereExists` binder introduces, as a set — its second element is a
-  single variable or a *sequence* of them.  A written vector `[?x ?y]` is accepted, but
+  "The variables a `thereExists` or `forall` binder introduces, as a set — its second
+  element is a single variable or a *sequence* of them.  A written vector `[?x ?y]` is accepted, but
   so is the list `(?x ?y)` it becomes once `canon` / variable numbering / goal rewriting
   have normalized every sequential to a `PersistentList` — so this must not key on
   `vector?`, or a binder would silently stop binding the moment the form was
@@ -734,16 +892,17 @@
 
 (defn free-vars
   "The variables of `form` that must be **bound** before it can be evaluated — every
-  variable it mentions, *minus* any bound by a `thereExists` quantifier within it.
-  `unknown` is transparent (it binds nothing), a `thereExists` subtracts its binder,
-  and every other form contributes all of its variables.  This is what the closure
+  variable it mentions, *minus* any bound by a quantifier within it.
+  `unknown` is transparent (it binds nothing), a `thereExists` and a `forall` each
+  subtract their binder, and every other form contributes all of its variables.  This is what the closure
   check and the planner read for a NAF literal instead of the raw variable set: the
   point of `(unknown (thereExists ?x (parentOf ?x Tom)))` is that `?x` is *not* one
   of the variables an antecedent has to supply."
   [form]
   (cond
     (unknown? form)      (free-vars (second form))
-    (there-exists? form) (into #{} (remove (quantified-vars form)) (free-vars (nth form 2)))
+    (or (there-exists? form) (forall? form))
+    (into #{} (remove (quantified-vars form)) (free-vars (nth form 2)))
     ;; an aggregate subtracts **both** of its own slots: `?v` is projected out (the
     ;; quantifier reading, as for `thereExists`) and `?n` is the operator's *output*,
     ;; so neither is a variable an earlier antecedent has to supply
@@ -796,6 +955,28 @@
     (or (unknown? g) (aggregate? g)) (free-vars g)
     :else (into #{} (mapcat form-vars) (drop (get deferred-output-arity (first g) 0) (rest g)))))
 
+(defn census-bound-vars
+  "The variables an aggregate's census `body` binds **for itself** — what its generator
+  conjuncts match, plus what its computed conjuncts write.
+
+  A census body is a joined conjunction (`provers/conjunction-solutions`), so it is a
+  little query with its own scope: `(agg/sum ?n ?a (and (childOf Bob ?c) (ageOf ?c ?a)))`
+  sums the ages of Bob's children, and `?c` is the join between the two conjuncts rather
+  than a group the caller has to supply.  This is the set that says so — the reduction
+  variable is in it, and so is every variable the body can reach a witness for.
+
+  An inner `thereExists` binder is **not**: `free-vars` subtracts it and the existential
+  projects it out, so it binds nothing the rest of the body can read.  Read at two
+  places, which is why it is one function: the assert-time census check refuses a local
+  variable that is not in it, and `provers/AggregateProver` claims a goal only when every
+  variable still free in it is."
+  [body]
+  (let [cs       (conjuncts body)
+        computed (fn [c] (or (unknown? c) (deferred-literal? c)))]
+    (into (into #{} (mapcat free-vars) (remove computed cs))
+          (mapcat deferred-output-vars)
+          (filter computed cs))))
+
 (defn there-exists-antecedent?
   "A *standalone* positive `thereExists` antecedent — one not wrapped in `unknown`.
   These desugar to their body (the quantifier's variable becoming a local matched
@@ -810,9 +991,97 @@
   nothing else — so `S` alone is the faithful, native reading, and it needs no special
   matcher: it joins the store like any generator, one witness per solution.  A
   `thereExists` under `unknown` is a NAF query, evaluated by the prover, and is not
-  touched here."
+  touched here.
+
+  A **conjunctive** body is spliced in as that many antecedents, which is the same
+  reading one step further: the binder's variable is shared across the conjuncts, and
+  antecedents sharing a variable are exactly the join that gives them one witness.  So
+  `(thereExists ?y (and (parentOf ?x ?y) (sick ?y)))` becomes the two-generator body a
+  reader would have written by hand."
   [antes]
-  (mapv (fn [a] (if (there-exists-antecedent? a) (nth a 2) a)) antes))
+  (into [] (mapcat (fn [a] (if (there-exists-antecedent? a) (conjuncts (nth a 2)) [a]))) antes))
+
+(defn- unproducible-inputs
+  "The **quantified** variables a NAF query's computed conjuncts read and no generator
+  conjunct of the same query produces.
+
+  A joined query runs its conjuncts in a planned order, generators first, so a computed
+  conjunct — a nested `(unknown …)`, an evaluable, an aggregate — reads what a generator
+  bound.  A quantifier's own variable has no other source: nothing outside can bind it
+  (that is what the quantifier is for), so a query whose only mention of `?y` is inside
+  a computed conjunct can never run that conjunct, and would answer *not derivable*
+  whatever the KB holds.  Variables the quantifier does **not** bind are the outer
+  closure check's business (`free-vars` counts them), so only the quantified ones are
+  read here.
+
+  Recursive, because a nested query is a query: the inner `unknown` of a `forall`
+  desugar carries its own conjunction and its own binder.  The aggregate's half of the
+  same rule is `check-naf-closed`'s census check, which reads `census-bound-vars`: there
+  the binder is the operator's own `?v` slot rather than a `thereExists`."
+  [q]
+  (let [body     (if (there-exists? q) (nth q 2) q)
+        cs       (conjuncts body)
+        qs       (if (there-exists? q) (quantified-vars q) #{})
+        computed (fn [c] (or (unknown? c) (deferred-literal? c)))
+        gen-vars (into #{} (mapcat var-occurrences) (remove computed cs))]
+    (concat (mapcat (fn [c] (filter #(and (qs %) (not (gen-vars %))) (deferred-input-vars c)))
+                    (filter computed cs))
+            (mapcat #(unproducible-inputs (second %)) (filter unknown? cs)))))
+
+(defn desugar-forall-literal
+  "The nested NAF an antecedent `(forall ?y (implies Body Head))` **is**:
+
+      (forall ?y (implies Body Head))
+      => (unknown (thereExists ?y (and Body… (unknown Head))))
+
+  ∀?y (Body ⇒ Head) is ¬∃?y (Body ∧ ¬Head), and in a closed world ¬ is `unknown` — so
+  the universal is two negations around the existential the engine already answers.
+  Nothing new evaluates it: the outer `unknown` is a NAF query, its conjunction is
+  joined (`provers/conjunction-solutions`), and the inner `unknown` is a conjunct like
+  any other, reached once the generators of the same query have bound `?y`.
+
+  A conjunctive `Body` contributes that many conjuncts, so the join sees the generators
+  the author wrote.  `Head` is left whole — an `(and …)` head is one nested `unknown`
+  over a conjunction, which is again a query the join answers.
+
+  The **binder is local**, as every quantifier's is: `?y` may not appear outside the
+  `forall` (`check-naf-closed`'s `:quantifier-not-local`), and every other variable in
+  the body must be bound by an antecedent outside it (`:naf-not-closed`).  The
+  desugared form is what the checks read and what `canonical-sentex` shows — the sugar
+  exists at the door and nowhere past it.
+
+  A `forall` whose second argument is not an `(implies …)` is refused: there is nothing
+  to negate the consequent of, and a universal over a bare literal is a claim about every
+  term in the domain rather than a guard."
+  [form]
+  (let [inner (nth form 2)]
+    (when-not (implies? inner)
+      (throw (ex-info (str "forall quantifies " (pr-str inner)
+                           ", which is not an (implies Body Head) — a universal is a"
+                           " guard over the bindings its body produces, so it needs a"
+                           " body to range over and a head to hold of them")
+                      {:type :not-well-formed :forall form})))
+    (list unknown-functor
+          (list there-exists-functor (second form)
+                (apply list and-functor
+                       (conj (vec (rule-antecedents inner))
+                             (list unknown-functor (rule-consequent inner))))))))
+
+(defn desugar-forall-rule
+  "`rule-form` with every `(forall …)` antecedent replaced by the nested NAF it is
+  (`desugar-forall-literal`), or the form unchanged when it carries none.
+
+  Applied at both doors a rule reaches — the sentex constructor and `rules/inner-rule`,
+  which every pre-storage check reads through — so range restriction, closure, the
+  quantifier locality rule and the stratification graph all see the NAF form rather than
+  the sugar.  A stored rule never holds a `forall`, so the gate is a `some` that
+  allocates nothing and this is the identity on it."
+  [rule-form]
+  (let [antes (rule-antecedents rule-form)]
+    (if-not (some forall? antes)
+      rule-form
+      (rule-sentence (mapv #(if (forall? %) (desugar-forall-literal %) %) antes)
+                     (rule-consequent rule-form)))))
 
 (defn check-naf-closed
   "Throw unless a rule's negation-as-failure antecedents are usable — the mirror of
@@ -828,12 +1097,21 @@
   * **Every quantifier is local.**  A `thereExists` bound variable appears *nowhere*
     in the rule outside its own `thereExists` literal, so it cannot leak into the
     consequent (a range-restriction hole) or capture another literal's variable (a
-    silent misjoin).  Both read as working code, so both are refused here.
+    silent misjoin).  Both read as working code, so both are refused here.  Locality is
+    what makes a quantified *conjunction* readable: the binder is shared by the
+    conjuncts of one query and by nothing else, which is exactly the scope the join
+    needs (`unproducible-inputs` holds the other half — a quantified variable some
+    generator conjunct of the same query has to produce).
   * **An aggregate is closed and its reduction variable is local.**  Same two rules,
     for the same two reasons: `(agg/count ?n ?v (ancestorOf ?v ?x))` groups by
     `?x`, so `?x` must be bound or the census is of the whole relation, and
     `?v` is projected out, so a `?v` in the consequent would be a range-restriction
     hole that `range-problems` cannot see (it reads occurrences, and `?v` occurs).
+    A **conjunctive** census body is joined, exactly as a NAF query's is, so its
+    conjuncts share `?v` and a body variable the rule names nowhere else is the census's
+    own join rather than a group — bound by the body, not by an antecedent.  Every such
+    local variable must be one `census-bound-vars` reaches, `?v` above all, since the
+    join runs generators first and never reaches a conjunct that only reads it.
   * **The reduction slot holds a variable.**  `(agg/count ?n Ada Body)` reduces over
     nothing — no prover claims it, so the rule stores and can never fire, which is the
     one outcome worse than an error.
@@ -863,10 +1141,18 @@
         ;; with no quantifier never counts occurrences, and one with nothing that
         ;; consumes bindings never reads what its generators bind.
         rule-occ (delay (frequencies (var-occurrences scope)))
+        ;; "does this variable of `lit` reach the rest of the rule" — one occurrence
+        ;; count against the whole-rule one.  Locality reads it to refuse a leak; the
+        ;; aggregate reads it to tell a **group** variable (shared, so bound outside)
+        ;; from a **local** one (mentioned only here, so the census binds it itself).
+        escapes?
+        (fn [lit]
+          (let [local (frequencies (var-occurrences lit))]
+            (fn [v] (> (get @rule-occ v 0) (get local v 0)))))
         local-check
         (fn [lit vars kind]
-          (let [local (frequencies (var-occurrences lit))]
-            (when-let [leaked (seq (filter #(> (get @rule-occ % 0) (get local % 0)) vars))]
+          (let [escapes (escapes? lit)]
+            (when-let [leaked (seq (filter escapes vars))]
               (throw (ex-info (str (clojure.core/name kind) " variable " (pr-str (vec leaked))
                                    " escapes its quantifier — a bound existential"
                                    " variable must appear only inside its own "
@@ -874,8 +1160,8 @@
                               {:type :quantifier-not-local :leaked (vec leaked)
                                kind lit :antecedents (vec antes)})))))
         closed-check
-        (fn [lit bound kind]
-          (when-let [loose (seq (remove bound (deferred-input-vars lit)))]
+        (fn [lit vars bound kind]
+          (when-let [loose (seq (remove bound vars))]
             (throw (ex-info (str (clojure.core/name kind) " antecedent is not closed: "
                                  (pr-str (vec loose))
                                  " unbound by anything else in the rule — it"
@@ -883,32 +1169,44 @@
                                  " inputs must be bound first")
                             {:type :naf-not-closed :unbound (vec loose)
                              kind lit :antecedents (vec antes)}))))
-        quantified-body-check
-        ;; A conjunction is legal where every conjunct is *closed*, because closure is
-        ;; what makes it a set of independent ground checks rather than a join — and
-        ;; the level-6 registry, which answers one goal at a time, has no join.  Under a
-        ;; quantifier the conjuncts share the binder, so the flat reading would answer
-        ;; each from a different witness: "has a sick child" would hold of anyone with a
-        ;; child while anyone at all is sick.  Refused here rather than mis-evaluated.
-        (fn [lit body kind]
-          (when (and (sequential? body) (= and-functor (first body)))
-            (throw (ex-info (str (clojure.core/name kind) " quantifies a conjunction,"
-                                 " which needs a join to answer: its conjuncts share the"
-                                 " bound variable, and each is evaluated on its own."
-                                 "  Bind the witness with a generator antecedent instead")
-                            {:type :quantified-conjunction kind lit
-                             :antecedents (vec antes)}))))]
+        ;; What an aggregate needs from **outside**: its body's free variables, minus the
+        ;; ones the census is the only mention of.  A body variable the rest of the rule
+        ;; also names is the group — `(agg/count ?n ?a (ancestorOf ?a ?x))` beside a
+        ;; `(node ?x)` runs once per node — and must be bound before the aggregate runs.
+        ;; One the rule names nowhere else is the census body's own join variable, which
+        ;; the join binds itself and no antecedent could supply.
+        aggregate-inputs
+        (fn [ag] (filter (escapes? ag) (deferred-input-vars ag)))
+        census-check
+        ;; And the local ones have to be bindable.  A census body is **joined**
+        ;; (`provers/conjunction-solutions`), generators first, so a local variable only a
+        ;; *computed* conjunct reads — the reduction variable above all — is one the join
+        ;; can never reach a witness for, and the count would be of nothing whatever the
+        ;; KB holds.  The `unknown` half of the same rule is `unproducible-inputs`.
+        (fn [ag]
+          (let [body    (aggregate-body ag)
+                escapes (escapes? ag)
+                bound   (census-bound-vars body)]
+            (when-let [loose (seq (distinct (remove #(or (escapes %) (bound %))
+                                                    (free-vars body))))]
+              (throw (ex-info (str "aggregate census " (pr-str body) " reads "
+                                   (pr-str (vec loose))
+                                   ", which no conjunct of it binds and nothing outside"
+                                   " the aggregate names — a census variable is bound by"
+                                   " a generator conjunct of the body or by an earlier"
+                                   " antecedent, and this is neither")
+                              {:type :naf-not-closed :unbound (vec loose) :aggregate ag
+                               :antecedents (vec antes)})))))]
     ;; locality: each thereExists / aggregate binder occurs only within its own literal.
     ;; One walk for the two shapes — the rule is descended to *find* a quantifier, and
     ;; descending it twice to find two kinds of one costs what finding them does.
     (let [quantifiers (forms-where #(or (there-exists? %) (aggregate? %)) scope)]
       (doseq [te (filter there-exists? quantifiers)]
-        (local-check te (quantified-vars te) :thereExists)
-        (quantified-body-check te (nth te 2) :thereExists))
+        (local-check te (quantified-vars te) :thereExists))
       (doseq [ag (filter aggregate? quantifiers)]
-        (quantified-body-check ag (aggregate-body ag) :aggregate)
         (if-let [v (aggregate-value-var ag)]
-          (local-check ag #{v} :aggregate)
+          (do (local-check ag #{v} :aggregate)
+              (census-check ag))
           (throw (ex-info (str "aggregate reduces over " (pr-str (nth ag 2))
                                ", which is not a variable — the second slot names the"
                                " value being reduced, so a constant there reduces over"
@@ -922,6 +1220,17 @@
                              " conjunction, which nothing can make derivable — so the"
                              " unknown always holds and the antecedent guards nothing")
                         {:type :not-well-formed :unknown unk
+                         :antecedents (vec antes)})))
+      ;; ...and a joined conjunction runs its computed conjuncts after the generators
+      ;; that bind them, so a quantified variable no generator produces is a conjunct
+      ;; that can never run
+      (when-let [loose (seq (distinct (unproducible-inputs (second unk))))]
+        (throw (ex-info (str "unknown antecedent " (pr-str unk) " reads "
+                             (pr-str (vec loose))
+                             " in a computed conjunct that nothing in the query binds —"
+                             " a quantified variable is bound by a generator conjunct of"
+                             " the same query, and no other conjunct can supply it")
+                        {:type :naf-not-closed :unbound (vec loose) :unknown unk
                          :antecedents (vec antes)}))))
     ;; closure: every consuming literal's inputs are bound by the generators or by a
     ;; deferred literal written before it — so the scan is left to right, accumulating
@@ -935,9 +1244,14 @@
             matched    (into #{} (mapcat var-occurrences) generators)]
         (reduce (fn [bound a]
                   (if (or (unknown? a) (deferred-literal? a))
-                    (do (closed-check a bound (cond (unknown? a)   :unknown
-                                                    (aggregate? a) :aggregate
-                                                    :else          :deferred))
+                    (do (closed-check a
+                                      (if (aggregate? a)
+                                        (aggregate-inputs a)
+                                        (deferred-input-vars a))
+                                      bound
+                                      (cond (unknown? a)   :unknown
+                                            (aggregate? a) :aggregate
+                                            :else          :deferred))
                         (into bound (deferred-output-vars a)))
                     bound))
                 matched
@@ -1102,34 +1416,59 @@
   [form]
   (let [[p x y] form] (list p y x)))
 
+(defn- sort-conjunction
+  "One conjunction in canonical order: conjuncts sorted blind to variable names,
+  repeats dropped, a lone conjunct unwrapped.  Nil when there is nothing to rewrite
+  (the form is not a conjunction, or is the empty one `check-naf-closed` refuses —
+  rewriting that would erase the shape the diagnostic names)."
+  [body]
+  (when (conjunction? body)
+    (let [cs (vec (distinct (sort cmp-blind (conjuncts body))))]
+      (cond
+        (empty? cs)      nil
+        (= 1 (count cs)) (first cs)
+        :else            (apply list and-functor cs)))))
+
 (defn- sort-naf-conjuncts
-  "Put the conjuncts of an `(unknown (and …))` antecedent into canonical order and drop
-  repeats, so two spellings of one NAF condition are one rule.  The same claim
-  `sort-conjuncts` makes for an exceptWhen exception, and for the same reason: the
-  conjuncts are independent ground checks, so their written order is not their
-  identity.
+  "Put the conjuncts of an `(unknown (and …))` antecedent — or of the conjunction under
+  its `thereExists` — into canonical order and drop repeats, so two spellings of one NAF
+  condition are one rule.  The same claim `sort-conjuncts` makes for an exceptWhen
+  exception.
+
+  Order is not identity even though the query is **joined**: the join runs its conjuncts
+  in a planned order (`provers/conjunction-solutions`), generators before the computed
+  conjuncts that read them, so what the author wrote decides nothing the answer depends
+  on.
 
   Sorted **blind to variables**, unlike the exception's — an exception's conjuncts are
   aligned to the rule's canonical varmap before they are sorted (`vaelii.core`), while
   this runs on the surface literal, where the author's variable names are still what
   they wrote.
 
-  Nesting goes with the order: `naf-query-conjuncts` flattens, so a nested spelling and
-  the flat one store as the same rule, and a lone conjunct loses the `and` it never
-  needed.  An empty conjunction is left exactly as written for `check-naf-closed` to
-  refuse — rewriting it here would erase the shape the diagnostic names."
+  Nesting goes with the order: `conjuncts` flattens, so a nested spelling and the flat
+  one store as the same rule, and a lone conjunct loses the `and` it never needed."
   [form]
-  (if (and (unknown? form) (sequential? (second form))
-           (= and-functor (first (second form))))
-    (let [cs (vec (distinct (sort cmp-blind (naf-query-conjuncts form))))]
-      (cond
-        (empty? cs)      form
-        (= 1 (count cs)) (list unknown-functor (first cs))
-        :else            (list unknown-functor (apply list and-functor cs))))
-    form))
+  (if-not (unknown? form)
+    form
+    (let [q (second form)]
+      (if-let [sorted (sort-conjunction q)]
+        (list unknown-functor sorted)
+        (if-let [sorted (and (there-exists? q) (sort-conjunction (nth q 2)))]
+          (list unknown-functor (list there-exists-functor (second q) sorted))
+          form)))))
+
+(defn- elim-double-not
+  "Eliminate double negation from a literal: an even count of leading `not`s becomes the
+  bare body, an odd count one `not`.  The fact door does this through `peel-not`; the
+  rule door must too, or `(not (not (foo ?x)))` normalizes unchanged, keys under
+  `[:not not]` (`rules/antecedent-key`), and — since a stored fact canonicalizes that
+  key away to `(foo ?x)` — nothing ever triggers the rule, which is then silently inert."
+  [form]
+  (let [[truth body] (peel-not form)]
+    (if (= truth :false) (list 'not body) body)))
 
 (defn- normalize-literal [form symmetric?]
-  (-> form fold-comparison sort-naf-conjuncts (sort-symmetric-args symmetric?)))
+  (-> form elim-double-not fold-comparison sort-naf-conjuncts (sort-symmetric-args symmetric?)))
 
 ;; ---- chained comparisons collapse into one variable-arity literal -------
 
@@ -1431,18 +1770,6 @@
                 (if (or (nil? best) (neg? (cmp-render r best))) r best)))
             nil candidates)))
 
-(defn rule-sentence
-  "Build the rule form from antecedent patterns + a consequent pattern — a single
-  antecedent needs no `and`.  This is the spelling the constructor *stores* (it
-  rebuilds the sentence from the canonical antecedents below), so it is the one
-  builder: `rules/rule-sentence` delegates here, so a rule reaches the constructor
-  in exactly one surface spelling rather than two that only canonicalization
-  converges."
-  [antes conseq]
-  (list rule-functor
-        (if (= 1 (count antes)) (first antes) (apply list and-functor antes))
-        conseq))
-
 ;; ---- definitional collection relations -----------------------------------
 ;; `defnNecessary` / `defnSufficient` / `defnIff` tie a collection's membership to a
 ;; defining condition on the member, expanded into ordinary forward rules at assert
@@ -1527,7 +1854,8 @@
         [truth body]     (peel-not inner)
         rule?            (implies? body)]
     (if rule?
-      (let [antes0     (rule-antecedents body)
+      (let [body       (desugar-forall-rule body)     ; forall is nested NAF, at the door
+            antes0     (rule-antecedents body)
             conseq-raw (rule-consequent body)
             ;; a head existential `(exists ?y C)` stores as its inner `C`: the marked
             ;; variable survives as an ordinary unbound consequent variable that
@@ -1539,7 +1867,9 @@
         ;; assert layer splits it off first and stores it as a meta-sentex (`vaelii.core`),
         ;; so a pure construction of a wrapped rule stores the bare rule alone.  NAF
         ;; antecedents still must be closed and their `thereExists` quantifiers local
-        ;; before canonicalization.
+        ;; before canonicalization — and a `forall` is desugared into the nested NAF it
+        ;; is before any of that runs, so the sugar exists at the door and nowhere past
+        ;; it (`desugar-forall-rule`).
         (check-naf-closed antes0 conseq0 nil)
         (let [antes1 (desugar-there-exists antes0)      ; standalone thereExists -> body
               [antes conseq varmap]
@@ -1639,9 +1969,9 @@
   stored:
 
   * a structural connective at an arity it does not have — `(not A B)` would store as
-    a positive fact whose record and index disagree about what it says, and an
-    `implies` at arity 2 threw a bare exception where arity 4 silently dropped its
-    tail;
+    a positive fact whose record and index disagree about what it says, an `implies`
+    at arity 2 would throw a bare exception, and one at arity 4 would silently drop
+    its tail;
   * a rule or exception literal that is not itself a sentence — a bare symbol in
     antecedent or consequent position matches nothing and checks as nothing;
   * a head existential outside consequent position — `exists` marks a consequent
@@ -1993,7 +2323,7 @@
   the token dictionary fact-scaled instead of vocabulary-scaled: a fact's body is a
   subterm of itself, so it mints one key holding exactly one handle, per record.  Over a
   12,070-record corpus of 511 names, 12,054 of the 12,565 distinct tokens are those keys;
-  in the shipped starter, 1,108 of 1,383 — against 4 compounds that are genuinely nested.
+  in the shipped starter, 1,724 of 2,077 — against 4 compounds that are genuinely nested.
   At the floor and deeper the nesting is what a probe is *for*: `(sentexHandle H)` inside
   an `exceptWhen` meta, the sentence inside an `(ist Ctx S)`.
 
@@ -2070,10 +2400,3 @@
   [sentex term]
   (boolean (some (fn [form] (some #(= % term) (subterms form)))
                  (content-forms sentex))))
-
-(defn ist
-  "The reified `(ist <context> <sentence>)` term — like `ist` in the literature.
-  It embeds a sentence (and its terms) inside another sentex; with the term index
-  the wrapped sentence is findable from a sentence."
-  [context sentence]
-  (list ist-functor context (canon sentence)))

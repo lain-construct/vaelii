@@ -480,7 +480,7 @@
     (testing "and it is still the fan, not the wildcard it replaced"
       ;; the difference the fan exists for: a sentex excepted from the only context that
       ;; could see it is visible to an unscoped read and to no vantage at all
-      (let [h (:id (first (v/sentexes-matching kb (list p1 'QL0 'QLK) CxA)))]
+      (let [h (v/handle-of kb (list p1 'QL0 'QLK) CxA)]
         (v/assert kb (list 'except (list 'sentexHandle h)) CxA)
         (is (not-any? #(= h (:id %)) (v/sentexes-matching kb (list p1 '?a '?b)))
             "no reader sees it, so the read does not report it")))))

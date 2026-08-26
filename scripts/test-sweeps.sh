@@ -18,26 +18,25 @@
 #
 # Each is a COST decision rather than a semantic one — a tactician orders goals, it
 # does not choose answers — so the suite must be **failing-set-identical** across all
-# five and against a plain `lein test`.  A sweep that answers differently is a bug in
+# six and against a plain `lein test`.  A sweep that answers differently is a bug in
 # the alternative, not a feature of it: running these by hand is what found a clash
 # reported against a different sentex depending on which retrieval path answered.
 #
-# The ASSERTION COUNT is not identical here, and that is the one place this differs
-# from `test-backends.sh`, where it is.  A handful of assertions pin an artifact of
-# one implementation and stand aside under the switch that replaces it, through
-# `tu/query-engine-override` — `prove` returns one solution per derivation and the
-# node engine returns one per answer, so counting `prove`'s results is a DFS
-# question (docs/inference.md).  Every such stand-aside says why at the call site.
-# A count that moves for any other reason is a run that skipped something.
+# The ASSERTION COUNT is identical here too, as it is in `test-backends.sh`.  Where an
+# assertion pins an artifact of one implementation — `prove` returns one solution per
+# derivation on the DFS and one per answer on the node engine, so counting its results
+# is an engine-specific number (docs/inference.md) — the test asserts the number for
+# the engine in force, read off `tu/query-engine-override`, rather than standing
+# aside.  A count that moves is a run that skipped something.
 #
-# Eight assertions, and the number is CHECKED at the foot of this script rather than
-# left to be read: `config_expected_delta` in scripts/lib/suite-configs.sh carries it,
-# a shortfall that is not in the table fails the run, and adding a stand-aside means
-# adding a line there with its reason.  Standing aside is the thing being counted, so
-# doing it silently is the thing to make impossible.
+# CHECKED at the foot of this script rather than left to be read: `config_expected_delta`
+# in scripts/lib/suite-configs.sh holds the expected shortfall, zero for every
+# configuration, and any other fails the run.  Standing aside silently is the thing
+# being made impossible; a configuration that had to would be recorded there with its
+# reason.
 #
 # WHY THIS IS A SCRIPT AND NOT A CI JOB.  It is both, and the local one is the
-# gate.  `deep.yml` runs these five and the eight backends on a runner, which is
+# gate.  `deep.yml` runs these six and the eight backends on a runner, which is
 # 209 job-minutes against a 2,000-minute monthly allowance — nine runs a month,
 # for a matrix a release wants once.  The same coverage here costs wall time and
 # no money, so the CI job is the confirmation and this is what you run before a
@@ -46,8 +45,8 @@
 #
 # Runs here are SEQUENTIAL for the reason `test-backends.sh` gives — one run at a time
 # is one readable wall time, on a box somebody is still using — and not because
-# anything forbids sharing: these five write no durable store at all.
-# **`scripts/test-matrix.sh` is the concurrent one**, these five and the eight backends
+# anything forbids sharing: these six write no durable store at all.
+# **`scripts/test-matrix.sh` is the concurrent one**, these six and the eight backends
 # at once in ~13 minutes rather than ~55, and it is what to run when a change owes the
 # matrix.  This script is for one sweep, or for a timing that means something.
 #
@@ -58,8 +57,8 @@
 # each other.
 #
 # Usage:
-#   ./scripts/test-sweeps.sh                     # all five, :default
-#   ./scripts/test-sweeps.sh :all                # all five, slow tests included
+#   ./scripts/test-sweeps.sh                     # all six, :default
+#   ./scripts/test-sweeps.sh :all                # all six, slow tests included
 #   ./scripts/test-sweeps.sh query-engine        # only this one
 #   ./scripts/test-sweeps.sh :all rete tms-reference
 #   ./scripts/test-sweeps.sh --fail-fast
@@ -201,7 +200,7 @@ for sweep in "${SWEEPS[@]}"; do
   # shellcheck disable=SC2207
   envv=( $(config_env "$sweep") )
 
-  # the revision THIS run is about to be taken at, read per run: five runs are
+  # the revision THIS run is about to be taken at, read per run: six runs are
   # long enough for a commit to land between two of them, and the symptom of that
   # is a count that moved — which is also the symptom of a run that skipped
   # something.  `test-backends.sh` carries the long form.
@@ -282,8 +281,8 @@ fi
 # A green set of runs has still said nothing if one of them ran fewer assertions than the
 # rest: a namespace that failed to load, a `deftest` that stood aside without saying so, a
 # gate that inherited a switch and measured nothing.  Every one of those is green.
-# `config_expected_delta` in suite-configs.sh carries the two stand-asides that are real
-# and says why; anything else is reported here and fails the run.  Skipped when something
+# `config_expected_delta` in suite-configs.sh expects no shortfall anywhere, and says why
+# no configuration stands aside; any shortfall is reported here and fails the run.  Skipped when something
 # already failed — an error aborts the rest of its namespace, so the shortfall means
 # nothing — and when the runs did not all compile one revision.
 deltas_bad=0
@@ -293,8 +292,8 @@ if [[ ${#FAILED[@]} -eq 0 && ${#COUNT_PAIRS[@]} -gt 1 ]]; then
       echo "${BOLD}assertion counts: a run did not run what the others ran${OFF}"
       echo "$delta_report"
       echo "  ${DIM}Every run passed, so this is a test that did not run rather than one that"
-      echo "  failed.  Find what the short run skipped, or record a deliberate stand-aside"
-      echo "  in config_expected_delta with its reason.${OFF}"
+      echo "  failed.  Find what the short run skipped — or, where an artifact really is"
+      echo "  one implementation's, assert that configuration's own expectation.${OFF}"
       deltas_bad=1
     fi
   else

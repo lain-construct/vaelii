@@ -71,7 +71,11 @@ and a bottom anchor. Data hangs below the bottom.
     `birthYearOf`, `olderThan`, …) with their arg and metadata.
   - `CxSociety` — the social relations (`marriedTo`, `likes`, `owns`).
   - `CxMeasure` — the theory of measurement: the two measure terms, the
-    `dimensionOf`/`conversionFactor` table, the five comparisons ([quantity.md](quantity.md)).
+    `dimensionOf`/`conversionFactor` table, the five comparisons
+    ([quantity.md](quantity.md)), and measurement said as coarsely as it can be said —
+    `signOf` / `trendOf`, the three qualitative arithmetic relations and the
+    `derivativeOf` edge, for the quantities nobody has a figure for
+    ([sign.md](sign.md)).
   - `CxSpace` — qualitative space, four independent calculi in one context because
     all four are *about* space: RCC-8 topology, cardinal direction, relative direction
     and qualitative distance, fifty predicates between them ([space.md](space.md)).
@@ -80,7 +84,9 @@ and a bottom anchor. Data hangs below the bottom.
     instants with the endpoint predicates that bridge the two, and the metric layer
     (`temporalDistance`) that puts real measures on the gaps ([time.md](time.md),
     [stp.md](stp.md)). The `length` / `totalDuration` / `overlapDuration` vocabulary the
-    duration arithmetic computes over lives here too ([duration.md](duration.md)).
+    duration arithmetic computes over lives here too ([duration.md](duration.md)), and so
+    do the three calendar constructors `YearFn` / `MonthFn` / `DayFn`, which name an
+    interval the calendar already picks out ([context-nat.md](context-nat.md)).
 - **CxUniverse** — the mid *anchor*, left free for **lifting**: universally-true
   facts collect here (`decontextualizedPredicate` justifications and the forced `genlCx`
   extent). It sees every upper context and is seen by every middle context.
@@ -92,6 +98,9 @@ and a bottom anchor. Data hangs below the bottom.
     owning its parts.
   - `CxBiology` — birds fly by default except penguins; living things are mortal;
     flight enables travel.
+  - `CxChange` — a simple event calculus: a state persists until an event ends it,
+    so `holdsAt` is inertia over what `initiates` and `terminates` say
+    ([time.md](time.md)).
   - `CxAnatomy` — what kinds of thing have what kinds of part, entirely in
     `partType` claims. Nothing here concludes anything about an individual, which is
     deliberate: "birds have wings" to "Pingu has a wing" needs a quantifier reading.
@@ -173,15 +182,14 @@ spells.
 
 **The exception, and `unknown` is why.** A goal every literal of which is *computed* rather
 than matched — `different`, `evaluate`, `unknown` — names no context anywhere, so there is
-no witness to pick, and it is read whole-KB with no witness at all. This is not tidiness.
-Fanning over readers is **existential** over them, and negation as failure is not monotone:
-a fact stored, believed and plainly visible is nonetheless *unknown* to any context that
-cannot see it, and on a KB with more than one context there is nearly always such a
-context. Fanned, `(unknown X)` would be satisfied by the most ignorant reader in the KB and
-answer true of everything — the reading inverted, not narrowed. A **mixed** goal needs no
-rule and gets none: the monotone literals decide which readers can answer at all, and the
-`unknown` is then evaluated at those readers and nowhere else, so `[(p ?x) (unknown (q ?x))]`
-reads "a reader that sees p and does not know q", which is what it should.
+no witness to pick, and it is read whole-KB with no witness at all
+(`vantage/nothing-to-witness?`). Fanning over readers is **existential** over them, and a
+fanned `(unknown X)` is answered by the most ignorant reader in the KB
+([why](defenses.md#a-goal-every-literal-of-which-is-computed-names-no-context)). A
+**mixed** goal needs no rule and gets none: the monotone literals decide which readers can
+answer at all, and the `unknown` is then evaluated at those readers and nowhere else, so
+`[(p ?x) (unknown (q ?x))]` reads "a reader that sees p and does not know q", which is what
+it should.
 
 **Why they must not leak past the door.** All three are `Cx…` CapitalCamelCase, so
 `nm/context?` calls them contexts and `sx/variable?` does not. Reaching the engine, one
@@ -240,7 +248,11 @@ to the fan, which reports that it was.
 
 The strategy is a cost decision that must not change the answer set, exactly as
 `res/*hierarchical-retrieval*` is for retrieval, and `query_context_test` compares the two
-directly.
+directly. `:post-hoc` is the default because it is **bounded**, not because it always
+wins: the join meters the rows it builds, a run past `lattice contexts ×
+vantage/*rows-per-reader*` (20) is abandoned mid-stage, and the fan answers whatever was
+abandoned —
+[why](defenses.md#post-hoc-placement-is-the-default-because-it-is-bounded).
 
 The readers are the `genlCx` lattice plus any context holding a fact the goal could match.
 The second half is not redundant: a context wired by **no** edge is not a node of the
@@ -546,7 +558,8 @@ Two boundaries, both deliberate:
 ### What the shipped ontology declares it of
 
 Every shipped declaration is a claim about a **predicate** rather than about a world.
-`functional`, `inverse`, `reflexive`, `symmetric`, `asymmetric` and `transitive` carry
+`functional`, `inverse`, `reflexive`, `irreflexive`, `symmetric`, `antiSymmetric`,
+`asymmetric`, `transitive`, `antiTransitive` and `equivalenceRelation` carry
 the mark — so a `(symmetric P)` stated in one theory is the KB's claim about `P` and not
 that theory's — and `genlCx` carries the forced variant below. **No domain relation
 carries either**, and two things hold that line:
@@ -742,6 +755,16 @@ just as well when the feature is broken outright.
   seeds nothing, where the ungated version re-seeded the whole ontology above it and
   re-joined rules that had already fired on every fact of it. Measured on the starter
   load: 1.80x ungated, 1.04x with both.
+
+  **Each roster predicate's extent is read fanned by `genl`**, the way the matcher fans
+  it (`special/roster-antecedent-functors`): down the spec closure for a positive
+  antecedent, and up the genl closure for a negated one, since a negation reverses the
+  fan. Reading the antecedent's own functor alone finds the facts a rule *names* and not
+  the facts it *matches*, so the edge re-joins the rule over half of what it newly sees,
+  and one type standing between the rule and the fact is enough to leave the conclusion
+  in the orders that wired the contexts first and nowhere else. A predicate outside the
+  hierarchy closes to itself, so the fan costs a KB with no type hierarchy under its rule
+  antecedents nothing.
 
   **Withdrawal needs no twin of it**: dropping an edge *narrows* what a rule sees, and a
   firing names the edges its placement was seen over, so the dependency-directed sweep

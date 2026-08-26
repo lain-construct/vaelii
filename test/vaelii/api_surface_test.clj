@@ -51,9 +51,12 @@
   is a tag rather than an exception in this file.
 
   The namespace roster is **derived from the tree** — every `.clj` under `src/vaelii`
-  outside `impl/` — rather than listed here.  `public_api_test`'s
+  outside `impl/` and `koinii/` — rather than listed here.  `public_api_test`'s
   `no-public-namespace-is-spelled-impl` pins that the derivation equals the six, so the
-  two disagree only when one of them is wrong."
+  two disagree only when one of them is wrong.  `koinii/` is out for the reason it is out
+  of the SPI and refusal rosters: it is an application shipped in this tree, a *consumer*
+  of the six rather than one of them (`docs/koinii.md`), and freezing its arglists here
+  would put koinii's own development in the engine's compatibility contract."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
@@ -67,13 +70,15 @@
 
 (defn public-namespaces
   "The public namespaces, read off the tree: every `.clj` under `src/vaelii` that is not
-  under `impl/`.  Sorted, so the golden's order is the tree's and not a hash's."
+  under `impl/` or `koinii/`.  Sorted, so the golden's order is the tree's and not a
+  hash's."
   []
   (->> (file-seq (io/file "src/vaelii"))
        (filter #(.isFile ^File %))
        (map #(.getPath ^File %))
        (filter #(str/ends-with? % ".clj"))
        (remove #(str/includes? % "/impl/"))
+       (remove #(str/includes? % "/koinii/"))
        (map #(-> % (subs (count "src/")) (str/replace #"\.clj$" "")
                  (str/replace "/" ".") (str/replace "_" "-") symbol))
        sort))

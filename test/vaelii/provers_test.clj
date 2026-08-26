@@ -6,11 +6,16 @@
   per-prover estimates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.plan :as plan]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh tu/fresh))
+;; `rule-planning-costs-antecedents-by-the-registry-and-memoizes-it` counts registry
+;; consultations, which the cost ranking is what makes — so the ranking is pinned on
+;; whatever the run installed, rather than the test standing aside under `VAELII_PLAN=0`
+;; (`tu/pinning`).
+(use-fixtures :each (tu/neutral-fresh tu/fresh) (tu/pinning [#'plan/*enabled*]))
 
 (tu/deftest-kb transitivity-prover-answers-genl
   (let [dog (tu/tmp-type) mammal (tu/tmp-type) animal (tu/tmp-type)]

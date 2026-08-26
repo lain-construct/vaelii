@@ -16,6 +16,7 @@
   found."
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [vaelii.test-util :as tu]))
 
@@ -105,6 +106,53 @@
         (is (contains? tu/shipped-defaults (requiring-resolve sym))
             (str sym " is rostered but absent from tu/shipped-defaults"))))))
 
+(defn- owed-map-rows
+  "`config_owed_for_path`'s case arms, as `[path-pattern configs]` pairs, read out of
+  `scripts/lib/suite-configs.sh` as text — `sweep-envs-in-the-shell-table`'s reason, and
+  the same method: what is wanted is the spellings, and a spelling only one side has is
+  the whole finding."
+  []
+  (let [txt    (slurp (io/file "scripts/lib/suite-configs.sh"))
+        block  (second (re-find #"(?s)config_owed_for_path\(\) \{(.*?)\n\}" txt))
+        joined (str/replace (or block "") #"\\\n\s*" " ")]
+    (for [[_ pats owed] (re-seq #"(?m)^\s*([^#\n)]+?)\)\s+printf '([^']*)'" joined)
+          pat            (str/split pats #"\|")
+          :let           [pat (str/trim pat)]
+          :when          (seq pat)]
+      [pat (str/split (str/trim owed) #"\s+")])))
+
+(defn- shell-roster
+  "`ALL_BACKENDS` and `ALL_SWEEPS`, off the same file."
+  []
+  (let [txt  (slurp (io/file "scripts/lib/suite-configs.sh"))
+        grab (fn [nm]
+               (-> (re-find (re-pattern (str "(?s)" nm "=\\((.*?)\\)")) txt)
+                   second (or "") str/trim (str/split #"\s+") set))]
+    (into (grab "ALL_BACKENDS") (grab "ALL_SWEEPS"))))
+
+(deftest every-path-the-matrix-map-names-is-one-the-tree-has
+  ;; `lein test-matrix --owed` runs what the changed files owe, and a row naming a file
+  ;; that does not exist is a row that never fires: the change owes nothing, silently,
+  ;; which is the shape `--owed` exists to refuse.  A renamed namespace is how a row goes
+  ;; stale, and it goes stale without a symptom — the matrix simply stops being run for
+  ;; it.  `src/vaelii/impl/equality.clj` was such a row.
+  (let [rows (owed-map-rows)]
+    (is (seq rows) "the case block was found and parsed — the finding is not an empty read")
+    (doseq [[pat _] rows]
+      (is (.exists (io/file (str/replace pat #"/\*$" "")))
+          (str pat " names nothing in the tree — the change it stands for owes no "
+               "configuration, and nothing says so")))))
+
+(deftest every-configuration-the-matrix-map-owes-is-one-a-runner-knows
+  ;; The other half: a row may only name a configuration or a group word, since
+  ;; `expand_configs` silently drops anything in neither table — so a typo there is also
+  ;; a change that quietly owes less than the map says.
+  (let [known (into #{"backends" "sweeps" "routine" "full"} (shell-roster))]
+    (doseq [[pat owed] (owed-map-rows)
+            c          owed]
+      (is (contains? known c)
+          (str pat " owes " c ", which is neither a configuration nor a group word")))))
+
 (deftest the-pin-hands-back-a-shipped-default-a-sweep-replaced
   ;; The property the gates rely on, over the var that actually bit: whatever the root
   ;; says, the pin reads the reference matcher inside.  Written against a `binding` rather
@@ -125,8 +173,8 @@
   ;; The harness's own refusal, in this namespace's sense: what `sole-answer` must not do
   ;; is accept a two-answer set and hand back one of them, which is `first`'s whole
   ;; behaviour and the reason the call sites moved off it.
-  (testing "one answer comes back, and nothing is asserted about the reader")
-  (is (= '{?d 3} (tu/sole-answer ['{?d 3}])))
+  (testing "one answer comes back, and nothing is asserted about the reader"
+    (is (= '{?d 3} (tu/sole-answer ['{?d 3}]))))
   (testing "an empty set is not an answer either"
     (is (= :fail (:type (last (recorded #(tu/sole-answer [])))))))
   (testing "two answers fail, and the message carries both"

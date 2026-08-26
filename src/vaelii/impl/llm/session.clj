@@ -47,8 +47,7 @@
             [vaelii.impl.llm.stub :as stub]
             [vaelii.impl.llm.text :as text]
             [vaelii.impl.llm.tools :as tools]
-            [vaelii.impl.sentex :as sx]
-            [vaelii.impl.settle :as settle]))
+            [vaelii.impl.sentex :as sx]))
 
 ;; ---- parsing the proposal ----------------------------------------------
 ;; Every read of model text in this namespace catches **`Throwable`**, not `Exception`.
@@ -839,14 +838,24 @@
        (dissoc :seen))))
 
 (defn assertion-summary
-  "What the model produced, in counts: `{:proposed :new :known :duplicate}` — how many
-  assertions it wrote, how many are new knowledge, how many restate what is already
-  stored, and how many it repeated."
+  "What the model produced, in counts: `{:proposed :new :known :duplicate :monotonic}` —
+  how many assertions it wrote, how many are new knowledge, how many restate what is
+  already stored, how many it repeated, and how many of the **new** entries the model
+  claimed as `:monotonic` known-truth.
+
+  The last is the review hook the reader's own strength grant needs: a `:monotonic`
+  candidate strength-defeats a hand-written `:default` it contradicts, so a translated
+  guess arriving as known-truth is the sharpest thing this pipeline can produce.  The
+  capability is allowed (a reader may legitimately mark a fact known-true), but a count
+  of zero every time is what makes a non-zero one worth a second look — a summary that
+  never surfaced it left the reviewer with no number to notice.  Counted over `entries`
+  alone, since `known` / `duplicate` are bare sentences carrying no strength."
   [sentences {:keys [entries known duplicates]}]
   {:proposed (count sentences)
    :new (count entries)
    :known (count known)
-   :duplicate (count duplicates)})
+   :duplicate (count duplicates)
+   :monotonic (count (filter #(= :monotonic (:strength (nth % 2 nil))) entries))})
 
 (defn repair-assertions-prompt
   "The turn handed back after a rejected or unreadable generation: the problems verbatim,
@@ -917,7 +926,7 @@
      :batch      {:add [[sentence context opts?] …] :remove []}   ; generation never removes
      :edn        \"…\"                    ; the batch, for `apply-proposal!`
      :lines      \"[…]\\n[…]\"            ; the entries, for the editor textarea
-     :summary    {:proposed :new :known :duplicate}
+     :summary    {:proposed :new :known :duplicate :monotonic}
      :rejections [{:in :index :entry :type :message} …]
      :coined     [{:predicate :arity :role :in :index} …]
      :vocabulary {:literals :reused :coined :coined-types :coined-relations}
@@ -1190,7 +1199,7 @@
      :candidates  [{:sentence :segment :confidence :strength} …]     ; every claim as read
      :segments    [{:text :span} …]                  ; what the spans point into
      :resolved    [{:surface :term :segment :span} …] ; words that already named something
-     :summary     {:proposed :new :known :duplicate :applicable :repairs :corrections}
+     :summary     {:proposed :new :known :duplicate :monotonic :applicable :repairs :corrections}
      :answer-truncated?  did the host stop the turn at the token limit
      :lines :edn :rejections :coined :vocabulary :notes :problems
      :budget :usage :elapsed-ms :attempts :turns :messages}
@@ -1322,16 +1331,6 @@
 
 ;; ---- the explicit apply step -------------------------------------------
 
-(defn- add-prefix-stored
-  "How many of `add`'s entries the KB stores, counting from the front until one it does
-  not.  `edit!` applies the adds **in order**, so that count is where a throw stopped it:
-  everything before is in, the entry at the count is the one that was refused.
-
-  Asked of the store rather than of the return value, because a batch that throws has no
-  return value — which is the whole reason this exists."
-  [kb add]
-  (count (take-while (fn [[sentence context]] (stored? kb sentence context)) add)))
-
 (defn apply-proposal!
   "Apply a proposal's batch through `vaelii.core/edit!` — **the only thing in this
   namespace that writes**, and it is never reached from `propose`.
@@ -1342,31 +1341,30 @@
 
   Returns
 
-    {:result    <edit! result>   ; nil when the batch threw part-way
-     :applied   how many of :add the KB now stores — the whole batch on success, the
-                prefix that landed on a throw (an entry the KB already held counts,
-                since an add is find-or-create)
-     :failed-at the index in :add the throw came from, or nil (nil with an :error
-                means the retractions threw, which `edit!` runs after every add)
+    {:result    <edit! result>   ; nil when the batch was refused
+     :applied   how many of :add the KB stored — the whole batch, or **zero**, since
+                `edit!` is all-or-nothing
+     :failed-at the index in :add the refusal names, or nil (nil with an :error means
+                a `:remove` entry was refused, which `edit!` asks after every add)
      :error     {:type :message :exception}, absent when the whole batch applied
      :violations […] :contradictions […]}
 
-  **`edit!` is not a transaction, and this is where that shows.**  The critic grades each
-  add against the KB *as it stands* (`check-edit`), so two adds that are each admissible
-  and jointly are not — the second contradicting what the first just stored — both pass
-  and the batch is `:ok`.  The apply then throws at the second, with the first already
-  stored and the closing settle skipped: a KB holding new knowledge whose belief has not
-  been reconciled, which nothing later repairs on its own.
+  **The critic cannot rule the refusal out, and this is where that shows.**  It grades
+  each add against the KB *as it stands* (`check-edit`), so two adds that are each
+  admissible and jointly are not — the second contradicting what the first would store —
+  both pass and the batch is `:ok`.  The apply then trips the engine's own check on the
+  second entry.
 
-  So a throw is caught, belief is **settled by hand**, and what landed is *reported*
-  rather than raised.  That is the recoverable state — the stored prefix is real
-  knowledge, correctly believed, and `:failed-at` names the entry to fix — where a bare
-  exception leaves the caller holding a partial write it cannot see.  A caller that wants
-  the throw back has `:error`'s `:exception`; a caller that wants all-or-nothing has no
-  such thing to want, because the door underneath does not offer one.
+  `edit!` takes the whole batch back at that point (docs/api.md), so
+  what this reports is a KB unchanged and the entry to fix: `:applied` is zero and
+  `:failed-at` is the index the refusal itself names, read off `:index` rather than
+  counted back out of the store.  A refusal is *reported* rather than raised because a
+  proposal loop wants the status; a caller that wants the throw back has `:error`'s
+  `:exception`.
 
   `:violations` is narrowed to what *this* edit added to the accumulating ledger (a
-  derived conclusion the definitional checks dropped)."
+  derived conclusion the definitional checks dropped) — empty on a refusal, the rollback
+  having restored the ledger."
   ([kb proposal] (apply-proposal! kb proposal {}))
   ([kb {:keys [status batch] :as proposal} {:keys [force?]}]
    (when-not (or force? (= :ok status))
@@ -1377,21 +1375,16 @@
    (let [before (count (v/violations kb))
          add    (vec (:add batch))
          edit   (try {:result (v/edit! kb {:add add :remove (:remove batch)})}
-                     (catch Throwable t
-                       ;; The settle `edit!` would have run at the end of the batch did
-                       ;; not, and belief is computed from current state — so running one
-                       ;; here reconciles exactly what landed.  It cannot throw for the
-                       ;; batch's reason: the entry that was refused is not stored.
-                       (settle/settle kb)
-                       {:error t}))
-         landed (if (:error edit) (add-prefix-stored kb add) (count add))]
+                     (catch Throwable t {:error t}))
+         data   (ex-data (:error edit))]
      (cond-> {:result (:result edit)
-              :applied landed
+              ;; zero on a refusal: the door put the batch back, so nothing of it stored
+              :applied (if (:error edit) 0 (count add))
               :failed-at nil
               :violations (vec (drop before (v/violations kb)))
               :contradictions (vec (v/contradictions kb))}
        (:error edit)
-       (assoc :failed-at (when (< landed (count add)) landed)
-              :error {:type (:type (ex-data (:error edit)))
+       (assoc :failed-at (when (= :add (:in data)) (:index data))
+              :error {:type (:type data)
                       :message (ex-message (:error edit))
                       :exception (:error edit)})))))

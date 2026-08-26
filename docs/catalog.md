@@ -44,10 +44,10 @@ record writer has stamped with its own `format.edn`. Anything else is not a KB a
 passed over, including a directory whose `meta.edn` does not read as EDN.
 
 **The records half is the whole marker.** Requiring an `index/` beside it hid exactly the
-stores worth finding: only `:disk` keeps a durable index on disk, while `:disk-columnar`,
+stores worth finding: only `:disk-log` keeps a durable index on disk, while `:disk-columnar`,
 `:disk-dense` and `:disk-memory` derive theirs and write no `index/` at all — so a
 large store classified as nothing and could not be offered. Those are
-the backends a corpus past a few million records is loaded into, `:disk`'s index being a
+the backends a corpus past a few million records is loaded into, `:disk-log`'s index being a
 map held in RAM whatever else is on disk ([storage.md](storage.md)).
 
 What it takes to *have* each of these — which ship here, which needs a plugin, which you
@@ -94,10 +94,11 @@ One of those options is worth naming here because its cost is easy to under-read
 `:belief?` (and a store's `:recover?`) governs **two** derived structures, not one: the
 JTMS *and* the cached `genl` / `genlCx` closures. Left off, the KB is findable by
 term and countable but has no type hierarchy at all — `types` and `contexts` come back
-empty and the ontology page has nothing to draw. On a 1.1M-sentex OpenCyc dump that is
-the difference between 0 and 125,385 types. (Exact counts move with the import profile
-and the plugin version — [kbs.md](kbs.md) reports 132,391 types for the `:ontology`
-profile it measures. The figure to read here is 0 versus six figures.) Off is still the right default for a corpus
+empty and the ontology page has nothing to draw. On the OpenCyc import
+[kbs.md](kbs.md) is the route to, that is the difference between 0 types and roughly a
+hundred thousand. (The figure to read is 0 versus six figures; the count itself moves with
+the import profile and the plugin version, which is why it is cited rather than
+restated.) Off is still the right default for a corpus
 past what `recover` can do in reasonable time, which is why it is a switch rather than a
 decision the catalog makes.
 
@@ -229,7 +230,7 @@ question from deriving what the rules conclude.
 
 The KB an entry loads into is in memory by default, over a space the catalog claims
 (from 100 up, clear of the block the test suite owns). Name a `:dir` and it is a durable
-`:disk` KB there instead — which is what a corpus far past what RAM holds wants.
+`:disk-log` KB there instead — which is what a corpus far past what RAM holds wants.
 
 ## Unloading never deletes an on-disk KB
 

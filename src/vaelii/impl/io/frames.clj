@@ -25,7 +25,8 @@
   wrote one compression window over the whole file; the engine's own dumps have been chunked
   since v6."
   (:require [clojure.java.io :as io]
-            [taoensso.nippy :as nippy])
+            [taoensso.nippy :as nippy]
+            [vaelii.impl.io.thaw :as safe])
   (:import (java.io BufferedInputStream BufferedOutputStream ByteArrayInputStream
                     ByteArrayOutputStream DataInputStream DataOutputStream
                     EOFException InputStream OutputStream)
@@ -43,7 +44,9 @@
   chunk that measures about 1 MB.  Sizing it to the chunk costs nothing and saves the
   difference: over a 34k-sentex dump's sentex stream the compressed bytes are **identical**
   from 8 MiB down to 1 MiB (245,816 either way, in the same time), while the encoder's
-  working set falls from 93 MB to 12 MB.  This is that with headroom, at 24 MB.  A caller
+  working set falls from 93 MB to 12 MB.  This is that with headroom: a **2 MiB**
+  dictionary, whose encoder allocates about 24 MB (`vaelii.impl.io.export` quotes that
+  figure, so the two move together).  A caller
   who raises `:chunk-size` past it loses only the matches a window wider than this would
   have found."
   (* 2 1024 1024))
@@ -123,7 +126,8 @@
     (:none nil) in
     :xz         (XZInputStream. in)
     :zstd       (reflective-input "io.airlift.compress.zstd.ZstdInputStream" in)
-    (throw (ex-info (str "unknown compression " compression)
+    (throw (ex-info (str "unknown compression " (pr-str compression)
+                         " — a dump is read :gzip, :xz, :zstd or :none")
                     {:type :unsupported-compression :compression compression}))))
 
 (defn- wrap-file-input
@@ -145,19 +149,27 @@
         (throw t)))))
 
 (defn- thaw-until-eof
-  "Realize every back-to-back nippy frame from `in` into a vector, stopping at EOF."
+  "Realize every back-to-back nippy frame from `in` into a vector, stopping at EOF.
+  Caller holds the class-name door open (`thaw-chunk`)."
   [^DataInputStream in]
   (loop [acc (transient [])]
     (let [item (try (nippy/thaw-from-in! in) (catch EOFException _ ::eof))]
       (if (identical? ::eof item) (persistent! acc) (recur (conj! acc item))))))
 
 (defn- thaw-chunk
-  "Decompress + thaw one v6 chunk payload (`bs`) into a vector of frames."
+  "Decompress + thaw one v6 chunk payload (`bs`) into a vector of frames.
+
+  Behind the class-name door (`vaelii.impl.io.thaw`): a stream file is untrusted input,
+  and a frame naming a class is refused before the name is resolved.  The door is opened
+  once per **chunk** rather than once per frame — a chunk is ten thousand frames by
+  default, and the binding is the same one for all of them."
   [^bytes bs compression]
-  (with-open [in (DataInputStream.
-                  (BufferedInputStream.
-                   (wrap-input (ByteArrayInputStream. bs) compression)))]
-    (thaw-until-eof in)))
+  (safe/guarded
+   (fn []
+     (with-open [in (DataInputStream.
+                     (BufferedInputStream.
+                      (wrap-input (ByteArrayInputStream. bs) compression)))]
+       (thaw-until-eof in)))))
 
 ;; ---- the stream behind a lazy seq -------------------------------------------
 ;; A reader hands back a lazy seq over an open file, and a lazy seq cannot tell when its
@@ -244,20 +256,38 @@
   (reify java.io.Closeable
     (close [_] (close-frames! frames))))
 
+(def ^:private max-chunk-bytes
+  "The largest chunk `read-chunked-seq` will allocate for.  A chunk is read off a
+  four-byte length the file states, and a dump is untrusted input — a crafted or torn
+  length of two billion is a two-gigabyte allocation before a byte of it is checked, and
+  a negative one an untyped throw.  The writer's default chunk (`chunk-size` frames)
+  measures about a megabyte compressed, so this is generous headroom while still a bound."
+  (* 256 1024 1024))
+
 (defn read-chunked-seq
   "Lazy seq of frames from a v6+ chunked stream file: a run of `[int32 length]
   [compressed chunk]`.  Chunks are read serially and thawed on demand, so the whole
-  file never sits in heap.  The stream closes when fully consumed, when a read or thaw
-  inside it fails, or when the seq is dropped; `close-frames!` closes it sooner."
+  file never sits in heap.  A length outside `[0, max-chunk-bytes]` is refused
+  `:truncated-dump` before anything is allocated for it.  The stream closes when fully
+  consumed, when a read or thaw inside it fails, or when the seq is dropped;
+  `close-frames!` closes it sooner."
   [file compression]
   (let [^DataInputStream in (DataInputStream.
                              (BufferedInputStream. (io/input-stream (io/file file))))
         read-frame! (fn []
                       (try
-                        (let [len (.readInt in)
-                              bs  (byte-array len)]
-                          (.readFully in bs)
-                          bs)
+                        (let [len (.readInt in)]
+                          (when (or (neg? len) (> len max-chunk-bytes))
+                            (throw (ex-info (str "chunk length " len " is not one this framing"
+                                                 " writes — a chunk is 0 to "
+                                                 max-chunk-bytes " bytes, so the stream is"
+                                                 " torn, or is not a vaelii chunked"
+                                                 " stream")
+                                            {:type :truncated-dump :file (str file)
+                                             :length len :max max-chunk-bytes})))
+                          (let [bs (byte-array len)]
+                            (.readFully in bs)
+                            bs))
                         (catch EOFException _ nil)))
         step (fn step []
                (lazy-seq
@@ -276,7 +306,7 @@
         step (fn step []
                (lazy-seq
                 (let [item (closing-on-failure
-                            in #(try (nippy/thaw-from-in! in) (catch EOFException _ ::eof)))]
+                            in #(try (safe/thaw-from-in! in) (catch EOFException _ ::eof)))]
                   (if (identical? ::eof item)
                     (do (.close in) nil)
                     (cons item (step))))))]

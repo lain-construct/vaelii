@@ -50,9 +50,31 @@
   falls back to the walk.
 
   Every RAF touch holds the owning kind's lock.  A write or `force!` must, because the
-  file pointer is shared (see `files`' shared-pointer invariant); a read no longer has
-  to — the read primitives are positional — but still does, because that is what
-  serializes it against a concurrent append and its slot write."
+  file pointer is shared (see `files`' shared-pointer invariant); a read is positional
+  and need not, but still does, because that is what serializes it against a concurrent
+  append and its slot write.
+
+  **Two monitors, and which resident field sits under which.**  Three threads touch this
+  store — the writer, the durability daemon (`fsync`, every few seconds) and the
+  compaction executor — so the resident state is not the writer's alone and a field
+  mutated outside a monitor is one a reader can catch mid-pair.
+
+  - The **kind lock** covers that kind's log, its idx, and the resident state derived
+    from them: `live-ids`, the hot-record cache, `compacting` and `failed`.  A store, a
+    kill, a batch and the compactor's reconcile each take it once and do both halves
+    inside it, so an id is never live to a reader while its slot says tombstone, and the
+    compaction delta set is never cleared under a writer folding an id into it.
+  - **`counters-lock`** covers the three that move together and belong to no kind: the
+    handle `counter`, the `counters.nippy` blob, and `synced-seq` — read and written by
+    `fsync` on the daemon's thread and by `clear-records!` on the writer's.  Its own
+    monitor rather than a kind's, because a whole-file blob rewrite held inside a kind
+    lock would put a record append behind it every tick that minted a handle.
+
+  `premises` needs neither on the write path: every mutation is one `swap!` on one atom,
+  and the pair that matters — a handle in `premise-ids` whose record is gone — is a
+  `kill!` the writer makes, on the thread that would read it back.  The one mutation from
+  another thread is the compactor's `drop-lost!`, which takes the kind lock beside the
+  `live-ids` drop it belongs with."
   (:require [taoensso.trove :as trove]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.config :as config]
@@ -193,7 +215,14 @@
 
   `premise?` is written into the slot's flags so the next open can read the premise set
   off the idx walk instead of decoding every record (`f/premise-flags`).  Only the
-  sentexes kind has premises; the other two say so, which is true of them."
+  sentexes kind has premises; the other two say so, which is true of them.
+
+  **The resident half is inside the lock with the file half**, and it is the same
+  acquisition rather than a second one: the live set and the record cache are claims
+  about what the idx says, and a reader on another thread — the durability daemon, a
+  compaction, a query beside the writer — that lands between the two reads a store
+  whose files and whose resident state disagree.  What that costs is a `conj` and a map
+  put inside a monitor that was already held for two file writes."
   ([k id rec] (store! k id rec false))
   ([k id rec premise?]
    (locking (:lock k)
@@ -203,11 +232,11 @@
        ;; reads it off the idx the open walk already makes rather than paging the record
        (f/write-slot! (:idx k) id off plen
                       (f/premise-flags premise? (strength/rank-of (:strength rec))) 0))
-     (track-touched k id))
-   (swap! (:live-ids k) conj id)
-   ;; a just-written record is hot, and this is also what keeps the cache honest when a
-   ;; re-store (mark-premise) replaces an id's record with a different value
-   (when-let [^java.util.Map c (:cache k)] (.put c id rec))
+     (track-touched k id)
+     (swap! (:live-ids k) conj id)
+     ;; a just-written record is hot, and this is also what keeps the cache honest when a
+     ;; re-store (mark-premise) replaces an id's record with a different value
+     (when-let [^java.util.Map c (:cache k)] (.put c id rec)))
    id))
 
 (defn- store-batch!
@@ -237,10 +266,11 @@
                                 (f/premise-flags premise? (strength/rank-of (:strength rec)))
                                 0])
                              batch offs)))
-      (doseq [[id] batch] (track-touched k id)))
-    (swap! (:live-ids k) #(into % (map first) batch))
-    (when-let [^java.util.Map c (:cache k)]
-      (doseq [[id] batch] (.remove c id))))
+      (doseq [[id] batch] (track-touched k id))
+      ;; the resident half under the same acquisition, for `store!`'s reason
+      (swap! (:live-ids k) #(into % (map first) batch))
+      (when-let [^java.util.Map c (:cache k)]
+        (doseq [[id] batch] (.remove c id)))))
   nil)
 
 (defn- fetch
@@ -273,15 +303,17 @@
 
 (defn- kill!
   "Tombstone handle `id` in kind `k` and drop it from the live set (a no-op when it
-  was never live)."
+  was never live).  The tombstone and the two resident drops are one acquisition, for
+  `store!`'s reason: an id that is live to a reader and tombstoned on disk is a handle
+  `sentex-ids` names and `get-sentex` answers nothing for."
   [k id]
   (when (contains? @(:live-ids k) id)
     (locking (:lock k)
       (usable! k)
       (f/tombstone-slot! (:idx k) id)
-      (track-touched k id))
-    (swap! (:live-ids k) disj id)
-    (when-let [^java.util.Map c (:cache k)] (.remove c id))))
+      (track-touched k id)
+      (swap! (:live-ids k) disj id)
+      (when-let [^java.util.Map c (:cache k)] (.remove c id)))))
 
 (defn- clear-counter!
   "Keep `counter` — the next handle to issue — above `id`, and return `id`.  Called on
@@ -350,7 +382,14 @@
 ;; matters).  nil until the first tick writes it, which is what makes that first tick
 ;; unconditional: the blob on disk is whatever the previous session left, and only a write
 ;; establishes what it says now.
-(defrecord DiskRecordStore [dir kinds counter synced-seq premises dict]
+;;
+;; `counters-lock` is the monitor over the three that move together — the counter, the
+;; `counters.nippy` blob and `synced-seq`.  A monitor of its own rather than a kind's,
+;; because none of the three is a claim about a kind's *files*, and holding a kind lock
+;; across a whole-file blob rewrite would put a record append behind it: `fsync` runs on
+;; the durability daemon's thread and `clear-records!` on the writer's, so the pair that
+;; needs serializing is those two and nothing else on the store's hot path.
+(defrecord DiskRecordStore [dir kinds counter synced-seq premises dict counters-lock]
   p/RecordStore
   (next-id [_] (long (dec (swap! counter inc))))
 
@@ -461,12 +500,18 @@
           (f/delete-compact-temps! marker temps))
         (reset! (:failed k) nil)))
     (reset! premises #{})
-    (reset! counter 1)
     ;; the dictionary goes with them: no frame survives to hold an id, and keeping the
     ;; ids would leave a wiped store carrying its predecessor's whole vocabulary
     (when dict (dtok/clear! dict))
-    (f/write-nippy-atomic! (counters-path dir) {:seq 1})
-    (reset! synced-seq 1)
+    ;; The counter, the blob and the stamp are one step, under the monitor `fsync` takes
+    ;; for the same three.  A daemon tick that read the counter before the wipe and wrote
+    ;; the blob after it would leave a wiped store stamped with the pre-wipe high-water
+    ;; mark, and `synced-seq` agreeing — so the next open starts issuing handles from a
+    ;; number no record in the store has ever reached.
+    (locking counters-lock
+      (reset! counter 1)
+      (f/write-nippy-atomic! (counters-path dir) {:seq 1})
+      (reset! synced-seq 1))
     nil)
 
   ;; Both live-id sets and the premise set are resident already (the namespace docstring
@@ -558,8 +603,16 @@
   forever.  `synced-seq` holds what the file was last left holding; equal to the counter
   means the file already says what there is to say.  A skip can never cost a handle:
   `recover-next-id` takes the max of the blob and one past the highest slot in the idx, so
-  a blob behind the counter is behind only on handles that were minted and never stored."
-  [{:keys [dir kinds counter synced-seq dict]}]
+  a blob behind the counter is behind only on handles that were minted and never stored.
+
+  **This runs on the durability daemon's thread**, and the counter it reads is bumped by
+  the writer's.  A counter that moves between the read and the blob write costs nothing —
+  a blob one handle behind is what the paragraph above is about — but a `clear-records!`
+  landing there costs the wipe: the blob would be stamped with the pre-wipe high-water
+  mark and `synced-seq` would agree with it.  So the three that move together move under
+  `counters-lock`, which the wipe takes for the same three; the counter is read inside
+  it rather than before it, which is what makes the read part of the same step."
+  [{:keys [dir kinds counter synced-seq dict counters-lock]}]
   (locking (:lock (:sentexes kinds))
     (when dict (dtok/fsync dict))
     (f/force! (:log (:sentexes kinds)) false)
@@ -568,10 +621,11 @@
     (locking (:lock k)
       (f/force! (:log k) false)
       (f/force! (:idx k) true)))
-  (let [want @counter]
-    (when-not (= want @synced-seq)
-      (f/write-nippy-atomic! (counters-path dir) {:seq want})
-      (reset! synced-seq want)))
+  (locking counters-lock
+    (let [want @counter]
+      (when-not (= want @synced-seq)
+        (f/write-nippy-atomic! (counters-path dir) {:seq want})
+        (reset! synced-seq want))))
   nil)
 
 (defn- close-quietly!
@@ -753,7 +807,7 @@
                counter (atom (recover-next-id root kinds))
                prem    (atom (rebuild-premises! (:sentexes kinds) root dict marked unsaid dirty?))]
            (f/create-dirty-marker! root)
-           (->DiskRecordStore root kinds counter (atom nil) prem dict))
+           (->DiskRecordStore root kinds counter (atom nil) prem dict (Object.)))
          (catch Throwable t
            (doseq [c closers] (close-quietly! "a half-opened record store" c))
            (throw t)))))))
@@ -840,12 +894,19 @@
         lost       (volatile! #{})
         drop-lost! (fn []
                      ;; only where the install landed, since only then is the tombstoned
-                     ;; idx the one the store is reading; the resident sets follow it
+                     ;; idx the one the store is reading; the resident sets follow it.
+                     ;;
+                     ;; Under the kind lock, which the reconcile below already holds
+                     ;; where it calls this and the retry path does not: this runs on the
+                     ;; compaction executor's thread beside the writer, so it is the
+                     ;; resident half of an idx write that was itself locked.  Reentrant,
+                     ;; so the call from inside the reconcile costs a recursion count.
                      (when (seq @lost)
-                       (swap! (:live-ids k) #(reduce disj % @lost))
-                       (swap! premises #(reduce disj % @lost))
-                       (when-let [^java.util.Map c (:cache k)]
-                         (doseq [id @lost] (.remove c id)))))
+                       (locking (:lock k)
+                         (swap! (:live-ids k) #(reduce disj % @lost))
+                         (swap! premises #(reduce disj % @lost))
+                         (when-let [^java.util.Map c (:cache k)]
+                           (doseq [id @lost] (.remove c id))))))
         drop-slot! (fn [tidx id]
                      (vswap! lost conj id)
                      (trove/log! {:level :warn :id ::unreadable-frame
@@ -937,7 +998,10 @@
                            nil
                            (catch Throwable t2 (.addSuppressed t2 t) t2))]
             (if again
-              (do (reset! (:failed k) again)
+              ;; the flag under the lock every reader of it takes (`usable!`), so a read
+              ;; already inside the monitor cannot be answered off half-copied files by
+              ;; a flag this thread was in the middle of setting
+              (do (locking (:lock k) (reset! (:failed k) again))
                   (trove/log! {:level :error :id ::compaction-failed
                                :msg (str "disk record store: compaction of " (:log-path k)
                                          " failed after its commit point and the retry"
@@ -952,8 +1016,13 @@
                                          " and succeeded on retry")
                                :error t}))))))
       (finally
-        ;; stop delta tracking even if the rewrite threw
-        (reset! (:compacting k) nil)
+        ;; Stop delta tracking even if the rewrite threw — under the kind lock, which is
+        ;; where every other write of this atom happens (`track-touched` from a store or
+        ;; a kill, `clear-records!`'s abort flag, the reconcile's own reset).  Cleared
+        ;; outside it, a writer's `track-touched` can read a live compaction and fold an
+        ;; id into a `:touched` set this thread is discarding, and the id is one the
+        ;; reconcile never copied into the temp.
+        (locking (:lock k) (reset! (:compacting k) nil))
         ;; and give the three handles back one at a time, quietly: a close that threw
         ;; here would take the handles after it with it — leaving RAFs open over a
         ;; directory `close-dir!` unlocks regardless — and would mask whatever the body

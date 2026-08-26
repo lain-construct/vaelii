@@ -10,8 +10,8 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.koinii.speech-acts :as sa]
             [vaelii.impl.sentex :as sx]
+            [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu]))
 
 (defn- speech-acts-kb

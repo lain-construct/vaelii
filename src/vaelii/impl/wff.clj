@@ -47,7 +47,7 @@
     (nm/individual? sub)   (conj (str sub " is an individual; genl relates types"))
     (nm/individual? super) (conj (str super " is an individual; genl relates types"))
     (= sub super)          (conj (str sub " genl itself"))
-    (and (not= sub super) (tax/genl? tax super sub))
+    (and (not= sub super) (tax/genl?-global tax super sub))
     (conj (str "genl " sub " " super " creates a cycle (" super
                " is already a subtype of " sub ")"))))
 
@@ -77,7 +77,7 @@
     (nm/individual? a)  (conj (str a " is an individual; disjoint relates types"))
     (nm/individual? b)  (conj (str b " is an individual; disjoint relates types"))
     (= a b)             (conj (str a " disjoint with itself"))
-    (and (not= a b) (or (tax/genl? tax a b) (tax/genl? tax b a)))
+    (and (not= a b) (or (tax/genl?-global tax a b) (tax/genl?-global tax b a)))
     (conj (str a " and " b " are genl-related, so they overlap and can't be disjoint"))))
 
 (defn disjointMetatype-problems [_ [_ m :as s]]
@@ -340,7 +340,7 @@
   cycle.  And **both sides must be the same role** — predicate-with-predicate,
   type-with-type, individual-with-individual (`roles-clash?`): rewriting a term of
   one kind into another is meaningless (merging `Muffet` into `dog`) and a likely
-  import bug.  Unlike round one, a predicate or a type *is* now a legal `rewriteOf`
+  import bug.  A predicate or a type *is* a legal `rewriteOf`
   target — the merge moves its trie keys, functor root, rule-index postings and
   `genl` closure with it (docs/equality.md).  `sameAs` / `equals` stay
   individuals-only (OWL); `rewriteOf` is the spelling relation, so it is the one
@@ -389,10 +389,10 @@
         (str/join " " args) "))")])
 
 (defn naf-problems
-  "`unknown`, `thereExists` and the five **aggregates** are **not assertible**.  They
-  are query operators — closed-world negation, existential closure, and a reduction
-  over a query's solutions — answered by a prover and never stored (docs/naf.md,
-  docs/aggregate.md).  `(unknown S)` states no fact: it is a *test* on what the KB
+  "`unknown`, `thereExists`, `forall` and the five **aggregates** are **not assertible**.
+  They are query operators — closed-world negation, existential closure, the universal
+  that is two of the first around the second, and a reduction over a query's solutions —
+  answered by a prover and never stored (docs/naf.md, docs/aggregate.md).  `(unknown S)` states no fact: it is a *test* on what the KB
   derives, so stored as a premise it would be a fact with a made-up predicate that
   nothing consults.  `(agg/count 3 ?v S)` states no fact for the sharper reason
   that it states a *stale* one: a count is a function of what is believed now, so
@@ -462,8 +462,8 @@
   closure is the **global** one for the same reason — a context-narrowed fan would
   under-approximate the graph and admit an unstratified rule set."
   [tax {:keys [antecedent-preds exception-preds]}]
-  (concat (for [p antecedent-preds, s (tax/specs tax p)] [:depends-on s])
-          (for [p exception-preds,  s (tax/specs tax p)] [:excepts-on s])))
+  (concat (for [p antecedent-preds, s (tax/specs-global tax p)] [:depends-on s])
+          (for [p exception-preds,  s (tax/specs-global tax p)] [:excepts-on s])))
 
 (defn negation-cycle
   "Search the rule dependency graph for a cycle through negation created by adding
@@ -480,9 +480,9 @@
   assert runs this check, so the stored graph is already free of them and whatever
   is being added can only close a cycle that passes through it.  For a *rule* that
   start node is the rule itself; for a *taxonomy edge*, which passes through no
-  single rule, the caller starts the walk at each rule carrying an exception —
-  complete, because every cycle through negation crosses a negative edge and
-  negative edges leave excepted rules only.
+  single rule, the caller starts the walk at each rule a negative edge leaves —
+  complete, because every cycle through negation crosses a negative edge, and
+  `checks/negative-edge-rules` is the roster of the rules one can leave.
 
   The search state is `[rule negative?]` rather than the rule alone: a node reached
   with and without a negative edge behind it are different states, since only the

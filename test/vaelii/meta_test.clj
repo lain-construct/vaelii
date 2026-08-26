@@ -81,7 +81,7 @@
   (testing "the derived membership is justified by the arity fact and the rule"
     (tu/with-terms [barPred]
       (v/assert kb (list 'arity barPred 3) 'CxCore)
-      (let [h (:id (first (v/sentexes-matching kb (list 'ternaryPredicate barPred) 'CxCore)))
+      (let [h (v/handle-of kb (list 'ternaryPredicate barPred) 'CxCore)
             d (first (v/supporting-justifications kb h))]
         (is (some #(= (list 'arity barPred 3) (:sentence (v/sentex kb %)))
                   (:antecedents d)))))))
@@ -143,7 +143,15 @@
     ;; of the :transitive prop machinery (the closure-relations skip-set), so it stays a
     ;; queryable classification without routing them to the generic prover — which is why
     ;; they do not appear in `(props kb :transitive)`.
-    (is (= '#{ancestorOf partOf locatedIn largerThan causes beforeEvent genl genlCx}
+    ;; `heavierThan` / `tallerThan` / `olderThan` are the instance-level strict orders,
+    ;; transitive beside `largerThan`'s type-level claim: two stated comparisons compose
+    ;; into the third off the closure, which is the route a KB that weighed nothing has.
+    ;; `greaterInMagnitudeThan` is the fourth, over quantities rather than objects.
+    ;; `instantBefore` / `instantAfter` are the point algebra's strict orders, transitive
+    ;; so a forward join reads a narrative's consecutive links as one ordering.
+    (is (= '#{ancestorOf partOf locatedIn largerThan instantBefore instantAfter
+              causes beforeEvent genl genlCx
+              heavierThan tallerThan olderThan greaterInMagnitudeThan}
            (set (map #(get % '?p) (v/ask kb '(transitive ?p) '?ctx)))))
     (is (not (v/has-prop? kb :transitive 'genl)))))
 
@@ -185,7 +193,7 @@
       (is (v/ask? kb (list rulesOver Ann Bob) CxBeta))
       (is (not (v/ask? kb (list ridesWith Ann Bob) CxBeta))))
     (testing "the copy is justified by the placement sentex and the declaration"
-      (let [u (:id (first (v/sentexes-matching kb (list rulesOver Ann Bob) 'CxUniverse)))
+      (let [u (v/handle-of kb (list rulesOver Ann Bob) 'CxUniverse)
             d (first (v/supporting-justifications kb u))]
         (is (= 'decontextualizedPredicate (:informant d)))
         (is (= 2 (count (:antecedents d))))
@@ -267,14 +275,14 @@
     (testing "and the conclusion is lifted, exactly as an asserted fact would be"
       (is (seq (v/sentexes-matching kb (list speaksFrench Ann) 'CxUniverse))))
     (testing "the copy names the declaration that licensed it, so `why` points at what to retract"
-      (let [u (:id (first (v/sentexes-matching kb (list speaksFrench Ann) 'CxUniverse)))
+      (let [u (v/handle-of kb (list speaksFrench Ann) 'CxUniverse)
             d (first (v/supporting-justifications kb u))]
         (is (= 'decontextualizedPredicate (:informant d)))
         (is (some #(= (list 'decontextualizedPredicate speaksFrench)
                       (:sentence (v/sentex kb %)))
                   (:antecedents d)))))
     (testing "retracting the fact takes the conclusion and its copy with it"
-      (v/retract! kb (:id (first (v/sentexes-matching kb (list bornInFrance Ann) CxAlpha))))
+      (v/retract! kb (v/handle-of kb (list bornInFrance Ann) CxAlpha))
       (is (empty? (v/sentexes-matching kb (list speaksFrench Ann) CxAlpha)))
       (is (empty? (v/sentexes-matching kb (list speaksFrench Ann) 'CxUniverse))))))
 
@@ -348,7 +356,7 @@
           d2 (v/assert kb (list 'decontextualizedPredicate rulesOver) CxBeta)]
       (is (not= d1 d2) "two contexts, two sentexes")
       (v/assert kb (list rulesOver Ann Bob) CxAlpha)
-      (let [u (:id (first (v/sentexes-matching kb (list rulesOver Ann Bob) 'CxUniverse)))]
+      (let [u (v/handle-of kb (list rulesOver Ann Bob) 'CxUniverse)]
         (is (= 2 (count (v/supporting-justifications kb u))) "one witness per declaration")
         (v/retract! kb d1)
         (is (seq (v/sentexes-matching kb (list rulesOver Ann Bob) 'CxUniverse))

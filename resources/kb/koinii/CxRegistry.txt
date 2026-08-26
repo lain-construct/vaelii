@@ -3,7 +3,7 @@
 ;; vocabulary, and NOTHING sees it by default: it is the one context a governed
 ;; agent may NOT write, because the governed may not write the authority that
 ;; governs them (koinii design D4).  Every fact here is written by the out-of-band
-;; admin principal through vaelii.impl.koinii.identity/register-agent — never by an
+;; admin principal through vaelii.koinii.identity/register-agent — never by an
 ;; agent about itself, so no agent can self-promote.
 ;;
 ;; The three predicates are the identity substrate: a membership

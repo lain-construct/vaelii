@@ -56,7 +56,9 @@ predicates, forward-chained from the same agenda, and placed in the maximal cont
 sees both it and the facts it fired on. A conjunctive necessary condition
 `(and (male ?x) (unmarried ?x))` polycanonicalizes into one rule per conjunct like any
 conjunctive consequent, and a sufficient conjunction becomes a conjunctive rule body that
-needs every conjunct met.
+needs every conjunct met. A **disjunctive** sufficient condition becomes a rule body that
+disjoins, polycanonicalized into one companion rule per alternative — which is how "a pet
+is a dog or a cat" is written ([canonicalization.md](canonicalization.md)).
 
 ## The rule is derived, so retraction and belief follow it
 

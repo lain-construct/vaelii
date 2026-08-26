@@ -87,10 +87,11 @@ declaration at check time, and the two say the same thing about the same functio
 ## The reifiable gate
 
 A function's kind is metadata cached in the taxonomy, so the per-sentence gate —
-"does the KB declare any reifiableFunction?" — is a free **in-memory set read**
-(`nat/any-reifiable-functions?` ⇒ `seq (tax/props tax :reifiable)`), belief-following
-and needing no mtime cache. A KB that declares no reifiableFunction pays one set read
-per assert / query and nothing else: the whole subsystem is a gated no-op.
+"does the KB declare any function that reifies?" — is a free **in-memory set read**
+(`nat/any-reifiable-functions?` ⇒ `seq` of the `:reifiable` props, else of the
+`:context-denoting` ones), belief-following and needing no mtime cache. A KB that
+declares neither pays two set reads per assert / query and nothing else: the whole
+subsystem is a gated no-op.
 
 ## Write path
 
@@ -139,6 +140,16 @@ type membership and can hold none, a membership being asserted of a name.
 So the argument checks read the *function's* declaration instead. `(arg P n T)` reads
 `(result F T')` — what an application of `F` **is** — and `(genlArg P n T)` reads
 `(genlResult F T')` — what it is a **kind of**. The two are never crossed.
+
+**A term a prover hands back is minted no more than one somebody typed, and is no
+orphan.** `(startOf (YearFn 2000) ?i)` binds `?i` to `(InstantFn 2000 1 1 0 0 0)`, an
+unreifiable NAT the calendar clock computed from the year's fields
+([time.md](time.md)) — and computing it writes nothing: no `termOfUnit` row, no
+materialized result type, no handle, so there is no orphan question to ask about it and no
+retraction that could take it back. It is a value in a binding map and lives exactly as
+long as the answer does. Asserting a sentence that *contains* one is an ordinary assert,
+and `(result InstantFn time_point)` in `CxTime` is what types it there — the same one
+declaration binding the computed term and the typed one.
 
 ```clojure
 (v/assert kb '(unreifiableFunction QuantityFn) 'CxUniverse)
@@ -342,6 +353,16 @@ inverted-term-index read — `orphan?`, since a constant's uses, its map and its
 materialized types are all sentexes naming it ([indexing.md](indexing.md)). What a
 retraction costs is the size of what it removed, and a KB that has minted a hundred
 thousand NATs the retraction is not about adds nothing to it.
+
+**A `cx/` context constant is collected at the same gate**, by the same rule with one more
+source of liveness: a context is somewhere sentexes *are* as well as something sentences
+name, so the last fact leaving its slot orphans it as surely as the last sentence dropping
+its name. `constants-named-by` reads a removed sentex's **context** beside its sentence for
+that, and `orphan?` asks a context's extent — one O(1) `count-in-context` — before the term
+index. Its whole bookkeeping is the `termOfUnit`, the mint writing no result types for a
+place; what the structural producer **computed** off that map is not a reference to it, and
+holding an ordered pair up on its own edges is the failure that reading would cause.
+[context-nat.md](context-nat.md) has the definition, the trigger and the cost.
 
 The removals reach the sweep through `integrate/*removed-sink*`, the record the removal
 choke point fills while a teardown runs, because they arrive from three places: the

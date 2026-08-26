@@ -95,8 +95,9 @@
     three are no index's to keep — `:goals` and `:sift` are the matchers'
     (`vaelii.impl.resolution`) and `:fetches` is the record store's.
   * A retrieval that reaches the index without going through either matcher has no
-    shape here: the direct `p/lookup` callers (`find-sentex-handle`, the level-0 raw
-    read) appear in `:fan` and `:reads` and not in `:goals`.
+    shape here: the level-0 raw read calls `p/lookup` directly, so it appears in `:fan`
+    and `:reads` and not in `:goals`, while `find-sentex-handle`'s exact `p/leaf-at`
+    probe appears in `:reads` alone — it does not walk, so it has no fan to record.
   * **`:fetches` counts the protocol call, not the work behind it.**  A store's own
     internal reads are its own business — the durable store re-reads a record inside
     `mark-premise` where the RAM one reaches into its state map — so counting those would

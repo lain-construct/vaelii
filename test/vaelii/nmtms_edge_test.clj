@@ -133,7 +133,7 @@
     (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
     (let [bird-h (v/assert kb (list bird sky) 'CxUniverse)]
       (is (seq (v/sentexes-matching kb (list flies sky) 'CxUniverse)))
-      (let [flies-h (:id (first (v/sentexes-matching kb (list flies sky) 'CxUniverse)))]
+      (let [flies-h (v/handle-of kb (list flies sky) 'CxUniverse)]
         (v/retract! kb bird-h)
         (testing "the conclusion is gone with its support — swept, not merely defeated"
           (is (empty? (v/sentexes-matching kb (list flies sky) 'CxUniverse)))

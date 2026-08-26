@@ -175,10 +175,10 @@
   **Arity is never inferred from `arg`.**  `arg` constrains an argument to a *type*
   and is deliberately partial: a second argument may be unconstrained by design (you may
   `likes` anything) or not a type at all (a year, an integer).  Measured on the shipped
-  schema, the highest `arg` position disagrees with the declared arity for 8 of the 42
-  constrained relations — `likes`, `birthYearOf` and `arity` all read as unary — so an
-  inventory built that way would print `likes/1` and *cause* the arity errors it exists to
-  prevent.  A predicate the KB never declared gets no arity rather than a guessed one.
+  schema, the highest `arg` position disagrees with the declared arity for 7 of the 164
+  constrained relations — `hasCapability`, `result` and `interArg` all read as unary — so
+  an inventory built that way would print `hasCapability/1` and *cause* the arity errors it
+  exists to prevent.  A predicate the KB never declared gets no arity rather than a guessed one.
 
   Cost is the size of the **vocabulary**: four extent reads, none of them over facts."
   [kb]
@@ -189,14 +189,36 @@
                         :when (number? (nth sentence 2))]
                     [(nth sentence 1) (nth sentence 2)]))))
 
+(def ^:private arity-sample
+  "How many of a functor's facts `observed-arity` reads.  Small because the reading is a
+  *fallback* for a predicate nothing declared, and such a predicate has few facts: the
+  bound is what keeps a fallback off a 100M-row extent, and an extent that fits inside it
+  is read whole, which is the case the answer is exact in."
+  64)
+
 (defn- observed-arity
-  "The arity of a stored fact with this functor, or nil.  Ground truth rather than
-  inference — it is a sentence the KB holds — and the one fallback for a predicate used
-  without ever being declared.  The extent is walked lazily, so this is one record fetch."
+  "The arity most of this functor's stored facts are written at, or nil.  Ground truth
+  rather than inference — it is a sentence the KB holds — and the one fallback for a
+  predicate used without ever being declared.
+
+  **The majority over a bounded sample, not the first row.**  `sentexes-with-functor`
+  answers the SET of that functor's facts and promises nothing about the order, so naming
+  one member by position reports whichever arity the index happened to enumerate — the
+  order the facts were written in.  This reads at most `arity-sample` of them and answers
+  the arity the most of them carry, a tie going to the smaller arity: a count and a
+  number, both content, so the reading does not move with arrival order.  A majority
+  rather than the sample's content-least row, because a count is what survives a sample
+  whose edges move — where one elected row would change with them — and because a single
+  mis-asserted extra argument must not be free to name the arity for the whole predicate.
+
+  Bounded, so it costs at most `arity-sample` record fetches."
   [kb p]
-  (when-let [sx (first (v/sentexes-with-functor kb p))]
-    (let [s (v/readable-sentence sx)]
-      (when (and (sequential? s) (= p (first s))) (dec (count s))))))
+  (let [arities (for [sx    (take arity-sample (v/sentexes-with-functor kb p))
+                      :let  [s (v/readable-sentence sx)]
+                      :when (and (sequential? s) (= p (first s)))]
+                  (dec (count s)))]
+    (when (seq arities)
+      (key (nm/min-by-content-key (fn [[a n]] [(- n) a]) compare (frequencies arities))))))
 
 (defn term-kind
   "How a page about `term` should treat it — `:type`, `:predicate`, `:individual`,
@@ -414,7 +436,7 @@
   memberships, because a schema-only KB has no facts: enumerating functors that actually
   appear in fact position on the shipped schema yields 20 names, every one of them an engine
   meta-predicate and not one of them a domain relation.  `arg` then supplies argument
-  *types* for the 42 relations that declare them.
+  *types* for 119 of the 120 a page renders.
 
   Ordering is by **relevance tier** — predicates already used in facts with the page's term,
   then those an `arg` licenses for the term itself, then for each supertype in turn

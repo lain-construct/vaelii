@@ -146,7 +146,9 @@
   and a build that cannot read a log must be able to say so by name rather than delete
   it."
   [op]
-  (throw (ex-info (str "unknown index write op " (pr-str op))
+  (throw (ex-info (str "unknown index write op " (pr-str op) " — a batch op is :put,"
+                       " :delete, :increment, :decrement, :add-to-set or"
+                       " :remove-from-set")
                   {:type :unknown-frame :op op})))
 
 (defn apply-op

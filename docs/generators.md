@@ -124,8 +124,9 @@ level further out fills it.
 
 The wrapper rides **inside** the consequent, where substitution never touches it, and
 sets the direction of the rule that gets stored: `set/forwardRule`,
-`set/backwardRule`, `set/inertRule`, `set/defaultRule`. That is the only place a
-direction can be written for a rule nobody types out.
+`set/backwardRule`, `set/inertRule`. `set/defaultRule` rides there too and makes the
+stamped rule defeasible rather than setting its direction. That is the only place
+either can be written for a rule nobody types out.
 
 The **generator itself is forward-only**. Its conclusion is a rule, and no backward
 goal asks for one — `res/concluding-rule-handles` reads a goal's predicate, and a
@@ -165,9 +166,13 @@ the same way, so it too sees what is already there.
 
 The mint goes through the same check list the assert door runs
 (`checks/check-rule!`, read by both doors so neither can drift): range restriction,
-indexability, naming, stratification, no imperative, and the generator's own three. A
+indexability, naming, stratification, no imperative, disjunction shape, NAF closure,
+the argument constraints the rule's own variables carry, and the generator's own three. A
 stamped rule concluding a conjunction is polycanonicalized into one rule per conjunct,
-exactly as an asserted one is.
+and one whose antecedent disjoins into one rule per alternative, exactly as an asserted
+one is. The expansion happens at the **mint**, not at the generator's own assert: the
+holes are ground by then, so the alternatives stored are the alternatives of the rule
+that was stamped ([canonicalization.md](canonicalization.md)).
 
 That the list is one list is what makes nesting safe rather than merely legal: a middle
 level is checked **twice** — once as the pattern its author wrote, and again as the rule
@@ -216,13 +221,11 @@ cycle and the nesting is left to the author.
 **A generator cycle** is a generator whose **innermost** conclusion is a predicate some
 generator reads in an antecedent it stamps from — itself included. The innermost, because
 that is the only level that concludes a fact: the levels above it conclude rules, filed
-under `implies`, which no fact carries and no goal asks for. That is a rule set minting
-rules that mint rules, and unlike ordinary recursion nothing bounds it: each round adds
-*rules*, and the next round's rules are the ones the last round wrote. Refused outright
-rather than depth-capped, because a cap would make the KB's contents a function of how
-long the chainer happened to run, and "how many rules does this KB have" would stop
-having an answer. It is the call [exceptions.md](exceptions.md) makes for a cycle
-through negation, for the same reason. The check runs in both directions at every
+under `implies`, which no fact carries and no goal asks for. It is refused outright
+rather than depth-capped
+([why](defenses.md#a-generator-cycle-is-refused-not-depth-capped)) — the call
+[exceptions.md](exceptions.md) makes for a cycle through negation, for the same reason.
+The check runs in both directions at every
 generator's assert — the arriving one may stamp what a stored one reads, or read what a
 stored one stamps — because checking only one would admit the cycle whenever the two
 were asserted in the other order.
@@ -261,8 +264,8 @@ rule remains the `(sentexHandle H)` meta-sentex layer
   `:generated-antecedent` / `:generated-consequent` — at every depth — so the index
   check can tell them from the author's own.
 - `vaelii.impl.checks` — `check-rule!` (the list both doors read), `check-generator!`
-  (the three a generator owes, per level), `rule-violation` (the value form, for the
-  firing), `generator-cycle`.
+  (the three a generator owes — the `exceptWhen` and forward-only refusals per level,
+  the cycle once), `rule-violation` (the value form, for the firing), `generator-cycle`.
 - `vaelii.impl.chain` — `mint-rule`, and the `place-conclusion` dispatch that routes a
   rule-valued conclusion to it — including a minted rule that is itself a generator.
 - `vaelii.impl.resolution` — `rule-believed?`, which is what makes a mint retractable.

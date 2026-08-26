@@ -30,6 +30,7 @@
             [vaelii.impl.naming :as nm]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.special :as special]))
 
 (def ^:private universal-context 'CxUniverse)
@@ -77,7 +78,7 @@
   otherwise — one O(1) functor count per assert, the shape `nat/any-corresponding-predicates?`
   has."
   [kb]
-  (pos? (p/count-with-functor (:index kb) 'contextArgSubrelation)))
+  (pos? (reads/stored-count-with-functor (:index kb) 'contextArgSubrelation)))
 
 (defn- subrelation-declarations
   "Believed `(contextArgSubrelation F pos R)` declarations as `[F pos R handle]`, kept
@@ -181,18 +182,36 @@
           :when (some? k)]
     (order-group kb pos r declH nats)))
 
+(defn- functions-ordered-by
+  "The context functions some believed declaration orders by sub-relation `r`.  What the
+  **stored-fact oracle**'s retroactive arm reconciles: an `(R a b)` fact arriving after
+  both contexts is new evidence for an edge the producer previously declined, and `R` is
+  all the fact says about which function that edge belongs to."
+  [kb r]
+  (when (symbol? r)
+    (distinct (for [[f _ r' _] (subrelation-declarations kb (constantly true))
+                    :when (= r r')]
+                f))))
+
 (defn reconcile-genlCx
   "The structural-genlCx maintenance a just-asserted `sentence` in `context` calls for,
   scoped to what could have changed:
 
   - a `(contextArgSubrelation F …)` declaration reconciles all of `F`'s contexts;
   - a fact stored into a `cx/` context reconciles that context's function — its arrival, or
-    the mint of a new context beside it, is what creates a sibling pair to order.
+    the mint of a new context beside it, is what creates a sibling pair to order;
+  - an `(R a b)` fact on a **declared sub-relation** reconciles the functions declared to
+    order by `R`.  That is the third way an edge can become entailed with both contexts
+    already stored: a comparator dimension needs nothing but the contexts, but a dimension
+    resolved by stored facts has the evidence arrive on its own schedule, and without this
+    arm the edge would wait for the next assert that happened to touch one of the two
+    contexts.
 
-  A no-op — one functor count — on a KB that declares no `contextArgSubrelation`.  Both
-  arrival orders reach the same fixpoint: a declaration arriving after the contexts sweeps
-  them (`reconcile-function`), and a context arriving after a declaration is swept when it
-  is stored into.  Idempotent, so re-running orders the same edges without duplicating."
+  A no-op — one functor count — on a KB that declares no `contextArgSubrelation`.  Every
+  arrival order reaches the same fixpoint: a declaration arriving after the contexts sweeps
+  them (`reconcile-function`), a context arriving after a declaration is swept when it is
+  stored into, and the evidence arriving after both sweeps the functions it is evidence
+  for.  Idempotent, so re-running orders the same edges without duplicating."
   [kb sentence context]
   (when (any-context-subrelations? kb)
     (cond
@@ -202,7 +221,11 @@
 
       (nat/reified-context-symbol? context)
       (when-let [e (nat/nat-expression kb context)]
-        (when (sequential? e) (reconcile-function kb (first e)))))))
+        (when (sequential? e) (reconcile-function kb (first e))))
+
+      :else
+      (doseq [f (functions-ordered-by kb (nm/functor sentence))]
+        (reconcile-function kb f)))))
 
 (defn reconcile-revivals
   "Rebuild the structural genlCx edges for **every** declared `contextArgSubrelation`

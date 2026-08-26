@@ -33,7 +33,7 @@
     (v/assert kb (list parentOf bob ann) 'CxFam)
     (testing "grandparent is materialized by forward chaining"
       (is (= 1 (count (v/sentexes-matching kb (list grandparentOf tom ann) 'CxFam))))
-      (is (v/in? kb (:id (first (v/sentexes-matching kb (list grandparentOf tom ann) 'CxFam))))))))
+      (is (v/in? kb (v/handle-of kb (list grandparentOf tom ann) 'CxFam))))))
 
 (tu/deftest-kb recursion-is-bounded
   (let [nat (tu/tmp-type) z (tu/tmp-ind) succ (tu/tmp-pred)]
@@ -53,8 +53,8 @@
     (v/assert kb (list parentOf bob ann)   'CxFam)
     (v/assert kb (list parentOf tom carol) 'CxFam)
     (v/assert kb (list parentOf carol ann) 'CxFam)          ; two witnesses for (gp Tom Ann)
-    (let [gp    (:id (first (v/sentexes-matching kb (list grandparentOf tom ann) 'CxFam)))
-          bob-h (:id (first (v/sentexes-matching kb (list parentOf tom bob) 'CxFam)))]
+    (let [gp    (v/handle-of kb (list grandparentOf tom ann) 'CxFam)
+          bob-h (v/handle-of kb (list parentOf tom bob) 'CxFam)]
       (is (v/in? kb gp))
       (v/retract! kb bob-h)
       (testing "grandparent survives — re-derived via the Carol witness"
@@ -69,8 +69,8 @@
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam)
     (v/assert kb (list parentOf tom bob) 'CxFam)
     (v/assert kb (list parentOf bob ann) 'CxFam)            ; only one witness
-    (let [gp     (:id (first (v/sentexes-matching kb (list grandparentOf tom ann) 'CxFam)))
-          bob-h  (:id (first (v/sentexes-matching kb (list parentOf tom bob) 'CxFam)))
+    (let [gp     (v/handle-of kb (list grandparentOf tom ann) 'CxFam)
+          bob-h  (v/handle-of kb (list parentOf tom bob) 'CxFam)
           result (v/retract! kb bob-h)]
       (testing "grandparent had no other support and is swept"
         (is (not (v/in? kb gp)))

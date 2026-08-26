@@ -55,15 +55,19 @@
           (is (seq r) (str "composing " a " with " b " names something"))
           (is (every? universe r)
               (str "and only directions — " a " ∘ " b " = " (pr-str r)))))))
+  ;; Discriminated on `:type`, not on the message: the keyword is the contract a caller
+  ;; branches on, and a message a later edit rewords would take this test with it.
   (testing "and a projection that is not one is refused where it is built, not composed"
     (testing "a repeated pair, which still covers all nine"
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo #"all nine \[x y\] pairs"
-           (proj/algebra (assoc dir/direction->xy :nowhere [:gt :gt])))))
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (proj/algebra (assoc dir/direction->xy :nowhere [:gt :gt]))))]
+        (is (= :bad-algebra (:type (ex-data e))))))
     (testing "and a missing one, which covers eight"
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo #"all nine \[x y\] pairs"
-           (proj/algebra (dissoc dir/direction->xy (first (sort (keys dir/direction->xy))))))))))
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (proj/algebra
+                            (dissoc dir/direction->xy
+                                    (first (sort (keys dir/direction->xy)))))))]
+        (is (= :bad-algebra (:type (ex-data e))))))))
 
 (deftest composition-is-computed-from-the-two-axis-projections
   (testing "a direction composed with itself keeps both axes"

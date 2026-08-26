@@ -28,8 +28,8 @@
              CxSociety CxSpace CxTime]
            (seed/layer-contexts "upper"))))
   (testing "middle holds the theory contexts"
-    (is (= '[CxAnatomy CxBiology CxKinship CxMereology
-             CxSize CxSocial]
+    (is (= '[CxAnatomy CxBiology CxChange CxKinship
+             CxMereology CxSize CxSocial]
            (seed/layer-contexts "middle"))))
   (testing "an absent layer is nil, not a crash"
     (is (nil? (seed/layer-contexts "no-such-layer")))))

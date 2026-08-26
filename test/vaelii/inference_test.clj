@@ -393,8 +393,8 @@
       (v/assert kb (list parentOf SlA SlB) CxSel)
       (v/assert-rule kb [(list parentOf '?x '?z)] (list anc '?x '?z) CxSel
                      {:direction :backward})
-      (when-not (tu/query-engine-override)
-        (is (= :dfs v/*query-engine*) "the default must stay :dfs"))
+      (is (= (or (tu/query-engine-override) :dfs) v/*query-engine*)
+          "the default must stay :dfs; under the sweep the engine is the one it set")
       (let [goal (list anc SlA '?z)]
         (testing ":inference answers what :dfs answers"
           (is (= #{SlB} (values (set (v/prove kb goal CxSel)) '?z)))
@@ -501,3 +501,24 @@
                                             {:max-depth 2 :proof? true}))))))
       (testing "`query?` ignores it rather than testing a map for emptiness"
         (is (v/query? kb goal CxPf {:max-depth 2 :proof? true}))))))
+
+;;; ── the depth bound is required, not defaulted ────────────────────────
+
+(tu/deftest-kb the-node-engine-refuses-to-start-without-a-depth-bound
+  ;; The bound is the termination condition rather than a tuning knob: a residual grows a
+  ;; conjunct per rewrite, so the claimed-key set cannot stop a search that has no bound.
+  ;; A default would be a number picked without looking at the data it bounds, and wrong
+  ;; in the direction that loses answers — so the caller says, or the search does not
+  ;; start.  Either of the two ways of saying it will do, and both are checked here.
+  (let [goal (list 'genl '?x 'thing)]
+    (binding [inf/*max-depth* nil]
+      (let [d (try (inf/session kb [goal] 'CxUniverse)
+                   nil
+                   (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (= :no-depth-bound (:type d))
+            "neither option nor binding is a refusal, not a search on some default"))
+      (testing "the option is one way to say it"
+        (is (some? (inf/session kb [goal] 'CxUniverse {:max-depth 3})))))
+    (testing "and the binding is the other"
+      (binding [inf/*max-depth* 3]
+        (is (some? (inf/session kb [goal] 'CxUniverse)))))))

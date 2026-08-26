@@ -218,7 +218,7 @@
 
 (deftest only-a-contested-member-is-ever-defeated
   ;; The fixed side is known-true.  Dropping the `(filter assumptions ...)` would let
-  ;; the stub defeat it — `core/accepted-defeat` clamps the *output* of a third-party
+  ;; the stub defeat it — `settle/accepted-defeat` clamps the *output* of a third-party
   ;; solver for exactly this reason, but the shipped one must not need clamping.
   ;; Note the fixed member here carries the greater content-key, so a stub that
   ;; ignored `:assumptions` would pick it.

@@ -4,7 +4,8 @@
   `dimensionOf` / `conversionFactor` table, with an epsilon tolerance.
 - **Not here:** why a measure term stays structural instead of reifying to a
   constant → [nat.md](nat.md); interval arithmetic like total or overlap duration →
-  [duration.md](duration.md).
+  [duration.md](duration.md); reasoning about a quantity nobody has put a figure on →
+  [sign.md](sign.md).
 - **Assumes:** sentex, context, structural NAT, deferred literal →
   [glossary.md](glossary.md).
 
@@ -84,7 +85,8 @@ Reading the first match instead would answer whichever the index yields, and tha
 handle order — the same knowledge loaded in the other order would convert by the other
 factor and give a different number out of the same KB, which is the one thing the engine
 does not allow. So a doubly-stated reading is declined rather than adjudicated, the rule
-`duration/interval-length` follows for two lengths and `stp/endpoints-of` for two starts.
+`duration/interval-length-with-support` follows for two lengths and `stp/endpoints-of` for
+two starts.
 
 The base and the factor are **one** reading, taken together: a base from one declaration
 and a factor from another would convert into a unit nothing said it converts to, and
@@ -160,6 +162,38 @@ out of `comparison-siblings` and `chained-comparisons`: `sameQuantity` is symmet
 directional, and a `quantityLessThan` chain crosses units, so folding one would smuggle
 in a normalization the prover has not run.
 
+## What a comparison rests on
+
+`(quantityGreaterThan (QuantityFn 5000 Gram) (QuantityFn 1 Kilogram))` holds *because* a
+gram is declared a thousandth of a kilogram. In a backward query that is a detail; in a
+**forward** rule it is the whole question, because the firing stores a conclusion and no
+other antecedent of the rule names the `conversionFactor` row. A firing that omitted it
+would keep the conclusion after the row was retracted.
+
+`QuantityProver` therefore implements `provers/SupportingProver`: `solve-with-support`
+answers the same comparisons `solve` does, each paired with the `dimensionOf` and
+`conversionFactor` handles both sides normalized through. The forward join adds them to the
+firing's antecedents, so retraction reaches them, `why` names them, and placement requires
+a context that can see them ([inference.md](inference.md), "What a computed answer rests
+on"). The measure *terms* are not in that set and need not be: a comparison is check-only
+over two ground measures, so whatever bound them was an ordinary matched antecedent and is
+already there.
+
+The support is **every** visible declaration the reading was taken over, not one of them —
+`table-read` reads an agreement, and a second row that agrees collapses into it while a
+second that disagrees declines it outright, so the reading is a property of the set. The
+cost is that retracting one of two agreeing rows withdraws a conclusion the survivor would
+still license; naming only the survivor would make belief depend on which row arrived
+first, which is worse.
+
+A unit that declares neither predicate contributes **no** handles, and that is not a gap:
+"a unit is its own dimension" and "a unit with no factor is its own base" are what the
+*absence* of a declaration means, and an absence is not a sentex a retraction can take
+away. A declaration arriving *later* does change the answer, and `support-sources` is what
+puts it in front of the rules concerned — a `conversionFactor` datum re-joins every forward
+rule carrying a comparison antecedent, so the table may arrive after the rule and the facts
+and still be believed the same.
+
 ## Where it lives
 
 - `vaelii.impl.provers` — `QuantityProver`, `normalize-quantity`, `measure-comparisons`,
@@ -169,6 +203,9 @@ in a normalization the prover has not run.
   table predicates), and the five comparisons, each documented by a comment sentex. An
   *upper* context, not the vocabulary head: measurement is subject matter, and only the
   grammar it is declared in (`unreifiableFunction`, `binaryPredicate`, …) is CxCore's.
+  The sign vocabulary shares the file ([sign.md](sign.md)) — same quantities, no
+  figures — and shares nothing else: a measure is never read into a sign, and a sign is
+  never rendered as a measure.
 - `vaelii.impl.sentex/deferred-predicates` — the five comparisons, for rule-antecedent
   planning.
 

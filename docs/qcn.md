@@ -174,8 +174,8 @@ way. The practical encoding is a bounded round iteration with each round in its 
 relation — because stratification in those engines is per *relation*, not per ground atom,
 one relation carrying the round as an argument is a cycle through negation. Soufflé
 rejects such a program outright; gringo accepts it, fails to evaluate it while grounding,
-and ships the whole cubic rule to the solver. Measured on 64 regions, that is 15.9 GB
-against 755 MB for the unrolled form computing the identical answer.
+and ships the whole cubic rule to the solver. Measured on 64 regions, that is ~16 GB of
+grounding against under a gigabyte for the unrolled form computing the identical answer.
 
 ### The arc queue
 
@@ -338,6 +338,25 @@ would be a wrong *entailment* reported with full confidence rather than a crash 
 `:converse`, exhaustively where 2^k allows and over a seeded sample where it does not,
 across all six calculi and a synthetic one wide enough to take the fallback.
 
+#### Two numbers bound this layer, and neither is a cache
+
+The compiled algebras and the decode tables are caches with rows on the page
+([caches.md](caches.md)). These two are not: nothing holds entries, nothing is dropped,
+and each decides one thing at compile time.
+
+| Number | Value | What it decides |
+|---|---|---|
+| the algebra **width** | 62 base relations | above it `compile-algebra` **refuses**: a constraint is the bits of a long, and that is what one holds |
+| the **dense-table** threshold | 2^18 = 262,144 entries | at or under it the composition table covers whole masks; over it, base relations only |
+
+The width is a refusal rather than a fallback because there is nothing to fall back to —
+an algebra of 63 base relations has a constraint lattice no representation here works in,
+and the widest that ships is Allen's thirteen. The threshold is a **build decision** and
+nothing else: under it a composition is one array read per relation on the left, over it
+one read per pair, which is `|s2|`× the reads and allocates nothing either way. Allen's
+106,496 entries are the widest table any shipped calculus asks for, so every one of them
+takes the dense side, and the sparse side is exercised by the synthetic algebra above.
+
 Measured on the same two shapes, against the same pass over relation sets. **These are
 not the numbers above**: that table measures the incremental queue against a full
 re-sweep with relations already held as masks, and this one measures the mask
@@ -402,6 +421,41 @@ Four goal shapes, on which arguments are bound:
   reflexive denotation would otherwise report for every node on its own.
 - **one variable twice** (`(P ?x ?x)`) — the diagonal itself, so a denotation containing
   the identity answers every node and an irreflexive one answers none.
+
+### A network can have a second reader
+
+Stored facts of the calculus are one source of constraint on a pair, and they need not be
+the only one. A calculus may carry a **narrowing**: a function of the KB and the context
+answering the same `{:net … :support …}` a read produces, which `build-network` folds in
+by intersecting each pair's constraint and unioning each pair's support.
+
+One ships. The interval algebra takes its narrowing from the metric temporal layer
+([stp.md](stp.md)): an interval is bounded by two instants, so a numeric bound on the gap
+between two intervals' endpoints rules out Allen relations no stored fact mentions. Nothing
+about the pass, the entailment reading, the support or the delta join changes for it —
+what all four consume is one network value either way.
+
+Three things make the fold sound rather than merely convenient:
+
+- **It only narrows.** Intersection is commutative and associative, so the network is a
+  function of what both readers saw and never of which ran first. A pair the narrowing
+  leaves at the universe it does not record, which is the same claim as recording it.
+- **It carries support.** A pair narrowed by a second reader names the facts *that* reader
+  read, so a conclusion drawn through it is withdrawn by retracting one of them, exactly as
+  a conclusion drawn through a stored fact is.
+- **Its sources are declared.** What moves a network is wider than what the calculus
+  answers, and a datum on one of the narrowing's `:sources` re-checks and re-joins the rules
+  carrying an antecedent of the calculus — the same job `SupportingProver`'s
+  `support-sources` does for a computed antecedent ([inference.md](inference.md)). Without
+  it a constraint stated after the rule and the facts would never reach a join, and the same
+  three sentences would derive a conclusion or not depending on which arrived last. A
+  narrowing also names the subset of those that puts a **node** into a network, which is
+  what makes a context worth reading one at (`reader-contexts`).
+
+Each direction is folded **as given** rather than mirrored through the algebra's converse,
+which is the one way this differs from absorbing a stored fact: a narrowing answers ordered
+pairs and answers both, so mirroring would intersect a pair with the converse of a claim
+about itself.
 
 ## Negation: refutation, and negative facts as constraints
 
@@ -582,7 +636,7 @@ at three kinds of place:
   rather than inside the two representations, so one bump apiece is exhaustive by
   construction and neither representation can forget one;
 * the **taxonomy** is written, by a watch on its atom rather than a bump per mutator —
-  there are two dozen of those, and the point of a clock is that no write can forget it.
+  there are nearly thirty of those, and the point of a clock is that no write can forget it.
 
 Two bulk operations bump it by hand, because they move a whole store without passing
 either choke point: `core/clear!` and `reindex/reindex`.

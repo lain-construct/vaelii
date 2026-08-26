@@ -10,8 +10,8 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.koinii.belief :as bel]
-            [vaelii.impl.koinii.identity :as id]
+            [vaelii.koinii.belief :as bel]
+            [vaelii.koinii.identity :as id]
             [vaelii.test-util :as tu])
   (:import (clojure.lang ExceptionInfo)))
 
@@ -99,8 +99,13 @@
     (bel/believe-own kb 'AgentAtlas)
     (let [h (holds! kb 'AgentAtlas P)]              ; Atlas's statement, creator AgentAtlas
       (testing "Boreas may not except a claim he does not own — that is argue's job, not except's"
-        (is (thrown-with-msg? ExceptionInfo #"only its own statement"
-                              (bel/disregard kb 'AgentBoreas h))))
+        (let [d (try (bel/disregard kb 'AgentBoreas h)
+                     nil
+                     (catch ExceptionInfo e (ex-data e)))]
+          (is (= :koinii/not-own-statement (:type d)))
+          (is (= 'AgentBoreas (:agent d)))
+          (is (= 'AgentAtlas (:creator d))
+              "and it names whose statement it is, so the caller can go and dispute it")))
       (testing "and nothing was hidden — Atlas's claim stands"
         (is (empty? (bel/disregards kb 'AgentBoreas)))
         (is (bel/would-believe? kb 'AgentAtlas P))))))

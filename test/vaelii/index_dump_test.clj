@@ -52,16 +52,20 @@
   [{:backend :memory          :space 88}
    {:backend :memory-dense    :space 88}
    {:backend :memory-columnar :space 88}
-   {:backend :disk}])
+   {:backend :disk-log}])
 
 (defn- open-kb!
   "An empty KB on `opts`, plus the thunk that closes and deletes whatever it needed."
   [opts nm]
-  (if (= :disk (:backend opts))
+  (if (= :disk-log (:backend opts))
     (let [d  (temp-dir nm)
-          kb (v/open-kb {:backend :disk :dir (.getPath d) :recover? false})]
+          kb (v/open-kb {:backend :disk-log :dir (.getPath d) :recover? false})]
       [(doto kb (tu/clear-kb!)) #(do (backend/close-dir! (.getPath d)) (rm-rf! d))])
-    [(doto (v/open-kb (assoc opts :recover? false)) (tu/clear-kb!)) (fn [])]))
+    ;; The three `:memory*` backends share one record store on space 88, and the registry
+    ;; behind it is process-global — so the fixture is cleared on the way OUT as well as
+    ;; on the way in, or the last one to run stays resident for the JVM's life.
+    (let [kb (doto (v/open-kb (assoc opts :recover? false)) (tu/clear-kb!))]
+      [kb #(tu/clear-kb! kb)])))
 
 (defn- with-kb* [opts nm f]
   (let [[kb close!] (open-kb! opts nm)]

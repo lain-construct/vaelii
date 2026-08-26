@@ -581,8 +581,9 @@
   `types` set overlays it so a term known to the taxonomy colors as a type even where
   naming would call it a predicate — and **before** the non-symbol fallback, because a
   type node need not be a symbol.  An imported ontology names a type it has no atomic
-  name for with a function term (17,211 of OpenCyc's 132,352 are compounds), and reading
-  that as a number is the whole page in the wrong colour."
+  name for with a function term (17,211 of the types in the OpenCyc import `docs/kbs.md`
+  measures are compounds), and reading that as a number is the whole page in the wrong
+  colour."
   [{:keys [types]} t]
   (let [role (v/term-role t)]
     (cond
@@ -1089,9 +1090,15 @@
   happens on the POST that runs a turn and never on rendering the panel."
   []
   (or *proposer*
-      (let [kind (llm-provider/active-kind)]
+      ;; the KIND label from `available?` — which rides the shared probe client — rather
+      ;; than `active-kind`, whose `build` liveness test constructs a throwaway provider,
+      ;; and a fresh `HttpClient` with it, on every POST and drops it to the collector.
+      ;; `generation-provider` builds the one provider the turn actually runs on, itself
+      ;; gated on the same reachability probe, so a broken backend still falls to the stub.
+      (let [k    (or (llm-provider/configured) :stub)
+            kind (if (llm-provider/available? k {}) k :stub)]
         {:kind kind
-         :provider (llm-provider/generation-provider kind {:timeout-ms propose-timeout-ms})})))
+         :provider (llm-provider/generation-provider k {:timeout-ms propose-timeout-ms})})))
 
 (defn- proposal-tally
   "The counts a reviewer reads first: how much of the answer is new, how much restates
@@ -1135,13 +1142,13 @@
    :not-well-formed      "malformed"
    :not-range-restricted "unbound"
    :not-indexable        "var predicate"
+   :disjunction-too-wide "too many ors"
    :not-stratified       "cycle"
    :not-assertible       "imperative"
    :not-checkable        "imperative"
    :exception-not-closed "open guard"
    :naf-not-closed       "open naf"
    :quantifier-not-local "quantifier"
-   :quantified-conjunction "quantified and"
    :arg-type             "arg type"
    :arg-genl             "arg type"
    :inter-arg-type       "arg type"
@@ -1167,6 +1174,12 @@
    ;; derived index) was never built, so the door refused rather than storing unchecked
    :unrecovered-kb       "not recovered"
    :unrecovered-premise  "no sweep"
+   ;; a `find-terms` regex whose backtracking blew the per-term step budget — not a
+   ;; `check-edit` problem, but the propose test scans every `:type` in core.clj
+   :pattern-too-costly   "too costly"
+   ;; and the other read-side one the same scan reaches: a bounded `ask` / `prove` whose
+   ;; clock ran out before the search did, so what it held was a prefix
+   :budget-exhausted     "out of time"
    :error                "error"})
 
 (defn- problem-chip-word [t]
@@ -3081,106 +3094,43 @@
 ;; that renders those is 14 MB of links — not slow, unusable, and unclickable once it
 ;; arrives.  So each line is capped, and each says what it left out.
 
-(def ^:private type-line-cap
-  "How many terms a term page's supertype / subtype / disjointness line lists."
-  50)
-
 (defn- type-line
-  "One of those three lines, from a `{:terms :total :exact? sorted?}` answer: the terms,
-  then — only when it did not show everything — what was shown out of what there is.  A
-  total that is a *bound* rather than a count says so, since the alternative to
-  over-counting is a walk whose whole point was not to be taken; a window that is not in
-  name order says that too, since fifty alphabetically-first is a different claim from
-  fifty of them."
+  "One of those three lines, from one of `describe`'s `{:terms :total :exact? :sorted?}`
+  answers: the terms it holds, then — only when that window is not the whole answer —
+  what was shown out of what there is.  A total that is a *bound* rather than a count
+  says so, since the alternative to over-counting is a walk whose whole point was not to
+  be taken; a window that is not in name order says that too, since fifty
+  alphabetically-first is a different claim from fifty of them.
+
+  **The cap is `describe`'s** (`vaelii.core/default-describe-limit`), not one applied
+  again here: the read that decides how much to sort is the read that has to decide how
+  much to return, and a second cap on top of it could only ever disagree with `:total`."
   [view label {:keys [terms total exact? sorted?]}]
   (when (seq terms)
-    (let [shown (take type-line-cap terms)]
-      [:div
-       [:p label ": " (interpose ", " (map #(term-link view %) shown))]
-       (when (> total (count shown))
-         (elided (count shown)
-                 (str (when-not exact? "up to ") (or (commas total) total))
-                 (when-not sorted? "in index order")))])))
+    [:div
+     [:p label ": " (interpose ", " (map #(term-link view %) terms))]
+     (when (> total (count terms))
+       (elided (count terms)
+               (str (when-not exact? "up to ") (or (commas total) total))
+               (when-not sorted? "in index order")))]))
 
-(defn- closure-line
-  "The bounded-list shape for a genl closure already in hand.  Its size is a free read
-  (the taxonomy holds the set), so the count is always exact; the **sort** is what costs,
-  so past `sortable-cap` the window is in the set's own order and the line says so."
-  [kb-set]
-  (let [total  (count kb-set)
-        sorted (<= total sortable-cap)]
-    {:terms  (cond->> kb-set sorted by-print-key)
-     :total  total
-     :exact? true
-     :sorted? sorted}))
+(defn term-page
+  "A term's page: the concept graph, the three type lines, the sentexes grouped by the
+  index root that reaches them, and the proposal panel.
 
-(defn- disjoint-with
-  "The known types disjoint from the term whose genl up-closure is `up` — read from the
-  declarations in one pass rather than by asking `disjoint?` once per type in the KB.
-
-  `disjoint?` holds when some supertype of x and some *different* supertype of y are
-  separated, by a declared `(disjoint a b)` or by co-membership of a disjoint metatype.
-  Read from the term's side that inverts cleanly: whatever separates one of the term's
-  own supertypes names a **partner**, and the types disjoint from the term are exactly
-  the partners' spec closures. So the cost is one closure read per partner — there are
-  usually one or two — instead of one `disjoint?` per type.
-
-  The partners are asked for **per supertype**, both argument orders, rather than by
-  reading every `(disjoint a b)` in the KB and keeping the few that mention one: each
-  probe pins a ground argument, so it is an argument-root read, and the cost is the
-  term's own up-closure instead of the ontology's declaration count.  The metatypes are
-  the exception and are read whole — a metatype names its members rather than its pairs,
-  so there is nothing to pin, and an ontology declares them by the dozen."
-  [{:keys [kb types]} up]
-  (let [;; `disjoint` carries no `symmetric` declaration, so the two orders are two
-        ;; stored shapes and both have to be asked for.  Each pins one ground argument.
-        probe    (fn [x slot pattern]
-                   (for [s     (v/sentexes-matching kb pattern '?ctx)
-                         :let  [y (nth (:sentence s) slot nil)]
-                         :when (and (some? y) (not= x y))]
-                     y))
-        declared (mapcat (fn [x] (concat (probe x 1 (list 'disjoint '?y x))
-                                         (probe x 2 (list 'disjoint x '?y))))
-                         up)
-        induced  (for [m     (v/disjoint-metatypes kb)
-                       :let  [ms (v/metatype-members kb m)]
-                       :when (some up ms)
-                       y     ms
-                       :when (not (contains? up y))]
-                   y)
-        ;; `by-print-key`, never bare `sort`: a type node need not be a symbol.  A NAT — a
-        ;; function term used as a collection, which is how an imported ontology names a
-        ;; type it has no atomic name for — is a `PersistentList`, and `compare` throws on
-        ;; one rather than ordering it.  Names are what this list is read in anyway, and
-        ;; it is the ordering every other list on the page uses.
-        partners (by-print-key (into #{} (concat declared induced)))
-        ;; the sum of the partners' closure sizes is an upper bound on their union (it
-        ;; counts an overlap twice), and it decides whether building the union is
-        ;; affordable.  Taking the bound is what *makes* the closures cached, not a read
-        ;; of ones already cached: `tax/specs` walks the subtree on the first read of a
-        ;; node per taxonomy generation, so the 43 partners spanning 290,000 subtypes —
-        ;; one real term of one imported ontology — are walked here whatever the cap then
-        ;; says.  What the cap saves is the `distinct` and the ordering over the
-        ;; union, which is why the branch below can be O(cap)
-        bound    (reduce + 0 (map #(count (v/specs kb %)) partners))
-        walk     (comp (mapcat #(v/specs kb %)) (filter @types) (distinct))]
-    (if (<= bound sortable-cap)
-      (let [all (into [] walk partners)]
-        {:terms (by-print-key all) :total (count all) :exact? true :sorted? true})
-      ;; one past the cap, in partner-name order: enough to know whether there is more,
-      ;; and O(cap) rather than O(union) because the closures are already in memory and
-      ;; nothing past the window is touched
-      (let [win (into [] (comp walk (take (inc type-line-cap))) partners)]
-        (if (<= (count win) type-line-cap)
-          {:terms (by-print-key win) :total (count win) :exact? true :sorted? true}
-          {:terms (into [] (take type-line-cap) win) :total bound
-           :exact? false :sorted? false})))))
-
-(defn term-page [{:keys [kb] :as view} term]
-  (let [up     (v/genls kb term)
-        gls    (disj up term)
-        sps    (disj (v/specs kb term) term)
-        djs    (disjoint-with view up)
+  **The three type lines are `describe`'s**, not a second computation beside it.  One
+  call answers the supertype, subtype and disjointness closures, each already windowed at
+  `vaelii.core/default-describe-limit` with `:total` beside it and `:exact?` / `:sorted?`
+  saying what kind of window it is — so the page and `vaelii.core/describe` cannot come to
+  disagree about what a term is, and against a remote daemon the three lines cost one round
+  trip rather than a read apiece (docs/api.md).  Everything else on the page keeps its own
+  budget: the index groups are bounded in rows (`group-cap`) and the graph in reads
+  (`graph-side-budget`), neither of which is a question about terms."
+  [{:keys [kb] :as view} term]
+  (let [about  (v/describe kb term '?ctx)
+        gls    (:terms (:genls about))
+        sps    (:terms (:specs about))
+        djs    (:disjoint about)
         text   (term-text view term)
         groups (vec (term-index-groups kb term text))]
     ;; one belief read for the whole page: every group's first page of rows, **and** the
@@ -3197,8 +3147,8 @@
              [:span.muted " — the form opens with this term already in it."]]
             (when (or (seq gls) (seq sps) (seq (:terms djs)))
               [:div
-               (type-line view "Supertypes" (closure-line gls))
-               (type-line view "Subtypes" (closure-line sps))
+               (type-line view "Supertypes" (:genls about))
+               (type-line view "Subtypes" (:specs about))
                (type-line view "Disjoint with" djs)])
             [:h3 "Sentexes by index "
              [:span.muted "(grouped by the index root that reaches the term, most direct "
@@ -5873,18 +5823,48 @@
              (kb-action "Clear the derived caches" "/caches/clear" {} "primary")
              (profiler-section)))))
 
+(defn- choice-value
+  "The keyword a `:choice` field's submitted value names, **refused** when the option does
+  not offer it (`:unknown-option`, the type every other option door throws).
+
+  Both sides are read through `(comp keyword name)`, because a `:choices` entry spells its
+  value either way — the dump's are keywords, the generator's and the corpus's are
+  strings — and `option-control` builds the `<option value>` the browser sends out of the
+  same `name`.  So the roster the page rendered and the roster checked here cannot be two
+  rosters.
+
+  Refused rather than coerced, for `opts/check!`'s reason at every other option door: a
+  keyword no reader's arm matches falls to that reader's own default, silently and at a
+  setting nobody chose.  `:belief?` is the sharp case — its unmatched arm is the
+  records-only load, which never opens the justification stream — and a load is the one
+  action here nobody watches finish.  A non-string value refuses the same way rather than
+  reaching `keyword` as a cast error the page cannot render."
+  [{:keys [key label choices]} raw]
+  (let [legal (into #{} (map (comp keyword name first)) choices)
+        v     (when (string? raw) (keyword raw))]
+    (if (contains? legal v)
+      v
+      (throw (ex-info (str "no such " (name key) ": " (pr-str raw) " — "
+                           (or label (name key)) " offers "
+                           (str/join ", " (map (comp name first) choices)))
+                      {:type :unknown-option :option key :value raw
+                       :choices (mapv (comp keyword name first) choices)})))))
+
 (defn- option-params
   "The load parameters for `source`, read out of the submitted form under the option
   descriptions the form was rendered from — so a value is coerced by what the option
-  said it was, and a field nobody described is ignored."
+  said it was, and a field nobody described is ignored.
+
+  A `:choice` is additionally held to the choices the option itself names
+  (`choice-value`); the other four kinds carry their domain in the control."
   [source params]
   (into {}
-        (keep (fn [{:keys [key type]}]
+        (keep (fn [{:keys [key type] :as opt}]
                 (let [raw (get params (name key))]
                   (case type
                     :flag             [key (some? raw)]
                     (:slider :number) (when-let [n (->long raw)] [key n])
-                    :choice           (when (seq raw) [key (keyword raw)])
+                    :choice           (when (seq raw) [key (choice-value opt raw)])
                     :path             (when (seq raw) [key raw])
                     nil))))
         (:options source)))
@@ -6257,11 +6237,33 @@
 (def ^:private loopback
   "The interface the browser binds unless told otherwise.  It is an operator tool with
   a write route (`POST /edit`) and no authentication, so it answers only the machine it
-  runs on; exposing it is an explicit choice (`--listen`), not the default.
+  runs on; exposing it is an explicit choice (`--listen`), and one that **requires**
+  `VAELII_API_TOKEN` (`guard/require-token!`, and `-main` below).
 
   Loopback says *which machine*, not which page: a page the operator visits runs on
   that machine too, which is what the guards in `vaelii.impl.guard` are for."
   "127.0.0.1")
+
+(defn- with-token
+  "The handler a **public** bind serves: `served` behind the shared bearer token, with
+  the browser's own 401 — `text/plain`, since what is on the other end of a public bind
+  is a browser or the proxy in front of one, and an EDN body would render as a download.
+
+  Only a public bind, and that is deliberate: `--listen` with an address is the one
+  configuration the token is *required* for, so wrapping the loopback default as well
+  would take a variable a daemon on the same machine already needs and make it a
+  password on the operator's own browser.  Nothing is served open on an address —
+  `guard/require-token!` has already refused that start."
+  [served host token]
+  (if (guard/public-bind? host)
+    (guard/wrap-bearer served token #{}
+                       (fn [_] {:status  401
+                                :headers {"Content-Type" "text/plain; charset=utf-8"
+                                          "WWW-Authenticate" "Bearer"}
+                                :body    (str "this browser is bound to " host
+                                              " and requires Authorization: Bearer"
+                                              " <VAELII_API_TOKEN>")}))
+    served))
 
 (defn app
   "The ring handler for a KB.  Pure `request -> response`.
@@ -6887,13 +6889,16 @@
   the operator had asked for it."
   [args]
   (let [need (fn [flag v]
-               (or v (throw (ex-info (str flag " needs a value")
+               (or v (throw (ex-info (str flag " needs a value and the line ends after it"
+                                          " — write --listen <address>, --port <n>, or"
+                                          " --attach <host> <port> [<webport>]")
                                      {:type :unknown-option :flag flag}))))
         num  (fn [flag v]
                (let [v (need flag v)]
                  (try (Integer/parseInt ^String v)
                       (catch NumberFormatException _
-                        (throw (ex-info (str flag ": not a number: " v)
+                        (throw (ex-info (str flag " wants a number, got " (pr-str v)
+                                             " — write " flag " <n>")
                                         {:type :unknown-option :flag flag :value v}))))))]
     (loop [[a & more] (seq args)
            opts       {:host loopback :port (default-port)}]
@@ -6907,7 +6912,9 @@
                      (recur (if wport? r (when w (cons w r)))
                             (cond-> (assoc opts :attach [h (num "--attach" p)])
                               wport? (assoc :port (Integer/parseInt w)))))
-        (throw (ex-info (str "unknown argument: " a)
+        (throw (ex-info (str "unknown argument: " a " — the browser reads --listen"
+                             " <address>, --port <n>, and --attach <host> <port>"
+                             " [<webport>]")
                         {:type :unknown-option :flag a}))))))
 
 ;; ---- the browser, inside a REPL -----------------------------------------
@@ -6987,8 +6994,16 @@
   read to the local KB or the remote daemon.
 
   The KB it reads and the interface it binds are independent axes: `--listen` says who
-  may reach the browser, `--attach` says whose KB it shows.  The default is loopback —
-  `/edit` writes and nothing authenticates it, so a public bind is a deliberate act.
+  may reach the browser, `--attach` says whose KB it shows.  The default is loopback,
+  and what it binds decides what it requires — the daemon's rule, on the daemon's
+  reasoning (`guard/require-token!`):
+
+  - `--listen` names a **non-loopback** address ⇒ `VAELII_API_TOKEN` is **required**,
+    and every request then presents it as `Authorization: Bearer <token>`.  Without one
+    it is a line on stderr and exit **2**, a code of its own so a supervisor tells a
+    missing credential from the configuration typos above.
+  - **Loopback** — the default, and `--listen 127.0.0.1` said out loud — is unchanged:
+    no token, no header, no 401.
 
   Whichever KB it starts on is **registered with the catalog** and made active, so it
   appears in `/kbs` beside the ones that can be loaded — the starter it opens with is not
@@ -6998,28 +7013,41 @@
                                         (catch clojure.lang.ExceptionInfo e
                                           (binding [*out* *err*] (println (ex-message e)))
                                           (System/exit 1)))
+        token (guard/api-token)
+        ;; before the KB is opened, which takes a directory's single-writer lock: a
+        ;; server that is going to refuse to serve must not first take a lock off the
+        ;; process that could have.  The daemon orders it the same way, for the same
+        ;; reason (`vaelii.impl.serve`).
+        _     (try (guard/require-token! "browser" host token)
+                   (catch clojure.lang.ExceptionInfo e
+                     (binding [*out* *err*] (println (ex-message e)))
+                     (System/exit 2)))
         {:keys [kb entry target]} (opening-kb attach)]
     (trove/log! {:level :info :id ::start
                  :msg  (str "vaelii web browser on http://" host ":" port
                             (when attach (str " → daemon " (first attach) ":" (second attach))))
                  :data (cond-> {:listen host :port port :entry entry
-                                :exposed? (not= host loopback)
+                                ;; the same question the bind rule asks, so a
+                                ;; `--listen localhost` reads as the loopback bind it is
+                                :exposed? (guard/public-bind? host)
                                 :kb-search-path (catalog/search-path)}
                          (not attach) (assoc :record-store (type (:records kb))
                                              :index-store  (type (:index kb))))})
-    ;; said out loud, as the daemon says it: the browser has write routes and no
-    ;; authentication either, and a public bind drops the Host allowlist unless
-    ;; `VAELII_ALLOWED_HOSTS` names one, so the line naming what a public bind costs
-    ;; belongs on both servers — and names only the half that is true of this start.
-    (when-not (= host loopback)
+    ;; said out loud, as the daemon says it: a public bind reaches write routes — two of
+    ;; which (/kbs/export, /kbs/load) write the host filesystem at a path the request
+    ;; names — over a plaintext wire, and it drops the Host allowlist unless
+    ;; `VAELII_ALLOWED_HOSTS` names one.  The token this start required is what stands
+    ;; in front of the routes; it is not TLS and it is not a Host allowlist, so the line
+    ;; names what it still does not cover.
+    (when (guard/public-bind? host)
       (let [open? (guard/allowlist-open? (guard/allowed-hosts host))]
         (trove/log! {:level :warn :id ::public-bind
-                     :msg (str "browser bound to " host " — its write routes are "
-                               "unauthenticated"
+                     :msg (str "browser bound to " host " — every request must carry "
+                               "Authorization: Bearer <VAELII_API_TOKEN>, the wire is "
+                               "plaintext (terminate TLS in a reverse proxy)"
                                (if open?
-                                 " and every Host header is answered"
-                                 " though VAELII_ALLOWED_HOSTS bounds the Host headers")
-                               "; put an authenticating proxy in front")
+                                 ", and every Host header is answered"
+                                 "; VAELII_ALLOWED_HOSTS bounds the Host headers"))
                      :data {:host host :hosts (if open? :open :allowlisted)}})))
     ;; the proposal panel's model, loaded while the reader is still finding a term page
     (warm-model)
@@ -7033,4 +7061,5 @@
     (let [served (if (config/web-dev?)
                    (hot-reloading (reloading-handler target))
                    (app target))]
-      (jetty/run-jetty (with-host served host) {:port port :host host :join? true}))))
+      (jetty/run-jetty (with-token (with-host served host) host token)
+                       {:port port :host host :join? true}))))

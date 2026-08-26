@@ -43,11 +43,12 @@ hierarchy **places** `Fern` and the place it puts him does not reach `animal`. T
 `(disjoint animal plant)` sitting beside those types is not what does the work — a type
 the constraint's own type does not subsume is enough on its own.
 
-There is one open-world escape and it is deliberate: an argument the `genl` hierarchy
+There is one open-world escape and it is deliberate: a **symbol** the `genl` hierarchy
 places nowhere *the asserting context can see* cannot contradict anything, so it passes.
-`(parentOf Zork Mary)` stores when nothing is known about `Zork`, and `(parentOf 212
-Mary)` stores for the harder version of the same reason — a number can hold no type
-membership, so no declaration has anything to convict it on.
+`(parentOf Zork Mary)` stores when nothing is known about `Zork`. A **literal** is not in
+that escape: its EDN kind is knowable from the literal itself and those kinds sit in the
+same `genl` lattice, so `(parentOf 212 Mary)` is refused `:arg-type` — 212 is a `number`,
+and `number` does not reach `animal` ([argtypes.md](argtypes.md)).
 
 The *entailment* reading — the same declaration minting `(animal Fred)` from
 `(parentOf Fred Mary)` — is real but **opt-in**, behind
@@ -80,18 +81,18 @@ be decided → [solving.md](solving.md).
 | `SymmetricBinaryPredicate` | `(symmetric P)` | |
 | `AsymmetricBinaryPredicate` | `(asymmetric P)` | convicts a claim whose **converse** is believed; it does not make `P` irreflexive, and `(P a a)` is admitted |
 | `genlInverse` | a forward rule | `(inverse P Q)` exists but is the stronger biconditional |
-| `unk` | `unknown` | negation as failure, ground-only, evaluated at level 6 and storing nothing → [naf.md](naf.md) |
+| `unk` | `unknown` | negation as failure, ground-only, evaluated at level 6 and storing nothing. A conjunctive argument is joined, so its conjuncts may share a quantifier's variable, and `forall` is sugar for the nested case → [naf.md](naf.md) |
 | — | `(contradictions kb)` | no Cyc equivalent: the pairs that coexist, ordered by content |
 | `assertedMoreSpecifically` | — | no equivalent. Specificity is behavioral: a stated specific claim undercuts an inherited general one, so nothing is derived to arbitrate → [inherit.md](inherit.md) |
-| `completeExtentEnumerable` | — | no equivalent. Closure is chosen per goal by `unknown` / `thereExists` / the aggregates, never declared of an extent |
+| `completeExtentEnumerable` | `(closedExtentPredicate P)` | a **counterpart**, not a translation. Both say a predicate's extent is complete, and three things differ: it is **belief-following** (a defeated or retracted member leaves the extent) rather than a claim about what is stored; it is **context-scoped**, read from the asking context's `genlCx` up-cone, so one theory may close what a sibling reading the same predicate leaves open; and the extent it closes is what level 6 derives, so a member reachable only by backward chaining is not in it. Closure stays choosable per goal as well, by `unknown` / `thereExists` / `forall` → [naf.md](naf.md) |
 | `notAssertible` | — | no equivalent |
 
 Binary mutual exclusion is written as the two rules, and `(not S)` is a stored sentex
 with its own handle rather than an absence:
 
 ```clojure
-(v/assert-rule kb ['(P ?x ?y)] '(not (Q ?x ?y)) 'CxSomeContext)
-(v/assert-rule kb ['(Q ?x ?y)] '(not (P ?x ?y)) 'CxSomeContext)
+(v/assert-rule kb ['(likes ?x ?y)]    '(not (dislikes ?x ?y)) 'CxSomeContext)
+(v/assert-rule kb ['(dislikes ?x ?y)] '(not (likes ?x ?y))    'CxSomeContext)
 ```
 
 `(inverse P Q)` is worth knowing properly, because it is stronger than `genlInverse` in
@@ -242,13 +243,14 @@ position. Nesting is not capped. → [generators.md](generators.md)
   `transitive`, `reflexive`, `functional`, `inverse`, `irreflexive`, `antiSymmetric`,
   `antiTransitive`, `equivalenceRelation`, `arity` and `variableArity`
   → [taxonomy.md](taxonomy.md)
-- Polycanonicalization, so a conjunctive consequent becomes one rule per conjunct
+- Polycanonicalization, so a conjunctive consequent becomes one rule per conjunct and a
+  disjunctive antecedent one rule per alternative → [canonicalization.md](canonicalization.md)
 
 ## What you lose
 
 - Rename
 - Natural-language generation
-- `completeExtentEnumerable`, `notAssertible`, `assertedMoreSpecifically`
+- `notAssertible`, `assertedMoreSpecifically`
 - `negationPreds` above arity 1 — the paired rules above are the translation
 - `arg1Isa` / `arg2Isa` sugar
 - Strict well-formedness mode

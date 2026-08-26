@@ -49,10 +49,15 @@
 # finds; `--strict` is the one exception, and it fails on three things, all of
 # them an entry saying less than §3.8 asks: a Breaking or Refusal entry naming no
 # token at all — an entry nothing can check — one carrying no `*Migration:*` line,
-# and one whose stated class is not among the three §3.8 defines. That last is
-# the fail-open case and the reason the other two are checked here: the class is
-# what decides the release number, and everything downstream reads a word it does
-# not recognise as Additive.
+# and one whose stated class is not among the four §3.8 defines (Breaking,
+# Refusal, Additive, Fix). That last is the fail-open case and the reason the
+# other two are checked here: the class is what decides the release number, and
+# everything downstream reads a word it does not recognise as Additive.
+#
+# Only Breaking and Refusal owe a `*Breaks:*` line and a `*Migration:*` line.
+# Additive and Fix owe neither — a Fix moves the code to what the engine already
+# documents, so it retires no name a sibling could be grepped for — and both ride
+# any release.
 #
 #   bash scripts/check-breaking-siblings.sh                 # the unreleased section
 #   bash scripts/check-breaking-siblings.sh --section 0.5.0
@@ -241,16 +246,18 @@ function flush(   i, cls, cw, headlined) {
   else if (body ~ /\*\*Refusal:/ || body ~ /\*Class:\* *\**Refusal/) cls = "refusal"
   # THE CLASS DECIDES THE RELEASE NUMBER, so an unreadable one may not pass as
   # Additive by default.  The two tests above match a word; everything else they
-  # see is "other", which is also what a fourth class name and a typo look like —
-  # so `Behavioural` and `Braeking` would both skip the Breaking treatment
-  # silently, which is the wrong direction to fail in.  An entry states its class
-  # in its headline or in a `*Class:*` line, and where it is the latter the word
-  # has to be one CONTRIBUTING §3.8 defines.
+  # see is "other" — which is what Additive and Fix look like, and what a typo
+  # looks like too, so `Braeking` would skip the Breaking treatment silently,
+  # which is the wrong direction to fail in.  An entry states its class in its
+  # headline or in a `*Class:*` line, and where it is the latter the word has to
+  # be one CONTRIBUTING §3.8 defines.  Additive and Fix are both "other" here on
+  # purpose: neither owes a `*Breaks:*` or a `*Migration:*` line, so the checks
+  # below have nothing to ask them, and the class check alone reads the word.
   cw        = class_word()
   headlined = (body ~ /^- \*\*(Breaking|Refusal):/)
   if (cw == "") {
     if (!headlined) printf "X\t%s\t%s\n", headline(), "states no class"
-  } else if (cw !~ /^(breaking|refusal|additive|neither|none)$/) {
+  } else if (cw !~ /^(breaking|refusal|additive|fix|neither|none)$/) {
     printf "X\t%s\t%s\n", headline(), "unknown class `" cw "`"
   }
   # A **mixed** entry states the weaker class first and the stronger one in prose —
@@ -396,7 +403,8 @@ if [[ ${#malformed[@]} -gt 0 ]]; then
   printf '  %s\n' "${malformed[@]}"
   printf '%sthe class decides the release number, so an entry stating one this does not\n' "$DIM"
   printf 'know is read as Additive by everything downstream. CONTRIBUTING §3.8 has the\n'
-  printf 'three: Breaking, Refusal, Additive — "neither label" and "none" spell the last.%s\n' "$RST"
+  printf 'four: Breaking, Refusal, Additive, Fix — "neither label" and "none" also spell\n'
+  printf 'Additive.%s\n' "$RST"
   bad=1
 fi
 if [[ $unhooked -gt 0 ]]; then

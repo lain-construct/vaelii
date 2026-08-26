@@ -157,7 +157,14 @@
                ["a dump variant this build does not write" :unsupported-variant
                 (op! :export [nowhere {:variant :everything}])]
                ["a codec this build does not write" :unsupported-compression
-                (op! :export [nowhere {:compression :zstd}])]]]
+                (op! :export [nowhere {:compression :zstd}])]
+               ;; a `:find-terms` regex whose backtracking blows the per-term step
+               ;; budget is the caller's abuse, refused rather than left to pin the
+               ;; writer's core (docs/web.md); over the wire it is a 400 like the rest
+               ["a pathological find-terms regex" :pattern-too-costly
+                (do (op! :assert [(list 'genl (symbol (str (apply str (repeat 2000 \a)) "b"))
+                                        'thing) 'CxUniverse])
+                    (op! :find-terms ["(a*)*$" {:match :regex}]))]]]
         (testing label
           (is (false? (:ok reply)) label)
           (is (= ty (:type reply)) label)

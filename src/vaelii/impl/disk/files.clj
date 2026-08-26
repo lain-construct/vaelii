@@ -38,8 +38,9 @@
   (:require [clojure.edn :as edn]
             [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
-            [vaelii.impl.config :as config])
-  (:import [java.io DataInputStream DataOutputStream File
+            [vaelii.impl.config :as config]
+            [vaelii.impl.io.thaw :as safe])
+  (:import [java.io ByteArrayInputStream DataInputStream DataOutputStream File
             RandomAccessFile FileInputStream FileOutputStream
             BufferedInputStream BufferedOutputStream]
            [java.nio.channels FileChannel]
@@ -65,19 +66,45 @@
 
 (def ^:private supported-format-versions #{1})
 
+(defn- sentinel
+  "The EDN a directory's own sentinel file holds, or `::unreadable` — a torn or
+  truncated one included.
+
+  A sentinel is the **first** thing read about a directory, before any of its content
+  is, so it is the first place a half-written directory shows.  `edn/read-string` on a
+  file cut mid-form raises a bare `RuntimeException` (\"EOF while reading\"), which is
+  neither the typed refusal a caller can act on nor a fact about the file it names — so
+  what each caller decides about a damaged sentinel is decided by that caller, on a
+  value, rather than by whatever the reader happened to throw."
+  [^File file]
+  (try (edn/read-string (slurp file))
+       (catch Exception _ ::unreadable)))
+
 (defn assert-format!
   "Gate the store directory `root` on its `format.edn` sentinel: a known version is
   ok, an unknown one throws, and a missing sentinel is stamped with the current
-  version (a pre-sentinel directory is by definition today's layout)."
+  version (a pre-sentinel directory is by definition today's layout).
+
+  **A damaged sentinel is refused, not rewritten.**  A directory whose stamp was cut
+  mid-write is one whose *records* were being written at the same moment, and stamping
+  over it would adopt whatever is beside it as today's layout — the one reading that is
+  certainly wrong.  `:unreadable-store` names the file rather than the version, since
+  there is no version to name."
   [root]
   (let [file (File. (str root) "format.edn")]
     (if (.exists file)
-      (let [v (:format-version (edn/read-string (slurp file)))]
-        (when-not (contains? supported-format-versions v)
-          (throw (ex-info (str "Unsupported :disk KB format version " v " at " root
-                               " — this engine supports " (sort supported-format-versions) ".")
-                          {:type :unsupported-format :found v
-                           :supported supported-format-versions :root (str root)}))))
+      (let [m (sentinel file)]
+        (when (= ::unreadable m)
+          (throw (ex-info (str "the durable-store sentinel " (.getPath file)
+                               " is not readable EDN — the directory was written by"
+                               " something else, or its stamp was cut mid-write")
+                          {:type :unreadable-store :file (.getPath file) :root (str root)})))
+        (let [v (:format-version m)]
+          (when-not (contains? supported-format-versions v)
+            (throw (ex-info (str "Unsupported durable-store format version " v " at " root
+                                 " — this engine supports " (sort supported-format-versions) ".")
+                            {:type :unsupported-format :found v
+                             :supported supported-format-versions :root (str root)})))))
       (spit file (pr-str {:format-version format-version})))))
 
 (def ^:private index-layout-file "layout.edn")
@@ -95,11 +122,18 @@
   **This reads and never writes.** A base mounted under `:base` opts is gated by the
   same call and may not be written to, so the stamp `:unstamped` calls for is the
   caller's to make — `stamp-index-layout!` for a KB that owns the directory, nothing
-  at all for a read-only mount."
+  at all for a read-only mount.
+
+  **A damaged stamp is `:stale`**, not a refusal.  The question this answers is \"can I
+  prove these entries were keyed the way this build keys them\", and a stamp cut
+  mid-write proves nothing — so the answer is the one an unprovable stamp already gets,
+  and the index is rebuilt from the records, which are the ground truth either way.
+  That is the opposite of `assert-format!`'s reading of the same damage, because an
+  index is a cache and records are not."
   [root current populated?]
   (let [file (File. ^String (str root) ^String index-layout-file)]
     (if (.exists file)
-      (if (= current (:index-layout (edn/read-string (slurp file)))) :current :stale)
+      (if (= current (:index-layout (sentinel file))) :current :stale)
       (if populated? :stale :unstamped))))
 
 ;; A rebuild's *first* write, not its last: `index-layout-decision` reads an absent
@@ -136,7 +170,7 @@
 (defn stamp-records-identity!
   "Record which store `root`'s index describes.
 
-  A `:disk` index over `:disk` records needs no such stamp: the two share the directory,
+  A `:disk-log` index over `:disk` records needs no such stamp: the two share the directory,
   so the files cannot describe anything else.  An index over records on a **server** can —
   the directory says nothing about which database, and the coverage check that would catch
   a mismatch compares record *counts*, which two unrelated databases match easily.  What
@@ -203,7 +237,9 @@
     (nippy/freeze value {:compressor c})
     (nippy/freeze value)))
 
-(defn- thaw-bytes [^bytes bs] (nippy/thaw bs))
+;; Behind the class-name door (`vaelii.impl.io.thaw`): a log is a file, a file is
+;; untrusted input, and a frame naming a class is refused before the name is resolved.
+(defn- thaw-bytes [^bytes bs] (safe/thaw bs))
 
 (defn- write-fully-at!
   "Write every remaining byte of `bb` to `ch` at file position `pos` — positional, so
@@ -552,14 +588,27 @@
 (defn read-nippy-file
   "Read a whole-file nippy value, returning `default` when the file is missing,
   empty, or unreadable (a rare torn blob thaws to default + a warning rather than
-  throwing — these blobs hold reconstructible metadata)."
+  throwing — these blobs hold reconstructible metadata).
+
+  **The file's bytes first, then the thaw over those.**  A `DataInput` has no known
+  remaining length, so a thaw straight off the file's stream reads a torn blob's next
+  four bytes as a count and allocates for it: a truncated file whose tail happens to
+  leave a large one is a gigabyte allocation before anything is checked.  Reading the
+  file into an array first bounds every such allocation by the file's own length, which
+  costs nothing here — these blobs are whole-file values being read into heap either
+  way.  The thaw is still `thaw-from-in!`, because `write-nippy-atomic!` writes with
+  `freeze-to-out!`: a headerless typed stream, not a `freeze`d array."
   ([path] (read-nippy-file path nil))
   ([^String path default]
    (let [f (File. path)]
      (if (and (.exists f) (pos? (.length f)))
        (try
-         (with-open [in (DataInputStream. (BufferedInputStream. (FileInputStream. f)))]
-           (nippy/thaw-from-in! in))
+         (let [bs (byte-array (.length f))]
+           (with-open [in (DataInputStream.
+                           (BufferedInputStream. (FileInputStream. f)))]
+             (.readFully in bs))
+           (with-open [in (DataInputStream. (ByteArrayInputStream. bs))]
+             (safe/thaw-from-in! in)))
          (catch Throwable t
            (trove/log! {:level :warn
                         :msg (str "disk.files: unreadable nippy blob " path

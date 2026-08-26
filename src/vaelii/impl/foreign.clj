@@ -62,14 +62,20 @@
   declaration is a plugin bug, and swallowing it reads exactly like a format nobody
   shipped."
   [^java.net.URL url]
-  (let [m (with-open [r (io/reader url)]
-            (edn/read (PushbackReader. r)))]
+  (let [m (try (with-open [r (io/reader url)]
+                 (edn/read (PushbackReader. r)))
+               (catch Exception e
+                 (throw (ex-info (str "a foreign manifest at " url " does not read as"
+                                      " EDN: " (.getMessage e))
+                                 {:type :bad-foreign-manifest :url (str url)} e))))]
     (when-not (map? m)
-      (throw (ex-info (str "a foreign manifest is a map of kind -> reader var: " url)
+      (throw (ex-info (str "a foreign manifest is a map of kind -> reader var — " url
+                           " reads as " (pr-str (type m)))
                       {:type :bad-foreign-manifest :url (str url) :read m})))
     (doseq [[kind sym] m]
       (when-not (and (keyword? kind) (qualified-symbol? sym))
-        (throw (ex-info (str "a foreign manifest entry is `:kind ns/reader`: " url)
+        (throw (ex-info (str "a foreign manifest entry is `:kind ns/reader`, not "
+                             (pr-str kind) " " (pr-str sym) ": " url)
                         {:type :bad-foreign-manifest :url (str url)
                          :kind kind :reader sym}))))
     (for [[kind sym] m] [kind sym url])))
@@ -179,14 +185,23 @@
   For a path with no fallback."
   [kind]
   (or (reader kind)
-      (throw (ex-info (str "this build does not read " (name kind)
-                           " — install a plugin that declares it"
+      (throw (ex-info (str "this build does not read " (name kind) " — the formats it"
+                           " reads are "
+                           (pr-str (into (sorted-set) (filter reader) (keys (formats))))
+                           "; install a plugin that declares it"
                            " (see vaelii.impl.foreign)")
                       {:type :no-foreign-reader :kind kind
                        :available (into #{} (filter reader) (keys (formats)))}))))
 
 (defn available?
-  "Can this build read `kind`?  For a caller deciding what to *offer* — the catalog does
-  not list a KB nothing here can load."
+  "Can this build read `kind`?  For a caller deciding what to **attempt** — an embedding
+  application choosing between a foreign source and a converted one, without paying
+  `reader!`'s throw to find out.
+
+  Nothing in the engine asks it, and that is a decision rather than an oversight: the
+  catalog offers a found KB whether or not a reader is present, because the honest answer
+  to *I cannot read this* is a load that fails saying so and not a KB that quietly stops
+  being listed (docs/foreign.md, \"Who asks\").  So this is published for a caller outside
+  the engine, and every call site in here takes `reader` or `reader!` instead."
   [kind]
   (some? (reader kind)))

@@ -150,8 +150,8 @@ lives in `CxLife` while the individuals live in `CxNaturalWorld`, so nothing is
 minted over them however the toggle is set. The schema's own contexts are the other case
 and mint freely, because there a declaration and the facts it constrains are written side
 by side — `(genl animal thing)` sits in `CxCore` beside `(genlArg genl 1 thing)`.
-Every argument position in the shipped ontology is declared, so the toggle-on starter load
-mints 222 memberships against 1571 stored (the table under [Cost](#cost)). The root's own
+Every argument position in the shipped ontology is declared, so a toggle-on starter load
+mints a membership per declared position (the table under [Cost](#cost)). The root's own
 `genl` supertype position is the single undeclared one, and `CxCore` says why beside
 it: `thing` cannot be a proper subtype of itself, so the constraint the root would fail is
 the wrong constraint rather than a missing one.
@@ -219,7 +219,8 @@ a finite set that never shrinks.
 
 ## Cost
 
-2000 binary-fact asserts into one context, in-memory backend:
+2000 binary-fact asserts into one context, in-memory backend, over a starter of 1,571
+sentexes — the corpus these readings were taken on:
 
 | | off | on |
 |---|---|---|
@@ -305,9 +306,11 @@ EDN kind — a `string`, a `number` (with `integer` below it), a `symbol` — ch
 of `arg`: where `arg` reads the referent's type, `quotedArg` reads the argument's own
 syntax, which is decidable from the literal — so it is **checked, never entailed**, there
 being nothing to mint about a term that already is what it is. Open-world about a kind it
-does not type (a compound, a keyword) and about a declared type outside the syntactic
-lattice, so an imported constraint on a domain collection never convicts a literal it
-cannot judge. `checks/args-quoted-problem`, behind the same O(1) gate as `interArg`.
+does not type (a compound) and about a declared type outside the syntactic lattice, so an
+imported constraint on a domain collection never convicts a literal it cannot judge.
+`checks/args-quoted-problem`, behind the same O(1) gate as `interArg`. Why the kind
+decides at all, rather than every non-symbol being exempt:
+[defenses.md](defenses.md#a-literal-is-typed-by-its-kind-and-the-openness-moves-to-the-declared-type).
 
 **One vocabulary, not two.** `string`, `number`, `integer`, `keyword`, `boolean`,
 `character` and `symbol` are the KB's only names for the kinds a literal argument can
@@ -317,7 +320,8 @@ type names. A string literal denotes itself, so `(arg comment 2 string)` and
 `(quotedArg p n string)` ask two questions of one set — what the argument denotes, and
 what is written there. A parallel domain spelling would buy nothing and cost a trap:
 `quotedArg` reads a type outside the syntactic lattice open-world, so a second spelling
-stores clean and convicts nothing, with no report.
+stores clean and convicts nothing, with no report
+([why one vocabulary](defenses.md#one-vocabulary-not-two)).
 
 `symbol` is the exception, and is **mention-only**. A symbol does not denote itself, so
 the set of names and the set of things named are not one set — `parentOf` is written as a
@@ -329,8 +333,8 @@ no disjointness: a use-level claim about it would be false of every predicate na
 **In:** `arg`, `genlArg` and `interArg`, both directions, justified and retractable;
 the local/inherited rule; the toggle.
 
-**Out:** `argQuoted` / `argOneOf` (pure does not have the constraints, and adding them is
-separate work from entailing them); `(ListOfType T)` element typing, which stays
+**Out:** entailing `quotedArg`, which is checked and never entailed (above), there being
+nothing to mint about a term that already is what it is; `(ListOfType T)` element typing, which stays
 disjoint-check-only so a `(ListOfType thing)` slot refuses nothing and sprays nothing;
 making `checks` write, for the sequencing reason above; and a dry-run mode, since
 `preview` has its own machinery and the two are not wired together.

@@ -7,14 +7,15 @@
 
   **Why these protocols and not the others.**  `boundaries.md` says `vaelii.impl.*` is
   free to change, and it is — that rule is about the *require* surface, and it stands.
-  But seven of the twelve protocols in the tree are named in a doc as a seam somebody
+  But fourteen of the twenty protocols in the tree are named in a doc as a seam somebody
   else fills: `docs/storage.md` says a new backend *is* a new `KvBackend`,
-  `docs/asp.md` calls `Solver` the seam, `docs/llm.md` calls `Provider` one, and
-  `docs/qcn.md` says `add-prover` takes any `Prover`.  A doc that invites an
+  `docs/asp.md` calls `Solver` the seam, `docs/llm.md` calls `Provider` one,
+  `docs/qcn.md` says `add-prover` takes any `Prover`, and `docs/inference.md` invites a
+  prover that reads stored facts to implement `SupportingProver` beside it.  A doc that invites an
   implementation makes a promise about the shape of it, whatever the namespace is
   called.  This test is that promise written down.
 
-  The other five are one backend's internal shape — `PTrie` is how the columnar index
+  The other six are one backend's internal shape — `PTrie` is how the columnar index
   spells its trie, `IPostings` how the dense one packs a set — and nothing outside this
   repo has a reason to implement them.  They are listed in `not-a-seam` with the reason
   apiece, and `every-protocol-in-the-tree-is-classified` is what keeps that list honest:
@@ -51,6 +52,7 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [vaelii.impl.io.snapshot :as snapshot]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.llm.protocol :as llm-protocol]
             [vaelii.impl.protocols :as protocols]
@@ -73,8 +75,11 @@
    [#'protocols/BulkAnnotating  "docs/storage.md"]
    [#'protocols/IndexStore      "docs/storage.md"]
    [#'kv/KvBackend              "docs/storage.md"]
+   [#'snapshot/SnapshotSink     "docs/storage.md"]
+   [#'snapshot/SnapshotSource   "docs/storage.md"]
    [#'solve/Solver              "docs/asp.md"]
    [#'provers/Prover            "docs/qcn.md"]
+   [#'provers/SupportingProver  "docs/inference.md"]
    [#'llm-protocol/Provider     "docs/llm.md"]])
 
 (def ^:private not-a-seam
@@ -97,14 +102,7 @@
    'vaelii.impl.kv/ArgColumns
    "the argument-root family's read shape — the counted pos→term trie behind
     `sentexes-with-arg`/`count-with-arg`. MemoryKvBackend implements it and DenseRoots
-    delegates to that one; both are in this repo and nothing outside supplies it."
-   'vaelii.impl.io.snapshot/SnapshotSink
-   "where a derived-state snapshot's bytes go. Its two targets — the file sink and the
-    in-memory medium — both ship here, and nothing out of tree supplies one; a durable
-    out-of-tree image store is what would make it a pinned seam."
-   'vaelii.impl.io.snapshot/SnapshotSource
-   "the read side of the same sink; the same two in-tree targets implement it and nothing
-    outside the repo does."})
+    delegates to that one; both are in this repo and nothing outside supplies it."})
 
 ;; ---- the pin ------------------------------------------------------------
 
@@ -189,12 +187,13 @@
   rather than from loaded namespaces, so a protocol in a namespace nothing has required
   still counts.
 
-  The `koinii/` subtree is excluded: koinii is a coordination **library layered on the
-  public API** (`docs/koinii.md`), not part of the engine, so its extension points
-  (`CursorStore`, `Medium`) are koinii's own surface documented in koinii's own page —
+  The `koinii/` subtree is excluded: koinii is an **application layered on the public
+  API** (`docs/koinii.md`) — it sits beside `impl/` rather than inside it and requires
+  nothing under `vaelii.impl` — not part of the engine, so its extension points
+  (`CursorStore`, `Medium`) are koinii's own surface documented in koinii's own page and
   this roster pins the *engine's* seams.  koinii is free to grow protocols without
-  reshaping the engine's pinned set; when it is extracted to its own module the exclusion
-  becomes the module boundary."
+  reshaping the engine's pinned set; the directory it lives in is that boundary, and
+  extracting it to its own repo would only move the same line."
   []
   (into #{}
         (mapcat (fn [^File f]

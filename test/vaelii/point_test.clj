@@ -288,15 +288,24 @@
       "nothing about instants is in the default registry, so a KB pays for the network
        only once it asks for it"))
 
-(tu/deftest-kb without-the-prover-the-facts-are-inert
-  (tu/with-terms [P Q R]
+(tu/deftest-kb without-the-prover-only-the-declared-transitivity-answers
+  ;; CxTime declares `(transitive instantBefore)`, so the default registry composes a
+  ;; chain of strict orderings by walking it.  What the network adds is everything the
+  ;; walk cannot reach: an ordering through an *equality*, and the derived relations that
+  ;; name a disjunction of the base ones.
+  (tu/with-terms [P Q R S]
     (v/assert kb (list 'instantBefore P Q) C)
-    (v/assert kb (list 'instantBefore Q R) C)
-    (testing "an asserted relation is retrievable as an ordinary fact"
-      (is (seq (provers/solve-goal-with kb provers/default-provers
-                                        (list 'instantBefore P Q) C))))
-    (testing "but nothing in the default registry composes two of them"
-      (is (empty? (provers/solve-goal-with kb provers/default-provers
-                                           (list 'instantBefore P R) C))))
-    (testing "the registered prover on the very same facts does"
-      (is (v/ask? kb (list 'instantBefore P R) C)))))
+    (v/assert kb (list 'instantBefore Q S) C)
+    (v/assert kb (list 'instantEqual Q R) C)
+    (let [without (fn [g] (provers/solve-goal-with kb provers/default-provers g C))]
+      (testing "an asserted relation is retrievable as an ordinary fact"
+        (is (seq (without (list 'instantBefore P Q)))))
+      (testing "and a chain of strict orderings composes, the declaration being a walk"
+        (is (seq (without (list 'instantBefore P S)))))
+      (testing "but a chain through an equality is not a chain of edges"
+        (is (empty? (without (list 'instantBefore P R)))))
+      (testing "nor is a derived relation, which names a disjunction rather than an edge"
+        (is (empty? (without (list 'instantNotAfter P Q)))))
+      (testing "the registered prover on the very same facts answers both"
+        (is (v/ask? kb (list 'instantBefore P R) C))
+        (is (v/ask? kb (list 'instantNotAfter P Q) C))))))

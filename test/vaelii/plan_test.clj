@@ -30,7 +30,15 @@
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh tu/fresh))
+;; The planner is pinned ON here whatever the run installed.  `VAELII_PLAN=0` runs the
+;; whole suite with conjunctions in the order they were written — the sweep that holds
+;; the claim this file's `planning-changes-no-answers-…` makes on twelve trials against
+;; every conjunction the suite runs — and under it the questions below have no subject:
+;; "the selective literal goes first" is a claim about a planner that is not planning.
+;; So this file answers for the shipped planner under every configuration, which keeps
+;; its assertion count identical across all of them (`tu/pinning`), and the sweep's work
+;; is done by the other 305 namespaces.
+(use-fixtures :each (tu/neutral-fresh tu/fresh) (tu/pinning [#'plan/*enabled*]))
 
 (defn- permutations [coll]
   (if (<= (count coll) 1)
@@ -56,15 +64,34 @@
     (testing "a fully ground literal is a test — it matches at most once"
       (is (= 1 (plan/est-matches kb (list parentOf Tom Bob) #{}))))))
 
-(tu/deftest-kb a-bound-variable-makes-a-literal-cheaper
+(tu/deftest-kb a-bound-token-is-not-charged-an-average
+  ;; The one-sidedness `:prune?` rests on, pinned as the case that breaks it.  A bound
+  ;; variable takes ONE value at run time, and the value it takes may be the one the
+  ;; whole prefix sits under — so charging it `count-at / count-children` is an
+  ;; expectation, and an expectation of 1 is not a proof of anything.  Three facts over
+  ;; two first arguments average to 1 while the busy argument matches twice.
   (tu/with-terms [parentOf Tom Bob Ann Cid CxPlan]
-    (doseq [[p c] [[Tom Bob] [Tom Ann] [Bob Cid] [Ann Cid]]]
+    (doseq [[p c] [[Tom Bob] [Tom Ann] [Bob Cid]]]
       (v/assert kb (list parentOf p c) CxPlan))
-    (testing "sideways information passing: the same literal costs less once ?x is bound"
-      (let [open  (plan/est-matches kb (list parentOf '?x '?y) #{})
-            bound (plan/est-matches kb (list parentOf '?x '?y) '#{?x})]
-        (is (< bound open))))
-    (testing "and a literal with everything bound is a test"
+    (let [g (list parentOf '?x '?y)]
+      (testing "the estimate is one-sided: it never reads below the true match count"
+        (let [est  (plan/est-matches kb g '#{?x})
+              true-max (count (v/sentexes-matching kb (list parentOf Tom '?y) CxPlan))]
+          (is (= 2 true-max) "Tom is the busy first argument")
+          (is (>= est true-max)
+              (str "est-matches read " est " for a literal that matches " true-max
+                   " times — a :prune? proof off that number is a proof of "
+                   "something false"))))
+      (testing "so binding a variable does not make the BOUND cheaper — it is not an average"
+        (is (= (plan/est-matches kb g #{})
+               (plan/est-matches kb g '#{?x}))))
+      (testing "the narrowing a binding buys is priced by the join model instead"
+        ;; the same literal, joined onto the one-row relation the bound variables are:
+        ;; its extent divided by its own distinct count at that position
+        (let [step (first (plan/explain kb [g (list 'lessThan 1 2)] CxPlan {:bound '#{?x}}))]
+          (is (< (:est-prefix step) (:est-matches step))
+              "the prefix estimate narrows where the per-literal bound does not"))))
+    (testing "and a literal with everything bound is a test — one-sided and tight"
       (is (= 1 (plan/est-matches kb (list parentOf '?x '?y) '#{?x ?y}))))))
 
 (tu/deftest-kb a-supertype-literal-costs-its-whole-subtree
@@ -411,18 +438,28 @@
                (mapv :goal (plan/explain kb (vec (reverse goals)) CxPlan))))))))
 
 (tu/deftest-kb the-bound-variables-are-a-one-row-relation-and-nothing-special
-  ;; Sideways information passing has no rule of its own in the join model: the
-  ;; variables already bound are a relation of one row, and joining a literal onto it
-  ;; divides its extent by its own distinct count at that position — which is exactly
-  ;; the average branch the per-literal model charges for a bound-but-unknown token.
-  ;; If the two ever disagreed, one of them would be double-counting the narrowing.
+  ;; Sideways information passing has no rule of its own, and this is where it lives:
+  ;; the variables already bound are a relation of ONE ROW, and joining a literal onto
+  ;; it divides its extent by the literal's own distinct count at that position.  It is
+  ;; deliberately NOT `est-matches`' business — that one is a bound, and a bound that
+  ;; narrowed on a binding would be an expectation wearing a proof's clothes
+  ;; (`a-bound-token-is-not-charged-an-average`).  So the two are pinned apart here:
+  ;; the join model narrows, the per-literal bound does not, and neither double-counts.
   (tu/with-terms [parentOf Tom Bob Ann Cid Dee CxPlan]
     (doseq [[p c] [[Tom Bob] [Tom Ann] [Bob Cid] [Ann Cid] [Cid Dee]]]
       (v/assert kb (list parentOf p c) CxPlan))
     (let [g     (list parentOf '?x '?y)
           other (list 'lessThan 1 2)
-          step  (first (plan/explain kb [g other] CxPlan {:bound '#{?x}}))]
-      (is (= (plan/est-matches kb g '#{?x}) (:est-prefix step))))))
+          step  (first (plan/explain kb [g other] CxPlan {:bound '#{?x}}))
+          rows  (:rows (plan/est-rows kb g))
+          dx    (get (:distinct (plan/est-rows kb g)) '?x)]
+      (testing "the literal's own reading: its extent, and how many values ?x takes over it"
+        (is (= 5 rows))
+        (is (= 4 dx)))
+      (testing "joined onto the one-row relation, the extent is divided by that count"
+        (is (= (long (Math/round (/ (double rows) (double dx)))) (:est-prefix step))))
+      (testing "while the per-literal bound stays the whole extent, bound or not"
+        (is (= rows (plan/est-matches kb g '#{?x}) (plan/est-matches kb g #{})))))))
 
 ;; ---- ordering -----------------------------------------------------------
 
@@ -1203,7 +1240,7 @@
                        (min 1000000000
                             (reduce (fn [acc t']
                                       (+ acc (#'plan/prefix-estimate
-                                              ix (list t' a) bound p/count-at p/count-children)))
+                                              ix (list t' a) p/count-at)))
                                     0
                                     (tax/specs (:taxonomy kb) t CxPlan))))))
           est    (fn [goal bound] (plan/est-matches kb goal bound {:context CxPlan}))]
@@ -1216,7 +1253,8 @@
             (is (= (walked goal #{}) (est goal #{})) (str "at " (typ i))))))
       (testing "and the shapes that must still take the walk, because their prefix is deeper"
         (doseq [[goal bound]
-                [;; a bound variable: the walk charges an average branch, not the extent
+                [;; a bound variable: the walk stops on it exactly as on a free one, since
+                 ;; a bound token is not a value the prefix can be extended with
                  [(list (typ 0) '?x) '#{?x}]
                  ;; a compound argument: its own tokens extend the prefix past the functor
                  [(list (typ 0) (list PlanQ '?n PlanNode)) #{}]

@@ -40,7 +40,8 @@ again*, which lands it on a fresh handle. A preview that moved a handle would be
 preview that broke every reference the caller was holding.
 
 So `preview` writes nothing it cannot take back at the same handles. Three arrangements
-make that true:
+make that true, and the first of them is shared with `edit!` — see "The rollback is one
+implementation" below.
 
 **An `:add` is really asserted**, and rolled back through the premise marks it made. The
 dynamic `*premise-audit*` records each datum's prior premise state as `assert` marks it,
@@ -163,8 +164,9 @@ what is listed is what the batch is answerable for.
 `preview` refuses an **unrecovered** KB exactly where `edit!` does (`:unrecovered-kb`,
 [storage.md](storage.md)), and that is the point of it rather than an inherited
 restriction. It implements a `:remove` as a premise suspension gated on `jtms/premise?`,
-which is false for every stored handle when the network was never built — so it reported
-that nothing would change while `edit!` on the same batch deleted the record. A dry run
+which is false for every stored handle when the network was never built — so without the
+refusal it would answer that nothing would change while `edit!` on the same batch deleted
+the record. A dry run
 silent about exactly the operation that cannot be taken back is worse than no dry run, so
 the two doors refuse together.
 
@@ -189,6 +191,33 @@ On the `:disk` backend the record log is append-only, so a preview writes frames
 then deletes what they held: the live record set is back at baseline and the log is
 longer, which is exactly what an ordinary `assert`-then-`retract!` does there and what
 compaction is for ([storage.md](storage.md)).
+
+## The rollback is one implementation
+
+`edit!` is all-or-nothing ([api.md](api.md)), and what puts a refused batch back is this
+page's machinery rather than a second copy of it: one `rollback-batch!`, two callers. The
+audit, the three cases it tells apart, the retract-what-you-created / un-mark /
+restore-the-strength arms, the settle with the sweep back on, and the restoration of the
+violations ledger, the program and the refusal record are all the same code and the same
+claim — the KB is as it was found.
+
+The two doors differ in **when** they roll back and in what they have to put back, not in
+how:
+
+| | `preview` | `edit!` |
+|---|---|---|
+| rolls back | always | only when the batch throws |
+| an `:add` | asserted, undone through the audit | the same |
+| a `:remove` | `jtms/suspend-premise`, restored | a real teardown, never reached by a rollback |
+| `settle`'s sweep | off for the batch | on, as for any write |
+| the change feed | off for the whole preview | off for the rollback; the batch's own event is never delivered |
+
+The `:remove` row is the asymmetry, and it is why `edit!` asks every removal for its
+refusal *before* the first one runs: a swept record can only come back as new content at
+a new handle, so a batch that has begun removing is a batch that is committed. The two
+refusals a teardown can raise — a stored premise with no TMS node, and a record with no
+node in a KB whose belief was never built — are one function (`teardown-refusal`) that
+`retract!` throws and `edit!` asks.
 
 A preview is a write followed by its undo, so it holds the single writer for its
 duration ([storage.md](storage.md), "The single-writer contract"). It is not a read.
@@ -347,5 +376,5 @@ every change of the accepted set has to be free to be wrong about.
 applies it in the randomized op streams and pins it by name, so the two representations
 are proved to agree about it op by op. The suite's two gates cover the rest —
 `VAELII_TEST_TMS=reference` runs these tests against the persistent-map baseline (the
-default network is the dense one) and `VAELII_TEST_BACKEND=disk` against the durable
+default network is the dense one) and `VAELII_TEST_BACKEND=disk-log` against the durable
 store.

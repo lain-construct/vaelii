@@ -167,8 +167,8 @@ Measured on two nogoods sharing a member, where greedy spends two defeats and th
 optimum spends one:
 
 ```
-stub  defeats {2,3} -> labels {1}     classification: {:true {2,3} :false {1}}
-ASP   defeats {1}   -> labels {2,3}
+stub  defeats {1,3} -> labels {2}     classification: {:true {1,3} :false {2}}
+ASP   defeats {2}   -> labels {1,3}
 ```
 
 The stub's labeling keeps an assumption holding in **no** optimum and drops two
@@ -199,16 +199,19 @@ divergence can be handed to it directly.
 `Ctx` is consistent at level 3 (`:visible`) — the belief-filtered view of stored
 facts — and that is the level at which "is this world consistent" means anything.
 
-Two neighbouring levels will mislead you:
+One neighbouring level will mislead you, and one will not:
 
 * **`sentexes-matching` (level 2) is context-exact.** It does not show inherited facts at all, so
   it reports the background missing from `Ctx` even though `Ctx` sees it.
-* **`prove` and `query` (level 7) re-derive.** Backward chaining opens the rule that
-  concluded the defeated side and proves it again, so they answer *both* sides. `ask`
-  does not: it is level 6, and no member of its prover registry expands a rule
-  ([levels.md](levels.md)), so it answers from what is stored or cached and reports the
-  defeat. This is not something labeling introduces — it happens in the base context
-  too, and is a standing disagreement between the proving levels and belief.
+* **`prove` and `query` (level 7) expand rules, and agree with belief about the
+  answers.** Backward chaining opens the rule that concluded the defeated side and
+  proves it again — and then drops the answer, because belief has already decided that
+  datum is OUT under the current state (`res/defeated-answer?`,
+  [inference.md](inference.md)). So both sides read the same way here as at level 6,
+  where `ask` answers from what is stored or cached and no member of its prover registry
+  expands a rule ([levels.md](levels.md)). What the two levels still differ about is
+  *reach* — level 7 answers what a rule derives and level 6 does not — never about which
+  side of a settled clash holds.
 
 ### Why an arbitrary pick is legitimate here
 
@@ -262,10 +265,10 @@ dilemma-to-`Program` bridge (`label/dilemma-program`), the solve-sourced labelin
 Limits, none of them silent:
 
 * **One labeling at a time**, because belief is global — the trade above.
-* **The proving levels disagree with belief about a defeated conclusion** — the caveat
-  above. `prove` and `query` re-derive it from the rule; `ask`, which expands no rule,
-  does not. It holds in the base context too; a labeled context is only where you are
-  most likely to trip over it.
+* **`sentexes-matching` reports the inherited background missing** — the caveat above.
+  It is context-exact, so it shows a labeled context's own extent and nothing it sees
+  through `genlCx`. It holds in the base context too; a labeled context is only where
+  you are most likely to trip over it.
 * **`label-context` and `label-dilemmas` overlap.** The former materializes a labeling
   the engine committed to and reads the TMS; the latter commits to one and reads the
   solve. Both are correct for their situation, and the table above says which is

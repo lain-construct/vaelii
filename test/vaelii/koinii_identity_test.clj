@@ -8,7 +8,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.koinii.identity :as id]
+            [vaelii.koinii.identity :as id]
             [vaelii.test-util :as tu])
   (:import (clojure.lang ExceptionInfo)))
 
@@ -135,6 +135,36 @@
     (is (= 1 (count (v/sentexes-matching kb (list 'trustLevel 'AgentAtlas '?t) 'CxRegistry)))
         "exactly one trust value stands — the update overwrote, did not accumulate")))
 
+(tu/deftest-kb a-registry-read-rests-on-the-functional-refusal-and-says-so
+  ;; `trust-of` and `set-trust!` both read one row out of a *set* of matches, and
+  ;; `sentexes-matching` promises the set and not an order: over two rows a bare `first`
+  ;; would answer with whichever the index enumerated, so the trust a reader sees and the
+  ;; row an overwrite retracts would follow the order the registry was written in.
+  ;;
+  ;; What makes one row the only possibility is the vocabulary, not the read: `trustLevel`
+  ;; is declared `functional`, so the second value is refused at assert.  Both halves are
+  ;; pinned here — the refusal that holds it, and the read's own refusal for the state the
+  ;; first one prevents.
+  (let [admin (id/admin-principal)]
+    (id/register-agent kb admin 'AgentAtlas "Atlas" 1)
+    (testing "a second trust value is refused outright — never stored beside the first"
+      (is (thrown-with-msg? ExceptionInfo #"functional violation"
+                            (v/assert kb '(trustLevel AgentAtlas 0.5) 'CxRegistry)))
+      (is (= 1 (id/trust-of kb 'AgentAtlas))))
+    (testing "and the registry read refuses two rows rather than halving them silently"
+      ;; a temp predicate nothing declares functional is the only way to build the state
+      (let [p  (tu/fresh-term :predicate "heldBy")
+            h1 (v/assert kb (list p 'AgentAtlas 1) 'CxRegistry)
+            h2 (v/assert kb (list p 'AgentAtlas 2) 'CxRegistry)]
+        (is (= 2 (count (v/sentexes-matching kb (list p 'AgentAtlas '?v) 'CxRegistry)))
+            "two rows stand, since nothing declared this one functional")
+        (let [e (try (#'id/sole-registry-match kb (list p 'AgentAtlas '?v))
+                     (catch ExceptionInfo e e))]
+          (is (instance? ExceptionInfo e) "the read refuses rather than naming one of the two")
+          (is (= :koinii/registry-not-functional (:type (ex-data e))))
+          (is (= #{h1 h2} (:handles (ex-data e)))
+              "and it names both handles, so the KB state is readable from the refusal"))))))
+
 ;; ---- the admin writes the registry, and ONLY the registry -----------------
 
 (tu/deftest-kb admin-writes-only-the-registry
@@ -149,5 +179,22 @@
 (deftest authenticate-refuses-an-unknown-policy
   (testing "a policy that is neither :cooperative nor :proof-tier is refused, not silently
             treated as one of them"
-    (is (thrown-with-msg? ExceptionInfo #"unknown identity policy"
-                          (id/authenticate {:claimed-id 'AgentAtlas} {:policy :made-up})))))
+    (let [d (try (id/authenticate {:claimed-id 'AgentAtlas} {:policy :made-up})
+                 nil
+                 (catch ExceptionInfo e (ex-data e)))]
+      (is (= :koinii/unknown-policy (:type d))
+          "refused by name — a caller catching this must not have to read the message")
+      (is (= :made-up (:policy d)) "and the refusal names the policy it did not know"))))
+
+;; ---- a seed context nothing ships is a failure to start -------------------
+
+(tu/deftest-kb a-seed-context-with-no-file-on-the-classpath-is-refused
+  (testing "koinii loads its own seed files, so a missing one is not a KB that came up
+            with an empty registry — it is a build with a file left out, and the loader
+            says which"
+    (let [d (try (id/load-seed-context kb 'CxNoSuchKoiniiSeed)
+                 nil
+                 (catch ExceptionInfo e (ex-data e)))]
+      (is (= :koinii/missing-seed (:type d)) "refused by name rather than read as empty")
+      (is (= "kb/koinii/CxNoSuchKoiniiSeed.txt" (:resource d))
+          "naming the classpath resource the build did not ship"))))

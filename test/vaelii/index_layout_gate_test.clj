@@ -3,7 +3,7 @@
 (ns vaelii.index-layout-gate-test
   "The durable index's key-layout sentinel (`dfiles/index-layout-decision`).
 
-  A `:disk` index log written under another `kv/index-layout-version` replays
+  A `:disk-log` index log written under another `kv/index-layout-version` replays
   cleanly and then misses every read whose key shape moved — counts look populated
   while ground asks answer false — so `open-kb` clears such an index and rebuilds it
   from the records, stamping `layout.edn` only after the rebuild.  An absent
@@ -29,15 +29,15 @@
 (defn- layout-file ^File [^String dir] (File. (str dir "/index") "layout.edn"))
 
 (defn- built-kb!
-  "A fresh `:disk` KB at `dir` holding one monotonic fact, closed after building —
+  "A fresh `:disk-log` KB at `dir` holding one monotonic fact, closed after building —
   the store a later open gets to repair."
   [^String dir]
-  (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+  (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
     (v/assert kb '(fish LayoutNemo) 'CxUniverse {:strength :monotonic})
     (backend/close-dir! dir)))
 
 (defn- answers? [^String dir]
-  (let [kb  (v/open-kb {:backend :disk :dir dir :recover? :auto})
+  (let [kb  (v/open-kb {:backend :disk-log :dir dir :recover? :auto})
         ok? (v/ask? kb '(fish LayoutNemo) 'CxUniverse)]
     (backend/close-dir! dir)
     ok?))
@@ -112,11 +112,11 @@
   ;; `index-durable?` is not the discriminant: on the `:overlay` axis it says only that
   ;; the *merged view holds something*.  A fork inherits no `:dir`, so `disk/disk-dir`
   ;; synthesizes the default `<tmpdir>/vaelii-disk/space-0` — the same directory a bare
-  ;; `{:backend :disk}` uses — and a gate keyed on the flag would clear the fork's merged
+  ;; `{:backend :disk-log}` uses — and a gate keyed on the flag would clear the fork's merged
   ;; index (permanently hiding the base's) and stamp a directory it never read.
   (let [dir  (tmpdir)
         ;; a real durable KB at the default location, carrying no sentinel: the state a
-        ;; machine has after any 0.2.0-era `{:backend :disk}` open
+        ;; machine has after any 0.2.0-era `{:backend :disk-log}` open
         base (doto (v/open-kb {:backend :memory
                                :space [::fork]
                                :recover? false})

@@ -77,6 +77,17 @@ Note what is deliberately **absent**: nothing here records a rule's direction or
 defeasibility as a queryable property at all — there is no default-rule index and nothing
 enumerates rules by defeasibility. Both are fields on the sentex record — see §3.
 
+**And nothing here records belief.** Every posting is storage: it holds a defeated default,
+a conclusion whose support was withdrawn and a spelling an equality retired, because all
+three are revivable and belief lives in the JTMS. That is not an omission to work around —
+half the engine wants the stored reading — but it does mean every read of a posting carries
+a question, so the reads are not made against `vaelii.impl.protocols` directly. They go
+through `vaelii.impl.reads`, whose door names say which answer the caller wanted:
+`as-stored-…` and `stored-count-…` take the index store, `believed-…` takes the KB.
+`lein lint`'s **E16** rosters the implementers — this namespace, `columnar`, the disk
+snapshot, `kb` and `resolution`, and the dump — and fails a raw read anywhere else
+([nmtms.md](nmtms.md#belief-filtering-is-a-namespace-boundary)).
+
 ## 1. The count-aware trie
 
 A sentex is indexed by its **path**: its key tokens followed by the context as the
@@ -183,7 +194,8 @@ binding a whole compound working now that compounds span several levels.
 This is a **pure selectivity change**: the trie is only ever a superset filter and
 `res/unify` is the source of truth (it already unifies deep positions), so the
 walk may shrink the candidate set but never changes *which* sentexes match — a
-markerless (flat) key walks exactly as before. On the retrieval side,
+markerless (flat) key holds no marker for the skip to read, so it walks one level per
+token. On the retrieval side,
 `res/*structural-index*` gates whether `candidate-handles` uses the structural trie
 (narrow on the deep positions) or the functor extent (a correct fallback superset).
 The level-0 raw lookup reads `p/lookup` directly, so it is
@@ -193,8 +205,9 @@ the gate applies to them too — but only to the candidate *source*, never the m
 `unify`, over flat facts, top-level / deep-leaf / whole-subterm variables, and nested
 compounds.
 
-Only child *sets* (`:s`) are read while walking; handles (`:l`) are read solely at the
-terminus, so the skip can never cross into a leaf handle or read a marker as one.
+Only child *sets* (`[:trie :children …]`) are read while walking; handles
+(`[:trie :handles …]`) are read solely at the terminus, so the skip can never cross into
+a leaf handle or read a marker as one.
 
 **Handles get their own key because the trie is ragged.** Arity varies, and one
 sentex's whole path can be a proper prefix of another's, so a node is leaf and
@@ -423,7 +436,13 @@ index](defenses.md#rule-defeasibility-is-not-indexed). See [inference.md](infere
 A rule concluding a **conjunction** is polycanonicalized into one rule per conjunct
 before storage (`rules/expand-consequent`), so `(implies A (and C1 C2))` is stored
 as two rules `(implies A C1)` and `(implies A C2)`, each keyed by its own consequent
-predicate. `assert` / `assert-rule` return the vector of handles in that case.
+predicate. A rule whose antecedent **disjoins** distributes the same way and for the
+mirror reason — the antecedent index keys a rule by its antecedents' predicates and
+`or` names none, so `(implies (or A B) C)` is stored as two rules, each keyed by its own
+antecedent predicate and each triggered by an arriving fact exactly as a hand-written
+rule is (`rules/expand-antecedent`). `assert` / `assert-rule` return the vector of
+handles whenever a rule expanded, and the two expansions compose into the product
+([canonicalization.md](canonicalization.md)).
 
 ## 4. The exception re-check index
 
@@ -438,8 +457,17 @@ index exists only to decide *when*:
 
 A fact on `P` arriving or leaving looks up `[:exception-index P]` and re-checks those rules'
 conclusions. An exception can also flip with no matching fact ever arriving — assert
-`(genl penguin flightlessBird)` and `(flightlessBird ?b)` starts holding — so any
-`genl` / `genlCx` edge change re-checks `[:exception-index :rules]` wholesale.
+`(genl penguin flightlessBird)` and `(flightlessBird ?b)` starts holding — and an edge
+change is what the `:rules` roster is for. It is read as the **gate**, not as the answer:
+both edge triggers ask it first, so a KB that writes no `exceptWhen` pays one set read
+per edge and stops, and each then narrows from it. `special/recheck-genl-edge` keys on
+the predicate — the roster sliced by `[:exception-index pe]` for each `pe` in
+`genls(super)`, the up-closure being exactly where a spec closure moved — and
+`special/recheck-genlCx-edge` keys on the context, walking the roster and queueing a rule
+only where one of its firings was placed in the cone the edge widened. The roster is
+taken **whole** only where nothing can narrow it: `special/recheck-every-exception`, which
+`recover` takes because a restart leaves no edge or fact to key on and every exception
+must be re-decided from scratch.
 
 Granularity is the **rule**, never the firing. A rule handle is already an antecedent
 of every justification it licenses, so each conclusion it produced is reachable
@@ -489,7 +517,7 @@ The floor drops each content literal's key *for itself*. That key is the one thi
 that scales with the corpus rather than with the vocabulary — a fact's body is a subterm
 of itself, so it mints a key holding exactly one handle, once per record. Over a
 12,070-record corpus of 511 names it is 12,054 of 12,565 distinct tokens; in the shipped
-starter, 1,108 of 1,383. At the floor and deeper, the nesting is what a probe is *for* —
+starter, 1,724 of 2,077. At the floor and deeper, the nesting is what a probe is *for* —
 `(sentexHandle H)` inside an `exceptWhen` meta, the sentence inside an `(ist Ctx S)` —
 so those keys stay, and the reads that depend on them are unchanged.
 
@@ -549,11 +577,11 @@ vocabulary listing that included it would be answering a different question.
 
 Cost: this is what makes term enumeration O(vocabulary) instead of O(sentexes). The
 scan it replaces — walk every sentex, take its indexable subterms, collect the symbols
-— measures ~8µs per sentex, so listing every term costs 3ms on the starter, 37ms at
-4.4k sentexes, 495ms at 60k, and would cost seconds at a million. The roster reads one
-set and sorts it: 0.09ms, 0.20ms, 1.9ms at those same sizes (33×, 185×, 260×), because it
-is priced by the *vocabulary* — 120, 305, 2,545 terms — which grows far slower than the
-KB. `term-count` is a set-size read and does not move at all.
+— measures ~8µs per sentex, so listing every term costs ~3 ms on the starter, ~37 ms at
+4.4k sentexes, ~500 ms at 60k, and would cost seconds at a million. The roster reads one
+set and sorts it: ~0.09 ms, ~0.2 ms, ~1.9 ms at those same sizes (roughly 30×, 190× and
+260×), because it is priced by the *vocabulary* — 120, 305, 2,545 terms — which grows far
+slower than the KB. `term-count` is a set-size read and does not move at all.
 
 The write side pays for it: one posting read per name on `index-sentex`, ~7% of the
 index write (2.7µs a sentex), which is why the term set is computed once and handed to
@@ -599,7 +627,7 @@ wrong: the log replays cleanly and then every lookup whose key shape moved finds
 and answers nothing — populated-looking counts over queries that answer nothing. Bump it
 whenever a key shape changes.
 
-Three places check it, and none of them leaves the repair to a person. A **durable KV
+Four places check it, and none of them leaves the repair to a person. A **durable KV
 index** is gated at `open-kb` before anything reads it: `disk/files.clj`'s
 `index-layout-decision` compares `<dir>/index/layout.edn` against the current version —
 an absent stamp over a populated log counts as stale, since that is what an index written
@@ -629,10 +657,10 @@ The split is the point and it is not symmetric. **Resident**: the skeleton (`fco
 `foffsets` `fedge-tok` `fedge-tgt`), the roots' key *and offset* columns, the token
 dictionary, and `roots-fallback.nippy`. **Mapped**: the leaf handles (`fleaf-off` /
 `fhandles`) and the routed roots' handle run. The lookup walk reads the skeleton at every
-frontier node — the leading-variable fan, measured at 18,512 lookups for one query — and a
-page fault there would cost a disk seek apiece. The leaves are read once, at a walk's
-terminus. A write thaws whatever it lands on, mapped or frozen alike, so an image is a
-read-phase structure.
+frontier node — the leading-variable fan, measured on a corpus-sized index at tens of
+thousands of lookups for one query — and a page fault there would cost a disk seek
+apiece. The leaves are read once, at a walk's terminus. A write thaws whatever it lands
+on, mapped or frozen alike, so an image is a read-phase structure.
 
 **The fallback blob is on the resident side, and it is fact-scaled.** It carries the term
 and slot rosters, which are vocabulary-scaled, *and* the predicate-scoped argument roots,

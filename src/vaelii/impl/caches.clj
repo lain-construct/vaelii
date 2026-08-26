@@ -6,8 +6,8 @@
 
   The stores are measured elsewhere: `catalog/heap` reports the JVM's own figure and
   `catalog/footprint` estimates what a loaded KB costs.  Neither says anything about the
-  **caches** — a dozen atoms and two static maps holding answers the engine would
-  otherwise recompute — and a hit rate is the only evidence a cost model has.  \"The
+  **caches** — the atoms and plain maps holding answers the engine would otherwise
+  recompute — and a hit rate is the only evidence a cost model has.  \"The
   second query was fast\" is a demo; \"the second query was fast because it was served
   from a cache, and here is the rate\" is a measurement.
 

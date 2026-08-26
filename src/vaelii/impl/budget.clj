@@ -66,7 +66,8 @@
   the run is simply unbounded: `{:max-mss 100}` realizes the whole stream, which on an
   infinite source never returns, and is in any case the opposite of what was asked.
   (A `:max-cost` value outside the tiers is the *value* check, `:unknown-option` at
-  `vaelii.impl.provers/ask-capped` — this is the key check one level up.)"
+  `vaelii.impl.provers/cost-capped-provers`, which `ask-capped` reads the registry
+  through — this is the key check one level up.)"
   [budget]
   (opts/check! budget budget-keys "budget"
                "A bound nothing reads is an unbounded run in silence."))

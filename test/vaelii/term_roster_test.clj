@@ -249,3 +249,35 @@
     (let [e (try (v/find-terms kb "x" opts) nil
                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
       (is (= :unknown-option (:type e)) (pr-str opts)))))
+
+(deftest a-pathological-regex-is-refused-not-a-spin
+  ;; `:find-terms` runs over the daemon's single-writer monitor, so an unbounded regex
+  ;; there wedges every write behind it.  A super-linear pattern over a long term blows
+  ;; the per-term step budget and is refused `:pattern-too-costly`; a linear one answers.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [evil-term (symbol (str (apply str (repeat 2000 \a)) "b"))]   ; a long run of a's
+      (v/assert kb (list 'genl evil-term 'thing) 'CxUniverse)
+      (testing "a nested-quantifier pattern over a long term is refused, not run out"
+        (is (= :pattern-too-costly
+               (try (v/find-terms kb "(a*)*$" {:match :regex}) nil
+                    (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
+      (testing "a well-formed anchored pattern over the same term still answers"
+        (is (= [evil-term] (v/find-terms kb "^a+b$" {:match :regex})))))))
+
+(deftest a-regex-scan-over-the-whole-vocabulary-is-bounded-too
+  ;; The per-candidate budget catches a pattern that backtracks; this one catches a
+  ;; pattern that is merely asked over more vocabulary than one call may read — on the
+  ;; daemon that read is taken holding the single writer.  Pinned low through the var so
+  ;; the test does not need a six-figure vocabulary; the shipped budget answers the same
+  ;; linear pattern over the same terms.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [gen_a gen_b gen_c CxScan]
+      (doseq [t [gen_a gen_b gen_c]] (v/assert kb (list 'genl t 'thing) CxScan))
+      (with-redefs-fn {#'v/regex-scan-budget 20}
+        (fn []
+          (let [d (try (v/find-terms kb "gen" {:match :regex}) nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+            (is (= :pattern-too-costly (:type d)))
+            (is (= :scan (:scope d)) "refused for the scan, not for any one candidate"))))
+      (is (= 3 (count (filter #{gen_a gen_b gen_c} (v/find-terms kb "gen" {:match :regex}))))
+          "the shipped budget admits a linear pattern over the whole vocabulary"))))

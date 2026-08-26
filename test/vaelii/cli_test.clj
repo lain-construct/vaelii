@@ -18,6 +18,13 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
+(defn- temp-dir ^File [nm]
+  (.toFile (Files/createTempDirectory (str "vaelii-cli-" nm "-")
+                                      (into-array FileAttribute []))))
+
+(defn- rm-rf! [^File d]
+  (doseq [^File f (reverse (file-seq d))] (.delete f)))
+
 (deftest parse-opts-splits-positionals-and-flags
   (testing "--k v pairs and bare --flags, positionals kept in order"
     (is (= [["assert" "(dog Muffet)" "Ctx"] {:dir "/tmp/kb" :strength "monotonic"}]
@@ -52,6 +59,17 @@
       (let [h (cli/dispatch kb "handle-of" [(list dog Muffet) CxCli] {})]
         (cli/dispatch kb "retract" [h] {})
         (is (empty? (cli/dispatch kb "match" [(list dog Muffet) CxCli] {})))))))
+
+(tu/deftest-kb a-command-word-the-table-does-not-know-is-refused-with-the-table
+  ;; The refusal is for a typo at the shell.  Dispatched as nothing it would exit 0
+  ;; having run no command — `asserr '(dog Muffet)' CxCli` reads as a stored fact to
+  ;; whoever typed it — so the word comes back named, with the roster of the ones that
+  ;; do exist for a shell to print.
+  (let [e (is (thrown? clojure.lang.ExceptionInfo (cli/dispatch kb "frobnicate" [] {})))
+        d (ex-data e)]
+    (is (= :unknown-command (:type d)))
+    (is (= "frobnicate" (:cmd d)))
+    (is (= cli/commands (:commands d)))))
 
 (deftest an-answer-set-prints-the-same-however-the-knowledge-arrived
   ;; `match`, `query` and `ask` answer sets, and a set has no order of its own — so what
@@ -155,29 +173,59 @@
                                   (cli/dispatch kb "export" [(.getPath dump)] {}))))))
       (finally (doseq [^File f (reverse (file-seq root))] (.delete f))))))
 
-(tu/deftest-kb load-reads-edn-entries-and-asserts-them-in-one-batch
+(tu/deftest-kb load-reads-a-text-kb-file-and-asserts-it
+  ;; The text KB format — the file name is the context, so `load` takes no context
+  ;; argument and one file's forms all land in one place.
   (tu/with-terms [dog cat Muffet Felix CxLoad]
-    (let [f (File/createTempFile "vaelii-cli-load" ".edn")]
+    (let [d (temp-dir "load")
+          f (io/file d (str CxLoad ".txt"))]
       (try
-        (spit f (pr-str [[(list dog Muffet) CxLoad] [(list cat Felix) CxLoad]]))
-        (is (= {:loaded 2 :stored 2} (cli/dispatch kb "load" [(.getPath f)] {})))
+        (spit f (str ";; a comment, which the reader skips\n"
+                     (pr-str (list dog Muffet)) "\n"
+                     (pr-str (list cat Felix)) "\n"))
+        (let [r (cli/dispatch kb "load" [(.getPath f)] {})]
+          (is (= 2 (:sentences r)))
+          (is (= 1 (:contexts r)))
+          (is (= [(str CxLoad ".txt")] (:files r))))
         (is (seq (v/sentexes-matching kb (list dog Muffet) CxLoad)))
         (is (seq (v/sentexes-matching kb (list cat Felix) CxLoad)))
-        (finally (.delete f))))))
+        (finally (rm-rf! d))))))
 
-(tu/deftest-kb load-reports-entries-and-stored-sentexes-separately
-  ;; `assert` answers the existing handle for a sentence already stored, so a file of
-  ;; duplicates reports what it *did* — one stored sentex — beside what it read.  A
-  ;; bare "loaded 3" reports the input's size as though it were the write's.
-  (tu/with-terms [dog Muffet CxDup]
-    (let [f (File/createTempFile "vaelii-cli-dup" ".edn")]
+(tu/deftest-kb load-reads-a-directory-of-context-files
+  ;; A whole text KB is a directory of `Cx<Name>.txt`, and `load` reads it in one
+  ;; order-insensitive pass — so a context resting on another's content loads whichever
+  ;; file name sorts first.
+  (tu/with-terms [dog cat Muffet Felix CxOne CxTwo]
+    (let [d (temp-dir "loaddir")]
       (try
-        (spit f (pr-str [[(list dog Muffet) CxDup]
-                         [(list dog Muffet) CxDup]
-                         [(list dog Muffet) CxDup]]))
-        (is (= {:loaded 3 :stored 1} (cli/dispatch kb "load" [(.getPath f)] {})))
-        (is (= 1 (count (v/sentexes-matching kb (list dog '?x) CxDup))))
-        (finally (.delete f))))))
+        (spit (io/file d (str CxOne ".txt")) (str (pr-str (list dog Muffet)) "\n"))
+        (spit (io/file d (str CxTwo ".txt")) (str (pr-str (list cat Felix)) "\n"))
+        (spit (io/file d "README") "not a context file")
+        (let [r (cli/dispatch kb "load" [(.getPath d)] {})]
+          (is (= 2 (:sentences r)) "the README is not a context file")
+          (is (= 2 (:contexts r))))
+        (is (seq (v/sentexes-matching kb (list dog Muffet) CxOne)))
+        (is (seq (v/sentexes-matching kb (list cat Felix) CxTwo)))
+        (finally (rm-rf! d))))))
+
+(tu/deftest-kb export-format-text-writes-a-text-kb-that-load-reads-back
+  (tu/with-terms [dog cat Muffet Felix CxRound]
+    (let [d (temp-dir "text")]
+      (try
+        (rm-rf! d)
+        (v/assert kb (list 'genlCx CxRound 'CxUniverse) 'CxUniverse)
+        (v/assert kb (list dog Muffet) CxRound)
+        (v/assert kb (list cat Felix) CxRound {:strength :monotonic})
+        (let [r (cli/dispatch kb "export" [(.getPath d)] {:format "text"})]
+          (is (contains? (set (:files r)) (str CxRound ".txt")))
+          (is (pos? (:sentences r))))
+        (testing "a dump option beside --format text is refused rather than dropped"
+          (let [e (try (cli/dispatch kb "export" [(.getPath d)]
+                                     {:format "text" :compression "gzip"})
+                       nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+            (is (= :unknown-option (:type e)))))
+        (finally (rm-rf! d))))))
 
 (deftest a-flag-missing-its-value-is-refused-not-bound-nil
   ;; `--strength` at the end of a line would otherwise bind nil, and the assert lands
@@ -223,7 +271,7 @@
   ;; reached from the other side — and a misspelt `--dir` opened the in-memory KB.
   (doseq [args [["assert" "(dog Muffet)" "C" "--strenght" "monotonic"]
                 ["query" "(dog ?x)" "C" "--dept" "3"]
-                ["load" "/tmp/x.edn" "--dri" "/tmp/kb"]]]
+                ["load" "/tmp/kb-text" "--dri" "/tmp/kb"]]]
     (let [e (try (cli/parse-opts args) nil
                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
       (is (= :unknown-option (:type e)) (pr-str args)))))

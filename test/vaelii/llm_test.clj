@@ -46,7 +46,16 @@
     (testing "the writes are named and reachable through serve, just not as tools"
       (doseq [w tools/write-ops]
         (is (contains? serve/ops w) (str w " is declared a write but serve does not serve it"))
-        (is (not (contains? reads w)))))))
+        (is (not (contains? reads w)))))
+    (testing "a host-path read is served for a human caller but kept out of the model's tools"
+      (is (seq tools/host-path-ops) "the host-path exclusion set is not empty")
+      (is (contains? tools/host-path-ops :kb-diff)
+          "kb-diff's second side is a path on the daemon's host")
+      (doseq [h tools/host-path-ops]
+        (is (contains? serve/ops h)
+            (str h " is excluded as a host-path read but serve does not serve it"))
+        (is (not (contains? reads h))
+            (str h " names a host path and must not become a model tool"))))))
 
 (deftest no-write-is-reachable-as-a-tool
   (testing "the write ops have no tool name that dispatches"
@@ -531,6 +540,27 @@
       (is (= "sig" (get-in (:content r) [0 :raw "signature"])))
       (is (= {"type" "text" "text" "checking"} (#'anthropic/encode-block (nth (:content r) 1)))))))
 
+(deftest a-content-block-the-encoder-cannot-shape-is-refused-rather-than-dropped
+  ;; The refusal is for a block this namespace has no JSON shape for.  Encoded as nothing
+  ;; it would send a turn missing a block the rest of the turn refers to, and the API's
+  ;; own complaint would name neither the turn nor the block; encoded as a guess it would
+  ;; send an edited thinking block, which the API rejects outright.  A pure encode — no
+  ;; request is built, no credential is read and no host is reached.
+  (let [encode #'anthropic/encode-block]
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (encode {:type :thinking :thinking "weighing it"})))]
+      (is (= :llm-encode (:type (ex-data e))))
+      (is (= :thinking (:block-type (ex-data e)))
+          "and it names the type it could not shape, which is what a caller acts on"))
+    (testing "a block that came off a response carries its original JSON and rides back
+              unchanged, whatever its type — which is why the refusal is for the built
+              ones alone"
+      (is (= {"type" "thinking" "thinking" "weighing it" "signature" "sig"}
+             (encode {:type :thinking
+                      :raw {"type" "thinking" "thinking" "weighing it" "signature" "sig"}}))))
+    (testing "and the three shapes it does model encode without one"
+      (is (= {"type" "text" "text" "checking"} (encode {:type :text :text "checking"}))))))
+
 (deftest sse-frames-reassemble-into-the-same-response-shape
   (let [events (atom [])
         r (#'anthropic/collect
@@ -848,7 +878,16 @@
 (def ^:private probe-calls
   "Calls that open a socket to a model host **by themselves**.  Every one of these is an
   HTTP request the moment it is evaluated, so one in a test body is a dial-out however the
-  result is used."
+  result is used.
+
+  **The `provider` seam's three selecting entry points are here, not below.**  Each asks
+  `provider/available?` before it builds anything, and for `:ollama` that probes the host
+  — so on a machine whose `VAELII_LLM_PROVIDER` names a real backend, `(provider/provider)`
+  with no kind dials, and `(provider/provider :ollama)` dials whatever the environment
+  says.  `VAELII_LLM_PROVIDER` is configuration, never consent (the consent gate is
+  `VAELII_LLM_LIVE`, read through `tu/live-llm?`), so a test reaching one of these pins a
+  `transport-seam` — which is what `the-stub-is-the-default-and-the-fallback` and
+  `a-backend-that-probes-available-and-then-throws-is-logged` already do."
   '#{vaelii.impl.llm.ollama/version
      vaelii.impl.llm.ollama/available?
      vaelii.impl.llm.ollama/show
@@ -856,19 +895,20 @@
      vaelii.impl.llm.ollama/supports-tools?
      vaelii.impl.llm.ollama/context-length
      vaelii.impl.llm.ollama/warm
-     vaelii.impl.llm.provider/warm})
+     vaelii.impl.llm.provider/warm
+     vaelii.impl.llm.provider/provider
+     vaelii.impl.llm.provider/generation-provider
+     vaelii.impl.llm.provider/active-kind})
 
 (def ^:private backend-constructors
   "Calls that hand back a provider bound to a **real** backend.  None of these opens a
-  socket on its own — building an Ollama provider is a map and a `reify` — so one of them
+  socket on its own — building an Ollama provider is a map and a `reify`, and
+  `provider/build` goes straight to the constructor without probing — so one of them
   alone is not a dial-out, and several tests in `:default` build one deliberately to check
   what happens when a credential is missing or a constructor throws."
   '#{vaelii.impl.llm.ollama/provider
      vaelii.impl.llm.ollama/generation-provider
      vaelii.impl.llm.anthropic/provider
-     vaelii.impl.llm.provider/provider
-     vaelii.impl.llm.provider/generation-provider
-     vaelii.impl.llm.provider/active-kind
      vaelii.impl.llm.provider/build})
 
 (def ^:private turn-drivers

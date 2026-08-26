@@ -45,6 +45,7 @@
   drifts too, but a test can see it drift."
   (:require [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.special :as special]))
 
@@ -98,9 +99,9 @@
     relationKind  {:enforced "generic: a disjointMetatype, so its two members separate each other"}
     instanceRelationPredicate {:enforced "checks/declaration-problem — an genlArg on one is refused"}
     typeRelationPredicate     {:enforced "checks/declaration-problem — an arg on one is refused"}
-    unaryPredicate   {:enforced "checks/predicate-type-arities — the membership spelling of an arity"}
-    binaryPredicate  {:enforced "checks/predicate-type-arities — the membership spelling of an arity"}
-    ternaryPredicate {:enforced "checks/predicate-type-arities — the membership spelling of an arity"}
+    unaryPredicate   {:enforced "checks/predicate-type-arities — the membership spelling of an arity; plus its disjointness with the other two classes, so a predicate is at most one of the three"}
+    binaryPredicate  {:enforced "checks/predicate-type-arities — the membership spelling of an arity; plus its disjointness with the other two classes, so a predicate is at most one of the three"}
+    ternaryPredicate {:enforced "checks/predicate-type-arities — the membership spelling of an arity; plus its disjointness with the other two classes, so a predicate is at most one of the three"}
 
     ;; ---- predicate metadata answered by a prover --------------------------
     ;; Each is both a *mark* (it maintains its taxonomy prop) and a *type*: `(genl X
@@ -114,6 +115,7 @@
     transitiveInArg        {:enforced "inherit — the argument reach along a declared transitive relation"}
     transitiveInArgInverse {:enforced "inherit — the same, read backwards"}
     abduciblePredicate   {:enforced "taxonomy prop :abducible — the gate on what abduce may hypothesize"}
+    closedExtentPredicate {:enforced "taxonomy prop :closed-extent — ClosedExtentProver answers (not (P …)) from the absence of a positive, and a closed negative rule antecedent under the grant is negation as failure"}
     modalPredicate       {:enforced "taxonomy prop :modal — the gate BeliefProjectionProver reads to decide which predicates project their sentence into the agent's context"}
     targetFollowingPredicate {:enforced "taxonomy prop :target-following — the mark core/retract-following-metas! reads to tear down a meta-sentex when the sentex it names by handle is retracted"}
 
@@ -131,6 +133,7 @@
     ;; ---- the connectives and rule wrappers, read by the canonicalizer -----
     implies {:enforced "sentex canonicalization — becomes the antecedent/consequent slots of a RuleSentex"}
     and     {:enforced "sentex canonicalization — the antecedent conjunction, never stored alone"}
+    or      {:enforced "rules/expand-antecedent — polycanonicalization, one rule per alternative; never stored, and rules/disjunction-problems refuses every position it could not be expanded out of"}
     not     {:enforced "sentex canonicalization — the truth slot, and the negation nogoods"}
     set/forwardRule  {:enforced "sentex/peel-rule-wrapper — sets the rule's direction"}
     set/backwardRule {:enforced "sentex/peel-rule-wrapper — sets the rule's direction"}
@@ -178,13 +181,20 @@
 
 (defn- declared-terms
   "Every term `vocabulary-context` comments — the grammar, read off the loaded KB rather
-  than off the file, so the audit is about what this KB has."
+  than off the file, so the audit is about what this KB has.
+
+  **As stored**, so a `comment` on a defeated declaration still names its term.  The
+  audit's question is which grammar terms this KB carries documentation for, and a
+  `comment` is documentation rather than a claim about the world: the term is spelled in
+  the vocabulary whatever the JTMS currently makes of the sentex that spells it, and a
+  believed door would report the grammar shrinking whenever a settle moved a belief
+  nobody wrote the comment about."
   [kb]
   (into (sorted-set)
         (comp (keep #(p/get-sentex (:records kb) %))
               (filter #(= vocabulary-context (:context %)))
               (keep (fn [s] (let [[_ t] (:sentence s)] (when (symbol? t) t)))))
-        (p/sentexes-with-functor (:index kb) 'comment)))
+        (reads/as-stored-with-functor (:index kb) 'comment)))
 
 (def ^:private machine-readable-enforced
   "The functors whose behaviour is provable from a data structure rather than from prose:

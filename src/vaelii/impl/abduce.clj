@@ -40,6 +40,7 @@
   (:require [clojure.string :as str]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.special :as special]
@@ -115,18 +116,21 @@
     ((:assert ops) kb (edge actx base) 'CxUniverse {:strength :monotonic})
     actx))
 
-(defn- edge-handle
-  "The handle of the `genlCx` edge that made `actx` a context, or nil.
+(defn- edge-handles
+  "The handles of the `genlCx` edges that made `actx` a context — usually one, but a
+  `{:keep? true}` caller may have hung more on it, and every one is removed or the
+  scratch context stays reachable.
 
-  Found through the **argument root** rather than remembered: the edge has `actx` at
+  Found through the **argument root** rather than remembered: an edge has `actx` at
   argument 1, so one positional read answers it and the teardown needs no bookkeeping to
-  survive being handed nothing but a context name."
+  survive being handed nothing but a context name.  Every match is returned rather than
+  the first the posting set happens to surface, so the teardown does not depend on hash
+  order and does not leave a second edge standing."
   [kb actx]
-  (->> (p/sentexes-with-arg (:index kb) 1 actx)
+  (->> (reads/as-stored-with-arg (:index kb) 1 actx)
        (keep #(p/get-sentex (:records kb) %))
        (filter #(= 'genlCx (nm/functor (:sentence %))))
-       first
-       :id))
+       (mapv :id)))
 
 (defn discard!
   "Discard the abduction context whole: every sentex in it, then the edge that made it a
@@ -143,15 +147,15 @@
   (let [drop!   (fn [hs] (if (seq hs)
                            (:removed ((:edit ops) kb {:remove (vec hs)}))
                            {:removed-sentexes 0 :removed-justifications 0}))
-        extent  (drop! (p/sentexes-in-context (:index kb) actx))
-        the-edge (drop! (when-let [e (edge-handle kb actx)] [e]))]
+        extent  (drop! (reads/as-stored-in-context (:index kb) actx))
+        the-edge (drop! (edge-handles kb actx))]
     (merge-with + extent the-edge)))
 
 ;; ---- the decision ---------------------------------------------------------
 ;; Deliberately separate from the search.  An ungated abducer hypothesizes anything and
 ;; is worth nothing, so what may be assumed is stated once, as a predicate over a
-;; sentence, and the search calls it.  When the proof-search substrate lands, moving this
-;; onto its hook is a call-site change and nothing else.
+;; sentence, and the search calls it.  It reads nothing but its arguments, so it is a
+;; call site away from any other search that wants the same rule.
 
 (defn- contradicted?
   "Is a negation of `sentence` believed and visible from `context`?
@@ -179,7 +183,7 @@
   * **Declared abducible**, read scoped from `context` — the one gate that is a grant
     rather than a veto, and the reason a KB with no `abduciblePredicate` in it abduces
     nothing at all.
-  * **Legally assertible**: the same triple every minted sentence passes
+  * **Legally assertible**: the same four checks every minted sentence passes
     (`special/inadmissible`) — naming, the definitional constraints, well-formedness,
     edge stratification.  A sentence `assert` would refuse must not be one the search
     assumes, or abduction becomes a way around the checks.
@@ -199,8 +203,8 @@
 
   `goal` is a subgoal the search exhausted, `depth` the rule expansions taken to reach
   it.  This is the decision function a proof-search hook calls, and everything it needs
-  is in its arguments — which is what lets one rule govern both the standalone pass here
-  and a hook inside the search later."
+  is in its arguments — which is what lets one rule govern the standalone pass here and
+  any hook inside the search that calls it."
   [kb goal context {:keys [max-depth]} depth]
   (when (and (or (nil? max-depth) (<= depth max-depth))
              (abducible? kb goal context))
@@ -351,19 +355,24 @@
         ops   (assoc ops :rules (fn [g] ((:rules-fn ops) kb g actx)))]
     (try
       (let [{:keys [minted status solutions refused]}
-            (loop [minted {}]
+            ;; `capped?` rides the loop: a round that took only `room` of more candidates
+            ;; dropped the rest, so even a later round that *finds* a solution did not
+            ;; search exhaustively — the honest status is `:capped`, not `:complete`.
+            (loop [minted {} capped? false]
               (let [{:keys [solutions dead-ends]} (attempt kb goals actx ops)]
                 (if (seq solutions)
-                  {:minted minted :status :complete :solutions solutions :refused []}
+                  {:minted minted :status (if capped? :capped :complete)
+                   :solutions solutions :refused []}
                   (let [{:keys [candidates refused]}
                         (triage kb actx opts (set (keys minted)) dead-ends)
                         room  (- cap (count minted))
                         fresh (take room candidates)]
                     (if (empty? fresh)
                       {:minted    minted :solutions [] :refused refused
-                       :status    (if (seq candidates) :capped :complete)}
+                       :status    (if (or capped? (seq candidates)) :capped :complete)}
                       (recur (reduce (fn [m s] (assoc m s (mint kb s actx for- ops)))
-                                     minted fresh)))))))
+                                     minted fresh)
+                             (or capped? (> (count candidates) room))))))))
             ;; Worth the retract-and-retest only when there is something to drop: a lone
             ;; hypothesis that produced a solution was necessary by construction, since
             ;; the round before it minted found none.

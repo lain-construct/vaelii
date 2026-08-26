@@ -22,8 +22,8 @@ with forward/backward inference and JTMS truth maintenance.
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.12.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.12.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.13.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.13.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh
@@ -36,11 +36,11 @@ Conventions: predicates are `camelCase`, individuals `CapitalCamelCase`, types
 `snake_case` (unary predicates, e.g. `(dog Muffet)`), contexts are `Cx` followed by
 CapitalCamelCase.
 
-```clojure
+```clojure run
 (require '[vaelii.core :as v] '[vaelii.starter :as starter])
 
 (def kb (v/open-kb {}))                            ; in-memory records + index
-                                                   ; {:backend :disk :dir "/path"} to persist
+                                                   ; {:backend :disk-log :dir "/path"} to persist
 
 ;; a read sees what its context sees, up the genlCx cone — so say that the
 ;; world context reads the general one, or the rules below are invisible from it
@@ -97,7 +97,9 @@ Four properties hold everywhere:
 - **Context scoping** — a read sees what its context sees, up the `genlCx` cone:
   facts, rules, taxonomy edges and definitional checks alike.
 - **Belief filtering** — a stored sentex is not a believed one. Matching, the taxonomy
-  closures and the cached relations all follow belief.
+  closures and the cached relations all follow belief. The index holds only what is
+  stored, so both readings of a posting are named — `reads/as-stored-…` beside
+  `reads/believed-…` — and a raw index read outside the implementers fails lint.
 
 Assert known-true content with `{:strength :monotonic}`. The default is `:default`, which
 is most of a common-sense KB, and a default is defeasible at the edges.
@@ -121,8 +123,8 @@ the background and browsable before it finishes.
 
 OpenCyc needs the reader plugin, which ships separately as
 [vaelii-foreign](https://github.com/vaelii/vaelii-foreign). The whole route — from one
-dependency to a 1.2M-sentex KB, and the small vendored fixture to try it on first — is
-[docs/kbs.md](docs/kbs.md).
+dependency to a million-sentex KB, and the small vendored fixture to try it on first —
+is [docs/kbs.md](docs/kbs.md), which is also where this repo's counts for it live.
 
 ## CLI & daemon
 

@@ -520,3 +520,40 @@
         (is (>= disintegrate-idx 0) "disintegrate-sentex! was called during retraction")
         (is (< target-idx disintegrate-idx)
             "except-target must be called before the first destructive mutation")))))
+
+;; ---- a handle-naming meta follows its target through a merge --------------
+;; A merge restates the sentex a meta names as a twin under the representative.  The meta
+;; must follow, in **both** arrival orders — the meta before the merge (`migrate-into`
+;; carries it) and the meta after the merge (`migrate-meta-onto-twins` re-points it onto
+;; the live twin) — or the merge silently un-hides an excepted fact / unguards a rule.
+;; (docs/equality.md, the meta-after-merge case.)
+
+(tu/deftest-kb except-follows-its-target-through-a-merge
+  (let [ctx  (tu/tmp-ctx "Ex")
+        near (tu/tmp-pred) home (tu/tmp-ind)
+        oldp (tu/tmp-ind) newp (tu/tmp-ind)]     ; oldp deprecated in favour of newp
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
+    (testing "except asserted BEFORE the merge is carried onto the twin"
+      (let [h (v/assert kb (list near home oldp) ctx {:strength :monotonic})]
+        (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})
+        (is (not (v/ask? kb (list near home oldp) ctx)) "the original is hidden")
+        (v/assert kb (list 'rewriteOf newp oldp) ctx {:strength :monotonic})
+        (is (some? (kb/find-sentex-handle kb (list near home newp) ctx))
+            "the merge created a twin under the representative")
+        (is (not (v/ask? kb (list near home newp) ctx))
+            "and the twin is hidden too — the except was carried onto it")))))
+
+(tu/deftest-kb except-asserted-after-a-merge-hides-the-live-twin
+  (let [ctx  (tu/tmp-ctx "Ex")
+        near (tu/tmp-pred) home (tu/tmp-ind)
+        oldp (tu/tmp-ind) newp (tu/tmp-ind)]
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
+    (let [h (v/assert kb (list near home oldp) ctx {:strength :monotonic})]
+      (v/assert kb (list 'rewriteOf newp oldp) ctx {:strength :monotonic})  ; migrate FIRST
+      (is (v/ask? kb (list near home newp) ctx) "the twin is visible before any except")
+      (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})  ; except the dead original
+      (is (not (v/ask? kb (list near home newp) ctx))
+          "excepting the superseded original follows onto the live twin")
+      (testing "and the hiding lifts when the except is retracted — belief-following"
+        (v/retract! kb (kb/find-sentex-handle kb (list 'except (sx/sentex-handle h)) ctx))
+        (is (v/ask? kb (list near home newp) ctx) "the twin is visible again")))))

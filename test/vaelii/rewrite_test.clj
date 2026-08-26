@@ -103,7 +103,12 @@
     (testing "an already-normal term is unchanged"
       (is (= '(grandfatherOf Tom) (rw/normalize rules '(grandfatherOf Tom)))))
     (testing "a variable-bearing term normalizes too"
-      (is (= '(grandfatherOf ?y) (rw/normalize rules '(fatherOf (fatherOf ?y))))))))
+      (is (= '(grandfatherOf ?y) (rw/normalize rules '(fatherOf (fatherOf ?y))))))
+    (testing "an empty list is a term with no functor, and comes back as itself"
+      ;; rebuilding it as `(apply list (first term) …)` would hand back `(nil)` — a term
+      ;; nobody wrote, which then keys and matches as itself
+      (is (= '() (rw/normalize rules '())))
+      (is (= '(parentChain ()) (rw/normalize-sentence rules '(parentChain ())))))))
 
 (deftest normalize-sentence-protects-the-predication
   (let [rules [{:lhs '(fatherOf (fatherOf ?x)) :rhs '(grandfatherOf ?x)}]]
@@ -143,6 +148,25 @@
       (is (empty? (rw/non-joining-pairs p1 [r1 p1]))))
     (testing "a lone rule reports nothing — self-overlaps are excluded"
       (is (empty? (rw/non-joining-pairs r1 [r1]))))))
+
+(deftest a-critical-pair-keeps-every-identification-the-unifier-made
+  ;; `(h ?x ?x ?x ?y)` overlapping `(h ?u ?v ?w (g ?t))` identifies ?u, ?v and ?w with one
+  ;; another, and the reducts have to say so.  A unifier reading a binding one hop deep
+  ;; sees ?u's own binding as unbound and *overwrites* it rather than extending the chain,
+  ;; which drops one identification: the reduct then carries a free variable where the
+  ;; overlap says there is one term, and the pair is reported in a shape no term reaches.
+  (let [r1    {:handle 1 :lhs '(h ?x ?x ?x ?y)      :rhs '(q ?x ?y)}
+        r2    {:handle 2 :lhs '(h ?u ?v ?w (g ?t))  :rhs '(r ?u ?v ?w ?t)}
+        pairs (rw/non-joining-pairs r1 [r1 r2])
+        rs    (keep (fn [{:keys [form-a form-b]}]
+                      (first (filter #(and (sequential? %) (= 'r (first %)))
+                                     [form-a form-b])))
+                    pairs)]
+    (is (seq rs) "the two rules overlap, so the pair is reported")
+    (doseq [[_ a b c] rs]
+      (is (= a b c)
+          (str "the three positions the overlap identifies are one variable: "
+               (pr-str rs))))))
 
 (deftest an-overlap-only-in-functor-position-is-not-a-critical-pair
   ;; `normalize` rebuilds a compound as `(apply list (first term) (map normalize (rest

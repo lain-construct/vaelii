@@ -113,10 +113,12 @@
   (tu/with-kb [kb]
     ;; context-scoped retrieval walks the same match-one, so the context up-closure
     ;; must not change the answer either
-    (doseq [ctx '[CxMantle CxNaturalWorld CxSocialWorld CxUniverse]]
-      (doseq [pat (mapcat var-patterns (fact-sentences kb 48))]        ; sampled, not first 120
-        (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
-          (is (= off on) (str "matches-visible diverged on " (pr-str pat) " @ " ctx)))))))
+    (probed "matches-visible-arg-root-equals-trie"
+            (for [ctx '[CxMantle CxNaturalWorld CxSocialWorld CxUniverse]
+                  pat (mapcat var-patterns (fact-sentences kb 48))]    ; sampled, not first 120
+              (let [[off on :as both] (both-ways #(res/matches-visible kb pat ctx))]
+                (is (= off on) (str "matches-visible diverged on " (pr-str pat) " @ " ctx))
+                both)))))
 
 (deftest leading-variable-binary-patterns
   ;; the case the arg root exists for: a bound *second* argument with a variable first

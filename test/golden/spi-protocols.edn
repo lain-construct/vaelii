@@ -2,7 +2,11 @@
 ;; compiles against. One entry per protocol a doc names as a seam.
 ;; Regenerate: `lein regen-goldens`, and read vaelii.spi-surface-test's
 ;; docstring first — adding a method here is breaking too.
-{vaelii.impl.kv/KvBackend
+{vaelii.impl.io.snapshot/SnapshotSink
+ {commit! "[[sink manifest]]", write-section! "[[sink name frames]]"},
+ vaelii.impl.io.snapshot/SnapshotSource
+ {read-manifest "[[source]]", read-section "[[source name]]"},
+ vaelii.impl.kv/KvBackend
  {kv-add-to-set "[[b k member]]",
   kv-batch "[[b ops]]",
   kv-clear! "[[b]]",
@@ -92,4 +96,8 @@
   cost "[[prover kb goal context]]",
   est-bindings "[[prover kb goal context]]",
   solve "[[prover kb goal context]]"},
+ vaelii.impl.provers/SupportingProver
+ {solve-with-support "[[prover kb goal context]]",
+  support-functors "[[prover]]",
+  support-sources "[[prover]]"},
  vaelii.impl.solve/Solver {solve "[[solver program]]"}}

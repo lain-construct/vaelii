@@ -188,13 +188,12 @@
   ;; inherits the uncontested background through `genlCx`, so it can be asked
   ;; about rather than merely read.
   ;;
-  ;; Level 3 (`:visible`) throughout, and the level matters in both directions.
-  ;; `query` is context-exact (level 2) and reports the background missing even when it
-  ;; is inherited. Level 7 goes the other way: backward chaining re-derives a defeated
-  ;; conclusion from the rule that concluded it, so `ask` answers BOTH sides here — and
-  ;; in the base context too, which is what makes it a pre-existing property of `ask`
-  ;; rather than anything labeling introduced. Level 3 is the belief-filtered view of
-  ;; stored facts, which is what "is this world consistent" means.
+  ;; Level 3 (`:visible`) throughout, and the level is what makes the reading mean
+  ;; anything. `sentexes-matching` is context-exact (level 2) and reports the background
+  ;; missing even when it is inherited; level 7 expands rules but drops an answer belief
+  ;; holds defeated (`res/defeated-answer?`), so it agrees with level 3 about which side
+  ;; of the clash survives and differs only in reach. Level 3 is the belief-filtered
+  ;; view of stored facts, which is what "is this world consistent" means.
   (tu/with-neutral-kb [kb tu/fresh]
     (let [{:keys [pred individual background]} (dilemma kb)
           ctx (tu/tmp-ctx "Labeling")]
@@ -204,7 +203,7 @@
       (testing "the uncontested background is inherited"
         (is (seq (v/lookup kb 3 background ctx)))
         (is (empty? (v/sentexes-matching kb background ctx))
-            "and query is context-exact, so it does not show it"))
+            "and sentexes-matching is context-exact, so it does not show it"))
       (testing "the contested pair is decided: exactly one side survives"
         (let [pos (seq (v/lookup kb 3 (list pred individual) ctx))
               neg (seq (v/lookup kb 3 (list 'not (list pred individual)) ctx))]

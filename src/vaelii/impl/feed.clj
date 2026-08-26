@@ -238,10 +238,10 @@
   "Run `body` with delivery deferred, then deliver once — the teardown's shape (see
   `*held?*`).  Returns `body`'s value.
 
-  The delivery runs even when `body` **throws**, so a half-applied batch still reports the
-  belief it did move.  Often that is nothing: `core/edit!` throws during its deferred
-  phase, before any settle, so no region was ever filed — and nothing is lost, because the
-  touched set is still uncleared and the next settle reports it.
+  The delivery runs even when `body` **throws**, so a teardown that raised part-way still
+  reports the belief it did move.  For `core/edit!` that is nothing: the door is
+  all-or-nothing, and its rollback runs with `*enabled?*` off, so no region was ever filed
+  and there is nothing left of the batch to report.
 
   **It is not a `finally`, and the difference is which exception the caller sees.**  A
   delivery that throws on the failure path — anything outside `notify-listener!`'s own

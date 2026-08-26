@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.quality-test
-  "`kb-quality` — the five readings about the knowledge rather than about the engine.
+  "`kb-quality` — the seven readings about the knowledge rather than about the engine.
 
   Every reading is a claim about a KB whose answer is known by construction, because that
   is the only way a distribution can be checked: a rule that fires twice, one that never
@@ -237,7 +237,8 @@
 (tu/deftest-kb the-phases-are-reported-in-order-and-a-throw-from-one-stops-the-report
   (let [seen (atom [])]
     (v/kb-quality kb {:on-progress #(swap! seen conj (:phase %))})
-    (is (= [:extents :rules :chains :taxonomy :declarations] (distinct @seen))))
+    (is (= [:extents :rules :chains :taxonomy :declarations :subsumption :clashes]
+           (distinct @seen))))
   (testing "the callback throwing is how a long report is cancelled — the reading is of
             current state, so a half-finished one is discarded rather than repaired"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"enough"
@@ -446,3 +447,359 @@
       (let [old (v/quality-report base)]
         (is (str/starts-with? old "# KB quality"))
         (is (not (str/includes? old "constrain nothing")))))))
+
+;; ---- rules another rule already covers -----------------------------------
+;;
+;; An exact duplicate cannot reach this reading: two rules alike up to variable names,
+;; antecedent order or a symmetric argument order are one handle (docs/canonicalization.md).
+;; So every hit is a redundancy or a deliberate specialization, and the tests below are
+;; about which pairs the reading calls covered — not about telling those two apart, which
+;; it does not claim to do.
+
+(defn- wrapped [w antes conseq] (list w (vr/rule-sentence antes conseq)))
+
+(defn- except-rule [exception antes conseq]
+  (list 'exceptWhen exception (default-rule antes conseq)))
+
+(defn- covered [kb] (:subsumption (v/kb-quality kb)))
+
+(defn- covered-pairs [kb] (set (map (juxt :by :subsumed) (:subsumed (covered kb)))))
+
+(tu/deftest-kb a-rule-written-for-a-subtype-is-covered-by-the-one-above-it
+  ;; The antecedent half of the genl awareness: whatever satisfies `dog_kind` satisfies
+  ;; `animal_kind`, so the general rule fires wherever the specific one does and concludes
+  ;; the same thing.  Without the edge the two rules are about unrelated types and neither
+  ;; covers anything.
+  (tu/with-terms [animal_kind dog_kind flies]
+    (let [general  (v/assert-rule kb [(list animal_kind '?x)] (list flies '?x) 'CxUniverse)
+          specific (v/assert-rule kb [(list dog_kind '?y)] (list flies '?y) 'CxUniverse)]
+      (is (zero? (:subsumed-count (covered kb)))
+          "no genl edge, so the two antecedents are about unrelated types")
+      (v/assert kb (list 'genl dog_kind animal_kind) 'CxUniverse)
+      (let [q (covered kb)
+            e (first (:subsumed q))]
+        (is (= 1 (:subsumed-count q)))
+        (is (= specific (:subsumed e)))
+        (is (= general (:by e)))
+        (is (= 'CxUniverse (:context e)))
+        (is (= (list 'implies (list dog_kind '?y) (list flies '?y)) (:sentence e))
+            "each rule reads as its author wrote it, not as it is stored")
+        (is (= '{?x ?y} (:substitution e))
+            "σ in the two authors' own names — the covering rule's ?x is the covered
+             rule's ?y — and not in the ?var0 numbering both are stored under")
+        (is (= 2 (:total q)) "both rules were compared")
+        (is (false? (:truncated? q)))))))
+
+(tu/deftest-kb the-consequent-fan-runs-one-way-and-only-one
+  ;; The half a reader expects to be symmetric and is not.  A rule concluding the SUBTYPE
+  ;; covers one concluding the supertype — `(dog_kind X)` answers every goal
+  ;; `(animal_kind ?x)` would — and the reverse covers nothing, because concluding
+  ;; `animal_kind` says nothing about dogs.
+  (tu/with-terms [animal_kind dog_kind pet]
+    (v/assert kb (list 'genl dog_kind animal_kind) 'CxUniverse)
+    (let [narrow (v/assert-rule kb [(list pet '?x)] (list dog_kind '?x) 'CxUniverse)
+          broad  (v/assert-rule kb [(list pet '?x)] (list animal_kind '?x) 'CxUniverse)]
+      (is (= #{[narrow broad]} (covered-pairs kb))
+          "the subtype conclusion covers the supertype one, and nothing covers it"))))
+
+(tu/deftest-kb a-rule-with-fewer-antecedents-covers-the-one-that-adds-a-condition
+  ;; `ante(R1)σ ⊆ ante(R2)` as literal sets: the extra condition narrows when the general
+  ;; rule already fires, so the narrow rule concludes nothing new.
+  (tu/with-terms [bird_kind healthy flies]
+    (let [general (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse)
+          narrow  (v/assert-rule kb [(list bird_kind '?x) (list healthy '?x)]
+                                 (list flies '?x) 'CxUniverse)]
+      (is (= #{[general narrow]} (covered-pairs kb))))))
+
+(tu/deftest-kb a-default-does-not-stand-in-for-a-strict-rule
+  ;; The availability half.  A defeasible conclusion is defeated exactly where the strict
+  ;; one stands, so a default that fires wherever a strict rule does still leaves the
+  ;; strict rule doing something.  The control is the same pair with both defeasible.
+  (tu/with-terms [bird_kind healthy flies]
+    (v/assert kb (default-rule [(list bird_kind '?x)] (list flies '?x)) 'CxUniverse)
+    (v/assert-rule kb [(list bird_kind '?x) (list healthy '?x)] (list flies '?x)
+                   'CxUniverse)
+    (is (zero? (:subsumed-count (covered kb)))
+        "the covering rule is a default and the covered one is not")
+    (tu/with-terms [swims]
+      (let [general (v/assert kb (default-rule [(list bird_kind '?x)] (list swims '?x))
+                              'CxUniverse)
+            narrow  (v/assert kb (default-rule [(list bird_kind '?x) (list healthy '?x)]
+                                               (list swims '?x))
+                              'CxUniverse)]
+        (is (contains? (covered-pairs kb) [general narrow])
+            "both defeasible, and the general one covers")))))
+
+(tu/deftest-kb a-direction-covers-itself-and-only-both-covers-the-others
+  ;; A `set/forwardRule` answers no backward goal, so it cannot stand in for one — the
+  ;; covered rule would stop being reachable from the direction it was written for.
+  (tu/with-terms [bird_kind healthy flies]
+    (v/assert kb (wrapped 'set/forwardRule [(list bird_kind '?x)] (list flies '?x))
+              'CxUniverse)
+    (v/assert kb (wrapped 'set/backwardRule [(list bird_kind '?x) (list healthy '?x)]
+                          (list flies '?x))
+              'CxUniverse)
+    (is (zero? (:subsumed-count (covered kb)))
+        ":forward covers :forward and nothing else")
+    (tu/with-terms [swims]
+      (let [both   (v/assert-rule kb [(list bird_kind '?x)] (list swims '?x) 'CxUniverse)
+            narrow (v/assert kb (wrapped 'set/backwardRule
+                                         [(list bird_kind '?x) (list healthy '?x)]
+                                         (list swims '?x))
+                             'CxUniverse)]
+        (is (contains? (covered-pairs kb) [both narrow])
+            "a bare implies is :both, and :both covers a backward rule")))))
+
+(tu/deftest-kb an-exception-the-covering-rule-carries-and-the-covered-one-lacks-is-a-case-it-declines
+  ;; `exceptWhen` is not on the record — it is a separate belief-following meta-sentex
+  ;; naming the rule — so a rule and its excepted twin look identical to a reading that
+  ;; only unifies patterns.  The exception is a binding the covering rule refuses to
+  ;; conclude for and the covered one concludes for, which is exactly not covering it.
+  (tu/with-terms [bird_kind healthy penguin_kind flies]
+    (v/assert kb (except-rule (list penguin_kind '?x) [(list bird_kind '?x)]
+                              (list flies '?x))
+              'CxUniverse)
+    (v/assert kb (default-rule [(list bird_kind '?x) (list healthy '?x)] (list flies '?x))
+              'CxUniverse)
+    (is (zero? (:subsumed-count (covered kb))))
+    (testing "and the same exception on both sides covers again — the covered rule
+              declines the same binding"
+      ;; the handles here are the *meta-sentexes*' (asserting an `exceptWhen` wrapper
+      ;; answers the exception it stored, not the rule it qualifies), so the pair is read
+      ;; off the sentences
+      (tu/with-terms [swims]
+        (v/assert kb (except-rule (list penguin_kind '?x)
+                                  [(list bird_kind '?x)] (list swims '?x))
+                  'CxUniverse)
+        (v/assert kb (except-rule (list penguin_kind '?x)
+                                  [(list bird_kind '?x) (list healthy '?x)]
+                                  (list swims '?x))
+                  'CxUniverse)
+        (let [q (covered kb)
+              e (first (:subsumed q))]
+          (is (= 1 (:subsumed-count q)))
+          (is (= (list swims '?x) (last (:sentence e))))
+          (is (= (list swims '?x) (last (:by-sentence e))))
+          (is (= 'and (first (second (:sentence e))))
+              "the covered rule is the one that adds a condition")
+          (is (= (list bird_kind '?x) (second (:by-sentence e)))))))))
+
+(tu/deftest-kb a-rule-is-not-covered-by-one-its-context-cannot-see
+  ;; Context scoping, asked from the covered rule's own context: a rule covered by one it
+  ;; cannot see is not covered, because the firing it was supposed to be spared never
+  ;; happens there.
+  (tu/with-terms [bird_kind healthy flies CxUp CxDown]
+    (let [general (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) CxUp)
+          narrow  (v/assert-rule kb [(list bird_kind '?x) (list healthy '?x)]
+                                 (list flies '?x) CxDown)]
+      (is (zero? (:subsumed-count (covered kb)))
+          "two contexts with no edge between them see nothing of each other")
+      (v/assert kb (list 'genlCx CxDown CxUp) 'CxUniverse)
+      (let [e (first (:subsumed (covered kb)))]
+        (is (= [general narrow] [(:by e) (:subsumed e)]))
+        (is (= CxDown (:context e))
+            "reported in the covered rule's context, which is the vantage it was asked
+             from")))))
+
+(tu/deftest-kb the-covered-list-is-capped-and-its-count-is-not
+  (tu/with-terms [bird_kind flies]
+    (let [general (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse)]
+      (doseq [i (range 4)
+              :let [c (tu/fresh-term :predicate (str "quiteHealthy" i))]]
+        (v/assert-rule kb [(list bird_kind '?x) (list c '?x)] (list flies '?x) 'CxUniverse))
+      (let [q (:subsumption (v/kb-quality kb {:limit 2}))]
+        (is (= 4 (:subsumed-count q)) "the count is of the whole set")
+        (is (= 2 (count (:subsumed q))) "the list is not")
+        (is (true? (:truncated? q)))
+        (is (every? #(= general (:by %)) (:subsumed q)))))))
+
+;; ---- contradictions in waiting -------------------------------------------
+;;
+;; Static analysis of the rules: nothing is derived, nothing believed and no fact is
+;; consulted.  A pair here is a clash the rules *admit* — whether it ever forms depends on
+;; content nobody has asserted — which is what makes it a different question from
+;; `(contradictions kb)`.
+
+(defn- clashes [kb] (:clashes (v/kb-quality kb)))
+
+(defn- clash-kinds [kb] (set (map :kind (:pairs (clashes kb)))))
+
+(tu/deftest-kb a-conclusion-and-a-negated-one-that-unify-are-a-clash-in-waiting
+  (tu/with-terms [bird_kind penguin_kind flies]
+    (let [yes (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse)
+          no  (v/assert-rule kb [(list penguin_kind '?x)] (list 'not (list flies '?x))
+                             'CxUniverse)
+          q   (clashes kb)
+          e   (first (:pairs q))]
+      (is (= 1 (:pair-count q)))
+      (is (= :negation (:kind e)))
+      (is (= #{yes no} (set (:rules e))))
+      (is (= 'CxUniverse (:context e)))
+      (is (false? (:excepted e)))
+      (is (= 1 (count (:unifier e)))
+          "one identification: the two rules are about the same ?x")
+      (is (= 2 (:total q)))
+      (is (false? (:truncated? q))))))
+
+(tu/deftest-kb the-negation-fan-runs-down-the-hierarchy-and-not-up
+  ;; `(dog_kind X)` contradicts `(not (animal_kind X))` because a dog is an animal.
+  ;; `(animal_kind X)` contradicts nothing about dogs, so the pair the other way round is
+  ;; not a clash and must not be reported as one.
+  (tu/with-terms [animal_kind dog_kind pet stray tame feral]
+    (v/assert kb (list 'genl dog_kind animal_kind) 'CxUniverse)
+    (let [dog      (v/assert-rule kb [(list pet '?x)] (list dog_kind '?x) 'CxUniverse)
+          not-any  (v/assert-rule kb [(list stray '?x)]
+                                  (list 'not (list animal_kind '?x)) 'CxUniverse)
+          any      (v/assert-rule kb [(list tame '?x)] (list animal_kind '?x) 'CxUniverse)
+          not-dog  (v/assert-rule kb [(list feral '?x)]
+                                  (list 'not (list dog_kind '?x)) 'CxUniverse)
+          pairs    (set (map (comp set :rules) (:pairs (clashes kb))))]
+      (is (= #{:negation} (clash-kinds kb)))
+      (is (contains? pairs #{dog not-any})
+          "concluding the subtype contradicts denying the supertype")
+      (is (contains? pairs #{any not-any}) "and each predicate contradicts its own denial")
+      (is (contains? pairs #{dog not-dog}))
+      (is (not (contains? pairs #{any not-dog}))
+          "but concluding the supertype says nothing about the subtype, so denying the
+           subtype beside it is no contradiction — which is the fan a symmetric reading
+           would have reported")
+      (is (= 3 (:pair-count (clashes kb)))))))
+
+(tu/deftest-kb two-conclusions-a-disjointness-separates-are-a-clash-in-waiting
+  (tu/with-terms [cat_kind dog_kind barks meows]
+    (v/assert kb (list 'genl cat_kind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl dog_kind 'thing) 'CxUniverse)
+    (v/assert kb (list 'disjoint cat_kind dog_kind) 'CxUniverse)
+    (v/assert-rule kb [(list barks '?x)] (list dog_kind '?x) 'CxUniverse)
+    (v/assert-rule kb [(list meows '?x)] (list cat_kind '?x) 'CxUniverse)
+    (let [e (first (:pairs (clashes kb)))]
+      (is (= :disjoint (:kind e)))
+      (is (= 'CxUniverse (:context e))))))
+
+(tu/deftest-kb two-values-for-one-functional-slot-are-a-clash-in-waiting
+  ;; The mark is read **up** the predicate hierarchy, so two conclusions written at
+  ;; sub-predicates clash against the declaration above them — which is the spelling a
+  ;; reading that took the mark off the exact functor would miss.
+  (tu/with-terms [parentOf fatherOf motherOf begat bore]
+    (v/assert kb (list 'functional parentOf) 'CxUniverse)
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
+    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse)
+    (let [e (first (:pairs (clashes kb)))]
+      (is (= :functional (:kind e)))
+      (is (= 1 (:pair-count (clashes kb)))))))
+
+(tu/deftest-kb one-tuple-concluded-both-ways-round-is-a-clash-in-waiting
+  (tu/with-terms [outranks bossOf juniorTo]
+    (v/assert kb (list 'asymmetric outranks) 'CxUniverse)
+    (v/assert-rule kb [(list bossOf '?x '?y)] (list outranks '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list juniorTo '?x '?y)] (list outranks '?y '?x) 'CxUniverse)
+    (let [e (first (:pairs (clashes kb)))]
+      (is (= :asymmetric (:kind e)))
+      (is (= 1 (:pair-count (clashes kb)))))))
+
+(tu/deftest-kb antecedents-that-cannot-both-hold-are-not-a-clash-in-waiting
+  ;; The shallow satisfiability test, all three halves of it: a literal beside its own
+  ;; negation, one term claimed to be of two separated types, and one term bound to two
+  ;; arities.  None runs inference — they are the three things readable off the antecedent
+  ;; sets themselves.
+  (testing "a literal and its negation"
+    (tu/with-terms [bird_kind penguin_kind flies]
+      (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse)
+      (v/assert-rule kb [(list penguin_kind '?x) (list 'not (list bird_kind '?x))]
+                     (list 'not (list flies '?x)) 'CxUniverse)
+      (is (zero? (:pair-count (clashes kb))))))
+  (testing "and two antecedent types a declaration separates"
+    (tu/with-terms [cat_kind dog_kind barks]
+      (v/assert kb (list 'genl cat_kind 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl dog_kind 'thing) 'CxUniverse)
+      (v/assert-rule kb [(list dog_kind '?x)] (list barks '?x) 'CxUniverse)
+      (v/assert-rule kb [(list cat_kind '?x)] (list 'not (list barks '?x)) 'CxUniverse)
+      (is (= 1 (:pair-count (clashes kb))) "nothing separates the two antecedents yet")
+      (v/assert kb (list 'disjoint cat_kind dog_kind) 'CxUniverse)
+      (is (zero? (:pair-count (clashes kb)))
+          "no cat is a dog, so the two rules never both fire for one term")))
+  (testing "and one term bound to two arities, in either spelling"
+    (tu/with-terms [oneish twoish equiv_kind]
+      (v/assert kb (list 'genl oneish 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl twoish 'thing) 'CxUniverse)
+      (v/assert kb (list 'disjoint oneish twoish) 'CxUniverse)
+      (v/assert-rule kb ['(arity ?p 1)] (list oneish '?p) 'CxUniverse)
+      (v/assert-rule kb ['(arity ?p 1)] (list twoish '?p) 'CxUniverse)
+      (is (= 1 (:pair-count (clashes kb)))
+          "one arity claim on each side: the conclusions are separated and both can fire")
+      (v/assert-rule kb ['(arity ?p 2)] (list twoish '?p) 'CxUniverse)
+      (is (= 1 (:pair-count (clashes kb)))
+          "the arity table is functional, so no ?p is both 1 and 2 places")
+      (testing "and a class membership says the same thing the other way"
+        (v/assert kb (list 'genl equiv_kind 'binaryPredicate) 'CxUniverse)
+        (v/assert-rule kb [(list equiv_kind '?p)] (list twoish '?p) 'CxUniverse)
+        (is (= 1 (:pair-count (clashes kb)))
+            "equiv_kind reaches binaryPredicate up genl, so it claims arity 2")))))
+
+(tu/deftest-kb two-rules-no-context-can-see-together-are-not-a-clash-in-waiting
+  ;; A nogood needs a context that sees both halves (docs/nmtms.md).  Asking only whether
+  ;; one rule's context sees the other's would exempt every sibling pair, so the test is a
+  ;; common descendant — and two contexts with none have no clash to form.
+  (tu/with-terms [bird_kind penguin_kind flies CxLeft CxRight CxBoth]
+    (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) CxLeft)
+    (v/assert-rule kb [(list penguin_kind '?x)] (list 'not (list flies '?x)) CxRight)
+    (is (zero? (:pair-count (clashes kb))) "two contexts, no common descendant")
+    (v/assert kb (list 'genlCx CxBoth CxLeft) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxBoth CxRight) 'CxUniverse)
+    (let [e (first (:pairs (clashes kb)))]
+      (is (= :negation (:kind e)))
+      (is (= CxBoth (:context e))
+          "reported in the context where the nogood could form, which is neither rule's"))))
+
+(tu/deftest-kb a-clash-a-stated-exception-already-handles-is-marked-and-not-hidden
+  ;; "Birds fly, unless penguins" beside "penguins do not fly" is the *intended* shape,
+  ;; and a reading that dropped it would tell an author there was nothing to see where
+  ;; what there is to see is that the pair is handled.
+  (tu/with-terms [bird_kind penguin_kind flies]
+    (v/assert kb (except-rule (list penguin_kind '?x) [(list bird_kind '?x)]
+                              (list flies '?x))
+              'CxUniverse)
+    (v/assert-rule kb [(list penguin_kind '?x)] (list 'not (list flies '?x)) 'CxUniverse)
+    (let [e (first (:pairs (clashes kb)))]
+      (is (= :negation (:kind e)))
+      (is (true? (:excepted e))
+          "the exception names the other rule's antecedent, so the clash is stated"))))
+
+(deftest the-report-writes-the-two-rule-hygiene-sections-and-omits-them-when-absent
+  (let [base {:rules    {:total 2 :never [] :never-count 0 :all-defeated []
+                         :all-defeated-count 0 :fired 2 :firings 2 :truncated? false}
+              :extents  {:predicates 1 :with-extent 1 :stored 1 :gini 0.0
+                         :buckets {0 1} :heaviest [['p 1]]}
+              :chains   {:functors 1 :components 1 :cyclic 0 :largest 1 :rules 2
+                         :depths {0 2} :at-least {}}
+              :taxonomy {:names 1 :edged 1 :root 'root_type :rooted 1 :islands 0}}
+        md   (v/quality-report
+              (assoc base
+                     :subsumption
+                     {:total 2 :subsumed-count 1 :truncated? false
+                      :subsumed [{:subsumed 8 :by 7 :substitution '{?x ?y}
+                                  :context 'CxUniverse
+                                  :sentence '(implies (dog_kind ?y) (flies ?y))
+                                  :by-sentence '(implies (animal_kind ?x) (flies ?x))}]}
+                     :clashes
+                     {:total 2 :pair-count 1 :truncated? false
+                      :pairs [{:rules [7 8] :kind :negation :unifier '{?x' ?x}
+                               :context 'CxUniverse :excepted true
+                               :sentences ['(implies (bird_kind ?x) (flies ?x))
+                                           '(implies (penguin_kind ?x)
+                                                     (not (flies ?x)))]}]}))]
+    (is (str/includes? md "2 rules — **1 is covered by another** (50.0%)"))
+    (is (str/includes? md (str "- `8` `(implies (dog_kind ?y) (flies ?y))` in `CxUniverse`"
+                               " — covered by `7` `(implies (animal_kind ?x) (flies ?x))`"
+                               " under `{?x ?y}`")))
+    (is (str/includes? md "2 rules — **1 pair would clash if both fired**"))
+    (is (str/includes? md (str "- negation in `CxUniverse`: `7` `(implies (bird_kind ?x)"
+                               " (flies ?x))` against `8` `(implies (penguin_kind ?x) (not"
+                               " (flies ?x)))` — excepted")))
+    (testing "a census answer from before either reading existed still renders"
+      (let [old (v/quality-report base)]
+        (is (str/starts-with? old "# KB quality"))
+        (is (not (str/includes? old "already covers")))
+        (is (not (str/includes? old "Contradictions in waiting")))))))

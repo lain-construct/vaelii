@@ -38,12 +38,17 @@
   interval's two bounding instants.  With them a metric fact and an Allen relation are about
   the same thing, and `allen-narrowing` reads the closure back as constraints on the
   *interval* relations: if the closure puts A's end strictly before B's start then A is
-  `before` B, and so on for all thirteen.  It narrows and never widens — it returns relation
-  sets for a caller to intersect into an interval network, and mutates nothing.
+  `before` B, and so on for all thirteen.  It narrows and never widens — it answers relation
+  sets and mutates nothing — and `vaelii.impl.interval` hands
+  `allen-narrowing-with-support` to `qcn-kb/calculus` as the Allen network's second
+  reader, so a metric fact narrows the interval network beside the stored Allen facts and
+  the derived relation names both.  The dependency therefore runs *interval → stp* and
+  never back: the thirteen relations this namespace needs are `endpoint-signature`'s own
+  keys (`allen-relations`).
 
-  `vaelii.impl.duration` is the other consumer: `overlap-window` bounds how long two
-  intervals overlap from their endpoints alone, which is what turns an indefinite overlap
-  into a real figure.
+  `vaelii.impl.duration` is the other consumer: `overlap-window-with-support` bounds how
+  long two intervals overlap from their endpoints alone, which is what turns an indefinite
+  overlap into a real figure.
 
   The prover is **opt-in**: register it with `vaelii.core/add-prover`, and until then a KB
   stores and retrieves `temporalDistance` facts as ordinary facts without paying for the
@@ -51,7 +56,6 @@
   docs/stp.md."
   (:require [taoensso.trove :as trove]
             [vaelii.impl.caches :as caches]
-            [vaelii.impl.interval :as iv]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.provers :as provers]
@@ -168,22 +172,68 @@
   An `##Inf` entry is an unbounded gap and takes no part — the guards skip it rather than
   letting `∞ + ∞` into the sum.  Answers `d`, which it has mutated.
 
+  `nxt` is the reconstruction table, or nil for a caller that only wants the distances:
+  `nxt[p·n + q]` holds the **next node after p** on the current best p → q path, so a path
+  is walked forward one edge at a time rather than reassembled from midpoints.  The
+  successor form and not the midpoint one, because the midpoint form is only sound while
+  every sub-path is final: an entry improved at a late `k` can name a midpoint whose own
+  entry was later rewritten to point back through the pair being reconstructed, and the
+  reassembly then recurses forever.  A successor chain cannot do that — it only ever
+  walks forward, and `path-edges` bounds the walk besides.
+
+  Maintaining it costs one `aget` and one `aset` on an improvement, so the pass is written
+  once and the support caller is the only one that allocates the array.
+
   The result does not depend on the order of the nodes: a shortest path is a property of
   the graph, and the loop is the textbook triple that computes it in one O(n³) pass."
-  ^doubles [^doubles d ^long n]
-  (dotimes [k n]
-    (let [kn (* k n)]
-      (dotimes [p n]
-        (let [pn  (* p n)
-              dpk (aget d (+ pn k))]
-          (when (Double/isFinite dpk)
-            (dotimes [q n]
-              (let [dkq (aget d (+ kn q))]
-                (when (Double/isFinite dkq)
-                  (let [w (+ dpk dkq)]
-                    (when (< w (aget d (+ pn q)))
-                      (aset d (+ pn q) w)))))))))))
-  d)
+  (^doubles [^doubles d ^long n] (shortest-paths! d nil n))
+  (^doubles [^doubles d ^ints nxt ^long n]
+   (dotimes [k n]
+     (let [kn (* k n)]
+       (dotimes [p n]
+         (let [pn  (* p n)
+               dpk (aget d (+ pn k))]
+           (when (Double/isFinite dpk)
+             (dotimes [q n]
+               (let [dkq (aget d (+ kn q))]
+                 (when (Double/isFinite dkq)
+                   (let [w (+ dpk dkq)]
+                     (when (< w (aget d (+ pn q)))
+                       (aset d (+ pn q) w)
+                       (when nxt (aset nxt (+ pn q) (aget nxt (+ pn k))))))))))))))
+   d))
+
+(defn- edge-successors
+  "The successor table for the **direct** edges of an initialized distance matrix: `j` for
+  every finite off-diagonal `d[i·n + j]`, `-1` for the rest.  What `shortest-paths!` grows
+  a composed path's successors out of."
+  ^ints [^doubles d ^long n]
+  (let [nxt (int-array (* n n) -1)]
+    (dotimes [i n]
+      (let [in (* i n)]
+        (dotimes [j n]
+          (when (and (not= i j) (Double/isFinite (aget d (+ in j))))
+            (aset nxt (+ in j) (int j))))))
+    nxt))
+
+(defn- path-edges
+  "The edges of the shortest `p → q` path `nxt` records, as `[from to]` index pairs — nil
+  when there is no path, and nil when the walk runs past `n` steps.
+
+  The step bound is not belt-and-braces.  A shortest path over a network with no negative
+  cycle can be taken simple, and a simple path is at most `n` edges — but a **zero-weight**
+  cycle, which is what a chain of gaps that closes exactly is, leaves a successor chain
+  free to go round it, and a network of a hundred instants is not a place to find that out
+  by recursing.  The caller reads nil as \"say the whole network\" rather than as \"say
+  nothing\", so the bound costs breadth and never soundness."
+  [^ints nxt ^long n ^long p ^long q]
+  (loop [cur p, acc [], steps 0]
+    (cond
+      (= cur q)     acc
+      (>= steps n)  nil
+      :else         (let [nx (aget nxt (+ (* cur n) q))]
+                      (when-not (neg? nx)
+                        (recur (long nx) (conj acc [cur nx]) (inc steps)))))))
 
 (def ^:private ^:const exact-long-double
   "The largest magnitude a `double` still holds every integer below — 2⁵³.  Past it the
@@ -233,6 +283,31 @@
                         (when (< (aget d (+ (* (long i) n) (long i))) (- eps)) x))))
           node-vec)))
 
+(defn close-state
+  "All-pairs shortest paths over `net` across `nodes`, as a **closed state** — the network
+  the constraints entail together with the distance matrix it was read off and the node
+  vector that matrix is laid out over:
+
+      {:net {[p q] → [lo hi]} :node-vec [instant …] :d ^doubles}
+
+  or `:inconsistent`, on the two verdicts `close` describes.
+
+  The matrix rides along for one reason: it is what a *later* constraint is relaxed into
+  (`close-state-from`), and rebuilding it from the network costs a map lookup per instant
+  pair — which at four hundred instants is more than the update it precedes.  It is written
+  once, never after, and every function here that takes a state clones it before touching
+  it, so a state is a value like the network in it.
+
+  A caller with no next constraint coming wants `close`, which is this answer's `:net`."
+  [net nodes]
+  (if (some unsatisfiable-as-given? net)
+    :inconsistent
+    (let [node-vec (nm/by-print-key nodes)
+          closed   (shortest-paths! (distance-matrix net node-vec) (count node-vec))]
+      (if (seq (negative-cycle-nodes closed node-vec))
+        :inconsistent
+        {:net (read-back closed node-vec) :node-vec node-vec :d closed}))))
+
 (defn close
   "All-pairs shortest paths over `net` across `nodes`, returning the tightest network the
   constraints entail — or `:inconsistent` when some instant reaches itself at a negative
@@ -251,15 +326,202 @@
   ways — `1.1 Hour` and `66 Minute` — arrives as 3960.0000000000005 and 3960.  Held to an
   exact comparison the pair would cross, a chain of them would close a cycle at −5e-13, and
   a KB whose own `sameQuantity` calls the two equal would have every metric goal in the
-  context refused over them.  A contradiction wider than the epsilon is still one."
+  context refused over them.  A contradiction wider than the epsilon is still one.
+
+  `close-state` is the same pass answering the **closure together with the matrix it was
+  read off**, for a caller that will be asked again after one more constraint arrives; this
+  is that answer's network half, and every caller wanting only the bounds takes it."
   [net nodes]
+  (let [s (close-state net nodes)]
+    (if (map? s) (:net s) s)))
+
+;; ---- warm-starting: one arriving constraint, not a fresh pass ------------
+;;
+;; A KB being loaded asks for the closure again after every arriving fact, and all but a
+;; handful of the bounds are exactly where the last pass left them.  Closing the whole
+;; network again is the cubic loop redoing work it has already done — and the memo above
+;; cannot help, because an arriving constraint is a different network and so a different
+;; key.
+;;
+;; The identity that licenses starting from the last answer is the one shortest paths
+;; already rest on.  A closed matrix `D` is the least-weight path between every pair; add
+;; an edge `p → q` of weight `w` and every path that improves runs `i ⇝ p → q ⇝ j`, so
+;;
+;;     D'[i][j] = min(D[i][j], D[i][p] + w + D[q][j])
+;;
+;; is the whole of the update, over every pair at once: O(n²) rather than O(n³), and no
+;; approximation — it is the same closure reached without re-deriving what did not move.
+;; A path using the new edge *twice* decomposes into two that use it once, so one round is
+;; enough unless one of those rounds is negative, which is precisely the case the verdict
+;; catches: `D'[p][p]` becomes `min(0, w + D[q][p])`, and that is the weight of the cycle
+;; the new edge closes.
+;;
+;; **It applies to tightening only.**  A retraction, a defeat, a loosened bound — anything
+;; that *widens* a constraint — has no such identity: the closed matrix does not record
+;; which of its bounds the departing constraint was behind, and a shortest path cannot be
+;; run backwards.  `tightening-of?` is the precondition, checked against the network the
+;; previous answer was computed from, and a widening pays the whole pass.  That is the
+;; honest trade rather than a gap, and it is the same trade `qcn` makes on the qualitative
+;; side (docs/qcn.md, "Warm-starting").
+
+(defn tightening-of?
+  "Is `net` a pointwise **tightening** of `prior` — is every bound `prior` records at least
+  as wide as the one `net` records for the same pair?  A pair `prior` records and `net` does
+  not is unbounded in `net`, so it is a tightening only where `prior` left it unbounded too.
+
+  The precondition for `close-state-from`, and separate from it because only the caller
+  holds the network the previous answer was computed from."
+  [net prior]
+  (every? (fn [[pair [lo hi]]]
+            (let [[lo* hi*] (get net pair unbounded)]
+              (and (>= (double lo*) (double lo)) (<= (double hi*) (double hi)))))
+          prior))
+
+(defn- relax-edge!
+  "Add the edge `ip → iq` of weight `w` to the closed matrix `d`, in place: every pair whose
+  least-weight path now runs through it takes the shorter figure, and `dirty` records which
+  cells moved so the read-back can skip the ones that did not.
+
+  `d[i][p]` and `d[q][j]` are **snapshotted** before the sweep.  In the consistent case the
+  sweep cannot move either — improving `d[i][p]` through the new edge would mean going round
+  a cycle of non-negative weight — but in the inconsistent case it can, and reading a
+  half-updated row back into the same update is a reasoning burden the two arrays remove for
+  a linear cost.
+
+  The four positions are longs and a double cast in the body rather than hinted in the
+  vector: a fn taking primitives is capped at four arguments, and the two arrays have to be
+  hinted or every `aget` in the sweep is a reflective call."
+  [^doubles d ^booleans dirty n' ip' iq' w']
+  (let [n   (long n')
+        ip  (long ip')
+        iq  (long iq')
+        w   (double w')
+        col (double-array n)                                ; col[i] = d[i][p]
+        row (double-array n)]                               ; row[j] = d[q][j]
+    (dotimes [i n] (aset col i (aget d (+ (* i n) ip))))
+    (dotimes [j n] (aset row j (aget d (+ (* iq n) j))))
+    (dotimes [i n]
+      (let [dip (aget col i)]
+        (when (Double/isFinite dip)
+          (let [base (+ dip w)
+                in   (* i n)]
+            (dotimes [j n]
+              (let [dqj (aget row j)]
+                (when (Double/isFinite dqj)
+                  (let [cand (+ base dqj)
+                        k    (+ in j)]
+                    (when (< cand (aget d k))
+                      (aset d k cand)
+                      (aset dirty k true))))))))))
+    d))
+
+(defn- read-back-changed
+  "`read-back` restricted to what moved: `prior` with the pairs `dirty` marks rewritten off
+  `d`.  A bound only ever tightens, so a pair no cell of touched still reads what `prior`
+  says, and no pair is ever dropped.
+
+  The scan runs over **unordered** pairs, and it has to: one closed entry is read off two
+  cells — `[p q]` is `d[p][q]` above and `−d[q][p]` below — and the two move independently,
+  so a pair either cell of moved has both its entries rewritten and a pair visited twice
+  would write both of them twice."
+  [prior ^doubles d ^booleans dirty node-vec]
+  (let [n (long (count node-vec))]
+    (persistent!
+     (loop [i 0, acc (transient prior)]
+       (if (= i n)
+         acc
+         (let [p  (nth node-vec i)
+               in (* (long i) n)]
+           (recur
+            (inc i)
+            (loop [j (inc i), acc acc]
+              (if (= j n)
+                acc
+                (let [jn (* (long j) n)]
+                  (if (or (aget dirty (+ in (long j))) (aget dirty (+ jn (long i))))
+                    (let [q  (nth node-vec j)
+                          pq (aget d (+ in (long j)))
+                          qp (aget d (+ jn (long i)))]
+                      (recur (inc j)
+                             (-> acc
+                                 (assoc! [p q] [(magnitude (- qp)) (magnitude pq)])
+                                 (assoc! [q p] [(magnitude (- pq)) (magnitude qp)]))))
+                    (recur (inc j) acc))))))))))))
+
+(defn- relaid-matrix
+  "The prior state's distance matrix, **copied** onto `node-vec`'s layout — the same figures
+  at whatever positions the new vector puts those instants at, with any instant the prior
+  never held starting isolated.
+
+  A copy and never the array itself: a state is a value, and two callers reaching one
+  cached closure must not be able to see each other's update.  The straight clone is the
+  ordinary case, since a constraint usually arrives between instants already there; the
+  remap is what an arriving instant costs, and it is quadratic in the *prior* size rather
+  than in the new one."
+  ^doubles [prior node-vec]
+  (let [^doubles old (:d prior)
+        old-vec      (:node-vec prior)
+        n            (long (count node-vec))]
+    (if (= old-vec node-vec)
+      (aclone old)
+      (let [m     (long (count old-vec))
+            idx   (node-index node-vec)
+            d     (double-array (* n n) ##Inf)
+            remap (int-array m -1)]
+        (dotimes [i n] (aset d (+ (* i n) i) 0.0))
+        (dotimes [i m] (when-let [ni (idx (nth old-vec i))] (aset remap i (int ni))))
+        (dotimes [i m]
+          (let [ni (long (aget remap i))]
+            (when (>= ni 0)
+              (dotimes [j m]
+                (let [nj (long (aget remap j))]
+                  (when (>= nj 0)
+                    (aset d (+ (* ni n) nj) (aget old (+ (* i m) j)))))))))
+        d))))
+
+(defn close-state-from
+  "`close-state`, **warm-started** off `prior` — a state `close-state` or this function
+  returned for a network `net` tightens (`tightening-of?`).  Same value, without the cubic
+  pass: only the constraints that moved are relaxed in, one O(n²) update each, and only the
+  bounds those updates moved are read back.
+
+  `nodes` carries the obligation `close` states and one more of its own: it must name every
+  instant `prior` mentions as well as every one `net` does, since `prior`'s bounds ride into
+  the answer and a node left out of the vector is a bound silently kept at whatever `prior`
+  said.  A caller warm-starting off its own previous answer gets this for free — a network
+  that tightens another names every instant it named.
+
+  **Relaxing more edges than there are instants costs more than one full pass**, so past
+  that it takes the pass: `k` updates are `k·n²` against the closure's `n³`.  The branch
+  cannot change the answer — that both routes compute the same closure is the invariant
+  `stp_incremental_test` asserts over generated networks — so it is a cost decision and
+  nothing else.
+
+  Handing it a `prior` that is not an answer for a network `net` tightens gives a wrong
+  network rather than an error, which is what `tightening-of?` is for."
+  [net prior nodes]
   (if (some unsatisfiable-as-given? net)
     :inconsistent
-    (let [node-vec (nm/by-print-key nodes)
-          closed   (shortest-paths! (distance-matrix net node-vec) (count node-vec))]
-      (if (seq (negative-cycle-nodes closed node-vec))
-        :inconsistent
-        (read-back closed node-vec)))))
+    (let [node-vec   (nm/by-print-key nodes)
+          n          (long (count node-vec))
+          idx        (node-index node-vec)
+          ^doubles d (relaid-matrix prior node-vec)
+          moved      (into []
+                           (keep (fn [[[p q] [_ hi]]]
+                                   (let [ip (idx p), iq (idx q), w (double hi)]
+                                     (when (and ip iq (not= ip iq) (Double/isFinite w)
+                                                (< w (aget d (+ (* (long ip) n) (long iq)))))
+                                       [ip iq w]))))
+                           net)]
+      (if (>= (count moved) n)
+        (close-state net nodes)
+        (let [dirty (boolean-array (* n n))]
+          (doseq [[ip iq w] moved] (relax-edge! d dirty n ip iq (double w)))
+          (if (seq (negative-cycle-nodes d node-vec))
+            :inconsistent
+            {:net      (read-back-changed (:net prior) d dirty node-vec)
+             :node-vec node-vec
+             :d        d}))))))
 
 ;; ---- reading a bound back as an ordering ---------------------------------
 
@@ -319,6 +581,30 @@
    :after         {[:start :start] :after  [:start :end] :after
                    [:end :start]   :after  [:end :end]   :after}})
 
+(def allen-relations
+  "The thirteen Allen base relations, as `endpoint-signature`'s own keys.
+
+  Read off the table rather than out of `vaelii.impl.interval`, because the dependency
+  runs the other way: the interval algebra consumes this namespace's narrowing, so this
+  one may not require it.  Nothing is duplicated that could drift unnoticed — a relation
+  with no signature is one the narrowing cannot read at all, and `stp_test` holds the two
+  sets equal besides."
+  (set (keys endpoint-signature)))
+
+(defn endpoint-gaps
+  "The four instant pairs an Allen relation between two intervals is decided by, keyed as
+  `endpoint-signature` keys them: `{[which-of-A which-of-B] → [p q]}`.
+
+  Named once because two readings depend on being the *same* four.
+  `relations-from-endpoints` reads their bounds off the closure, and the narrowing's
+  support names the chains those bounds were composed along — a support taken over some
+  other set of gaps would name facts the answer did not move with, or miss ones it did."
+  [[a-start a-end] [b-start b-end]]
+  {[:start :start] [a-start b-start]
+   [:start :end]   [a-start b-end]
+   [:end :start]   [a-end b-start]
+   [:end :end]     [a-end b-end]})
+
 (defn relations-from-endpoints
   "The Allen relations a closed metric network still permits between two intervals, given
   each one's `[start end]` instants.  A relation survives while every one of the four
@@ -328,16 +614,14 @@
   single assignment of times realizes is not noticed here.  That can only leave a relation
   in that the metric network in fact excludes, never take one out that it permits — which is
   the direction a narrowing must err in."
-  [closed [a-start a-end] [b-start b-end]]
-  (let [poss {[:start :start] (point-possibilities (constraint closed a-start b-start))
-              [:start :end]   (point-possibilities (constraint closed a-start b-end))
-              [:end :start]   (point-possibilities (constraint closed a-end b-start))
-              [:end :end]     (point-possibilities (constraint closed a-end b-end))}]
+  [closed ea eb]
+  (let [poss (update-vals (endpoint-gaps ea eb)
+                          (fn [[p q]] (point-possibilities (constraint closed p q))))]
     (into #{}
           (filter (fn [rel]
                     (every? (fn [[slot ordering]] (contains? (poss slot) ordering))
                             (endpoint-signature rel))))
-          iv/all-relations)))
+          allen-relations)))
 
 (defn overlap-bounds-from-endpoints
   "How long two intervals overlap, as `[lo hi]`, read off a closed metric network and their
@@ -384,10 +668,15 @@
 (defn- node-term? [x] (and (symbol? x) (not (sx/variable? x))))
 
 (defn- stated-constraints
-  "Every believed, visible `(temporalDistance P Q M)` as `[[dimension base-unit] P Q lo hi]`,
-  the magnitudes converted to the dimension's base unit and **snapped to the tolerance
-  grid** on the way — `provers/round-magnitude`, the same call `duration/interval-length`
-  makes on a length before comparing it.
+  "Every believed, visible `(temporalDistance P Q M)` as `[[dimension base-unit] P Q lo hi
+  support]`, the magnitudes converted to the dimension's base unit and **snapped to the
+  tolerance grid** on the way — `provers/round-magnitude`, the same call
+  `duration/interval-length-with-support` makes on a length before comparing it.
+
+  `support` is the constraint's own handle together with the `dimensionOf` /
+  `conversionFactor` rows its magnitude was converted through: the conversion is part of
+  what the constraint contributes to the network, so a bound composed through it rests on
+  the unit table as much as on the fact.
 
   That is what makes two spellings of one gap arrive as one constraint rather than as two
   that intersect to nothing: `1.1 Hour` normalizes to 3960.0000000000005 and `66 Minute` to
@@ -400,9 +689,11 @@
    (for [m (res/matches-visible kb '(temporalDistance ?p ?q ?m) context)
          :let  [b (second m), p (get b '?p), q (get b '?q), measure (get b '?m)]
          :when (and (node-term? p) (node-term? q) (provers/measure? measure))
-         :let  [[dim lo hi] (provers/normalize-quantity kb measure context)]]
-     [[dim (provers/base-unit-of kb (last measure) context)] p q
-      (provers/round-magnitude lo) (provers/round-magnitude hi)])))
+         :let  [[[dim lo hi] nsup] (provers/normalize-quantity-with-support kb measure context)
+                [base bsup]        (provers/base-unit-with-support kb (last measure) context)]]
+     [[dim base] p q
+      (provers/round-magnitude lo) (provers/round-magnitude hi)
+      (into (conj nsup (first m)) bsup)])))
 
 (defn- file-violation!
   "Append one entry to the KB's accumulating violations ledger, newest 1000 kept — the
@@ -442,21 +733,38 @@
     (trove/log! {:level :warn :id ::metric-temporal-mixed-dimensions :data entry})
     (file-violation! kb entry)))
 
+(defn- support-pair
+  "Record `handles` as supporters of both directions of the `[p q]` constraint.  Both,
+  because `narrow` writes the converse bound with the bound: one stated gap is an edge each
+  way in the distance graph, and a path composed through either rests on the same fact."
+  [support handles p q]
+  (-> support
+      (update [p q] (fnil into #{}) handles)
+      (update [q p] (fnil into #{}) handles)))
+
 (defn- build-problem
   "The stated constraints as a problem — or `{:mixed dims}` when they span more than one
   dimension, which is the refusal `problem` reports and answers nil for.  Carried as a value
   rather than decided here so the read stays resident: the reading is a function of the
-  believed facts, and whether it has been reported is not."
+  believed facts, and whether it has been reported is not.
+
+  `:support` is `{[p q] → #{handle}}`, the sentexes narrowed into each pair, collected on
+  the way past for `qcn-kb/build-network`'s reason: the reader is already holding the
+  handle it matched, and finding it again later would mean a second read of the same
+  content at a different moment."
   [kb context]
   (let [stated (stated-constraints kb context)
         dims   (set (map first stated))]
     (cond
       (empty? stated)    nil
-      (= 1 (count dims)) (let [[dim unit] (first dims)]
-                           {:dimension dim
-                            :unit      unit
-                            :net (reduce (fn [net [_ p q lo hi]] (narrow net p q lo hi))
-                                         {} stated)})
+      (= 1 (count dims)) (let [[dim unit] (first dims)
+                               {:keys [net support]}
+                               (reduce (fn [state [_ p q lo hi sup]]
+                                         (-> state
+                                             (update :net narrow p q lo hi)
+                                             (update :support support-pair sup p q)))
+                                       {:net {} :support {}} stated)]
+                           {:dimension dim :unit unit :net net :support support})
       :else              {:mixed dims})))
 
 (defn problem
@@ -530,6 +838,25 @@
     (trove/log! {:level :warn :id ::metric-temporal-inconsistency :data entry})
     (file-violation! kb entry)))
 
+(defn- resident-closure
+  "Hold the closure on the KB beside the network it is a function of, under `k` and the
+  change clock, and answer from there while both still hold.
+
+  This sits *in front of* the content-keyed memo rather than replacing it, and it earns its
+  place twice.  A network is a map of a bound per stated pair, so looking one up as a cache
+  key costs a full map comparison at every hit; a resident network is the same object read
+  after read, and `identical?` decides that in a reference compare.  And `build` is handed
+  the entry it replaces — `{:for … :result …}`, the network that was resident before and the
+  closed state for it, or nil — which is what lets the pass warm-start off its own previous
+  answer.
+
+  A fast path, never an authority: a caller asking about some network other than the one
+  resident for this context falls straight through to the content-keyed memo, and so is
+  answered about the network it actually asked about."
+  [kb k net build]
+  (let [entry (observe/cached (:qcn kb) k (fn [stale] {:for net :result (build stale)}))]
+    (if (identical? net (:for entry)) (:result entry) (build nil))))
+
 (defn- cycle-nodes-of
   "The instants on a negative cycle of `net`, for the report.  Recomputed rather than carried
   out of `close`, which answers a verdict and not a diagnosis; it runs once per *newly*
@@ -563,11 +890,29 @@
   The **report** is deliberately not on that path.  Two KBs, or two contexts of one KB,
   reaching the same network share the pass — and a ledger entry is a claim about a KB and a
   context, so it hangs off `observe/newly-seen?` instead: this KB, this context, this
-  network.  A cache hit still reports if the KB has not said it yet."
+  network.  A cache hit still reports if the KB has not said it yet.
+
+  The pass is **warm-started** whenever the network last resident for this context is one
+  this network tightens, which is what an arriving constraint does and is the ordinary case
+  during a load: only the bounds that moved are relaxed in (`close-state-from`), and the
+  answer is the one the whole cubic pass would have reached.  A widening — a retraction, a defeat,
+  a loosened bound — has no such route and pays the pass."
   [kb context {:keys [net] :as prob} extra-nodes]
-  (let [result (caches/read-through closure-cache closure-cache-limit
-                                    [net provers/*quantity-tolerance*]
-                                    #(close net (into (nodes net) extra-nodes)))]
+  (let [state (resident-closure
+               kb [::pass context] net
+               (fn [stale]
+                 (caches/read-through
+                  closure-cache closure-cache-limit
+                  [net provers/*quantity-tolerance*]
+                  (fn []
+                    (let [all  (into (nodes net) extra-nodes)
+                          warm (when (and (map? (:result stale))
+                                          (tightening-of? net (:for stale)))
+                                 (:result stale))]
+                      (if warm
+                        (close-state-from net warm all)
+                        (close-state net all)))))))
+        result (if (map? state) (:net state) state)]
     (when (and (= :inconsistent result)
                (observe/newly-seen? (:qcn kb) [::reported context] net))
       (report-inconsistency! kb context prob (cycle-nodes-of net)))
@@ -579,6 +924,83 @@
   [kb context]
   (when-let [prob (problem kb context)]
     (closure kb context prob nil)))
+
+;; ---- what a derived bound rests on ---------------------------------------
+;; The closure answers a gap between two instants the constraints entail; this answers
+;; *which* constraints entailed it.  A forward rule joining on a derived bound needs the
+;; second as much as the first — a conclusion resting on an entailment nothing can
+;; withdraw is worse than a conclusion never drawn (docs/nmtms.md) — and the shape is the
+;; qualitative one (`qcn-kb/solve-with-support`).
+;;
+;; **The path, not the network.**  A bound between P and Q is the least-weight chain
+;; between them, so the constraints on that chain are what produced it and the rest of the
+;; network is not read at all.  Naming the whole network would be sound — every derived
+;; bound follows from all of it — but it would withdraw the conclusion when any unrelated
+;; constraint anywhere was retracted, which is the locality the engine keeps everywhere
+;; else.  So it is the path, reconstructed from the same pass that computed the distance.
+;;
+;; **Both directions.**  A bound is `[lo hi]`, and `lo` is `−d[q][p]` where `hi` is
+;; `d[p][q]` — two different chains in general — so the support of the bound is the union
+;; of the two paths' constraints.  A caller reading only one side is not a case worth a
+;; second seam: `solve-distance` binds or checks the pair, never a half of it.
+;;
+;; It is an **over-approximation of one derivation**, on the same two counts
+;; `qcn/path-consistent-with-support` states: a pair narrowed by two facts keeps both, and
+;; a second chain that reaches the same figure contributes nothing.  What is guaranteed is
+;; the piece a justification needs — every handle named was really read into this network,
+;; and the reported set is enough to have produced the bound on its own.
+
+(def ^:private via-cache
+  "The closed distance matrix's **reconstruction table**, keyed on the network value alone.
+
+  Its own cache, separate from `closure-cache`, because support is asked for rarely: every
+  metric goal would otherwise pay to allocate and fill an `int[n²]` that nothing reads.
+  The key omits the tolerance `closure`'s carries, and correctly — `shortest-paths!` reads
+  no tolerance, so the table is a function of the network and nothing else; the two
+  verdicts that *do* read one are `close`'s, on the other cache."
+  (atom {}))
+
+(defn- reconstruction
+  "`{:node-vec :idx :nxt :n}` for `net` — the closed distance matrix's successor table with
+  what a pair needs to reach it.  The distances themselves are dropped: `closure` already
+  holds those, and this pass exists only to say which edges produced them."
+  [net]
+  (caches/read-through via-cache closure-cache-limit net
+                       (fn []
+                         (let [node-vec (nm/by-print-key (nodes net))
+                               n        (count node-vec)
+                               d        (distance-matrix net node-vec)
+                               nxt      (edge-successors d n)]
+                           (shortest-paths! d nxt n)
+                           {:node-vec node-vec :idx (node-index node-vec) :nxt nxt :n n}))))
+
+(defn- path-support
+  "The handles behind the bound `net` entails on `t(q) − t(p)`: the supporters of every
+  constraint on the shortest chain each way.
+
+  `#{}` on the diagonal (an instant is no distance from itself, and no constraint says so),
+  and `#{}` for an instant the network does not mention — an isolated node has a finite
+  edge in neither direction, so it bounds nothing and there is nothing to support.
+
+  **The whole network** when a chain cannot be walked (`path-edges` nil): the bound is
+  entailed, so something produced it, and answering `#{}` would be the one wrong answer —
+  it would drop the firing, or worse leave it resting on nothing.  The network's own
+  supporters are a sound superset of any chain within it, so the conclusion is drawn and is
+  withdrawn by any change to the metric facts.  What it costs is locality, in exactly the
+  case a local answer is not available."
+  [net support p q]
+  (let [{:keys [node-vec idx ^ints nxt ^long n]} (reconstruction net)
+        ip (idx p)
+        iq (idx q)]
+    (if (or (nil? ip) (nil? iq) (= ip iq))
+      #{}
+      (let [there (path-edges nxt n ip iq)
+            back  (path-edges nxt n iq ip)]
+        (if (and there back)
+          (into #{}
+                (mapcat (fn [[i j]] (get support [(nth node-vec i) (nth node-vec j)] #{})))
+                (into there back))
+          (into #{} (mapcat val) support))))))
 
 (defn separation
   "The tightest `[lo hi]` bound on `t(q) − t(p)` the constraints visible from `context`
@@ -601,79 +1023,135 @@
 
 ;; ---- the bridge to intervals ---------------------------------------------
 
-(defn endpoints-of
-  "An interval's `[start end]` instants as `(startOf I P)` and `(endOf I P)` state them,
-  visible from `context` and believed — or nil when either is missing, or when either is
-  stated of two *different* instants, which is a disagreement no reasoning should paper
-  over."
+(defn endpoints-with-support
+  "An interval's `[[start end] handles]` — the instants `(startOf I P)` and `(endOf I P)`
+  state, visible from `context` and believed, together with the two facts that state them.
+  Nil when either is missing, or when either is stated of two *different* instants, which
+  is a disagreement no reasoning should paper over.
+
+  Restating one endpoint in several contexts of the cone is not a disagreement — the
+  matches carry the same instant and collapse to one — and all of them are named, for
+  `provers/table-read`'s reason: the reading is a property of the set."
   [kb i context]
   (let [one (fn [pred]
-              (let [ps (into #{} (comp (map (comp #(get % '?p) second))
+              (let [ms (res/matches-visible kb (list pred i '?p) context)
+                    ps (into #{} (comp (map (comp #(get % '?p) second))
                                        (filter node-term?))
-                             (res/matches-visible kb (list pred i '?p) context))]
-                (when (= 1 (count ps)) (first ps))))
-        s   (one 'startOf)
-        e   (one 'endOf)]
-    (when (and s e) [s e])))
+                             ms)]
+                (when (= 1 (count ps))
+                  [(first ps) (into #{} (map first) ms)])))
+        [s sh] (one 'startOf)
+        [e eh] (one 'endOf)]
+    (when (and s e) [[s e] (into sh eh)])))
+
+(defn endpoints-of
+  "`endpoints-with-support`'s `[start end]` alone, for a caller with no use for the facts
+  that named them."
+  [kb i context]
+  (first (endpoints-with-support kb i context)))
 
 (defn intervals-with-endpoints
   "Every interval both of whose bounding instants are named and agreed on, as
-  `{interval [start end]}`."
+  `{interval [[start end] #{handle}]}` — `endpoints-with-support`'s answer per interval,
+  so the facts that named the instants ride along with them."
   [kb context]
   (into {}
-        (keep (fn [i] (when-let [ends (endpoints-of kb i context)] [i ends])))
+        (keep (fn [i] (when-let [e (endpoints-with-support kb i context)] [i e])))
         (into #{}
               (comp (mapcat #(res/matches-visible kb (list % '?i '?p) context))
                     (map (comp #(get % '?i) second))
                     (filter node-term?))
               endpoint-predicates)))
 
-(defn allen-narrowing
-  "What the metric constraints pin down about the *interval* relations, as an Allen network
-  `{[i j] → #{base relations}}` for a caller to intersect into one read from stored facts.
+(def allen-narrowing-sources
+  "Every predicate the metric narrowing of the interval algebra reads: the constraints
+  themselves, the two endpoint predicates that say which instants an interval is bounded
+  by, and the unit table the magnitudes convert through.
+
+  What `vaelii.impl.interval` declares to `qcn-kb/calculus` as the narrowing's sources, so
+  one of these arriving re-checks and re-joins the rules that join on an Allen antecedent —
+  the network moved, and none of these is a predicate a rule's other antecedents match."
+  (into (into stp-predicates endpoint-predicates) provers/unit-table-predicates))
+
+(defn allen-narrowing-with-support
+  "What the metric constraints pin down about the *interval* relations, as
+  `{:net {[i j] → #{base relations}} :support {[i j] → #{handle}}}` — the same shape
+  `qcn-kb/build-network` accumulates, so the interval algebra folds it in beside the
+  network it reads from stored Allen facts.
 
   This is the payoff of the bridge, and it runs one way only: **metric narrows qualitative**.
   A closed gap of `end(A) < start(B)` leaves `before` the only Allen relation A and B can
   stand in, and the thirteen signatures in `endpoint-signature` do the same for every other
-  shape of constraint.  Nothing is asserted, nothing is mutated, and no interval network is
-  touched — the result is a value.
+  shape of constraint.  Nothing is asserted and nothing is mutated — the result is a value.
+
+  A pair's **support** is what the four gaps were read through: the `startOf` / `endOf`
+  facts naming both intervals' instants, and the constraints along the shortest chain each
+  gap's bound was composed out of (`path-support`, `endpoint-gaps`).  Not the whole metric
+  network, for the reason a derived bound's support is not: a conclusion resting on this
+  pair must go when a constraint behind it goes and must *not* go when an unrelated one
+  does.
 
   Only pairs the constraints actually narrow are recorded; a pair still open to all thirteen
-  is the absence of a claim.  nil when there is nothing to read: no metric constraints, no
-  interval with both endpoints named, or an inconsistent network — which narrows nothing,
-  since an unsatisfiable theory is not mined for conclusions."
+  is the absence of a claim, and it would intersect to the same network anyway while naming
+  facts nothing rested on.  nil when there is nothing to read: no metric constraints, no
+  two intervals with both endpoints named, or an inconsistent network — which narrows
+  nothing, since an unsatisfiable theory is not mined for conclusions."
   [kb context]
-  (when-let [prob (problem kb context)]
+  (when-let [{:keys [net support] :as prob} (problem kb context)]
     (let [ends (intervals-with-endpoints kb context)]
       (when (>= (count ends) 2)
-        (let [closed (closure kb context prob (mapcat val ends))]
+        (let [closed (closure kb context prob (mapcat (comp first val) ends))]
           (when-not (= :inconsistent closed)
-            (into {}
-                  (for [[i ei] ends [j ej] ends
-                        :when (not= i j)
-                        :let  [rels (relations-from-endpoints closed ei ej)]
-                        :when (not= rels iv/all-relations)]
-                    [[i j] rels]))))))))
+            (reduce
+             (fn [acc [[i [ei hi]] [j [ej hj]]]]
+               (let [rels (relations-from-endpoints closed ei ej)]
+                 (if (= rels allen-relations)
+                   acc
+                   (-> acc
+                       (assoc-in [:net [i j]] rels)
+                       (assoc-in [:support [i j]]
+                                 (into (into hi hj)
+                                       (mapcat (fn [[p q]] (path-support net support p q)))
+                                       (vals (endpoint-gaps ei ej))))))))
+             {:net {} :support {}}
+             (for [a ends b ends :when (not= (key a) (key b))] [a b]))))))))
 
-(defn overlap-window
+(defn allen-narrowing
+  "`allen-narrowing-with-support`'s relation sets alone — `{[i j] → #{base relations}}`,
+  for a caller reading what the metric layer pins down without needing the facts behind
+  it."
+  [kb context]
+  (:net (allen-narrowing-with-support kb context)))
+
+(defn overlap-window-with-support
   "The bounds the metric constraints put on how long intervals `i1` and `i2` overlap, as
-  `[[dimension unit] lo hi]` in the dimension's base unit — `hi` possibly infinite, since a
-  network may pin a floor without a ceiling.
+  `[[[dimension unit] lo hi] handles]` in the dimension's base unit — `hi` possibly
+  infinite, since a network may pin a floor without a ceiling — together with what the
+  bound rests on: the two `startOf`/`endOf` facts per interval, and the constraints on the
+  chains between the four endpoint pairs `overlap-bounds-from-endpoints` reads.
 
   nil when there is nothing to read (no constraints, an endpoint missing, an inconsistent
   network) and nil when the answer is the vacuous `[0 ∞]`, which is not a bound at all.
   `vaelii.impl.duration` intersects what comes back with the bound it computes from the
   stored lengths and the qualitative relation set: both are sound, so their intersection is."
   [kb context i1 i2]
-  (when-let [{:keys [dimension unit] :as prob} (problem kb context)]
-    (let [e1 (endpoints-of kb i1 context)
-          e2 (endpoints-of kb i2 context)]
+  (when-let [{:keys [dimension unit net support] :as prob} (problem kb context)]
+    (let [[e1 h1] (endpoints-with-support kb i1 context)
+          [e2 h2] (endpoints-with-support kb i2 context)]
       (when (and e1 e2)
         (let [closed (closure kb context prob (concat e1 e2))]
           (when-not (= :inconsistent closed)
             (let [[lo hi] (overlap-bounds-from-endpoints closed e1 e2)]
               (when-not (and (zero? lo) (not (Double/isFinite (double hi))))
-                [[dimension unit] lo hi]))))))))
+                (let [[a-start a-end] e1
+                      [b-start b-end] e2
+                      ;; the same four gaps the bound was read off, so the support is the
+                      ;; union of the four chains and nothing wider
+                      gaps [[a-start a-end] [b-start a-end] [a-start b-end] [b-start b-end]]]
+                  [[[dimension unit] lo hi]
+                   (into (into h1 h2)
+                         (mapcat (fn [[p q]] (path-support net support p q)))
+                         gaps)])))))))))
 
 ;; ---- the prover ----------------------------------------------------------
 
@@ -685,30 +1163,51 @@
   (let [eps provers/*quantity-tolerance*]
     (and (>= lo (- slo eps)) (<= hi (+ shi eps)))))
 
-(defn- solve-distance
+(defn- solve-distance-with-support
   "`(temporalDistance P Q M)` — close the constraints, read the tightest gap between P and Q,
-  then bind or check.
+  then bind or check, each answer paired with the constraints it rests on (`path-support`).
 
   A **bind** needs both bounds finite: a half-bounded separation is a real piece of knowledge
   but not a measure, and there is no honest structural NAT for it, so the goal simply has no answer
   rather than a fabricated one.  A **check** has no such trouble — a stated bound with an
-  infinite side is not written, and a finite one is either contained or not."
+  infinite side is not written, and a finite one is either contained or not.
+
+  The check arm's support carries the **stated** measure's own conversion besides the path:
+  whether the derived bound is contained in it is decided after normalizing it through the
+  unit table, so a `conversionFactor` retracted there un-decides the comparison exactly as
+  one on the path does."
   [kb goal context]
   (let [[_ p q m] goal]
-    (when-let [{:keys [dimension unit] :as prob} (problem kb context)]
+    (when-let [{:keys [dimension unit net support] :as prob} (problem kb context)]
       (let [closed (closure kb context prob [p q])]
         (when-not (= :inconsistent closed)
-          (let [[lo hi] (constraint closed p q)]
+          (let [[lo hi] (constraint closed p q)
+                sup     (delay (path-support net support p q))]
             (cond
               (sx/variable? m)
               (when (and (Double/isFinite (double lo)) (Double/isFinite (double hi)))
-                [{m (provers/render-quantity lo hi unit)}])
+                [[{m (provers/render-quantity lo hi unit)} @sup]])
 
               (provers/measure? m)
-              (let [[dim* slo shi] (provers/normalize-quantity kb m context)]
-                (if (and (= dimension dim*) (contains-bound? [lo hi] [slo shi])) [{}] []))
+              (let [[[dim* slo shi] msup] (provers/normalize-quantity-with-support kb m context)
+                    [base bsup]           (provers/base-unit-with-support kb (last m) context)]
+                ;; the base unit, not just the dimension: `lo`/`hi` are in the problem's
+                ;; `unit` and `slo`/`shi` in the stated measure's base unit, so a unit
+                ;; that declares no `conversionFactor` would otherwise read a five-second
+                ;; gap as a five-fortnight one
+                (if (and (= dimension dim*)
+                         (= unit base)
+                         (contains-bound? [lo hi] [slo shi]))
+                  [[{} (into (into @sup msup) bsup)]]
+                  []))
 
               :else [])))))))
+
+(defn- solve-distance
+  "`solve-distance-with-support`'s bindings alone — what `Prover/solve` answers, where the
+  forward join asks for the support beside them."
+  [kb goal context]
+  (map first (solve-distance-with-support kb goal context)))
 
 (defn- answer-slot?
   "Can `m` be the answer argument — a variable to bind, or a ground measure to check?"
@@ -733,7 +1232,17 @@
   ;; not already answer.  A source it does not read is `provers/sole-prover`'s
   ;; question.
   (completeness [_ _ _ _] 100)
-  (solve [_ kb goal context] (solve-distance kb goal context)))
+  (solve [_ kb goal context] (solve-distance kb goal context))
+
+  provers/SupportingProver
+  (support-functors [_] stp-predicates)
+  ;; The constraints themselves, and the unit table their magnitudes convert through — the
+  ;; two reads `stated-constraints` makes.  `startOf` / `endOf` are deliberately absent:
+  ;; they bridge to the interval algebra (`allen-narrowing`, `overlap-window-with-support`)
+  ;; and decide
+  ;; nothing about a `temporalDistance` goal, which names its instants directly.
+  (support-sources [_] (into stp-predicates provers/unit-table-predicates))
+  (solve-with-support [_ kb goal context] (solve-distance-with-support kb goal context)))
 
 (defn stp-prover
   "The metric temporal prover, to register with `vaelii.core/add-prover`."
@@ -756,6 +1265,23 @@
   :note     (str "The all-pairs shortest-path closure of a metric network, keyed on the "
                  "network value and the measure tolerance the verdict was read to — so "
                  "two contexts stating the same durations share one closure, and any "
-                 "change to the believed facts is a different key.")
+                 "change to the believed facts is a different key. Each entry carries the "
+                 "distance matrix the bounds were read off beside them, which is what the "
+                 "next arriving constraint is relaxed into rather than closing again.")
   :read     (fn [_] {:entries (count @closure-cache)})
   :clear    (fn [_] (let [n (count @closure-cache)] (reset! closure-cache {}) n))})
+
+(caches/register-cache
+ {:cache    :metric-reconstructions
+  :label    "Metric path reconstructions"
+  :scope    :process
+  :unit     "networks"
+  :limit    closure-cache-limit
+  :counters nil
+  :note     (str "The same shortest-path pass carrying the table that says which edges "
+                 "produced each bound, so a forward firing can rest on the constraints "
+                 "its bound was composed out of. A separate cache because support is "
+                 "asked for rarely and every metric goal would otherwise pay to fill an "
+                 "int[n²] nothing reads.")
+  :read     (fn [_] {:entries (count @via-cache)})
+  :clear    (fn [_] (let [n (count @via-cache)] (reset! via-cache {}) n))})

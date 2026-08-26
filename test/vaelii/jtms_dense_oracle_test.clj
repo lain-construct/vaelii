@@ -23,8 +23,17 @@
   public API); the reference happens to emit hash-map iteration order and the dense
   one sorted order, and pinning either would be pinning an accident.
 
+  **Answers are not the whole of it.**  Locality is a claim about every representation
+  (docs/defenses.md), and two networks that answer identically can still differ in how
+  much they recomputed to do it — a dense relabel that quietly widened to the whole graph
+  is invisible to a comparison of labels.  So every step also checks the containment
+  locality means, on **both** implementations: the datums whose belief flipped are inside
+  the window the settle published, and that window is inside the affected region of the
+  step's own seeds.
+
   Pure — no store, no fixture: a TMS is a graph of integers and needs neither."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.set :as set]
+            [clojure.test :refer [deftest is testing]]
             [vaelii.impl.dense-jtms :as dense]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.observe :as observe]))
@@ -38,20 +47,25 @@
   (-> snap
       (update :nodes (fn [ns] (into {} (map (fn [[d n]] [d (dissoc n :datum)])) ns)))))
 
-(defn- same?
-  "Do the two networks hold the same graph, the same beliefs and the same derived
+(defn- snapshot-diffs
+  "Do the two snapshots hold the same graph, the same beliefs and the same derived
   state?  Returns nil when equal, else **every** differing key with its two values.
 
   All of them, not the first: a whole-map mismatch on nine keys names none of them,
   but reporting only the first names the wrong one — the keys are compared in sorted
   order, so `:classes` would mask a `:groundable` divergence it is merely a symptom of."
-  [ref dns]
-  (let [a (normalize (jtms/snapshot ref))
-        b (normalize (jtms/snapshot dns))
+  [ref-snap dns-snap]
+  (let [a (normalize ref-snap)
+        b (normalize dns-snap)
         diffs (into {} (for [k (sort (keys a))
                              :when (not= (get a k) (get b k))]
                          [k {:reference (get a k) :dense (get b k)}]))]
     (when (seq diffs) diffs)))
+
+(defn- same?
+  "`snapshot-diffs` over two live networks."
+  [ref dns]
+  (snapshot-diffs (jtms/snapshot ref) (jtms/snapshot dns)))
 
 (defn- removals= [a b]
   (and (= (set (:removed-sentexes a)) (set (:removed-sentexes b)))
@@ -160,27 +174,122 @@
       [[] [] 1000]
       (range n)))))
 
+;; ---- locality: flipped ⊆ touched ⊆ affected-region(seeds) ---------------
+;;
+;; The containment is the whole of what locality claims, and each half is a different
+;; failure.  **flipped ⊆ touched** is the window's contract (docs/defenses.md, "The
+;; touched window is a superset, not the flip set"): every consumer — a preview, a
+;; consequence report, the change feed — reads the window instead of diffing the believed
+;; set, so a belief that moved outside it is a stale answer served with no way to notice.
+;; **touched ⊆ region** is locality itself: what the window gained this step is what the
+;; implementation relabelled, and a relabel that reached past the seeds' forward closure
+;; did work the graph's shape says it did not have to.  A dense network is where that can
+;; hide — a rebuilt bitmap costs a pass over all of its containers, so a widened region is
+;; a cost regression a comparison of labels can never see.
+
+(defn- region-of
+  "The affected region of `seeds` read off `snap` — the forward consequence closure a
+  relabel is scoped to.  `jtms/affected-region` is private and takes the reference
+  network's state map, which is exactly the shape **both** implementations materialize
+  for `-snapshot`, so one reading serves both and neither is disturbed by being read."
+  [snap seeds]
+  (@#'jtms/affected-region snap seeds))
+
+(defn- blocked-seeds
+  "The seeds a blocked-set move relabels from: the consequences of the justifications
+  whose blocked status actually **changed**.  The ones blocked in both sets are already
+  accounted for in the current labels, which is why `set-blocked*` seeds from the
+  symmetric difference rather than from the whole set."
+  [snap jids]
+  (let [was (:blocked snap #{})]
+    (keep #(get-in snap [:justs % :consequence])
+          (set/union (set/difference (set jids) was) (set/difference was (set jids))))))
+
+(defn- locality-seeds
+  "The datums an op relabels from, read off the state **before** it ran — each one taken
+  from the operation's own arguments, exactly as the implementation takes them.  nil where
+  an op relabels nothing at all: `:supersede` replaces a read-time mask and moves no
+  label, `:reset-touch` clears the window rather than filling it.
+
+  The region is computed on the pre-state on purpose, and it is the same set the op will
+  walk: `affected-region` reads only the consequence adjacency, and none of these ops adds
+  an edge *out* of a seed — a new justification points into its consequence."
+  [snap [op & args]]
+  (case op
+    :premise      [(first args)]
+    :ensure       [(first args)]
+    :justify      [(nth args 2)]
+    :restrength   (let [inf (first args)]
+                    (keep #(get-in snap [:justs % :consequence])
+                          (filter #(= inf (get-in snap [:justs % :informant]))
+                                  (get-in snap [:nodes inf :consequences] #{}))))
+    :defeat       (first args)
+    :clear-defeat (:defeated snap #{})
+    :set-blocked  (blocked-seeds snap (first args))
+    :block        (blocked-seeds snap (into (:blocked snap #{}) (first args)))
+    :unblock      (blocked-seeds snap (reduce disj (:blocked snap #{}) (first args)))
+    :suspend      [(first args)]
+    :retract      [(first args)]
+    :sweep        (first args)
+    :relabel      (keys (:nodes snap))
+    (:supersede :reset-touch) nil))
+
+(defn- locality-problem
+  "nil when one step held the containment on one implementation, else what broke it.
+
+  Three readings, because the window and the region are measured over different spans.
+  The **window** is published per *settle* and cleared at the end of one
+  (`settle/settle-finish` calls `reset-touched!`), and a settle is many TMS operations —
+  `:reset-touch` is that boundary in the stream — so the flip set is contained in the
+  window as it stands *after* the step, not in the one step's addition to it.  The
+  **region** is the one step's own, so what the step relabelled and what its beliefs did
+  are both contained in it.
+
+  Belief is read as the label set `:in` rather than through `in?`, because supersession
+  masks a believed datum at *read* time and relabels nothing — it is not a label that
+  moved, and counting it as one would be asking the window for something it never claimed."
+  [label before after op]
+  (when-let [seeds (seq (locality-seeds before op))]
+    (let [in-b    (:in before #{})
+          in-a    (:in after #{})
+          flipped (set/union (set/difference in-b in-a) (set/difference in-a in-b))
+          window  (:touched after #{})
+          added   (set/difference window (:touched before #{}))
+          region  (region-of before seeds)
+          out-of  (fn [claim xs] (when (seq xs)
+                                   {:implementation label :claim claim
+                                    :datums xs :seeds (vec seeds)}))]
+      (or (out-of :belief-flipped-outside-the-window (set/difference flipped window))
+          (out-of :belief-flipped-outside-the-affected-region (set/difference flipped region))
+          (out-of :window-grew-outside-the-affected-region (set/difference added region))))))
+
 ;; ---- the differential run ----------------------------------------------
 
 (defn- run-stream
-  "Apply `ops` to a fresh pair and compare after every step.  Returns nil on agreement,
-  else a map naming the op index, the op, and what differed."
+  "Apply `ops` to a fresh pair and check after every step: the two networks agree, and
+  each one kept the locality containment.  Returns nil on agreement, else a map naming the
+  op index, the op, and what differed.
+
+  Snapshots are carried from one step to the next rather than re-taken, so checking the
+  step's *delta* costs the two the comparison already needed."
   [ops]
   (let [ref (jtms/create-tms)
         dns (dense/create-dense-tms)]
-    (first
-     (keep-indexed
-      (fn [i op]
-        (let [ra (apply-op! ref op)
-              rb (apply-op! dns op)]
-          (cond
-            (and (map? ra) (not (removals= ra rb)))
-            {:at i :op op :reference-removals ra :dense-removals rb}
-
-            :else
-            (when-let [d (same? ref dns)]
-              (assoc {:diffs d} :at i :op op)))))
-      ops))))
+    (loop [i 0, ops (seq ops), before-r (jtms/snapshot ref), before-d (jtms/snapshot dns)]
+      (when ops
+        (let [op      (first ops)
+              ra      (apply-op! ref op)
+              rb      (apply-op! dns op)
+              after-r (jtms/snapshot ref)
+              after-d (jtms/snapshot dns)]
+          (or (when (and (map? ra) (not (removals= ra rb)))
+                {:at i :op op :reference-removals ra :dense-removals rb})
+              (when-let [d (snapshot-diffs after-r after-d)]
+                {:diffs d :at i :op op})
+              (some-> (or (locality-problem :reference before-r after-r op)
+                          (locality-problem :dense before-d after-d op))
+                      (assoc :at i :op op))
+              (recur (inc i) (next ops) after-r after-d)))))))
 
 (deftest ^:slow streams-are-not-vacuous
   ;; Agreement between two networks that both did nothing is worth nothing.  Before
@@ -210,6 +319,18 @@
                (range 200))]
     (doseq [[k n] tally]
       (is (pos? n) (str "the streams never produced any " (name k))))))
+
+(deftest short-streams-agree-and-stay-local
+  ;; The oracle's own claims at a size the gate can afford: the two implementations agree
+  ;; after every step, and each keeps flipped ⊆ touched ⊆ region.  The wide runs below
+  ;; carry the same driver at 200 streams; this one is what fails on a landing rather than
+  ;; on the run somebody remembers to make.
+  (testing "twelve short streams, compared and checked after every single step"
+    (doseq [seed (range 12)]
+      (let [rng (java.util.Random. (+ 500 seed))
+            ops (gen-ops rng 40 8)]
+        (is (nil? (run-stream ops))
+            (str "seed " seed))))))
 
 (deftest ^:slow randomized-streams-agree
   (testing "200 random operation streams, compared after every single step"

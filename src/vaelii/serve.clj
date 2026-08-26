@@ -52,7 +52,7 @@
 
 (defn -main
   "Run the daemon in the foreground.  Args: `[port [dir]] [--listen ADDR]` — `dir`
-  selects the durable `:disk` backend, and with no `dir` the KB lives only as long as
+  selects the durable `:disk-log` backend, and with no `dir` the KB lives only as long as
   the process.  `--listen` with a non-loopback address requires `VAELII_API_TOKEN`;
   without one it is a line on stderr and exit 2."
   [& args]

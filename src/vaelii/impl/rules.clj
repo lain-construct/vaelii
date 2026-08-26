@@ -19,8 +19,10 @@
   unbound one.  The same closure is required of an `exceptWhen` exception, which is a
   query rather than a conclusion but must be ground for the same reason (checked at the
   assert layer via `sentex/check-exception-closed`)."
-  (:require [vaelii.impl.naming :as nm]
+  (:require [clojure.string :as str]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]))
 
@@ -125,9 +127,9 @@
     (if (vector? k)
       (let [g (second k)]
         (into [] (comp (filter vector?)
-                       (filter #(contains? (tax/genls tax (second %)) g)))
+                       (filter #(contains? (tax/genls-global tax (second %)) g)))
               (keys roster)))
-      (tax/genls tax k))))
+      (tax/genls-global tax k))))
 
 (defn consequent-predicate
   "The predicate a rule concludes.  A consequent of the form `(ist Ctx S)` (place S
@@ -149,8 +151,11 @@
 
 ;; ---- virtual rule-direction predicates ----------------------------------
 ;; Wrapping a rule sets its inference direction on assert.  Default (a bare
-;; implies) is :both; :forward indexes only by antecedent, :backward only by
-;; consequent, :inert not at all (documentation).
+;; implies) is :both; :forward chains forward only, :backward backward only, :inert in
+;; neither engine (documentation).  The *index* is complete either way — a rule is filed
+;; under both its antecedent and its consequent predicates whatever its direction
+;; (`special/index-rule-sentex`) — and the direction on the record is what the two
+;; chainers read.
 
 (defn forward?  [direction] (contains? #{:forward :both} direction))
 (defn backward? [direction] (contains? #{:backward :both} direction))
@@ -234,8 +239,11 @@
 
   So each frame yields what it reads: an `unknown` its conjuncts (recursively — a
   conjunction is watched conjunct by conjunct, since it starts holding when the *last*
-  of them does), a `thereExists` its body, an aggregate its census body.  Anything else
-  is a literal a fact can carry, and is watched as itself.
+  of them does), a `thereExists` its body, an aggregate its census body.  An `(and …)`
+  is peeled for the same reason and reached the same way: nothing is stored under `and`,
+  and a conjunction under a quantifier is a **joined** query (docs/naf.md) whose every
+  conjunct can be the one that completes it.  Anything else is a literal a fact can
+  carry, and is watched as itself.
 
   A `not` frame is deliberately **not** peeled: the trigger side keys an arriving
   `(not S)` under `not` too (`special/recheck-on-sentence` reads the sentence's own
@@ -250,6 +258,7 @@
     (sx/unknown? q)      (mapcat watched-literals (sx/naf-query-conjuncts q))
     (sx/there-exists? q) (watched-literals (nth q 2))
     (sx/aggregate? q)    (watched-literals (sx/aggregate-body q))
+    (sx/conjunction? q)  (mapcat watched-literals (sx/conjuncts q))
     :else                [q]))
 
 (defn watched-predicates
@@ -321,27 +330,120 @@
 (defn aggregate-queries
   "The body queries of a rule's aggregate antecedents, so the settle-time firing
   filter can shape them against a trigger exactly as it shapes an exception's
-  conjuncts.  Each mentions the reduction variable by construction, so none of them is
-  ground and every one falls through to 'keep' — an aggregate's firings are never
-  narrowed away, which is the safe direction."
+  conjuncts.  The **whole** body, conjunctive or not: a conjunction has no readable
+  shape and a one-literal body mentions the reduction variable by construction, so
+  neither is ground and every one falls through to 'keep' — an aggregate's firings are
+  never narrowed away, which is the safe direction.  A reader that needs the conjuncts
+  themselves peels them with `watched-literals`, as `special` does to find the negated
+  ones."
   [sentex]
   (map sx/aggregate-body (aggregate-antecedents sentex)))
 
 (defn aggregate-predicates-of
   "The predicates a raw rule *sentence*'s aggregate bodies mention — the negative-edge
-  keys the stratification graph reads, and the re-check keys the index posts under."
+  keys the stratification graph reads, and the re-check keys the index posts under.
+
+  Read through `watched-literals`, for the reason the `unknown` side is: a **joined**
+  census body is watched conjunct by conjunct, since a fact arriving on any one of their
+  predicates changes which witnesses the join finds and so what the count is.  Keying on
+  the body's own functor would post a conjunctive body under `and`, a predicate nothing
+  ever arrives on — a count that is evaluated correctly and re-evaluated never."
   [rule-sentence]
-  (keep #(nm/functor (sx/aggregate-body %)) (aggregate-antecedents-of rule-sentence)))
+  (watched-predicates (aggregate-antecedents-of rule-sentence)))
 
 (defn aggregate-predicates
   "The predicates a stored rule's aggregate bodies mention."
   [sentex]
   (aggregate-predicates-of (:sentence sentex)))
 
+;; ---- a closed extent: `(not (P …))` read as negation as failure ----------
+;; `(closedExtentPredicate P)` is a context-scoped grant that P's **believed** extent is
+;; complete, so nothing being stored about `(P a)` is enough to conclude `(not (P a))`
+;; (docs/naf.md).  In a rule body that turns a *closed* negative antecedent into a NAF
+;; literal: withheld from the join, decided at derive time, and maintained on the same
+;; re-check index `unknown` uses.  The structural half lives here; whether the grant is
+;; in force is a taxonomy read the callers pass in.
+
+(defn negative-literal?
+  "Is `a` a `(not (P …))` literal with a flat, symbol-headed body — the shape a closed
+  extent can be read over?"
+  [a]
+  (and (sequential? a) (= 2 (count a)) (= 'not (first a))
+       (let [b (second a)] (and (sequential? b) (symbol? (first b))))))
+
+(defn closed-negative-antecedents
+  "The `(not L)` antecedents of `antes` every variable of which another **generator**
+  antecedent binds — the negative literals that are a *test* rather than a source of
+  bindings.
+
+  Only these can be read as negation as failure.  A negative antecedent whose variable
+  nothing else binds is what *produces* that binding, by matching a stored `(not …)`;
+  withholding it from the join would leave the rule with nothing to fire on, which is a
+  silently inert rule rather than a different reading."
+  [antes]
+  (let [gens  (remove #(or (sx/unknown? %) (sx/deferred-literal? %) (negative-literal? %))
+                      antes)
+        bound (into #{} (mapcat sx/free-vars) gens)]
+    (filterv #(and (negative-literal? %) (every? bound (sx/free-vars %))) antes)))
+
+(defn closed-extent-antecedents
+  "The closed negative antecedents of `antes` whose predicate `tx` declares a closed
+  extent — read **unscoped**, because the join has no placement context to scope by, and
+  an over-selected literal is one derive time decides correctly anyway: it asks the full
+  level-6 question in the conclusion's context, which a context without the grant answers
+  exactly as it does today.
+
+  Gated on the KB declaring any closed extent at all, so a KB not using the feature pays
+  one set read on the join path and stops."
+  [tx antes]
+  (if (empty? (tax/props tx :closed-extent))
+    []
+    (filterv #(tax/has-prop? tx :closed-extent (nm/functor (second %)))
+             (closed-negative-antecedents antes))))
+
+(defn closed-extent-predicates-of
+  "The predicates a raw rule *sentence*'s closed-extent negative antecedents read — the
+  re-check keys the index posts the rule under, and the negative edges the stratification
+  graph reads.  The key is the predicate **inside** the `not`: `recheck-on-sentence` posts
+  an arriving sentence under its own functor *and* its underlying body's, so this one key
+  catches a `(P a)` arriving and a `(not (P a))` arriving alike."
+  [tx rule-sentence]
+  (keep #(nm/functor (second %)) (closed-extent-antecedents tx (antecedents rule-sentence))))
+
+(defn has-nested-naf?
+  "Does this rule carry a NAF query with a **NAF inside it** — a nested `(unknown …)`,
+  or an aggregate under the quantifier?
+
+  The distinction is about which direction an arriving fact moves the condition.  A
+  plain `(unknown S)` is antitone in what the KB derives: a fact can only make `S`
+  derivable, so it can only *block*.  A nested one is not — `(unknown (thereExists ?y
+  (and (childOf Bob ?y) (unknown (asleep ?y)))))` is the `forall` desugar, and an
+  arriving `(asleep …)` removes the witness and **releases** the block.  So such a rule
+  is owed a re-join whatever the blocked set did, exactly as an aggregate is."
+  [sentex]
+  (boolean (some (fn [unk] (sx/some-form #(or (sx/unknown? %) (sx/aggregate? %))
+                                         (second unk)))
+                 (naf-antecedents sentex))))
+
+(defn arrival-releasable?
+  "Can an arriving fact *release* one of this rule's re-check conditions rather than
+  only impose one?  True for an **aggregate** (a census that rose licenses a firing no
+  block ever suppressed) and for a **nested** NAF (a fact can remove the witness the
+  inner query found).  Both are the same asymmetry: the blocked set is the wrong
+  instrument, because there was never a blocked justification to move.
+
+  Read by the settle loop, which owes such a rule a re-join, and by the two taxonomy
+  edge triggers, which wave it through their firing-side narrowing for the same reason:
+  a firing that never existed leaves no placement and no bindings to test."
+  [sentex]
+  (or (has-aggregate? sentex) (has-nested-naf? sentex)))
+
 (defn recheck-predicates
   "The predicates whose change must re-check this rule for its **own** re-check
   conditions — the predicates its `unknown` antecedents and its **aggregate** bodies
-  mention.  (An exceptWhen exception is a separate meta-sentex, registered under its
+  mention.  A closed-extent negative antecedent adds its own
+  (`closed-extent-predicates-of`), separately, because whether it is one is a taxonomy
+  read rather than a property of the sentence.  (An exceptWhen exception is a separate meta-sentex, registered under its
   rule by the meta-sentex's own indexing; it is not read off the rule.)  The key set
   the `[:exception-index …]` index posts a rule under when it is indexed.
 
@@ -425,9 +527,15 @@
   `exceptWhen`, which may nest in any order — a defeasible forward rule with an
   exception).  The direction / default / assumption wrappers become record fields and
   the exceptWhen becomes a meta-sentex, so the checks and the stored sentence both work
-  on this."
+  on this.
+
+  A `forall` antecedent is desugared here too (`sentex/desugar-forall-rule`), so every
+  pre-storage check — range restriction, closure, quantifier locality, stratification —
+  reads the nested NAF the constructor will store rather than the sugar it was written
+  with.  A stored rule holds no `forall`, so this is the identity on one."
   [sentence]
-  (let [[_ _ _ _ _ inner] (sx/peel-rule-wrapper sentence)] inner))
+  (let [[_ _ _ _ _ inner] (sx/peel-rule-wrapper sentence)]
+    (sx/desugar-forall-rule inner)))
 
 ;; ---- polycanonicalization: split a conjunctive consequent ----------------
 
@@ -468,6 +576,116 @@
       (let [as (antecedents inner)]
         (mapv #(rewrap (rule-sentence as %) dir def? assum con) (rest (consequent inner))))
       [sentence])))
+
+;; ---- polycanonicalization: distribute a disjunctive antecedent ----------
+;; The antecedent twin of the conjunctive-consequent split above, and the same trick:
+;; `or` never reaches the record.  `(implies (or A B) C)` is stored as the two rules
+;; `(implies A C)` and `(implies B C)`, each an ordinary rule sentex with its own
+;; handle, its own justifications and its own retraction — so nothing downstream of the
+;; assert door has to know the connective exists.  The two splits compose: a rule that
+;; disjoins its antecedent *and* conjoins its consequent stores the **product**
+;; (`expand-rule`).  See docs/canonicalization.md.
+
+(def max-alternatives
+  "How many alternatives one rule may expand to.  A disjunctive antecedent is *stored*
+  expanded, so the width is paid in handles, index entries and TMS nodes rather than at
+  query time — and a nest of `or`s multiplies, so the cost of a typo is exponential in a
+  sentence that still reads like one line.  Sixteen is the width past which a rule is
+  better written as a type: assert a `genl` and one rule on the supertype, which is one
+  handle however many members it covers."
+  16)
+
+(defn- distributes-or?
+  "Does this antecedent form carry an `or` in a position the DNF distributes over —
+  itself, or inside an `and` / `or` it nests in?  An `or` in an *argument* slot is a
+  term, not a connective frame, and is left where it stands."
+  [form]
+  (cond
+    (sx/disjunction? form) true
+    (conjunctive? form)    (boolean (some distributes-or? (rest form)))
+    :else                  false))
+
+(defn- alternative-count
+  "How many DNF alternatives one antecedent form yields — a sum over an `or`'s
+  disjuncts, a product over a distributing `and`'s conjuncts, one for a literal.
+  Arithmetic rather than a count of the expansion, so a rule far over the cap is
+  refused without ever being materialized: `+'` and `*'` promote, so a nest deep enough
+  to overflow a long still reports its own width."
+  [form]
+  (cond
+    (sx/disjunction? form) (reduce +' 0 (map alternative-count (sx/disjuncts form)))
+    (and (conjunctive? form) (distributes-or? form))
+    (reduce *' 1 (map alternative-count (rest form)))
+    :else 1))
+
+(defn- antecedent-alternative-count
+  "The number of rules a whole antecedent list expands to — the product of its members'."
+  [antes]
+  (reduce *' 1 (map alternative-count antes)))
+
+(defn antecedent-alternatives
+  "The DNF alternatives of an antecedent list, as `{:antecedents [...] :choices [...]}`
+  in written order — `:antecedents` being that alternative's literals and `:choices` the
+  disjuncts it took, which is what a refusal names when one alternative is the bad one.
+
+  A disjunct that is itself compound contributes its *own* choices rather than being
+  named whole, so the innermost disjunct is what a message points at: in
+  `(or (and A (or B C)) D)` an alternative's choice is `B`, `C` or `D`, never the `and`."
+  [antes]
+  (letfn [(combine [xs ys]
+            (for [x xs, y ys]
+              {:antecedents (into (:antecedents x) (:antecedents y))
+               :choices     (into (:choices x) (:choices y))}))
+          (dnf [form]
+            (cond
+              (sx/disjunction? form)
+              (for [d (sx/disjuncts form), alt (dnf d)]
+                (if (seq (:choices alt)) alt (assoc alt :choices [d])))
+
+              (and (conjunctive? form) (distributes-or? form))
+              (reduce combine [{:antecedents [] :choices []}] (map dnf (rest form)))
+
+              :else [{:antecedents [form] :choices []}]))]
+    (reduce combine [{:antecedents [] :choices []}] (map dnf antes))))
+
+(defn expand-antecedent
+  "Polycanonicalize a rule whose antecedent disjoins into one rule per DNF alternative,
+  preserving any virtual wrapper.  `(implies (or A B) C)` becomes
+  `[(implies A C) (implies B C)]` and `(implies (and (or A B) D) C)` distributes to
+  `[(implies (and A D) C) (implies (and B D) C)]`; anything else — a non-rule, a rule
+  with no `or`, an `or` in an argument slot — returns `[sentence]` unchanged.
+
+  **Only the level written here.**  A generator's stamped rule keeps its `or` until the
+  mint substitutes the holes, and `chain/mint-rule` expands what it is about to store —
+  so the alternatives a generator stamps are the alternatives of the rule it stamped,
+  and each is checked and indexed in its own right.
+
+  Returns `[sentence]` unexpanded for a rule the cap refuses or an empty `(or)`, which
+  is what keeps the refusal loud rather than large: `disjunction-problems` reports both
+  from the unexpanded form, and materializing 2^n rules to find out how many there were
+  is the cost the cap exists to not pay."
+  [sentence]
+  (let [[dir def? _exc assum con inner] (sx/peel-rule-wrapper sentence)]
+    (if (and (rule-sentence? inner) (some distributes-or? (antecedents inner)))
+      (let [antes (antecedents inner)
+            n     (antecedent-alternative-count antes)]
+        (if (or (zero? n) (> n max-alternatives))
+          [sentence]
+          (mapv #(rewrap (rule-sentence (:antecedents %) (consequent inner))
+                         dir def? assum con)
+                (antecedent-alternatives antes))))
+      [sentence])))
+
+(defn expand-rule
+  "Both polycanonicalizations of a rule, composed: one rule per DNF alternative of the
+  antecedent, and within each, one per conjunct of the consequent.  A rule that does
+  neither returns `[sentence]`, so every caller can treat the result uniformly.
+
+  The **product**, and in that order — alternatives outermost, conjuncts within — which
+  is the order `assert` stores them and therefore the order an `exceptWhen` is
+  re-attached along.  `(implies (or A B) (and C1 C2))` stores four rules."
+  [sentence]
+  (into [] (mapcat expand-consequent) (expand-antecedent sentence)))
 
 (defn split-exceptWhen
   "Split an `(exceptWhen <query> <rule>)` assertion into `[exception inner]`.
@@ -676,6 +894,226 @@
                      :antecedents (vec antecedents)
                      :consequent  consequent}))))
 
+;; ---- what a disjunction may not do --------------------------------------
+;; `or` earns its place by *disappearing* (`expand-antecedent`), so the refusals below
+;; are the positions from which it cannot: a place where nothing would expand it, or a
+;; width at which expanding it is the wrong storage.  Every one is a pure read of the
+;; sentence, which is why they are reported at the shape door — before the KB is read
+;; at all, by both storage doors and by `core/check` alike.
+
+(defn- some-disjunction
+  "The first `or` anywhere in `form`, or nil."
+  [form]
+  (sx/some-form sx/disjunction? form))
+
+(defn- malformed
+  "The `:not-well-formed` problem an `or` in a position nothing expands carries.  The
+  keyword is a literal at this one site rather than an argument: the refusal vocabulary
+  is scanned from the sources (`type_contract_test`), and a `:type` behind a parameter is
+  one that scan can name but not resolve."
+  [sentence extra message]
+  (merge {:type :not-well-formed :sentence sentence :message message} extra))
+
+(defn- query-body-problem
+  "The refusal an `or` inside a closed-query body carries.  `unknown`, `thereExists` and
+  the aggregates are answered as **one** closed query each (docs/naf.md,
+  docs/aggregate.md): the evaluator runs the body's conjuncts and reads whether they
+  held, and nothing there unions two runs — so an `or` under one of them is a query the
+  answer is not computed from, which is the one way a guard can silently pass
+  everything.  Not expanded either, because the body is not the rule: splitting the rule
+  on it would make `(unknown (or A B))` mean \"A is underivable **or** B is\", which is
+  the De Morgan opposite of what it reads as."
+  [sentence frame rewrite]
+  (malformed
+   sentence {:frame frame}
+   (str "or cannot stand inside the body of " frame ": it is answered as one closed"
+        " query and nothing there unions two runs, so the disjunction would decide the"
+        " rule without being evaluated — " rewrite)))
+
+(defn- antecedent-disjunction-problems
+  "The refusals one antecedent literal's `or`s carry, walking the frames a disjunction
+  may legally nest in — `and` and `or` themselves — and naming the ones it may not."
+  [sentence lit]
+  (cond
+    (sx/disjunction? lit)
+    (if (empty? (sx/disjuncts lit))
+      [(malformed
+        sentence {:literal lit}
+        (str "or takes at least one alternative, and (or) offers none: a rule with an"
+             " empty disjunct list expands to no rules at all, which is not the rule"
+             " that was written.  Drop the antecedent, or name the alternatives"))]
+      (vec (mapcat #(antecedent-disjunction-problems sentence %) (sx/disjuncts lit))))
+
+    (conjunctive? lit)
+    (vec (mapcat #(antecedent-disjunction-problems sentence %) (rest lit)))
+
+    (sx/negation? lit)
+    (if (some-disjunction (second lit))
+      [(malformed
+        sentence {:literal lit}
+        (str "or cannot stand under not: (not (or A B)) is \"neither A nor B\", which is"
+             " a conjunction of negations rather than a choice, and expanding the rule on"
+             " it would store the opposite claim.  Write the two negations as separate"
+             " antecedents"))]
+      [])
+
+    (sx/unknown? lit)
+    (if (some-disjunction (second lit))
+      [(query-body-problem sentence "unknown"
+                           (str "(unknown (or A B)) is \"neither A nor B is derivable\","
+                                " so write (unknown A) and (unknown B) as two"
+                                " antecedents"))]
+      [])
+
+    (sx/there-exists? lit)
+    (if (some-disjunction (nth lit 2))
+      [(query-body-problem sentence "thereExists"
+                           (str "there is no rewrite that keeps one witness: write one"
+                                " rule per alternative, each with its own thereExists"))]
+      [])
+
+    (sx/aggregate? lit)
+    (if (some-disjunction (sx/aggregate-body lit))
+      [(query-body-problem sentence (name (first lit))
+                           (str "a count over a union is not the sum of two counts —"
+                                " a witness satisfying both alternatives would be"
+                                " counted twice — so name the extent with a rule and"
+                                " aggregate over that"))]
+      [])
+
+    :else []))
+
+(defn- consequent-disjunction-problem
+  "The refusal an `or` in a rule's conclusion carries.  A disjunctive *head* is not
+  something forward chaining can place: it says one of two things holds without saying
+  which, and belief is a label on a sentex rather than on a set of them.  What the
+  engine does have is the choice itself — `set/assumptionRule` offers the head to a
+  solve, and the solver picks a model (docs/solving.md).  So the head is written as one
+  assumptionRule per alternative, with a constraint saying what may not be chosen
+  together."
+  [sentence conseq]
+  (malformed
+   sentence {:consequent conseq}
+   (str "or cannot stand in a rule's conclusion: a disjunctive head asserts that one of"
+        " the alternatives holds without saying which, and forward chaining places a"
+        " sentex rather than a choice.  Offer the alternatives to a solve instead —"
+        " one (set/assumptionRule (implies <body> <alternative>)) each, with a"
+        " set/hardConstraint ruling out the combinations that cannot stand — and read"
+        " the answer with solve (docs/solving.md)")))
+
+(defn- exception-disjunction-problem
+  "The refusal an `or` inside an `exceptWhen` query carries.  The exception is *already*
+  disjunctive across assertions: each `exceptWhen` meta-sentex is an independent
+  \"unless\" clause and a firing is blocked if **any** of them holds
+  (`provers/rule-exceptions`), while the conjuncts within one all must hold.  So a
+  disjunctive exception is two exceptions, and writing it that way keeps each one
+  separately assertable, retractable and believable — which one `or` inside a single
+  query would not be."
+  [sentence q]
+  (malformed
+   sentence {:exception q}
+   (str "or cannot stand inside an exceptWhen query: the conjuncts of one exception all"
+        " have to hold.  Assert one exceptWhen per alternative against the same rule —"
+        " (exceptWhen <alternative> (sentexHandle H)) — since a firing is blocked if any"
+        " of a rule's exceptions holds, which is the disjunction, one clause at a time")))
+
+(defn- width-problem
+  "The refusal a rule too wide to expand carries, naming the count."
+  [sentence n]
+  {:type :disjunction-too-wide :sentence sentence
+   :alternatives n :cap max-alternatives
+   :message
+   (str "a disjunctive antecedent is stored as one rule per alternative, and this one"
+        " expands to " n ", over the cap of " max-alternatives ".  The width is paid in"
+        " handles, index entries and TMS nodes rather than at query time, and nested"
+        " disjuncts multiply.  Name the alternatives as a type instead — a genl edge per"
+        " member and one rule on the supertype — or split the rule by hand")})
+
+(defn- alternative-range-problems
+  "Range restriction, asked **per alternative**, naming the disjuncts that alternative
+  took.
+
+  This is the check a disjunctive rule cannot inherit from the ordinary one, because the
+  ordinary one reads the disjunction whole: `(implies (or (dog ?p) (cat ?q)) (fed ?p))`
+  has `?p` somewhere in its antecedents, so the flat read passes — and then one of the
+  two rules it expands to concludes about a variable nothing binds.  Refusing the
+  **whole** rule rather than the bad half is what keeps the expansion invisible: a rule
+  the author wrote is stored entirely or not at all, exactly as a conjunctive consequent
+  is."
+  [sentence level]
+  (let [{:keys [antecedents consequent bound]} level]
+    (vec (for [alt (antecedent-alternatives antecedents)
+               p   (ordinary-range-problems (:antecedents alt) consequent bound)]
+           {:type :not-range-restricted :sentence sentence
+            :problems [p] :antecedents (:antecedents alt) :consequent consequent
+            :disjuncts (:choices alt)
+            :message
+            (str p ", in the alternative that takes "
+                 (str/join " and " (map pr-str (:choices alt)))
+                 " — every alternative a disjunctive antecedent expands to is a rule in"
+                 " its own right, and each has to bind the consequent on its own")}))))
+
+(defn disjunction-problems
+  "Why a sentence's `or`s cannot be polycanonicalized away, as problem maps — empty when
+  they can, and empty in one read for the overwhelming majority of sentences, which
+  carry no `or` at all.
+
+  Four families, reported in that order so the sharpest complaint comes first: an `or`
+  in a position nothing expands (a conclusion, a closed-query body, an exception, a
+  standalone sentence), an empty `(or)`, a rule wider than `max-alternatives`, and an
+  alternative the consequent is not range-restricted over.
+
+  A **generator** is read level by level: every level's antecedents may disjoin, since
+  the mint expands what it stores, and only the innermost level's consequent is a
+  conclusion.  The innermost range check counts an enclosing level's variables as bound
+  whether or not the alternative taken there binds them — the mint's own
+  `checks/rule-violation` answers for the rule that is actually stamped."
+  [sentence]
+  (if-not (some-disjunction sentence)
+    []
+    (let [[_ _ exc _ _ inner] (sx/peel-rule-wrapper sentence)]
+      (if-not (rule-sentence? inner)
+        (if (sx/disjunction? inner)
+          [(malformed
+            sentence {}
+            (str "a disjunction is not one assertable sentence: nothing decides which"
+                 " alternative holds, and belief is a label on a sentex rather than on a"
+                 " set of them.  As a rule antecedent an or expands to one rule per"
+                 " alternative; as a conclusion, offer the alternatives to a solve with"
+                 " set/assumptionRule (docs/solving.md)"))]
+          [])
+        (let [levels     (nesting inner)
+              innermost  (peek levels)
+              structural (-> (vec (for [level levels
+                                        lit   (:antecedents level)
+                                        p     (antecedent-disjunction-problems sentence lit)]
+                                    p))
+                             (into (when (some-disjunction (:consequent innermost))
+                                     [(consequent-disjunction-problem
+                                       sentence (:consequent innermost))]))
+                             (into (for [q exc :when (some-disjunction q)]
+                                     (exception-disjunction-problem sentence q))))]
+          (if (seq structural)
+            structural
+            (let [wide (vec (for [level levels
+                                  :let  [n (antecedent-alternative-count (:antecedents level))]
+                                  :when (> n max-alternatives)]
+                              (width-problem sentence n)))]
+              (cond
+                (seq wide) wide
+                (some distributes-or? (:antecedents innermost))
+                (alternative-range-problems sentence innermost)
+                :else []))))))))
+
+(defn check-disjunction!
+  "Throw the first `disjunction-problems` refusal, or return nil.  The throwing form both
+  storage doors read: `core/check-sentence-shape!` runs it before anything is stored, and
+  `checks/check-rule!` runs it again over what is about to be stored — which is where a
+  rule the cap refused, and so never expanded, is caught on the mint path."
+  [sentence]
+  (when-let [p (first (disjunction-problems sentence))]
+    (throw (ex-info (:message p) (dissoc p :message)))))
+
 ;; ---- the functor a rule is indexed by ------------------------------------
 
 (defn variable-functor-literals
@@ -783,8 +1221,8 @@
   **An `:inert` rule is the exception**: it chains in neither engine (`CxCore`'s
   decontextualized-predicate lift is one, `(implies (?pred . ?args) (ist CxUniverse
   (?pred . ?args)))`), so it concludes nothing and must not surface as a concluder for
-  every goal.  It keeps the canonical variable — a dead key nothing reads — exactly as
-  before the catch-all existed; only a rule that can actually conclude reaches `:var-pred`.
+  every goal.  It keeps the canonical variable — a dead key nothing reads — and only a
+  rule that can actually conclude reaches `:var-pred`.
 
   One spelling for all three writers — `special/index-rule-sentex`, its unindex twin, and
   `reindex/index-rule-entry` — so a rebuilt index files the key a live one does."
@@ -802,5 +1240,5 @@
   **stored-graph** read — no spec fan, unlike `resolution/concluding-rule-handles` — shared
   by the stratification-cycle check and the blocked-firing explanation."
   [index pred]
-  (into (set (p/rules-by-consequent index p/var-consequent-key))
-        (p/rules-by-consequent index pred)))
+  (into (set (reads/as-stored-rules-by-consequent index p/var-consequent-key))
+        (reads/as-stored-rules-by-consequent index pred)))

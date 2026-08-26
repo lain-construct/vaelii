@@ -24,7 +24,7 @@
         (let [before (tu/content-count kb)]    ; {:sentexes 0 :justifications 0}
           (try (f)
                (finally
-                 (tu/clear-kb! kb)                ; durable content is under test — clesh to clean
+                 (tu/clear-kb! kb)                ; durable content is under test — clear to clean
                  (is (= before (tu/content-count kb))
                      "recovery test did not return the store to empty"))))))))
 
@@ -37,7 +37,7 @@
 (tu/deftest-kb recover-rebuilds-taxonomy-and-beliefs
   (starter/load-into kb)
   (world/load-cast kb)                        ; the cast lives in the tests now
-  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))]
+  (let [gp (v/handle-of kb '(grandparentOf Tom Ann) 'CxNaturalWorld)]
     (let [kb2 (restart)]
       (testing "before recover, the in-memory graph is empty"
         (is (not (v/isa? kb2 'Muffet 'animal)))           ; taxonomy not rebuilt yet
@@ -51,7 +51,7 @@
         (is (seq (v/supporting-justifications kb2 gp))))
       (testing "querying and retraction work on the recovered KB"
         (is (seq (v/sentexes-matching kb2 '(grandparentOf Tom Ann) 'CxNaturalWorld)))
-        (let [bob (:id (first (v/sentexes-matching kb2 '(parentOf Bob Ann) 'CxNaturalWorld)))]
+        (let [bob (v/handle-of kb2 '(parentOf Bob Ann) 'CxNaturalWorld)]
           (v/retract! kb2 bob)
           ;; Tom→Bob→Ann gone, but Tom→Bob→Carol keeps grandparentOf via Carol? no —
           ;; retracting (parentOf Bob Ann) removes only (grandparentOf Tom Ann)
@@ -491,7 +491,7 @@
     (is (seq (v/sentexes-matching kb (list q1 Ind) 'CxUniverse)) "derived before the restart")
     (let [kb2 (restart)]
       (v/recover kb2)
-      (let [h (:id (first (v/sentexes-matching kb2 (list q1 Ind) 'CxUniverse)))]
-        (is (some? h) "the conclusion is believed again after the restart")
+      (let [h (v/handle-of kb2 (list q1 Ind) 'CxUniverse)]
+        (is (v/in? kb2 h) "the conclusion is believed again after the restart")
         (is (seq (v/why kb2 h))
             "and it is supported by the justification the rebuild rooted")))))

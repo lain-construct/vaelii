@@ -177,6 +177,7 @@ check glossary   -- bash scripts/lint-glossary.sh
 check versions   -- bash scripts/lint-versions.sh
 check links      -- python3 scripts/check-doc-links.py --public-view
 check drift      -- python3 scripts/check-doc-drift.py
+check conflicts  -- bash scripts/lint-conflict-markers.sh
 check kondo      -- clj-kondo --lint src test bench
 kondo_version_note
 check cljfmt     -- lein cljfmt check

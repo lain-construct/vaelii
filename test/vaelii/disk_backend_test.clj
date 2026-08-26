@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.disk-backend-test
-  "The `:disk` backend wiring: the single-writer lock fails a second opener fast, and
+  "The durable backend wiring: the single-writer lock fails a second opener fast, and
   two KBs over one directory in a process share the durable stores (the restart
   contract the recovery tests rely on)."
   (:require [clojure.java.io :as io]
@@ -12,6 +12,9 @@
             [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.disk.lock :as lock]
             [vaelii.impl.disk.record-store :as drs]
+            [vaelii.impl.kb :as kb]
+            [vaelii.impl.memory :as mem]
+            [vaelii.impl.protocols :as p]
             [vaelii.test-util :as tu])
   (:import [java.io RandomAccessFile]
            [java.nio.file Files]
@@ -49,7 +52,7 @@
         (try
           (is (some? other) "the test itself took the lock, through another channel")
           (testing "opening the disk KB fails fast rather than corrupting the logs"
-            (let [e (try (v/open-kb {:backend :disk :dir dir :recover? false})
+            (let [e (try (v/open-kb {:backend :disk-log :dir dir :recover? false})
                          nil
                          (catch clojure.lang.ExceptionInfo t t))]
               (is (some? e) "the open is refused")
@@ -145,6 +148,28 @@
           (dur/deregister! @id)
           (.join t 5000))))))
 
+(deftest a-registrant-the-daemon-could-not-act-on-is-refused-at-the-register
+  ;; The registry is read at fsync tick and at shutdown, and nothing there can ask a
+  ;; registrant for a piece it never carried: a missing `:close` would be a backend the
+  ;; shutdown hook silently skips, which is the whole of what this namespace does for it.
+  ;; The `:phase` arm is the same argument about ordering — a phase nothing sorts by would
+  ;; close in a position nobody chose.  Refused at the register, where the caller who wrote
+  ;; the map is still on the stack, and refused as data rather than as an `assert`, which
+  ;; `*assert*` may elide.
+  (let [whole {:fsync (fn [_] nil) :close (fn [] nil) :label "registrant-test"}
+        refused (fn [entry] (try (dur/register! entry)
+                                 nil
+                                 (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+    (doseq [[k entry] [[:fsync (dissoc whole :fsync)]
+                       [:close (assoc whole :close "not a fn")]
+                       [:label (assoc whole :label :registrant-test)]
+                       [:phase (assoc whole :phase :whenever)]]]
+      (testing (str "a registrant whose " k " the daemon cannot use")
+        (let [d (refused entry)]
+          (is (= :bad-registrant (:type d)))
+          (is (= k (:key d)) "naming the key that was wrong")
+          (is (= (get entry k) (:value d)) "and what it held"))))))
+
 (deftest a-refused-auto-compaction-submit-clears-the-in-flight-mark
   ;; The id goes in flight **before** the submit, so a tick three seconds later cannot
   ;; queue a second rewrite of a backend whose first has not started.  That makes the
@@ -171,7 +196,7 @@
             other    (.tryLock ch)]
         (.release other)
         (.close ch))
-      (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+      (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
         (is (lock/held? dir) "the KB now holds the lock")
         (v/assert kb '(genl dog animal) 'CxUniverse {:strength :monotonic})
         (is (v/genl? kb 'dog 'animal))))))
@@ -179,12 +204,12 @@
 (deftest two-kbs-over-one-directory-share-the-durable-store
   (with-tmp
     (fn [dir]
-      (let [kb1 (v/open-kb {:backend :disk :dir dir :recover? false})]
+      (let [kb1 (v/open-kb {:backend :disk-log :dir dir :recover? false})]
         (v/assert kb1 '(genl dog animal) 'CxUniverse {:strength :monotonic})
         (v/assert kb1 '(dog Muffet) 'CxUniverse {:strength :monotonic})
         (testing "a KB reopened over the same directory (a restart) starts with an empty
                  in-memory graph but the same durable records, and recover rebuilds it"
-          (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? false})]
+          (let [kb2 (v/open-kb {:backend :disk-log :dir dir :recover? false})]
             (is (not (v/isa? kb2 'Muffet 'animal)) "taxonomy not rebuilt yet")
             ;; the durable record is in the shared store — handle-of answers about
             ;; storage, not belief, so it is visible before recover (query is
@@ -200,7 +225,7 @@
 (deftest close-then-reopen-from-disk-survives
   (with-tmp
     (fn [dir]
-      (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+      (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
         (v/assert kb '(genl dog animal) 'CxUniverse {:strength :monotonic})
         (v/assert kb '(dog Muffet) 'CxUniverse {:strength :monotonic}))
       ;; a genuine restart: fsync + close + release the lock + forget the stores, so the
@@ -209,7 +234,7 @@
       (backend/close-dir! dir)
       (is (not (lock/held? dir)) "the lock is released on close")
       (testing "a brand-new KB reads the durable store back from disk"
-        (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? false})]
+        (let [kb2 (v/open-kb {:backend :disk-log :dir dir :recover? false})]
           (is (some? (v/handle-of kb2 '(dog Muffet) 'CxUniverse)) "the record survived")
           (v/recover kb2)
           (is (v/isa? kb2 'Muffet 'animal) "and its taxonomy edge"))))))
@@ -222,14 +247,14 @@
   (with-tmp
     (fn [dir]
       (tu/with-terms [dog animal Muffet]
-        (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+        (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
           (v/assert kb (list 'genl dog animal) 'CxUniverse {:strength :monotonic})
           (v/assert kb (list dog Muffet) 'CxUniverse {:strength :monotonic})
           (is (identical? kb (v/close! kb)) "close! returns the KB"))
         (is (not (lock/held? dir)) "close! released the single-writer lock")
         (is (empty? (backend/opened dir)) "and forgot the directory's stores")
         (testing "the same JVM reopens the directory; :recover? defaults to :auto"
-          (let [kb2 (v/open-kb {:backend :disk :dir dir})]
+          (let [kb2 (v/open-kb {:backend :disk-log :dir dir})]
             (is (seq (v/sentexes-matching kb2 (list dog Muffet) 'CxUniverse))
                 "the data is back and believed with no explicit recover call")
             (is (v/isa? kb2 Muffet animal))))))))
@@ -259,7 +284,7 @@
   (with-tmp
     (fn [dir]
       (tu/with-terms [dog Muffet]
-        (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+        (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
           (v/assert kb (list dog Muffet) 'CxUniverse {:strength :monotonic}))
         ;; drs/close! is a plain fn called through its var, so with-redefs intercepts
         ;; (a protocol-method var would not)
@@ -269,7 +294,7 @@
         (is (not (lock/held? dir)) "the lock is released despite the failed close")
         (is (empty? (backend/opened dir)) "and the registry entry is dropped")
         (testing "so a subsequent open of the same directory succeeds"
-          (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? false})]
+          (let [kb2 (v/open-kb {:backend :disk-log :dir dir :recover? false})]
             (is (some? (v/handle-of kb2 (list dog Muffet) 'CxUniverse))
                 "the durable record reads back in the reopened store")))))))
 
@@ -278,8 +303,8 @@
     (fn [dir1]
       (with-tmp
         (fn [dir2]
-          (let [kb1 (v/open-kb {:backend :disk :dir dir1 :recover? false})
-                kb2 (v/open-kb {:backend :disk :dir dir2 :recover? false})]
+          (let [kb1 (v/open-kb {:backend :disk-log :dir dir1 :recover? false})
+                kb2 (v/open-kb {:backend :disk-log :dir dir2 :recover? false})]
             (v/assert kb1 '(dog Muffet) 'CxUniverse {:strength :monotonic})
             (is (some? (v/handle-of kb1 '(dog Muffet) 'CxUniverse)))
             (is (nil? (v/handle-of kb2 '(dog Muffet) 'CxUniverse))
@@ -288,7 +313,7 @@
 (deftest reindex-rebuilds-index-from-records-on-disk
   (with-tmp
     (fn [dir]
-      (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+      (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
         (v/assert kb '(genl dog animal) 'CxUniverse {:strength :monotonic})
         (v/assert kb '(dog Muffet) 'CxUniverse {:strength :monotonic})
         (v/assert-rule kb ['(dog ?x)] '(barks ?x) 'CxUniverse)
@@ -311,6 +336,44 @@
               (backend/disk-dir {:space 13}))
         "different spaces derive different directories")))
 
+(deftest a-durable-index-built-against-other-records-is-refused
+  ;; A `:disk-log` index over records on a server is a directory and a database joined by
+  ;; nothing but one opts map, so the directory is stamped with the database it describes
+  ;; and a later open naming a different one is refused.  The coverage check beside it
+  ;; cannot stand in: that compares record *counts*, and two unrelated stores of the same
+  ;; size agree — after which handles resolve to another store's sentences and a re-assert
+  ;; mints a second handle for one already stored.
+  ;;
+  ;; The `:pg` store is the sibling adapter's and is resolved lazily; a RAM store stands in
+  ;; at that one seam, because the gate reads the stamp file and the `:pg` opts and never
+  ;; the store.
+  (let [records (mem/memory-record-store {:space [::pg-stand-in]})
+        opened  (fn [dir url]
+                  (with-redefs-fn {#'kb/pg-record-store-ctor (fn [] (fn [_spec] records))}
+                    (fn []
+                      (try (v/open-kb {:records :pg :index :disk-log :dir dir
+                                       :pg url :recover? false})
+                           :opened
+                           (catch clojure.lang.ExceptionInfo e (ex-data e))))))]
+    (try
+      (with-tmp
+        (fn [dir]
+          (is (= :opened (opened dir "jdbc:postgresql://localhost/one"))
+              "the first open stamps the directory rather than refusing it")
+          (backend/close-dir! dir)
+          (testing "the same database reopens — the stamp is an identity, not a seal"
+            (is (= :opened (opened dir "jdbc:postgresql://localhost/one")))
+            (backend/close-dir! dir))
+          (testing "and another database over that index is refused by name"
+            (let [d (opened dir "jdbc:postgresql://localhost/two")]
+              (is (= :stale-index-records (:type d)))
+              (is (= ["localhost" 5432 "one" nil] (:stamped d))
+                  "naming the store the index was built against")
+              (is (= ["localhost" 5432 "two" nil] (:records d))
+                  "and the one this KB brought")
+              (is (str/includes? (str (:dir d)) dir) "and the directory to give its own")))))
+      (finally (p/clear-records! records)))))
+
 (deftest a-short-index-log-is-detected-and-rebuilt
   ;; The two instruments beside the layout gate, each driven through the loss that
   ;; defeats the other.  A tail lost *with the clean marker in place* is a file that
@@ -320,7 +383,7 @@
   ;; batch's prefix, the root count included; the batch-seal counter is the last op
   ;; of every batch, so it is what the tear loses first.
   (letfn [(build! [dir]
-            (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+            (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
               (dotimes [i 20]
                 (v/assert kb (list 'tmpShortP (symbol (str "TmpShort" i))) 'CxUniverse))
               (v/close! kb)))
@@ -329,7 +392,7 @@
               (.setLength f (- (.length f) (long n)))
               (.close f)))
           (reopened-finds-all? [dir]
-            (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? :auto})]
+            (let [kb2 (v/open-kb {:backend :disk-log :dir dir :recover? :auto})]
               (try
                 (and (= 20 (count (v/sentexes-matching kb2 '(tmpShortP ?x) 'CxUniverse)))
                      (every? #(v/handle-of kb2 (list 'tmpShortP (symbol (str "TmpShort" %)))

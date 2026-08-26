@@ -453,8 +453,8 @@
   targets is visible from a reader iff it is believed, and belief is already what the
   active edge set and `:edge-ctxs` record, so the filtered walk over such a relation
   answers what the context-only walk answers — at the cost of a `supporter-visible?`
-  probe per supporter per neighbour, unmemoized, which is what turned one except on an
-  unrelated fact into a filtered walk per candidate for every `context-down`.
+  probe per supporter per neighbour, unmemoized.  Without this gate one except on an
+  unrelated fact buys a filtered walk per candidate for every `context-down`.
 
   The roster's targets are what `:supporter-filter-active?` returns when truthy
   (`install-supporter-visibility!`); an installer returning a bare truthy value keeps
@@ -2323,30 +2323,52 @@
 
 ;; ---- genl (types) --------------------------------------------------------
 ;;
-;; Each read has a context arity: the closure over only the edges visible from
-;; that context (`visible-ctxs`).  A nil visible set — no context, a `?var`, or a
-;; context that sees every asserting context — is the global path, byte-identical
-;; to the one-shorter arity.  An empty visible set still walks: an edge with a
-;; nil-context supporter constrains everywhere, including from a context that
-;; sees no asserting context at all.
+;; Each read comes in two, and the pair is the third invariant made visible in the
+;; names (`context scoping`, README.md): the **scoped** one walks only the edges
+;; visible from a context (`visible-ctxs`), and the `-global` one walks every active
+;; edge whoever can see it.  A scoped read whose visible set comes back nil — no
+;; context, a `?var`, or a context that sees every asserting context — is
+;; byte-identical to the global one, which is exactly why they must not share a name:
+;; on that KB the two agree, and the caller that meant to scope and did not finds out
+;; on the KB where they differ.  An empty visible set still walks: an edge with a
+;; nil-context supporter constrains everywhere, including from a context that sees no
+;; asserting context at all.
+;;
+;; `-global` is the deliberate read and not the convenient one — `lein lint`'s **E17**
+;; rosters the callers, so a new one is a decision somebody wrote down.
+
+(defn genls-global
+  "Supertypes of t, incl t, through **every** active edge — no context scope.
+
+  For a caller that has no vantage to read from, or one whose answer must not depend on
+  having one: an assert-time refusal, a re-check trigger that must over-approximate, a
+  rebuild.  A caller holding a context wants `genls`."
+  [tax t]
+  (closure-of tax :genl :fwd t))
 
 (defn genls
-  "Supertypes of t, incl t — through every active edge, or (with `context`) only
-  the edges visible from it."
-  ([tax t] (closure-of tax :genl :fwd t))
-  ([tax t context]
-   (if-some [scope (relation-scope tax :genl context)]
-     (closure-of-vis tax :genl :fwd t scope)
-     (closure-of tax :genl :fwd t))))
+  "Supertypes of t, incl t, through the edges visible from `context` (docs/contexts.md).
+
+  `genls-global` is the unscoped read, and it is spelled out rather than reached by
+  dropping the argument."
+  [tax t context]
+  (if-some [scope (relation-scope tax :genl context)]
+    (closure-of-vis tax :genl :fwd t scope)
+    (closure-of tax :genl :fwd t)))
+
+(defn specs-global
+  "Subtypes of t, incl t, through **every** active edge — no context scope.
+  `genls-global`'s reasoning, the other direction."
+  [tax t]
+  (closure-of tax :genl :rev t))
 
 (defn specs
-  "Subtypes of t, incl t — through every active edge, or (with `context`) only
-  the edges visible from it."
-  ([tax t] (closure-of tax :genl :rev t))
-  ([tax t context]
-   (if-some [scope (relation-scope tax :genl context)]
-     (closure-of-vis tax :genl :rev t scope)
-     (closure-of tax :genl :rev t))))
+  "Subtypes of t, incl t, through the edges visible from `context`.  `specs-global` is
+  the unscoped read."
+  [tax t context]
+  (if-some [scope (relation-scope tax :genl context)]
+    (closure-of-vis tax :genl :rev t scope)
+    (closure-of tax :genl :rev t)))
 
 (defn specs-of-all
   "The union of `specs` over every node in `nodes`, walked **once**.
@@ -2372,17 +2394,22 @@
           (recur (reduce conj! seen fresh) (into (pop stack) fresh)))
         (persistent! seen)))))
 
+(defn genl?-global
+  "Is sub a (transitive) subtype of super through **any** active edge — no context
+  scope.  `genls-global`'s reasoning, as a membership test."
+  [tax sub super]
+  (reachable-in? tax :genl sub super))
+
 (defn genl?
-  "Is sub a (transitive) subtype of super — through every active edge, or (with
-  `context`) only the edges visible from it?"
-  ([tax sub super] (reachable-in? tax :genl sub super))
-  ([tax sub super context]
-   (if-some [scope (relation-scope tax :genl context)]
-     (let [rel (get @tax :genl)]
-       (reachable-filtered? sub super :genl rel scope
-                            (when-not (:loose? rel) (:depth rel))
-                            (:scc rel)))
-     (reachable-in? tax :genl sub super))))
+  "Is sub a (transitive) subtype of super through the edges visible from `context`?
+  `genl?-global` is the unscoped read."
+  [tax sub super context]
+  (if-some [scope (relation-scope tax :genl context)]
+    (let [rel (get @tax :genl)]
+      (reachable-filtered? sub super :genl rel scope
+                           (when-not (:loose? rel) (:depth rel))
+                           (:scc rel)))
+    (reachable-in? tax :genl sub super)))
 
 ;; ---- what a reachability rests on ---------------------------------------
 ;;
@@ -2446,11 +2473,16 @@
   incomparable ones, so the choice is a function of the contexts rather than of the order
   the supporters arrived in.  The key is that name and **nothing else** — never a handle,
   which is allocated in assertion order and would decide where a dependant's conclusion
-  lands by which supporter was loaded first (`term-key`, and docs/nmtms.md).  Two
-  candidates sharing a context therefore tie, and are left to the stable sort: same context
-  means same visibility and same generality, so a dependant inherits the identical
-  placement whichever of them is named, and there is nothing left for a further tie-break
-  to decide.
+  lands by which supporter was loaded first (`term-key`, and docs/nmtms.md).
+
+  That name orders the candidates **completely**, and the reason is sentex identity: a
+  sentence and a context are what a handle is allocated for, so one edge stated twice from
+  one context is one sentex and two supporters of an edge never share a context
+  (`subsumption_support_test/an-edge-has-one-supporter-per-context`).  Nothing is left for
+  the stable sort to decide, which is what the choice needs — the handle named here enters
+  a dependant's justification and reads back out of `why`'s `:because`, so a tie broken by
+  arrival would be observable there even where the placement is identical
+  (`subsumption_support_test/the-witness-does-not-depend-on-assertion-order`).
 
   A **single** candidate takes neither the ordering nor the comparison: it is trivially the
   most general, and that is the overwhelming common case.  The short-circuit is not a
@@ -2554,7 +2586,7 @@
   path: the route whose floor — the `min` defeat class along it — is highest, tie-broken by
   depth then by the same name order.  Each edge names its **strongest** supporter
   (`strongest-edge-supporter`), so the conclusion a firing builds over these handles is
-  capped at the floor and no lower (reasoning/26).  Since there are exactly two classes
+  capped at the floor and no lower.  Since there are exactly two classes
   (`strength.clj`), the widest floor is found by trying each class as a threshold, highest
   first, and taking the first shortest path made only of edges that clear it — a threshold
   scan that stays correct for any fixed number of classes and is two passes for two."
@@ -2604,12 +2636,16 @@
 
 ;; ---- genlCx (contexts) ---------------------------------------------------
 
-(defn raw-context-up
-  "Contexts `c` inherits from through the active genlCx cache, without `except` holes.
+(defn context-up-global
+  "Contexts `c` inherits from through the active genlCx cache, with **no** `except`
+  holes — the unscoped read, and named for it the way `genls-global` is.
 
-  Exception evaluation uses this non-recursive base relation to decide which exception
-  declarations a reader can see. Ordinary callers want `context-up`, which filters an
-  excepted genlCx supporter from the resulting walk."
+  For `genlCx` the scope *is* the except filter, so this and `context-up` agree on every
+  KB where nothing excepts a genlCx supporter — which is why the two carry different
+  names rather than one name and an option.  Exception evaluation reads this
+  non-recursive base relation to decide which exception declarations a reader can see,
+  and that is what it is for: the filter cannot be asked to answer the question it is
+  itself derived from.  Every other caller wants `context-up`."
   [tax c]
   (closure-of tax :genlCx :fwd c))
 
@@ -2618,7 +2654,7 @@
   [tax c]
   (if-some [scope (relation-scope tax :genlCx c)]
     (closure-of-vis tax :genlCx :fwd c scope)
-    (raw-context-up tax c)))
+    (context-up-global tax c)))
 
 (defn context-down
   "Contexts that inherit from c, incl c, after context-visible genlCx exceptions.
@@ -2723,7 +2759,7 @@
   Factored out because two callers want the same filter over different candidates:
   `maximal-common-descendants*` runs it over the common descendants of several contexts,
   and `maximal-contexts` over a set the caller has already filtered by a stronger
-  predicate.  They had a copy each; sharing it is what keeps a `CxInference` witness, a
+  predicate.  A copy each would drift; sharing one is what keeps a `CxInference` witness, a
   forward placement and an exception-aware placement one notion of *most general*."
   [tax cands]
   (into #{}
@@ -2853,7 +2889,7 @@
       start
       (loop [acc start]
         (let [more (into acc
-                         ;; contexts are symbols, so order them directly — the `str` was
+                         ;; contexts are symbols, so order them directly — a `str` would be
                          ;; rebuilt for both on every pair of an n² sweep, and the result
                          ;; is a set, so the pair-dedup order is immaterial anyway
                          (for [a acc, b acc
@@ -3069,7 +3105,7 @@
   is asked of."
   [tax a context]
   (let [scoped? (scoped-context? context)
-        as      (if scoped? (genls tax a context) (genls tax a))
+        as      (if scoped? (genls tax a context) (genls-global tax a))
         t       @tax
         members (:metatype-members t)
         pair-vis?   (if scoped?
@@ -3105,7 +3141,7 @@
         sibs  (into []
                     (keep (fn [c]
                             (when (sib-vis? c)
-                              (let [specsC  (if scoped? (specs tax c context) (specs tax c))
+                              (let [specsC  (if scoped? (specs tax c context) (specs-global tax c))
                                     below-a (filterv #(and (not= % c) (contains? specsC %)) as)]
                                 (when (seq below-a) [c specsC below-a])))))
                     (:sibling-disjoint t))]
@@ -3152,11 +3188,11 @@
       ;; one map lookup only for a pair those cheaper tests already admitted.  The
       ;; explicit-`disjoint` arm is deliberately *not* exempted: an explicit `(disjoint x
       ;; y)` is a hard assertion you retract to undo, not except.
-      (let [genl-related? (fn [x y] (or (genl? tax x y) (genl? tax y x)))
+      (let [genl-related? (fn [x y] (or (genl?-global tax x y) (genl?-global tax y x)))
             sib-exc (:sib-exception-index @tax)
             exempt? (fn [x y] (contains? (get sib-exc x) y))]
         (fn [b]
-          (let [bs (if scoped? (genls tax b context) (genls tax b))]
+          (let [bs (if scoped? (genls tax b context) (genls-global tax b))]
             (boolean
              (or (some (fn [[x ys]]
                          (some (fn [y] (and (not= x y) (contains? bs y) (pair-vis? x y))) ys))
@@ -3167,7 +3203,11 @@
                  ;; question is a set intersection whichever side it is read from.
                  (some (fn [[m ms in-a]]
                          (let [in-b (filterv #(and (contains? bs %) (member-vis? m %)) ms)]
-                           (some (fn [x] (some #(and (not= x %) (not (exempt? x %))) in-b)) in-a)))
+                           (some (fn [x]
+                                   (some #(and (not= x %) (not (genl-related? x %))
+                                               (not (exempt? x %)))
+                                         in-b))
+                                 in-a)))
                        metas)
                  ;; a sibling-disjoint parent `c` separates when a supertype of `a` and a
                  ;; *different, non-genl-related, non-exempted* supertype of `b` are both
@@ -3186,8 +3226,10 @@
 
 (defn separating-partners
   "The types a **visible declaration** separates `a` from: every `y` such that some
-  supertype of `a` is declared `(disjoint x y)` with `x` ≠ `y`, or shares a disjoint
-  metatype with `y`.
+  supertype of `a` is declared `(disjoint x y)` with `x` ≠ `y`, shares a disjoint
+  metatype with `y`, or stands beside `y` as a proper specialization of one
+  `(siblingDisjoint C)` parent — the same three arms `disjointness-test` tests, with the
+  same global genl-relatedness and exemption guards on the latter two.
 
   This is the enumeration `disjointness-test` is the membership test of, and the two
   read one frame so they cannot disagree.  Every type disjoint from `a` is a **subtype
@@ -3204,7 +3246,7 @@
   [tax a context]
   (let [{:keys [seps metas sibs pair-vis? member-vis?]} (separation-frame tax a context)
         ;; global genl-relatedness and exemptions, for the reason `disjointness-test` states
-        genl-related? (fn [x y] (or (genl? tax x y) (genl? tax y x)))
+        genl-related? (fn [x y] (or (genl?-global tax x y) (genl?-global tax y x)))
         sib-exc (:sib-exception-index @tax)
         exempt? (fn [x y] (contains? (get sib-exc x) y))]
     (persistent!
@@ -3216,7 +3258,9 @@
                acc seps)
        (reduce (fn [acc [m ms in-a]]
                  (reduce (fn [acc y]
-                           (if (and (member-vis? m y) (some #(and (not= % y) (not (exempt? % y))) in-a))
+                           (if (and (member-vis? m y)
+                                    (some #(and (not= % y) (not (genl-related? % y)) (not (exempt? % y)))
+                                          in-a))
                              (conj! acc y)
                              acc))
                          acc ms))
@@ -3262,18 +3306,21 @@
            :let  [ms (filterv #(vis? [:member m %]) (get (:metatype-members t) m))]
            x  ms
            y  ms
-           :when (and (not= x y) (not (exempt? x y)))]
+           :when (and (not= x y)
+                      (not (genl?-global tax x y))       ; global, per disjointness-test
+                      (not (genl?-global tax y x))
+                      (not (exempt? x y)))]
        [x y])
      ;; each sibling-disjoint parent contributes its proper specializations against each
      ;; other, minus the genl-related pairs and the exempted pairs the clique spares
      (for [c  (:sibling-disjoint t)
            :when (vis? [:sib-disjoint c])
-           :let  [ss (disj (if scoped? (specs tax c context) (specs tax c)) c)]
+           :let  [ss (disj (if scoped? (specs tax c context) (specs-global tax c)) c)]
            x  ss
            y  ss
            :when (and (not= x y)
-                      (not (genl? tax x y))       ; global, per disjointness-test
-                      (not (genl? tax y x))
+                      (not (genl?-global tax x y))       ; global, per disjointness-test
+                      (not (genl?-global tax y x))
                       (not (exempt? x y)))]
        [x y]))))
 
@@ -3371,8 +3418,8 @@
         members (:metatype-members t)
         sib-exc (:sib-exception-index t)
         exempt? (fn [x y] (contains? (get sib-exc x) y))
-        as      (genls tax a)
-        bs      (genls tax b)]
+        as      (genls-global tax a)
+        bs      (genls-global tax b)]
     (concat
      (for [x as, y bs
            :when (and (not= x y) (contains? pairs #{x y}))
@@ -3385,7 +3432,9 @@
            :let  [ms (get members m #{})]
            :when (seq ms)
            x as, y bs
-           :when (and (not= x y) (contains? ms x) (contains? ms y) (not (exempt? x y)))
+           :when (and (not= x y) (contains? ms x) (contains? ms y)
+                      (not (genl?-global tax x y)) (not (genl?-global tax y x))  ; genl-related overlap, never disjoint
+                      (not (exempt? x y)))
            :let  [reqs (keep req [[:metatype m] [:member m x] [:member m y]])]
            pa (path-requirements rel a x #{})
            pb (path-requirements rel b y #{})
@@ -3396,12 +3445,12 @@
      ;; up to each separated type, the paths making each a specialization of `c`, and
      ;; the mark itself.
      (for [c (:sibling-disjoint t)
-           :let  [specsC (specs tax c)
+           :let  [specsC (specs-global tax c)
                   mreq   (req [:sib-disjoint c])]
            x as, y bs
            :when (and (not= x y) (not= x c) (not= y c)
                       (contains? specsC x) (contains? specsC y)
-                      (not (genl? tax x y)) (not (genl? tax y x))
+                      (not (genl?-global tax x y)) (not (genl?-global tax y x))
                       (not (exempt? x y)))
            pa (path-requirements rel a x #{})
            pb (path-requirements rel b y #{})
@@ -3481,9 +3530,9 @@
   between predicates says the sub's tuples *are* the super's, so a clash among the sub's
   tuples is a clash among the super's: `(fatherOf a b)` beside `(fatherOf b a)` breaks
   `(asymmetric parentOf)`, and two `fatherOf` mothers for one child are two `parentOf`
-  values against `(functional parentOf)`.  Reading the mark off the exact functor made
-  those bypassable through a sub-predicate door while the *converse probe* fanned down
-  the same hierarchy, so which spelling arrived second decided whether the pair was
+  values against `(functional parentOf)`.  Read the mark off the exact functor and those
+  become bypassable through a sub-predicate door while the *converse probe* fans down the
+  same hierarchy, so which spelling arrived second would decide whether the pair is
   found.
 
   **Not for the generative ones.**  `transitive`, `symmetric`, `reflexive` and
@@ -3507,7 +3556,7 @@
        #{}
        (into #{}
              (comp (filter marked) (filter #(has-prop? tax kind % context)))
-             (if (some? context) (genls tax p context) (genls tax p)))))))
+             (if (some? context) (genls tax p context) (genls-global tax p)))))))
 
 (def closure-relations
   "The two relations whose transitive closure the engine caches and answers itself —
@@ -3658,7 +3707,7 @@
   ([tax p context]
    (if (empty? (get @tax :inverse))
      #{}
-     (let [ps  (if (some? context) (specs tax p context) (specs tax p))
+     (let [ps  (if (some? context) (specs tax p context) (specs-global tax p))
            inv (if (some? context) #(inverses-of tax % context) #(inverses-of tax %))]
        (into #{} (mapcat inv) ps)))))
 

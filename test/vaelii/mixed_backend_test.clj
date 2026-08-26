@@ -120,7 +120,7 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown record backend .* :memory, :disk, :sqlite or :pg"
                         (v/open-kb {:records :nonesuch :index :memory})))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"unknown index backend .* :memory, :dense, :columnar, or :disk"
+                        #"unknown index backend .* :memory, :dense, :columnar, or :disk-log"
                         (v/open-kb {:records :memory :index :nonesuch}))))
 
 (deftest one-number-names-both-of-a-KBs-stores
@@ -214,7 +214,7 @@
         (is (= :unknown-option (:type (ex-data e))))
         (is (= (vec (keys extra)) (:unknown (ex-data e))))
         (is (re-find #":overlay" (ex-message e)) "the message names the fix"))))
-  (testing ":dir needs a :disk half"
+  (testing ":dir needs a durable half"
     (let [e (is (thrown? clojure.lang.ExceptionInfo
                          (v/open-kb {:backend :memory :space 88
                                      :dir "/tmp/vaelii-nowhere"})))]
@@ -259,25 +259,49 @@
       (is (re-find #"omit the key" (ex-message e))
           "since :or does not fire on a present nil, the message has to say so"))))
 
-(deftest ram-records-cannot-take-the-durable-index
-  ;; The durable index is derived from the records, so persisting it over a store that
+(deftest ram-records-cannot-take-the-log-index
+  ;; The log index is derived from the records, so persisting it over a store that
   ;; empties at JVM exit leaves index files describing records that are gone — and the
   ;; next open answers every query out of them.  Refused on both spellings, since
   ;; `backend-axes` is the one place either arrives at a pair.
   (testing "spelled on the axes"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs durable records"
-                          (v/open-kb {:records :memory :index :disk}))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk-log index needs durable records"
+                          (v/open-kb {:records :memory :index :disk-log}))))
   (testing "spelled as a half-override of a name"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs durable records"
-                          (v/open-kb {:backend :memory :index :disk})))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs durable records"
-                          (v/open-kb {:backend :disk :records :memory}))))
-  (testing "and :sqlite records, whose durable pairing is spelled :disk"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk index needs durable records"
-                          (v/open-kb {:records :sqlite :index :disk}))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk-log index needs durable records"
+                          (v/open-kb {:backend :memory :index :disk-log})))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk-log index needs durable records"
+                          (v/open-kb {:backend :disk-log :records :memory}))))
+  (testing "and :sqlite records, whose durable pairing is spelled :disk-log"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the :disk-log index needs durable records"
+                          (v/open-kb {:records :sqlite :index :disk-log}))))
   (testing "and no name spells it"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown KB backend"
                           (v/open-kb {:backend :memory-disk})))))
+
+(deftest the-reserved-names-are-refused-and-say-what-to-take
+  ;; `:disk` and `:pg-disk` read as *both halves out of core*, which no pairing here is:
+  ;; the log index holds its whole map in RAM and the log buys durability.  So they name
+  ;; nothing, and are refused rather than pointed at the pairing they sound like — an
+  ;; index axis names a directory layout, and a name that answers to two of them opens a
+  ;; store in a layout its caller did not ask for.
+  (testing "the pairing names"
+    (doseq [[nm want] {:disk ":disk-log" :pg-disk ":pg-disk-log"}]
+      (let [e (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown KB backend"
+                                    (v/open-kb {:backend nm}))
+                  (str (pr-str nm) " is refused"))]
+        (is (= :unknown-backend (:type (ex-data e))))
+        (is (re-find (re-pattern want) (ex-message e))
+            "the message names the pairing to take instead"))))
+  (testing "and the index axis, on either spelling"
+    (doseq [opts [{:index :disk} {:backend :disk-memory :index :disk} {:records :disk :index :disk}]]
+      (let [e (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown index backend :disk"
+                                    (v/open-kb opts))
+                  (str (pr-str opts) " is refused"))]
+        (is (= :disk-log (:instead (ex-data e)))))))
+  (testing "and the pairing each refusal names does open"
+    (is (= {:records :disk :index :disk-log} (kb/backend-axes {:backend :disk-log})))
+    (is (= {:records :disk :index :disk-log} (kb/backend-axes {:records :disk :index :disk-log})))))
 
 (deftest the-pg-axis-needs-a-database-named
   ;; `:pg` is the one axis whose store is not derivable from the KB's own options: a
@@ -301,11 +325,11 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"needs :pg to name a database"
                           (v/open-kb {:backend :pg-memory
                                       :pg (reify javax.sql.DataSource)}))))
-  (testing ":pg-disk with no :dir"
+  (testing ":pg-disk-log with no :dir"
     ;; the durable index is files on this host describing records on a server; a derived
     ;; default directory is one two KBs over two databases would share
     (let [e (is (thrown-with-msg? clojure.lang.ExceptionInfo #"named no :dir"
-                                  (v/open-kb {:backend :pg-disk
+                                  (v/open-kb {:backend :pg-disk-log
                                               :pg {:dbtype "postgresql" :dbname "nope"}})))]
       (is (= [:dir] (:missing (ex-data e))))))
   (testing ":pg opt with records that are not :pg"
@@ -322,9 +346,9 @@
 
 (deftest the-pg-pairings-name-a-records-axis-and-an-index-axis
   (is (= {:records :pg :index :memory} (kb/backend-axes {:backend :pg-memory})))
-  (is (= {:records :pg :index :disk}   (kb/backend-axes {:backend :pg-disk})))
+  (is (= {:records :pg :index :disk-log} (kb/backend-axes {:backend :pg-disk-log})))
   (testing "and the durable index takes :pg records, where it refuses RAM ones"
-    (is (= {:records :pg :index :disk} (kb/backend-axes {:records :pg :index :disk})))))
+    (is (= {:records :pg :index :disk-log} (kb/backend-axes {:records :pg :index :disk-log})))))
 
 ;; ---- records durable, index derived ---------------------------------------
 
@@ -386,9 +410,9 @@
 
 ;; ---- crossing between a durable and a derived index -----------------------
 
-(deftest a-disk-kb-restarts-as-disk-memory
+(deftest a-disk-log-kb-restarts-as-disk-memory
   (with-restart
-    (fn [dir] (observations (populate! (v/open-kb {:backend :disk :dir dir :recover? false}))))
+    (fn [dir] (observations (populate! (v/open-kb {:backend :disk-log :dir dir :recover? false}))))
     (fn [dir before]
       (testing "the durable index is simply ignored; the RAM one is rebuilt from the records"
         (let [kb (v/open-kb {:backend :disk-memory :dir dir :recover? :auto})]
@@ -396,7 +420,7 @@
           (is (= #{:records} (backend/opened dir))
               "and the disk index was never opened"))))))
 
-(deftest a-disk-memory-kb-restarted-as-disk-needs-an-explicit-reindex
+(deftest a-disk-memory-kb-restarted-as-disk-log-needs-an-explicit-reindex
   ;; The reverse crossing is not symmetric, and deliberately so — under `:recover?
   ;; false`, which is what this test opens with.  That setting is a caller asking to read
   ;; what is stored and do no work on open, so the durable side keeps its contract and
@@ -407,14 +431,14 @@
   (with-restart
     (fn [dir] (observations (populate! (v/open-kb {:backend :disk-memory :dir dir :recover? false}))))
     (fn [dir before]
-      (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+      (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
         (is (empty? (v/sentexes-matching kb '(dog ?x) 'CxMixed))
             "the disk index for these records was never written")
         (v/reindex kb)
         (is (= before (observations kb)) "and one reindex populates it")
         (testing "durably — a further restart of the same directory rebuilds nothing"
           (backend/close-dir! dir)
-          (let [kb2 (v/open-kb {:backend :disk :dir dir :recover? :auto})]
+          (let [kb2 (v/open-kb {:backend :disk-log :dir dir :recover? :auto})]
             (is (= before (observations kb2)))))))))
 
 (deftest a-derived-index-outliving-its-records-is-dropped
@@ -439,7 +463,7 @@
   ;; while a RAM-index mode must not be handed the durable index the other opened.
   (with-tmp
     (fn [dir]
-      (let [kb1 (populate! (v/open-kb {:backend :disk :dir dir :recover? false}))
+      (let [kb1 (populate! (v/open-kb {:backend :disk-log :dir dir :recover? false}))
             kb2 (v/open-kb {:backend :disk-memory :dir dir :recover? :auto})]
         (is (identical? (:records kb1) (:records kb2)) "one record store")
         (is (not (identical? (:index kb1) (:index kb2))) "two index stores")
@@ -472,7 +496,9 @@
   ;; records it does not hold.
   (let [space #'kb/derived-index-space]
     (is (not= (space :sqlite {:dir "/tmp/one"}) (space :disk {:dir "/tmp/one"})))
-    (is (= (space :sqlite {:dir "/tmp/one"}) (space :sqlite {:dir "/tmp/one"})))))
+    ;; and the directory is the whole key on that axis: a `:space` number beside it is
+    ;; the in-RAM axis's key and must not split one file's records across two indexes
+    (is (= (space :sqlite {:dir "/tmp/one"}) (space :sqlite {:dir "/tmp/one" :space 7})))))
 
 (deftest a-fork-cannot-put-its-own-records-on-a-server
   ;; Refused at the door, and the reason is what a later refusal would cost: `open-kb`
@@ -485,7 +511,7 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fork's own records cannot be :pg"
                             (v/open-kb {:backend :overlay
                                         :base {:backend :memory :space 992}
-                                        :overlay {:records :pg :index :disk :dir dir
+                                        :overlay {:records :pg :index :disk-log :dir dir
                                                   :pg {:dbtype "postgresql" :dbname "nope"}}})))
       (is (not (lock/held? (backend/canonical-dir dir)))
           "and nothing took the directory's lock on the way out")

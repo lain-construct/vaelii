@@ -44,7 +44,23 @@
   the writes for that reason.  `:clear-caches` mutates the process's measurement
   state, which is nothing to hand a model that is being measured through it."
   #{:assert :assert-rule :assert-many :retract :edit :edit-with-consequences
-    :forward-chain :preview :clear-caches})
+    :forward-chain :preview :clear-caches
+    ;; `:abduce` mints its hypotheses through the whole assert pipeline into a scratch
+    ;; context, and `:abduce-discard` tears one down; `:add-provenance` stores.  The
+    ;; first and the last are spelled without a `!` — provenance is metadata, and an
+    ;; abduction without `{:keep? true}` cleans up after itself — so the `!` sweep below
+    ;; cannot see either
+    :abduce :abduce-discard :add-provenance})
+
+(def host-path-ops
+  "Reads the model may not reach for a different reason than `write-ops`: an argument names
+  a **path on the daemon's host**, not a value carried on the wire, so exposing the read
+  hands the model the host filesystem.  `:kb-diff`'s second side is a directory the daemon
+  reads (`serve.clj`), so the reads-only sweep would otherwise generate a `kb_kb_diff` tool
+  that loads and diffs an arbitrary host path — a path-recon primitive for a prompt-injected
+  model.  `:export` names a host path too but is a write, so its `!` already excludes it;
+  this set is the read half the `!` backstop cannot see."
+  #{:kb-diff})
 
 (defn- core-var
   "The `vaelii.core` var an op keyword names, or nil."
@@ -57,11 +73,12 @@
   (boolean (some #(some #{'&} %) (arglists v))))
 
 (defn read-ops
-  "The op keywords the model may call: `serve/ops` minus the writes, minus anything
-  that does not resolve to a non-variadic `vaelii.core` var.  Sorted, so the generated
-  tool list is byte-stable and the prompt cache survives a rebuild."
+  "The op keywords the model may call: `serve/ops` minus the writes and the host-path
+  reads, minus anything that does not resolve to a non-variadic `vaelii.core` var.
+  Sorted, so the generated tool list is byte-stable and the prompt cache survives a
+  rebuild."
   []
-  (->> (set/difference (set (keys serve/ops)) write-ops)
+  (->> (set/difference (set (keys serve/ops)) write-ops host-path-ops)
        (filter (fn [op]
                  (when-let [v (core-var op)]
                    (and (not (str/ends-with? (name (:name (meta v))) "!"))
@@ -154,15 +171,21 @@
   "The op's parameter lists, minus the leading `kb`, shortest first.  An op can have
   genuinely *different* shapes rather than nested ones — `why-not` takes `[handle]` or
   `[sentence context]` — so a schema and a call must both work off the whole set, not
-  off one longest arity."
-  [v]
-  (vec (sort-by count (map #(vec (rest %)) (arglists v)))))
+  off one longest arity.
+
+  A `serve/kbless-ops` op keeps its whole list: the daemon supplies a KB to every row of
+  its table, but these fns take none, so their first parameter is an argument the caller
+  sends (`quality-report`'s reading, `readable-sentence`'s sentex).  Dropping it here
+  published a one-argument read as a no-argument tool that then threw on arity."
+  [op v]
+  (let [drop-kb (if (serve/kbless-ops op) identity rest)]
+    (vec (sort-by count (map #(vec (drop-kb %)) (arglists v))))))
 
 (defn- op-params
   "`[all required]` for an op: every parameter any signature takes (first-seen order),
   and the ones **every** signature takes."
-  [v]
-  (let [sigs (signatures v)
+  [op v]
+  (let [sigs (signatures op v)
         all  (vec (distinct (apply concat sigs)))]
     [all (filterv (fn [p] (every? #(some #{p} %) sigs)) all)]))
 
@@ -170,8 +193,8 @@
   "The tool schema for one op keyword."
   [op]
   (let [v (core-var op)
-        sigs (signatures v)
-        [all required] (op-params v)
+        sigs (signatures op v)
+        [all required] (op-params op v)
         doc (summary v)
         doc (if (str/blank? doc) (str "Read `" (name op) "` from the knowledge base.") doc)
         doc (if (next sigs)
@@ -333,7 +356,7 @@
   ([kb tname input] (call kb tname input {}))
   ([kb tname input {:keys [max-result-chars] :or {max-result-chars 4000}}]
    (if-let [op (op-of tname)]
-     (let [sigs   (signatures (core-var op))
+     (let [sigs   (signatures op (core-var op))
            sig    (last (filter (fn [s] (every? #(contains? input (name %)) s)) sigs))
            shapes (str/join " or " (map #(str "(" (str/join ", " %) ")") sigs))
            unread (when sig (sort (remove (set (map name sig)) (keys input))))]

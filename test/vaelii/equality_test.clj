@@ -31,6 +31,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.kb :as kb]
+            [vaelii.impl.resolution :as res]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -958,3 +959,33 @@
         (v/retract! kb rule)
         (is (true? (v/in? kb orig))
             "and believed again once nothing normalizes it")))))
+
+;; DECISION (regression): the equality relations relate NAMES — their arguments are
+;; mentions, like a quotingFunction's — so a merge must not rewrite a denial OF the merge
+;; into the vacuous `(not (sameAs A A))`.  Without that, a monotonic denial of a default
+;; merge was silently superseded and the merge stood (docs/equality.md, the flagged case).
+
+(tu/deftest-kb a-monotonic-denial-of-an-equality-defeats-a-default-merge
+  (testing "the merge first, then the monotonic denial"
+    (tu/with-terms [A B]
+      (v/assert kb (list 'sameAs A B) 'CxUniverse)
+      (v/assert kb (list 'not (list 'sameAs A B)) 'CxUniverse {:strength :monotonic})
+      (is (not (v/same-class? kb A B)) "the monotonic denial defeats the default merge")
+      (is (believed? kb (list 'not (list 'sameAs A B)) 'CxUniverse)
+          "and the denial is believed, not superseded by a vacuous rewrite of itself")))
+  (testing "the denial first, then the merge — the same outcome, order-independent"
+    (tu/with-terms [A B]
+      (v/assert kb (list 'not (list 'sameAs A B)) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list 'sameAs A B) 'CxUniverse)
+      (is (not (v/same-class? kb A B)))))
+  (testing "a default merge with no denial still merges — the fix is scoped to the denial"
+    (tu/with-terms [A B]
+      (v/assert kb (list 'sameAs A B) 'CxUniverse)
+      (is (v/same-class? kb A B)))))
+
+(deftest the-mention-set-mirrors-the-canonical-equality-predicate-set
+  ;; `res/equality-mention-heads` is a private copy of `kb/equality-predicates` — `kb`
+  ;; requires `resolution`, so the canonical set cannot be required back into it.  Keep
+  ;; the two equal, or a relation added to one and not the other rewrites the mentions of
+  ;; the relation it forgot.
+  (is (= kb/equality-predicates @#'res/equality-mention-heads)))

@@ -6,8 +6,8 @@
   `vaelii.impl.llm.prompt` renders the whole vocabulary — every context, type and
   predicate — and `vaelii.impl.llm.tools` renders every read as a tool schema.  Both
   are fixed costs that grow with the KB, and against the schema-only starter (no
-  individuals, no facts) they already come to ~19,000 tokens before the user has said
-  anything — 29,931 characters of system prompt and 37,416 of tool schema as sent, at
+  individuals, no facts) they already come to ~24,000 tokens before the user has said
+  anything — 31,818 characters of system prompt and 53,862 of tool schema as sent, at
   `chars-per-token`.  A KB heading for 100M sentexes cannot pay that per request, and a model
   with no `tools` capability cannot spend half of it at all.
 

@@ -7,9 +7,13 @@
   A KB file is a list of ordinary vaelii sentences — one s-expression each, with
   `;;` line comments and blank lines allowed — named for the context its sentences
   assert into, and grouped **term-centrically**: every sentence about a vocabulary
-  term sits together, and the terms run in natural sort order.  Nothing is
-  interpreted here that `assert` would not interpret anyway: a rule is just a
+  term sits together, and the terms run in natural sort order.  A rule is just a
   sentence carrying an `implies` / `set/*Rule` / `exceptWhen` wrapper.
+
+  **The format itself — reader and writer both — is `vaelii.impl.io.text`**, which is
+  where its one non-sentence spelling lives (`(set/monotonic S)`, the known-true class)
+  and what `vaelii.core/export-text!` writes.  What is here is the *classpath* side: the
+  shallow tree under `resources/kb/` and how a layer's files are discovered in it.
 
   The files live under `resources/kb/`, in a shallow tree that mirrors the context
   spindle:
@@ -18,15 +22,17 @@
       kb/upper/<C>.txt          definitional layers, between Core and Universe
       kb/middle/<C>.txt         theory layers, between Universe and Well
 
-  The file *name* is the context; the sub-directory is the layer.  What stays in
+  The file *name* is the context; the sub-directory is the layer.  Only the layer a
+  caller names is discovered, so a sibling directory under `kb/` that names no layer here
+  is not loaded: `kb/koinii/` is one, an application's own context files, which that
+  application loads for itself.  What stays in
   **code** (vaelii.impl.starter) is the *order* the files load in and the handful of
   genuinely computed assertions.  Sentences read with `clojure.edn`, so a KB file is
   data and can never run code."
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [vaelii.core :as v])
-  (:import [java.io PushbackReader]))
+            [vaelii.core :as v]
+            [vaelii.impl.io.text :as text]))
 
 (defn- layer-files
   "The `Cx<Name>.txt` file names in layer sub-directory `dir`, read off whichever
@@ -54,7 +60,8 @@
                                        (not (str/includes? (subs n (count want)) "/")))]
                         (subs n (count want)))))
         (throw (ex-info (str "kb/" dir " sits behind classpath protocol "
-                             (.getProtocol res) ", which layer discovery cannot list")
+                             (.getProtocol res) ", which layer discovery cannot list"
+                             " — it reads the file and jar protocols")
                         {:type :missing-resource :dir dir :url (str res)}))))))
 
 (defn layer-contexts
@@ -83,46 +90,21 @@
   ([context dir]
    (let [path (resource-path context dir)]
      (if-let [res (io/resource path)]
-       (with-open [r (PushbackReader. (io/reader res))]
-         (let [eof (Object.)]
-           (loop [acc []]
-             (let [form (edn/read {:eof eof} r)]
-               (if (identical? form eof)
-                 acc
-                 (recur (conj acc form)))))))
+       (text/read-forms res)
        (throw (ex-info (str "ontology KB file not found on the classpath: " path)
                        {:type :missing-resource :context context :dir dir :resource path}))))))
 
 (defn load-sentences
-  "Assert `sentences` into `context`, **order-insensitively**: a sentence refused
+  "Assert `sentences` into `context`, **order-insensitively** — `text/load-entries!`,
+  which is the loader for this format wherever it is read from (`vaelii.core/load-text!`
+  reads a file tree through the same one).  Returns kb.
+
+  A KB file's order is its *terms'*, not its dependencies', so a sentence refused
   because content further down the list has not arrived yet is retried rather than
-  fatal.  Returns kb.
-
-  A KB file's order is its *terms'*, not its dependencies' — blocks run in natural
-  sort order, which is the whole point of grouping term-centrically — so a file cannot
-  also be dependency-ordered.  `(transitiveInArg largerThan 1 partOf)` sits under
-  `largerThan` and `(transitive partOf)` under `partOf`, and `l` sorts before `p`.
-  Several checks read the store (a preservation's transitivity, an `arg` clash, a
-  disjointness), so without this a term-centric file is refused for where its author
-  filed a sentence.
-
-  Retry rounds run while each one makes progress; the sentences that survive a round
-  that changed nothing are re-asserted **without a catch**, so a genuinely ill-formed
-  one still throws — carrying the error it has once everything that could have helped
-  it is stored, which is the error worth reporting.  A list that loads clean pays one
-  `try` per sentence and no second round."
+  fatal; `text/load-entries!` says why, and what a clean list pays."
   [kb sentences context]
-  (let [attempt (fn [ss]
-                  (reduce (fn [acc s]
-                            (try (v/assert kb s context) acc
-                                 (catch clojure.lang.ExceptionInfo _ (conj acc s))))
-                          [] ss))]
-    (loop [pending (attempt sentences)]
-      (when (seq pending)
-        (let [remaining (attempt pending)]
-          (if (< (count remaining) (count pending))
-            (recur remaining)
-            (doseq [s remaining] (v/assert kb s context)))))))
+  (text/load-entries! (fn [sentence ctx o] (v/assert kb sentence ctx (or o {})))
+                      (mapv #(vector % context) sentences))
   kb)
 
 (defn load-context

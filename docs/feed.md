@@ -38,7 +38,8 @@ moving.
 Nothing here computes anything new to fix that. A settle already knows the **region** it
 relabelled and which of that region was believed when it first touched it; `preview` and
 `edit-with-consequences!` already turn that pair into a belief diff and render it. The
-information a feed needs was being computed on every mutation and then thrown away.
+information a feed needs is already computed on every mutation, and without this it is
+thrown away.
 
 This is not a cache and not a materialized view. The three are easily conflated under
 one heading, and they are three different features; this is the one that exists.
@@ -236,9 +237,12 @@ and start from what it says. A feed is how belief *moves*, never how it is first
   the equality path posting the displaced handle where a settle can see it, which would
   move `edit-with-consequences!`' answer too — a change to that mechanism, not to this
   one.
-- **A batch that threw.** `edit!` is not a transaction: a throw mid-batch leaves what was
-  already stored in place with the settle not run, so there is nothing to deliver *yet*.
-  Nothing is lost — the region is still uncleared, so the next settle reports it.
+- **A batch that threw.** `edit!` is all-or-nothing ([api.md](api.md)): a throw is
+  followed by a rollback that puts the KB back at the handles it wrote, so there is no
+  belief left for the batch to have moved. The rollback runs with `feed/*enabled?*` off
+  and therefore accumulates no region of its own, and the one event the door delivers has
+  nothing to hand anybody. The next settle reports its own news and never the rolled-back
+  batch's.
 
 ## Cost
 
@@ -416,7 +420,7 @@ the standing query is the one that would re-run something. And the `delay` over 
 entries is pinned by counting calls at the renderer: a standing query whose goal matches
 nothing must render **zero** entries, where a plain listener renders the diff.
 
-`test/vaelii/feed_wire_test.clj` — 21 tests over the transport, and none of them re-tests
+`test/vaelii/feed_wire_test.clj` — 20 tests over the transport, and none of them re-tests
 what an event means:
 
 - **One answer, two targets**: a batch driven through `POST /op` produces, on the wire,

@@ -25,7 +25,8 @@
             [vaelii.impl.disk.index-snapshot :as snap]
             [vaelii.impl.disk.record-store :as drs]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.reindex :as reindex])
+            [vaelii.impl.reindex :as reindex]
+            [vaelii.impl.tokens :as tok])
   (:import [java.io File RandomAccessFile]
            [java.nio.file CopyOption Files Paths StandardCopyOption]
            [java.nio.file.attribute FileAttribute]))
@@ -430,7 +431,133 @@
             (is (zero? rebuilds))
             (is (= want (answers kb2)))))))))
 
+;; ---- the refusals the section readers raise ------------------------------
+;;
+;; `load!` answers every one of these with `{:index :rebuild}`, which is the whole design:
+;; an image in doubt is discarded and the records are always enough.  The refusals
+;; themselves are raised one layer down, at the readers, which is where a caller reading
+;; a `:type` out of an `ex-data` meets them — so they are provoked there.
+
+(defn- zero-magic!
+  "Overwrite a section's four-byte magic number with zero, leaving its length alone — the
+  shape a file of the right size in the right place has when something else wrote it."
+  [^String path]
+  (with-open [raf (RandomAccessFile. path "rw")]
+    (.seek raf 0)
+    (.writeInt raf 0)))
+
+(deftest a-section-that-is-not-a-vaelii-snapshot-is-refused-on-its-magic-number
+  ;; The magic number is the one check that reads the section's own bytes rather than the
+  ;; meta beside it.  Everything else agrees on a file of the right length in the right
+  ;; place, so without this a trie's worth of somebody else's bytes is mapped and walked.
+  ;; Each section names itself, because the refusal is spliced into the WARN an operator
+  ;; reads and "did not read" says nothing about whether the data is gone.
+  (with-snapshot-dir
+    (fn [dir]
+      (let [kb   (build! (v/open-kb {:records :disk :index :columnar :dir dir :recover? false}))
+            want (answers kb)]
+        (backend/close-dir! dir)
+        (let [^String root (snap/snapshot-root dir)
+              m     (f/read-nippy-file (meta-path dir) nil)
+              store (scratch-index :magic)]
+          (doseq [[part file load! section] [[:trie  "trie.csr"  #'snap/load-trie!  (:trie m)]
+                                             [:roots "roots.csr" #'snap/load-roots! (:roots m)]]]
+            (testing (name part)
+              (let [path (str root "/" file)
+                    _    (zero-magic! path)
+                    e    (is (thrown? clojure.lang.ExceptionInfo (load! store path section)))
+                    d    (ex-data e)]
+                (is (= :bad-snapshot (:type d)))
+                (is (= part (:part d)) "the refusal names which section")
+                (is (= 0 (:magic d)) "and the number it read")
+                (is (not= 0 (:expected d)) "against the one it wanted"))))
+          (p/clear-index! store))
+        (testing "and an ordinary open rebuilds from the records, which are untouched"
+          (let [[kb2 rebuilds] (opening dir)]
+            (is (= 1 rebuilds))
+            (is (= want (answers kb2)))))))))
+
+(deftest a-fallback-blob-that-does-not-thaw-whole-is-refused-rather-than-defaulted
+  ;; The fallback blob carries the predicate-scoped argument roots — primary index truth at
+  ;; fact scale, not reconstructible metadata — so a thaw that comes back torn has to
+  ;; condemn the image.  A default of the empty value would open an index answering `#{}`
+  ;; to every argument-root read, which reads as a KB that simply holds nothing.
+  (with-snapshot-dir
+    (fn [dir]
+      (let [kb   (build! (v/open-kb {:records :disk :index :columnar :dir dir :recover? false}))
+            want (answers kb)]
+        (backend/close-dir! dir)
+        (let [^String root (snap/snapshot-root dir)
+              m     (f/read-nippy-file (meta-path dir) nil)]
+          ;; garbage of the recorded length: past the length check in `decision`, so it is
+          ;; the strict thaw that has to catch it
+          (with-open [raf (RandomAccessFile. (str root "/roots-fallback.nippy") "rw")]
+            (dotimes [i (min 16 (.length raf))]
+              (.seek raf i)
+              (.writeByte raf 0xFF)))
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (#'snap/read-fallback root m)))
+                d (ex-data e)]
+            (is (= :torn-snapshot (:type d)))
+            (is (= (get-in m [:fallback :entries]) (:expected d))
+                "naming the entry count the meta vouches for")
+            (is (nil? (:entries d)) "and nothing read, since the blob did not thaw")))
+        (testing "and an ordinary open rebuilds from the records"
+          (let [[kb2 rebuilds] (opening dir)]
+            (is (= 1 rebuilds))
+            (is (= want (answers kb2)))))))))
+
+(deftest a-dictionary-that-reloads-short-of-its-log-condemns-the-image
+  ;; The mapped edges cite durable token ids, and an id is the log position it was written
+  ;; at — so a dictionary that comes back holding fewer entries than the log has shifted
+  ;; every id past the gap, and each edge still reads as a perfectly legal int.  The count
+  ;; is the only witness there is, which is why it is compared rather than assumed.
+  ;;
+  ;; The disagreement is staged at the dictionary, because the thing that shifts a
+  ;; numbering in practice is a Clojure-equal pair of frames, and that one is named and
+  ;; repaired a layer earlier (below) before this check can see it.  A `reify` delegating
+  ;; to a real dictionary is what a protocol seam takes: a redef of `token-count` is a
+  ;; var no protocol call reads.
+  (with-snapshot-dir
+    (fn [dir]
+      (build! (v/open-kb {:records :disk :index :columnar :dir dir :recover? false}))
+      (backend/close-dir! dir)
+      (let [real  (tok/token-dict)
+            short (reify tok/ITokens
+                    (intern-token! [_ t] (tok/intern-token! real t))
+                    (token-id      [_ t] (tok/token-id real t))
+                    (id-token      [_ i] (tok/id-token real i))
+                    (token-count   [_]   (dec (tok/token-count real)))
+                    (clear-tokens! [_]   (tok/clear-tokens! real)))
+            root  (snap/snapshot-root dir)
+            e     (is (thrown? clojure.lang.ExceptionInfo (#'snap/load-dictionary! short root)))
+            d     (ex-data e)]
+        (is (= :torn-snapshot (:type d)))
+        (is (= (dec (long (:durable d))) (:loaded d))
+            "the refusal carries both counts, so a reader sees the size of the shift")
+        (is (pos? (long (:durable d))) "and the log it was read against is a real one")))))
+
 ;; ---- a dictionary an older build wrote twice ----------------------------
+
+(deftest a-token-log-holding-a-clojure-equal-pair-is-refused-by-name-and-rewritten
+  ;; `1970` and `(int 1970)` are one token under `hasheq`/`equiv` and two frames in a log
+  ;; written before the forward map keyed that way.  The dictionary then reloads one entry
+  ;; short and every id past the pair moves, which is the shift above — but this one the
+  ;; load can do something about, so it says which cause it is and rewrites the log rather
+  ;; than condemning the image again on every open.
+  (let [dir (tmpdir)]
+    (try
+      (let [log (f/open-log (str dir "/tokens.log"))]
+        (try (doseq [t ['aToken 1970 (int 1970)]] (f/append-record! log t))
+             (finally (f/close! log))))
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (#'snap/load-dictionary! (tok/token-dict) dir)))
+            d (ex-data e)]
+        (is (= :duplicate-tokens (:type d)))
+        (is (= 1 (:duplicates d)) "the one pair the log holds twice")
+        (is (= 2 (:entries d)) "and what the rewritten log holds"))
+      (testing "and the rewritten log reloads whole, so the next open maps again"
+        (is (= 2 (#'snap/load-dictionary! (tok/token-dict) dir))))
+      (finally (rm-rf! dir)))))
 
 (deftest a-token-log-holding-a-duplicate-is-repaired-rather-than-rediagnosed
   ;; The forward map keys on `tokens/Key`, so `2` and `(int 2)` are one entry — but a log

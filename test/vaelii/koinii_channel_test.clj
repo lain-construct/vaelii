@@ -17,10 +17,11 @@
             [vaelii.client :as vc]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.koinii.channel :as ch]
-            [vaelii.impl.koinii.speech-acts :as sa]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.serve :as serve]
+            [vaelii.koinii.channel :as ch]
+            [vaelii.koinii.identity :as id]
+            [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu])
   (:import [org.eclipse.jetty.server Server]))
 
@@ -192,6 +193,38 @@
         (is (empty? (v/sentexes-matching kb good 'CxBoreas))
             "and the admissible half never landed — edit! never ran")))))
 
+(tu/deftest-kb a-multi-claim-reply-cannot-sign-anothers-name
+  ;; The batch door is the SAME door `assert` is, or the batch is a way round it: a vote
+  ;; is counted off the sentence (`adjudication/tally` reads the voter there), so a batch
+  ;; of ballots naming other agents would be one principal casting a house of votes.
+  (let [atlas  (join! kb 'AgentAtlas)
+        boreas (join! kb 'AgentBoreas)
+        claim  (ch/assert atlas '(usesDb prodCluster postgres))
+        ballot (fn [a] (list 'votesFor a (v/sentex-handle claim)))
+        e (is (thrown? clojure.lang.ExceptionInfo
+                       (ch/reply-many boreas [(ballot 'AgentAtlas) (ballot 'AgentBoreas)])))]
+    (is (= :koinii/speaker-mismatch (:type (ex-data e))))
+    (is (= 'AgentAtlas (:named (ex-data e))))
+    (testing "and the batch is refused BEFORE the first write, so no ballot stands"
+      (is (empty? (v/sentexes-matching kb (list 'votesFor '?a (v/sentex-handle claim)) '?ctx))
+          "not even the one naming Boreas himself, which the batch would have written first"))
+    (testing "a batch of the agent's own acts still commits"
+      (let [r (ch/reply-many boreas [(ballot 'AgentBoreas)
+                                     (list 'usesCache 'prodCluster 'redis)])]
+        (is (= 2 (count (:added r))))))))
+
+(tu/deftest-kb a-multi-claim-reply-cannot-write-the-admin-registry
+  ;; The batch builds its own edit! payload, so the registry line has to be drawn on it
+  ;; too — a handle carrying CxRegistry is the whole exploit, and the governed may never
+  ;; write the authority that governs them.
+  (let [boreas (join! kb 'AgentBoreas)
+        rogue  (assoc boreas :context 'CxRegistry)
+        e (is (thrown? clojure.lang.ExceptionInfo
+                       (ch/reply-many rogue ['(trustLevel AgentBoreas 99)])))]
+    (is (= :koinii/registry-forbidden (:type (ex-data e))))
+    (is (empty? (v/sentexes-matching kb '(trustLevel ?a ?v) 'CxRegistry))
+        "no trust value was written into the registry")))
+
 ;; ---- subscribe: the async reply trigger, in-process ----------------------
 
 (tu/deftest-kb subscribe-fires-on-a-matching-write-and-stops-when-dropped
@@ -344,11 +377,12 @@
 (tu/deftest-kb a-local-medium-has-no-cursor-feed
   (testing "the ring / cursor / lag live only on the wire feed, so a local medium refuses
             the raw feed primitives rather than pretend to resume"
-    (let [m (ch/local kb)]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no cursor feed"
-                            (ch/-feed-open m nil 'CxDeploy)))
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no cursor feed"
-                            (ch/-feed-poll m nil nil nil))))))
+    (let [m (ch/local kb)
+          refusal (fn [f] (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+      (is (= :koinii/no-wire-feed (:type (refusal #(ch/-feed-open m nil 'CxDeploy))))
+          "opening a feed on a medium that issues no cursor")
+      (is (= :koinii/no-wire-feed (:type (refusal #(ch/-feed-poll m nil nil nil))))
+          "and resuming from one it never issued"))))
 
 ;; ---- the two doors that nil-punned: a bad handle, and a bad stance -------
 
@@ -485,3 +519,126 @@
           (is (= [3] @drops) ":on-lagged was told the count")
           (is (not-any? #{[:warn ::ch/subscription-lagged]} @logged))))
       (finally (restore!)))))
+
+;; ---- the registry write boundary (docs/koinii.md) ------------------------
+
+(tu/deftest-kb the-admin-registry-is-never-writable-through-a-cooperative-door
+  ;; `CxRegistry` is admin-only: the governed may not write the authority that governs
+  ;; them.  The channel and speech-act doors carry no authenticated principal, so they
+  ;; enforce that one boundary at the door — `check-write-boundary!` (the proof-tier
+  ;; own-context rule) is not what these cooperative doors impose, only the registry line.
+  (testing "joining AS the registry (AgentRegistry -> CxRegistry) is refused"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"registry-forbidden"
+                          (join! kb 'AgentRegistry))))
+  (testing "a speech act aimed straight at CxRegistry is refused"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"registry-forbidden"
+                          (sa/assert-claim kb 'AgentAtlas '(trustLevel AgentAtlas 1) 'CxRegistry)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"registry-forbidden"
+                          (sa/pose-query kb 'AgentAtlas 'WhichTrust 'CxRegistry))))
+  (testing "an ordinary agent still joins and writes its own context"
+    (let [atlas (join! kb 'AgentAtlas)]
+      (is (= 'CxAtlas (:context atlas)))
+      (is (some? (ch/assert atlas '(usesDb prod postgres))))))
+  (testing "and a cooperative cross-context write (first-writer-wins) is still allowed"
+    (is (some? (sa/assert-claim kb 'AgentCiel '(usesDb prod postgres) 'CxAtlas))
+        "writing another agent's context is a cooperative move, not the registry breach")))
+
+(tu/deftest-kb an-agent-cannot-sign-anothers-name-in-a-speech-act
+  ;; `speaker-of` reads the speaker off the reply's own sentence; the door stamps the
+  ;; creator off the handle.  For the two to agree — the invariant every reader relies on
+  ;; — a handle may assert a speech act only when it names itself as the speaker.
+  (let [atlas (join! kb 'AgentAtlas)
+        _     (join! kb 'AgentBoreas)
+        claim (ch/assert atlas '(usesDb prodCluster postgres))]
+    (testing "endorsing or voting under another agent's name is refused"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot speak as"
+                            (ch/assert atlas (list 'endorses 'AgentBoreas (v/sentex-handle claim)))))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot speak as"
+                            (ch/assert atlas (list 'votesFor 'AgentBoreas (v/sentex-handle claim))))))
+    (testing "the agent's own speech acts still go through"
+      (is (some? (ch/endorse atlas claim)))
+      (is (some? (ch/assert atlas (list 'endorses 'AgentAtlas (v/sentex-handle claim))))
+          "naming itself is fine, redundant with the constructor"))
+    (testing "an ordinary (non-speech-act) claim is unaffected"
+      (is (some? (ch/assert atlas '(usesCache prodCluster redis)))))))
+
+;; ---- join: the parent must be a channel (D8) -----------------------------
+
+(tu/deftest-kb a-join-refuses-a-parent-that-is-not-a-coordination-channel
+  ;; A join widens what the PARENT sees: `(genlCx parent CxMallory)` makes every cone read
+  ;; of the parent return Mallory's claims, and with `belief/believe-own` in force they
+  ;; become what the parent's own agent is proved to believe.  So the parent is held to the
+  ;; standard `assert` holds a destination to — a context the agent may legitimately be
+  ;; grafted under, never the registry and never another principal's own.
+  (let [medium (ch/local kb)]
+    (join! kb 'AgentAtlas)
+    (testing "another agent's own context, which would make Mallory's claims Atlas's"
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (ch/join medium 'CxAtlas 'AgentMallory)))]
+        (is (= :koinii/not-a-channel (:type (ex-data e))))
+        (is (= 'CxAtlas (:parent (ex-data e))))
+        (is (not (v/sees? kb 'CxAtlas 'CxMallory)) "and no edge landed")))
+    (testing "the admin registry, which governs the agents rather than hosting them"
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (ch/join medium 'CxRegistry 'AgentMallory)))]
+        (is (= :koinii/not-a-channel (:type (ex-data e))))
+        (is (not (v/sees? kb 'CxRegistry 'CxMallory)))))
+    (testing "the agent's own context, which a join lifts rather than lifts under"
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (ch/join medium 'CxMallory 'AgentMallory)))]
+        (is (= :koinii/not-a-channel (:type (ex-data e))))))
+    (testing "and the channel itself still takes every agent that asks"
+      (let [ciel (ch/join medium 'CxDeploy 'AgentCiel)]
+        (is (= 'CxCiel (:context ciel)))
+        (is (v/sees? kb 'CxDeploy 'CxCiel))
+        (is (some? (ch/assert ciel '(usesDb prodCluster postgres))))))))
+
+(tu/deftest-kb a-join-refuses-an-agent-context-placed-by-any-route
+  ;; The mark is written at the ONE chokepoint every placement goes through
+  ;; (`id/place-agent-context`), so an agent placed by a sibling API is recognized here
+  ;; exactly as one placed by `join` is — the door reads a fact somebody wrote, not a
+  ;; shape it infers from the lattice.
+  (let [medium (ch/local kb)]
+    (id/agent-context kb 'CxDeploy 'AgentAtlas)      ; the bare placement, rooted CxCore
+    (sa/speaker-context kb 'CxDeploy 'AgentBoreas)   ; the speech-act placement
+    (doseq [victim '[CxAtlas CxBoreas]]
+      (testing (str "grafting under " victim)
+        (let [e (is (thrown? clojure.lang.ExceptionInfo
+                             (ch/join medium victim 'AgentMallory)))]
+          (is (= :koinii/not-a-channel (:type (ex-data e))))
+          (is (= victim (:parent (ex-data e))))
+          (is (not (v/sees? kb victim 'CxMallory)) "and no edge landed"))))
+    (testing "the refusal names the agent the mark says the context belongs to"
+      (let [e (try (ch/join medium 'CxAtlas 'AgentMallory)
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (= #{'AgentAtlas} (set (:owners (ex-data e)))))))))
+
+(tu/deftest-kb a-join-admits-a-channel-however-the-lattice-around-it-grew
+  ;; Admission is a positive stored fact about the parent, so it cannot move with what
+  ;; else has landed.  The two shapes a structural test gets wrong: a channel rooted at
+  ;; the vocabulary the join itself speaks, and a channel rolled up under a wider context
+  ;; AFTER agents are already on it.
+  (let [medium (ch/local kb)]
+    (testing "a `:speaks CxCore` join, on a channel already rooted at CxCore and rolled up"
+      (v/assert kb '(genlCx CxDeploy CxCore) 'CxUniverse {:strength :monotonic})
+      (v/assert kb '(genlCx CxOrg CxDeploy) 'CxUniverse {:strength :monotonic})
+      (let [atlas (ch/join medium 'CxDeploy 'AgentAtlas {:speaks 'CxCore})]
+        (is (= 'CxAtlas (:context atlas)))
+        (is (v/sees? kb 'CxAtlas 'CxCore) "rooted where the override said")))
+    (testing "and ordinary edges landing later change nothing for the next agent"
+      (v/assert kb '(genlCx CxDeploy CxSpeechActs) 'CxUniverse {:strength :monotonic})
+      (v/assert kb '(genlCx CxUpper CxDeploy) 'CxUniverse {:strength :monotonic})
+      (is (= 'CxBoreas (:context (ch/join medium 'CxDeploy 'AgentBoreas)))
+          "the same channel admits the same way whenever it is asked")
+      (is (= 'CxAtlas (:context (ch/join medium 'CxDeploy 'AgentAtlas)))
+          "and re-joining an agent already on it stays a no-op"))))
+
+(tu/deftest-kb a-registry-entry-named-after-the-channel-does-not-brick-it
+  ;; Membership is not placement: an id in the registry says an agent EXISTS, never that
+  ;; some context is its own.  `AgentDeploy` maps to `CxDeploy` by the naming convention,
+  ;; and the channel of that name is still a channel until a placement says otherwise.
+  (id/load-registry kb)
+  (id/register-agent kb (id/admin-principal) 'AgentDeploy "the deploy bot" 1)
+  (let [atlas (ch/join (ch/local kb) 'CxDeploy 'AgentAtlas)]
+    (is (= 'CxAtlas (:context atlas)))
+    (is (v/sees? kb 'CxDeploy 'CxAtlas))))

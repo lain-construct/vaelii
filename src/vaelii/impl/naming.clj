@@ -91,11 +91,12 @@
   | `CxInference` | followed | every literal in **one** view, handed back as `?ctx` |
   | `CxNothing` | followed (vacuously) | the empty view: the provers alone |
 
-  A **variable** context (`?ctx`, the default of every short arity) is none of the three.
-  It follows belief like the last two and filters by context like none of them: it is
-  existential *per literal* rather than over the derivation, so it can join two facts no
-  single context sees (docs/contexts.md).  `CxInference` is that reading made joint, which
-  is why it is a fourth spelling and not a rename of the default.
+  A **variable** context (`?ctx`, the default of every short arity) is the fourth spelling
+  of the `CxInference` question.  It follows belief like the last two and reads **joint**
+  like `CxInference`: an answer holds only from some one reader's `genlCx` cone, so two
+  facts no single context sees are never joined — and that reader unifies into the
+  variable, where `CxInference` hands it back as `?ctx` beside the bindings
+  (docs/contexts.md).
 
   These are **two axes and not a ladder**.  `CxEverything` alone stops following belief,
   which makes it a different kind of question — its answers are not belief claims — while
@@ -180,6 +181,29 @@
 ;; and dropping the tie back onto arrival order, the very dependence a content order
 ;; exists to remove.  Those sites bind the print vars off; `compare-form` never prints.
 
+(defn print-key
+  "`x` printed as a content key: `pr-str` with the print bounds released.
+
+  **The one home for a printed ordering key.**  `compare-form` is the cheaper answer
+  and the one to reach for first, but a few keys are printed on purpose — a
+  `Comparable` String whose lexicographic order is the contract, or a tuple mixing a
+  form with a rank.  Every one of them owes this guard, and the reason is the paragraph
+  above: an ambient `*print-length*` / `*print-level*` — a REPL's, typically — elides two
+  long sentences to one prefix, the key collapses, and the tie falls back to the
+  enumeration order the content key exists to keep out.  A short sentence is not safe
+  either: `*print-length*` 3 prints `(arg parentOf 1 person)` and `(arg parentOf 1 animal)`
+  as the same string.
+
+  `*print-meta*` is bound off with them, so a form carrying metadata keys the same as one
+  that does not — the metadata is no part of what a sentence says.
+
+  One binding frame per call, which is why a caller ordering a large collection binds
+  once around the whole sort instead and prints inside it.  `sort_by_content_key_test`
+  scans the sources for a printed key that reaches neither this fn nor such a frame."
+  ^String [x]
+  (binding [*print-length* nil *print-level* nil *print-meta* false]
+    (pr-str x)))
+
 (defn- form-rank
   "A total order on the *kinds* of thing a sentence is built from, so `compare-form`
   never throws on a mixed pair — which `clojure.core/compare` does across types — and
@@ -208,7 +232,13 @@
   `form-rank`; same-kind scalars by the natural `compare` (symbols by ns then name,
   numbers numerically, and so on); two sequentials element by element, then shorter
   first — so `(a)` precedes `(a b)`.  The last-resort `:else` is unreachable for
-  well-formed sentence content and totalizes the order for an exotic value alone.
+  well-formed sentence content and totalizes the order for an exotic value alone — a map,
+  a set, a record.  It prints through `print-key` rather than `str`, so it totalizes
+  *honestly*: `str` on a collection honours the ambient print bounds, and two distinct
+  maps compared under a REPL's `*print-length*` come back **equal** — a comparator that
+  reports 0 for values that are not, in the one branch whose whole job is to leave no
+  pair uncompared.  One binding frame per comparison is what that costs, on the branch
+  sentence content never reaches.
 
   The order is arbitrary but stable, which is the contract a content order owes
   (docs/nmtms.md).  It is deliberately **not** the lexicographic order `pr-str` gave —
@@ -226,31 +256,8 @@
                        :else (let [c (compare-form (first xs) (first ys))]
                                (if (zero? c) (recur (next xs) (next ys)) c))))
       (= 0 ra)     0
-      (= 8 ra)     (compare (str a) (str b))
+      (= 8 ra)     (compare (print-key a) (print-key b))
       :else        (compare a b))))
-
-(defn print-key
-  "`x` printed as a content key: `pr-str` with the print bounds released.
-
-  **The one home for a printed ordering key.**  `compare-form` is the cheaper answer
-  and the one to reach for first, but a few keys are printed on purpose — a
-  `Comparable` String whose lexicographic order is the contract, or a tuple mixing a
-  form with a rank.  Every one of them owes this guard, and the reason is the paragraph
-  above: an ambient `*print-length*` / `*print-level*` — a REPL's, typically — elides two
-  long sentences to one prefix, the key collapses, and the tie falls back to the
-  enumeration order the content key exists to keep out.  A short sentence is not safe
-  either: `*print-length*` 3 prints `(arg parentOf 1 person)` and `(arg parentOf 1 animal)`
-  as the same string.
-
-  `*print-meta*` is bound off with them, so a form carrying metadata keys the same as one
-  that does not — the metadata is no part of what a sentence says.
-
-  One binding frame per call, which is why a caller ordering a large collection binds
-  once around the whole sort instead and prints inside it.  `sort_by_content_key_test`
-  scans the sources for a printed key that reaches neither this fn nor such a frame."
-  ^String [x]
-  (binding [*print-length* nil *print-level* nil *print-meta* false]
-    (pr-str x)))
 
 (defn name-key
   "`x` as an ordering key where the value is a **scalar** — a symbol, keyword, string or
@@ -354,7 +361,7 @@
 (def problem-classes
   "What a naming violation *is*, as a keyword, with the human line under it.  A rejection
   reads as prose, but a caller that counts them needs to group without parsing English —
-  an operator auditing a corpus wants five numbers, not eleven million sentences — so the
+  an operator auditing a corpus wants seven numbers, not eleven million sentences — so the
   class is the datum and the message is rendered from it."
   {:context-name   "the KB context named is not a context"
    :functor        "a functor matching no convention"

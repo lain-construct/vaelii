@@ -210,20 +210,22 @@
       (is (= 1 (:derived (v/forward-chain kb))))
       (is (= [(list barks Muffet)] (added @seen))))))
 
-(tu/deftest-kb a-batch-that-throws-leaves-belief-unsettled-and-reports-it-next-time
-  ;; `edit` is not a transaction: a throw mid-batch leaves what was already stored in
-  ;; place with the settle not run.  So the delivery is not *lost* — there was nothing to
-  ;; deliver yet, and the next settle's region still holds the handle.
+(tu/deftest-kb a-batch-that-throws-reports-nothing-then-or-later
+  ;; `edit!` is all-or-nothing, so a batch that throws leaves no belief to report — not
+  ;; at the time and not at the next settle either.  The rollback runs with the feed off,
+  ;; so it accumulates no region of its own, and the one event this door delivers has
+  ;; nothing to hand anybody.
   (tu/with-terms [dog Muffet cat Tom]
     (let [[seen f] (recorder)]
       (v/watch kb f)
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/edit! kb {:add [[(list dog Muffet) 'CxUniverse]
                                       ['(notGround ?x) 'CxUniverse]]})))
-      (is (empty? @seen) "nothing settled, so nothing was reported")
-      (v/assert kb (list cat Tom) 'CxUniverse)
+      (is (empty? @seen) "the batch was taken back, so nothing was reported")
+      (v/edit! kb {:add [[(list dog Muffet) 'CxUniverse] [(list cat Tom) 'CxUniverse]]})
+      (is (= 1 (count @seen)) "one settle, one event — the successful batch's")
       (is (= #{(list dog Muffet) (list cat Tom)} (set (added @seen)))
-          "and the next settle reports the belief the half-applied batch left behind"))))
+          "and it reports its own news, never the rolled-back batch's"))))
 
 (tu/deftest-kb an-equality-merge-agrees-with-the-consequence-report
   ;; The contract is that a feed event and `edit-with-consequences` are the same answer,
@@ -529,6 +531,7 @@
                   (list 'evaluate '?z '(+ 1 2))
                   (list 'ist 'CxUniverse (list dog '?x))
                   (list 'lessThan '?a '?b)
+                  (list 'or (list dog '?x) (list cat '?x))
                   'notASentence]]
       (let [e (try (v/watch kb goal 'CxUniverse (fn [_] nil))
                    (catch clojure.lang.ExceptionInfo e e))]
@@ -613,3 +616,15 @@
   (testing "and a delivery that does not throw hands back the body's value"
     (let [fake {:feed (feed/create-feed)}]
       (is (= :answered (feed/with-one-event fake :answered))))))
+
+(tu/deftest-kb a-standing-query-with-a-variable-functor-fires
+  ;; A goal whose functor is a variable — `(?p Muffet)` — is answered by any stored
+  ;; unary fact about Muffet.  `sentexes-matching` and `ask` answer it, so a watch must
+  ;; too; the unary match arm read `specs` of the variable (reflexive, holding no
+  ;; concrete functor) and left it silently unfired.
+  (tu/with-terms [dog Muffet]
+    (let [[seen f] (recorder)]
+      (v/watch kb (list '?p Muffet) 'CxUniverse f)
+      (v/assert kb (list dog Muffet) 'CxUniverse)
+      (is (= [(list dog Muffet)] (added @seen))
+          "a matching unary fact fires the variable-functor goal"))))

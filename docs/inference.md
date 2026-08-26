@@ -24,11 +24,19 @@ for free (its handle is an antecedent of every justification it licenses, so
 retracting the rule sweeps them). Rules must be **range-restricted**: every
 consequent variable appears in an antecedent, so a fired consequent is ground.
 
-A rule that concludes a **conjunction** is polycanonicalized into one rule per
-conjunct (`rules/expand-consequent`): `(implies A (and C1 C2))` is stored as two
-rules `(implies A C1)` and `(implies A C2)`, keeping any virtual wrapper (default /
-forward / backward / inert). `assert` and `assert-rule` do the split and return
-the **vector** of handles in that case (a single handle otherwise).
+A rule is polycanonicalized when what it says is not about one rule, and there are
+**two causes**. A rule that concludes a **conjunction** splits into one rule per
+conjunct (`rules/expand-consequent`): `(implies A (and C1 C2))` is stored as
+`(implies A C1)` and `(implies A C2)`. A rule whose antecedent **disjoins**
+distributes into one rule per alternative (`rules/expand-antecedent`):
+`(implies (or A B) C)` is stored as `(implies A C)` and `(implies B C)`, DNF over a
+nested `and`. Both keep any virtual wrapper (default / forward / backward / inert),
+both re-attach an `exceptWhen` per expansion, and together they store the **product** —
+`(implies (or A B) (and C1 C2))` is four rules. `assert` and `assert-rule` do the
+expansion and return the **vector** of handles whenever it produced more than one (a
+single handle otherwise), which is the author's record of the whole rule: retracting one
+handle retracts that expansion, and retracting the rule means retracting them all. See
+[canonicalization.md](canonicalization.md).
 
 A rule that concludes a **rule** is a *generator*, and its firing stores the rule it
 concludes rather than a fact — the one place range restriction is asked one level in,
@@ -59,9 +67,10 @@ by its terms and readable in the browser; what it never does is fire. That is ho
 rule the engine does *not* execute is still written down where a reader looks for it —
 the transitivity of `genl` beside the closure that actually computes it
 ([taxonomy.md](taxonomy.md)). Two consequences worth stating: an inert rule is the one
-rule shape whose predicate may be a **variable**, exempt from the `:not-indexable`
-refusal because a rule that runs in neither engine claims nothing the index has to
-honour; and it is
+rule shape whose *antecedent* predicate may be a **variable**, exempt from the
+`:not-indexable` refusal because a rule that runs in neither engine claims nothing the
+index has to honour (a variable *consequent* functor is allowed for every rule, filed
+under the catch-all bucket `protocols/var-consequent-key`); and it is
 **not** the same inertness as `core/assert-inert`, which stores a sentex that is never
 a premise and so never believed at all ([solving.md](solving.md)). One is a believed
 rule that does not fire; the other is a sentex nothing believes. `assert-inert` refuses
@@ -245,17 +254,24 @@ because a datum can be put *back* on the agenda with an old handle: a fact reviv
 OUT, a fact newly matchable under a `genl` edge the run itself derived
 (`special/subsumption-seeds`), a seed list in whatever order `jtms/in-datums` produced.
 Stamped on arrival, such a datum sorts after the partner already processed and so is the
-one that enumerates the pair. Four things then decline the filter outright, each because
+one that enumerates the pair. Six things then decline the filter outright, each because
 a firing there is enumerable at one trigger and not at the other:
 
 - **A handle the run never enqueued** has no arrival — a sentex some other write placed
   while the run was going, and every join outside a run.
 - **A disbelieved trigger.** A datum triggers on `res/match1`, a plain unify; the join
-  finds facts through `*matcher*`, which follows belief. So a spelling superseded by an
-  equality merge still fires its rules while no other trigger's join can find it.
+  finds facts through `*matcher*`, which follows belief. So a defeated default still
+  fires its rules while no other trigger's join can find it. (A spelling an equality
+  merge **superseded** is the one disbelieved datum that never reaches a trigger at all,
+  and [equality.md](equality.md) says why: a defeat is a label the conclusion inherits,
+  where a supersession is not.)
 - **A mirrored antecedent** — a binary literal whose predicate is `symmetric`. The join
   probes both argument orders (`res/raw-match`) where the trigger unify does not, so a
   mirrored hit is a firing the join can make and the arriving datum cannot.
+- **A computed antecedent**, whose handles are what a `provers/SupportingProver` read
+  out of the store rather than the tuple that satisfied the position.
+- **An inherited antecedent**, satisfied by a claim nobody stored, whose handles name
+  the stated claim, the declaration and the reach edges rather than a matched fact.
 - **A qualitative antecedent**, whose handles are the support of a network entailment
   rather than the fact that satisfied the position, and `rejoin-qualitative`, which
   re-joins over the pairs that moved rather than at a trigger position at all.
@@ -280,9 +296,12 @@ is a positive memo over that lookup, bound for the length of a run by `chain/cha
   invalidation lives beside the event rather than in whichever caller has a cache bound.
   (Within a run there is nothing to invalidate — `settle` runs after chaining, not
   during it — but the cache is correct without leaning on that.)
-- **Every entry is stamped with what canonicalization reads off the KB**, which is one
-  thing: the set of predicates declared `symmetric` (`kb/canon-stamp`, consumed by
-  `res/kb-sentex`). A raw sentence reaching a *different* canonical form — a
+- **Every entry is stamped with two things** (`kb/canon-stamp`): the KB's record store,
+  and what canonicalization reads off the KB — the set of predicates declared
+  `symmetric` (consumed by `res/kb-sentex`). The record store rides in the stamp because
+  `with-handle-cache` reuses an outer run's map, so a nested run on a *second* KB shares
+  the cache and would otherwise read the first's handles. A raw sentence reaching a
+  *different* canonical form — a
   `(symmetric p)` declaration arriving, leaving, or changing belief — replaces that set,
   and a stamp mismatch empties the map. Nothing else in a sentex's key is a function of
   the KB, so nothing else can go stale.
@@ -450,6 +469,50 @@ mechanism and the same cost as the `exceptWhen` guard. The guard stays a stateme
 descent, which is the only thing it is sound to be, and the order conjuncts are tried in
 is free — reordering them cannot change which one claims a key first.
 
+### Answers belief has already decided against
+
+A backward chainer filters *rules* by belief (`res/rule-believed?`) and *facts* by belief
+(`res/matches-visible`), and an answer that is neither — a conclusion reached by opening a
+rule — would pass both filters untouched. So a conclusion the JTMS holds **defeated** —
+`(flies Tweety)`, derived from a default and beaten by a monotonic `(not (flies Tweety))`
+— could be re-derived by opening the rule that concluded it and proving it again, and the
+proving levels would answer both sides of a clash belief has settled.
+
+The contract is that they do not: **the proving levels agree with belief.** Belief has
+decided that datum is OUT under the current state, and a chainer that reads it IN is not
+answering a harder question, it is answering a stale one. So an answer a **rule expansion**
+produces whose instantiated sentence names a stored sentex the JTMS holds defeated, visible
+from the query's context, is not produced — neither as a top-level answer nor as an
+intermediate one a further derivation would read
+([why its other derivations are not a second chance](defenses.md#a-defeated-datums-other-derivations-are-not-a-second-chance)).
+
+Four things about the shape of it:
+
+- **The check is where the answer becomes ground**, not over the top-level results. In
+  `prove` that is a marker pushed behind the rule's antecedents, the third use of the same
+  mechanism the `exceptWhen` guard and the loop-guard scope already ride; in the node
+  engine it is a goal recorded on the child and asked in `step!`, where the guards are
+  asked, for the same reason — that is the moment the argument is complete. A top-level
+  post-filter would leave a defeated *subgoal* answer feeding a rule above it, and the
+  second rule would derive from a datum belief had thrown out.
+- **A defeated *premise* a rule re-derives from other believed premises is decided the same
+  way**, deliberately: the defeat is a claim about the datum, not about one derivation of
+  it, so a second route to the same sentence reaches the same OUT. Retract the defeater and
+  the datum revives, and both chainers answer it again with nothing else having changed.
+- **Only `defeated`.** The other two non-belief states are handled elsewhere and are not
+  folded in: a `blocked` justification is swept, so nothing survives for a chainer to find,
+  and a `superseded` spelling is displaced by an equality merge, which the goal rewrite
+  applies before any prover sees the goal ([equality.md](equality.md)).
+- **It costs a KB with no contradiction nothing.** `res/defeated-index` is read once per
+  query and is **nil** when the defeated set is empty; when it is not, a goal whose functor
+  no defeated datum carries is never checked. So no marker is pushed and no node records
+  anything unless a defeat on that predicate is actually in play. Laziness and the anytime
+  budget are untouched: the check is one lookup at a frame that was going to be popped
+  anyway.
+
+`defeated_goals_test` pins it on both engines, and `ask` needs none of it — level 6
+expands no rule and reads belief.
+
 Both engines find a goal's candidate rules through `res/concluding-rule-handles` —
 the consequent index over the goal functor's spec closure, plus the variable-consequent
 catch-all. A goal whose **functor is a variable**, `(?p Tom ?y)`, names no bucket and
@@ -507,9 +570,10 @@ only to reach the registry, and neither shipped leaf itself expands a rule.
 **Conjunct order is not a thing either of them can observe.** A rule's antecedents are
 put into canonical order at *storage* (`sentex/canonicalize-rule`), so the same rule
 written with its recursive literal first and last stores identically, and both engines
-return the same answer set for either spelling with the planner on or off.
+return the same answer set for either spelling with the ranking on or off.
 "Left-recursive" is not a state a rule can be in here; `plan`'s pinning of the recursive
-literal keeps the *cost model* from re-introducing one.
+literal keeps the *cost model* from re-introducing one, and that pinning is not itself
+behind `plan/*enabled*` — see [the switch](#conjunctive-query-planning-vaeliiimplplan).
 
 **Neither answer is a justification.** By default both return binding maps and nothing
 else, and a backward answer is *ephemeral*: it is not stored and has no handle. `query`
@@ -706,15 +770,17 @@ an answer goes with it.
 
 ### What it buys, and what it costs
 
-Measured against the DFS on the same KB:
+Measured against the DFS on the same KB. The node counts are exact — they are a function
+of the rule graph, below — and the times are one box's, rounded, since what they carry is
+which column wins and by how much:
 
 | shape | nodes | `prove` | node engine |
 |---|---|---|---|
-| kinship DAG, 16 leaves, open | 7 | 4.80 ms | **2.06 ms** |
-| kinship DAG, 64 leaves, open | 7 | 14.45 ms | **2.48 ms** |
-| same-generation, open | 9 | 17.24 ms | **5.83 ms** |
-| kinship DAG, head bound | 7 | **0.31 ms** | 0.83 ms |
-| two-literal conjunction | 49 | **8.69 ms** | 28.66 ms |
+| kinship DAG, 16 leaves, open | 7 | ~4.8 ms | **~2 ms** |
+| kinship DAG, 64 leaves, open | 7 | ~14 ms | **~2.5 ms** |
+| same-generation, open | 9 | ~17 ms | **~6 ms** |
+| kinship DAG, head bound | 7 | **~0.3 ms** | ~0.8 ms |
+| two-literal conjunction | 49 | **~9 ms** | ~29 ms |
 
 The residual stays **symbolic** — `(anc ?y ?z)` is rewritten once, not re-asked per
 binding of `?y` — so the node count is a function of the rule graph and the depth bound
@@ -771,7 +837,7 @@ a new tactician.
 answer set; only arrival order differs, and
 `every-complete-tactician-returns-the-same-answers` is the gate — with the whole suite
 behind it, since `VAELII_QUERY_STRATEGY=breadth-first` beside `VAELII_QUERY_ENGINE=inference`
-runs all 2,426 tests under a different ordering and must be failing-set-identical. The one mode that
+runs the whole suite under a different ordering and must be failing-set-identical. The one mode that
 returns *fewer* answers is `:first-result?`, which stops a productive node building
 children at all: it says so in its docstring, `tactics/complete?` reports it, the
 portfolio refuses to race it, and the completeness sweep excludes it by name rather than
@@ -905,8 +971,7 @@ data, which is why there is no default to pick.
 
 Within the bound the two return the same answer **set**, which is what
 `inference_parity_test` holds them to directly and what `VAELII_QUERY_ENGINE=inference`
-checks across the whole suite — 2,655 tests, 239,998 assertions at `:all`,
-failing-set-identical.
+checks across the whole suite at `:all`, failing-set-identical.
 
 What the two do **not** share is multiplicity. The DFS returns one solution per
 derivation, so a goal reachable two ways comes back twice with equal maps; the node
@@ -914,10 +979,11 @@ engine keys a `seen` set on the bindings, so two derivations of one answer are o
 answer and the proof it hands back is the first found. Both spellings of that are
 deliberate, and neither is a defect of the other — but it means **a caller counting
 `prove`'s results rather than reading their set is reading an engine-specific number**.
-`backward_test`'s multiplicity assertions therefore stand aside under the sweep
-(`tu/query-engine-override`) while its answer-set assertions run under both. That is
-why `*query-engine*` defaults to `:dfs`: two engines that disagree are worse than one
-engine that is slow.
+`backward_test`'s multiplicity assertions therefore assert the multiplicity of the engine
+in force — read off `tu/query-engine-override` — while its answer-set assertions are the
+same under both, so the sweep runs every assertion and the counts agree. That is why
+`*query-engine*` defaults to `:dfs`: two engines that disagree are worse than one engine
+that is slow.
 
 ## The literal cache (`vaelii.impl.literal-cache`)
 
@@ -927,7 +993,8 @@ both need `(parentOf Tom ?y)` each answer it in full, and a diamond-shaped rule 
 for the shared literal once per path through the diamond. So `matches-visible` answers
 are cached per KB, keyed by the literal itself.
 
-**The key** is `[canonical-literal context hierarchical? arg-root? structural?]`. Canonical means
+**The key** is `[canonical-literal context hierarchical? arg-root? structural?
+belief-blind?]`. Canonical means
 α-renamed to `?0 ?1 …` in first-occurrence order, **repetition-preserving**, with a map
 back to the caller's names — so `(P ?x)` and `(P ?y)` share an entry while `(P ?x ?x)`
 and `(P ?x ?y)` do not. Neither existing renaming would do: `res/goal-key` collapses
@@ -937,7 +1004,9 @@ builds an *index* key, where each `_` is a fresh wildcard — but `unify` binds 
 chases it, so `(P _ _)` fails against `(P A B)` exactly as `(P ?x ?x)` does. All three
 retrieval-strategy vars are in the key rather than assumed away, so a cache cannot make
 `retrieval_completeness_test` or `structural_index_test`'s differential oracle compare
-one path's answers against themselves.
+one path's answers against themselves. `res/*belief-blind*` rides the key for a sharper
+version of the same reason: a `CxEverything` read and an ordinary one ask the same
+literal at the same context and must never be served each other's answers.
 
 Answers are stored in canonical space and renamed on the way out — **values as well as
 keys**, since a literal whose two variables unify carries a canonical name in the value
@@ -1005,7 +1074,7 @@ hand it a view the clock has left.
 
 `literal-cache/*enabled*` is the toggle — a cost decision that must never change the
 answer set, the same claim `plan/*enabled*` makes and the same way it is checked: the
-suite is a gate in both positions. `stats` reports `{:size :hits :misses :clock}` and
+suite is a gate in both positions. `stats` reports `{:size :limit :hits :misses :clock}` and
 `clear-cache` drops a KB's entries.
 
 One reader opts out of it, and it is the reader with no repeat to serve: a transitive
@@ -1017,13 +1086,65 @@ reaches the neighbour probe and not everything under the walk. A walk's repetiti
 held where it is instead, in the closure answers and the search step's reach memo
 ([caches.md](caches.md)).
 
+### There is no cross-query subgoal table, and that is a measurement
+
+A table of `solve-goal` answers — keyed `[canonical goal, context, prover set]`, holding
+the answers with their supports, stamped with the same change clock — would be **sound**.
+Every mutation that could move an answer moves that clock: the two store choke points,
+every mutating `jtms` entry point (so a relabel, a defeat and a premise change are all in
+it) and a watch on the taxonomy's own atom, so a belief change and a `genlCx` edge both
+retire the whole table (`observe/note-change`). The prover set belongs in the key for the
+reason above — a cost-capped answer must not be served to an uncapped ask — and a bounded
+run stores nothing, on `literal-cache/storing`'s discipline.
+
+What such a table is not is **hit**. `lein bench-subgoal` counts every registry dispatch
+over the fables' question set, the shipped worked examples, a `query`/`prove`/`escalate`
+pass that does expand rules, one render of the inference debugger, and a koinii
+conversation — then replays the sequence with a prototype table switched on and off in one
+JVM, the two arms interleaved:
+
+| | calls | solves | distinct | repeat in a call | across calls | across, clock unmoved |
+|---|---|---|---|---|---|---|
+| the fables' questions | 12 | 284 | 284 | 0.0% | 0.0% | 0.0% |
+| the worked examples | 17 | 51 | 34 | 33.3% | 0.0% | 0.0% |
+| `query` / `prove` / `escalate` | 14 | 85 | 45 | 44.7% | 2.4% | 2.4% |
+| one debugger render | 4 | 20 | 4 | 60.0% | 20.0% | 20.0% |
+| **the sequence, once** | **47** | **440** | **361** | **15.2%** | **2.7%** | **2.7%** |
+| the identical sequence twice | 94 | 880 | 361 | 15.2% | 43.8% | 43.8% |
+| a koinii conversation | 7 | 7 | 2 | 0.0% | 71.4% | 14.3% |
+
+The repetition is **inside** one call, not across calls — 15.2% against 2.7% — and what
+is counted here is already what the claimed-key set let through, since the node engine
+drops a converging node before it ever reaches the leaf. The replay prices the 2.7%:
+
+| replayed | table off | table on | |
+|---|---|---|---|
+| one pass, every question asked once | 21.0 ms | 20.1 ms | 1.05× |
+| five passes, nothing written between | 83.4 ms | 57.5 ms | 1.45× |
+| five passes, one assert between each | 82.2 ms | 81.5 ms | 1.01× |
+
+The middle row is the ceiling: 80% hits and 1.45× over a KB asked the identical question
+set and written to *not once* in between. The bottom row is the shape of the thing — one
+assert and its retraction between passes moves the global clock, retires every entry, and
+takes the cross-query win with it. The 17.9% of hits left in that row are the within-call
+repeats, which is why it reads 1.01× rather than 1.00×. The koinii row says it from the
+other side: a conversation asks one question over and over (71.4% of its solves repeat a
+key) and shares a clock with the earlier ask 14.3% of the time, because a speech act falls
+between.
+
+Coarseness is what does it, and the coarseness is the correctness argument
+(`observe/note-change`): the clock says only *that* something moved, so a reader keyed on
+it re-derives more often than it must and never less. The retrieval cache lives with that
+because a literal is re-asked hundreds of times inside one query; a subgoal is not.
+
 ## Conjunctive query planning (`vaelii.impl.plan`)
 
 A conjunction is commutative — `[(parentOf Tom ?y) (dog ?y)]` and its reverse have
 the same solutions — but it is not equicost. Solved left to right, the first
 literal's matches are each re-driven through the second, so its **fan-out multiplies
-everything after it**. On a measured three-literal join the good order ran 7× faster
-than the bad one.
+everything after it**. On a three-literal join the good order runs several times faster
+than the bad one, and the ratio is the fan-out's rather than a constant: it is a
+property of the relation sizes the join happens to be over.
 
 `plan/order` chooses that order, under **sideways information passing**: a literal is
 never costed once and for all, but under the variables bound at the point it would
@@ -1357,8 +1478,135 @@ The browser renders the same table under "How it would be answered".
 node-selection cost, ceiling-clamped, and that is the sound bound rather than the
 expected one on purpose — a clamped sum wants the quantity that is never too small.
 
-Binding `plan/*enabled*` false runs unplanned, which is how `plan_test` checks that
-every permutation of a conjunction returns the one answer set.
+Binding `plan/*enabled*` false runs the generators unranked, which is how `plan_test`
+checks that every permutation of a conjunction returns the one answer set.
+
+**What the switch turns off is the ranking, and only the ranking.** `plan-pairs` makes
+two decisions and only one of them is cost: the **readiness discipline** — a deferred
+literal placed behind what binds its arguments, the recursive literal pinned last — runs
+whether or not the ranking does, because an order that violates it is not slower but
+illegal. `[(bigEnough ?n) (hasScore ?x ?n)]` with the check ahead of its binder computes
+on nothing and answers empty; a recursive literal ahead of its generators is a rule that
+may not terminate. Neither is a cost, so neither is behind the switch.
+
+**`VAELII_PLAN=0` puts the ranking's claim to the whole suite.** Ranking a conjunction
+is meant to be a cost decision that never changes the answer *set*, the claim
+`VAELII_HIER` makes for retrieval and `VAELII_QUERY_STRATEGY` for goal ordering — so it
+is checked the same way, by running every test unranked and requiring the failing set and
+the assertion count to be identical (`scripts/test-sweeps.sh plan-off`). Twelve
+randomized trials are what `plan_test` affords; every conjunction the suite runs is what
+the sweep affords. A ranking bug is the shape that wants the larger sample: nothing
+throws and an answer set is quietly smaller.
+
+Put to the suite, the claim did not hold unqualified — which is the next section.
+
+### Where the ranking is load-bearing
+
+The claim above is the ranking's own, and running the suite under it found three places
+where the ranking carries more than cost. Each is pinned back to the shipped reader
+(`tu/pinning`, `tu/with-pinned`) rather than standing aside, so every configuration runs
+the same assertions — and each is worth knowing on its own terms.
+
+**A registered evaluatable is placed by the ranking.** `partition-literals` defers the
+fifteen `sentex/deferred-predicates` **by name**, so a predicate registered with
+`add-evaluatable` is an ordinary generator to it; what actually puts one behind its
+binder is `est-bindings` reporting it unselective while its inputs are unbound. Unranked
+and written check-first, the join computes on nothing. (`evaluatable_test`, three tests.)
+
+**Where a theory stops can be an ordering fact.** The event calculus reaches
+`instantBefore` with one end open and the calendar prover declines it. Unranked, that
+literal is reached last with both ends already ground, the clock answers, and a `holdsAt`
+the theory is documented not to reach becomes derivable. (`calendar_test`,
+`inertia-over-computed-moments-…`.)
+
+`plan_test`, `plan_levels_edge_test` and `provers_test`'s registry-costing test pin for
+the plain reason: they measure the ranking, which the switch removes.
+
+**So `VAELII_PLAN=0` is not answer-preserving in general**, and the sweep's claim is the
+narrower one: unranked answers identically everywhere the ranking is not the thing
+supplying an answer, and the exceptions are the pinned tests above rather than a silence.
+
+**A third case was found and fixed rather than pinned**, which is the outcome a sweep
+wants. Incremental forward chaining over a *growing* transitive extent is complete on its
+own account: the chainer re-drives the join when the closure grows (the section below), so
+order independence — the first of the four properties — does not rest on the ranking
+picking the lead that happens to re-drive it. The sweep surfaced that as a live defect in
+the shipped configuration rather than as a difference the switch makes, and neither of the
+two tests that pin the ranking needs a pin for it.
+
+## Seeding a transitive closure (`special/transitive-seeds`)
+
+A declared-`transitive` predicate's closure is **answered, never stored**. `(causes E0
+E2)` is provable the moment both links are in and is never a record — so it is never a
+datum, never on the agenda, and never a trigger. A rule joined to it, `[(does ?a ?act)
+(causes ?act ?e)]`, can reach a closure pair only from its *other* antecedent's trigger,
+which binds the shared variable before the transitive antecedent is asked. When the
+closure grows, nothing put that trigger back:
+
+```
+(transitive causes)
+[(does ?a ?act) (causes ?act ?e)] → (responsibleFor ?a ?e)
+(does A1 E0)  (does A0 E1)  (causes E0 E1)  (causes E1 E2)
+```
+
+`(responsibleFor A1 E2)` needs `(does A1 E0)` joined to the closure pair `(causes E0
+E2)`. Assert the `does` before the second link and its firing has already run against a
+shorter closure; assert it after and the join reaches the whole of it. Twelve of the
+twenty-four orderings derived it and twelve did not.
+
+`subsumption-seeds` states the principle for the taxonomy — *firing the rules keyed on the
+arriving predicate is not the same thing as re-firing the rules the arrival just
+connected* — and `transitive-seeds` is that, one closure over. The closure has **three
+ingredients** and any of them can arrive last, which is the same three-cornered shape
+`deduce-arg-types` / `entail-existing` / `entail-under-edge` have for an argument type:
+
+| arriving last | what goes back |
+|---|---|
+| a **link** `(pred a b)` | the believed facts mentioning a term whose reach just grew — `a` and everything behind it |
+| the **declaration** `(transitive pred)` | every believed fact on a partner functor: the whole closure appeared at once |
+| the **rule** | the same, via `transitive-rule-seeds` — a rule joined over the store from the transitive side sees the stored links only, an open goal on an answered closure having no record to lead from |
+
+The seeds are the **partner triggers, not the links**: re-seeding the `pred` facts buys
+nothing, since their own trigger position joins the other antecedent at the term the link
+already names, which is the pair the run made anyway.
+
+Both arms are off unless some rule takes a `pred` antecedent, and the link arm reads the
+inverted index's posting per left end rather than any functor extent — so a KB whose
+transitive facts feed no rule pays two lookups and reads nothing, which is what keeps
+`assert_cost_test`'s per-family read budgets where they were.
+
+The **removal** side needs no twin: a retracted link withdraws the closure pairs that
+rested on it through the justifications the firings recorded, which is ordinary TMS
+business rather than a reachability question.
+
+### Only for a new conclusion
+
+A rule that **concludes** the transitive predicate is the case the seeding has to be gated
+for, and it is the reason the derived arm in `place-fact-conclusion` reads `(when new?
+…)` where the `genl` and `genlCx` arms beside it do not. Those seed facts that cannot
+re-derive the edge which seeded them, so a re-derivation there costs one wasted pass and
+converges. This one seeds the partner triggers of the rules joined to the predicate —
+which, for a recursive rule, are exactly the facts whose firing concluded the link. So a
+re-derivation would re-seed its own trigger, that trigger would re-derive the same pair,
+and the agenda in `chain` is a plain queue with no dedup: two `edge` facts under
+
+```
+(transitive ancestorOf)
+[(parentOf ?x ?y) (ancestorOf ?y ?z)] → (ancestorOf ?x ?z)
+```
+
+run to `:max-derivations` and truncate, on a KB whose whole content is three derivable
+pairs.
+
+Gating on `new?` costs nothing the seeding is for: a re-derivation adds a *justification*
+rather than a link, so the closure it would re-drive the join over is the one the join
+already ran against. Pinned by
+`chaining_contracts_test/a-recursive-rule-concluding-a-transitive-predicate-converges`,
+which truncates without it.
+
+Witnessed by
+`order_independence_test/a-rule-joined-to-a-growing-transitive-extent-is-order-independent`
+over every linear extension of the three ingredients.
 
 ## Deferred antecedents in a forward join
 
@@ -1383,31 +1631,35 @@ registry rather than growing a second evaluator that could drift from it:
   unchanged), `(lessThan 1995 1970)` yields `[]` (the join dies, correctly), and
   `(evaluate ?sum (+ 1 2))` yields `[{?sum 3}]` — the extension case falls out of the
   same call.
-- **It carries no handle into the justification.** Every other antecedent contributes
-  the handle of the fact that satisfied it; a computed one has no fact to name.
-  Inventing a placeholder would be worse than omitting it — `retract!` withdraws a
-  conclusion by walking its justifications' antecedents, so a handle naming nothing
-  retractable is support that can never be taken away. Omitting it is also
-  *sufficient*: the computed literal's truth is a function of the bindings, and those
-  bindings come from the fact handles that **are** listed, so dropping any
-  contributing fact still withdraws the conclusion. A firing whose antecedents are all
-  computed lists the rule handle alone, which is the honest reading of it.
-- **It contributes no context either**, for the same reason: a computed literal holds
-  as arithmetic rather than as knowledge asserted somewhere, so it constrains
-  `maximal-common-descendant-contexts` not at all, and the conclusion is placed by the
-  real facts and the rule.
-- **The two sides ask at different contexts, and for two provers that is a different
+- **It carries into the justification whatever its answer was read from, and no
+  more.** For the arithmetic literals that is nothing, and nothing is the honest
+  reading: `(lessThan ?a ?b)` is a function of the bindings, those bindings came from
+  the fact handles that **are** listed, and dropping any contributing fact still
+  withdraws the conclusion — so a firing whose antecedents are all arithmetic lists the
+  rule handle alone. Inventing a placeholder there would be worse than omitting it:
+  `retract!` withdraws a conclusion by walking its justifications' antecedents, so a
+  handle naming nothing retractable is support that can never be taken away. For a
+  prover whose answer moves with the store it is *not* nothing — see "What a computed
+  answer rests on" below.
+- **It contributes context in exactly the same measure.** An arithmetic literal holds
+  wherever its inputs do, so it constrains `maximal-common-descendant-contexts` not at
+  all and the conclusion is placed by the real facts and the rule. A computed answer
+  resting on stored declarations contributes their handles, so placement reads their
+  contexts too and the conclusion may only live where they can be seen.
+- **The two sides ask at different contexts, and for one prover that is a different
   answer.** `chain/solve-deferred` asks the registry at the wildcard `'?ctx` — nothing
   arithmetic could fail to be visible — while `res/solve-deferred` passes the caller's
   own context. For `evaluate` and the comparisons that is the same answer either way,
-  since neither reads anything stored. It is not the same answer for the two deferred
-  provers that *do* read the KB: `DifferentProver` reads the equality partition, so a
-  forward join sees every merge rather than the ones the conclusion's placement context
-  sees, and `QuantityProver` reads `dimensionOf` / `conversionFactor`, so it sees every
-  context's unit table rather than one cone's. There is no context-scoped forward
-  path for either. A KB that needs the two to agree states its equality and its unit
-  declarations in a context every reader sees ([quantity.md](quantity.md),
-  [equality.md](equality.md)).
+  since neither reads anything stored. It is not the same answer for the deferred
+  provers that *do* read the KB. `QuantityProver` reads `dimensionOf` /
+  `conversionFactor` at the wildcard, so a forward join sees every context's unit table
+  rather than one cone's — but the rows it read are then in the firing's antecedents, so
+  placement refuses a conclusion no context can see them all from, and the reading
+  cannot outrun the placement. `DifferentProver` reads the equality partition and
+  reports no support, so a forward join sees every merge rather than the ones the
+  conclusion's placement context sees, and there is no context-scoped forward path for
+  it. A KB that needs the two to agree states its equality declarations in a context
+  every reader sees ([equality.md](equality.md), [quantity.md](quantity.md)).
 - **Its inputs must be bound when the join reaches it.** `sentex/canonicalize-rule`
   holds deferred literals to the end of the canonical antecedent order, which
   guarantees it for any rule whose deferred variables some generator binds. A literal
@@ -1429,6 +1681,98 @@ purpose, so that the O(n²) ordered pairs are never materialized. It derives not
 forward, and correctly so — `query` at a depth answers it by backward chaining.
 Restating the same antecedents as a forward rule is what shows the deferred join at
 work, and is what `deferred_forward_test` does.
+
+## What a computed answer rests on
+
+A prover that answers out of *stored facts* poses the question a deferred literal does
+not: the answer moves when the KB moves, and no antecedent of the rule names the facts it
+moved with. Four ship in this state, and the last two are in the default registry:
+
+| prover | answers | reads |
+|---|---|---|
+| `stp/TemporalDistanceProver` | `temporalDistance` | every `temporalDistance` in the network, and the unit table |
+| `duration/DurationProver` | `totalDuration`, `overlapDuration` | `length`, the Allen relations, `startOf`/`endOf`, the metric constraints, the unit table |
+| `provers/QuantityProver` | the five measure comparisons | `dimensionOf`, `conversionFactor` |
+| `provers/TransitivePredicateProver` | every `(transitive P)` predicate this KB declares | the believed `P` edges its walk crosses — sub-predicate spellings and `inverse` partners included |
+
+A forward firing that named none of those would keep its conclusion after the row behind
+it was retracted — belief resting on a reason nothing can take away, which is the failure
+[nmtms.md](nmtms.md) rules out everywhere else.
+
+**`provers/SupportingProver` is the seam that closes it.** A prover implements it beside
+`Prover` and gains three methods: `support-functors` (what it answers with support),
+`support-sources` (what it reads), and `solve-with-support`, which answers exactly what
+`solve` answers with each solution paired with the handles it was read from. An
+out-of-tree prover registered through `add-prover` is welcome to implement it and gets the
+same treatment; one that does not is taken at its word — its answer reads nothing stored,
+so no retraction can invalidate it.
+
+Three things follow, and they are the same three the qualitative and the inherited
+antecedents already get ([qcn.md](qcn.md), [inherit.md](inherit.md)):
+
+- **The firing carries the handles**, so the ordinary relabel withdraws the conclusion
+  when any of them goes, `why` names the real reasons, and the conclusion is capped by the
+  weakest of them like any other antecedent.
+- **The answer is local.** A metric bound rests on the constraints of the shortest chain
+  between the two instants, not on the whole network — so retracting a constraint the
+  chain never travelled withdraws nothing. (Where a chain cannot be walked, the whole
+  network's supporters stand in: a sound superset, at the cost of locality in the one case
+  a local answer is not available.)
+- **A change to a source re-joins the rule.** `conversionFactor` is not connected to
+  `quantityGreaterThan` by any predicate walk, and the facts that would have triggered the
+  rule have already arrived — so `chain/fire-rules-for` puts a datum on a
+  `support-sources` predicate in front of the rules carrying a `support-functors`
+  antecedent and re-joins them in full, exactly as it does for a `(symmetric P)`
+  declaration. That is what makes the firing independent of whether the table or the facts
+  came first.
+
+**The transitive one carries no roster, and that is the one difference.**
+`support-functors` and `support-sources` are constants on a prover, and which predicates
+`TransitivePredicateProver` answers is whatever a KB declared `(transitive P)` of — a
+taxonomy read. So both its sets are empty and the two questions a roster would settle are
+asked of the taxonomy instead: `chain/transitive-antecedent?` for which antecedent the
+join solves by walking, `chain/transitive-rejoin-rules` for which rules an arriving edge
+owes a re-join. `solve-with-support` is reached through `satisfies?` and needs no roster
+at all, so the seam carries the part that matters.
+
+What its answer rests on is **one chain of edges**, found by a breadth-first pass with
+parent pointers out from the bound end — so the support is a shortest path's worth rather
+than a whole reach's, and a hop the walk never crossed withdraws nothing. Every spelling
+of a hop it *did* cross is named: an edge written both as `(P x y)` and as an inverse
+`(Q y x)` contributes both handles, since choosing one would decide the justification by
+which arrived first. The closure's answers are unioned with the matcher's, so a stated
+pair is still a stated pair; both routes name the same one handle for a direct edge, and
+the TMS set-dedups the duplicate justification.
+
+Only the **bounded** arms answer here, exactly as they do for a plain ask: an antecedent
+with both ends open contributes nothing from the walk (the closure is quadratic in a
+chain's length — [taxonomy.md](taxonomy.md)), so a rule that wants the closure binds one
+end with an earlier antecedent. And a rule that **concludes** on the predicate it would
+walk takes the matcher alone (`chain/walks-its-own-conclusion?`): its conclusions land
+inside the fixpoint, so which chain is shortest would depend on firing order, and such a
+rule is the closure written out anyway. A plain `ask` is unchanged — a forward-derived edge
+is a hop there as it always was.
+
+Two datums re-join such a rule rather than triggering it: an **edge**, whose licensed pairs
+the trigger index cannot offer, and the `(transitive P)` **declaration** itself, which is
+what makes the antecedent a walk and arrives after the edges it walks.
+
+Such an antecedent is joined **per reader context** rather than at the wildcard, since a
+metric network is what one reader sees up its `genlCx` cone and a wildcard read would
+close one network out of every context's constraints at once — and a hop is visible or not
+from where it is read, so the same argument holds a transitive walk. And it is **union, not
+replacement**: a `temporalDistance` is a stored fact as well as a derived bound, so the
+ordinary matcher still runs and nothing that matched before stops matching. An answer with
+*empty* support is dropped on that path rather than answered groundlessly — the metric
+diagonal is the case, nil by arithmetic and licensed by no constraint.
+
+The over-approximation is deliberate and is in one direction: a reading taken over a *set*
+of declarations names all of them, so retracting one of two agreeing rows withdraws a
+conclusion the survivor would still license. Naming only the survivor would make belief
+depend on which row arrived first, which is the worse of the two.
+`computed_support_test` pins all of it, and `transitive_chain_test` pins the walk's half —
+two hops fired across, `why` naming the edges, the middle hop's retraction and its defeat
+taking the far conclusion and leaving the near one, and both arrival orders.
 
 ## Dotted rest patterns
 
@@ -1577,6 +1921,15 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   binding satisfies `S`, which is what lets `(unknown (thereExists ?x S))` say "there
   is no `x` such that S". One answer or none, ground/closed only. `:compute`, 100. See
   [naf.md](naf.md).
+- **ForallProver** — `(forall ?y (implies B H))`, desugared to the nested NAF
+  `(unknown (thereExists ?y (and B (unknown H))))` and handed **back** to the registry,
+  so the goal and the rule antecedent are answered by one mechanism. Closed only.
+  `:compute`, 100. See [naf.md](naf.md).
+- **ClosedExtentProver** — a ground `(not (P …))` where `P`'s extent is declared complete
+  from the asking context: the positive goal runs through the registry and no answer
+  *is* the negative answer. Ground only, for `unknown`'s reason. `:compute`, partial
+  (50) — it augments the stored `(not (P a))` `FactProver` answers. See
+  [naf.md](naf.md).
 - **ArgTypeProver** — infers an individual's type from *how it is used*: if a
   believed relation puts `x` in a position that `(arg P n T')` constrains, then
   `x` is a `T'` (and, by genl, every supertype). So `arg` reads two ways — a
@@ -1596,7 +1949,7 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   already answers. See [argtypes.md](argtypes.md).
 - **FactProver** — index matches (`matches-visible`). Partial (50).
 
-Eighteen in all, and `provers/registry` is the live list — an application's own
+Twenty in all, and `provers/registry` is the live list — an application's own
 provers sit beside them in the same atom.
 
 **No prover expands a rule.** Rule search is `core/query`'s, at a depth the caller
@@ -1641,12 +1994,15 @@ which is what lets the join planner (`vaelii.impl.plan`) run a generator that bi
 inputs first: so a computed literal **joins** in a conjunctive `query`, and **discharges a
 rule antecedent** inside a `query` with a `:max-depth` — the node engine's leaf being the
 registry — where it reads as a `:leaf` of a `{:proof? true}` derivation and the derived
-conclusion follows the belief of the facts that fed it. Two paths do not reach a wrapped
-fn, both by the existing engine's design rather than the wrapper's: the DFS `prove`, whose
-leaf is the stored facts and not the registry, and forward materialization, which pins
-only the built-in `vaelii.impl.sentex/deferred-predicates` (a closed set) into the
-antecedent order — so a custom evaluatable is not a forward-chained deferred literal and
-holds no stored JTMS justification of its own.
+conclusion follows the belief of the facts that fed it. **Forward materialization reaches
+it too**: `chain/deferred-antecedent?` reads the KB's registered evaluatable functors
+(`provers/evaluatable-preds`, cached per run in `chain/*evaluatable-preds*`) and computes
+such an antecedent through the registry exactly as it computes a built-in
+`vaelii.impl.sentex/deferred-predicates` literal, with `provers/evaluatable-est-override`
+pinning it after its binders — so a wrapped fn does hold a stored JTMS justification, and
+`ask` agrees with `query` on a forward rule with an evaluatable antecedent. One path does
+not reach it, by the engine's design rather than the wrapper's: the DFS `prove`, whose
+leaf is the stored facts and not the registry.
 
 **The RCC-8 prover** (`vaelii.impl.space/spatial-prover`) is the worked example of that
 seam: qualitative spatial reasoning over the generic constraint-network engine in
@@ -1671,8 +2027,10 @@ continuation. `ask-within` / `prove-within` return a partial-result contract
 (`:results` / `:status` `:complete`/`:timeout`/`:capped` / `:resume`), and `resume`
 continues it. The budget carries `:max-ms` (wall-clock, checked between
 solutions), `:max-results`, `:max-cost` (a `cost`-tier ceiling — run only the cheap
-tiers under pressure), and, for `prove-within`, `:max-depth` (rule-expansion
-depth). `prove` is the one eager engine, made resumable by returning its
+tiers under pressure), and, for `prove-within`, `:max-depth` (rule-expansion depth) and
+`:max-term-growth` (the DFS's other termination guard, whose absence is
+`res/default-max-term-growth` rather than no ceiling). `prove` is the one eager engine,
+made resumable by returning its
 unfinished DFS goal stack (`res/prove-from`). Full design: [anytime.md](anytime.md).
 
 ## JTMS → NMTMS
@@ -1683,9 +2041,10 @@ forced OUT. Belief is a **relabelling**, recomputed from the current justificati
 and defeated set rather than accumulated, so it is order-independent: a defeater
 withdraws its target whether it arrives before or after, and removing the defeater
 revives it. The relabel is *scoped to the affected region* with the rest of the graph
-held fixed; the whole-graph `jtms/relabel` survives for one caller, `recover`, which
-rebuilds the network from the durable store and so has no smaller region to start from
-([nmtms.md](nmtms.md)). This is the non-monotonic upgrade — assumption strengths, the
+held fixed, and the whole-graph `jtms/relabel` has no engine caller: `recover` composes
+the region relabels its own rebuild runs (`core/rebuild-tms`), because a region relabel
+over the affected closure equals a global one. What `relabel` is for is the differential
+oracle ([nmtms.md](nmtms.md)). This is the non-monotonic upgrade — assumption strengths, the
 defeated set, and the soft-contradiction layer that fills it are documented in
 [nmtms.md](nmtms.md).
 

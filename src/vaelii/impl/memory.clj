@@ -175,16 +175,23 @@
   The binding names the backend it is for, because a dynamic binding is per *thread*,
   not per backend: a write this thread makes to any other `MemoryKvBackend` while the
   load runs — a second KB's index, a chaining callback asserting elsewhere — lands on
-  that backend's own atom (`txn-for`), never on the loaded one's transient."
+  that backend's own atom (`txn-for`), never on the loaded one's transient.
+
+  **The accumulator's life is the batch's, and no longer.**  `with-bulk-writes` clears
+  the volatile as it installs, so the binding a body conveyed somewhere — a future, a
+  lazy seq realized afterwards — finds nothing to write on and takes the atom, which is
+  where a write outside the batch belongs.  A transient reached after its `persistent!`
+  is not a slow write but a thrown one, and on a path nobody expected to be able to throw."
   nil)
 
 (defn- txn-for
   "The bulk transient for the backend whose state atom is `state`, or nil — nil too
   when the bound load is over another backend, whose transient must not take this
-  backend's writes."
+  backend's writes, and nil once the batch has installed its accumulator (`*bulk-txn*`)."
   [state]
   (when-let [b *bulk-txn*]
-    (when (identical? (:state b) state) (:txn b))))
+    (when (identical? (:state b) state)
+      (when (some? @(:txn b)) (:txn b)))))
 
 ;; ---- the argument-column trie --------------------------------------------
 ;; The predicate-scoped argument roots (`[:argument-root pred pos term]`) are the one
@@ -280,12 +287,20 @@
     tree))
 
 (defn- arg-op
-  "Fold one argument-root write op into the trie `tree`."
+  "Fold one argument-root write op into the trie `tree`.
+
+  All four set-shaped ops, because a batch and the protocol method may not disagree about
+  what one op means: `kv-put` and `kv-delete` route an argument-root key to the trie, so
+  `[:put …]` and `[:delete …]` inside a `kv-batch` have to reach the same two folds.  A
+  flat-map backend answers both of them for this family with no arm of its own, so leaving
+  them out here is one adapter refusing a batch the others apply."
   [tree [op k a]]
   (let [pred (nth k 1) pos (nth k 2) term (nth k 3)]
     (case op
       :add-to-set      (arg-tree-add    tree pred pos term a)
       :remove-from-set (arg-tree-remove tree pred pos term a)
+      :put             (arg-tree-put    tree pred pos term a)
+      :delete          (arg-tree-delete tree pred pos term)
       (kv/unknown-op! op))))
 
 (defn- arg-entries
@@ -486,6 +501,49 @@
   (arg-agnostic-members [_ pos term] (arg-union (arg-state-key @state) pos term))
   (arg-agnostic-count   [_ pos term] (count (arg-union (arg-state-key @state) pos term))))
 
+(defn bulk-writes*
+  "`with-bulk-writes`' body as a thunk — the macro is a wrapper over this, so the
+  accumulator's whole life is one function's local and nothing about it is spliced into
+  a caller's code.
+
+  Three steps, in this order, and each is what makes the batch's accumulator **private**
+  to the batch:
+
+  - the state map is read **once**, into `base`, and the transient is built off that
+    value.  `base` is what the install is checked against, so the batch knows what it
+    was accumulating over rather than assuming;
+  - the volatile is cleared before the install, so the binding a body conveyed
+    elsewhere (a future, a lazy seq realized later) finds no accumulator and takes the
+    atom — the correct home for a write outside the batch, and not a `persistent!`-ed
+    transient that would throw;
+  - the install is a **compare-and-set** against `base`, not a `reset!`.  The atom is
+    per *space* and shared by every index store over that space, so a `reset!` would
+    silently discard anything that reached it while the batch ran — a second bulk load
+    stacked over this one being the way to get there without two threads.  Under the
+    single-writer contract nothing does, which is exactly why the check is affordable:
+    it is one CAS per batch, and it fires only where an overwrite would lose data.
+
+  A failed install is `:stacked-batch`.  It is raised only when the body itself
+  returned — a body that threw has a failure of its own to report, and replacing it with
+  this one would hide it."
+  [bk f]
+  (let [state (:state bk)
+        base  @state
+        txn   (volatile! (transient base))
+        done  (volatile! false)]
+    (binding [*bulk-txn* {:state state :txn txn}]
+      (try
+        (let [r (f)] (vreset! done true) r)
+        (finally
+          (let [m (persistent! @txn)]
+            (vreset! txn nil)
+            (when (and (not (compare-and-set! state base m)) @done)
+              (throw (ex-info (str "a bulk load's index state moved while the batch was"
+                                   " accumulating, so installing the batch would discard"
+                                   " whatever moved it — one bulk load at a time over a"
+                                   " space, on the one writing thread")
+                              {:type :stacked-batch})))))))))
+
 (defmacro with-bulk-writes
   "Run `body` with `backend`'s index writes accumulated on one TRANSIENT of its state
   map, persisted back in a single step at the end — the write-side fast path for a bulk
@@ -493,12 +551,12 @@
   instead of a `swap!` per fact).  A no-op wrapper unless `backend` is a MemoryKvBackend,
   so a non-memory store (disk) just runs `body` on its own batched path.  See `*bulk-txn*`
   for the read-staleness contract: a positive/monotonic, distinct load only; a corpus
-  with `(not …)` facts must `rebuild-opposed!` after."
+  with `(not …)` facts must `rebuild-opposed!` after; and `bulk-writes*`, which this
+  delegates to, for what keeps the accumulator the batch's own."
   [backend & body]
   `(let [bk# ~backend]
      (if (instance? vaelii.impl.memory.MemoryKvBackend bk#)
-       (binding [*bulk-txn* {:state (:state bk#) :txn (volatile! (transient @(:state bk#)))}]
-         (try ~@body (finally (reset! (:state bk#) (persistent! @(:txn *bulk-txn*))))))
+       (bulk-writes* bk# (fn [] ~@body))
        (do ~@body))))
 
 (defn memory-kv-backend

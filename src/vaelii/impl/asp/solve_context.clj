@@ -189,7 +189,10 @@
                            (when (seq believed)
                              (str "; believed sentexes in " (pr-str believed)))
                            (when (seq orphaned)
-                             (str "; no labelingOf marker on " (pr-str orphaned))))
+                             (str "; no labelingOf marker on " (pr-str orphaned)))
+                           " — a solve clears only the inert content it wrote, so retract"
+                           " what is believed there, retract the unmarked contexts and"
+                           " their genlCx edges, or label into a different Into")
                       {:type :labeling-run-blocked
                        :into into-cx :base base
                        :believed believed :orphaned orphaned})))))
@@ -266,7 +269,9 @@
 (defn- ground-heads
   "The distinct ground choice heads: each assumptionRule's antecedents proved over the
   facts believed in `base` (a scoped, belief-filtered join), its head substituted with
-  each solution's bindings.  The head is taken to be a positive literal.
+  each solution's bindings.  The head must be a positive literal — `build` refuses a
+  negated one (`:choice-head-not-positive`), since the labeling round-trip through
+  `(not head)` would flip its polarity.
 
   A rule's `exceptWhen` guard is honored per binding, evaluated in `base` — grounding
   is a fourth consumer of a rule's firing beside the three chainers, and it makes the
@@ -512,6 +517,16 @@
   return a different labeling."
   [kb base]
   (let [heads (nm/sort-by-content-key nm/print-key compare (ground-heads kb base))]
+    ;; A choice head must be a **positive** literal.  A labeling persists `(head)` for a
+    ;; chosen-true choice and `(not head)` for a chosen-false one, and `classify`'s
+    ;; `polarity-table` reads that back by unwrapping one `not` — so a negated head
+    ;; `(not X)` would round-trip as its positive core `X` with the polarity flipped, and
+    ;; `classify` would emit a statement about a non-head (docs/solving.md).  Refuse it
+    ;; here, before any world is written, rather than misclassify it silently.
+    (when-let [neg (seq (filter #(and (seq? %) (= 'not (first %))) heads))]
+      (throw (ex-info (str "a choice head must be a positive literal; negated assumptionRule "
+                           "head(s): " (pr-str (vec neg)))
+                      {:type :choice-head-not-positive :negated (vec neg) :base base})))
     (when (seq heads)
       (let [head->id (into {} (map-indexed (fn [i s] [s (inc i)])) heads)
             content  (into {} (map (fn [[s id]] [id {:sentence s :context base}])) head->id)
@@ -718,8 +733,10 @@
   (let [labelings (labeling-contexts kb into-cx)
         klass     (class-context into-cx)]
     (when (believed-extent? kb klass)
-      (throw (ex-info (str "the classification under " klass
-                           " cannot be replaced; believed sentexes in " klass)
+      (throw (ex-info (str "the classification under " klass " cannot be replaced — "
+                           klass " holds believed sentexes, and a classify sweep clears"
+                           " only the inert content it wrote.  Retract what is believed"
+                           " there, or classify into an Into other than " into-cx)
                       {:type :labeling-run-blocked :into into-cx
                        :believed [klass] :orphaned []})))
     (if (empty? labelings)

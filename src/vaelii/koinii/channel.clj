@@ -1,6 +1,6 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
-(ns vaelii.impl.koinii.channel
+(ns vaelii.koinii.channel
   "Koinii's core coordination library: the async assert / reply loop an
   agent runs over a shared channel, with the KB as the medium.  An agent JOINS its own
   context, SUBSCRIBES to the channel over the change feed, and REPLIES to what it sees —
@@ -46,7 +46,7 @@
   (:require [taoensso.trove :as trove]
             [vaelii.client :as c]
             [vaelii.core :as v]
-            [vaelii.impl.koinii.identity :as id]))
+            [vaelii.koinii.identity :as id]))
 
 ;; ---- D7: the single-writer total order -----------------------------------
 
@@ -229,11 +229,17 @@
       {:token tok :medium :local :stop (fn [] (v/unwatch kb tok))}))
   (-query      [_ goal ctx]   (v/query kb goal ctx))
   (-feed-open  [_ _goal _ctx]
-    (throw (ex-info "koinii: an in-process medium has no cursor feed — catch-up is a
-                    wire-only concern; there is no ring to fall off and nothing to resume"
+    (throw (ex-info (str "koinii: an in-process medium has no cursor feed — catch-up is a"
+                         " wire-only concern, and there is no ring here to fall off."
+                         "  Subscribe to this medium for a live feed, or take a wire"
+                         " medium (koinii.channel/wire over a daemon connection) for a"
+                         " cursor")
                     {:type :koinii/no-wire-feed})))
   (-feed-poll  [_ _token _cursor _opts]
-    (throw (ex-info "koinii: an in-process medium has no cursor feed"
+    (throw (ex-info (str "koinii: an in-process medium has no cursor feed — nothing here"
+                         " issues a poll token, so there is none to resume from."
+                         "  Subscribe to this medium, or take a wire medium"
+                         " (koinii.channel/wire over a daemon connection)")
                     {:type :koinii/no-wire-feed}))))
 
 (defn wire
@@ -251,30 +257,149 @@
 
 ;; ---- join: an agent bound to its identity, context, and the channel ------
 
+(defn- agent-context-owners
+  "The agents `ctx` is the own context of, in content order — read off the MARK every
+  koinii placement writes into a context it places (`id/agent-context-mark`), and empty
+  for a context nobody has placed.
+
+  One read, because the mark is a positive stored fact: it does not change with what else
+  has landed in the lattice, with the vocabulary a placement rooted at, or with which
+  route placed it.  Deterministic too — the match is a SET, so the owners are ordered by
+  content rather than by the order the index enumerated them.  Two ids mapping to one
+  context (`Atlas` and `AgentAtlas` both give `CxAtlas`) is the only way to have more
+  than one, and it is a collision worth naming rather than halving."
+  [medium ctx]
+  (into (sorted-set)
+        (map (comp last :sentence))
+        (-matching medium (id/agent-context-mark ctx '?agent) ctx)))
+
+(defn- check-channel-parent
+  "Throw unless `parent` is a coordination channel — the standard `assert` holds for the
+  context a write lands IN, held here for the context a join grafts UNDER.  `join` widens
+  what `parent` sees: every cone read of `parent` returns the joining agent's claims from
+  then on, and with `belief/believe-own` in force they become what `parent`'s own agent
+  is proved to believe.  So a parent is refused (`:koinii/not-a-channel`) when it is
+
+  - the admin registry, which governs the agents rather than hosting them: a registry
+    that saw an agent's claims would read them as its own ground truth about who is who;
+  - the joining agent's own context, which a join LIFTS and so cannot also lift under;
+  - a context already placed as an agent's own, which the placement mark says outright
+    (`agent-context-owners`).
+
+  **An unmarked context is admissible, and that is the deliberate direction.**  A channel
+  carries no mark — there is nothing for a channel to record and nobody to record it —
+  so refusing what is unmarked would refuse every deployment there is.  The cost is that
+  a context placed by a build that wrote no mark reads as unmarked: the door refuses what
+  it is told, not what it infers, and a placement is idempotent, so the mark lands the
+  next time that agent joins.  Recognition therefore reaches exactly as far as the
+  placements a KB records — the same cooperative limit `authenticate` states, rather than
+  a shape read off the lattice that would answer differently as the lattice grew."
+  [medium parent agent-id]
+  (let [owners (agent-context-owners medium parent)
+        why    (cond
+                 (= parent id/registry-context)
+                 "the admin registry governs agents rather than hosting them"
+
+                 (= parent (id/context-for agent-id))
+                 "an agent's own context is what a join lifts, never what it lifts under"
+
+                 (seq owners)
+                 (str "that context is already placed as " (first owners) "'s own"))]
+    (when why
+      (throw (ex-info (str "koinii: " agent-id " cannot join under " parent
+                           " — a channel is a context agents are lifted INTO, and " why)
+                      {:type :koinii/not-a-channel :agent agent-id :parent parent
+                       :owners owners})))))
+
 (defn join
   "Bind `agent-id` to `medium` and the coordination `channel` (koinii design D8).  The
   agent's own context (`id/context-for` — `AgentAtlas` -> `CxAtlas`) is lifted under the
   channel so the channel sees its moves (`(genlCx channel CxAtlas)`) and rooted so it
   speaks the reply vocabulary (`(genlCx CxAtlas CxSpeechActs)`, override with
-  `:speaks`).  Both edges are monotonic topology, idempotent, so re-joining is a no-op.
+  `:speaks`), and marked as the agent's own (`id/agent-context-mark`) so a later join can
+  tell it from a channel.  All three are monotonic and idempotent, so re-joining is a no-op.
   Returns the agent handle — `{:medium :agent :context :channel}` — threaded first into
   every call below, the network mirror of core's explicit-`kb` API.
+
+  **The channel must be a channel** (`:koinii/not-a-channel`): grafting onto the admin
+  registry, onto the agent's own context, or onto a context already placed as an agent's
+  own is refused, because the lift widens what the PARENT sees rather than where the agent
+  writes.  A context is another agent's because a placement said so, never because of how
+  it is spelled or wired — `check-channel-parent`, and `id/agent-context-mark`.
 
   Requires the `channel` and `CxSpeechActs` already loaded — the deployment's
   job — so the `targetFollowingPredicate` marks that make a reply cascade are in force."
   ([medium channel agent-id] (join medium channel agent-id nil))
   ([medium channel agent-id opts]
-   ;; `identity`'s placement, written through the MEDIUM rather than straight to a KB —
-   ;; for a `wire` handle that is the daemon, the single writer
-   (let [actx (id/place-agent-context #(-assert medium %1 %2 %3)
-                                      channel agent-id (:speaks opts 'CxSpeechActs))]
-     {:medium medium :agent agent-id :context actx :channel channel})))
+   ;; the write boundary, enforced at the door rather than trusted to the destination:
+   ;; joining AS the admin registry (`AgentRegistry` -> `CxRegistry`) is refused here,
+   ;; where `place-agent-context` would otherwise make that context writable
+   (id/check-registry-write! agent-id (id/context-for agent-id))
+   (let [roots (:speaks opts 'CxSpeechActs)]
+     ;; and the other end of the same edge: the context the agent is grafted UNDER
+     (check-channel-parent medium channel agent-id)
+     ;; `identity`'s placement, written through the MEDIUM rather than straight to a KB —
+     ;; for a `wire` handle that is the daemon, the single writer
+     (let [actx (id/place-agent-context #(-assert medium %1 %2 %3) channel agent-id roots)]
+       {:medium medium :agent agent-id :context actx :channel channel}))))
+
+(def ^:private agent-first-acts
+  "The speech-act predicates whose FIRST argument names the speaker — every act
+  `speaker-of` / `responder-of` reads a `?agent` off (`queries` originates, the rest
+  respond, the two ballots are counted).  A sentence with one of these functors is a
+  claim ABOUT who spoke, so `assert` refuses one that names anyone but the handle's own
+  agent: otherwise `speaker-of` (read off the sentence) and the `:creator` provenance the
+  door stamps would disagree, and an agent could sign another's name."
+  '#{queries answers endorses justifies disputes votesFor votesAgainst notUnderstood refuse})
+
+(defn- check-write-doors
+  "Throw unless `handle`'s agent may write `sentence` under `opts` — the ONE place an
+  agent write's boundary is stated, so the doors that write (`assert` and `reply-many`)
+  cannot drift into two boundaries that disagree.  Three refusals, each a way a write
+  would otherwise claim an identity it does not hold:
+
+  - **the admin registry is not writable through an agent door**
+    (`:koinii/registry-forbidden`), whatever context the handle carries: the governed may
+    not write the authority that governs them (D4).  The narrower of identity's two
+    boundaries — own-context-only is a proof-tier rule these cooperative doors do not
+    impose, and a cross-context write between agents stays a cooperative move.
+  - **a `:creator` that disagrees with the handle's agent** is refused
+    (`:koinii/creator-mismatch`).  Ownership is load-bearing — `belief/disregard` will only
+    withdraw a statement whose creator is the withdrawing agent — so neither silent outcome
+    is honest: honouring it lets an agent sign another's name, dropping it leaves a stamp
+    that looks like it took.
+  - **a speech act naming someone else as its speaker** is refused
+    (`:koinii/speaker-mismatch`).  `speaker-of` reads the speaker off the sentence's first
+    argument while the door stamps the creator off the handle, so an act naming another
+    agent would say one agent spoke while the provenance says another.
+
+  `opts` is the map that will be WRITTEN, not the one a caller typed, so `reply-many` —
+  which builds its own `{:creator agent}` — hands over a map the creator arm cannot
+  refuse.  It goes through the arm all the same: a door with an arm switched off for one
+  caller is two doors again, which is what this helper exists to prevent."
+  [handle sentence opts]
+  (let [agent (:agent handle)]
+    (id/check-registry-write! agent (:context handle))
+    (when (and (contains? opts :creator) (not= (:creator opts) agent))
+      (throw (ex-info (str "koinii: " agent " cannot assert as " (pr-str (:creator opts))
+                           " — a claim originated through an agent handle is stamped that"
+                           " agent's, which is what makes the write boundary an identity")
+                      {:type :koinii/creator-mismatch
+                       :agent agent :creator (:creator opts)})))
+    (when (and (seq? sentence) (contains? agent-first-acts (first sentence))
+               (not= (second sentence) agent))
+      (throw (ex-info (str "koinii: " agent " cannot speak as " (pr-str (second sentence))
+                           " — a " (first sentence) " names its speaker, and a handle"
+                           " speaks as itself")
+                      {:type :koinii/speaker-mismatch
+                       :agent agent :named (second sentence) :act (first sentence)})))))
 
 (defn assert
   "Originate a claim: assert `sentence` into the agent's OWN context, stamped `:creator`
   the agent, through the medium — for a `wire` handle that is through the daemon, the
   single writer.  The agent CANNOT write another agent's context from here: the destination
-  is fixed by identity.  Returns the handle.
+  is fixed by identity, and a speech act it asserts names that agent as its speaker
+  (`:koinii/speaker-mismatch` otherwise).  Returns the handle.
 
   **The creator is the agent's, and a conflicting one is refused**
   (`:koinii/creator-mismatch`).  Ownership is load-bearing — `belief/disregard` refuses to
@@ -282,18 +407,15 @@
   whole write boundary is 'an agent writes as itself' (D8) — so a caller passing someone
   else's `:creator` is asking for something this door does not grant.  Dropping it silently would look like a stamp that took, and honouring
   it would let an agent sign another's name; the refusal says which it is.  Passing the
-  agent's own id is redundant and allowed.  Every other `opts` key passes through."
+  agent's own id is redundant and allowed.  Every other `opts` key passes through.
+
+  The three refusals are stated once, in `check-write-doors`, and held identically by
+  `reply-many` — one boundary, two doors."
   ([handle sentence] (assert handle sentence nil))
   ([handle sentence opts]
-   (let [agent (:agent handle)]
-     (when (and (contains? opts :creator) (not= (:creator opts) agent))
-       (throw (ex-info (str "koinii: " agent " cannot assert as " (pr-str (:creator opts))
-                            " — a claim originated through an agent handle is stamped that"
-                            " agent's, which is what makes the write boundary an identity")
-                       {:type :koinii/creator-mismatch
-                        :agent agent :creator (:creator opts)})))
-     (-assert (:medium handle) sentence (:context handle)
-              (assoc opts :creator agent)))))
+   (check-write-doors handle sentence opts)
+   (-assert (:medium handle) sentence (:context handle)
+            (assoc opts :creator (:agent handle)))))
 
 (defn pose-query
   "Originate a query NODE `(queries agent question)` in the agent's own context — the
@@ -365,8 +487,10 @@
   (sentexHandle T))`, `:against` -> `(votesAgainst agent (sentexHandle T))`.  A meta-sentex
   in the agent's own context, creator stamped — a coordination move like `endorse`, but
   one a resolution policy COUNTS rather than merely records:
-  `adjudication/resolve-by-majority` tallies these ballots and upholds the side with
-  strictly more, leaving a tie honestly OPEN (a split house decides nobody).  A ballot is
+  `adjudication/resolve-by-majority` tallies these ballots and, under the `:proof-tier`
+  identity policy, upholds the side with strictly more, leaving a tie honestly OPEN (a
+  split house decides nobody).  Anyone may vote and be counted; turning the count into a
+  ruling is what needs verified identity.  A ballot is
   a response act like the rest — `targetFollowingPredicate` in `CxSpeechActs` — so
   retracting the disputed claim withdraws the votes cast on it.  Idempotent by sentence
   identity — one
@@ -396,17 +520,32 @@
   truth; the dry run refuses an inadmissible batch before anything lands.  Each of
   `sentences` is asserted into the agent's own context, creator stamped.
 
+  **Every door `assert` holds, this door holds too, and for the whole batch before the
+  first write** — the registry is not writable through it (`:koinii/registry-forbidden`)
+  and no sentence may name another agent as its speaker (`:koinii/speaker-mismatch`,
+  `check-write-doors`).  A batch is a promise that nothing lands until all of it is
+  admissible, so an identity refused mid-commit would already have written the sentences
+  ahead of it — which is the same half-reply the dry run exists to prevent.  A batch is
+  therefore weighed as a whole twice: who may write it, then whether it is admissible.
+
   Throws `:koinii/reply-inadmissible` (carrying the `check-edit` `:problems`) if the batch
   is not admissible.  Returns `edit!`'s result on success."
   [handle sentences]
-  (let [ctx   (:context handle)
-        opts  {:creator (:agent handle)}
-        batch {:add (mapv (fn [s] [s ctx opts]) sentences)}
-        probs (-check-edit (:medium handle) batch)]
-    (if (seq probs)
-      (throw (ex-info "koinii: multi-claim reply refused — batch inadmissible"
-                      {:type :koinii/reply-inadmissible :problems probs}))
-      (-edit (:medium handle) batch))))
+  (let [ctx  (:context handle)
+        opts {:creator (:agent handle)}]
+    (run! #(check-write-doors handle % opts) sentences)
+    (let [batch {:add (mapv (fn [s] [s ctx opts]) sentences)}
+          probs (-check-edit (:medium handle) batch)]
+      (if (seq probs)
+        (throw (ex-info (str "koinii: multi-claim reply refused — check-edit found "
+                             (count probs) " problem(s) across the " (count sentences)
+                             " claims, the first "
+                             (pr-str (:type (first probs))) " on "
+                             (pr-str (:entry (first probs))) ".  A batch lands whole or"
+                             " not at all, so fix the entries in :problems and send it"
+                             " again")
+                        {:type :koinii/reply-inadmissible :problems probs}))
+        (-edit (:medium handle) batch)))))
 
 ;; ---- subscribe: the async reply trigger ----------------------------------
 

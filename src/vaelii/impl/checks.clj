@@ -13,12 +13,14 @@
   (:require [taoensso.nippy :as nippy]
             [vaelii.impl.config :as config]
             [vaelii.impl.inherit :as inherit]
+            [vaelii.impl.io.thaw :as safe]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rewrite :as rewrite]
             [vaelii.impl.rules :as rules]
@@ -388,7 +390,7 @@
   (let [pred (nm/functor sentence)
         as   (vec (nm/args sentence))]
     (when (and (symbol? pred)
-               (pos? (p/count-with-functor (:index kb) 'interArg)))
+               (pos? (reads/stored-count-with-functor (:index kb) 'interArg)))
       (first
        (for [d       (in-content-order (decls 'interArg))
              :let  [b       (nth d 1)
@@ -466,7 +468,7 @@
                                (first arg) " results in a subtype of " r)
                           (when (and arg (checkable-term? arg) (symbol? t))
                             (cond
-                              (not (tax/genl? tax arg 'thing))          ; global: the individual floor
+                              (not (tax/genl?-global tax arg 'thing))          ; global: the individual floor
                               (when (nm/individual? arg)
                                 (str arg " is an individual, so it can never be a subtype of " t))
 
@@ -487,9 +489,10 @@
   this types the argument *as a term* — its EDN kind (`literal-type`), checked through
   genl against the declared syntactic type.  `(quotedArg nameOfGuy 1 string)` refuses
   `(nameOfGuy 5)` because `5` is a `number`, not a `string`, and admits `(nameOfGuy
-  \"Bob\")`.  Closed about a decidable literal, open-world about a kind it does not type
-  (a compound, a keyword) — those are exempt, the same floor `args-problem` gives an
-  argument outside the hierarchy.
+  \"Bob\")`.  Closed about a decidable literal — every leaf kind has a name
+  (`syntactic-roots`), a keyword and a character included — and open-world about the one
+  shape no kind answers for, a **compound**, which is exempt on the same floor
+  `args-problem` gives an argument outside the hierarchy.
 
   Behind the same O(1) gate as `inter-args-problem`, and for the same reason: nothing
   declares `quotedArg` in a bare KB, and this runs on every assert, so a
@@ -499,7 +502,7 @@
         as   (vec (nm/args sentence))
         tax  (:taxonomy kb)]
     (when (and (symbol? pred)
-               (pos? (p/count-with-functor (:index kb) 'quotedArg)))
+               (pos? (reads/stored-count-with-functor (:index kb) 'quotedArg)))
       (first
        (for [d     (in-content-order (decls 'quotedArg))
              :let  [b   (nth d 1)
@@ -558,7 +561,11 @@
   costs the retrieval `arg` already needs for its arguments rather than one of its
   own.  A retrieval where `tabled-arity` is a map read, which is the whole of why the two
   are separate functions rather than one `or`: a caller asking about several predicates
-  wants the cheap half of the question asked of all of them first."
+  wants the cheap half of the question asked of all of them first.
+
+  `first` over the roster is exact wherever CxCore is loaded: it declares the three
+  classes pairwise `disjoint`, so a predicate holds at most one of them and the first hit
+  is the only hit."
   [types pred]
   (let [cs (:closures (types pred))]
     (first (for [[t n] predicate-type-arities
@@ -1275,7 +1282,7 @@
         target (list t x)
         up     (when-not (sx/variable? context) (tax/context-up tax context))
         vis?   (if up #(contains? up %) (constantly true))
-        matches (->> (p/sentexes-with-arg (:index kb) 1 x)
+        matches (->> (reads/as-stored-with-arg (:index kb) 1 x)
                      (keep (fn [h]
                              (when-let [s (p/get-sentex recs h)]
                                (when (and (jtms/in? tms (:id s)) (vis? (:context s)))
@@ -1554,14 +1561,14 @@
 
   **The context that decides self is the sentence's own — `home` — and not the asker.**
   The two are the same at the door and differ wherever `settle` asks a stored sentex's
-  question from a *vantage* that sees more than its own context (`clash-vantages`): there,
-  keying self on the asker excluded the twin **stored in the vantage** as though the
-  candidate were it.  `(P a a)` written in a general context and again in one that sees it
-  is a real pair, and it was reported or not according to which of the two was written
-  last — the specific one arriving second convicts from its own context and is found,
-  the general one arriving second is asked from the specific vantage and threw its partner
-  away.  Order-dependence in what the KB believes, which `clash_oracle_test`'s streams
-  measure and `docs/nmtms.md` forbids.
+  question from a *vantage* that sees more than its own context (`clash-vantages`).  Key
+  self on the asker instead and the twin **stored in the vantage** is thrown away as
+  though the candidate were it: `(P a a)` written in a general context and again in one
+  that sees it is a real pair, and whether it is reported turns on which of the two is
+  written last — the specific one arriving second convicts from its own context and finds
+  its partner, the general one arriving second is asked from the specific vantage and
+  discards it.  That is order-dependence in what the KB believes, which
+  `clash_oracle_test`'s streams measure and `docs/nmtms.md` forbids.
 
   Ground binary sentences only; an open or n-ary one has no converse to speak of."
   ([kb sentence context] (asymmetry-problems kb sentence context context))
@@ -1655,8 +1662,8 @@
   [kb a b]
   (let [idx  (:index kb)
         wide Long/MAX_VALUE
-        out  (if (symbol? a) (p/count-with-arg idx 1 a) wide)
-        in   (if (symbol? b) (p/count-with-arg idx 2 b) wide)]
+        out  (if (symbol? a) (reads/stored-count-with-arg idx 1 a) wide)
+        in   (if (symbol? b) (reads/stored-count-with-arg idx 2 b) wide)]
     (<= out in)))
 
 (defn- chain-triples
@@ -2002,7 +2009,7 @@
   is where a structural constraint (an argument that must be a number, a string) lands
   without needing a list of exemptions to keep in step."
   [tax t]
-  (and (symbol? t) (not (sx/variable? t)) (tax/genl? tax t 'thing)))
+  (and (symbol? t) (not (sx/variable? t)) (tax/genl?-global tax t 'thing)))
 
 (defn- declares-locally?
   "Does the declaration stored at `dh` speak **for** `context`, rather than merely
@@ -2091,7 +2098,7 @@
         as   (vec (nm/args sentence))
         tax  (:taxonomy kb)]
     (when (and (symbol? pred) (some checkable-term? as)
-               (pos? (p/count-with-functor (:index kb) 'interArg)))
+               (pos? (reads/stored-count-with-functor (:index kb) 'interArg)))
       (for [d     (decls 'interArg)
             :let  [dh      (nth d 0)
                    b       (nth d 1)
@@ -2397,41 +2404,76 @@
   other identity-compared values store fine yet would fail it) and not freeze alone (a
   Serializable value off the thaw allowlist freezes and then throws on read); both must
   succeed.  Memoized by class (see `storable-class-cache`): the first value of a class
-  runs the probe, the rest read the boolean it cached."
+  runs the probe, the rest read the boolean it cached.
+
+  **The thaw is the one the durable readers run** (`vaelii.impl.io.thaw`), not a bare
+  nippy one, so the front door and the file readers hold one opinion about what a leaf
+  may be.  A class only Java serialization round-trips is refused here rather than
+  stored and then refused on the way back off disk — which is the same asymmetry, one
+  restart later, that this check exists to close."
   [v]
   (let [c      (class v)
         cached (.get storable-class-cache c)]
     (cond
       (identical? Boolean/TRUE cached)  true
       (identical? Boolean/FALSE cached) false
-      :else (let [ok (try (nippy/thaw (nippy/freeze v)) true
+      :else (let [ok (try (safe/thaw (nippy/freeze v)) true
                           (catch Throwable _ false))]
               (.put storable-class-cache c (if ok Boolean/TRUE Boolean/FALSE))
               ok))))
 
 (defn- first-unstorable
-  "The first leaf value anywhere in `x` the durable log cannot store, or nil.
-  Collections are descended (a map by its keys then its vals); a scalar is cleared
-  without a freeze."
+  "The first value anywhere in `x` a stored sentence may not carry, as
+  `[kind value]` — or nil.  Sequentials are descended; a scalar is cleared without a
+  freeze.  Two kinds, and they are two different refusals wearing one `:type`:
+
+  - **`:uncanonical`** — a **map or set** (a record is a map, so it lands here too).
+    `sentex/canon` normalizes a sentence's sequentials to `PersistentList` and interns
+    its symbols, and it has nothing to do to an unordered collection: two `=` sentences
+    differing only in an argument map's implementation or insertion order freeze to
+    *different* nippy bytes, which is the hazard `canon` exists to remove
+    (docs/canonicalization.md).  `nm/form-rank` has no rank for one either, so
+    `compare-form` — every content-keyed tie-break in the engine — has no total order
+    over such a sentence, and a tie-break with no order is arrival order.
+  - **`:unserializable`** — a leaf whose class does not survive a nippy freeze *and*
+    thaw (`nippy-storable?`).
+
+  The uncanonical test comes first because it is the more specific complaint: a map
+  full of atoms is refused for being a map, which is the fact that does not go away
+  when the atoms do."
   [x]
   (cond
-    (storable-scalar? x) nil
-    (map? x)             (or (some first-unstorable (keys x))
-                             (some first-unstorable (vals x)))
-    (coll? x)            (some first-unstorable x)
-    :else                (when-not (nippy-storable? x) x)))
+    (storable-scalar? x)   nil
+    (or (map? x) (set? x)) [:uncanonical x]
+    (sequential? x)        (some first-unstorable x)
+    :else                  (when-not (nippy-storable? x) [:unserializable x])))
 
 (defn check-encodable
-  "Reject a sentence carrying a value no durable backend can store.  A function, an
-  atom/ref, an open stream — anything nippy cannot freeze and thaw — stores in the
-  in-memory backend and then throws at write time on the first on-disk backend, so the
-  same assert would succeed or fail by backend.  Refusing it here makes the backends
-  agree: a stored sentence's values round-trip."
+  "Reject a sentence carrying a value a stored sentence may not carry.
+
+  **Unserializable**: a function, an atom/ref, an open stream — anything nippy cannot
+  freeze and thaw — stores in the in-memory backend and then throws at write time on the
+  first on-disk backend, so the same assert would succeed or fail by backend.  Refusing
+  it here makes the backends agree: a stored sentence's values round-trip.
+
+  **Uncanonical**: a map or a set has no canonical form, so a sentence carrying one has
+  neither stable durable bytes nor a content order to tie-break on (`first-unstorable`).
+  Refused rather than canonicalized, because there is no ordering of an unordered
+  collection that is the *sentence's* — the fix is to write what the KB can order, a
+  sequential or a reified term.
+
+  Both throw `:not-encodable`, carrying the offending value under `:value`."
   [sentence]
-  (when-let [v (first-unstorable sentence)]
-    (throw (ex-info (str "value cannot be stored: " (pr-str v) " of type "
-                         (.getName (class v)) " does not round-trip through the durable"
-                         " log (nippy) — a sentence's values must be serializable")
+  (when-let [[kind v] (first-unstorable sentence)]
+    (throw (ex-info (if (= :uncanonical kind)
+                      (str "value cannot be stored: " (pr-str v) " — a sentence's content"
+                           " is EDN scalars and sequentials, and a map or set has no"
+                           " canonical form, so it has neither stable durable bytes nor a"
+                           " content order to tie-break on (write a sequential — a vector"
+                           " of pairs — or reify the structure as a term)")
+                      (str "value cannot be stored: " (pr-str v) " of type "
+                           (.getName (class v)) " does not round-trip through the durable"
+                           " log (nippy) — a sentence's values must be serializable"))
                     {:type :not-encodable :sentence sentence :value v}))))
 
 ;; ---- stratification -----------------------------------------------------
@@ -2475,6 +2517,35 @@
   (concat neg-query-preds
           (when (some #(= 'different %) antecedent-preds) kb/equality-predicates)))
 
+(defn- negative-edge-rules
+  "Handles of every **stored** rule a negative edge leaves — the roster a walk that has
+  no rule of its own to start from has to start at, and the gate on walking at all.
+
+  Two rosters, because a negative edge has two sources and only one of them is watched.
+  The re-check index's `:rules` holds a rule carrying an `exceptWhen`, an `(unknown S)`
+  antecedent, an aggregate or a closed-extent negative — everything registered for
+  re-checking. A `different` antecedent is a negative edge too (`negative-predicates`)
+  and is registered nowhere, since nothing about it needs re-checking: the antecedent
+  index is what names those rules, in one lookup under `different`, which is the key
+  `rules/antecedent-key` files them under.
+
+  Read `different` out and the roster under-approximates the graph — a cycle whose only
+  negative edge is one rule's `different` passes through no watched rule, so no walk
+  starts on it and the cycle is stored.  Belief is unread on both halves,
+  over-approximating for the reason `wff/rule-edges` does: refusing a stratified rule set
+  is annoying, accepting an order-dependent one is a correctness hole.
+
+  The antecedent lookup sits behind the in-memory `:rule-antecedents` roster, which is a
+  deref rather than an index read and holds exactly the antecedent keys some stored rule
+  reads (`special/note-rule!`).  So a KB no rule of which mentions `different` — every KB
+  the shipped ontology builds — pays nothing for this half, and the `genl` assert path
+  keeps the one rule-index read it had (`assert_cost_test`'s taxonomy-edge budget)."
+  [kb]
+  (let [index (:index kb)]
+    (cond-> (set (reads/watched-rules index))
+      (contains? @(:rule-antecedents kb) 'different)
+      (into (reads/as-stored-rules-by-antecedent index 'different)))))
+
 (defn- exception-predicates
   "The predicates the exceptWhen exceptions of stored rule `handle` mention — the
   negative-edge keys the stratification graph reads, gathered from the rule's
@@ -2490,7 +2561,8 @@
 (defn- rule-graph-node
   "The stratification graph's view of a stored rule: what it depends on, positively
   (its antecedent predicates) and negatively (the predicates its exceptWhen exceptions
-  and its `unknown` antecedents mention, plus the equality relations when it reads
+  and its `unknown` antecedents mention, the predicate of a negative antecedent a
+  `closedExtentPredicate` grant reads as NAF, plus the equality relations when it reads
   `different`).  The exceptWhen predicates come from the rule's meta-sentexes, so kb is
   needed.
 
@@ -2505,7 +2577,9 @@
      :antecedent-preds antes
      :exception-preds  (negative-predicates
                         antes (concat (exception-predicates kb handle)
-                                      (rules/recheck-predicates rule-sentex)))}))
+                                      (rules/recheck-predicates rule-sentex)
+                                      (rules/closed-extent-predicates-of
+                                       (:taxonomy kb) (:sentence rule-sentex))))}))
 
 (defn- stored-rule-node
   "The graph node for a stored rule handle — nil if the handle names something that
@@ -2542,26 +2616,31 @@
   docs/exceptions.md.  Runs before anything is stored, so a refused rule leaves no
   partial state behind.
 
-  Fast path: with no exception on the rule being added and none on any stored rule,
-  the graph has no negative edge at all and no cycle through negation is possible,
-  so the walk is skipped entirely.  That is every rule in an ontology that uses no
-  exceptions, which is most of them."
+  Fast path: with no negative edge on the rule being added and none on any stored rule
+  (`negative-edge-rules`), the graph has no negative edge at all and no cycle through
+  negation is possible, so the walk is skipped entirely.  That is every rule in an
+  ontology that uses no negative dependency — no exception, no `unknown`, no aggregate,
+  no closed-extent negative and no `different` — which is most of them."
   [kb sentence inner context]
   (let [[_ _ exception] (sx/peel-rule-wrapper sentence)
         ;; dependency spelling, not the index key: `rule-graph-node` says why
         antes             (rules/dependency-predicates inner)
-        ;; negatives: the exception's predicates, the `unknown` antecedents' *and* the
-        ;; **aggregate** bodies'.  All three read what the KB believes rather than a
-        ;; fact the firing names, so a cycle through any of them is unstratified — a
-        ;; rule whose count is over a relation the rule itself concludes has no settled
-        ;; answer, and which one it lands on would depend on arrival order.
+        ;; negatives: the exception's predicates, the `unknown` antecedents', the
+        ;; **aggregate** bodies' *and* the predicate of a negative antecedent a closed
+        ;; extent reads as NAF.  All four read what the KB believes rather than a fact the
+        ;; firing names, so a cycle through any of them is unstratified — a rule whose
+        ;; count is over a relation the rule itself concludes has no settled answer, and
+        ;; which one it lands on would depend on arrival order.
         negatives         (negative-predicates antes (concat (keep nm/functor exception)
                                                              (rules/naf-predicates-of inner)
-                                                             (rules/aggregate-predicates-of inner)))]
-    ;; The fast path skips the walk when the graph has no negative edge at all — now
-    ;; a `different` antecedent counts as one, so a rule that reads the equality
-    ;; closure is walked even though it carries no `exceptWhen`.
-    (when (or (seq negatives) (seq (p/exception-rules (:index kb))))
+                                                             (rules/aggregate-predicates-of inner)
+                                                             (rules/closed-extent-predicates-of
+                                                              (:taxonomy kb) inner)))]
+    ;; The fast path skips the walk when the graph has no negative edge at all — and a
+    ;; `different` antecedent counts as one on both sides, so a rule that reads the
+    ;; equality closure is walked, and a *stored* one keeps the walk alive for a rule
+    ;; arriving above it that carries no negative edge of its own.
+    (when (or (seq negatives) (seq (negative-edge-rules kb)))
       (let [pending {:id               ::pending
                      :label            "the rule being asserted"
                      :antecedent-preds antes
@@ -2570,8 +2649,12 @@
         (when-let [cycle (wff/negation-cycle (:taxonomy kb)
                                              (stratification-concluders kb pending)
                                              pending)]
-          (throw (ex-info (str "not stratified: the rule set would have a cycle through "
-                               "negation: " (wff/cycle-description cycle))
+          (throw (ex-info (str "not stratified: " (pr-str inner) " would close a cycle"
+                               " through negation: " (wff/cycle-description cycle)
+                               " — a rule set is stratified when no predicate reaches"
+                               " itself through a negative edge, so break the cycle at"
+                               " one of the rules named, or conclude into a predicate"
+                               " off that path")
                           {:type :not-stratified :sentence inner :context context
                            :cycle cycle})))))))
 
@@ -2590,7 +2673,11 @@
   past — the check is about a fixpoint reaching it, not about where it was written."
   [sentence]
   (when-let [bad (sx/some-form sx/do-form? sentence)]
-    (throw (ex-info (str "a do/ imperative cannot appear in a rule: " (pr-str bad))
+    (throw (ex-info (str "a do/ imperative cannot appear in a rule: " (pr-str bad)
+                         " — a rule is evaluated inside the forward-chaining fixpoint,"
+                         " where an imperative runs a number of times that depends on"
+                         " firing order.  Assert it on its own, at the top level of an"
+                         " assert, where the caller decides when it runs")
                     {:type :not-assertible :form bad :sentence sentence}))))
 
 ;; ---- the argument constraints a rule's variables carry -------------------
@@ -2805,14 +2892,21 @@
   message — verbatim, by handle.  The index cell is a *set*, so where three generators
   each close the cycle, an unordered walk would blame whichever the set yielded first,
   which is the arrival order that whole check exists to keep out.  One list per KB, and
-  a generator roster is a handful of rules."
+  a generator roster is a handful of rules.
+
+  **As stored, and a defeated generator is listed** — the door is the as-stored one on
+  purpose.  What reads this is `generator-cycle`, a stratification refusal, and a cycle is
+  a property of what the KB has *written*: a generator whose support is withdrawn is
+  retained and revivable, so filtering it out would accept a program today and refuse it
+  after a retraction somewhere else revives the rule that closes the loop.  A refusal that
+  moves with belief is a refusal nobody can act on."
   [kb]
   (nm/sort-by-content-key
    (fn [[_ s]] [(:sentence s) (:context s)])
    (into []
          (comp (keep (fn [h] (when-let [s (p/get-sentex (:records kb) h)] [h s])))
                (filter (fn [[_ s]] (rules/generator-sentex? s))))
-         (p/rules-by-consequent (:index kb) sx/rule-functor))))
+         (reads/as-stored-rules-by-consequent (:index kb) sx/rule-functor))))
 
 (defn- stamped-predicate
   "The predicate a generator eventually concludes — the **innermost** rule's, through
@@ -2939,7 +3033,10 @@
                          :nesting-level (inc i)}))))
     (when-let [cyc (generator-cycle kb inner context)]
       (throw (ex-info (str "a rule generator cannot generate a rule that feeds a"
-                           " generator: " cyc)
+                           " generator: " cyc
+                           " — each round of that loop stamps the rules the next round"
+                           " reads, so nothing bounds the rule set.  Assert one of those"
+                           " rules directly instead of generating it")
                       {:type :not-stratified :sentence sentence :context context
                        :cycle cyc})))))
 
@@ -2956,9 +3053,9 @@
   Factored out of the assert path so `assert` can also run it over **all** the
   conjuncts of a polycanonicalized rule before storing *any* of them.
   `(implies A (and C1 C2))` is split into one rule per conjunct and then `mapv`d,
-  and a `mapv` is not a transaction: with the checks inline, a refusal on C2 left
-  C1 already stored, indexed, and chained from, while the caller saw a throw and
-  reasonably concluded nothing had been asserted.
+  and a `mapv` is not a transaction: with the checks inline, a refusal on C2 leaves
+  C1 already stored, indexed, and chained from, while the caller sees a throw and
+  reasonably concludes nothing was asserted.
 
   One arm here has no counterpart on the fact path at all —
   `check-variable-constraints!`, which holds a rule's shared variables to the argument
@@ -2977,6 +3074,13 @@
     ;; inner rule let an imperative through in the one rule slot that is re-evaluated
     ;; most often
     (check-no-imperative sentence)
+    ;; An `or` the polycanonicalization can expand away is gone by the time a rule
+    ;; reaches here — `assert` and the mint both store the *expansion*.  What is left is
+    ;; the rule that could not be expanded: one over `rules/max-alternatives`, or one
+    ;; whose `or` sits where nothing expands it.  The assert door refuses it at the
+    ;; shape guard, before the split is attempted; this is the same refusal on the
+    ;; **mint** path, where the only guard is this list.
+    (rules/check-disjunction! sentence)
     (rules/check-range-restricted (rules/antecedents inner) (rules/consequent inner))
     ;; The NAF-literal checks — closure, quantifier locality, the reduction slot, a
     ;; quantified or empty conjunction.  The sentex constructor runs these too, and runs
@@ -3056,26 +3160,87 @@
         (when-let [cycle (wff/negation-cycle (:taxonomy kb)
                                              (stratification-concluders kb pending)
                                              pending)]
-          (throw (ex-info (str "not stratified: the exception would give the rule set a "
-                               "cycle through negation: " (wff/cycle-description cycle))
+          (throw (ex-info (str "not stratified: the exception on rule#" rule-handle
+                               " reads " (pr-str (vec new-exc-preds)) " and would close a"
+                               " cycle through negation: " (wff/cycle-description cycle)
+                               " — a rule set is stratified when no predicate reaches"
+                               " itself through a negative edge, so guard the rule with"
+                               " an antecedent instead, or write the exception over a"
+                               " predicate off that path")
                           {:type :not-stratified :rule rule-handle :context context
                            :exception-preds (vec new-exc-preds) :cycle cycle})))))))
+
+(defn check-closed-extent-stratified
+  "Throw unless declaring `(closedExtentPredicate P)` leaves the rule set stratified.
+
+  The grant is what turns a closed `(not (P …))` antecedent from a lookup into negation
+  as failure, so it adds a negative edge to every stored rule carrying one — and can close
+  a cycle through negation exactly as a `genl` edge arriving underneath stored rules can
+  (`check-edge-stratified`).  Nil for anything that is not the declaration.
+
+  Complete without a wholesale walk: the edge it adds leaves precisely the rules with a
+  `[:not P]` antecedent, which the antecedent index names in one lookup, so each of those
+  is the start node and every cycle the grant could close passes through one of them.
+  Walked in content order, so two rules that each close a cycle give one refusal rather
+  than whichever was asserted first.
+
+  Runs before anything is written, so a refused grant leaves no mark, no posting and no
+  cycle."
+  [kb sentence context]
+  (when (and (= 'closedExtentPredicate (nm/functor sentence)) (= 2 (count sentence)))
+    (let [pred (second sentence)]
+      (when-let [[node cycle]
+                 (->> (reads/as-stored-rules-by-antecedent (:index kb) [:not pred])
+                      (keep (fn [rh]
+                              (when-let [rsx (p/get-sentex (:records kb) rh)]
+                                (when (and (rules/rule? rsx)
+                                           (seq (rules/closed-negative-antecedents
+                                                 (rules/antecedents (:sentence rsx)))))
+                                  [rh rsx]))))
+                      (nm/sort-by-content-key (fn [[_ rsx]] [(:sentence rsx) (:context rsx)]))
+                      (keep (fn [[rh rsx]]
+                              (let [base    (rule-graph-node kb rh rsx)
+                                    pending (assoc base
+                                                   :label (str "rule#" rh
+                                                               " (under the closed extent)")
+                                                   :exception-preds
+                                                   (concat (:exception-preds base)
+                                                           (negative-predicates
+                                                            (:antecedent-preds base) [pred]))
+                                                   :consequent-pred
+                                                   (rules/consequent-predicate (:sentence rsx)))]
+                                (when-let [c (wff/negation-cycle
+                                              (:taxonomy kb)
+                                              (stratification-concluders kb pending)
+                                              pending)]
+                                  [pending c]))))
+                      first)]
+        (throw (ex-info (str "not stratified: " (pr-str sentence)
+                             " would close a cycle through negation: "
+                             (wff/cycle-description cycle)
+                             " — the grant reads every closed (not …) antecedent on that"
+                             " path as negation as failure, so leave the predicate open,"
+                             " or break the cycle at one of the rules named")
+                        {:type :not-stratified :sentence sentence :context context
+                         :rule (:id node) :cycle cycle}))))))
 
 (defn- edge-negation-cycle
   "The cycle through negation that adding this `genl` / `genlCx` sentence would
   create among the **stored** rules, or nil.  Nil for anything that is not one of
   those two edges.
 
-  Every cycle through negation contains at least one negative edge, and negative
-  edges leave excepted rules only — so starting the walk at each excepted rule is
-  complete, and `exception-rules` is exactly that roster in one lookup.  That is the
-  same set (and the same reason) as `recheck-every-exception`'s: an edge change has
-  no rule and no fact to narrow by, so it re-walks the excepted rules wholesale.
-  They are few, and edge changes are rare.
+  Every cycle through negation contains at least one negative edge, and every negative
+  edge leaves a rule `negative-edge-rules` names — so starting the walk at each of those
+  is complete, and it is two index lookups.  The re-check roster is the same set (and the
+  same reason) as `recheck-every-exception`'s: an edge change has no rule and no fact to
+  narrow by, so it re-walks those rules wholesale.  They are few, and edge changes are
+  rare.  The `different` half is not registered anywhere, so it is read off the antecedent
+  index; leave it out and a cycle whose only negative edge is a `different` passes through
+  no start node and the edge closing it is stored.
 
-  **Fast path:** no stored rule carries an exception, so the graph has no negative
-  edge and no walk can find one.  That is every rule in the bundled starter, so an
-  ordinary `genl` assert pays one set read and stops.
+  **Fast path:** no stored rule carries a negative edge, so the graph has none and no
+  walk can find a cycle.  That is every rule in the bundled starter, so an ordinary
+  `genl` assert pays two set reads and stops.
 
   The edge is added to a **detached copy** of the taxonomy rather than to the real
   one: the check runs before anything is written, and a refused edge must leave the
@@ -3083,16 +3248,16 @@
   [kb sentence]
   (let [f (nm/functor sentence)]
     (when (or (= f 'genl) (= f 'genlCx))
-      (let [excepted (p/exception-rules (:index kb))]
-        (when (seq excepted)
+      (let [starts (negative-edge-rules kb)]
+        (when (seq starts)
           (let [[_ a b]    sentence
                 probe      (tax/detached-copy (:taxonomy kb))
                 _          (if (= f 'genl)
                              (tax/add-genl probe a b ::probe)
                              (tax/add-genlCx probe a b ::probe))
                 concluders (stratification-concluders kb)]
-            ;; walked in content order: `exception-rules` is a **set**, and the cycle
-            ;; this returns is the witness the refusal message prints and
+            ;; walked in content order: the roster is a **set**, and the cycle this
+            ;; returns is the witness the refusal message prints and
             ;; `edge-stratification-violation` carries in `:detail :cycle`.  Two rules
             ;; that each close a cycle through the arriving edge would otherwise give two
             ;; different refusals for one edge according to which was asserted first.
@@ -3101,7 +3266,7 @@
                   (nm/sort-by-content-key
                    (fn [h] (let [s (p/get-sentex (:records kb) h)]
                              [(:sentence s) (:context s)]))
-                   excepted))))))))
+                   starts))))))))
 
 (defn check-edge-stratified
   "Throw unless adding this taxonomy edge leaves the stored rule set stratified.
@@ -3114,8 +3279,11 @@
   [kb sentence context]
   (when-let [cycle (edge-negation-cycle kb sentence)]
     (throw (ex-info (str "not stratified: " (pr-str sentence)
-                         " would give the rule set a cycle through negation: "
-                         (wff/cycle-description cycle))
+                         " would close a cycle through negation: "
+                         (wff/cycle-description cycle)
+                         " — the edge fans each rule's negative dependencies over the"
+                         " specs below it, so break the cycle at one of the rules named,"
+                         " or place the edge under a type off that path")
                     {:type :not-stratified :sentence sentence :context context
                      :cycle cycle}))))
 

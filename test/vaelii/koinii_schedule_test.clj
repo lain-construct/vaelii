@@ -28,21 +28,26 @@
   `do/label` materializes an inert labeling context that the teardown check would flag as a
   leak, which is why every solving test builds a disposable KB instead.  The solve degrades:
   with no clingo/clasp present `(solver/available?)` is false and that test no-ops."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.asp.solver :as solver]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.datetime :as dt]
-            [vaelii.impl.koinii.adjudication :as adj]
-            [vaelii.impl.koinii.channel :as ch]
-            [vaelii.impl.koinii.dispute :as d]
-            [vaelii.impl.koinii.speech-acts :as sa]
             [vaelii.impl.sentex :as sx]
+            [vaelii.koinii.adjudication :as adj]
+            [vaelii.koinii.channel :as ch]
+            [vaelii.koinii.dispute :as d]
+            [vaelii.koinii.identity :as id]
+            [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu]))
 
 (defn- schedule-kb []
   (doto (tu/fresh) (core-context/load-into) (sa/load-speech-acts)
         (v/assert '(unreifiableFunction DatetimeFn) 'CxUniverse)))
+
+;; Majority resolution requires the :proof-tier identity policy (R7#1); these tests run
+;; under it — the channel never authenticates, so it touches nothing but that gate.
+(use-fixtures :each (fn [f] (binding [id/*policy* :proof-tier] (f))))
 
 (def ^:private asp? (solver/available?))
 

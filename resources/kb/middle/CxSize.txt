@@ -20,13 +20,19 @@
 ;; convicts against a believed opposing claim, and a self tuple has none, so nothing
 ;; refuses the pair on the way in.
 ;;
-;; The instance-level half moves in the opposite direction: nothing is inherited and
-;; nothing is stated, since `heavierThan` and `tallerThan` are read off two measures
-;; through the quantity provers. The two halves are deliberately not connected. A dog
-;; being a larger kind than a cat does not make this dog heavier than that cat, and a
-;; rule bridging them would put a claim about kinds where a claim about things belongs.
-;; Both rules are backward-only, like `olderThan`, whose shape they share: an ordering
-;; over every pair of measured objects is a great many facts nobody asked for.
+;; The instance-level half moves in the opposite direction: nothing is inherited, and the
+;; ordering is read off two measures through the quantity provers rather than off a genl
+;; edge. The two halves are deliberately not connected. A dog being a larger kind than a
+;; cat does not make this dog heavier than that cat, and a rule bridging them would put a
+;; claim about kinds where a claim about things belongs. Both rules are backward-only,
+;; like `olderThan`, whose shape they share: an ordering over every pair of measured
+;; objects is a great many facts nobody asked for.
+;;
+;; The measures are not the only route in. `heavierThan` and `tallerThan` are declared
+;; transitive (CxMeasure), so two *stated* comparisons compose into a third by the
+;; closure prover with no weight or height anywhere — which is how a common-sense KB
+;; usually knows an elephant outweighs a mouse. The two routes agree where both answer,
+;; since a chain of strict measure comparisons is itself a strict measure comparison.
 
 (genlCx CxSize CxUniverse)
 (genlCx CxWell CxSize)

@@ -97,17 +97,16 @@
         (is (.contains ^String (ex-message e) "clojure.lang.Atom")
             "the message names the value's type")))))
 
-(deftest encodable-args-including-structures-are-accepted
-  ;; Everything nippy round-trips is admissible in argument position.
+(deftest encodable-scalar-args-are-accepted
+  ;; Everything nippy round-trips AND `canon` can order is admissible in argument
+  ;; position.  A map or a set is neither, and is refused under the same `:type`
+  ;; (`check_test/a-map-or-set-anywhere-in-a-sentence-is-refused`).
   (tu/with-terms [holds Tom CxStory]
     (tu/with-cleared-kb [kb tu/fresh]
       (testing "scalars of every storable kind assert"
         (doseq [v [42 -7 3/4 2.5 "a string" :a-keyword \c true nil]]
           (is (some? (v/assert kb (list holds Tom v) CxStory))
-              (str "arg " (pr-str v)))))
-      (testing "a map and a set argument assert"
-        (is (some? (v/assert kb (list holds Tom {:x 1 :y 2}) CxStory)))
-        (is (some? (v/assert kb (list holds Tom #{1 2 3}) CxStory)))))))
+              (str "arg " (pr-str v))))))))
 
 (deftest a-vector-argument-is-accepted-and-canonicalizes-to-its-list-form
   ;; Kept vectors ≡ lists: a vector argument stores, and the same content spelled as a
@@ -120,7 +119,7 @@
       (is (seq (v/sentexes-matching kb (list holds Tom [Tom Tom]) CxStory))
           "and so does the vector spelling")
       (testing "the stored sentence is the canonical list form, not a vector"
-        (let [stored (:sentence (first (v/sentexes-matching kb (list holds Tom [Tom Tom])
-                                                            CxStory)))]
+        (let [stored (:sentence (v/sentex kb (v/handle-of kb (list holds Tom [Tom Tom])
+                                                          CxStory)))]
           (is (seq? stored))
           (is (not (vector? (nth stored 2))) "the argument is a list, not a vector"))))))

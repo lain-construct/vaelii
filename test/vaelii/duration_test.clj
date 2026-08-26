@@ -442,3 +442,18 @@
     (testing "a variable magnitude is a pattern, not a measure — still legal"
       (is (some? (v/assert-rule kb [(list lengthOf '?i (list 'QuantityFn '?n 'Second))]
                                 (list 'quantifiedInterval '?i) CxDur))))))
+
+(tu/deftest-kb a-total-in-the-right-dimension-but-wrong-base-unit-does-not-check
+  ;; A unit that declares its dimension but no `conversionFactor` is its own base, so it
+  ;; converts only to itself.  A total computed in Seconds must not read equal to the
+  ;; same magnitude stated in that unit — five fortnights are not five seconds, though
+  ;; both are Durations.
+  (load-time-units kb)
+  (tu/with-terms [A B]
+    (v/assert kb (list 'length A '(QuantityFn 3 Second)) C)
+    (v/assert kb (list 'length B '(QuantityFn 2 Second)) C)   ; total: 5 Second
+    (v/assert kb '(dimensionOf Fortnight Duration) C)          ; a dimension, and no factor
+    (testing "the right dimension and magnitude in the wrong base unit fails"
+      (is (not (v/ask? kb (list 'totalDuration (list 'list A B) '(QuantityFn 5 Fortnight)) C))))
+    (testing "the same total in the actual base unit still checks"
+      (is (v/ask? kb (list 'totalDuration (list 'list A B) '(QuantityFn 5 Second)) C)))))

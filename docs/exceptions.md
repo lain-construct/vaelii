@@ -55,7 +55,8 @@ An `(unknown S)` **antecedent** is the same mechanism inlined per-literal — th
 does not conclude for a binding under which `S` is derivable — and it reuses
 everything below (the level-6 evaluation, the re-check index, block / sweep / revive,
 the stratification graph), including the conjunction: `S` may be an `(and …)`, read
-block-if-all-hold by this same evaluator. What differs is that each `unknown`
+block-if-all-hold by this same evaluator, which joins the conjuncts so a quantified one
+takes a single witness for all of them ([naf.md](naf.md)). What differs is that each `unknown`
 antecedent is an independent block condition, where a rule's exceptions are one.
 See [naf.md](naf.md).
 
@@ -82,8 +83,11 @@ Two properties make this affordable:
 
 Closure is what makes this cheap: with every variable already bound, the conjuncts
 share nothing, so each is an independent ground existence check and *all* must
-hold. There is no join, and level 6 needs no conjunctive goal form — the evaluator
-runs each conjunct separately. A single literal may be written bare.
+hold. Level 6 needs no conjunctive goal form: the conjuncts go through
+`provers/conjunction-solutions`, the joined evaluator `unknown` and `thereExists` share
+([naf.md](naf.md)), of which a ground conjunction is the degenerate case — each conjunct
+contributes one solution or none, and the join *is* the independent existence check. A
+single literal may be written bare.
 
 **Closure is enforced, not assumed.** A variable in the exception that no
 antecedent binds is rejected at assert time, like a range-restriction failure on a
@@ -147,7 +151,10 @@ stand there — and none of those functors is one a sentex is ever stored under.
 the operator, the rule sits in the index under a predicate nothing arrives on: the
 exception is evaluated correctly once and re-evaluated never, which from the outside is
 a guard that answers whatever happened first. So an `unknown` yields its conjuncts'
-predicates, a `thereExists` its body's, an aggregate its census body's.
+predicates, a `thereExists` its body's, an aggregate its census body's, and an `(and …)`
+its conjuncts' — the last of which is how a **joined** NAF query under a quantifier gets
+every one of its conjuncts watched ([naf.md](naf.md)), since any of them can be the
+arrival that completes it.
 
 `not` is the one frame left alone, because the *trigger* side keys an arriving `(not S)`
 under `not` as well — one coarse bucket for every negated condition, but the two agree,
@@ -248,10 +255,11 @@ than once per firing: substituting a firing's bindings never moves a functor, an
 arm of the answer is an index read that the filter's whole claim — that deciding it
 touches nothing but memory — does not allow inside the per-firing loop.
 
-**Four paths have no triggering sentence to narrow by**, and all four queue `:all`
-rather than a set of sentences: a `genl`/`genlCx` edge change (the next section), a
-**declaration** whose subject is the exception's predicate ("Four channels" below), an
-**equality** moving the closure (same section), and a rule that has just been indexed. In
+**Several paths have no sentence that could narrow the firings**, and each queues `:all`
+rather than a set of sentences: a `genl`/`genlCx` edge change (the next section), the two
+argument-side channels — preservation and `arg`-inference — a **declaration** whose
+subject is the exception's predicate, an **equality** moving the closure (all four under
+"Four channels" below), and a rule that has just been indexed. In
 each the sentence that moved — an edge, a `(symmetric P)`, a `(sameAs A B)`, nothing at
 all — shares no argument with the exception conjunct, so reading it would narrow the
 firings away rather than down.
@@ -275,7 +283,8 @@ ever existed to lift.
 
 A pass is **productive** when the blocked set moved. Three things force one that did not.
 An **aggregate** antecedent binds a *value*, so a count going 1 ⇒ 2 licenses a firing no
-block ever suppressed. A released **refusal** — the next section — is a firing that never
+block ever suppressed — and a **nested** NAF joins it there, since an arriving fact can
+remove the witness its inner query found ([naf.md](naf.md)). A released **refusal** — the next section — is a firing that never
 held a justification for the blocked set to have said anything about. And a **revived**
 datum is one whose firing was never attempted, because the join ran while it was OUT and
 the matcher is belief filtered; that one is not an exception mechanism at all, and it is
@@ -312,8 +321,8 @@ elsewhere rather than forgotten:
 | reason | recorded | why |
 |---|---|---|
 | the rule's exception holds | yes | re-askable from the bindings alone |
-| an `(unknown S)` antecedent blocks | yes | likewise, and the same evaluator |
-| a post-join literal had no answer | no | an aggregate is a *value* that moved, and a queued aggregate rule is re-joined whatever the blocked set did (`settle/aggregate-recheck-rules`) |
+| an `(unknown S)` antecedent — or a closed-extent negative one — blocks | yes | likewise, and the same evaluator |
+| a post-join literal had no answer | no | an aggregate is a *value* that moved, and a queued aggregate rule is re-joined whatever the blocked set did (`settle/rejoin-on-arrival-rules`) |
 | a visibility `except` hides an antecedent | no | an `except` arriving or leaving queues every rule that could fire on the hidden fact (`special/recheck-except`), and queues it with **`:all`** — so it takes the coarse re-join and the refusal is re-derived there. An entry would be one nothing reads |
 
 Both unrecorded reasons are covered by a **coarse re-join** rather than by nothing, and
@@ -391,14 +400,15 @@ clear.
 
 Measured on a join shape — `(pseen ?x ?y) ← (pb1 ?x ?z) (pb2 ?z ?y)` excepted on a
 condition that holds for every binding, so all n² firings are refused — the record holds
-**one entry per refused firing** and retains **≈766 bytes** apiece, flat across sizes:
+**one entry per refused firing** and retains **roughly 750 bytes** apiece, flat across
+sizes:
 
 | n | firings | entries | record |
 |---|---|---|---|
-| 20 | 400 | 400 | 0.3 MB |
-| 40 | 1 600 | 1 600 | 1.2 MB |
-| 80 | 6 400 | 6 400 | 4.5 MB |
-| 160 | 25 600 | 25 600 | 18.7 MB |
+| 20 | 400 | 400 | ~0.3 MB |
+| 40 | 1 600 | 1 600 | ~1.2 MB |
+| 80 | 6 400 | 6 400 | ~4.5 MB |
+| 160 | 25 600 | 25 600 | ~19 MB |
 
 That is the growth the cap is for: the entry count follows the *join*, not the store, so
 one rule can outgrow the KB it is reasoning over. 4096 entries is about 3 MB per rule,
@@ -409,36 +419,38 @@ which is where the record stops being cheaper than the re-join it replaces.
 The workload is a taxonomy load under an excepted predicate: 800 firings of one excepted
 rule, then 50 `genl` edges whose supertype is at or below the exception's own predicate,
 so the rule is queued on every edge. Both halves matter and they pull in opposite
-directions, so both are here:
+directions, so both are here. The times are one run's wall clock on one box, rounded —
+what they are for is the ratio between the rows, which is the shape of the argument:
 
 | 800 firings, then 50 edges | building the firings | the 50 edges | total |
 |---|---|---|---|
-| the rule fires, nothing blocks | 334 ms | 2361 ms | **2695 ms** |
-| every firing refused, no record | 300 ms | 19 ms | **319 ms** |
-| every firing refused, recorded | 982 ms | 1381 ms | **2363 ms** |
-| every firing refused, coarse re-join | 10 082 ms | 1598 ms | **11 680 ms** |
+| the rule fires, nothing blocks | ~0.3 s | ~2.4 s | **~2.7 s** |
+| every firing refused, no record | ~0.3 s | ~0.02 s | **~0.3 s** |
+| every firing refused, recorded | ~1.0 s | ~1.4 s | **~2.4 s** |
+| every firing refused, coarse re-join | ~10 s | ~1.6 s | **~12 s** |
 
 Read the second row first: it is cheap because it does **nothing**, which is the defect.
-The first row is the price of a correct answer, and the engine has always paid it — a
-rule whose firings *were* placed pays edges × firings through `exception-candidates` over
-`jtms/dependents`. So the derive-time case is not a new asymptotic; it is the same one,
-and it was free only while it was wrong.
+The first row is the price of a correct answer, and the engine pays it either way — a
+rule whose firings *are* placed pays edges × firings through `exception-candidates` over
+`jtms/dependents`. So the derive-time case is not a second asymptotic; it is the one the
+placed case already has, paid in the cheaper of the two shapes.
 
 Against that, the record costs **less than the engine already pays for the placed case**
-(2363 against 2695: a refusal carries its bindings inline where a justification is a
-record fetch away), and **4.9× less than the coarse re-join** it replaces. The re-join's
-damage is concentrated where a record cannot be: in the *build*, where every arriving
-fact forces a productive pass and joins the rule over everything asserted so far.
+(~2.4 s against ~2.7 s: a refusal carries its bindings inline where a justification is a
+record fetch away), and **roughly 5× less than the coarse re-join** it replaces. The
+re-join's damage is concentrated where a record cannot be: in the *build*, where every
+arriving fact forces a productive pass and joins the rule over everything asserted so far.
 
 The record is not free either, and the third row says where it is paid: building those
-800 refused firings goes from 300 ms to 982 ms, because a fact on the exception's own
-predicate now narrows against the record as well as against the placed firings. That is
-the shape `exception-candidates` has had all along — memory-only work per firing per
-trigger, no query — and it is what a firing costs once it is remembered.
+800 refused firings roughly triples, because a fact on the exception's own predicate now
+narrows against the record as well as against the placed firings. That is
+`exception-candidates`'s own shape — memory-only work per firing per trigger, no
+query — and it is what a firing costs once it is remembered.
 
-The edge half is linear in the firing count, on both sides of the fix: 104 / 341 /
-1381 ms at 50 / 200 / 800 firings recorded, against 223 / 623 / 2384 ms for the same
-firings placed.
+The edge half is linear in the firing count, on both sides of the fix: on the same
+workload it reads roughly 0.1 / 0.34 / 1.4 s at 50 / 200 / 800 firings recorded, against
+roughly 0.2 / 0.6 / 2.4 s for the same firings placed — whose 800-firing figure is the
+edge column of the table above.
 
 ### Taxonomy changes are keyed on what the closure moved
 
@@ -480,13 +492,16 @@ an answer differently.
   rule blocked every time it fired has no placed firing to read a context off, and a
   widened cone that releases it would otherwise reach nothing.
 
-  **A rule carrying an aggregate is waved through that narrowing**, because for it the
-  absence is not a gap but a wrong answer. Every other re-check condition is a block, so
-  whatever a widened cone can change always left a firing to find; an aggregate binds a
-  **value**, and a census that rises licenses a firing that never existed — no placed
-  conclusion, no context to read, nothing for the cone test to match. A count taken in
-  `CxSub` before it inherited `CxUp` would simply stay taken. It is the same
-  asymmetry the settle loop re-joins a queued aggregate rule for, met the same way.
+  **A rule an arrival can release is waved through that narrowing**
+  (`rules/arrival-releasable?`), because for it the absence is not a gap but a wrong
+  answer. Most re-check conditions are a block, so whatever a widened cone can change
+  always left a firing to find. Two are not. An aggregate binds a **value**, and a census
+  that rises licenses a firing that never existed — no placed conclusion, no context to
+  read, nothing for the cone test to match; a count taken in `CxSub` before it inherited
+  `CxUp` would simply stay taken. A **nested** NAF is the same shape one level in: an
+  arriving fact removes the witness the inner query found ([naf.md](naf.md), `forall`),
+  and again there was never a blocked justification to unblock. It is the same asymmetry
+  the settle loop re-joins such a rule for, met the same way.
 
   The narrowing is what that exemption is measured against, and it is not free: one
   record fetch per excepted rule to ask the exemption, and then one per **firing** for
@@ -609,6 +624,7 @@ exception, and `valid?` reads it:
 
 ```clojure
 (and (every? #(contains? in %) (:antecedents j))
+     (not-any? #(contains? in %) (:out j))
      (not (contains? blocked (:id j))))
 ```
 
@@ -722,11 +738,12 @@ state: no sentex, no justification, and no posting in the rule or exception inde
 throws `ex-info` with `:type :not-stratified` and a `:cycle` naming the nodes and
 edges around the loop.
 
-**Fast path:** with no exception on the rule being added and none on any stored rule,
-the graph has no negative edge at all and the walk is skipped. That is every rule in an
-ontology that uses no exceptions, which is most of them. The guard is the KB's whole
-exception index rather than the rule at hand, so **one** exception anywhere ends the
-fast path for everything asserted after it: the bundled starter takes it until
+**Fast path:** with no negative dependency on the rule being added — no exception, no
+`unknown`, no aggregate, no closed-extent negative and no `different` — and no exception
+on any stored rule, the graph has no negative edge at all and the walk is skipped. That
+is every rule in an ontology that uses none of them, which is most of them. The second
+half of the guard is the KB's whole exception index, so **one** exception anywhere ends
+the fast path for everything asserted after it: the bundled starter takes it until
 `CxBiology`'s `dead` exception loads, and pays the walk from there on. The walk is
 cheap and the ordering is alphabetical, so this is a cost note, not a limit.
 
@@ -739,8 +756,8 @@ matter which of the three arrived last. Walking on rule assert alone would accep
 unstratified program silently whenever the **edge** is the newcomer.
 
 So the walk runs on `genl` / `genlCx` assert as well. `checks/edge-negation-cycle`
-takes the coarse route this document already proposed for the re-check trigger, and
-for the same reason — an edge change has no rule and no fact to narrow by:
+takes the same coarse route the re-check trigger takes on an edge, and for the same
+reason — an edge change has no rule and no fact to narrow by:
 
 - Every cycle through negation crosses a negative edge, and negative edges leave
   **excepted rules only**. So starting the walk at each excepted rule is complete,
@@ -781,7 +798,7 @@ rule fired first.
 So this joins the **`violations`** mechanism, which exists for exactly the same
 situation one layer over: a derived conclusion that breaks a definitional constraint.
 `chain/place-conclusion` asks `edge-stratification-violation` alongside
-`constraint-violation`, and a bad edge is **dropped** — no sentex, no justification,
+`checks/constraint-admission` and `special/wff-violation`, and a bad edge is **dropped** — no sentex, no justification,
 nothing in the closures — and reported in `(violations kb)` as
 `{:violation :not-stratified :detail {:cycle …}}`. Dropping rather than merely
 reporting is what keeps the invariant: an unstratified edge that was only reported
@@ -808,6 +825,24 @@ exception restores it. A rule can carry several independent exceptions (block-if
 key ([indexing.md](indexing.md)) — because a rule that forked on acquiring one would leave
 every justification the original licensed hanging off a handle nothing concludes.
 
+**A polycanonicalized rule gets one exception per expansion.** The `exceptWhen` is split
+off *before* the expansion runs, so a rule whose consequent conjoins or whose antecedent
+disjoins is stored as several — and the exception is re-attached once per stored rule,
+against that rule's own handle. It has to be per-handle because the meta-sentex names a
+handle, and per-*varmap* because each expansion is canonicalized on its own: a self-join
+tie group can be numbered differently by two conjuncts (the consequent breaks the tie),
+so one shared alignment would misalign the exception on whichever expansion numbered
+differently. `assert` returns the vector of exception handles in that case, exactly as
+the bare rule returns the vector of rule handles
+([canonicalization.md](canonicalization.md)).
+
+An `or` **inside** the exception query is refused instead of expanded, and the reason is
+one paragraph up: the conjuncts of one exception all have to hold, while a rule's
+exceptions block if **any** holds. So a disjunctive exception is already two exceptions —
+assert `(exceptWhen <alternative> (sentexHandle H))` once per alternative, and each is
+separately assertable, retractable and believable, which one `or` inside a single query
+would not be.
+
 **The query is aligned to the rule's canonical variables.** The exception is written in
 the author's variable names beside the rule; `assert-exceptWhen-meta!` maps them to the
 rule's canonical `?varN` through the rule-as-written's `:varmap`, so a firing's bindings
@@ -819,7 +854,20 @@ from whatever names the rule was first stored with.
 deduplicated (`sentex/sort-conjuncts`), so two spellings of one exception dedup to the
 same meta-sentex.
 
-**The meta-sentex is the first non-ground stored Atomic.** It carries the rule's
+**The exception has a defeat class of its own, and a spelling for it.** The meta-sentex
+is a premise like any other, so it stands at a strength — and `assert` takes one `opts`
+for what is really *two* assertions, the rule and the exception qualifying it. That one
+option reaches both halves, which says three of the four rule × exception pairings and
+cannot say the fourth: a **known-true exception on a default rule**. That one is stated
+on the query, `(exceptWhen (set/monotonic Q) R)`. The wrapper is peeled at the door
+(`sentex/peel-exception-strength`) and never reaches the store, so the meta-sentex is the
+sentence it always was; what it changes is the class the premise is marked at. `check`
+reports the same `:shape` refusal `assert` throws for a wrapper written round the wrong
+number of queries, and two `exceptWhen`s written together conjoin into one meta-sentex,
+so a wrapper on either query says the whole exception is known-true. This is the spelling
+the text KB format writes and reads back ([kbs.md](kbs.md)).
+
+**The meta-sentex is the one non-ground stored Atomic.** It carries the rule's
 variables, so it is exempt from the ground-fact check, and it is excluded from ordinary
 fact matching (`match-one`, `matches-hierarchical`, `sentexes-matching`) so it never surfaces as a
 domain fact. It *is* findable by the handle it names — `(sentexHandle H)` is a ground
@@ -839,8 +887,10 @@ other wrappers are. Two `exceptWhen`s written together conjoin into one meta-sen
 ## The parts
 
 - **Evaluation.** `provers/exception-holds?` substitutes the firing's bindings into a
-  conjunction (from `provers/rule-exceptions`) and runs each conjunct as an independent
-  ground existence check over the registry — level 6 of the lookup stack, reached here
+  conjunction (from `provers/rule-exceptions`) and runs the conjuncts through
+  `provers/conjunction-solutions` — one evaluator with `unknown`, and on a ground
+  conjunction exactly the independent existence checks it has always been — over the
+  registry, level 6 of the lookup stack, reached here
   without depending on `levels`. Each substituted conjunct is first put in the **normal
   form its context answers under** (`condition-normalizer`), the preparation
   `levels/engine-goal` gives a level-6 read and `kb/rewrite-goal` a query: a bound term
@@ -849,8 +899,8 @@ other wrappers are. Two `exceptWhen`s written together conjoin into one meta-sen
   in the registry expands a rule, which is what keeps the check bounded.
   `exceptions-block?` ORs this over a rule's exceptions.
 - **Blocking, in every chainer.** Forward chaining checks before placing
-  (`derive-conclusion`), and `res/prove` and the node engine each
-  carry a `:guards` entry on the parsed rule and drop the argument once it is complete. An
+  (`derive-conclusion`), while `res/prove` carries a `:guard` on the parsed rule and the
+  node engine a `:guards` list, each dropping the argument once it is complete. An
   exception that blocked forward but not backward would make `sentexes-matching` and `ask`
   disagree about one rule, which is the one thing it must never do. `prove` reduces
   a rule by *pushing* its antecedents, so its guard rides the goal stack as a marker
@@ -896,8 +946,8 @@ other wrappers are. Two `exceptWhen`s written together conjoin into one meta-sen
 
 ### The fixpoint question, measured
 
-The open question was whether evaluation needs the iterate-to-fixpoint loop or whether
-strata should be computed first so one pass suffices. `settle` is instrumented
+Whether evaluation needs the iterate-to-fixpoint loop, or whether strata computed first
+would let one pass suffice, is answered by measurement. `settle` is instrumented
 (`core/settle-stats`): `:iterations` counts the passes in which the blocked set
 actually **moved**.
 
@@ -934,12 +984,12 @@ narrowed run against an unnarrowed one:
 
 | | n=25 | n=50 | n=100 | n=200 | scaling |
 |---|---|---|---|---|---|
-| no exception | 70 ms | 106 ms | 181 ms | 358 ms | flat, ≈1.8 ms/assert |
-| exception present, never holds | 49 ms | 96 ms | 187 ms | 372 ms | flat (≈4%, within noise) |
-| exception holds on every firing, unnarrowed | 452 ms | 1085 ms | 3102 ms | 11 698 ms | **quadratic** |
-| exception holds on every firing, as it runs | 102 ms | 224 ms | 452 ms | 844 ms | flat, ≈4.2 ms/assert |
+| no exception | ~70 ms | ~110 ms | ~180 ms | ~360 ms | flat, ≈1.8 ms/assert |
+| exception present, never holds | ~50 ms | ~100 ms | ~190 ms | ~370 ms | flat (≈4%, within noise) |
+| exception holds on every firing, unnarrowed | ~450 ms | ~1.1 s | ~3.1 s | ~12 s | **quadratic** |
+| exception holds on every firing, as it runs | ~100 ms | ~220 ms | ~450 ms | ~840 ms | flat, ≈4 ms/assert |
 
-13.9× at n=200, and the row does not bend.
+Roughly 14× at n=200, and the row does not bend.
 
 Timing measures the machine as much as the algorithm, so the load-bearing number is
 the count of level-6 exception evaluations, which is exact:

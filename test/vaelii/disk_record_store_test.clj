@@ -328,6 +328,29 @@
             (is (nil? (p/get-sentex s 43)) "the gap is empty, not garbage")
             (finally (drs/close! s))))))))
 
+(deftest a-bulk-batch-that-is-not-positive-is-refused
+  ;; `:batch` is how many records buffer before one pair of writes, so a batch that is not
+  ;; a positive count is a sink with no flush unit: zero buffers a corpus into heap and
+  ;; never writes it, and a negative one is a size nothing can be partitioned into.  The
+  ;; refusal is at the open, where a caller can still name a different number, rather than
+  ;; part-way through a load that has already stored millions of frames.
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)]
+        (try
+          (doseq [batch [0 -1]]
+            (let [e (is (thrown? clojure.lang.ExceptionInfo (cap/sentex-sink s {:batch batch})))]
+              (is (= :bad-batch (:type (ex-data e))))
+              (is (= batch (:batch (ex-data e))) "naming the number it was handed")))
+          (testing "and the justification half opens through the same door"
+            (let [e (is (thrown? clojure.lang.ExceptionInfo
+                                 (cap/justification-sink s {:batch 0})))]
+              (is (= :bad-batch (:type (ex-data e))))))
+          (testing "a refused sink stored nothing"
+            (is (= #{} (p/sentex-ids s)))
+            (is (= #{} (p/justification-ids s))))
+          (finally (drs/close! s)))))))
+
 (deftest the-premise-set-agrees-with-the-records-it-is-derived-from
   (with-tmp
     (fn [dir]
@@ -796,16 +819,30 @@
 (deftest hot-cache-is-bounded-and-lru
   (with-tmp
     (fn [dir]
-      (let [s (drs/open-record-store dir)]
+      ;; An explicit capacity, well under the load: at the `vaelii.disk.cache` default of
+      ;; 65,536 a two-thousand-record load evicts nothing, so the bound and the eviction
+      ;; order are both unobservable and every assertion below holds vacuously.
+      (let [cap 100
+            s   (drs/open-record-store dir {:cache-capacity cap})]
         (try
           ;; the cache is capacity-bounded, so a load larger than it must not grow the
           ;; heap without limit — and the survivors must be the recently used ones.
-          (let [cap  (.size ^java.util.Map (:cache (:sentexes (:kinds s))))
-                ids  (vec (for [i (range 2000)]
-                            (p/put-sentex s {:sentence (list 'p (symbol (str "I" i))) :context 'C})))
-                size (.size ^java.util.Map (:cache (:sentexes (:kinds s))))]
-            (is (zero? cap) "starts empty")
-            (is (<= size 2000) "bounded by the configured capacity")
+          (let [size0 (.size ^java.util.Map (:cache (:sentexes (:kinds s))))
+                ids   (vec (for [i (range 2000)]
+                             (p/put-sentex s {:sentence (list 'p (symbol (str "I" i))) :context 'C})))
+                size  (.size ^java.util.Map (:cache (:sentexes (:kinds s))))]
+            (is (zero? size0) "starts empty")
+            (is (= cap size) "bounded by the configured capacity, whatever the load")
+            (testing "and it is the recently used that survive"
+              ;; the load left the last `cap` writes in it; the first are long gone
+              (is (some? (cached s :sentexes (peek ids))) "the newest write is held")
+              (is (nil? (cached s :sentexes (first ids))) "the oldest is not")
+              ;; reading an evicted id re-admits it, which is what makes the order LRU
+              ;; rather than a fixed window over the writes
+              (p/get-sentex s (first ids))
+              (is (some? (cached s :sentexes (first ids))) "a read promotes what it paged in")
+              (is (= cap (.size ^java.util.Map (:cache (:sentexes (:kinds s)))))
+                  "and the promotion evicted one rather than growing the map"))
             (testing "every id still reads correctly whether or not it is cached"
               (doseq [i (range 0 2000 137)]
                 (is (= (list 'p (symbol (str "I" i))) (:sentence (p/get-sentex s (nth ids i))))))))

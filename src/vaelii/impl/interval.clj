@@ -44,6 +44,16 @@
   So `(before A B)` and `(before B C)` entail `(before A C)`, and `(during A B)` with
   `(during B C)` entails `(during A C)` and the weaker `(subintervalOf A C)` with it.
 
+  **Stored facts are not the only reader.**  This is the one calculus with a
+  `qcn-kb` **narrowing**: `stp/allen-narrowing-with-support` closes the metric constraints
+  over the instants `(startOf I P)` / `(endOf I P)` name and reads back what they pin down
+  about the interval relations, and that is intersected into the same network.  So a KB
+  that states two meetings' start and end times, and the gap between them, answers
+  `(before A B)` with no interval relation written anywhere — and the entailment names the
+  metric facts, the endpoint facts and the unit rows behind it, so retracting any of them
+  withdraws whatever was concluded from it.  It runs one way only: metric narrows
+  qualitative, never the reverse (docs/stp.md).
+
   An emptied constraint anywhere means the asserted relations are unsatisfiable, and then
   *no* interval goal is answered — an inconsistent theory should not be mined for
   conclusions.
@@ -58,7 +68,8 @@
   grammar they are declared in.  The prover is **opt-in** on top of it: register it with
   `vaelii.core/add-prover`, and until then a KB stores and retrieves interval relations as
   ordinary facts without paying for the network."
-  (:require [vaelii.impl.qcn-kb :as qkb]))
+  (:require [vaelii.impl.qcn-kb :as qkb]
+            [vaelii.impl.stp :as stp]))
 
 ;; ---- the algebra --------------------------------------------------------
 
@@ -250,9 +261,22 @@
 
 (def allen
   "Allen's interval algebra as a `vaelii.impl.qcn-kb` calculus — the algebra, the
-  vocabulary, and the two caches.  Everything below delegates to the shared glue, which
-  is the same code RCC-8 and the cardinal directions run."
-  (qkb/calculus :allen allen-algebra interval-denotation))
+  vocabulary, the two caches, and the metric narrowing.  Everything below delegates to the
+  shared glue, which is the same code RCC-8 and the cardinal directions run.
+
+  The **narrowing** is what the other five calculi have no counterpart for, and it is why
+  this namespace requires `stp` rather than the other way about: an interval is bounded by
+  two instants a metric constraint can speak of, so the metric layer is a second reader of
+  this network.  `:sources` is every predicate whose arrival moves what it answers —
+  the constraints, the two endpoint predicates and the unit table their magnitudes convert
+  through — and `:contexts` the ones that put an interval *into* a network, which is what
+  makes a context worth reading one at.  A `conversionFactor` is in the first and not the
+  second: it changes what a bound comes to, and a context holding one and no interval has
+  nothing to narrow."
+  (qkb/calculus :allen allen-algebra interval-denotation
+                {:fn       stp/allen-narrowing-with-support
+                 :sources  stp/allen-narrowing-sources
+                 :contexts (into stp/stp-predicates stp/endpoint-predicates)}))
 
 (defn possible-allen-relations
   "The Allen base relations still possible between intervals `i1` and `i2` given
@@ -263,6 +287,23 @@
   asks here.  `vaelii.impl.duration` is the one in tree."
   [kb context i1 i2]
   (qkb/possible allen kb context i1 i2))
+
+(defn allen-support
+  "The handles of the stored sentexes the relation set between `i1` and `i2` rests on —
+  `possible-allen-relations`' support (`qcn-kb/support`).
+
+  `#{}` when the pair is unconstrained, which is the honest answer: an unconstrained pair
+  leaves all thirteen relations open, and nothing stored says so.  A caller drawing a
+  conclusion from what the relations *narrow* rests on exactly this set."
+  [kb context i1 i2]
+  (qkb/support allen kb context i1 i2))
+
+(defn allen-predicates
+  "Every predicate the Allen calculus reads — the thirteen base relations and the seven
+  derived ones.  What a caller whose answer depends on the interval network names as its
+  sources (`provers/SupportingProver`)."
+  []
+  (:predicates allen))
 
 (defn definite-allen-relation
   "The single base relation between `i1` and `i2` when path consistency pins it down;

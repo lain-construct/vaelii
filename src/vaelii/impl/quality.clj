@@ -1,10 +1,11 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.quality
-  "Five readings about the **knowledge**, where the rest of the instrumentation reads the
+  "Seven readings about the **knowledge**, where the rest of the instrumentation reads the
   engine: which rules never fire, how skewed the predicate extents are, how deep the rule
-  graph's chains reach, how much of the taxonomy is connected to anything, and which
-  argument declarations name a position their predicate does not have.
+  graph's chains reach, how much of the taxonomy is connected to anything, which argument
+  declarations name a position their predicate does not have, which rules another rule
+  already covers, and which rule pairs would contradict each other if both fired.
 
   `settle-stats` and `chain-stats` answer *how the engine ran*.  These answer *whether the
   knowledge is any good*, which is the question the author of a large KB has and the one
@@ -15,9 +16,11 @@
   `rule -> firings` index would be a second copy of the JTMS adjacency to keep in step,
   which is the failure class the taxonomy's single `:support` map exists to avoid.  So the
   cost is
-  `O(terms + rules + firings + ancestor pairs + declarations × super-predicates)` and never
-  `O(sentexes)` — the **vocabulary**, which on a KB of a million facts about a hundred
-  individuals is a hundred-odd names.  **Ancestor pairs and not edges**, which is the term
+  `O(terms + rules + firings + ancestor pairs + declarations × super-predicates
+  + candidate rule pairs)` and never
+  `O(sentexes)` — the **vocabulary and the rule set**, which on a KB of a million facts
+  about a hundred individuals is a hundred-odd names and a few hundred rules.  **Ancestor
+  pairs and not edges**, which is the term
   worth spelling out: `taxonomy-coverage` reads each type's whole `genl` up-closure to find
   the root, so a chain of V types costs Θ(V²) where it has V−1 edges.  Vocabulary-sized on
   any ontology anybody writes, which is the claim that matters, and not an edge count:
@@ -29,7 +32,8 @@
   - **Three O(1) index reads per functor name** — the stored extent off the count-aware
     trie, and the rule postings *both* ways.  That is everything the extent and chain
     readings need, and it is where the rule handles come from, so nothing on this pass
-    reaches the record store beyond the handful of rules the report actually lists.
+    reaches the record store at all — the record reads are the listed rules' and the two
+    rule-hygiene readings' below.
   - **The firing census reads each rule's own `:consequences` adjacency**, the candidate
     set `jtms/restrength-informant*` uses, and never scans the justification map.  At
     11.5M justifications that difference is the report existing or not.
@@ -43,6 +47,13 @@
     super-predicate where it inherits one, which is the `× super-predicates` above and the
     one term of the formula that is not flat.  It is also the second reader of the record
     store, for the declarations themselves — vocabulary, and therefore few.
+  - **The two rule-hygiene readings are the third**, and the one that reads a record per
+    *rule*: a rule's antecedents, its consequent and its four availability slots live on
+    the record and nowhere else, so `+ rules + candidate pairs` is what they add.  A pair
+    is a candidate only where the consequent index says one rule could conclude what the
+    other does, and the two properties they read are gated on the KB declaring any
+    (`marked-groups`), so a KB whose rules conclude different things pays the grouping and
+    stops.
 
   Every count is of what is **stored**.  A believed extent is O(n) per predicate
   (`vaelii.core/count-with-functor` says why), which would turn an O(predicates) report
@@ -50,13 +61,19 @@
   wants to see rather than have chosen for them.  Two readings consult belief anyway: the
   firing census, because \"fired and every conclusion defeated\" is a category and not a
   rounding error, and the declaration census, because a disbelieved declaration constrains
-  nothing for a reason that has nothing to do with the position it names."
-  (:require [clojure.string :as str]
+  nothing for a reason that has nothing to do with the position it names.  The two
+  rule-hygiene readings are as-stored about the *rules* and belief-following about the
+  *declarations* they read, which `rules read against each other` below argues."
+  (:require [clojure.set :as set]
+            [clojure.string :as str]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.provers :as provers]
+            [vaelii.impl.reads :as reads]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]))
 
@@ -92,10 +109,19 @@
   `:type-names` rides along: every type-shaped name is lowercase-initial and so is already
   in this filter's answer, which is what keeps the taxonomy reading from walking the term
   roster a second time — the roster is the report's one superlinear term and it is walked
-  once."
+  once.
+
+  **Every read here is an as-stored one, and both halves need to be.**  The extent is a
+  cardinality, which the index answers and belief cannot narrow without a walk per
+  predicate — the skew reading is about how the *knowledge* is shaped, not about what
+  survived the last settle.  The rule postings are as-stored for a sharper reason: what
+  `firing-census` sorts them into is *never fired* and *fired with every conclusion
+  defeated*, so a believed door would drop from the census exactly the rules the report
+  exists to name, and the two counts beside them would come back zero on the KB with the
+  most to answer for."
   [kb progress!]
   (let [idx   (:index kb)
-        preds (into [] (filter functor-name?) (p/terms idx))
+        preds (into [] (filter functor-name?) (reads/stored-terms idx))
         total (count preds)]
     ;; before the loop, so a phase with nothing in it still reports itself — a caller
     ;; watching the phases is watching for where a long report is, and \"skipped because
@@ -109,15 +135,15 @@
          :ante       (persistent! ante)
          :conseq     (persistent! conseq)}
         (let [pred (nth preds i)
-              n    (p/count-with-functor idx pred)]
+              n    (reads/stored-count-with-functor idx pred)]
           (when (and (pos? i) (zero? (mod i progress-every)))
             (progress! {:phase :extents :done i :total total}))
           (recur (inc i)
                  (if (pos? n) (assoc! extents pred n) extents)
                  (reduce (fn [m h] (assoc! m h (conj (get m h #{}) pred)))
-                         ante (p/rules-by-antecedent idx pred))
+                         ante (reads/as-stored-rules-by-antecedent idx pred))
                  (reduce (fn [m h] (assoc! m h pred))
-                         conseq (p/rules-by-consequent idx pred))))))))
+                         conseq (reads/as-stored-rules-by-consequent idx pred))))))))
 
 ;; ---- which rules never fire ----------------------------------------------
 
@@ -365,7 +391,7 @@
         nodes (tax/types taxo)
         named (:type-names pass)]
     (progress! {:phase :taxonomy :done 0 :total (count nodes)})
-    (let [reach (frequencies (mapcat #(tax/genls taxo %) nodes))
+    (let [reach (frequencies (mapcat #(tax/genls-global taxo %) nodes))
           [root rooted] (first (sort-by (juxt (comp - val) (comp nm/print-key key)) reach))]
       {:names   (count (into named nodes))
        :edged   (count nodes)
@@ -434,7 +460,7 @@
                          (vswap! cache assoc ctx r)
                          r))))
         stored (into []
-                     (comp (mapcat #(p/sentexes-with-functor (:index kb) %))
+                     (comp (mapcat #(reads/as-stored-with-functor (:index kb) %))
                            (distinct)
                            (keep #(p/get-sentex (:records kb) %))
                            (filter #(= :true (:truth %)))
@@ -465,11 +491,601 @@
        :stranded-count (count found)
        :truncated?     (> (count found) limit)})))
 
+;; ---- rules read against each other ---------------------------------------
+;;
+;; The five readings above ask about a rule's relation to the **KB** — whether it fired,
+;; how deep its chain runs.  The two below ask about a rule's relation to **another
+;; rule**, which is the one question in the census that needs the rules themselves and
+;; not their index postings: one record read per rule, and a unification per candidate
+;; pair.  So these two add `O(rules + candidate pairs)` to the report and no term that
+;; grows with what the KB stores.
+;;
+;; Read **as stored**, like the firing census and for its reason: a rule the KB currently
+;; disbelieves is still a rule somebody wrote, and a redundancy in the text does not stop
+;; being one while its support is defeated.  The declarations these readings consult —
+;; `genl`, `disjoint`, `functional`, `asymmetric`, `genlCx` — do follow belief, because a
+;; separation nobody believes separates nothing.
+;;
+;; A rule whose consequent functor is a **variable** is outside both: it concludes
+;; whatever binds, so it would cover every rule in the KB and clash with every other,
+;; which is a page of findings about one rule.
+
+(defn- form-variables
+  "Every variable anywhere in `form`, as a set."
+  [form]
+  (into #{} (filter sx/variable?) (tree-seq sequential? seq form)))
+
+(defn- rule-variables
+  "Every variable across a rule's patterns, **sorted by name** — so the renamings below
+  are a function of the rule's content rather than of a set's iteration order, and two
+  loads of the same KB report the same substitution."
+  [forms]
+  (sort (reduce into #{} (map form-variables forms))))
+
+(defn- freezing
+  "`[freeze unfreeze]` over a rule's variables: each replaced by a namespaced symbol no
+  sentence can spell, and the map back.
+
+  Subsumption is a **one-way match** — a substitution over the covering rule's variables
+  alone — and `unify` binds in either direction.  Freezing the covered rule's variables
+  into constants is what makes the two-way unifier run one way, without a second matcher
+  to keep in step with the first."
+  [forms]
+  (let [m (into {}
+                (map-indexed (fn [i v] [v (symbol "vaelii.impl.quality" (str "frozen" i))]))
+                (rule-variables forms))]
+    [m (into {} (map (fn [[v f]] [f v])) m)]))
+
+(defn- restore
+  "`form` with every term `m` names replaced.  `sentex/rename-vars` is the same walk for
+  *variables* and answers nothing here: what a freeze put in the form is a constant, which
+  is the whole point of freezing it, so unfreezing needs a walk that does not test for a
+  `?`."
+  [form m]
+  (cond
+    (contains? m form) (get m form)
+    (vector? form)     (mapv #(restore % m) form)
+    (sequential? form) (apply list (map #(restore % m) form))
+    :else              form))
+
+(defn- renaming
+  "A rule's variables renamed apart from any other rule's.  Every stored rule is numbered
+  `?var0 …` (docs/canonicalization.md), so unifying two of them untouched would join
+  variables that share a name and nothing else."
+  [forms]
+  (into {}
+        (map-indexed (fn [i v] [v (symbol (str "?other" i))]))
+        (rule-variables forms)))
+
+(defn- rule-view
+  "One rule as these two readings read it: the decomposition off the record, the
+  consequent split into polarity and body, and the sentence as its author wrote it."
+  [sx]
+  (let [conseq (:consequent sx)
+        neg?   (sx/negation? conseq)
+        body   (if neg? (second conseq) conseq)
+        sent   (if-let [vm (:varmap sx)] (sx/originalize (:sentence sx) vm) (:sentence sx))]
+    {:handle     (:id sx)
+     :context    (:context sx)
+     :varmap     (:varmap sx)
+     :sentence   sent
+     :sort-key   [(nm/print-key sent) (nm/print-key (:context sx))]
+     :antecedent (vec (:antecedent sx))
+     :consequent conseq
+     :body       body
+     :polarity   (if neg? :false :true)
+     :functor    (nm/functor body)
+     :arity      (nm/arity body)
+     :direction  (:direction sx)
+     :defeasible (boolean (:defeasible sx))
+     :assumption (boolean (:assumption sx))
+     :constraint (:constraint sx)}))
+
+(defn- rule-views
+  "Every rule the census enumerated, as a `rule-view` — the one record read per rule these
+  readings pay, and the phase both of them are announced under.
+
+  A negated implication and a variable-functor consequent are dropped here: the first
+  concludes nothing to cover or clash with, and the second concludes anything."
+  [kb handles progress!]
+  (let [hs    (vec handles)
+        total (count hs)]
+    (progress! {:phase :subsumption :done 0 :total total})
+    (loop [i 0, out (transient [])]
+      (if (= i total)
+        (persistent! out)
+        (let [sx (p/get-sentex (:records kb) (nth hs i))
+              v  (when (and sx (some? (:antecedent sx)) (= :true (:truth sx)))
+                   (rule-view sx))]
+          (when (and (pos? i) (zero? (mod i progress-every)))
+            (progress! {:phase :subsumption :done i :total total}))
+          (recur (inc i)
+                 (if (and v (symbol? (:functor v)) (not (sx/variable? (:functor v))))
+                   (conj! out v)
+                   out)))))))
+
+(defn- by-consequent
+  "`[polarity functor] -> views` — the pruning index both readings pair over, and the
+  reason neither is a cross product over the rule set."
+  [views]
+  (group-by (juxt :polarity :functor) views))
+
+(defn- rule-exception-conjuncts
+  "The `exceptWhen` conjunctions in force for a rule, or nil.  Gated on the watched-rule
+  roster, so an ordinary rule — every rule, on nearly every KB — pays one O(1) membership
+  read and no term lookup."
+  [kb handle]
+  (when (reads/watched-rule? (:index kb) handle)
+    (seq (provers/rule-exceptions kb handle))))
+
+;; ---- reading six: rules another rule already covers -----------------------
+
+(def ^:private direction-covers
+  "Which directions a rule of each direction can stand in for.  `:both` is the only one
+  that covers a direction other than its own, and `:inert` covers nothing but `:inert`: a
+  rule that chains in neither engine cannot stand in for one that does."
+  {:both #{:both :forward :backward} :forward #{:forward} :backward #{:backward}
+   :inert #{:inert}})
+
+(defn- available-at-least?
+  "Is `r1` at least as **available** as `r2` — could every firing of `r2` have been one of
+  `r1`?  Four slots decide it, and each is a way one rule reaches where the other does
+  not:
+
+  - **direction**, since a `:forward` rule answers no backward goal;
+  - **defeasibility**, since a default cannot stand in for a strict rule — its conclusion
+    is defeated exactly where the strict one's stands;
+  - **`assumption`** and **`constraint`**, since neither chains at all: each is a *choice*
+    or a *nogood* for a solve (docs/solving.md) and part of the rule's identity.
+
+  What it does not read is the rule sentex's own **strength**, which says how the rule is
+  defeated rather than where it runs."
+  [r1 r2]
+  (and (contains? (get direction-covers (:direction r1) #{}) (:direction r2))
+       (or (not (:defeasible r1)) (:defeasible r2))
+       (= (:assumption r1) (:assumption r2))
+       (= (:constraint r1) (:constraint r2))))
+
+(defn- antecedents-covered
+  "A binding extending `bindings` under which **every** literal of `generals` matches some
+  literal of `specifics`, or nil.
+
+  Backtracking, because which specific literal a general one takes decides what the next
+  one can take — and an antecedent list is three or four literals, so the search is a
+  handful of unifications rather than a cost.  `subsuming-unify` is the match, so a
+  general literal on `P` is met by a specific one on a spec of `P` (docs/inference.md,
+  predicate subsumption in matching)."
+  [kb generals specifics bindings context]
+  (if (empty? generals)
+    bindings
+    (some (fn [s]
+            (when-let [b (res/subsuming-unify kb (first generals) s bindings context)]
+              (antecedents-covered kb (rest generals) specifics b context)))
+          specifics)))
+
+(defn- readable-substitution
+  "σ as an author reads it: the covering rule's own variable names bound to the covered
+  rule's terms in *its* names.  Both sides are stored numbered, so the raw map is
+  `{?var0 ?var1}` twice over and says nothing about either rule."
+  [sigma r1 r2 unfreeze]
+  (let [vm1 (or (:varmap r1) {})
+        vm2 (or (:varmap r2) {})]
+    (into (sorted-map)
+          (map (fn [[v t]]
+                 [(get vm1 v v)
+                  (sx/rename-vars (restore (res/substitute t sigma) unfreeze) vm2)]))
+          sigma)))
+
+(defn- exceptions-covered?
+  "Does `r2` carry every `exceptWhen` `r1` does?  An exception the covering rule carries
+  and the covered one lacks is a case `r1` declines to conclude and `r2` concludes, so
+  `r1` does not cover it.
+
+  Compared as conjunct **sets** after σ, since an exception is stored in its own rule's
+  canonical variable names and the two rules do not share them."
+  [kb r1 r2 sigma unfreeze]
+  (let [e1 (rule-exception-conjuncts kb (:handle r1))]
+    (or (nil? e1)
+        (let [e2 (into #{} (map set) (rule-exception-conjuncts kb (:handle r2)))]
+          (every? (fn [c]
+                    (contains? e2 (into #{}
+                                        (map #(restore (res/substitute % sigma) unfreeze))
+                                        c)))
+                  e1)))))
+
+(defn- subsumption
+  "Does `r1` subsume `r2` — is there one substitution σ over `r1`'s variables with
+  `ante(r1)σ ⊆ ante(r2)` and `conseq(r1)σ = conseq(r2)`?  σ as `readable-substitution`
+  writes it, or nil.
+
+  **Predicate-genl aware in both halves, and in opposite directions.**  An antecedent of
+  `r1` on `P` is covered by an antecedent of `r2` on a *spec* of `P`, because whatever
+  satisfies the spec satisfies `P` — `match1`'s fan, asked of a pattern instead of a
+  fact.  A consequent of `r1` on a *spec* of `r2`'s covers it, because concluding the
+  subtype answers every goal the supertype would; a consequent on a **super** does not
+  cover, which is the half a reader expects to be symmetric and is not.  Both are
+  `subsuming-unify`, which is where the direction lives.
+
+  Asked from `r2`'s context, and `r1` must be visible there: a rule covered by one it
+  cannot see is not covered.
+
+  **`(count ante(r1)) > (count ante(r2))` is pruned**, and it is the one case the reading
+  under-reports: σ may collapse two of `r1`'s antecedents onto one of `r2`'s, so a rule
+  with more antecedents can still subsume.  A missing hit is the safe direction for a
+  report that names redundancies."
+  [kb r1 r2]
+  (let [context (:context r2)]
+    (when (and (not= (:handle r1) (:handle r2))
+               (<= (count (:antecedent r1)) (count (:antecedent r2)))
+               (available-at-least? r1 r2)
+               (tax/sees? (:taxonomy kb) context (:context r1)))
+      (let [[freeze unfreeze] (freezing (cons (:consequent r2) (:antecedent r2)))
+            c2    (sx/rename-vars (:consequent r2) freeze)
+            a2    (mapv #(sx/rename-vars % freeze) (:antecedent r2))
+            b     (res/subsuming-unify kb c2 (:consequent r1) res/no-bindings context)
+            sigma (when b (antecedents-covered kb (:antecedent r1) a2 b context))]
+        (when (and sigma (exceptions-covered? kb r1 r2 sigma unfreeze))
+          (readable-substitution sigma r1 r2 unfreeze))))))
+
+(defn- covering-candidates
+  "The rules that could cover `r2`: those concluding a **spec** of its consequent
+  predicate, or — under a negation, where a `genl` edge carries the other way — a genl of
+  it.  Scoped by `r2`'s context, which is the vantage the subsumption is claimed from, so
+  an edge invisible there cannot make one rule cover another."
+  [kb index r2]
+  (let [tax   (:taxonomy kb)
+        reach (if (= :false (:polarity r2))
+                (tax/genls tax (:functor r2) (:context r2))
+                (tax/specs tax (:functor r2) (:context r2)))]
+    (into [] (mapcat #(get index [(:polarity r2) %])) reach)))
+
+(defn- subsumed-rules
+  "Which stored rules another stored rule already covers.
+
+  An exact duplicate cannot be here: two rules identical up to variable names, antecedent
+  order or a symmetric argument order are **one handle** (docs/canonicalization.md).  So
+  every hit is either a redundancy or a deliberate specialization — a rule written for the
+  narrow case beside the general one — and **the reading cannot tell them apart**, because
+  the difference is in what the author meant rather than in what the KB holds.  It names
+  the pair and the substitution and leaves the judgement.
+
+  Content-ordered on both loops, so the capped list is a function of the rules and not of
+  the order they were written in."
+  [kb views limit progress!]
+  (let [index   (by-consequent views)
+        ordered (nm/sort-by-content-key :sort-key compare views)
+        total   (count ordered)
+        found   (loop [i 0, out (transient [])]
+                  (if (= i total)
+                    (persistent! out)
+                    (let [r2   (nth ordered i)
+                          hits (into []
+                                     (keep (fn [r1]
+                                             (when-let [s (subsumption kb r1 r2)]
+                                               {:subsumed     (:handle r2)
+                                                :by           (:handle r1)
+                                                :substitution s
+                                                :context      (:context r2)
+                                                :sentence     (:sentence r2)
+                                                :by-sentence  (:sentence r1)})))
+                                     (nm/sort-by-content-key
+                                      :sort-key compare (covering-candidates kb index r2)))]
+                      (when (and (pos? i) (zero? (mod i progress-every)))
+                        (progress! {:phase :subsumption :done i :total total}))
+                      (recur (inc i) (reduce conj! out hits)))))]
+    {:total          total
+     :subsumed       (vec (take limit found))
+     :subsumed-count (count found)
+     :truncated?     (> (count found) limit)}))
+
+;; ---- reading seven: contradictions in waiting -----------------------------
+
+(defn- renamed
+  "`view` with its patterns renamed apart, for a pairing that unifies two rules rather
+  than matching one against the other."
+  [v]
+  (let [m (renaming (cons (:consequent v) (:antecedent v)))]
+    (assoc v
+           :consequent (sx/rename-vars (:consequent v) m)
+           :body       (sx/rename-vars (:body v) m)
+           :antecedent (mapv #(sx/rename-vars % m) (:antecedent v))
+           :rename     m)))
+
+(defn- pair-context
+  "The context a nogood between two rules could form in — a **common descendant** of the
+  two, since a clash is a clash where both halves are visible (docs/nmtms.md, \"Which
+  contexts can contradict each other\").  Asking only whether one sees the other would
+  exempt every sibling pair.  nil when no context sees both, which is the pair that is not
+  a finding: neither rule's conclusion is anywhere near the other's.  The least of the
+  maxima by content, so the reported context does not depend on a set's iteration order."
+  [kb a b]
+  (nm/min-by-content-key
+   nm/print-key compare
+   ;; `into #{}` and not the set literal: two rules in one context is the ordinary case,
+   ;; and `#{x x}` is a duplicate-key throw rather than a one-element set
+   (tax/maximal-common-descendant-contexts
+    (:taxonomy kb) (into #{} [(:context a) (:context b)]))))
+
+(defn- consequent-clash
+  "How `a`'s consequent and `b`'s would clash if both rules fired — `[kind σ]`, or nil.
+  `b`'s variables are renamed apart from `a`'s, so σ is over both.
+
+  Four kinds, asked in a fixed order so a pair that answers to two — a predicate declared
+  both `functional` and `asymmetric` — lands under one of them rather than under whichever
+  a map iterated to first:
+
+  - **`:negation`** — one concludes `S` and the other `(not T)` where `S` entails `T`.
+    The genl fan runs one way here: `(dog X)` contradicts `(not (animal X))` and
+    `(animal X)` does not contradict `(not (dog X))`.
+  - **`:disjoint`** — two unary type conclusions about one term whose types a `disjoint`,
+    `siblingDisjoint` or `disjointMetatype` declaration separates.
+  - **`:functional`** — two conclusions filling one functional slot for one subject with
+    values that are not the same term.  The mark is read **up** the predicate hierarchy,
+    so two `fatherOf` conclusions clash against `(functional parentOf)`.
+  - **`:asymmetric`** — one tuple concluded both ways round, under a predicate declared
+    `asymmetric` anywhere above either.  A self tuple `(P a a)` is not one: the ontology
+    admits it, so a σ identifying the two arguments is no clash."
+  [kb a b context]
+  (let [tax (:taxonomy kb)
+        fa  (:functor a)
+        fb  (:functor b)]
+    (cond
+      (not= (:polarity a) (:polarity b))
+      (let [[pos neg] (if (= :true (:polarity a)) [a b] [b a])]
+        (when-let [s (res/subsuming-unify kb (:body neg) (:consequent pos)
+                                          res/no-bindings context)]
+          [:negation s]))
+
+      (= :false (:polarity a)) nil    ; two negations agree about everything
+
+      :else
+      (or
+       (when (and (= 1 (:arity a)) (= 1 (:arity b)) (not= fa fb)
+                  (tax/disjoint? tax fa fb context))
+         (when-let [s (res/unify (second (:body a)) (second (:body b)))]
+           [:disjoint s]))
+       (when (and (= 2 (:arity a)) (= 2 (:arity b))
+                  (seq (set/intersection (tax/props-over tax :functional fa context)
+                                         (tax/props-over tax :functional fb context))))
+         (let [[s1 v1] (nm/args (:body a))
+               [s2 v2] (nm/args (:body b))]
+           (when-let [s (res/unify s1 s2)]
+             (when (not= (res/substitute v1 s) (res/substitute v2 s))
+               [:functional s]))))
+       (when (and (= 2 (:arity a)) (= 2 (:arity b))
+                  (seq (set/intersection (tax/props-over tax :asymmetric fa context)
+                                         (tax/props-over tax :asymmetric fb context))))
+         (let [[x1 y1] (nm/args (:body a))
+               [x2 y2] (nm/args (:body b))]
+           (when-let [s (res/unify (list x1 y1) (list y2 x2))]
+             (when (not= (res/substitute x1 s) (res/substitute y1 s))
+               [:asymmetric s]))))))))
+
+(defn- separated-antecedents?
+  "Do two of these literals claim one term is of two types a declaration separates?  The
+  one thing the joint-satisfiability test reads a declaration for, and it reads the same
+  one the consequent side does."
+  [kb lits context]
+  (let [tax     (:taxonomy kb)
+        by-term (reduce (fn [m l]
+                          (let [f (nm/functor l)]
+                            (if (and (= 1 (nm/arity l)) (symbol? f) (not (sx/variable? f)))
+                              (update m (second l) (fnil conj #{}) f)
+                              m)))
+                        {} lits)]
+    (boolean (some (fn [[_ ts]]
+                     (let [ts (vec ts)]
+                       (some (fn [[x y]] (tax/disjoint? tax x y context))
+                             (for [i (range (count ts)), j (range (inc i) (count ts))]
+                               [(nth ts i) (nth ts j)]))))
+                   by-term))))
+
+(defn- literal-arity-claim
+  "The arity `lit` binds its first argument to, or nil — the two spellings `checks`
+  reads, asked of a *literal* rather than of the store.
+
+  `(arity ?p n)` says it outright.  A unary `(T ?p)` says it whenever `T` reaches one of
+  the three predicate-arity classes up `genl`, which is what makes `(symmetric ?p)` a
+  claim of arity 2: `symmetric` is a kind of `binaryPredicate`.  The roster is
+  `checks/predicate-type-arities`, read here rather than copied, since a roster read twice
+  is a roster that drifts."
+  [tax lit context]
+  (let [f (nm/functor lit)]
+    (when (and (symbol? f) (not (sx/variable? f)))
+      (cond
+        (and (= 'arity f) (= 2 (nm/arity lit)))
+        (let [n (last (nm/args lit))] (when (integer? n) n))
+
+        (= 1 (nm/arity lit))
+        (let [supers (tax/genls tax f context)]
+          (some (fn [[t n]] (when (contains? supers t) n))
+                checks/predicate-type-arities))))))
+
+(defn- arity-conflicted?
+  "Do two of these literals bind one term to two arities?  A predicate takes one number of
+  arguments — `(functional arity)` says so of the table, and the three classes are
+  pairwise `disjoint` (docs/taxonomy.md) — so no term satisfies both, whichever of the two
+  spellings each literal used.  `(arity ?p 1)` beside `(arity ?p 2)`, and `(arity ?p 1)`
+  beside `(equivalenceRelation ?p)`, are the same finding read two ways.
+
+  A declaration read, not an inference: nothing is derived and no fact is consulted, the
+  same standing `separated-antecedents?` has beside it."
+  [kb lits context]
+  (let [tax     (:taxonomy kb)
+        by-term (reduce (fn [m l]
+                          (if-let [n (literal-arity-claim tax l context)]
+                            (update m (second l) (fnil conj #{}) n)
+                            m))
+                        {} lits)]
+    (boolean (some (fn [[_ ns]] (> (count ns) 1)) by-term))))
+
+(defn- jointly-satisfiable?
+  "Could both antecedent sets hold at once — **shallowly**?
+
+  Three things rule it out and nothing else does: a literal appearing under σ together
+  with its own negation, one term claimed to be of two separated types, and one term bound
+  to two arities.  **No inference is run and no fact is consulted** — each of the three is
+  a declaration read.  This is what the rules say about each other, and a pair it admits
+  is a clash that *could* form rather than one that will — which is the whole reading,
+  since a clash that had already formed would be in `(contradictions kb)` instead."
+  [kb a b sigma context]
+  (let [lits (into (mapv #(res/substitute % sigma) (:antecedent a))
+                   (map #(res/substitute % sigma))
+                   (:antecedent b))
+        pos  (into #{} (remove sx/negation?) lits)
+        neg  (into #{} (comp (filter sx/negation?) (map second)) lits)]
+    (and (empty? (set/intersection pos neg))
+         (not (separated-antecedents? kb pos context))
+         (not (arity-conflicted? kb pos context)))))
+
+(defn- rule-functors
+  "Every predicate a rule names — its consequent's and its antecedents', a negation
+  unwrapped."
+  [v]
+  (into #{(:functor v)}
+        (keep (fn [l] (let [f (nm/functor (if (sx/negation? l) (second l) l))]
+                        (when (symbol? f) f))))
+        (:antecedent v)))
+
+(defn- exception-names-other?
+  "Does `a`'s `exceptWhen` name a predicate `b` is about?  That is the shape a stated
+  exception has — \"birds fly, unless penguins\" beside \"penguins do not fly\" — and it is
+  why such a pair is reported as `:excepted` rather than hidden: a reader wants to see
+  which clashes are already handled, not to be told there are none."
+  [kb a b]
+  (when-let [cs (rule-exception-conjuncts kb (:handle a))]
+    (let [fs (rule-functors b)]
+      (boolean (some (fn [c]
+                       (some #(contains? fs (nm/functor (if (sx/negation? %) (second %) %))) c))
+                     cs)))))
+
+(defn- readable-unifier
+  "σ in the two rules' own variable names, the **second** rule's carrying a trailing `'`.
+
+  Both authors are free to write `?x`, and a map holding two of them says nothing; primed,
+  `{?x' ?x}` reads as what it is — the second rule's `?x` is the first's."
+  [sigma a b]
+  (let [back (into (or (:varmap a) {})
+                   (map (fn [[v r]]
+                          [r (symbol (str (name (get (:varmap b) v v)) "'"))]))
+                   (:rename b))]
+    (into (sorted-map)
+          (map (fn [[v t]]
+                 [(get back v v) (sx/rename-vars (res/substitute t sigma) back)]))
+          sigma)))
+
+(defn- marked-groups
+  "`marked predicate -> the binary-conclusion views under it`, for one property.  nil when
+  the KB declares none, which is the gate that keeps the pairing off a KB with nothing to
+  say — one map read."
+  [tax kind views]
+  (when (seq (tax/props tax kind))
+    (reduce (fn [m v]
+              (reduce (fn [m q] (update m q (fnil conj []) v)) m
+                      (tax/props-over tax kind (:functor v))))
+            {}
+            (filter #(and (= :true (:polarity %)) (= 2 (:arity %))) views))))
+
+(defn- clash-index
+  "What `clash-partners` looks a rule's candidates up in — the consequent index, the
+  distinct unary conclusion functors (only where the KB declares some separation at all),
+  and the marked groups for the two predicate properties."
+  [kb views]
+  (let [tax (:taxonomy kb)
+        pos (filterv #(= :true (:polarity %)) views)]
+    {:by-key   (by-consequent views)
+     :unary-fs (when (or (seq (tax/disjoint-pairs tax))
+                         (seq (tax/disjoint-metatypes tax))
+                         (seq (tax/sibling-disjoints tax)))
+                 (into #{} (comp (filter #(= 1 (:arity %))) (map :functor)) pos))
+     :marked   {:functional (marked-groups tax :functional pos)
+                :asymmetric (marked-groups tax :asymmetric pos)}}))
+
+(defn- clash-partners
+  "The rules worth asking `consequent-clash` about beside `a`.
+
+  The **negation fan is global** and the pair is decided scoped, which is the shape a
+  candidate read has everywhere in the engine: the vantage a clash is asked from is a
+  common descendant of the two rules' contexts and belongs to neither of them, so fanning
+  from either would drop a pair the context that can see both would find.  An
+  over-approximated candidate merely fails `consequent-clash` and yields nothing."
+  [kb {:keys [by-key unary-fs marked]} a]
+  (let [tax  (:taxonomy kb)
+        f    (:functor a)
+        pos? (= :true (:polarity a))]
+    (distinct
+     (concat
+      (if pos?
+        (mapcat #(get by-key [:false %]) (tax/genls-global tax f))
+        (mapcat #(get by-key [:true %]) (tax/specs-global tax f)))
+      (when (and pos? unary-fs (= 1 (:arity a)))
+        (for [g unary-fs
+              :when (and (not= g f) (tax/disjoint? tax f g nil))
+              b (get by-key [:true g])]
+          b))
+      (when (and pos? (= 2 (:arity a)))
+        (for [kind  [:functional :asymmetric]
+              :let  [groups (get marked kind)]
+              :when groups
+              q     (tax/props-over tax kind f)
+              b     (get groups q)]
+          b))))))
+
+(defn- clash-entry
+  "The finding for one candidate pair, or nil."
+  [kb a b0]
+  (when-let [ctx (pair-context kb a b0)]
+    (let [b (renamed b0)]
+      (when-let [[kind s] (consequent-clash kb a b ctx)]
+        (when (jointly-satisfiable? kb a b s ctx)
+          {:rules     [(:handle a) (:handle b0)]
+           :kind      kind
+           :unifier   (readable-unifier s a b)
+           :context   ctx
+           :sentences [(:sentence a) (:sentence b0)]
+           :excepted  (boolean (or (exception-names-other? kb a b0)
+                                   (exception-names-other? kb b0 a)))})))))
+
+(defn- rule-clashes
+  "Rule pairs whose consequents would clash if both fired and whose antecedents could
+  shallowly hold at once.
+
+  **Static analysis of the rules**, which is what makes it a different question from
+  `(contradictions kb)`: nothing here is derived, nothing believed and nothing asked of the
+  KB's facts.  A pair is a clash the rules *admit*, and whether it ever forms depends on
+  content nobody has asserted yet.
+
+  A pair is taken once, in content order, and a rule is never paired with itself — the
+  reading is about two rules disagreeing."
+  [kb views limit progress!]
+  (let [index   (clash-index kb views)
+        ordered (nm/sort-by-content-key :sort-key compare views)
+        total   (count ordered)]
+    (progress! {:phase :clashes :done 0 :total total})
+    (let [found (loop [i 0, out (transient [])]
+                  (if (= i total)
+                    (persistent! out)
+                    (let [a    (nth ordered i)
+                          hits (into []
+                                     (keep (fn [b] (clash-entry kb a b)))
+                                     (nm/sort-by-content-key
+                                      :sort-key compare
+                                      (filter #(neg? (compare (:sort-key a) (:sort-key %)))
+                                              (clash-partners kb index a))))]
+                      (when (and (pos? i) (zero? (mod i progress-every)))
+                        (progress! {:phase :clashes :done i :total total}))
+                      (recur (inc i) (reduce conj! out hits)))))]
+      {:total      total
+       :pairs      (vec (take limit found))
+       :pair-count (count found)
+       :truncated? (> (count found) limit)})))
+
 ;; ---- the report ----------------------------------------------------------
 
 (defn census
-  "The five readings as one map — `{:rules … :extents … :chains … :taxonomy …
-  :declarations …}`.  `vaelii.core/kb-quality` is the door and documents the options."
+  "The seven readings as one map — `{:rules … :extents … :chains … :taxonomy …
+  :declarations … :subsumption … :clashes …}`.  `vaelii.core/kb-quality` is the door and
+  documents the options."
   [kb {:keys [limit on-progress]}]
   ;; sequenced in a `let` rather than left to a map literal's argument order: the phases a
   ;; caller watching `:on-progress` sees are part of what this answers, and an evaluation
@@ -482,9 +1098,14 @@
         extents   (extent-skew pass limit)
         chains    (chain-depth pass progress!)
         taxonomy  (taxonomy-coverage kb pass progress!)
-        decls     (stranded-declarations kb limit progress!)]
+        decls     (stranded-declarations kb limit progress!)
+        ;; one record read per rule, shared by the two readings that need the rules
+        ;; themselves rather than their postings
+        views     (rule-views kb handles progress!)
+        subsumed  (subsumed-rules kb views limit progress!)
+        clashes   (rule-clashes kb views limit progress!)]
     {:rules rules :extents extents :chains chains :taxonomy taxonomy
-     :declarations decls}))
+     :declarations decls :subsumption subsumed :clashes clashes}))
 
 ;; ---- the same map, as prose ----------------------------------------------
 ;; A separate function over the report rather than a second traversal of the KB, so
@@ -502,22 +1123,26 @@
          "\n")))
 
 (defn report
-  "The `census` map as Markdown — the five readings in the order an author reads them,
+  "The `census` map as Markdown — the seven readings in the order an author reads them,
   the counts first and the lists after.  A map that is not a `census` answer is refused
   (`:not-a-report`) rather than rendered as a page of zeros, which is what a caller passing
   the wrong map would otherwise be handed and believe.
 
-  `:declarations` is **not** in the shape test, and that is deliberate: a census answer
-  from before this reading existed is still a census answer, and refusing to render one
-  would turn a stored report into an unreadable one.  The section is written when the key
-  is there and omitted when it is not, and a listed entry's reason line is the `:message`
-  the census carries rather than a second derivation of it — which would be the same
-  sentence written twice, free to drift on either side."
-  [{:keys [rules extents chains taxonomy declarations] :as quality}]
+  `:declarations`, `:subsumption` and `:clashes` are **not** in the shape test, and that is
+  deliberate: a census answer from before one of those readings existed is still a census
+  answer, and refusing to render one would turn a stored report into an unreadable one.
+  Each section is written when its key is there and omitted when it is not, and a listed
+  declaration's reason line is the `:message` the census carries rather than a second
+  derivation of it — which would be the same sentence written twice, free to drift on
+  either side."
+  [{:keys [rules extents chains taxonomy declarations subsumption clashes] :as quality}]
   (when-not (and (map? quality) (:total rules) (:predicates extents)
                  (:rules chains) (:names taxonomy))
     (throw (ex-info (str "not a kb-quality report — want the map `kb-quality` answers, with"
-                         " :rules / :extents / :chains / :taxonomy")
+                         " :rules / :extents / :chains / :taxonomy; got "
+                         (if (map? quality)
+                           (pr-str (vec (sort (keys quality))))
+                           (pr-str (type quality))))
                     {:type :not-a-report :keys (when (map? quality) (vec (sort (keys quality))))})))
   (str
    "# KB quality\n\n"
@@ -588,4 +1213,52 @@
                                   (when message (str " — " message)))))
                  "\n"))
           (when (:truncated? declarations)
+            "\nThe list is capped; the count above is not.\n")))
+   (when subsumption
+     (str "\n## Rules another rule already covers\n\n"
+          (commas (:total subsumption)) " rules — **"
+          (commas (:subsumed-count subsumption))
+          (if (= 1 (:subsumed-count subsumption))
+            " is covered by another"
+            " are covered by another")
+          "** (" (pct (:subsumed-count subsumption) (:total subsumption)) ").\n\n"
+          "A covering rule fires wherever the covered one does and concludes at least as\n"
+          "much, so the covered rule adds nothing the KB would not have had.  An exact\n"
+          "duplicate cannot appear here — two rules alike up to variable names or\n"
+          "antecedent order are one handle — so each of these is either a redundancy or a\n"
+          "deliberate specialization, and which one it is lives in what the author meant\n"
+          "rather than in what the KB holds.\n"
+          (when (seq (:subsumed subsumption))
+            (str "\n"
+                 (str/join "\n"
+                           (for [{:keys [subsumed by substitution context sentence
+                                         by-sentence]} (:subsumed subsumption)]
+                             (str "- `" subsumed "` `" (pr-str sentence) "` in `" context
+                                  "` — covered by `" by "` `" (pr-str by-sentence)
+                                  "` under `" (pr-str substitution) "`")))
+                 "\n"))
+          (when (:truncated? subsumption)
+            "\nThe list is capped; the count above is not.\n")))
+   (when clashes
+     (str "\n## Contradictions in waiting\n\n"
+          (commas (:total clashes)) " rules — **" (commas (:pair-count clashes))
+          (if (= 1 (:pair-count clashes)) " pair" " pairs")
+          " would clash if both fired**.\n\n"
+          "One substitution makes the two conclusions incompatible and nothing in the two\n"
+          "antecedent sets shallowly rules out both holding.  No inference is run and no\n"
+          "fact is consulted: this is what the rules say about each other, not what the KB\n"
+          "believes.  A pair marked **excepted** is the intended shape — one of the two\n"
+          "carries an `exceptWhen` naming the other's case, so the clash is already stated\n"
+          "as an exception rather than left to arbitration.\n"
+          (when (seq (:pairs clashes))
+            (str "\n"
+                 (str/join "\n"
+                           (for [{hs :rules :keys [kind context sentences excepted]}
+                                 (:pairs clashes)]
+                             (str "- " (name kind) " in `" context "`: `" (first hs)
+                                  "` `" (pr-str (first sentences)) "` against `"
+                                  (second hs) "` `" (pr-str (second sentences)) "`"
+                                  (when excepted " — excepted"))))
+                 "\n"))
+          (when (:truncated? clashes)
             "\nThe list is capped; the count above is not.\n")))))

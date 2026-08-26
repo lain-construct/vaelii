@@ -18,7 +18,7 @@
   * **Constrained decoding instead of tool calls.**  `:format` carries a JSON schema
     that the sampler is restricted to, so a model with no `tools` capability still
     answers in an exact shape.  `capabilities` reads what a model can actually do, and
-    `supports-tools?` is the gate — sending 61 tool schemas to a completion-only model
+    `supports-tools?` is the gate — sending 88 tool schemas to a completion-only model
     spends the whole window on something it will never emit.
   * **Streaming is newline-delimited JSON**, not SSE: one object per token-ish chunk,
     the last carrying `done: true` and the run's counts.
@@ -213,7 +213,8 @@
   field is checked whatever the status line said.  Returns the body."
   [m]
   (if-let [e (and (map? m) (get m "error"))]
-    (throw (ex-info (str "Ollama error: " e) {:type :llm-api-error :error e}))
+    (throw (ex-info (str "Ollama error: " (http/excerpt (str e)))
+                    {:type :llm-api-error :error e}))
     m))
 
 (def ^:private endpoint

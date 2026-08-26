@@ -43,9 +43,10 @@ number because the two move independently. The worked case is `kb/find-sentex-ha
 which asks the trie where one sentence is stored. Asked with `p/lookup`, a variable in the
 path is a **wildcard**: the walk fans over every stored sentex of the same shape and the
 caller reads the record behind each to find the one that is actually this sentence — one
-index read by `:reads`, unimpeachable, and 2,779µs per call at 800 candidates. `p/leaf-at`
-is the exact read that answers the same question in one, at 13µs and no record read at
-all, and the `:reads` count is identical either way. On the durable store each of those
+index read by `:reads`, unimpeachable, and a few milliseconds per call at 800 candidates.
+`p/leaf-at` is the exact read that answers the same question in one, at ~10 µs and no
+record read at all, and the `:reads` count is identical either way. On the durable store
+each of those
 fetches is a positional slot read, a positional frame read and a nippy thaw past the LRU —
 orders above what any index read costs. `test/vaelii/record_fetch_cost_test.clj` is the
 gate: a non-ground `handle-of` must fetch **no** records, whatever the extent of the
@@ -57,7 +58,7 @@ re-reads a record inside `mark-premise` where the RAM one reaches into its state
 a number covering both would be a reading of which backend is running. An overlay fetch
 that consults the base and then the fork counts twice, which is what a fork costs.
 
-A `KB` record bundles the two stores with the twenty-odd other slots the engine hangs off
+A `KB` record bundles the two stores with the thirty-odd other slots the engine hangs off
 one value — the prover registry, the solver, the contradiction and violation bookkeeping,
 the settle and chain statistics, the resident qualitative networks, the match and naming
 caches, the feed. **The engine programs against these protocols and never against a
@@ -79,10 +80,12 @@ why the two are separate stores behind separate protocols rather than one — [w
 separate stores](defenses.md#records-and-the-index-are-separate-stores).
 
 That also sets what each backend owes. A record backend must persist; an index backend
-need not. The index is resident in RAM: the on-disk one logs its mutations for a fast
-restart but still holds the whole map in memory. The one exception is the
-`:disk-columnar` image ("The image", below), which is off by default and `mmap`s the leaf
-handles and the routed roots' postings rather than reading them onto the heap.
+need not. Every index representation is resident in RAM, and the log under `:disk-log`
+buys a **fast restart** rather than a smaller one: it replays into the same key→value map
+`:memory` holds, so nothing is reindexed on open and nothing leaves the heap. The one
+exception is the `:disk-columnar` image ("The image", below), which is off by default and
+`mmap`s the leaf handles and the routed roots' postings rather than reading them onto the
+heap.
 
 One space number (`:space`, default 0) namespaces both stores so several KBs coexist in
 one process; each backend uses it as it sees fit — the memory backend keys its registry
@@ -131,7 +134,7 @@ warmed ahead of that loop is equal to it by construction.
 None of the engine's own stores implement it — a record fetch on the RAM and disk backends
 is a page touch, and there is nothing a batch could save — so `capabilities/prefetcher`
 answers `nil` for them and the retrieval paths run the loop they always ran. The
-[Postgres records](#postgres-records-pg-memory-pg-disk) adapter implements it, where a
+[Postgres records](#postgres-records-pg-memory-pg-disk-log) adapter implements it, where a
 fetch is a network round trip.
 
 The caller's half is `resolution/*prefetch-candidates*`: the chunk size, **`false` by
@@ -156,32 +159,27 @@ handles** — and the gap between that and *a Clojure set of handles* is the who
 store may decide for itself. What the seam promises is what the engine does to them:
 `contains?`, `count`, `seq`, `sort`, and `=` against another set. `conj`, `disj` and
 `clojure.set` are not on the list, so a caller wanting those converts with `(set …)` and
-the copy is paid at the call site that asked for it.
+the copy is paid at the call site that asked for it — [why a Set, not a Clojure
+set](defenses.md#the-enumerations-promise-a-set-not-a-clojure-set).
 
-The shape is the cost, not the handles. Measured with jol over contiguous handles, a
-`PersistentHashSet<Long>` retains **48–75 bytes per handle** — the hash trie's fill varies
-with cardinality — so **4.5–7.0 GB at 100M records**, and `rebuild-tms` holds the sentex
-roster while it walks the premises and the justifications on top of that.
-
-Handles are minted in assertion order (`next-id`), so a roster is a near-contiguous run of
-longs with holes where records were deleted, which is the one shape a compressed bitmap is
-built for. Over the same handles with a tenth of them punched out, a `Roaring64Bitmap`
-retains **0.13–0.26 bytes per handle**, and less than that on an unbroken run, where the
-whole roster is a few run containers. It answers `contains?` in *less* time than the hash
-set, not more.
-
-`vaelii.impl.roster` is that set. It is a `java.util.Set` precisely so that no caller can
-tell the difference, and `enumeration_shape_test` is where core proves it: one session run
+`vaelii.impl.roster` is the substitution that licence exists for: the same handles as a
+`Roaring64Bitmap` behind a `java.util.Set`, at a fraction of a `PersistentHashSet<Long>`'s
+residency. It is a `java.util.Set` precisely so that no caller can tell the difference,
+and `enumeration_shape_test` is where core proves it: one session run
 against a store answering rosters and one answering Clojure sets, compared at the KB level
 — beliefs, answers, `reindex`, `recover`, `export!` — rather than at the protocol call.
 
 **The engine's own stores answer Clojure sets**, because that is what their own state
 already is: the memory store's key set, and the disk store's resident live-id set. So the
-ceiling is arithmetic rather than a guess. The disk store keeps one live-id set per kind —
+ceiling is measured rather than a guess. The disk store keeps one live-id set per kind —
 sentexes, justifications, provenance — and the premise set beside them, all resident for
-as long as the store is open, at those 48–75 bytes a handle. A 100M-sentex corpus with a
-justification per two records is **~7 GB of roster before a single record is fetched**, and
-that is this backend's limit rather than a defect in it: the sets are what make
+as long as the store is open, at **48–75 bytes a handle** (measured with jol; the hash
+trie's fill varies with cardinality). `lein bench-budget` carries that row to 100M
+sentexes and reports **7.69 GB of roster with a justification per two records, 9.47 GB at
+j/n 1.1** — before a single record is fetched, and linear across both of its steps, so the
+figure is a fit the bench confirmed rather than a coefficient multiplied out
+([density.md](density.md#the-budget-at-100m)). That is this backend's limit rather than a
+defect in it: the sets are what make
 `sentex-ids` an O(1) read and `premise-strength` a slot read instead of a frame fetch. A
 store past that size wants the compressed roster, which is why the seam permits one.
 
@@ -216,14 +214,12 @@ append on `:disk`, and a **round trip** on a store across a socket. So the third
 capability is a bulk write: `open-sentex-sink` / `open-justification-sink`, each answering
 a `RecordSink` a loader writes a stream of records to and then closes.
 
-**It is a sink and not a batched put, and the difference is the handle.** The import path
-indexes each record from the copy already in hand rather than reading it back — that is
-what keeps the index build inline, and on a durable store it is what stops the load
-re-paging every record it just wrote. So it needs the handle *now*, and a `COPY` returns
-nothing per row. The handle is therefore decided caller-side — a dump's own `:id`, or one
-minted from `next-id` — and the sink is told rather than asked, which is also what lets a
-dump's numbering survive a bulk load. A batched put returning handles would make the
-loader wait for a batch to land before it could index any of it.
+**It is a sink and not a batched put, and the difference is the handle.** The handle is
+decided caller-side — a dump's own `:id`, or one minted from `next-id` — and the sink is
+told rather than asked, which is also what lets a dump's numbering survive a bulk load.
+The import path is why: it indexes each record from the copy already in hand rather than
+reading it back, so it needs the handle *now* — [why a sink, not a batched
+put](defenses.md#the-bulk-seam-is-a-sink-not-a-batched-put).
 
 The one restriction that buys this: **do not read a record back before the sink is
 closed.** A sink may hold everything it was given until then. Neither import path does,
@@ -247,7 +243,7 @@ which strength a handle ends at is decided only once the whole sentex stream is 
 dump id that collapses onto a stored handle keeps the strongest), and the provenance
 stream is a separate file read after the records. So on a store where a write is a round
 trip they are `n` round trips each — 20,000 of them on a 10,000-record belief import,
-against 657 ms for the records themselves.
+against roughly two-thirds of a second for the records themselves.
 
 `mark-premise-batch` and `put-provenance-batch` are the seam, and
 `capabilities/mark-premises` / `put-all-provenance` are the callers' door with the same
@@ -270,7 +266,7 @@ of monotonic ground facts:
 | `:pg-memory`, through the sink (`COPY`) | **13,993** | **17,882** |
 | `:sqlite`, a put per record | 7,516 | 7,444 |
 | `:sqlite`, through the sink (one transaction per batch) | **13,729** | **16,572** |
-| `:disk` | 6,514 | 6,790 |
+| `:disk-log` | 6,514 | 6,790 |
 
 One run per cell on a cold JVM, so read the column against itself rather than as an
 absolute. The two A/B figures below are medians of three interleaved runs with the
@@ -278,7 +274,7 @@ capability hidden and present, which is the comparison that holds still.
 
 The `:disk` record store answers a sink too, and the same measurement isolated to it —
 `:disk-memory`, so the durable index is not in the way — is **14,987 → 18,986 records/s**,
-+27%. `:disk` proper gains little, because with the durable index its bulk load is
++27%. `:disk-log` gains little, because with the durable index its bulk load is
 dominated by the index writes rather than by the records; that is the ceiling the next
 section is about, not this one.
 
@@ -300,7 +296,7 @@ which is the next section's subject.
 The asymmetry above is a **selection** axis, not only a design note. The records answer
 to durability and the index to representation, so `open-kb` chooses them separately —
 `:records` (`:memory` / `:disk`, and the adapter axes `:sqlite` / `:pg`) and `:index`
-(`:memory` / `:dense` / `:columnar` / `:disk`) — and `:backend` is sugar naming a pair,
+(`:memory` / `:dense` / `:columnar` / `:disk-log`) — and `:backend` is sugar naming a pair,
 spelled **`<records>-<index>`**.
 `vaelii.impl.kb` is the only place a concrete store is named (`record-store-for` /
 `index-store-for`); everything above reads the protocols.
@@ -313,14 +309,16 @@ spelled **`<records>-<index>`**.
 | `:disk-memory` | durable | RAM map | rebuilt on open |
 | `:disk-dense` | durable | int postings | rebuilt on open |
 | `:disk-columnar` | durable | native trie | rebuilt on open |
-| `:disk` | durable | durable | one store on both axes |
+| `:disk-log` | durable | durable | the index is a RAM map with a write-ahead log under it |
 | `:sqlite` | durable (SQLite file) | RAM map | an Apache adapter, resolved lazily — below |
 | `:pg-memory` | durable (Postgres) | RAM map | an Apache adapter — rebuilt on open, every open |
-| `:pg-disk` | durable (Postgres) | durable, **local** | the index files belong to the writer's host, not to the KB |
+| `:pg-disk-log` | durable (Postgres) | durable, **local** | the index files belong to the writer's host, not to the KB |
 | `:overlay` | a decorator | a decorator | a fork over a frozen base — [overlay.md](overlay.md) |
 
-`:memory` and `:disk` are the two pairs that are the same store on both axes, named for
-the store rather than doubled into `:memory-memory` / `:disk-disk`.
+`:memory` is the one pair that is the same store on both axes, named for the store rather
+than doubled into `:memory-memory`. `:disk-log` names its two halves separately because
+they are two different things: durable records that genuinely page, under an index whose
+map is in RAM and whose log buys the restart.
 
 - **Memory records** (`vaelii.impl.memory`) — plain Clojure maps in atoms, **no
   serialization** (records held directly, structured key vectors used as map keys). They
@@ -331,7 +329,7 @@ the store rather than doubled into `:memory-memory` / `:disk-disk`.
 - **Disk records** (`vaelii.impl.disk.record-store`) — an on-disk log-structured store in a directory
   (`:dir`, or derived from the space number). Durable across a process restart and
   crash-safe, with no server. Selected for the whole suite with
-  `VAELII_TEST_BACKEND=disk lein test` (durability parity gate: identical results).
+  `VAELII_TEST_BACKEND=disk-log lein test` (durability parity gate: identical results).
   Detailed below.
 - **SQLite records** (`com.vaelii/sqlite`, the `vaelii.sqlite.record-store` adapter) — an
   embedded-SQLite store in a single file (`<dir>/records.sqlite`) under `:dir`, durable
@@ -339,7 +337,7 @@ the store rather than doubled into `:memory-memory` / `:disk-disk`.
   resolves it lazily (`requiring-resolve`, the way `create-tms` reaches the dense TMS), so
   the SSPL engine carries no JDBC dependency, and the `:sqlite` backend works only when the
   Apache-2.0 adapter is on the classpath. It pairs with a derived RAM index (the `:sqlite`
-  sugar is `{:records :sqlite :index :memory}`), rebuilt on open; a durable `:disk` index
+  sugar is `{:records :sqlite :index :memory}`), rebuilt on open; a `:disk-log` index
   over it is refused, the same rule RAM records meet. Outside the built-in grid below — not
   one of the eight pairings, and the adapter carries its own suite.
 - **Postgres records** (`com.vaelii/postgres`, the `vaelii.postgres.record-store`
@@ -347,7 +345,7 @@ the store rather than doubled into `:memory-memory` / `:disk-disk`.
   (a next.jdbc db-spec or a JDBC URL, with an optional `:schema` so one database holds
   several KBs). Resolved lazily exactly as `:sqlite` is, so the SSPL engine carries no
   JDBC dependency. What a server buys and what it does not is
-  [below](#postgres-records-pg-memory-pg-disk); the short version is that it buys `COPY`,
+  [below](#postgres-records-pg-memory-pg-disk-log); the short version is that it buys `COPY`,
   an operator's existing backup and replication, and a store bigger than one disk — and
   it does **not** buy a shared KB. Outside the built-in grid below, as `:sqlite` is: the
   adapter carries its own suite, `VAELII_TEST_BACKEND` does not name it, and
@@ -362,17 +360,21 @@ the store rather than doubled into `:memory-memory` / `:disk-disk`.
 The two built-in axes admit eight pairings and **seven are legal**, each with a name:
 RAM records under the durable index is refused — [why that pairing is
 refused](defenses.md#ram-records-under-a-durable-index-is-refused). The rule the refusal
-states is that **the durable `:disk` index needs durable records**, which is why `:pg`
-may take it (`:pg-disk`) and `:sqlite` may not: `:sqlite` records already live in a
-directory, so a durable index beside them is `:disk`'s pairing without its shared
-lifecycle, and `:disk` is the name for that. So `:records` /
+states is that **the `:disk-log` index needs durable records**, which is why `:pg`
+may take it (`:pg-disk-log`) and `:sqlite` may not: `:sqlite` records already live in a
+directory, so a durable index beside them is `:disk-log`'s pairing without its shared
+lifecycle, and `:disk-log` is the name for that. So `:records` /
 `:index` are for overriding *half* of a name, not for reaching a pair the table left out,
 and `VAELII_TEST_BACKEND` takes a name. `./scripts/test-backends.sh` (`lein
 test-backends`) runs the whole suite on all seven, one log and one ✔/✘ per run, plus an
 eighth over the `overlay` decorator; `./scripts/test-matrix.sh` runs those eight and the
-five sweeps concurrently, which is the same coverage in about a quarter of the wall
+six sweeps concurrently, which is the same coverage in a fraction of the wall
 clock, since a durable run's store is `<vaelii.disk.dir>/space-<n>` and each gets its
-own directory. `backend_parity_test` also runs one scripted KB
+own directory. A bare matrix run is the **routine** roster, which stands two of the
+three durable-records-with-a-derived-index pairs down — one claim written three times,
+and `mixed_backend_test` holds the seam in an ordinary `lein test` — and `full` is all
+fourteen. `./scripts/test-matrix.sh --owed` runs what the changed files owe and prints
+why, from the map in `scripts/lib/suite-configs.sh`. `backend_parity_test` also runs one scripted KB
 session across every pair in an ordinary `lein test`, so a divergence fails without
 anyone remembering to.
 
@@ -393,7 +395,7 @@ repair is `reindex` — rebuild the index from the records, *then* recover — a
 That log line is the point of interest: the rebuild is O(records) on **every** open, so
 whether it is worth buying back — by persisting a snapshot of the derived index, which
 is what `:disk-columnar`'s image below does — is decided by that number at the corpus
-size in question. `lein bench-reindex [facts] [rules] [index]` produces it. Measured on a generated corpus of **105,392 records**, single-threaded:
+size in question. `lein bench-reindex [facts] [rules] [index] [tms]` produces it. Measured on a generated corpus of **105,392 records**, single-threaded:
 
 | index | reindex | records/s | recover | open | extrapolated to 100M |
 |---|---|---|---|---|---|
@@ -481,7 +483,7 @@ admitted**. The evidence is one operating system's file-locking model, so "not W
 what the guard reads (`publishable-platform?`); `vaelii.index.snapshot` there throws
 `:unsupported-platform` naming the property, the OS and the reason, and an image already
 in the directory is discarded as one more `decision` mismatch class. Only the publish is
-implicated: the `:disk` backend's logs, slots and lock run on every platform, and with
+implicated: the durable store's logs, slots and lock run on every platform, and with
 the property unset a `:disk-columnar` KB opens there and rebuilds its index from the
 records.
 
@@ -580,7 +582,7 @@ same keys, so the two answer alike. The **record store** stays per-backend
 (`MemoryRecordStore` / `DiskRecordStore`) — a handle→blob map is simple enough that
 sharing it buys nothing.
 
-## Postgres records (`:pg-memory`, `:pg-disk`)
+## Postgres records (`:pg-memory`, `:pg-disk-log`)
 
 `com.vaelii/postgres`, the `vaelii.postgres.record-store` adapter. Three tables —
 `vaelii_record (id, kind, frame, premise, strength)`, `vaelii_record_provenance` and a
@@ -629,9 +631,10 @@ lock; a database has no such thing to take, so on this backend the contract is a
 operator keeps rather than one the store fails fast on. "Several application servers on
 one KB" is the thing a Postgres backend suggests to every reader, and it is not this.
 
-A second process may **read** after `recover`, and `recover` is 7.8 s per 313k records on
-the `:disk` store — about **42 minutes at 100M**, and that figure is a local store's, not a
-reader's over a network — so that is a snapshot reader rather than a replica.
+A second process may **read** after `recover`, and `recover` is roughly 8 s per 313k
+records on the `:disk` store — call it **the better part of an hour at 100M**, and that
+figure is a local store's, not a reader's over a network — so that is a snapshot reader
+rather than a replica.
 
 ### The round trip, and what is done about it
 
@@ -640,9 +643,9 @@ touch. Measured against a local server, `get-sentex`:
 
 | | µs/read |
 |---|---|
-| Postgres, cache bypassed (`:cache-capacity 0`) | 53.6 |
-| Postgres, fetch-LRU hit | 0.31 |
-| `:disk` store, warm (its own LRU answering) | 0.23 |
+| Postgres, cache bypassed (`:cache-capacity 0`) | ~50 |
+| Postgres, fetch-LRU hit | ~0.3 |
+| `:disk` store, warm (its own LRU answering) | ~0.2 |
 
 Both orders of magnitude and both ends of the comparison stated: 30,000 records, a local
 server over loopback, 3,000 random handles. Against a **cold** disk-store fetch — a page
@@ -651,7 +654,8 @@ A remote server is the number that matters and it is larger than either.  Level 
 disk store when the LRU answers.
 So the LRU is not an optimization here, it is the backend's viability: a working set that
 fits it costs what local costs, and a query that pages a record per candidate outside it
-costs 282 µs apiece. The store's answer is that cache (`:cache-capacity`, 65536 records
+costs a few hundred microseconds apiece. The store's answer is that cache
+(`:cache-capacity`, 65536 records
 per kind by default), plus a **premise-strength cache filled by the `premise-ids` walk
 itself** — `recover` asks for every one of those strengths immediately after enumerating
 them, and the walk already selects the column, so the pair costs one scan instead of a
@@ -667,10 +671,11 @@ about to ask for many records: given a chunk of candidate handles it checks whic
 already holds — a RAM lookup apiece, the cache being the exact oracle for "would a batch
 help here" — and issues one `WHERE id = ANY(?)` for the rest, or nothing at all when it
 holds them already. Measured on a 40k-record corpus whose working set does **not** fit the
-cache, 100 queries at 200 candidates each: **12.6 ms/query with no hint, 4.0 ms at a
-256-handle chunk** — a 3.2× that is the round trips going away, after which thawing the
-frames is what remains. On the same corpus with a cache that *does* hold it, the hint
-finds nothing missing and costs the scan: 0.90 ms/query against 0.80. `:prefetch false` on
+cache, 100 queries at 200 candidates each: **~13 ms/query with no hint, ~4 ms at a
+256-handle chunk** — roughly 3× that is the round trips going away, after which thawing
+the frames is what remains. On the same corpus with a cache that *does* hold it, the hint
+finds nothing missing and costs the scan: under a millisecond a query either way.
+`:prefetch false` on
 the store is the hard off, and `:prefetch-min` is how many uncached handles make a batch
 worth issuing (4).
 
@@ -680,9 +685,9 @@ A batched record fetch *returning records* is a different thing and is not on
 that reaches into all three is its own piece of work with its own oracle, not a detail of
 this backend.
 
-### Which host owns a `:pg-disk` index
+### Which host owns a `:pg-disk-log` index
 
-`:pg-disk` is Postgres records under the **local** durable index, which puts the two
+`:pg-disk-log` is Postgres records under the **local** durable index, which puts the two
 halves of one KB on what may be two machines, with two lifetimes. The index is derived from the
 records, so this pairing puts the derivation on whichever host ran the writer: the files
 live under that host's `:dir`, they do not travel with the KB, and a second host
@@ -691,7 +696,7 @@ rebuild is correct and automatic — the coverage check compares the index's roo
 against the live record count on every open and repairs a short one — and it is O(records)
 paid at that host's first open.
 
-So `:pg-disk` is worth it for a KB that restarts on one machine, and buys nothing for one
+So `:pg-disk-log` is worth it for a KB that restarts on one machine, and buys nothing for one
 that moves between machines. `:pg-memory` is the pairing that pays the rebuild every time
 and owns no files at all.
 
@@ -700,14 +705,14 @@ and owns no files at all.
 the KB arrives with as much of its fetch LRU full as the LRU holds (65,536 records by
 default: the whole store when the corpus is smaller, its tail when it is not), and the
 first queries into that much of it make no round trips at all.
-`:pg-disk` skips that walk, which is the point of it; the cache is therefore empty when
+`:pg-disk-log` skips that walk, which is the point of it; the cache is therefore empty when
 the first query arrives, and every candidate is a miss until it fills. The saving is real
-and so is the bill: `:pg-disk` moves work out of the open and into the first queries after
+and so is the bill: `:pg-disk-log` moves work out of the open and into the first queries after
 it, and on a corpus that fits the cache `:pg-memory` may reach a steady state sooner.
 
-**`:pg-disk` requires `:dir`, and the directory remembers which database it describes.**
+**`:pg-disk-log` requires `:dir`, and the directory remembers which database it describes.**
 Neither is ceremony. A derived default directory falls out of the space number
-(`<tmpdir>/vaelii-disk/space-<n>`), so two `{:backend :pg-disk}` opts that name no
+(`<tmpdir>/vaelii-disk/space-<n>`), so two `{:backend :pg-disk-log}` opts that name no
 directory are *the same directory* — two KBs over two databases sharing one index, each
 answering out of the other's handles. And a directory deliberately pointed at the wrong
 database is not caught by the coverage check below it, which compares record **counts**:
@@ -823,7 +828,8 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   snapshot cadence — it bounds replay length and reclaims the delta frames, triggered
   off a delta-accumulation ratio (`dead-ratio` = frames beyond one-per-live-key).
 
-**A bulk sweep claims recency like any other read.**  `export!`, `reindex`, and the
+**A bulk sweep claims recency like any other read.**  `export!`, `export-text!` (over the
+premises), `reindex`, and the
 `recover` a `fork` runs over a live base each fetch every record through `get-sentex`,
 so a sweep of a store larger than the cache leaves the LRU holding the last handles it
 happened to visit rather than whatever the query workload had warmed.  (The `recover` at
@@ -835,11 +841,12 @@ stays small.  Refilling costs at most one miss per entry the sweep displaced —
 `capacity` misses, whatever the store's size — and where the sweep itself pays a read
 per record, that is `capacity / records` of the sweep's own cost, a ratio the per-miss
 cost cancels out of, so a store too large for the page cache does not change it.
-Measured on an 800,000-record store at the 65,536 default: a skewed stream holding 83.6%
-hit and 0.97 µs/query drops to 69.3% over the 25,000 queries following a full sweep and
-is back inside a point five windows later — **22 ms of added latency in all, against a
-sweep that itself took 2.6 s**.  At 200,000 records, three times the cache and where
-that ratio is at its worst, 27 ms against 0.6 s.  A skewed stream's head is much smaller
+Measured on an 800,000-record store at the 65,536 default: a skewed stream holding a
+~84% hit rate at ~1 µs/query drops to ~69% over the 25,000 queries following a full sweep
+and is back inside a point five windows later — **tens of milliseconds of added latency
+in all, against a sweep that itself took seconds**.  At 200,000 records, three times the
+cache and where that ratio is at its worst, the shape is the same and the sweep is the
+larger cost by an order of magnitude.  A skewed stream's head is much smaller
 than the cache, which is why the refill lands well inside one window: the sweep displaces
 65,536 entries, of which a few thousand are ones anything asks for again.
 
@@ -915,6 +922,32 @@ the premise set and the record cache once the install lands.  Re-freezing the `n
 put the handle back as a live record fetching to nothing, an id `sentex-ids` names and
 `get-sentex` has no answer for; a record disappearing is logged at `:warn` per handle,
 since it is something an operator has to be told rather than shown by a later count.
+
+**Two monitors, because three threads touch this store.**  The writer is one; the
+durability daemon is another (`fsync`, every `vaelii.disk.sync-ms`); a compaction runs on
+a third.  So the store's *resident* state — the live-id set, the hot-record cache, the
+compaction delta set, the failure flag, the handle counter and what the counters blob was
+last left holding — is not the writer's alone, and a field written outside a monitor is
+one another thread can catch mid-pair.
+
+- The **kind lock** covers that kind's log and idx *and* the resident state derived from
+  them. A store, a kill, a batch and the compactor's reconcile each take it once and do
+  both halves inside it, so no reader finds an id live whose slot says tombstone, or a
+  cleared delta set under a writer folding an id into it. The cost is a `conj` and a map
+  put inside a monitor already held for two file writes.
+- **A monitor of the store's own** covers the three that belong to no kind and move
+  together: the handle counter, `counters.nippy`, and the stamp saying what that blob
+  holds. `fsync` reads and writes them on the daemon's thread and `clear-records!` on the
+  writer's, and a tick that read the counter before a wipe and wrote the blob after it
+  would leave a wiped store stamped with the pre-wipe high-water mark. It is not a kind
+  lock because a whole-file blob rewrite held inside one would put a record append behind
+  it on every tick that minted a handle.
+
+The premise set needs neither on the write path: each mutation is one `swap!` on one
+atom, and the pairing that would matter — a handle in `premise-ids` whose record is gone
+— is a delete the writer makes, on the thread that reads it back. Its one mutation from
+another thread is the compactor dropping a handle whose frame the log cannot give back,
+which takes the kind lock beside the live-set drop it belongs with.
 
 **The switches are checked.**  Every `vaelii.*` property the backend reads — the tick
 (`vaelii.disk.sync-ms`), `vaelii.disk.fsync`, `vaelii.disk.auto-compact`,
@@ -1038,7 +1071,9 @@ through `res/kb-sentex`, which supplies `:symmetric?`. See
 Both indexes are built from this decomposition: the **term index** is fully
 connective-free (heads stripped even nested in a rule), and the **trie key** drops
 the `implies` / `and` rule frame — a negative literal keeps its `not` there as its
-polarity (see [indexing.md](indexing.md)). `AtomicSentex` and `RuleSentex` are records (not bare
+polarity (see [indexing.md](indexing.md)). `or` reaches neither, having no slot here at
+all: a rule whose antecedent disjoins is stored as one rule per alternative before a
+record is built ([canonicalization.md](canonicalization.md)). `AtomicSentex` and `RuleSentex` are records (not bare
 maps) so each round-trips through nippy (the on-disk backend) with its type intact.
 
 ## Provenance — a side map, not record fields
@@ -1089,9 +1124,48 @@ backend. `assert` (hence `assert-rule` / `assert-many`), `assert-inert`, and `ch
 refuse it up front (`:type` `:not-encodable`, `checks/check-encodable`), so a stored
 sentence's values round-trip in every backend or the sentence is refused in all of
 them. The vocabulary and literals — symbols, keywords, strings, numbers, chars,
-booleans, `nil` — and any vector/map/set of them are always storable; a leaf outside
-that set is put through the freeze/thaw pair the disk backends run, and refused if
-either throws (`encodable_test` pins the boundary).
+booleans, `nil` — and any **sequential** of them are always storable; a **map or set**
+is refused under the same `:type` for a different reason — it has no canonical form,
+so `sentex/canon` cannot normalize it to one set of bytes and `nm/form-rank` cannot
+order it ("The canon gotcha" below) — and any other leaf is put through the
+freeze/thaw pair the disk backends run, and refused if either throws
+(`encodable_test` and `check_test` pin the boundary).
+
+**That thaw is the guarded one** (`vaelii.impl.io.thaw`), which is what makes the front
+door and the file readers hold one opinion rather than two that agree today. A leaf whose
+class round-trips only through Java serialization — `java.time.LocalDate` and the other
+`java.time` locals, a `Throwable`, a joda `DateTime` — is refused `:not-encodable` where
+it is written, rather than stored and then refused on the way back off disk one restart
+later. Write a date as a calendar term ([time.md](time.md)) or as a number; the types
+nippy has an id for — `java.util.Date`, `java.time.Instant`, `java.time.Duration`,
+`java.util.UUID`, `java.net.URI`, `java.math.BigDecimal`, every primitive array — are
+unaffected.
+
+### A file names no class
+
+Every thaw the engine runs over a file goes through one door, and its allowlist of class
+names is **empty**: a frame naming a class is refused `:disallowed-class` before the name
+is resolved.
+
+Nothing the engine writes states one. An export dump's frames are field maps by the
+format's own rule ([api.md](api.md), `export!`); a log frame is a positional vector
+(`vaelii.impl.disk.codec`); a whole-file blob holds counters and premise marks. So a
+class name in a file came from somewhere else — and reading one is not a decode but a
+**construction**: nippy's record id resolves the name and invokes the class's static
+`create`, its deftype id invokes the first public constructor over the fields that
+follow, and its `Serializable` id opens an `ObjectInputStream` over the bytes that
+follow. A store directory and a dump are whatever an operator copied.
+[why the allowlist is empty rather than curated](defenses.md#a-frame-naming-a-class-is-refused-never-resolved)
+
+### A directory's sentinel
+
+`records/format.edn` and `index/layout.edn` are read before anything else about a
+directory is. A **missing** `format.edn` is stamped with the current version — a
+pre-sentinel directory is by definition today's layout — but a **damaged** one is refused
+(`:unreadable-store`), because a stamp cut mid-write is a directory whose records were
+being written at the same moment. A damaged `layout.edn` reads as `:stale` instead and
+the index is rebuilt from the records: it answers whether the entries can be *proved* to
+match this build's key shape, and a torn stamp proves nothing.
 
 ## The canon gotcha
 
@@ -1129,7 +1203,7 @@ read.
 ## Persistence & recovery
 
 The record store, trie, term index, and rule index all persist — durably across a
-restart on the `:disk` backend, and within the JVM on `:memory` (the space-number
+restart on `:disk-log`, and within the JVM on `:memory` (the space-number
 registry). The **taxonomy** and **JTMS graph** are in-memory, so a KB constructed
 against an existing store has to rebuild them. `open-kb`'s `:recover? :auto` default
 does it at construction (`true` is an alias for it); `:warn` leaves them empty and says
@@ -1207,7 +1281,7 @@ Two numbers to keep apart before acting on this. The Phase 0 "taxonomy ≈ 0" fi
 **residency** — 0.0 MB, 0 bytes/fact — and says nothing about rebuild *time*:
 `rebuild-taxonomy` does a `sentexes-with-functor` per declaring functor plus a record
 fetch per hit, and on a corpus where `genl` is a top predicate that is a great many
-fetches. And `recover`'s 7,792 ms at 313k records is not decomposed, so how it splits
+fetches. And `recover`'s ~8 s at 313k records is not decomposed, so how it splits
 between the two is unmeasured.
 
 **Atomicity.** All validation (naming, wff, arg/disjoint/functional/negation
@@ -1362,14 +1436,23 @@ writes:
   process never reaches the records at all.
 
   **A server does not relax this, and it is the backend that most looks as though it
-  would.** `:pg-memory` and `:pg-disk` put the records where several processes *can*
+  would.** `:pg-memory` and `:pg-disk-log` put the records where several processes *can*
   reach them, and every clause above still holds: belief is in the writer's RAM, so a
   second process reasoning over the same database hides the first's facts and deletes
   records it still believes. What the `:disk` backend fails fast on, this one leaves to
   the operator — a database has no exclusive-open to take — so one writing process per
   database (or per `:schema`) is a rule that has to be kept rather than one that is
   enforced. A second process may read after its own `recover`, which is a snapshot
-  reader and not a replica: [Postgres records](#postgres-records-pg-memory-pg-disk).
+  reader and not a replica: [Postgres records](#postgres-records-pg-memory-pg-disk-log).
+
+**What the contract does not cover is a second *batch*.** The in-memory index's bulk-write
+path (`vaelii.impl.memory/with-bulk-writes`) accumulates on a transient taken off a state
+atom held per **space**, which every index store over that space shares — so a bulk load
+begun inside another over the same space is two accumulators over one atom on one thread,
+which no rule about threads rules out. The install is therefore a compare-and-set against
+the value the batch snapshotted, and a state that moved under it is refused
+(`:stacked-batch`) rather than written over: [why compare-and-set rather than
+overwrite](defenses.md#a-bulk-load-installs-by-compare-and-set-not-by-overwrite).
 
 The contract is a property of the engine rather than of any backend: a shared record
 store is not a shared KB, because belief lives in the writing process's RAM. So it holds

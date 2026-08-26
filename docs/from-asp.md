@@ -18,11 +18,14 @@ program for it. Read the two structural sections before the tables.
 | in ASP | here | what changes |
 |---|---|---|
 | atom | a ground sentex | a sentence *plus* the context it holds in |
-| `h :- b1, b2.` | `(implies (and b1 b2) h)` | a rule is a sentex too, with a handle and truth maintenance → [inference.md](inference.md) |
-| `{h} :- b.` | `set/assumptionRule` | a choice, and the only thing a solve is free to pick |
-| `:- b.` | `set/hardConstraint` | renders as a genuine integrity constraint; the model is excluded |
-| `:~ b. [w@l]` | `set/softConstraint` | a violation atom and a `#minimize` at that level |
-| `not a` | `(unknown a)` | a query operator, ground-only, storing nothing |
+| `h(X) :- b1(X), b2(X).` | `(implies (and (b1 ?x) (b2 ?x)) (h ?x))` | every literal is a predicate applied to arguments — there are no propositional atoms — and a rule is a sentex too, with a handle and truth maintenance → [inference.md](inference.md) |
+| `{h(X)} :- b(X).` | `set/assumptionRule` | a choice, and the only thing a solve is free to pick |
+| `h(X) :- a(X) ; b(X).` | `(implies (or (a ?x) (b ?x)) (h ?x))` | a body disjunction, stored as one rule per alternative rather than solved |
+| `:- b(X).` | `set/hardConstraint` | renders as a genuine integrity constraint; the model is excluded |
+| `:~ b(X). [w@l]` | `set/softConstraint` | a violation atom and a `#minimize` at that level |
+| `not a(item)` | `(unknown (a Item))` | a query operator, ground-only, storing nothing |
+| `not (a(X), b(X))` over a shared variable | `(unknown (thereExists ?x (and (a ?x) (b ?x))))` | joined, so one witness satisfies both |
+| `#false :- p(X), not q(X).` over all X | `(forall ?x (implies (p ?x) (q ?x)))` | sugar for the nested NAF, in a rule body rather than as a constraint |
 | `-a` | `(not S)` | a **stored** negative sentex with its own handle, not an absence |
 | an answer set | a labeling context | materialized, inert, one per optimal answer set |
 | `X` | `?x` | |
@@ -88,7 +91,14 @@ Two constraints on `unknown` that a program would not impose. It is **ground and
 projects a variable out so `unknown` can negate the result. And **stratification is
 enforced at assert time**: a cycle through negation throws `:not-stratified`, including
 the one-rule cycle and a cycle a `genl` edge would close. You learn about it when you
-write it, not when you solve.
+write it, not when you solve. That is the whole of what replaces choosing among stable
+models: a program with several is refused rather than resolved.
+
+The conjunction under a quantifier is **joined**, so a grounder's shared variable
+transfers directly, and `forall` is sugar for the nested case. What does not transfer is
+the grounder's own reading of a domain: a closed extent is declared per predicate
+(`(closedExtentPredicate P)`), scoped to the context that declares it, rather than being
+what the Herbrand base happens to contain. → [naf.md](naf.md)
 
 ## Choices, constraints and the solve
 
@@ -164,7 +174,14 @@ a solve answers something surprising. → [asp.md](asp.md)
 ## What you lose
 
 - Whole-program semantics. A solve sees the assumption rules of one region
-- Disjunctive heads
+- Disjunctive **heads**. Bodies are fine — `(or A B)` in an antecedent is stored as one
+  rule per alternative ([canonicalization.md](canonicalization.md)), which is the `;` of
+  a body — but a head that disjoins is refused. Belief is a label on a sentex rather than
+  on a set of them, so `a | b :- c.` is written as one `set/assumptionRule` per
+  alternative, with a `set/hardConstraint` for the combinations that cannot stand, and
+  read back from a solve. What that gives up against a disjunctive head is minimality:
+  the choice rules admit the model where both are true, and the constraint has to rule it
+  out where a disjunctive head would not have offered it
 - `#count` and `#sum` as part of the **model**. The five reductions work in a rule body —
   `(agg/count ?n ?v Body)` after the generator antecedent that binds the group, re-checked
   as the census moves — but they are *query* operators a prover computes rather than atoms

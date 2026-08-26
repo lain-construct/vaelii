@@ -98,6 +98,20 @@
         (is (= (kv/kv-count   m k) (kv/kv-count   d k)) (str "scard "    k)))
       (is (= #{'q0} (kv/kv-members d [:argument-slot 1 'B0]))))))
 
+(deftest the-reserved-argument-root-family-has-no-decode
+  ;; `packed` and `unpack` are each other's inverse over every family `route` packs, and
+  ;; family 2 is the hole in that: an argument root's key carries a predicate the packed
+  ;; long has no room for, so it takes the generic map and nothing ever packs the tag.
+  ;; The throw is what keeps the reservation a fact — a decode invented for the tag would
+  ;; be one with the wrong shape, inherited rather than designed.
+  (let [dict (doto (tok/token-dict) (tok/intern-token! 'A0))
+        pk   (fn [family] (bit-shift-left (long family) 56))]
+    (is (= [:functor-root 'A0] (#'dr/unpack dict (pk 1)))
+        "the families beside it decode, so the refusal is about the tag and not the key")
+    (let [e (is (thrown? clojure.lang.ExceptionInfo (#'dr/unpack dict (pk 2))))]
+      (is (= :reserved-family (:type (ex-data e))))
+      (is (= (pk 2) (:packed (ex-data e))) "naming the key it was asked to decode"))))
+
 (deftest dense-roots-batch-and-clear
   (let [m (mem/->MemoryKvBackend (atom {}))
         d (dr/dense-roots (tok/token-dict))

@@ -11,11 +11,11 @@ name: deep
 # what the cadence is protecting is the minutes, not the wait.
 #
 # test.yml runs the `:default` selector on two of the eight backends, because a
-# contributor should not wait an hour for a verdict. That leaves three real gaps,
-# and this workflow is all three of them:
+# contributor should not wait an hour for a verdict. That leaves five real gaps,
+# and this workflow is all five of them:
 #
-#   - **The `^:slow` half of the suite.** Twenty tests carry 118k of the
-#     suite's 238k assertions — the exhaustive cross-products and the randomized
+#   - **The `^:slow` half of the suite.** Forty-three tests carry 109k of the
+#     suite's 263k assertions — the exhaustive cross-products and the randomized
 #     oracles. `lein gate` skips them, test.yml skips them, and a mark that
 #     defers a test is only honest if something eventually runs it. This is that
 #     something.
@@ -23,11 +23,25 @@ name: deep
 #     overlay decorator, and the suite is expected to be failing-set-identical
 #     across all eight — a backend that answers differently is a bug in the
 #     backend. The pull-request gate exercises two of the eight.
-#   - **The five alternative implementations.** The dense TMS, the incremental
+#   - **The five alternative implementations.** The persistent-map JTMS, the incremental
 #     matcher, the node query engine, its tacticians and the reference retrieval
 #     fan-out. Each is selected by an env var `test_util.clj` reads, each must be
 #     failing-set-identical with the default it replaces, and nothing ran any of
 #     them until the `sweeps` job below — see its own comment.
+#   - **The cross-process tests.** `^:multi-jvm` is opt-in rather than deferred:
+#     no selector reaches it, not even `:all`, so this job is not a second
+#     opinion the way the three above are — it is the only thing that runs them.
+#     They are where the single-writer lock's other-JVM branch, the OS dropping
+#     a killed writer's lock, and a cold open over another process's directory
+#     are checked, none of which one JVM can stage.
+#   - **The exhaustive truncation sweep.** `^:fuzz` is opt-in for a third
+#     reason, neither cost nor a process boundary: one JVM can stage it and
+#     `:all` could reach it, but no configuration meaningfully varies it — the
+#     sweep names its own four durable backends and never asks for the one the
+#     row is testing, so a matrix row repeats work rather than asking a new
+#     question. Once, not once per row, and here is the once. Nothing else runs
+#     it at all: no gate, no script, no other alias — so this job is what stands
+#     between the sweep and never running.
 #
 # **Informational, never a required check.** Nothing here blocks a merge: these
 # jobs are long, the perf one is a timing measurement on a shared runner, and a
@@ -100,7 +114,7 @@ jobs:
           - disk-memory
           - disk-dense
           - disk-columnar
-          - disk
+          - disk-log
           - overlay
     steps:
       # No credentials left in .git/config: nothing here pushes, and a token
@@ -234,6 +248,102 @@ jobs:
       # matrix leg needs two variables and one needs none of the other's.
       - name: Suite (${{ matrix.name }}, :all)
         run: env ${{ matrix.env }} lein test :all
+
+  multi-jvm:
+    name: multi-jvm
+    # this workflow does work only where the minutes are free (see above `jobs:`)
+    if: github.repository_owner == 'vaelii'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # No credentials left in .git/config: nothing here pushes, and a token
+      # sitting in the workspace is reachable by anything the build runs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Leiningen
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d  # 13.6.1
+        with:
+          lein: 2.12.0  # 2.13.0's launcher self-installs an unpublished snapshot jar
+
+      - name: Cache Maven deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.m2
+          # runner OS and JDK in the key: the same project.clj resolves different
+          # artifacts on a different platform or Java version, and a bare `m2-`
+          # key would serve one leg's ~/.m2 to another the moment a matrix grows.
+          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
+          restore-keys: |
+            m2-${{ runner.os }}-jdk21-
+
+      # The cross-process tests. `:multi-jvm` is opt-in — no other selector
+      # reaches them, so unlike every other job here this one is not a second
+      # opinion on something the pull-request path already ran. If this job is
+      # removed, nothing runs these at all.
+      #
+      # No classpath step: a child inherits `java.class.path` from the test JVM,
+      # which leiningen has already resolved. Shelling out to `lein classpath`
+      # per test would charge each one a dependency resolution.
+      - name: Cross-process suite
+        run: lein test-multi-jvm
+
+  fuzz:
+    name: fuzz
+    # this workflow does work only where the minutes are free (see above `jobs:`)
+    if: github.repository_owner == 'vaelii'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # No credentials left in .git/config: nothing here pushes, and a token
+      # sitting in the workspace is reachable by anything the build runs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Leiningen
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d  # 13.6.1
+        with:
+          lein: 2.12.0  # 2.13.0's launcher self-installs an unpublished snapshot jar
+
+      - name: Cache Maven deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.m2
+          # runner OS and JDK in the key: the same project.clj resolves different
+          # artifacts on a different platform or Java version, and a bare `m2-`
+          # key would serve one leg's ~/.m2 to another the moment a matrix grows.
+          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
+          restore-keys: |
+            m2-${{ runner.os }}-jdk21-
+
+      # The exhaustive truncation sweep. `:fuzz` is opt-in like `:multi-jvm`, so
+      # this job is the only thing that runs it — but for a different reason: it
+      # is not that one JVM cannot stage the test, it is that no configuration
+      # varies it. The sweep names its own four backends and reads no switch, so
+      # running it on a second matrix row buys a second identical answer.
+      #
+      # `/dev/shm` is what makes twenty minutes a budget rather than a squeeze. A
+      # probe's cost is one device cache flush, so on the runner's disk the sweep
+      # is ~10 minutes and on tmpfs a couple; most of what is left goes on
+      # compiling the test tree, which `lein test` does in full whatever it then
+      # selects. The scratch space is free here and needs a RAM disk on macOS,
+      # which is why the variable exists rather than the test simply choosing.
+      - name: Truncation sweep
+        run: VAELII_TEST_TMPDIR=/dev/shm lein test-fuzz
 
   perf:
     name: perf

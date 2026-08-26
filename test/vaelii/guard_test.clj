@@ -55,6 +55,34 @@
         (is (= ::guard/any (guard/allowed-hosts "0.0.0.0")))
         (is (= ::guard/any (guard/allowed-hosts "192.168.1.5")))))))
 
+(deftest an-allowlist-entry-is-read-in-the-shape-a-host-header-is-compared-in
+  ;; `host-allowed?` strips the port off the request's `Host`, so an entry that keeps one
+  ;; matches nothing at all — every request refused, while the startup line reports the
+  ;; allowlist as set.  Driven through the parser rather than the reader, since
+  ;; `System/getenv` is a static call with no var to fake.
+  (let [parse #'guard/parse-allowlist]
+    (testing "a port on an entry is the name it is written beside"
+      (is (= #{"kb.example.com"} (parse "kb.example.com:8080")))
+      (is (= #{"kb.example.com"} (parse "kb.example.com")))
+      (is (= #{"[::1]"} (parse "[::1]:4200")))
+      (is (= #{"::1"} (parse "::1")) "a bare IPv6 literal has no port to strip"))
+    (testing "and the entry parsed is what host-allowed? then compares against"
+      (is (guard/host-allowed? (parse "kb.example.com:8080")
+                               {:headers {"host" "kb.example.com:8080"}}))
+      (is (guard/host-allowed? (parse "kb.example.com:8080")
+                               {:headers {"host" "kb.example.com"}}))
+      (is (not (guard/host-allowed? (parse "kb.example.com:8080")
+                                    {:headers {"host" "evil.example"}}))))
+    (testing "several entries, trimmed and case-folded as header values are"
+      (is (= #{"kb.example.com" "kb.internal"}
+             (parse " KB.Example.com:443 , kb.internal "))))
+    (testing "a value naming nothing is unset, not an allowlist of none — the empty set
+              answers no Host on any interface"
+      (is (nil? (parse nil)))
+      (is (nil? (parse "")))
+      (is (nil? (parse "   ")))
+      (is (nil? (parse " , , "))))))
+
 ;; ---- allowlist-open? -------------------------------------------------------
 
 (deftest allowlist-open-names-the-one-sentinel
@@ -140,6 +168,65 @@
       (is (not (guard/edn-body? {})))
       (is (not (guard/edn-body? {:headers {}}))))))
 
+;; ---- what a bind requires ------------------------------------------------
+;;
+;; One rule for both servers: naming an address publishes write routes that authenticate
+;; nobody, and the same flag drops the `Host` allowlist — so the exposed configuration
+;; must not also be the one with the fewest checks.  `vaelii.serve-test` and
+;; `vaelii.web-test` drive each server's own entry point; what belongs here is the
+;; decision itself.
+
+(deftest a-public-bind-is-every-interface-that-is-not-this-machine
+  (testing "loopback, however it is spelled"
+    (doseq [h ["127.0.0.1" "localhost" "[::1]" "::1" "0:0:0:0:0:0:0:1" "LOCALHOST"]]
+      (is (false? (guard/public-bind? h)) h)))
+  (testing "and anything else"
+    (doseq [h ["0.0.0.0" "::" "10.0.0.4" "example.internal"]]
+      (is (true? (guard/public-bind? h)) h))))
+
+(deftest an-address-with-no-token-is-refused-naming-the-variable
+  (testing "loopback needs none — the laptop workflow a required credential would
+            only teach an operator to export a constant for"
+    (doseq [h ["127.0.0.1" "localhost" "::1"]]
+      (is (nil? (guard/require-token! "daemon" h nil)) h))
+    (is (nil? (guard/require-token! "daemon" "127.0.0.1" "  "))
+        "a blank token is an unset one, and loopback does not need one"))
+  (testing "a token satisfies either bind"
+    (is (nil? (guard/require-token! "daemon" "0.0.0.0" "s3cret")))
+    (is (nil? (guard/require-token! "browser" "10.0.0.4" "s3cret"))))
+  (testing "and an address with none is refused, naming what lifts it and what avoids it"
+    (doseq [[what h] [["daemon" "0.0.0.0"] ["browser" "10.0.0.4"] ["browser" "::"]]]
+      (let [e (is (thrown? clojure.lang.ExceptionInfo (guard/require-token! what h nil))
+                  (str what " " h))]
+        (is (= :unauthorized (:type (ex-data e))) h)
+        (is (= h (:host (ex-data e))) h)
+        (is (= what (:server (ex-data e))) h)
+        (is (re-find #"VAELII_API_TOKEN" (ex-message e)) h)
+        (is (re-find #"loopback" (ex-message e)) h)))))
+
+(deftest the-bearer-wrapper-answers-one-refusal-however-the-header-is-wrong
+  (let [seen    (atom 0)
+        handler (guard/wrap-bearer (fn [_] (swap! seen inc) :served)
+                                   "s3cret" #{"/health"} (fn [_] :refused))
+        get*    (fn [uri headers] (handler {:request-method :get :uri uri
+                                            :headers headers}))]
+    (testing "the right token is served"
+      (is (= :served (get* "/" {"authorization" "Bearer s3cret"})))
+      (is (= :served (get* "/" {"authorization" "bearer s3cret"}))
+          "the scheme is matched case-insensitively, as RFC 7235 defines it"))
+    (testing "and every way of not having it takes the same branch"
+      (doseq [h [{} {"authorization" ""} {"authorization" "Bearer wrong"}
+                 {"authorization" "Basic s3cret"} {"authorization" "s3cret"}]]
+        (is (= :refused (get* "/" h)) (pr-str h))))
+    (testing "an open route answers before the check"
+      (is (= :served (get* "/health" {}))))
+    (testing "a blank token means no wrapper at all"
+      (let [open (guard/wrap-bearer (fn [_] :served) "" #{} (fn [_] :refused))]
+        (is (= :served (open {:request-method :get :uri "/"})))))
+    (is (= 3 @seen)
+        "the wrapped handler ran for the two good tokens and the open route, and for
+         nothing else — a refusal is answered before the handler, not after it")))
+
 ;; ---- the request-body ceiling --------------------------------------------
 ;;
 ;; The browser authenticates nobody and the daemon need not, so the caller who can reach
@@ -223,3 +310,35 @@
         "VAELII_MAX_BODY_BYTES names the ceiling")
     (is (= (* 16 1024 1024) guard/max-body-bytes)
         "16 MiB is the ceiling when nothing names another")))
+
+;; ---- same-origin? --------------------------------------------------------
+
+(deftest same-origin-honors-a-forwarded-scheme-behind-a-tls-proxy
+  (let [;; a request the browser sent as https, reaching the daemon over a plain
+        ;; connector behind a TLS-terminating proxy: the connector's :scheme is :http
+        req (fn [{:keys [origin host xfp scheme]}]
+              {:scheme  (or scheme :http)
+               :headers (cond-> {}
+                          origin (assoc "origin" origin)
+                          host   (assoc "host" host)
+                          xfp    (assoc "x-forwarded-proto" xfp))})]
+    (testing "the browser's https Origin matches through X-Forwarded-Proto"
+      (is (guard/same-origin?
+           (req {:origin "https://kb.example.com" :host "kb.example.com"
+                 :xfp "https" :scheme :http})))
+      (testing "even when the proxy appends a list, the first value wins"
+        (is (guard/same-origin?
+             (req {:origin "https://kb.example.com" :host "kb.example.com"
+                   :xfp "https, http" :scheme :http})))))
+    (testing "a cross-site Origin is still refused — the forwarded header cannot forge it"
+      (is (not (guard/same-origin?
+                (req {:origin "https://evil.example.com" :host "kb.example.com"
+                      :xfp "https" :scheme :http})))))
+    (testing "with no proxy header, the connector's own scheme decides, as before"
+      (is (guard/same-origin?
+           (req {:origin "http://localhost:3000" :host "localhost:3000" :scheme :http})))
+      (is (not (guard/same-origin?
+                (req {:origin "https://localhost:3000" :host "localhost:3000" :scheme :http})))
+          "an https Origin with no forwarded proto over a plain connector does not match"))
+    (testing "a request carrying neither Origin nor Referer is same-origin by default"
+      (is (guard/same-origin? (req {:host "kb.example.com" :scheme :http}))))))

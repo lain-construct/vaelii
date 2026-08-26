@@ -186,7 +186,7 @@
   It carries `:ground-first`'s three signs, so this is itself a **normalized** strategy —
   the shape every reader of one expects (`child-bias` reads `:motivation`, `node-estimate`
   reads the other two).  `strategy` merging the tactician's signs over it is a no-op for
-  this tactician and the override for any other, exactly as before."
+  this tactician and the override for any other."
   (merge (:ground-first tacticians)
          {:tactician           :ground-first
           :size-penalty        4
@@ -207,7 +207,8 @@
         t (get m :tactician (:tactician defaults))]
     (if-let [signs (get tacticians t)]
       (merge defaults signs m {:tactician t})
-      (throw (ex-info (str "no such tactician: " t)
+      (throw (ex-info (str "no such tactician: " (pr-str t) " — want one of "
+                           (pr-str (vec (sort (keys tacticians)))))
                       {:type :unknown-tactician :tactician t
                        :known (vec (sort (keys tacticians)))})))))
 
@@ -228,7 +229,8 @@
   [strat t]
   (if-let [signs (get tacticians t)]
     (merge strat signs {:tactician t})
-    (throw (ex-info (str "no such tactician: " t)
+    (throw (ex-info (str "no such tactician: " (pr-str t) " — want one of "
+                         (pr-str (vec (sort (keys tacticians)))))
                     {:type :unknown-tactician :tactician t
                      :known (vec (sort (keys tacticians)))}))))
 

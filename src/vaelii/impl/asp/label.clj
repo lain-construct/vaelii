@@ -85,19 +85,7 @@
 ;;
 ;; What `contradictions` reports is nevertheless the material a Program is made from —
 ;; that is the point of handing back both sides with their justifications rather than
-;; picking one.  These turn it back into that shape, for a caller who asks.
-
-(defn program-of-dilemma
-  "The `Program` an application builds to rank one reported dilemma: the two contested
-  handles, the nogood between them, and what each side asserts.
-
-  `contradictions`' promise turned back into the shape the solver machinery takes.
-  The engine declines to arbitrate; the machinery is still right here for a caller
-  that wants to."
-  [{:keys [nogood priority sentence sides]}]
-  (solve/program nogood
-                 [{:nogood nogood :priority priority :sentence sentence}]
-                 (into {} (map (juxt :handle #(select-keys % [:sentence :context]))) sides)))
+;; picking one.  `dilemma-program` turns it back into that shape, for a caller who asks.
 
 (defn- sides-content
   "What each side of each dilemma asserts, keyed by handle."
@@ -134,8 +122,8 @@
   nogoods sharing a member, where greedy spends two defeats and the optimum spends
   one:
 
-      stub  defeats {2,3} -> labels {1}      classification {:true {2,3} :false {1}}
-      ASP   defeats {1}   -> labels {2,3}
+      stub  defeats {1,3} -> labels {2}      classification {:true {1,3} :false {2}}
+      ASP   defeats {2}   -> labels {1,3}
 
   The stub's labeling keeps an assumption that holds in *no* optimum and drops two
   that hold in *every* one.  Committing to that would materialize an impossible world
@@ -170,7 +158,11 @@
         missing  (remove labeled forced)
         excluded (filter labeled (:false classification))]
     (when (or (seq missing) (seq excluded))
-      (throw (ex-info "labeling disagrees with its own brave/cautious classification"
+      (throw (ex-info (str "labeling disagrees with its own brave/cautious classification,"
+                           " which two solves over one program produced: "
+                           (pr-str (vec missing)) " holds in every optimum and the"
+                           " labeling drops it, " (pr-str (vec excluded))
+                           " holds in no optimum and the labeling keeps it")
                       {:type :labeling-inconsistent
                        :missing-true (vec missing)
                        :kept-false   (vec excluded)
@@ -223,11 +215,11 @@
 
   **`ctx` sees `base`, and the labeling is recorded by strengthening.**  Each kept
   assumption is re-asserted inside `ctx` at `:monotonic`, so `ctx` is a real world: the
-  uncontested background is inherited through `genlCx` (reachable with `ask` /
-  `lookup` at level 3 and above — note `query` is context-exact and will not show it),
-  and the contested atoms are decided within it.  Nothing needs to be said about the
-  side that lost: the strengthened copy out-ranks it, and `decide-nogood` defeats the
-  strictly weaker member.
+  uncontested background is inherited through `genlCx` (reachable with `ask` / `lookup`
+  at level 3 and above — note `sentexes-matching` is context-exact and will not show
+  it), and the contested atoms are decided within it.  Nothing needs to be said about
+  the side that lost: the strengthened copy out-ranks it, and `decide-nogood` defeats
+  the strictly weaker member.
 
   **This commits, and the commitment is global.**  Belief in this TMS is a property of
   a datum, not of a datum-in-a-context, so strengthening inside `ctx` defeats the

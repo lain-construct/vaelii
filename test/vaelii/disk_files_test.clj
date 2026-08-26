@@ -7,6 +7,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.impl.disk.files :as f])
   (:import [java.io File]
+           [java.nio.channels FileChannel]
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
@@ -460,6 +461,32 @@
             (f/close! log))))
       (testing "clean ⇒ :none"
         (is (= :none (f/recover-compaction! (str dir "/w3.log"))))))))
+
+(deftest a-transfer-that-moves-nothing-is-refused-rather-than-called-done
+  ;; The post-marker install copies the finished temp over the original, so at that moment
+  ;; the temp is the only whole copy of the file.  `transferFrom` is documented as free to
+  ;; return 0 with bytes still outstanding, and a loop that took that for the end would
+  ;; leave a truncated file where the original was and report a finished compaction.  The
+  ;; throw is what lets the compaction paths retry and then mark the store failed.
+  ;;
+  ;; The stalling channel is a `proxy` rather than a staged disk: a real `transferFrom`
+  ;; returning 0 is a kernel condition no test can arrange, and the destination is the one
+  ;; seam where a stand-in answers exactly the two calls the copy makes.
+  (with-tmp
+    (fn [dir]
+      (let [src     (str dir "/src.bin")
+            _       (spit src "the bytes the install owes the original")
+            stalled (proxy [FileChannel] []
+                      (truncate [_n] this)
+                      (transferFrom [_src _pos _count] 0)
+                      (implCloseChannel [] nil))
+            e       (is (thrown? clojure.lang.ExceptionInfo
+                                 (#'f/copy-into-channel! stalled src)))]
+        (is (= :short-transfer (:type (ex-data e))))
+        (is (= src (:path (ex-data e))) "naming the file whose copy stalled")
+        (is (= 0 (:copied (ex-data e))))
+        (is (= (.length (File. src)) (:total (ex-data e)))
+            "and how many bytes it owed")))))
 
 ;; ---- whole-blob metadata + markers --------------------------------------
 

@@ -58,7 +58,8 @@
   (-restrength-informant [tms informant strength]
     "Set `strength` as the rule-contribution slot of every justification whose
     informant is `informant`, and relabel the region their consequences span.")
-  (-relabel          [tms]       "Whole-graph relabel (recover only).")
+  (-relabel          [tms]       "Whole-graph relabel — no engine path calls it; see
+    `vaelii.impl.jtms/relabel`.")
   (-defeat           [tms datums] "Force `datums` OUT and relabel their region.")
   (-clear-defeats    [tms]       "Empty the defeated set and relabel.")
   (-set-blocked      [tms jids]  "Replace the blocked set and relabel what moved.")

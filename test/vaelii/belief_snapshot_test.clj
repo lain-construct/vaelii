@@ -47,7 +47,7 @@
 (defn- with-kb
   "Open a fresh disk KB over `dir` (unrecovered), pass it to `f`, and close it."
   [dir f]
-  (let [kb (v/open-kb {:backend :disk :dir dir :recover? false})]
+  (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
     (try (f kb) (finally (v/close! kb)))))
 
 (deftest a-clean-dilemma-kb-writes-a-certificate-and-a-reopen-takes-the-fast-path

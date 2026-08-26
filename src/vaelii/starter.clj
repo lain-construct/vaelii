@@ -14,7 +14,7 @@
 
     (load-into (v/open-kb {}))
 
-  About 1,650 sentexes: the vocabulary head, the definitional upper band, and the
+  About 1,843 sentexes: the vocabulary head, the definitional upper band, and the
   middle theories.  No individuals — it is a schema to build on, not a world."
   [kb]
   (starter/load-into kb))

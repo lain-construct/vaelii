@@ -122,7 +122,12 @@
   check check-edit
   ;; what the process is holding beside the store — the caches, their bounds and the
   ;; hit rate.  O(1) per row by construction, so the page that renders it can poll
-  caches)
+  caches
+  ;; everything the KB holds about one term, assembled once.  The term page's three type
+  ;; lines are this and not a second computation, which is what keeps the page and the API
+  ;; agreeing about what a term is — and against a remote daemon it is one round trip for
+  ;; an answer a dozen reads would otherwise have to fetch a piece at a time
+  describe)
 
 ;; ---- the writes ---------------------------------------------------------
 

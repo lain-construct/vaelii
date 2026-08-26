@@ -760,14 +760,14 @@
         (resettle! this seeds)))))
 
 (defn- relabel-all!
-  "Whole-graph relabel — for `recover`, which rebuilds the network from the durable
-  store and so has no smaller region to work from.
+  "Whole-graph relabel — no engine path calls it, so this is the differential oracle's
+  whole-graph operation, which is why both representations carry it (`jtms/relabel`).
 
   Blocking and supersession are **cleared first**: nothing about an exception or an
-  equality merge is stored, so a rebuild cannot read either back, and one that merged
-  into whatever was there could only ever *add* — leaving a block standing for a
-  justification whose exception no longer holds.  Recovery lands unblocked and the
-  caller re-evaluates."
+  equality merge is stored, so a whole-graph relabel can read neither back, and one that
+  merged into whatever was there could only ever *add* — leaving a block standing for a
+  justification whose exception no longer holds.  It lands unblocked, and a caller that
+  wants either states the whole answer again."
   [^DenseTms this]
   (.clear ^RoaringBitmap (.-blocked this))
   (reset! ^clojure.lang.Atom (.-superseded this) {})

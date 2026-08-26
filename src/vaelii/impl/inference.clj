@@ -100,6 +100,9 @@
 ;;  :answer-terms {the asker's var -> a term here}  the whole chain of rewrites, folded
 ;;  :guards     [{:test <closure over a rule's own names> :rule <carrying rule's handle>
 ;;                :terms {rule-var -> term here}}]
+;;  :derived    [S …]  goals a rewrite above answered, written here — only the ones
+;;                     belief could already have defeated (`res/defeated-index`), so it
+;;                     is empty for every node of a KB with no defeat on those predicates
 ;;  :nvars      how many variables this node names, so a rule can be numbered past them
 ;;  :supports   the handles of the rules expanded above
 ;;  :tree-depth rewrites taken
@@ -170,12 +173,19 @@
   *different* rule's: identity is the guard's rule and its term map, never a count.
   Two distinct guarded rules rewriting one goal to the same canonical residual each
   carry one guard, so a count reads them as one node and drops the second child before
-  it is enqueued — with it, every answer only its exception admits."
-  [{:keys [literals answer-terms guards from] :as _node}]
+  it is enqueued — with it, every answer only its exception admits.
+
+  **`:derived` is in the key for the guards' reason.**  Two paths reaching one residual
+  can have answered different goals on the way, and only one of them may have answered a
+  goal belief defeated — so collapsing them would drop the filter along with the node.
+  It is empty for every node of a KB with no defeat on the predicates in play, which is
+  the common case and costs an empty-vector compare."
+  [{:keys [literals answer-terms guards derived from] :as _node}]
   [(mapv :sentence literals)
    (mapv :depth literals)
    answer-terms
    (into #{} (map (fn [g] [(:rule g) (:terms g)])) guards)
+   derived
    from])
 
 ;; ---- the frontier order --------------------------------------------------
@@ -258,6 +268,9 @@
                 :answer-terms (set/map-invert vm)
                 :nvars        (count vm)
                 :guards       []
+                ;; nothing has been rewritten yet, so no answer of this node is a rule
+                ;; expansion's and belief has nothing to have decided against
+                :derived      []
                 :supports   #{}
                 :tree-depth 0
                 :context    context
@@ -272,6 +285,11 @@
                 ;; one — the index model is right for a stored-facts leaf (`solve-inline`)
                 :est-override (:est-override opts)
                 :proof?      (boolean (:proof? opts))
+                ;; What belief has already defeated, read once for the whole search: a
+                ;; query writes nothing, so the derived defeated set cannot move
+                ;; underneath it.  nil — the common case — is the gate that keeps every
+                ;; node's `:derived` empty and this check out of the search entirely.
+                :defeated    (res/defeated-index kb)
                 :queue      (atom (queue-push (empty-queue) (*estimate* kb strat root)
                                               (frontier-key root) 0))
                 :nodes      (atom {0 root})
@@ -370,8 +388,8 @@
   accountable for to be **pushed** into the new numbering: the asker's answers, and each
   pending guard's view of its own rule's variables.  `shift-back` is what lets the new
   rule's guard keep speaking about `?var0` when `?var0` here means something else."
-  [kb node context]
-  (let [{:keys [literals guards supports tree-depth from nvars answer-terms]} node]
+  [kb node context defeated]
+  (let [{:keys [literals guards supports tree-depth from nvars answer-terms derived]} node]
     (for [i     (range (long from) (count literals))
           :let  [{:keys [sentence depth]} (nth literals i)]
           :when (and (>= (long depth) 1) (not (sx/deferred-literal? sentence)))
@@ -394,6 +412,15 @@
        :from         i
        :answer-terms (push-terms answer-terms b vm-inv)
        :nvars        (count vm)
+       ;; The goal this rewrite is answering, carried into the child's namespace so the
+       ;; node that completes the argument can ask belief about the answer — the node
+       ;; engine's version of `res/prove`'s defeat marker, arrived at the same way the
+       ;; guards were: this is the last frame that still knows what was rewritten.
+       ;; Recorded only for a goal belief could have defeated, so a KB with no
+       ;; contradiction on that predicate carries an empty vector and no cost.
+       :derived      (cond-> (mapv #(push-term % b vm-inv) derived)
+                       (res/defeatable-goal? defeated sentence)
+                       (conj (push-term sentence b vm-inv)))
        :guards       (cond-> (mapv (fn [g] (update g :terms push-terms b vm-inv)) guards)
                        guard (conj {:test  guard
                                     ;; the carrying rule — the guard's identity in
@@ -515,7 +542,7 @@
   and the bias is how it says so.  Under `:first-result?` a productive node builds no
   children at all — the one strategy that stops the search rather than steering it."
   [{:keys [kb context queue nodes counter stats seen strategy leaf-solver est-override
-           proof?]
+           proof? defeated]
     :as sess}]
   (when-let [[[_ _ id] q'] (queue-pop @queue)]
     (reset! queue q')
@@ -528,12 +555,24 @@
             sols (->> (solve-inline kb (mapv :sentence (:literals node)) context
                                     leaf-solver est-override)
                       (filter (fn [s] (every? #(ask-guard % s) (:guards node))))
+                      (map res/resolve-bindings)
+                      ;; A rewrite above answered a goal; belief may already have decided
+                      ;; against that answer, and the proving levels agree with belief
+                      ;; (`res/defeated-answer?`).  Asked here rather than at the rewrite
+                      ;; for the guards' reason — this is the moment the argument is
+                      ;; complete — and skipped outright for a node with nothing recorded,
+                      ;; which is every node of a KB with no defeat in play.
+                      (remove (fn [s]
+                                (and (seq (:derived node))
+                                     (some #(res/defeated-answer?
+                                              kb defeated (res/substitute % s) context)
+                                           (:derived node)))))
                       ;; the node solves in its own namespace; `:answer-terms` says what
                       ;; each of the asker's variables now stands for here, so reading the
                       ;; answer out is resolving those terms and nothing more.  A rule's own
                       ;; scratch variables are named by nothing in that map, which is the
                       ;; whole of why they never reach an answer
-                      (map #(resolve-terms (:answer-terms node) (res/resolve-bindings %)))
+                      (map #(resolve-terms (:answer-terms node) %))
                       ;; Dedup keys on the **bindings**, with or without a proof: two
                       ;; derivations of one answer are one answer, and the proof
                       ;; returned is the first one found.  A caller wanting every
@@ -550,7 +589,7 @@
             paid (boolean (seq sols))
             bias (tactics/child-bias strategy paid)]
         (when-not (and (:first-result? strategy) paid)
-          (doseq [kid (children kb node context)]
+          (doseq [kid (children kb node context defeated)]
             (if (claim! sess (node-key kid))
               (let [kid-id (swap! counter inc)
                     kid    (assoc kid :id kid-id :parent-id id)]
@@ -666,7 +705,11 @@
    (let [base   (tactics/strategy (get opts :strategy *strategy*))
          racers (get opts :racers default-racers)]
      (when-not (tactics/complete? base)
-       (throw (ex-info "a portfolio races complete searches only"
+       (throw (ex-info (str "a portfolio races complete searches only — the strategy in"
+                            " force sets :first-result? "
+                            (pr-str (:first-result? base))
+                            ", which stops the search rather than steering it.  Drop"
+                            " :first-result? to race it, or run it on its own")
                        {:type :incomplete-racer :strategy base})))
      (let [runs (mapv (fn [t]
                         ;; `tactics/with-tactician`, not `assoc`: a normalized strategy

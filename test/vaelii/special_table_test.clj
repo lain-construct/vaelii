@@ -32,8 +32,15 @@
     (testing "the throw names the functor and the missing arms"
       (let [data (try (special/check-entries [['brokenPred {:integrate f}]])
                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (= :bad-table-entry (:type data)))
         (is (= 'brokenPred (:functor data)))
-        (is (= [:disintegrate :rebuild] (:missing data)))))))
+        (is (= [:disintegrate :rebuild] (:missing data)))))
+    (testing "and the empty entry carries the same :type — one word for one bad table,
+              whichever way it is bad, since the caller catching it is the namespace load"
+      (let [data (try (special/check-entries [['emptyPred {}]])
+                      (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (= :bad-table-entry (:type data)))
+        (is (= 'emptyPred (:functor data)))))))
 
 (deftest well-formed-entries-pass
   (let [f (fn [_ _ _])]

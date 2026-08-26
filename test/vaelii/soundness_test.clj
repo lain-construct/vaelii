@@ -152,8 +152,8 @@
   (tu/with-terms [smoker unhealthy Bob]
     (v/assert-rule kb [(list smoker '?x)] (list unhealthy '?x) 'CxUniverse)  ; bare rule: confers :monotonic
     (v/assert kb (list smoker Bob) 'CxUniverse)                              ; :default premise
-    (let [derived (:id (first (v/sentexes-matching kb (list unhealthy Bob) 'CxUniverse)))]
-      (is (some? derived) "the rule fired at all")
+    (let [derived (v/handle-of kb (list unhealthy Bob) 'CxUniverse)]
+      (is (v/in? kb derived) "the rule fired at all")
       (testing "a :default premise cannot yield a conclusion that outranks a default"
         (is (= :default (v/defeat-class kb derived))))
       (testing "so a directly-asserted default negation is a genuine tie, not a loss"

@@ -107,7 +107,9 @@
   (let [[kb hints] (populated n)]
     (reset! hints [])
     (binding [res/*prefetch-candidates* 16]
-      (first (res/matches-visible kb '(rel ?x) 'CxPrefetch)))
+      ;; one element realized and dropped — a consumer that stops early, not a read of
+      ;; which match comes first
+      (dorun (take 1 (res/matches-visible kb '(rel ?x) 'CxPrefetch))))
     {:hints (count @hints)
      :handles (count (mapcat identity @hints))
      :widest (reduce max 0 (map count @hints))}))
@@ -144,7 +146,7 @@
   ;; the store is never asked to warm a record the walk would skip, so a retracted
   ;; sentex's handle does not appear in a hint.
   (let [[kb hints] (populated 50)
-        h (:id (first (v/sentexes-matching kb '(rel Ind7) 'CxPrefetch)))]
+        h (v/handle-of kb '(rel Ind7) 'CxPrefetch)]
     (v/retract! kb h)
     (reset! hints [])
     (binding [res/*prefetch-candidates* 64]

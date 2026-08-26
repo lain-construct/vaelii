@@ -8,7 +8,7 @@
   behavior is exactly as portable as the ops below are.  Two arms run the same
   `check-backend` spec: the in-memory adapter directly, and whatever backend the
   suite is configured for (memory by default, the on-disk WAL under
-  `VAELII_TEST_BACKEND=disk`), reached through a real KB so the clear teardown is
+  `VAELII_TEST_BACKEND=disk-log`), reached through a real KB so the clear teardown is
   handled for us.  Green on both is the proof both satisfy the contract."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
@@ -139,6 +139,51 @@
         (kv/kv-add-to-set b [:term-index 'foo] 13)
         (is (= #{11 12 13} (kv/kv-members b [:term-index 'foo]))))))
 
+  ;; The predicate-scoped argument roots are the one key family an adapter may hold
+  ;; hierarchically rather than as a flat key→set entry (`vaelii.impl.memory`'s counted
+  ;; `::arg` trie, which the dense and columnar roots delegate to).  So every op on this
+  ;; family has **two** folds — the protocol method and the `kv-batch` arm — and the
+  ;; contract is that they agree with each other and with what a flat map answers.  A
+  ;; whole-posting `:put` and a `:delete` are the two that only the hierarchical layout
+  ;; has to think about, and the two the index's own writes never issue on this family,
+  ;; so nothing else in the suite would notice one adapter refusing them.
+  (testing "argument roots — the hierarchical family answers the flat contract"
+    (kv/kv-clear! b)
+    (let [k1 [:argument-root 'p 1 'A]
+          k2 [:argument-root 'q 1 'A]]                 ; same (pos, term), another predicate
+      (kv/kv-add-to-set b k1 11)
+      (kv/kv-add-to-set b k1 12)
+      (kv/kv-add-to-set b k2 13)
+      (is (= #{11 12} (kv/kv-members b k1)))
+      (testing "kv-delete drops the whole scoped posting and nothing beside it"
+        (kv/kv-delete b k1)
+        (is (= #{} (kv/kv-members b k1)))
+        (is (zero? (kv/kv-count b k1)))
+        (is (not (kv/kv-member? b k1 11)))
+        (is (nil? (kv/kv-get b k1)))
+        (is (= #{} (kv/kv-intersect b [k1 k2])))
+        (is (empty? (filter #(= k1 (first %)) (kv/kv-entries b)))
+            "and leaves no dangling posting for a dump or a snapshot to carry")
+        (is (= #{13} (kv/kv-members b k2))
+            "the predicate beside it under the same (pos, term) keeps its handles"))
+      (testing "the same delete inside a batch is the same delete"
+        (kv/kv-add-to-set b k1 11)
+        (kv/kv-batch b [[:delete k1]])
+        (is (= #{} (kv/kv-members b k1)))
+        (is (= #{13} (kv/kv-members b k2))))
+      (testing "a whole-posting put installs exactly that posting, in either fold"
+        (kv/kv-put b k1 #{21 22})
+        (is (= #{21 22} (kv/kv-members b k1)))
+        (kv/kv-batch b [[:put k1 #{31}]])
+        (is (= #{31} (kv/kv-members b k1)) "the second put replaces rather than unions")
+        (is (= #{13} (kv/kv-members b k2))))
+      (testing "and writing under a deleted key again is an ordinary write"
+        (kv/kv-delete b k1)
+        (kv/kv-add-to-set b k1 41)
+        (is (= #{41} (kv/kv-members b k1)))
+        (is (= #{41} (kv/kv-intersect b [k1]))
+            "the posting is back, and every read of it agrees"))))
+
   (kv/kv-clear! b)
   (is (nil? (kv/kv-get b [:c :n])) "clear wipes everything"))
 
@@ -178,9 +223,33 @@
         (kv/kv-clear! loaded)
         (kv/kv-clear! other)))))
 
+(deftest a-bulk-load-refuses-to-discard-a-write-that-landed-under-it
+  ;; The accumulator is a transient taken off an atom held per **space**, which every
+  ;; index store over that space shares — so installing it with a `reset!` writes over
+  ;; whatever reached the atom while the batch was accumulating, and the loss is silent.
+  ;; A second bulk load stacked over this one is the way to get there with no second
+  ;; thread: its install lands on the atom, and the outer batch, which snapshotted before
+  ;; it started, wipes it.  The install is a compare-and-set against that snapshot, so the
+  ;; batch says the state moved instead of discarding it.
+  (let [b (doto (mem/memory-kv-backend {:space 995}) (kv/kv-clear!))]
+    (try
+      (let [d (try (mem/with-bulk-writes b
+                     (kv/kv-put b [:s :batch] 1)
+                     ;; something else reaches the shared atom mid-batch
+                     (reset! (:state b) {[:s :other] 2}))
+                   nil
+                   (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (= :stacked-batch (:type d))
+            "the batch reports the collision rather than installing over it"))
+      (testing "and what landed under the batch is still there"
+        (is (= 2 (kv/kv-get b [:s :other])))
+        (is (nil? (kv/kv-get b [:s :batch]))
+            "the refused batch installed nothing, so neither map is half applied"))
+      (finally (kv/kv-clear! b)))))
+
 (deftest suite-backend-satisfies-the-contract
   ;; whatever the suite runs on — the in-memory backend by default, the on-disk WAL
-  ;; under VAELII_TEST_BACKEND=disk — reached through a real KB so the clear teardown
+  ;; under VAELII_TEST_BACKEND=disk-log — reached through a real KB so the clear teardown
   ;; is handled.  Redundant with the arm above under the default memory run, which is
   ;; the point: it never demands infrastructure the run does not have.
   (tu/with-cleared-kb [kb tu/fresh]
@@ -190,6 +259,39 @@
     (let [b (or (:backend (:index kb)) (:roots (:index kb)))]
       (is (satisfies? kv/KvBackend b) "the index rests on a KvBackend")
       (check-backend b))))
+
+(deftest deleting-a-stored-sentexs-argument-root-leaves-the-store-consistent
+  ;; The argument roots are a **derived** family: `[:argument-root pred pos term] →
+  ;; handles`, written beside the trie and read by the multi-column probe.  Losing one is
+  ;; not hypothetical — a crash inside the index write persists a prefix of the batch, and
+  ;; `vaelii.impl.reindex` repairs by dropping and rewriting postings — so the claim worth
+  ;; pinning is what the store answers in between: the probe under that column answers
+  ;; *nothing*, never a handle whose posting is gone, and every other family the sentex is
+  ;; filed under still answers.  Then the ordinary write path puts it back.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (tu/with-terms [rel A B CxCtx]
+      (let [idx (:index kb)
+            bk  (or (:backend idx) (:roots idx))
+            h   (v/assert kb (list rel A B) CxCtx)]
+        (is (= #{h} (set (p/sentexes-with-args idx rel [[1 A]])))
+            "the argument-root probe answers before the delete")
+        (kv/kv-delete bk [:argument-root rel 1 A])
+        (testing "the probe answers empty rather than a handle with no posting"
+          (is (= #{} (set (p/sentexes-with-args idx rel [[1 A]]))))
+          (is (= #{} (set (p/sentexes-with-args idx rel [[1 A] [2 B]])))
+              "and the multi-column probe intersects to empty, not to the surviving column"))
+        (testing "every other family the sentex is filed under still answers"
+          (is (= #{h} (set (p/sentexes-with-args idx rel [[2 B]])))
+              "the other argument column")
+          (is (contains? (set (p/sentexes-with-functor idx rel)) h) "the functor root")
+          (is (contains? (p/leaf-at idx (sx/path (v/sentex kb h))) h) "the trie leaf")
+          (is (some? (v/sentex kb h)) "and the record itself"))
+        (testing "and an ordinary retract-and-assert rebuilds the posting"
+          (v/retract! kb h)
+          (let [h2 (v/assert kb (list rel A B) CxCtx)]
+            (is (= #{h2} (set (p/sentexes-with-args idx rel [[1 A]]))))
+            (is (= #{h2} (set (p/sentexes-with-args idx rel [[1 A] [2 B]])))
+                "both columns, so the delete left nothing stale to intersect against")))))))
 
 ;; ---- pipelining: the index write is one batch, args is one sinter -------
 ;; A KvBackend decorator counting the two load-bearing ops.  The count is at the

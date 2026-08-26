@@ -62,6 +62,35 @@
     (testing "the closing settle ran the sweep"
       (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))))
 
+;; ---- the cached relations are unsettled inside the batch too ------------
+;; The exception sweep above is one reading of it; the `genl` closure is the other,
+;; and a cache makes it look like a different claim when it is the same one.
+
+(tu/deftest-kb a-taxonomy-read-inside-the-batch-is-the-unsettled-one
+  ;; `tax/add-edge` runs on the **assert** path, where the JTMS has not labelled the sentex
+  ;; being stored — there is no `believed?` to consult, since belief for this batch is
+  ;; exactly what the closing settle computes — so the edge is active as it is recorded, and
+  ;; `refresh-beliefs` narrows the active set to the believed one when the settle runs.
+  ;;
+  ;; So a mid-batch `genl?` / `isa?` answers off a **superset**: it sees an edge it should
+  ;; not, never misses one it should (docs/taxonomy.md).  Pinned rather than fixed,
+  ;; because the fix has nothing to read: an exact-at-write activation would ask whether a
+  ;; sentex is believed at the one moment nothing has decided yet, and refuse to activate
+  ;; the edge it was handed.
+  (tu/with-terms [dog_t mammal_t Muffet CxD]
+    (v/assert kb (list dog_t Muffet) CxD {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genl dog_t mammal_t) CxD)
+      (v/assert kb (list 'not (list 'genl dog_t mammal_t)) CxD {:strength :monotonic})
+      (testing "mid-batch the edge is active — this batch's belief is not computed yet"
+        (is (v/genl? kb dog_t mammal_t CxD))
+        (is (v/isa? kb Muffet mammal_t CxD))))
+    (testing "and the closing settle defeats the default supporter and drops the edge"
+      (is (not (v/genl? kb dog_t mammal_t CxD)))
+      (is (not (v/isa? kb Muffet mammal_t CxD)))
+      (is (empty? (v/sentexes-matching kb (list 'genl dog_t mammal_t) CxD))
+          "the edge's supporter is stored but not believed, so it does not match either"))))
+
 ;; ---- assert-many: derive + return handles --------------------------------
 
 (tu/deftest-kb assert-many-chains-per-fact-and-settles-once

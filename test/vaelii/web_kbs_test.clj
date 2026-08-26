@@ -132,6 +132,31 @@
         (is (= 200 (:status r2)))
         (is (re-find #"already loaded" (:body r2)))))))
 
+(deftest a-choice-the-option-does-not-offer-is-refused-rather-than-loaded
+  ;; A `:choice` reaches `keyword` and then a reader's `case`, so a value nothing offers
+  ;; takes that reader's own default in silence — at a setting nobody chose, on the one
+  ;; action here nobody watches finish.  Refused at the door instead, in the shape every
+  ;; other catalog refusal takes: a 200 carrying the note, since an error status is a
+  ;; swap htmx never makes.
+  (let [r (POST "/kbs/load" {"id" "generated" "types" "6" "individuals" "6" "facts" "6"
+                             "rules" "1" "predicates" "4" "layers" "2" "contexts" "1"
+                             "branching" "3" "forward" "0" "defeasible" "0"
+                             "antecedents" "2" "seed" "1" "base" "no-such-vocabulary"})]
+    (settled)
+    (is (= 200 (:status r)))
+    (is (re-find #"no such base" (:body r)) "the note names the field and the value")
+    (is (re-find #"core, starter" (:body r)) "and what the option does offer")
+    (is (nil? (catalog/entry "generated#1")) "nothing was loaded"))
+  (testing "and the roster is the option's own, so the legal spellings still pass"
+    (let [ok (POST "/kbs/load" {"id" "generated" "types" "6" "individuals" "6"
+                                "facts" "6" "rules" "1" "predicates" "4" "layers" "2"
+                                "contexts" "1" "branching" "3" "forward" "0"
+                                "defeasible" "0" "antecedents" "2" "seed" "1"
+                                "base" "starter"})]
+      (settled)
+      (is (= 200 (:status ok)))
+      (is (some? (catalog/entry "generated#1")) "a spelling the option offers loads"))))
+
 ;; ---- the writes are writes ----------------------------------------------
 
 (deftest the-three-controls-are-post-only-and-origin-checked

@@ -14,9 +14,9 @@
     positional reads and a nippy thaw — and re-interns every field.  If the fetch were the
     walk, the two mounts would be far apart and the share would be most of it.
   * **Whether the index half matters.**  `:disk-memory` is the durable record store under
-    the **in-RAM** index.  The index half of `:disk` keeps its whole key→value map in RAM
-    (`docs/indexing.md`), so the two should land together, and a `:disk` row apart from
-    `:disk-memory` would retire that reading.
+    the **in-RAM** index.  The index half of `:disk-log` keeps its whole key→value map in
+    RAM (`docs/indexing.md`), so the two should land together, and a `:disk-log` row apart
+    from `:disk-memory` would retire that reading.
   * **What a repeat costs.**  The same closure asked again with nothing changed between.
     Two caches can serve it and they answer at different layers: `matches-visible` is
     cached per literal (`vaelii.impl.literal-cache`), which removes the walk's store reads
@@ -222,7 +222,7 @@
 (defn -main [& args]
   (let [n     (if (seq args) (Long/parseLong (first args)) 2000)
         bn    (if (second args) (Long/parseLong (second args)) 8000)
-        names [:memory :disk-memory :disk]
+        names [:memory :disk-memory :disk-log]
         small (mapv #(mount % n) names)
         big   (mapv #(mount % bn) names)]
     (println "vaelii transitive-closure walk cost")
@@ -243,7 +243,7 @@
     (println "    the walk's fetch half, timed with nothing else in the way. `fetch share`")
     (println "    is therefore the ceiling on anything that makes fetching cheaper.")
     (println "  - `:disk-memory` is the durable record store under the RAM index. Landing")
-    (println "    beside `:disk` says the index half is not the difference; landing beside")
+    (println "    beside `:disk-log` says the index half is not the difference; landing beside")
     (println "    `:memory` would say the opposite.")
     (println "  - a repeat that fetches **nothing** walked nothing: the reach came out")
     (println "    of the KB's closure cache, above the per-literal one.")

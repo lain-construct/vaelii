@@ -88,7 +88,7 @@
   The commit is an atomic rename over a file this process has mapped, which Windows does
   not permit, so `vaelii.index.snapshot` is **refused** there (`enabled?`) and an image
   found on disk is discarded as `:unsupported-platform` rather than read and never
-  refreshed.  Nothing else in the `:disk` backend is implicated: the logs are appends and
+  refreshed.  Nothing else in the durable store is implicated: the logs are appends and
   the slots are positional writes.
 
   A commit is one atomic step: the sections are written to temps and fsynced, the meta is
@@ -152,7 +152,7 @@
 
   Windows is the refused case and everything else is admitted: the evidence is one
   operating system's file-locking model, so \"not Windows\" is the honest reading of it.
-  The `:disk` backend itself is untouched by this — its logs and slots are ordinary
+  The durable store itself is untouched by this — its logs and slots are ordinary
   appends and positional writes, and refusing them here would turn a working platform
   into a refused one on the strength of an off-by-default feature."
   []

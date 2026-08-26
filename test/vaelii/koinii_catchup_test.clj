@@ -17,17 +17,17 @@
   Four cases need no daemon and get a **scripted medium** instead: what `sync!` does when
   the poll fails, what it does when two threads drive one consumer, what a replayed
   `:believed-removed` leaves the view at, and how far one pass will re-snapshot when reply
-  after reply reports a lag.  Each is about `sync!`'s own control flow rather than about a
-  real feed, and a scripted medium is what makes the failing reply, the interleaving, the
-  redelivery and the lag sequence deterministic."
+  after reply reports a lag or reaps the subscription.  Each is about `sync!`'s own control
+  flow rather than about a real feed, and a scripted medium is what makes the failing reply,
+  the interleaving, the redelivery and the lag sequence deterministic."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.client :as vc]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.koinii.catchup :as cu]
-            [vaelii.impl.koinii.channel :as ch]
-            [vaelii.impl.koinii.speech-acts :as sa]
             [vaelii.impl.serve :as serve]
             [vaelii.impl.subscribe :as sub]
+            [vaelii.koinii.catchup :as cu]
+            [vaelii.koinii.channel :as ch]
+            [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu])
   (:import [java.util.concurrent CountDownLatch TimeUnit]
            [org.eclipse.jetty.server Server]))
@@ -146,8 +146,21 @@
     (testing "an exception with no :type is reported, not swallowed"
       (let [e (try (cu/sync! c) nil (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) "sync! reported the error")
+        (is (= :koinii/feed-error (:type (ex-data e)))
+            "and is typed by catch-up's own name for a poll that failed untyped")
         (is (= "the proxy hung up" (ex-message (ex-cause e)))
             "and carries the original as its cause")))
+    (testing "a poll that failed WITH a type keeps that type rather than the default"
+      (let [c2 (cu/open {:medium (scripted-medium
+                                  {:open  (fn [] {:token "T" :cursor 7})
+                                   :query (fn [] [])
+                                   :poll  (fn [_ _] (throw (ex-info "gone"
+                                                                    {:type :daemon-error})))})}
+                        goal 'CxDeploy (recording-store))]
+        (is (= :daemon-error
+               (:type (ex-data (try (cu/sync! c2) nil
+                                    (catch clojure.lang.ExceptionInfo e e)))))
+            "the transport's own refusal rides out, the default only standing in for none")))
     (testing "and the cursor is left where it was — never advanced past a poll that failed"
       (is (= {:token "T" :cursor 7} (cu/read-position store))))
     (testing "the view is untouched too"
@@ -222,12 +235,12 @@
         "and the twice-replayed remove leaves exactly what a full re-read gives")
     (is (= 3 @polls) "the drain really did apply the batch twice before the head")))
 
-(deftest a-second-lag-inside-one-pass-is-recovered-by-the-next-sync
-  ;; `snapped` stops one `sync!` pass re-snapshotting on every lagged reply — a drain that
-  ;; keeps reporting drops would otherwise re-read the whole channel per poll.  What the
-  ;; guard must not do is LOSE those later drops: a pass starts un-snapped, so the next
-  ;; `sync!` re-reads and the view catches up.  The snapshot answers differently on the
-  ;; second call, which is how the catch-up is visible at all.
+(deftest a-second-lag-inside-one-pass-re-snapshots-and-loses-nothing
+  ;; Every lagged reply re-reads current state, not only the first.  A second lag in one
+  ;; drain means events were dropped AFTER the earlier snapshot, so recovery cannot wait
+  ;; for the next `sync!`: on a real ring the cursor has advanced past the drop and the
+  ;; next poll reports no lag, which would make the gap permanent.  One pass drains it,
+  ;; re-snapshotting per lag until the drain reports none.
   (let [queries (atom 0)
         polls   (atom 0)
         medium  (scripted-medium
@@ -242,12 +255,83 @@
         store   (recording-store)
         c       (cu/open {:medium medium} goal 'CxDeploy store)]
     (cu/write-position! store {:token "T" :cursor 7})        ; a consumer mid-stream
-    (testing "one pass snapshots once, however many of its replies report a lag"
-      (is (= #{(q 'Q1)} (cu/sync! c)))
-      (is (= 1 @queries) "the second lagged reply in the same drain did not re-read")
-      (is (= 2 @polls) "and the pass really did see two lagged replies"))
-    (testing "and the lag it carried over is recovered by the next call"
+    (testing "one pass re-snapshots on each lag and returns the complete view"
       (is (= #{(q 'Q1) (q 'Q2)} (cu/sync! c)))
-      (is (= 2 @queries) "a fresh pass starts un-snapped, so it re-read")
+      (is (< 1 @queries) "a later lag re-read current state rather than being carried silently")
       (is (= {:token "T" :cursor 4} (cu/read-position store))
           "ending drained to the head, with the position persisted"))))
+
+(deftest a-consumer-that-never-stops-lagging-is-told-not-silently-stalled
+  ;; A poll that never stops reporting a lag means the consumer cannot keep up with the
+  ;; channel.  Bounded re-snapshotting surfaces that as `:koinii/catchup-thrashing`
+  ;; rather than looping forever or handing back a stale view as though it were current.
+  (let [medium (scripted-medium
+                {:open  (fn [] {:token "T" :cursor 0})
+                 :query (fn [] [{'?a 'AgentAva '?q 'Q1}])
+                 :poll  (fn [_ _] {:events [] :cursor 1 :lagged 5})})     ; always lagging
+        store  (recording-store)
+        c      (cu/open {:medium medium} goal 'CxDeploy store)]
+    (cu/write-position! store {:token "T" :cursor 7})
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not keeping up"
+                          (cu/sync! c)))))
+
+(deftest a-subscription-reaped-on-every-poll-is-told-not-retried-forever
+  ;; The other road to the same bound.  A daemon whose idle window closes between every
+  ;; `-feed-open` and the poll that follows it answers `:unknown-subscription` every time —
+  ;; an aggressive reaper, or a consumer whose snapshot outlasts the window — so re-opening
+  ;; and re-snapshotting per refusal never converges.  Unbounded that is a `sync!` which
+  ;; never returns while re-reading the whole context each turn; bounded it is the
+  ;; `:koinii/catchup-thrashing` the lag arm raises, told apart by `:condition`.
+  (let [opens  (atom 0)
+        medium (scripted-medium
+                ;; a hard ceiling far above the bound, so a regression FAILS here rather
+                ;; than wedging the suite in a loop nothing ends
+                {:open  (fn []
+                          (when (< 50 (swap! opens inc))
+                            (throw (ex-info "sync! re-opened past any bound"
+                                            {:type ::runaway})))
+                          {:token (str "T" @opens) :cursor 0})
+                 :query (fn [] [{'?a 'AgentAva '?q 'Q1}])
+                 ;; reaped again before the poll on the freshly opened subscription
+                 :poll  (fn [_ _] (throw (ex-info "gone" {:type :unknown-subscription})))})
+        store  (recording-store)
+        c      (cu/open {:medium medium} goal 'CxDeploy store)]
+    (cu/write-position! store {:token "T" :cursor 7})         ; a consumer mid-stream
+    (let [e (try (cu/sync! c) nil (catch clojure.lang.ExceptionInfo e e))
+          d (ex-data e)]
+      (is (= :koinii/catchup-thrashing (:type d))
+          "the bound is reported rather than spun on")
+      (is (= :unknown-subscription (:condition d))
+          "and names WHICH condition tripped it — the subscription is gone, not the ring")
+      (is (= :unknown-subscription (:type (ex-data (ex-cause e))))
+          "carrying the refusal that kept coming back")
+      (is (= @#'cu/max-catchup-snapshots @opens)
+          "one pass spent the snapshot budget and no more")
+      (is (= @#'cu/max-catchup-snapshots (:snapshots d))
+          "and says how much of it went"))
+    (testing "the cursor is left where it was — never advanced past a stream that stopped"
+      (is (= {:token "T" :cursor 7} (cu/read-position store))))))
+
+(deftest a-poll-that-answers-without-a-cursor-is-refused-not-stored
+  ;; The other half of `a-poll-that-throws-without-a-type-is-still-a-failure`: a poll that
+  ;; SUCCEEDS and hands back no position.  Nothing further down the drain arm checks it, so
+  ;; a stored nil is what the next `sync!` reads as "no cursor" — a bootstrap that
+  ;; re-snapshots the whole context silently, from a stream the consumer was in fact mid-way
+  ;; through.  So the malformed reply is refused where it lands, and the position already
+  ;; stored is left alone.
+  (let [store  (recording-store)
+        medium (scripted-medium
+                {:open  (fn [] {:token "T" :cursor 7})
+                 :query (fn [] [])
+                 :poll  (fn [_ _] {:events [] :cursor nil})})
+        c      (cu/open {:medium medium} goal 'CxDeploy store #{'(queries Ava Q1)})]
+    (cu/write-position! store {:token "T" :cursor 7})        ; a consumer mid-stream
+    (let [d (try (cu/sync! c) nil (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :koinii/no-cursor (:type d))
+          "a reply with no position to resume from is refused by name")
+      (is (= ["T" nil] [(:token d) (:cursor d)])
+          "naming the subscription it came back on and what it answered with"))
+    (testing "and nothing of the consumer moved"
+      (is (= {:token "T" :cursor 7} (cu/read-position store))
+          "the stored position stands, so the next sync! resumes rather than bootstraps")
+      (is (= #{'(queries Ava Q1)} (cu/view-of c)) "and the view is untouched"))))

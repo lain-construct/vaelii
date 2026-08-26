@@ -15,18 +15,29 @@
         - CxSociety.txt  — the social relations (marriedTo, likes, owns).
         - CxMeasure.txt  — the theory of measurement: the two measure terms, the
                                 dimensionOf/conversionFactor table with the units that
-                                fill it, the comparisons, and weightOf / heightOf.
-        - CxSpace.txt    — qualitative space: RCC-8 region relations (eight base
-                                + six derived) and cardinal directions (nine + four).
+                                fill it, the comparisons, weightOf / heightOf, and the
+                                sign vocabulary for the quantities nobody has a figure
+                                for (signOf / trendOf / the qualitative* arithmetic).
+        - CxSpace.txt    — qualitative space, four independent calculi: RCC-8
+                                topology (eight base + six derived), cardinal direction
+                                (nine + four), relative direction over a frame's own axes
+                                (nine + four, the frame being the context), and
+                                qualitative distance (seven + three).
         - CxTime.txt     — qualitative time: Allen's interval relations (thirteen
-                                base + seven derived), plus the length / totalDuration /
-                                overlapDuration vocabulary the arithmetic computes over.
+                                base + seven derived), the point algebra over instants,
+                                the three calendar constructors and the InstantFn moment
+                                a calendar term's startOf and endOf are computed as, plus
+                                the length / totalDuration / overlapDuration vocabulary
+                                the arithmetic computes over.
     * middle (theory — between Universe and Well): how the definitional things
       *interrelate*, where several overlapping theories can coexist.
         - CxAnatomy.txt   — what kinds of thing have what kinds of part.
         - CxBiology.txt   — birds fly by default except penguins; living things
                                  are mortal; flight enables travel; sleep is what the
                                  theory is willing to assume.
+        - CxChange.txt    — a simple event calculus: a state persists until an
+                                 event ends it, so holdsAt is inertia over what
+                                 initiates and terminates say.
         - CxKinship.txt   — grandparentOf, ancestorOf, olderThan, and parenthood
                                  from maternity and paternity.
         - CxMereology.txt — a part is located where its whole is; owning a whole

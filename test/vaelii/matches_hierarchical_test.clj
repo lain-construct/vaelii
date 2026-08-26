@@ -176,21 +176,23 @@
   (tu/with-terms [fatherOf A B]
     (v/assert kb (list 'genl fatherOf 'parentOf) 'CxMantle {:strength :monotonic})
     (v/assert kb (list fatherOf A B) 'CxSocialWorld {:strength :monotonic})
-    (doseq [pat (list (list 'parentOf (symbol "?x") (symbol "?y"))
-                      (list 'parentOf A (symbol "?y"))
-                      (list 'parentOf (symbol "?x") B)
-                      (list 'parentOf A B))
-            ctx '[?ctx CxSocialWorld CxMantle CxUniverse]]
-      (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
-        (is (= off on) (str "subsumption+hierarchical diverged on " (pr-str pat) " @ " ctx
-                            "\n  off: " (pr-str off) "\n  on:  " (pr-str on)))))))
+    (probed "predicate-subsumption-under-hierarchical"
+            (for [pat (list (list 'parentOf (symbol "?x") (symbol "?y"))
+                            (list 'parentOf A (symbol "?y"))
+                            (list 'parentOf (symbol "?x") B)
+                            (list 'parentOf A B))
+                  ctx '[?ctx CxSocialWorld CxMantle CxUniverse]]
+              (let [[off on :as both] (both-ways #(res/matches-visible kb pat ctx))]
+                (is (= off on) (str "subsumption+hierarchical diverged on " (pr-str pat) " @ " ctx
+                                    "\n  off: " (pr-str off) "\n  on:  " (pr-str on)))
+                both)))))
 
 (tu/deftest-kb small-side-lead-agrees-with-scoped-and-reference
-  ;; The one cost decision in `lead-candidates` a flag now reaches (`res/*lead-side*`): a
+  ;; The one cost decision in `lead-candidates` a flag reaches (`res/*lead-side*`): a
   ;; concrete predicate with a spec closure, a ground argument, and a term holding fewer
   ;; postings than there are specs — so `:auto` leads from the predicate-AGNOSTIC bucket
   ;; (`[:argument-slot pos term]`, every functor holding the term), the cold-rebuild small
-  ;; side `f59d6b70` added and the shallow test-world never forces on its own.  Build the
+  ;; side, which the shallow test-world never forces on its own.  Build the
   ;; deep hierarchy here and pin that :scoped, :auto, :agnostic and the matches-visible
   ;; fan-out return the identical set — through the predicate filter (an unrelated
   ;; predicate holds the same term at the same position, so the agnostic bucket returns it
@@ -209,15 +211,19 @@
       (is (> (count (#'res/sub-predicates kb broadRel 'CxSocialWorld))
              (long (p/count-with-arg (:index kb) 1 A)))
           "the constructed KB does not force the small-side branch — retune it")
-      (doseq [pat (list (list broadRel A '?y) (list broadRel A B1))
-              ctx  '[CxSocialWorld CxUniverse ?ctx]]
-        (let [{:keys [ref scoped auto agnostic]} (lead-sides #(res/matches-visible kb pat ctx))]
-          (is (= ref scoped auto agnostic)
-              (str "lead-side diverged on " (pr-str pat) " @ " ctx
-                   "\n  ref:      " (pr-str ref)
-                   "\n  scoped:   " (pr-str scoped)
-                   "\n  auto:     " (pr-str auto)
-                   "\n  agnostic: " (pr-str agnostic)))))
+      ;; the reference fan-out and the small side, as the pair `probed` reads: four sides
+      ;; agreeing on nothing is the same non-evidence two do
+      (probed "small-side-lead-agrees-with-scoped-and-reference"
+              (for [pat (list (list broadRel A '?y) (list broadRel A B1))
+                    ctx  '[CxSocialWorld CxUniverse ?ctx]]
+                (let [{:keys [ref scoped auto agnostic]} (lead-sides #(res/matches-visible kb pat ctx))]
+                  (is (= ref scoped auto agnostic)
+                      (str "lead-side diverged on " (pr-str pat) " @ " ctx
+                           "\n  ref:      " (pr-str ref)
+                           "\n  scoped:   " (pr-str scoped)
+                           "\n  auto:     " (pr-str auto)
+                           "\n  agnostic: " (pr-str agnostic)))
+                  [ref agnostic])))
       ;; and the answer set is exactly the two believed sub-facts, the unrelated predicate
       ;; and the invisible sibling context both correctly excluded from the agnostic lead
       (let [ys (into #{} (map #(get (second %) '?y))

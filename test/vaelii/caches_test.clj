@@ -308,7 +308,7 @@
   depends on what else the run required.  Held apart from the roster rather than folded
   into it: the roster is a claim about what every process holds, and one that moved with
   the test order would be a claim about nothing."
-  #{:metric-closures})
+  #{:metric-closures :metric-reconstructions})
 
 (tu/deftest-kb the-roster-is-what-this-process-holds
   (let [registered (into #{} (map :cache) (v/caches kb))]
@@ -345,7 +345,16 @@
                               "search-tree walk expands before it stops; a per-read "
                               "search bound, not a retained cache")
    "*exposure-instance-budget*" (str "settle.clj — how many members of a type a "
-                                     "disjointness exposure check instantiates")})
+                                     "disjointness exposure check instantiates")
+   "regex-step-budget"   (str "core.clj — how many characters a `find-terms` regex may "
+                              "read against one term before it is refused too costly; a "
+                              "per-match evaluation bound, nothing retained")
+   "regex-scan-budget"   (str "core.clj — how many characters one `find-terms` regex may "
+                              "read across the whole vocabulary before it is refused; the "
+                              "scan-wide half of the same bound, nothing retained")
+   "default-describe-limit" (str "core.clj — how many entries one of `describe`'s bounded "
+                                 "lists carries; a per-read window on an answer computed "
+                                 "fresh each call, nothing retained")})
 
 (def ^:private bound-to-cache
   "The cache each remaining constant bounds.  Every one of them is a row on the page,

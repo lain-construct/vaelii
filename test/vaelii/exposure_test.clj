@@ -1275,3 +1275,16 @@
     (doseq [[kind sym] truncation-kind-tests]
       (is (some? (requiring-resolve sym))
           (str kind " names a test that does not exist: " sym)))))
+
+(tu/deftest-kb a-negative-exposure-budget-is-a-cut-not-a-crash
+  ;; `*exposure-instance-budget*` is a public dynamic var; a negative value means
+  ;; "nothing more", which is a cut of everything — not a `(subvec … 0 -1)` thrown out
+  ;; of the settle that reads it.
+  (tu/with-terms [CxA CxB CxW left_t right_t Pip]
+    (v/assert kb (list 'disjoint left_t right_t) 'CxUniverse)
+    (siblings! kb {:a CxA :b CxB :t1 left_t :t2 right_t :x Pip})
+    (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
+    (let [h (binding [settle/*exposure-instance-budget* -1]
+              (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse))]
+      (is (nat-int? h)
+          "the settle reading a negative budget completes and the edge gets a handle"))))

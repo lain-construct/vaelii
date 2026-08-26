@@ -46,8 +46,8 @@
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
     (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
-    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))]
-      (is (some? derived) "the rule fired by subsumption")
+    (let [derived (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)]
+      (is (v/in? kb derived) "the rule fired by subsumption")
       (testing "the edge is an antecedent, beside the fact and the rule"
         (is (contains? (antecedent-sentences kb derived) (list 'genl fatherOf parentOf))))
       (testing "so `why` shows it, rather than a proof that skips how the fact matched"
@@ -62,7 +62,7 @@
   (tu/with-terms [parentOf ancestorOf Tom Bob]
     (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
     (v/assert kb (list parentOf Tom Bob) 'CxUniverse)
-    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))]
+    (let [derived (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)]
       (is (= 2 (count (:antecedents (first (v/supporting-justifications kb derived)))))
           "the fact and the rule, and nothing else"))))
 
@@ -74,9 +74,9 @@
     (v/assert kb (list 'genl mammal_t animal_t) 'CxUniverse)
     (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse)
     (v/assert kb (list dog_t Muffet) 'CxUniverse)
-    (let [derived (:id (first (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse)))
+    (let [derived (v/handle-of kb (list breathes Muffet) 'CxUniverse)
           antes   (antecedent-sentences kb derived)]
-      (is (some? derived))
+      (is (v/in? kb derived))
       (is (contains? antes (list 'genl dog_t mammal_t)))
       (is (contains? antes (list 'genl mammal_t animal_t))))))
 
@@ -127,7 +127,7 @@
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
     (v/assert kb (list fatherOf Tom Bob) 'CxUniverse {:strength :monotonic})
-    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))
+    (let [derived (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)
           nope    (v/assert kb (list 'not (list 'genl fatherOf parentOf)) 'CxUniverse
                             {:strength :monotonic})]
       (is (not (v/in? kb derived)) "the edge is not believed, so neither is what climbed it")
@@ -135,7 +135,7 @@
       (is (= :unsupported (:reason (v/why-not kb derived))))
       (v/retract! kb nope)
       (is (v/in? kb derived) "and the edge coming back brings the conclusion back")
-      (is (= derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse))))
+      (is (= derived (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse))
           "at the same handle: a relabel, not a re-derivation"))))
 
 (tu/deftest-kb the-edge-caps-the-conclusion-s-defeat-class
@@ -147,13 +147,13 @@
     (v/assert kb (list fatherOf Tom Bob) 'CxUniverse {:strength :monotonic})
     (testing "climbing a :default edge"
       (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-      (is (= :default (v/defeat-class kb (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob)
-                                                                          'CxUniverse)))))))
+      (is (= :default (v/defeat-class kb (v/handle-of kb (list ancestorOf Tom Bob)
+                                                      'CxUniverse)))))
     (testing "the control: no climb, and the conclusion is as strong as its grounds"
       (tu/with-terms [Ann Cat]
         (v/assert kb (list parentOf Ann Cat) 'CxUniverse {:strength :monotonic})
-        (is (= :monotonic (v/defeat-class kb (:id (first (v/sentexes-matching kb (list ancestorOf Ann Cat)
-                                                                              'CxUniverse))))))))))
+        (is (= :monotonic (v/defeat-class kb (v/handle-of kb (list ancestorOf Ann Cat)
+                                                          'CxUniverse))))))))
 
 ;; ---- a reachability that outlives its named witness -----------------------
 
@@ -168,17 +168,34 @@
       (is (not= e1 e2) "two sentexes, one edge")
       (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
       (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
-      (let [before (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))]
-        (is (some? before))
+      (let [before (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)]
+        (is (v/in? kb before))
         (v/retract! kb e1)
-        (let [after (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))]
-          (is (some? after)
+        (let [after (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)]
+          (is (v/in? kb after)
               "the edge is still asserted, so the conclusion is still licensed")
           (is (not= before after)
               "as a re-derivation, not a survival: the sweep took the old record"))
         (v/retract! kb e2)
         (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse))
             "and only when the last supporter goes does the conclusion")))))
+
+(tu/deftest-kb an-edge-has-one-supporter-per-context
+  ;; What makes the witness choice above a **total** order rather than a tie-break left to
+  ;; whatever the retrieval enumerated: the candidates it picks from are keyed on their
+  ;; asserting context, and no two of them share one.  A sentence and a context are what a
+  ;; handle is allocated for, so stating the edge twice from one context is one sentex —
+  ;; and the picker's key is therefore complete on its own (`taxonomy/most-general-of`).
+  (tu/with-terms [fatherOf parentOf]
+    (let [a (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+          b (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+          c (v/assert kb (list 'genl fatherOf parentOf) 'CxCore)
+          support (get-in @(:taxonomy kb) [:genl :support [fatherOf parentOf]])]
+      (is (= a b) "one sentence in one context is one sentex, however often it is asserted")
+      (is (not= a c) "a second context is a second sentex, and a second supporter")
+      (is (= #{a c} (set (keys support))) "so the edge has exactly the two supporters")
+      (is (= (count support) (count (set (vals support))))
+          "and their contexts are distinct — the key the witness is chosen on is total"))))
 
 (tu/deftest-kb a-second-path-around-the-edge-keeps-the-conclusion
   ;; multiple inheritance: dog reaches animal two ways.  Either edge can go.
@@ -205,7 +222,7 @@
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
     (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
-    (let [derived (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))
+    (let [derived (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)
           before  (antecedent-sentences kb derived)]
       (v/recover kb)
       (is (= before (antecedent-sentences kb derived)))
@@ -277,7 +294,7 @@
       (is (= [CxEpic CxSaga]
              (sort (mapv :context (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx))))))
     (testing "and each of them names the edge it climbed"
-      (let [d (:id (first (v/sentexes-matching kb (list ancestorOf Tom Bob) CxSaga)))]
+      (let [d (v/handle-of kb (list ancestorOf Tom Bob) CxSaga)]
         (is (contains? (antecedent-sentences kb d) (list 'genl fatherOf parentOf)))))
     (testing "so retracting the edge withdraws it from both"
       (v/retract! kb (v/handle-of kb (list 'genl fatherOf parentOf) CxKin))
@@ -342,9 +359,9 @@
     (v/assert kb (list 'genl fatherOf parentOf) CxB)
     (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxB)
     (v/assert kb (list fatherOf Tom Bob) CxB)
-    (let [derived (first (v/sentexes-matching kb (list ancestorOf Tom Bob) CxB))]
-      (is (some? derived))
-      (let [edges (->> (v/supporting-justifications kb (:id derived))
+    (let [derived (v/handle-of kb (list ancestorOf Tom Bob) CxB)]
+      (is (v/in? kb derived))
+      (let [edges (->> (v/supporting-justifications kb derived)
                        (mapcat :antecedents)
                        (map #(v/sentex kb %))
                        (filter #(= 'genl (first (:sentence %)))))]
@@ -370,12 +387,21 @@
               (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y))
                         'CxUniverse)
               (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
-              (let [concl   (first (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse))
-                    derived (:id concl)]
+              (let [[concl & more] (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)
+                    derived        (:id concl)]
+                (is (nil? more) "one conclusion, so reading it is not a choice between several")
                 (is (some? derived))
                 {:contexts  (->> (v/supporting-justifications kb derived)
                                  (mapcat :antecedents)
                                  (map #(v/sentex kb %))
+                                 (filter #(= 'genl (first (:sentence %))))
+                                 (map :context)
+                                 set)
+                 ;; the same choice as a caller reads it: `why` walks the justification
+                 ;; into `:because`, so a witness that moved with arrival order would move
+                 ;; the proof tree a reader is shown
+                 :because   (->> (:support (v/why kb derived))
+                                 (mapcat :because)
                                  (filter #(= 'genl (first (:sentence %))))
                                  (map :context)
                                  set)

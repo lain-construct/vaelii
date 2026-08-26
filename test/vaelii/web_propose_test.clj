@@ -315,6 +315,22 @@
       (is (str/includes? (:body r) "KB in this process"))
       (is (empty? (v/sentexes-matching tu/*kb* '(partOf penguin wing feather) 'CxOrganism))))))
 
+(tu/deftest-kb the-commit-refuses-a-report-only-line-with-a-row-of-its-own
+  ;; The refusals a commit answers with are a mixed list: what `check` says about a
+  ;; sentence, and this — a line the KB would take but the *correction* would not, since
+  ;; `apply-correction` found something it cannot repair and offers no shape to store
+  ;; instead.  They are different answers to the reader, so they carry different `:type`s:
+  ;; the sentence is not malformed, it is the one the warning is about.
+  (let [{:keys [term ctx]} (a-page kb)
+        rows (#'web/report-only-problems kb [['(partOf penguin wing feather) 'CxOrganism]])]
+    (is (= [:report-only] (mapv :type rows)))
+    (is (= '(partOf penguin wing feather) (:sentence (first rows)))
+        "naming the line, since a batch is refused whole and the reader has to know which")
+    (is (str/includes? (:message (first rows)) "not inferable")
+        "and carrying the correction's own reason for reporting rather than repairing")
+    (testing "a line the correction has nothing to say about contributes no row"
+      (is (empty? (#'web/report-only-problems kb [[(list 'genl term 'bird) ctx]]))))))
+
 (tu/deftest-kb the-review-list-is-a-keyboard-grid
   (let [{:keys [term ctx]} (a-page kb)
         [proposer _] (scripted {:assertions [(list 'genl term 'bird)]})

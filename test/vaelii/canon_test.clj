@@ -274,9 +274,9 @@
                 (v/assert kb (spell-second rule) 'CxU)
                 (v/assert kb (list 'not (list flies tweety)) 'CxU
                           {:strength :monotonic})
-                (let [fid (some-> (first (v/sentexes-matching kb (list flies tweety)
-                                                              'CxU))
-                                  :id)]
+                (let [[concl & more] (v/sentexes-matching kb (list flies tweety) 'CxU)
+                      fid            (:id concl)]
+                  (is (nil? more) "at most one believed conclusion, so reading it is not a choice")
                   {:conclusion-class (when fid (v/defeat-class kb fid))
                    :just-strengths   (when fid
                                        (set (map :strength
@@ -305,12 +305,12 @@
     (v/assert kb (list bird tweety) 'CxU)                       ; default strength
     (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) 'CxU)
     (testing "a premise sentex carries its assumption strength"
-      (is (= :monotonic (:strength (v/sentex kb (:id (first (v/sentexes-matching kb (list dog muffet) 'CxU)))))))
-      (is (= :default   (:strength (v/sentex kb (:id (first (v/sentexes-matching kb (list bird tweety) 'CxU))))))))
+      (is (= :monotonic (:strength (v/sentex kb (v/handle-of kb (list dog muffet) 'CxU)))))
+      (is (= :default   (:strength (v/sentex kb (v/handle-of kb (list bird tweety) 'CxU))))))
     (testing "and its effective defeat-class after settling"
-      (is (= :monotonic (v/defeat-class kb (:id (first (v/sentexes-matching kb (list dog muffet) 'CxU)))))))
+      (is (= :monotonic (v/defeat-class kb (v/handle-of kb (list dog muffet) 'CxU)))))
     (testing "a justification carries its strength — a default rule confers :default"
-      (let [flies-id (:id (first (v/sentexes-matching kb (list flies tweety) 'CxU)))
+      (let [flies-id (v/handle-of kb (list flies tweety) 'CxU)
             d        (first (v/supporting-justifications kb flies-id))]
         (is (= :default (:strength d)))))))
 
@@ -330,7 +330,7 @@
     (is (= :monotonic (v/defeat-class kb h)) "...and reads back off the handle")
     (testing "and it is not the class the firing confers — a bare rule caps at its weakest antecedent"
       (v/assert kb (list bird tweety) 'CxU)                     ; default
-      (let [c (:id (first (v/sentexes-matching kb (list flies tweety) 'CxU)))]
+      (let [c (v/handle-of kb (list flies tweety) 'CxU)]
         (is (= :default (v/defeat-class kb c)))))
     (testing "a second spelling states the class again, and the record follows it"
       (let [d (v/assert-rule kb [(list bird '?y)] (list chirps '?y) 'CxU)]
@@ -803,3 +803,20 @@
           (is (= (sx/sentex before 'CxA) (sx/sentex after 'CxA)))))
       (testing "sharing resumes for whatever is named after a flush"
         (is (identical? (sx/intern-sym 'pooledAgain) (sx/intern-sym 'pooledAgain)))))))
+
+(tu/deftest-kb a-double-negated-rule-antecedent-fires-like-the-plain-one
+  ;; The fact door peels double negation; the rule door must too.  A
+  ;; `(not (not (foo ?x)))` antecedent otherwise keys under `[:not not]`, which no stored
+  ;; fact's trigger key ever is (a fact canonicalizes that away to `(foo ?x)`), so the
+  ;; rule never fires and is accepted with no refusal — silently inert.
+  (let [p (tu/tmp-pred) foo (tu/tmp-pred) q (tu/tmp-pred) A (tu/tmp-ind)]
+    (v/assert-rule kb [(list p '?x) (list 'not (list 'not (list foo '?x)))]
+                   (list q '?x) 'CxU)
+    (v/assert kb (list p A) 'CxU)
+    (v/assert kb (list foo A) 'CxU)
+    (testing "the double-negated antecedent triggers the rule"
+      (is (seq (v/sentexes-matching kb (list q A) 'CxU))))
+    (testing "and it is one rule with the plain-antecedent spelling, not two handles"
+      (is (= (v/assert-rule kb [(list p '?x) (list foo '?x)] (list q '?x) 'CxU)
+             (v/assert-rule kb [(list p '?x) (list 'not (list 'not (list foo '?x)))]
+                            (list q '?x) 'CxU))))))

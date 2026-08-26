@@ -22,12 +22,9 @@ vaelii.impl.asp.clingo/available?  # REACHED requiring-resolve, impl/asp/solver.
 vaelii.impl.asp.clingo/classify-both  # REACHED requiring-resolve, impl/asp/solver.clj
 vaelii.impl.asp.clingo/solve  # REACHED requiring-resolve, impl/asp/solver.clj
 vaelii.impl.asp.label/label-dilemmas  # REACHED quoted-symbol registry, impl/imperative.clj
-vaelii.impl.asp.label/program-of-dilemma  # UNCALLED the test defines its own private one
 vaelii.impl.asp.solve-context/classify  # REACHED quoted-symbol registry, impl/imperative.clj
-vaelii.impl.koinii.channel/writer-order  # REACHED doc affordance — a docstring-only def of koinii's D7 consistency model (value unread), discoverable via (doc)
+vaelii.koinii.channel/writer-order  # REACHED doc affordance — a docstring-only def of koinii's D7 consistency model (value unread), discoverable via (doc)
 vaelii.impl.roster/collector  # REACHED out of tree — the vaelii-postgres record store's cursor walk builds its roster with it
 vaelii.impl.roster/roster?  # REACHED out of tree — the adapters' suites assert their enumerations answer one
-vaelii.impl.sentex/ist  # UNCALLED
 vaelii.impl.web/dev-repl  # REACHED requiring-resolve in project.clj's :browser :init
-vaelii.test-util/with-fresh  # UNCALLED
-vaelii.world/starter+world  # UNCALLED
+vaelii.ns-counts/install!  # REACHED resolve in project.clj's :test :injections, behind VAELII_TEST_NS_COUNTS

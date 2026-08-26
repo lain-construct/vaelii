@@ -18,7 +18,7 @@
     a sentex nor a taxonomy closure that learned it;
   * an edge that closes nothing is accepted, so the refusal above is attributable to
     the cycle and not to the mere presence of an excepted rule;
-  * the walk is **skipped entirely** when no stored rule carries an exception, which
+  * the walk is **skipped entirely** when no stored rule carries a negative edge, which
     is every rule in the bundled starter and therefore every ordinary `genl` assert.
     Asserted by counting `wff/negation-cycle` calls, not by a clock.
 
@@ -101,7 +101,7 @@
                              :ctx CxEdge})
     (is (v/assert kb (list 'genl penguin unrelated) CxEdge)
         "penguin under an unrelated supertype crosses no negative edge")
-    (is (tax/genl? (:taxonomy kb) penguin unrelated)
+    (is (tax/genl?-global (:taxonomy kb) penguin unrelated)
         "and the accepted edge did reach the closures")))
 
 (tu/deftest-kb the-same-edge-is-accepted-when-the-rule-carries-no-exception
@@ -151,8 +151,8 @@
       (is (= before-dd (tu/justification-ids kb)) "no justification was stored")
       (testing "and the cached closures never learned the edge"
         (is (= before-edges (tax/genl-edges (:taxonomy kb))))
-        (is (not (tax/genl? (:taxonomy kb) penguin flightless)))
-        (is (not (contains? (tax/specs (:taxonomy kb) flightless) penguin)))))))
+        (is (not (tax/genl?-global (:taxonomy kb) penguin flightless)))
+        (is (not (contains? (tax/specs-global (:taxonomy kb) flightless) penguin)))))))
 
 ;; ---- the fast path ------------------------------------------------------
 ;; Every rule in the bundled starter is unexcepted, so a regression here would slow
@@ -195,7 +195,7 @@
         (is (seq (:cycle (:detail (first vs))))))
       (testing "and dropped: no sentex, and the closures never learned it"
         (is (empty? (v/sentexes-matching kb (list 'genl penguin flightless) '?ctx)))
-        (is (not (tax/genl? (:taxonomy kb) penguin flightless))))
+        (is (not (tax/genl?-global (:taxonomy kb) penguin flightless))))
       (testing "chaining still ran to a fixpoint rather than aborting"
         (is (seq (v/sentexes-matching kb (list noted penguin) '?ctx)))))))
 
@@ -218,8 +218,8 @@
       (is (= :not-stratified (:type data)) "the probe ran and the edge was refused")
       (v/retract! kb h)
       (testing "the closure read after the gen catch-up never sees the refused edge"
-        (is (not (contains? (tax/specs (:taxonomy kb) flightless) penguin)))
-        (is (not (contains? (tax/genls (:taxonomy kb) penguin) flightless)))))))
+        (is (not (contains? (tax/specs-global (:taxonomy kb) flightless) penguin)))
+        (is (not (contains? (tax/genls-global (:taxonomy kb) penguin) flightless)))))))
 
 (tu/deftest-kb a-derived-edge-that-closes-no-cycle-is-placed-normally
   ;; The control for the drop above: same derivation, same excepted rule in the KB,
@@ -232,12 +232,12 @@
     (v/assert kb (list subtypeMarker penguin) CxDerive)
     (is (empty? (v/violations kb)))
     (is (seq (v/sentexes-matching kb (list 'genl penguin unrelated) '?ctx)))
-    (is (tax/genl? (:taxonomy kb) penguin unrelated)
+    (is (tax/genl?-global (:taxonomy kb) penguin unrelated)
         "a derived edge reaches the taxonomy through integrate-transitive")))
 
 ;; ---- the consequent-var-pred rule and negation ---------------------------
 ;;
-;; A rule concluding `(?p ?x)` (reasoning/27's consequent half) could conclude *any*
+;; A rule concluding `(?p ?x)` could conclude *any*
 ;; predicate once `?p` binds, so the stratification check treats it as a concluder of the
 ;; predicate its NAF antecedent depends on — `rules/direct-concluders` folds in the
 ;; `p/var-consequent-key` catch-all.  Without that a one-rule negation cycle slips the door.

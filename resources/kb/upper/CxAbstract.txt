@@ -37,6 +37,9 @@
 (comment fin "A flat body part a fish steers and propels itself with.")
 (genl fin body_part)
 
+(comment fluent "A state of affairs that holds over some stretches of time and not others — a cat being asleep, a light being on. What an event starts and stops, and what holdsAt asks about at a moment; intangible, because it is a way the world is rather than a thing in it. See docs/time.md.")
+(genl fluent intangible)
+
 (comment food "A physical object eaten by an animal for nourishment.")
 (genl food physical_object)
 

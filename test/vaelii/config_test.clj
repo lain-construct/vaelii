@@ -169,9 +169,13 @@
     (is (false? (config/index-snapshot?)))))
 
 (def ^:private switched-elsewhere
-  "The properties read *outside* `vaelii.impl.config` — the disk directory, the
-  browser's port, KB discovery, the solver and the model host all hold their own
-  default at their own call site rather than going through a `prop-*` reader."
+  "The properties cleared before the defaults below are read, so a `-D` on this box
+  cannot answer for one.  The disk directory, the browser's port and KB discovery hold
+  their default at their own call site rather than going through a `prop-*` reader; the
+  solver and the model host each name a **registry member**, so unset is the absence of
+  a choice rather than a default to check — `vaelii.asp.solver` still reads through
+  `config/asp-solver`, and refuses a name outside the roster like every other switch
+  here."
   ["vaelii.disk.dir" "vaelii.web.port" "vaelii.kb.path" "vaelii.kb.catalog"
    "vaelii.asp.solver" "vaelii.llm.provider"])
 

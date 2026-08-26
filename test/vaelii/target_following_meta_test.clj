@@ -10,6 +10,7 @@
   on retraction exactly as before."
   (:require [clojure.test :refer [is use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
@@ -132,3 +133,33 @@
       (v/edit! kb {:remove [p]})
       (is (nil? (v/sentex kb p)))
       (is (nil? (v/sentex kb eh)) "a batch retract cascades the endorsement too"))))
+
+;; ---- a reply follows its claim through a merge --------------------------
+;; A target-following meta names a claim by handle, so a merge that restates the claim as
+;; a twin must carry the reply onto the twin — in both arrival orders — the same way an
+;; `except` or `exceptWhen` does (docs/equality.md, round two).  Belief-following: the
+;; reply twin rests on the merge and collapses with it.
+
+(tu/deftest-kb a-reply-follows-its-claim-when-the-claim-migrates-first
+  (let [c (ctx! kb)]
+    (mark-following! kb 'endorses)
+    (let [near (tu/tmp-pred) home (tu/tmp-ind) oldp (tu/tmp-ind) newp (tu/tmp-ind)
+          p    (v/assert kb (list near home oldp) c)]
+      (v/assert kb (list 'endorses 'AgentBoreas (sx/sentex-handle p)) c)
+      (v/assert kb (list 'rewriteOf newp oldp) c {:strength :monotonic})  ; claim migrates
+      (let [twin (kb/find-sentex-handle kb (list near home newp) c)]
+        (is (some? twin) "the claim migrated to a twin under the representative")
+        (is (some? (kb/find-sentex-handle kb (list 'endorses 'AgentBoreas (sx/sentex-handle twin)) c))
+            "the endorsement was carried onto the twin claim")))))
+
+(tu/deftest-kb a-reply-asserted-after-the-merge-lands-on-the-twin
+  (let [c (ctx! kb)]
+    (mark-following! kb 'endorses)
+    (let [near (tu/tmp-pred) home (tu/tmp-ind) oldp (tu/tmp-ind) newp (tu/tmp-ind)
+          p    (v/assert kb (list near home oldp) c)]
+      (v/assert kb (list 'rewriteOf newp oldp) c {:strength :monotonic})  ; migrate FIRST
+      (v/assert kb (list 'endorses 'AgentBoreas (sx/sentex-handle p)) c)            ; endorse the dead original
+      (let [twin (kb/find-sentex-handle kb (list near home newp) c)]
+        (is (some? twin) "the claim has a live twin")
+        (is (some? (kb/find-sentex-handle kb (list 'endorses 'AgentBoreas (sx/sentex-handle twin)) c))
+            "the late endorsement re-points onto the live twin claim")))))

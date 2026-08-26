@@ -8,15 +8,29 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.koinii.adjudication :as adj]
-            [vaelii.impl.koinii.dispute :as d]
-            [vaelii.impl.koinii.identity :as id]
-            [vaelii.impl.koinii.speech-acts :as sa]
             [vaelii.impl.sentex :as sx]
+            [vaelii.koinii.adjudication :as adj]
+            [vaelii.koinii.dispute :as d]
+            [vaelii.koinii.identity :as id]
+            [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu]))
 
 (defn- adj-kb [] (doto (tu/fresh) (core-context/load-into)))
-(use-fixtures :each (tu/neutral-fresh adj-kb))
+
+(defn- refusal-type
+  "The `:type` in the `ex-data` of the refusal `thunk` raises, or nil when it raises
+  none.  The keyword is the contract a caller discriminates on; the message is not."
+  [thunk]
+  (try (thunk) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+
+(defn- with-proof-tier
+  "Majority resolution requires the `:proof-tier` identity policy (R7#1) — a counted vote
+  is a supported way to settle a dispute only where ballots were verified at ingest.  So
+  the majority tests run under it; `channel`/`ballot!` never authenticate, so the binding
+  touches nothing but `resolve-by-majority`'s gate."
+  [f] (binding [id/*policy* :proof-tier] (f)))
+
+(use-fixtures :each (tu/neutral-fresh adj-kb) with-proof-tier)
 
 (def P '(reliable ProdCluster))
 (def not-P '(not (reliable ProdCluster)))
@@ -91,10 +105,11 @@
     (is (= :open (d/dispute-state kb did)) "fresh: open, derived")
     (adj/notify-disputes kb 'CxDeploy)
     (is (= :notified (d/dispute-state kb did)) "pushed: notified, stored")
-    (is (some? (v/why kb (:id (first (v/sentexes-matching
-                                      kb (list 'disputeNotified (d/dispute-term did) '?at)
-                                      d/state-context)))))
-        "the transition is why-explainable knowledge, not client bookkeeping")))
+    (let [[sx & more] (v/sentexes-matching
+                       kb (list 'disputeNotified (d/dispute-term did) '?at) d/state-context)]
+      (is (nil? more) "one notification mark for the dispute, so reading it names no order")
+      (is (some? (v/why kb (:id sx)))
+          "the transition is why-explainable knowledge, not client bookkeeping"))))
 
 (tu/deftest-kb a-dispute-left-past-the-timeout-is-swept-stale-and-resurfaced
   (clash! kb)                                              ; opened at t0
@@ -195,6 +210,29 @@
     (is (not (adj/rests-on-contested? kb '(fast ProdCluster) 'CxDeploy))
         "an uncontested fact rests on nothing disputed")))
 
+(tu/deftest-kb the-contested-flag-reads-a-conclusion-stored-below-the-channel
+  ;; the test above holds the rule in the reading context, so the conclusion is placed
+  ;; there and an exact-context lookup finds it.  Here Atlas holds the rule in its OWN
+  ;; context, which is where the placement then goes — so CxDeploy proves `deployable`
+  ;; while storing no `deployable` of its own, and the flag has to follow the cone.
+  (v/assert kb '(implies (reliable ?x) (deployable ?x)) 'CxAtlas)
+  (clash! kb)
+  (testing "the channel proves the conclusion but is not where it lives"
+    (is (v/ask? kb deployable 'CxDeploy) "the channel sees Atlas's rule and Atlas's premise")
+    (is (= '[CxAtlas] (mapv :context (v/sentexes-matching kb deployable '?ctx)))
+        "the placement is the agent's context, one step below the channel")
+    (is (nil? (v/handle-of kb deployable 'CxDeploy))
+        "so CxDeploy stores nothing under this sentence"))
+  (testing "the flag still fires — the answer the channel gets rests on the disputed claim"
+    (is (adj/rests-on-contested? kb deployable 'CxDeploy))
+    (is (= [P] (mapv #(:sentence (v/sentex kb %))
+                     (adj/contested-premises kb deployable 'CxDeploy)))
+        "and it names the contested premise itself"))
+  (testing "the cone bounds it: a context that cannot see the conclusion reports nothing"
+    (is (not (v/ask? kb deployable 'CxBoreas)) "Boreas sees neither Atlas's rule nor its premise")
+    (is (empty? (adj/contested-premises kb deployable 'CxBoreas))
+        "so reading the flag there is not a read of Atlas's derivation")))
+
 ;; ---- quarantine: the option, off by default ------------------------------
 
 (tu/deftest-kb quarantine-excludes-a-contested-claim-from-one-channel-reversibly
@@ -277,6 +315,34 @@
           (is (= adj/majority-arbiter (:arbiter (adj/who-ruled kb (:ruling r)))))
           (v/retract! kb (:ruling r))
           (is (d/disputed? kb P 'CxDeploy) "retract the ruling and the dispute reopens"))))))
+
+(tu/deftest-kb majority-resolution-requires-proof-tier-identity
+  ;; A majority ruling is trust-weighting: it lands a :monotonic verdict that DEFEATS the
+  ;; losing side, tallied by claimed voter name.  Under :cooperative that count is
+  ;; spoofable (one operator, many names), so resolution is refused — only :proof-tier,
+  ;; where every ballot was verified at ingest, may turn a count into a ruling (R7#1).
+  ;; Counting itself stays open, so a cooperative house can still see its ballots.
+  (let [ph (holds! kb 'AgentAtlas P)]
+    (holds! kb 'AgentBoreas not-P)
+    (doseq [a '[AgentAtlas AgentBoreas AgentCiel]]
+      (v/assert kb (list 'genlCx 'CxDeploy (id/context-for a)) 'CxUniverse {:strength :monotonic}))
+    (ballot! kb 'AgentAtlas ph :for)
+    (ballot! kb 'AgentBoreas ph :against)
+    (ballot! kb 'AgentCiel ph :for)                      ; a 2-1 :for majority
+    (let [did (:dispute-id (first (d/disputes-in kb 'CxDeploy)))]
+      (testing "under :cooperative the count is refused and nothing is ruled"
+        (binding [id/*policy* :cooperative]
+          (let [e (try (adj/resolve-by-majority kb did ph 'CxDeploy)
+                       (catch clojure.lang.ExceptionInfo ex ex))]
+            (is (instance? clojure.lang.ExceptionInfo e) "resolution throws, does not rule")
+            (is (= :koinii/identity-unverified (:type (ex-data e))))
+            (is (= :cooperative (:policy (ex-data e)))))
+          (is (= {:for 2 :against 1} (adj/tally kb ph)) "but tally is ungated — ballots still visible"))
+        (is (d/disputed? kb P 'CxDeploy) "the dispute is untouched — still open"))
+      (testing "under :proof-tier (the fixture's policy) the same count carries"
+        (let [r (adj/resolve-by-majority kb did ph 'CxDeploy)]
+          (is (= :for (:outcome r)))
+          (is (not (d/disputed? kb P 'CxDeploy)) "now settled by the verified majority"))))))
 
 (tu/deftest-kb resolve-by-majority-can-vote-the-claim-down
   (let [ph (holds! kb 'AgentAtlas P)]
@@ -441,11 +507,12 @@
   ;; holds a side: ruling their own way would restamp their claim as its own
   ;; adjudication, and ruling the other way would retract it — the disputed claim
   ;; deleted rather than the dispute settled.
+  ;; Discriminated on `:type`, not on the message: the keyword is what a caller branches
+  ;; on, and a message a later edit rewords would take this test with it.
   (let [did (clash! kb)]
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"is a party to dispute"
-                          (adj/rule kb 'AgentAtlas did P 'CxDeploy)))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"is a party to dispute"
-                          (adj/rule kb 'AgentAtlas did not-P 'CxDeploy)))
+    (is (= :arbiter-is-party (refusal-type #(adj/rule kb 'AgentAtlas did P 'CxDeploy))))
+    (is (= :arbiter-is-party
+           (refusal-type #(adj/rule kb 'AgentAtlas did not-P 'CxDeploy))))
     (testing "and the party's own claim is untouched"
       (is (v/ask? kb P (id/context-for 'AgentAtlas))))
     (testing "an uninvolved arbiter still rules it"

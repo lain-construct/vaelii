@@ -59,17 +59,48 @@ projected out, `?n` because it is the operator's output.
 | `(agg/count ?n ?v (ancestorOf ?v ?x))` | `{?x}` |
 | `(agg/sum 3 ?v (mass ?v Tom))` | `{}` |
 
-Whatever is left must be bound by a **generator** antecedent before the aggregate
-runs — the same contract `unknown` has ([naf.md](naf.md)), and refused with the same
-`:naf-not-closed` diagnostic. An aggregate is a deferred literal
-(`sentex/deferred-predicates`), so canonical antecedent order and the planner both
-pin it after its binders and neither can hoist it.
+Whatever is left splits in two, and which half a variable is in is decided by whether
+the rest of the rule names it:
 
-**The body is one literal.** A conjunctive body is refused
-(`:type :quantified-conjunction`), for the reason [naf.md](naf.md) gives: the conjuncts
-would share `?v`, and the level-6 registry answers one goal at a time, so counting them
-independently would count a different witness per conjunct. Count over a conjunction by
-concluding it — a rule whose consequent names the joined relation, counted in turn.
+- A variable the rule also mentions **outside** the aggregate is the **group**, and must
+  be bound by a generator antecedent before the aggregate runs — the same contract
+  `unknown` has ([naf.md](naf.md)), refused with the same `:naf-not-closed` diagnostic.
+- A variable mentioned **only** inside the aggregate is **local to the census**: the
+  join binds it itself, and no antecedent could have supplied it. `?c` in
+  `(agg/sum ?n ?a (and (childOf Bob ?c) (ageOf ?c ?a)))` is the join between the two
+  conjuncts, not a group — that rule sums the ages of Bob's children.
+
+A local variable still has to be one the census can reach a witness for:
+`sentex/census-bound-vars` is what a generator conjunct matches plus what a computed
+conjunct writes, and a local variable outside it — the reduction variable above all — is
+refused `:naf-not-closed`, because the join runs generators first and would never reach a
+conjunct that only reads it.
+
+An aggregate is a deferred literal (`sentex/deferred-predicates`), so canonical
+antecedent order and the planner both pin it after its binders and neither can hoist it.
+
+A **disjunctive** body is refused too (`:not-well-formed`), and here there is no rewrite
+that preserves the number: a count over a union is not the sum of two counts, since a
+witness satisfying both alternatives would be counted twice. Name the extent with a rule
+— whose antecedent *may* disjoin ([canonicalization.md](canonicalization.md)) — and
+aggregate over the conclusion.
+
+**The body is one query, and a conjunctive one is joined.**
+`provers/aggregate-values` runs it through `provers/conjunction-solutions`, the same
+evaluator `unknown`, `thereExists` and `exceptWhen` read ([naf.md](naf.md)), so the
+conjuncts share `?v` and one witness has to satisfy all of them
+([why](defenses.md#a-conjunction-under-a-quantifier-is-joined-never-read-flat)).
+
+```clojure
+;; (childOf Bob Kid1) (childOf Bob Kid2) (childOf Bob Kid3)
+;; (asleep Kid1) (asleep Kid2) (asleep Stranger)
+
+(v/ask kb '(agg/count ?n ?c (and (childOf Bob ?c) (asleep ?c))) 'CxWell)   ; => ({?n 2})
+```
+
+Two: the children who are asleep. Read conjunct by conjunct it would be three children
+or three sleepers, and neither is the question. A one-literal body is the degenerate case
+of the same thread — one conjunct, one registry call, the same solutions.
 
 Grouping falls out of that, with no `GROUP BY` construct to design:
 
@@ -140,7 +171,7 @@ computes reaches the conclusion — through the literals still to run, through t
 itself — so taking the registry's first solution would place a *different fact*
 depending on which solution came first, and which comes first is a function of how the
 facts were stored. `chain/post-join-bindings` therefore declines a literal whose
-solutions disagree, exactly as `provers/table-agreed` declines a unit that declares two
+solutions disagree, exactly as `provers/table-read` declines a unit that declares two
 conversion factors: nothing is concluded, and a `:post-join-ambiguous` entry naming the
 literal and its disagreeing solutions goes into `violations`. At most two distinct
 solutions are ever realized, so the check is one extra pull off a lazy seq. A registry
@@ -157,8 +188,11 @@ as one that failed, and a throw mid-fixpoint arrives after the rule is already s
 A written output binds only the literals written **after** it, aggregates included, so
 `(and (evaluate ?z (+ ?q 1)) (evaluate ?q (+ 1 1)))` is refused and always was.
 
-A bare **goal** nothing binds still answers empty rather than being refused, and the
-difference is the point: a goal is asked and gone, while a rule is stored and re-run.
+A bare **goal** has no rule around it, so every variable of its body is local by the
+same reading, and `AggregateProver` claims it when the census binds them all. One it
+cannot — a variable only a computed conjunct reads — answers empty rather than being
+refused, and the difference from a rule is the point: a goal is asked and gone, while a
+rule is stored and re-run.
 
 ## Evaluated over the registry, which expands no rule
 
@@ -275,23 +309,27 @@ This is the part an implementation over raw reads gets silently wrong, and it is
 new mechanism — it is `exceptWhen`'s, with one addition.
 
 **The trigger.** The rule is posted in the re-check index
-(`[:exception-index <predicate>]`) under every predicate its aggregate bodies mention;
+(`[:exception-index <predicate>]`) under every predicate its aggregate bodies mention —
+**every conjunct's**, read through `rules/watched-literals`, since a fact arriving on any
+one of them changes which witnesses the join finds and so what the count is.
 `rules/recheck-predicates` unions those with the `unknown` antecedents' because they
 are one problem — both read what the KB believes rather than a fact the justification
 names, so both need an arriving fact on those predicates to bring the firing back for
 re-decision.
 
-**The withdrawal.** `chain/justification-excepted?` carries an arm that re-runs each
-aggregate in the conclusion's own context under the firing's **stored bindings**, where
+**The withdrawal.** `chain/post-join-withdrawn?` — reached through
+`rule-firing-blocked?`, which `justification-excepted?` asks of every firing — re-runs
+each aggregate in the conclusion's own context under the firing's **stored bindings**, where
 `?n` is already bound — so each runs in check mode, and a mismatch blocks the firing
 exactly as an exception does. The antecedents could not express this: they name the
 facts the join matched, and every one of them is still stored and believed when some
 other fact changes the census.
 
-**The other direction, which is the addition.** Every other re-check condition is a
+**The other direction, which is the addition.** Most re-check conditions are a
 *block*, so releasing one shows up as a justification leaving the blocked set and
 re-chaining is owed exactly to the rules that released. An aggregate is not, because it
-binds a **value**. A count going 1 ⇒ 2 makes a firing that never existed: there is no
+binds a **value** — and a nested `unknown` is not either, for the same asymmetry
+(`rules/arrival-releasable?` covers both). A count going 1 ⇒ 2 makes a firing that never existed: there is no
 blocked justification to release, nothing moves in the blocked set, and the settle pass
 would converge having derived nothing. So `settle` re-joins a queued aggregate rule
 whether or not anything blocked. (2 ⇒ 3 is the other half, and *that* one is a block —
@@ -367,8 +405,9 @@ negation as failure is: adding a fact changes the count, which can withdraw the
 conclusion, so there is no settled answer and which one you land in would depend on
 arrival order.
 
-This costs no machinery of its own. The aggregate bodies' predicates join the `unknown`
-antecedents' as **negative edges** in the rule dependency graph, and
+This costs no machinery of its own. The aggregate bodies' predicates — one per conjunct
+of a joined body — join the `unknown` antecedents' as **negative edges** in the rule
+dependency graph, and
 `checks/check-stratified` refuses a cycle through them at **assert time** — before
 anything is stored, `:type :not-stratified`, with the cycle. A rule counting what it
 concludes never reaches the store.
@@ -378,13 +417,15 @@ concludes never reaches the store.
 | seam | what it contributes |
 |------|---------------------|
 | `provers/default-provers` | one `AggregateProver` beside `->UnknownProver` / `->ThereExistsProver` |
+| `provers/conjunction-solutions` | the joined evaluator the census body runs through, shared with `unknown` / `thereExists` / `exceptWhen` |
 | `wff/naf-problems` | the five, through `special/entries` — one arm, five table rows |
 | `sentex/deferred-predicates` | the five, so canonical order and the planner pin them after their binders |
 | `sentex/free-vars` | one arm subtracting both slots |
 | `sentex/deferred-input-vars` / `-output-vars` | what a computed literal reads and what it writes, in one place for the three consumers |
-| `sentex/check-naf-closed` | closure and binder-locality, plus the reduction-slot, computed-input and conjunctive-body refusals |
+| `sentex/census-bound-vars` | what a census body binds for itself — read by the assert-time census check and by the prover's applicability |
+| `sentex/check-naf-closed` | group-variable closure and binder-locality, plus the reduction-slot and census refusals |
 | `naming/literals` | one frame arm, so the body is checked as a goal |
-| `rules/recheck-predicates` | unions the aggregate bodies' predicates |
+| `rules/recheck-predicates` | unions the aggregate bodies' predicates, one per conjunct |
 | `rules/post-join-literals` | which antecedents the join withholds for the placement phase |
 | `checks/check-stratified` | the same predicates as negative edges |
 | `chain` | withhold from the join; bind per placement; the withdrawal arm |

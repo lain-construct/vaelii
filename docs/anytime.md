@@ -100,6 +100,17 @@ continuation, and driving that continuation yields `:complete` with no results. 
 is one extra step, never a wrong answer, and it is the price of a cap that reads
 exactly *n*.
 
+**The plain doors take a bound too, and answer differently.** `ask`, `ask?`, `prove` and
+`provable?` each take a trailing option map — `{:max-ms n}` at the first two,
+`{:max-ms n :max-depth n}` at the last two ([api.md](api.md)) — and what a reached
+`:max-ms` gets there is a refusal, `:type :budget-exhausted`, rather than the prefix. A
+solution vector and a boolean have no `:status` slot, so a prefix returned in either shape
+is a wrong answer wearing a right one's face; the contract below is what a caller asks
+through when the prefix is what they want
+[why refuse there](defenses.md#a-deadline-on-ask--prove-refuses-a-depth-does-not).
+`:max-depth` at `prove` / `provable?` prunes rather than suspends, so it never refuses —
+the run is `:complete` for the depth it was given.
+
 `:results` are **per step, not cumulative** — concatenate across steps for the
 whole answer. `:resume` is a one-argument function taking a fresh budget, so each
 continuation is independently budgeted; `core/resume` calls it (and returns a
@@ -138,12 +149,12 @@ for?* (`vaelii.impl.provers/cost-tiers`):
   (facts, symmetric, inverse). All three are one bounded
   step, lazy to the first result, and no decision turns on which of the three it is, so
   they fold into one tier. Eleven of the shipped provers sit here.
-- `:compute` — work over stored facts before the first answer, and seven provers claim
+- `:compute` — work over stored facts before the first answer, and nine provers claim
   it: a declared-`transitive` predicate walking its closure, `transitiveInArg`, `unknown`,
-  `thereExists`, the aggregates, a modal belief projection, and the argument-type
-  meta-predicates read up `genl`. `unknown`, `thereExists` and the aggregates are the
-  ones `{:max-cost :lookup}` is really about, since a `count` is a census of a whole
-  extent and closed-world negation is a query run to exhaustion.
+  `thereExists`, `forall`, a declared-complete extent's negation, the aggregates, a modal
+  belief projection, and the argument-type meta-predicates read up `genl`. `thereExists`
+  and the aggregates are the ones `{:max-cost :lookup}` is really about, since a `count`
+  is a census of a whole extent.
 - `:search` — recursive backward chaining, open-ended proof search. **Unoccupied**, and
   by construction: no member of the registry expands a rule, so nothing `ask` dispatches
   opens a proof search — an application prover added through `add-prover` can claim it
@@ -155,10 +166,19 @@ The union path already orders applicable provers by this tier (cheapest first, s
 consumer taking one answer never pays for a closure when a lookup answers).
 `:max-cost` turns the tier into a **ceiling**: `ask-within` drops every prover above
 it *before* the stream is built. So `{:max-cost :lookup}` runs bounded retrieval only —
-no closure fixpoint, no `unknown`, no `thereExists`, no aggregate — and, `:search` being
+no closure fixpoint, no `thereExists`, no aggregate — and, `:search` being
 empty, `:compute` and `:search` both keep the whole registry. A goal answerable only by
 a dropped tier simply yields nothing (an honest empty, not a hang). Combined with `:max-ms` it is a genuine anytime
 strategy: *cheap tiers only, and stop at N milliseconds*.
+
+**`unknown` is the one prover no ceiling drops**, and the asymmetry is what an honest
+empty rests on. Dropping a `:compute` prover makes a run *under-report*, which is the
+trade a ceiling is asking for; dropping the closed-world one **inverts** it — an empty
+result for `(unknown S)` reads as *S is derivable*, and the run reports `:complete`
+while saying it. So `cost-capped-provers` retains `UnknownProver` at every ceiling. It
+is applicable only to `unknown` goals, so keeping it narrows nothing else, and a wrong
+answer outranks a best-effort cost bound. `thereExists` and the aggregates under-report
+rather than invert, so they stay droppable.
 
 A value that is not one of the three tiers is **refused** (`:type :unknown-option`), not
 read as no ceiling
@@ -205,6 +225,13 @@ instead.
   `:max-cost` is the tier-based version, and there is no finer gate reading a
   prover's `est-bindings` against the remaining budget.
 - **No cross-process / cross-restart resume.** The continuation is heap state.
+- **No resume over the wire.** The daemon serves `:ask-within` and `:prove-within`
+  ([operations.md](operations.md)) and answers `:results`, `:status`, `:count` and
+  `:elapsed-ms` as ever — but `:resume` is a function over that heap state, so it is
+  replaced by **`:resumable`**, a boolean saying the search had more to give. `core/resume`
+  is in-process only. A remote caller continues by asking again under a larger budget: a
+  bounded run is a strict prefix of the unbounded one, so the larger call is a superset of
+  the smaller rather than a second, unrelated answer.
 
 ## Where it plugs in
 

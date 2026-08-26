@@ -329,6 +329,115 @@
       (is (= :quantifier-not-local (:type (ex-data e)))
           "?a is projected out, so a consequent naming it would store a non-ground fact"))))
 
+;; ---- the census body is joined -------------------------------------------
+;; A conjunctive body is one query whose conjuncts share the reduction variable — the
+;; same join `unknown` and `exceptWhen` read.  "How many of Bob's children are asleep"
+;; is one witness satisfying both conjuncts, never the children counted beside the
+;; sleepers.
+
+(defn- sleepy-house!
+  "Bob, three children, two of them asleep, and a sleeping stranger who is nobody's
+  child.  Read conjunct by conjunct the count would be three children or three
+  sleepers; joined it is two."
+  [kb {:keys [person childOf asleep Bob Kid1 Kid2 Kid3 Stranger]}]
+  (v/assert kb (list person Bob) 'CxWell)
+  (doseq [k [Kid1 Kid2 Kid3]] (v/assert kb (list childOf Bob k) 'CxWell))
+  (v/assert kb (list asleep Kid1) 'CxWell)
+  (v/assert kb (list asleep Stranger) 'CxWell)
+  (v/assert kb (list asleep Kid2) 'CxWell))
+
+(defn- asleep-children
+  "The census `(agg/count ?n ?c (and (childOf ?x ?c) (asleep ?c)))`, for `?x`."
+  [childOf asleep x]
+  (list 'agg/count '?n '?c (list 'and (list childOf x '?c) (list asleep '?c))))
+
+(tu/deftest-kb how-many-of-bob-s-children-are-asleep
+  (tu/with-terms [person childOf asleep Bob Kid1 Kid2 Kid3 Stranger]
+    (sleepy-house! kb {:person person :childOf childOf :asleep asleep :Bob Bob
+                       :Kid1 Kid1 :Kid2 Kid2 :Kid3 Kid3 :Stranger Stranger})
+    (is (= 2 (one kb (asleep-children childOf asleep Bob) '?n))
+        "two — not the three children, and not the three who are asleep")
+    (testing "and the conjuncts are joined rather than read flat"
+      (is (= 3 (one kb (list 'agg/count '?n '?c (list childOf Bob '?c)) '?n)))
+      (is (= 3 (one kb (list 'agg/count '?n '?c (list asleep '?c)) '?n))))))
+
+(defn- restful!
+  "The rule *a parent with more than one sleeping child is restful*, over the joined
+  census."
+  [kb {:keys [person childOf asleep restful]}]
+  (v/assert kb (list 'implies
+                     (list 'and (list person '?x)
+                           (asleep-children childOf asleep '?x)
+                           (list 'lessThan 1 '?n))
+                     (list restful '?x))
+            'CxWell))
+
+(tu/deftest-kb a-child-waking-lowers-the-joined-count-and-withdraws-the-firing
+  (tu/with-terms [person childOf asleep restful Bob Kid1 Kid2 Kid3 Stranger]
+    (let [world {:person person :childOf childOf :asleep asleep :Bob Bob
+                 :Kid1 Kid1 :Kid2 Kid2 :Kid3 Kid3 :Stranger Stranger}]
+      (restful! kb (assoc world :restful restful))
+      (sleepy-house! kb world)
+      (is (v/ask? kb (list restful Bob) 'CxWell)
+          "two of Bob's children are asleep, so the rule fires")
+      (testing "a child wakes: the count falls to one and the conclusion goes with it"
+        (let [awake (v/assert kb (list 'not (list asleep Kid2)) 'CxWell
+                              {:strength :monotonic})]
+          (is (= 1 (one kb (asleep-children childOf asleep Bob) '?n))
+              "the second conjunct's predicate is watched, so the census is re-taken")
+          (is (not (v/ask? kb (list restful Bob) 'CxWell)))
+          (is (nil? (v/handle-of kb (list restful Bob) 'CxWell))
+              "withdrawn, not merely disbelieved")
+          (testing "and retracting the waking restores both"
+            (v/retract! kb awake)
+            (is (= 2 (one kb (asleep-children childOf asleep Bob) '?n)))
+            (is (v/ask? kb (list restful Bob) 'CxWell))))))))
+
+(tu/deftest-kb the-joined-census-reads-the-same-in-either-arrival-order
+  ;; the rule before the facts, and the facts before the rule: a joined census is
+  ;; maintained by re-joining on arrival, so an order-sensitive re-check shows up here.
+  ;; Each arm gets its own cast, so the second reads a baseline the first did not move.
+  (doseq [[label rule-first?] [["rule first" true] ["facts first" false]]]
+    (testing label
+      (tu/with-terms [person childOf asleep restful Bob Kid1 Kid2 Kid3 Stranger]
+        (let [world  {:person person :childOf childOf :asleep asleep :Bob Bob
+                      :Kid1 Kid1 :Kid2 Kid2 :Kid3 Kid3 :Stranger Stranger}
+              rule!  #(restful! kb (assoc world :restful restful))
+              facts! #(sleepy-house! kb world)]
+          (if rule-first? (do (rule!) (facts!)) (do (facts!) (rule!)))
+          (is (= 2 (one kb (asleep-children childOf asleep Bob) '?n)))
+          (is (v/ask? kb (list restful Bob) 'CxWell)))))))
+
+(tu/deftest-kb a-sum-joins-its-census-over-a-variable-local-to-the-body
+  ;; the natural shape of a summed join: `?p` is the join between the two conjuncts and
+  ;; is named nowhere else, so the census binds it itself.  Distinct values, as ever —
+  ;; the parcels are given different weights so the sum is of all three.
+  (tu/with-terms [carries weightOf Bob Parcel1 Parcel2 Parcel3 Crate]
+    (doseq [p [Parcel1 Parcel2 Parcel3]] (v/assert kb (list carries Bob p) 'CxWell))
+    (doseq [[p w] [[Parcel1 2] [Parcel2 3] [Parcel3 5] [Crate 7]]]
+      (v/assert kb (list weightOf p w) 'CxWell))
+    (let [g (list 'agg/sum '?n '?w (list 'and (list carries Bob '?p)
+                                         (list weightOf '?p '?w)))]
+      (is (= 10 (one kb g '?n))
+          "the parcels Bob carries — the crate he does not is not in the join"))))
+
+(tu/deftest-kb every-conjunct-of-a-census-is-a-negative-edge-for-stratification
+  ;; the single-literal body's rule, read through the join: a conclusion reached from a
+  ;; count over it has no settled answer whichever conjunct mentions it.
+  (tu/with-terms [node kidOf bigGroup]
+    (let [e (try (v/assert kb (list 'implies
+                                    (list 'and (list node '?x)
+                                          (list 'agg/count '?n '?a
+                                                (list 'and (list kidOf '?x '?a)
+                                                      (list bigGroup '?a))))
+                                    (list bigGroup '?x))
+                           'CxWell)
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e))
+      (is (= :not-stratified (:type (ex-data e)))
+          "the cycle runs through the census's *second* conjunct"))))
+
 ;; ---- where the census is taken -------------------------------------------
 ;; The aggregate is evaluated per placement context, and it contributes no handles to
 ;; the join — so it is counted *where the conclusion lands* and has no say in where
@@ -573,6 +682,18 @@
           "a reduction must exhaust the body, which :lookup does not buy")
       (is (= 1 (count (:results (v/ask-within kb g 'CxWell {:max-cost :compute}))))
           ":compute is the tier it declares, and it runs there"))))
+
+(tu/deftest-kb a-lookup-budget-keeps-unknown-rather-than-inverting-it
+  ;; `unknown` shares the `:compute` tier with the aggregate, but unlike it, dropping its
+  ;; prover does not merely under-report — it INVERTS the closed-world answer: an empty
+  ;; result for `(unknown S)` reads as "S is derivable".  So it is kept past the cap, and
+  ;; a `:lookup` budget answers the same as no budget, `:complete` and correct.
+  (tu/with-terms [flies Tweety]
+    (let [g (list 'unknown (list flies Tweety))]     ; nothing derives (flies Tweety)
+      (is (v/ask? kb g 'CxWell) "S is not derivable, so (unknown S) holds")
+      (let [r (v/ask-within kb g 'CxWell {:max-cost :lookup})]
+        (is (seq (:results r)) "the lookup budget keeps UnknownProver, not an inverted empty")
+        (is (= :complete (:status r)))))))
 
 ;; ---- nothing is stored ---------------------------------------------------
 

@@ -13,7 +13,7 @@
   re-canonicalizes everything through this build's own constructor — so a difference is
   a lossy *writer*.
 
-  Both directions across backends (`:memory` → dump → `:disk`, and back), because a
+  Both directions across backends (`:memory` → dump → `:disk-log`, and back), because a
   format that only round-trips within one backend is not a format."
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
@@ -49,7 +49,7 @@
   (doto (v/open-kb tu/plain-memory-space) (tu/clear-kb!)))
 
 (defn- disk-kb [^File dir]
-  (v/open-kb {:backend :disk :dir (.getPath dir) :recover? false}))
+  (v/open-kb {:backend :disk-log :dir (.getPath dir) :recover? false}))
 
 ;;; ── the KB under test ─────────────────────────────────────────────────
 
@@ -892,7 +892,7 @@
                   (is (re-find #"records .* `assert` would refuse" (nm/tally-line tally)))))
               (testing "and a strict KB over the same store still reads all of it"
                 ;; the policy travels with the KB, not with the records
-                (let [strict (v/open-kb {:backend :disk :dir (.getPath store)
+                (let [strict (v/open-kb {:backend :disk-log :dir (.getPath store)
                                          :recover? false :naming :strict})]
                   (is (= :strict (:naming strict)))
                   (is (seq (v/find-sentexes strict 'game-theory))))))
@@ -936,3 +936,71 @@
               (is (or (nil? before) (< (- (long after) (long before)) 50))
                   (str "600 refused opens leaked descriptors: " before " -> " after))))))
       (finally (rm-rf! dump)))))
+
+(deftest a-dump-naming-one-handle-twice-is-refused-on-both-record-passes
+  ;; A handle is an identity, and both record passes land a dump of ours at the handles it
+  ;; gave — which is what makes an id in a dump mean anything.  So a second frame claiming
+  ;; a handle already stored would destroy the first record with nothing to show for it,
+  ;; and every justification, index posting and embedded `(sentexHandle H)` citing that
+  ;; number would afterwards name the wrong sentence.  Equal content never reaches the
+  ;; check: the canonical form has already collapsed onto one handle, counted as
+  ;; `:collapsed`.  What is left is a dump that is genuinely broken, on either path.
+  (let [dump (temp-dir "dup-handle")]
+    (rm-rf! dump)                                   ; export! makes its own directory
+    (try
+      (tu/with-cleared-kb [source memory-kb]
+        (tu/with-terms [dog cat Muffet Tom CxDup]
+          (v/assert source (list dog Muffet) CxDup {:strength :monotonic})
+          (v/assert source (list cat Tom) CxDup {:strength :monotonic}))
+        (export/export! source dump {:compression :none}))
+      (let [^File f  (io/file dump "sentexes.nippy.stream")
+            fs       (vec (frames/read-chunked-seq f :none))
+            clashing (:id (first fs))]
+        (is (= 2 (count fs)) "two frames, so the second is the one that clashes")
+        (frames/write-frames! f [(first fs) (assoc (second fs) :id clashing)]
+                              {:compression :none :chunk-size 10000})
+        ;; `:belief? false` is the bulk records-only pass and the other two the belief
+        ;; pass; each lands the dump's handles itself, so each owes the refusal
+        (doseq [mode [true :stored false]]
+          (testing (str ":belief? " (pr-str mode))
+            (tu/with-cleared-kb [target memory-kb]
+              (let [d (try (imp/import-dump target dump {:belief? mode})
+                           nil
+                           (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+                (is (= :duplicate-handle (:type d)))
+                (is (= clashing (:handle d)) "naming the handle the dump claimed twice"))))))
+      (finally (rm-rf! dump)))))
+
+(deftest a-dump-this-build-cannot-read-is-refused-before-the-first-write
+  ;; Four gates read `meta.edn` and refuse on it, and each lands before a record is
+  ;; stored — which is what makes a refused import safe to retry with no `clear!` in
+  ;; between.  A version, a variant or a framing this build does not read has to be a
+  ;; named refusal rather than a half-filled store: a dump read up to the point of failure
+  ;; leaves a fraction of a KB nobody chose, and nothing downstream can tell it from a
+  ;; corpus that really is that small.
+  (let [dump    (temp-dir "gates")
+        kb      (memory-kb)
+        meta!   (fn [m] (spit (io/file dump "meta.edn") (pr-str m)))
+        refusal (fn [] (try (imp/import-dump kb dump)
+                            nil
+                            (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+    (try
+      (testing "a directory with no meta.edn is not a dump"
+        (is (= :no-dump (:type (refusal)))))
+      (testing "a format version past the ones this build reads"
+        (meta! {:format :vaelii/export :format-version 999})
+        (let [d (refusal)]
+          (is (= :unsupported-version (:type d)))
+          (is (= 999 (:found d)) "naming the version the dump declared")
+          (is (= imp/supported-export-versions (:supported d))
+              "and the ones it could have read instead")))
+      (testing "a variant that is not a record dump"
+        (meta! {:format :vaelii/export :format-version 1 :variant :pg-memory})
+        (is (= :unsupported-variant (:type (refusal)))))
+      (testing "a framing neither stream reader knows"
+        (meta! {:format :vaelii/export :format-version 1 :framing :interpretive-dance})
+        (is (= :unknown-framing (:type (refusal)))))
+      (testing "and every one of them left the destination exactly as it found it"
+        (is (zero? (v/sentex-count kb)))
+        (is (empty? (p/sentex-ids (:records kb)))))
+      (finally (rm-rf! dump) (tu/clear-kb! kb)))))

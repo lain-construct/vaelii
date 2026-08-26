@@ -40,7 +40,10 @@ consequences, and they are the design:
   pastes facts in.
 - **A candidate is `:default`** unless it explicitly claims otherwise. A translated guess
   asserted at `:monotonic` would defeat hand-written defaults with something a parser
-  inferred, which is the worst outcome available here.
+  inferred, which is the worst outcome available here. The claim is *allowed* — a reader
+  may legitimately mark a fact known-true — but the proposal `:summary` carries a
+  `:monotonic` count so a reviewer sees how many entries arrived that way; a number that is
+  almost always zero is what makes a non-zero one worth a second look.
 - **What it could not translate is part of the answer.** A pipeline that silently drops the
   third of a document it did not understand reads as one that understood the document.
 
@@ -276,9 +279,9 @@ convention rather than the reading. So both are reported, and the pair is the fi
 
 - **strict** — the candidate matched as written;
 - **aligned** — after renaming the candidate's *introduced* individuals onto the gold's, one
-  for one, by the types each is asserted to have.
+  for one, by the one-place claims made of each — its kind, and also what it did.
 
-The alignment is by **type overlap**, greedy in descending overlap, each side used once. A
+The alignment is by **overlap in those one-place claims**, greedy in descending overlap, each side used once. A
 bijection, so no renaming can collapse two characters into one to score better; overlap
 rather than equality, so a candidate that also invented a type for its character is still
 recognised as having recovered it. It is deliberately narrow — aligning on the relations a
@@ -405,7 +408,7 @@ except from a liar", and the reader took the exception and dropped the rule.
 slower one wins* and nothing on the card carried that. Coining to say something the text
 actually said is the defensible kind, and it is still reported.
 
-**An engine form no reader could write.** The gold for the same fable includes
+**An engine form no reader could write.** The gold for the boy who cried wolf includes
 `(exceptWhen (liar ?var0) (sentexHandle 2204))` — a meta-sentex naming the rule it qualifies
 by raw handle. It is bookkeeping, it is unrecoverable from prose, and it is one of the
 eleven gold items recall is measured against. [llm.md](llm.md) keeps these off the page

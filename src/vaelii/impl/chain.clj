@@ -22,6 +22,7 @@
             [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.quasiquote :as quasiquote]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
@@ -172,8 +173,9 @@
   holds, `S` is derivable, so `(unknown S)` is false and the firing is blocked.
 
   A conjunctive query is the same block-if-**all**-hold the exception's conjuncts are,
-  and for the same reason: closure leaves each conjunct ground, so they share nothing
-  and need no join."
+  and it is **joined** (`provers/conjunction-solutions`): a ground conjunction's
+  conjuncts share nothing and the join is the independent existence check they always
+  were, while a quantified one shares its binder and takes one witness for all of them."
   [kb unk bindings pctx]
   (provers/exception-holds? kb (sx/naf-query-conjuncts unk) bindings pctx))
 
@@ -183,6 +185,30 @@
   independently requires `S` absent, so one derivable `S` withdraws the conclusion."
   [kb naf-antes bindings pctx]
   (boolean (some #(unknown-inner-holds? kb % bindings pctx) naf-antes)))
+
+(defn closed-extent-antecedents
+  "The rule's negative antecedents a `closedExtentPredicate` grant turns into negation as
+  failure — closed (every variable bound by a generator) and declared closed somewhere.
+  The join withholds these and derive time decides them, exactly as it does an `unknown`.
+
+  One set read for a KB that declares no closed extent, which is the common one."
+  [kb antes]
+  (rules/closed-extent-antecedents (:taxonomy kb) antes))
+
+(defn closed-extent-blocks?
+  "Is a firing blocked because one of its withheld negative antecedents does **not** hold
+  in `pctx`?
+
+  The question asked is the whole level-6 one, not \"is there a positive answer\": a
+  stored `(not (P a))` answers it as it always did, and under a visible grant
+  `ClosedExtentProver` answers it from the absence of a positive.  So a placement context
+  that cannot see the grant reads the literal exactly as it does today, and the
+  withholding costs it only the support handle — which the re-check index gives back, by
+  bringing the firing round again when anything on `P` moves.
+
+  Block-if-**any**, like `unknown`: each withheld literal independently has to hold."
+  [kb ce-antes bindings pctx]
+  (boolean (some #(not (provers/exception-holds? kb [%] bindings pctx)) ce-antes)))
 
 (defn- disagreeing-solutions
   "The disagreeing solutions of one post-join literal as a content-ordered vector of
@@ -214,8 +240,8 @@
 
   **A literal that answers two ways answers nothing**, the rule the engine takes for a
   reading stated twice over — `provers/table-agreed` on a unit's conversion factor,
-  `duration/interval-length` on two lengths.  Every output here reaches the conclusion:
-  through the literals still to run, through the `exceptWhen` and `unknown` checks that
+  `duration/interval-length-with-support` on two lengths.  Every output here reaches the
+  conclusion: through the literals still to run, through the `exceptWhen` and `unknown` checks that
   read these bindings, and through the consequent itself.  So taking the registry's
   first solution would conclude a *different fact* per arrival order, since which
   solution is first is a function of how the facts were stored.  The disagreement is
@@ -461,9 +487,10 @@
 (defn- rule-firing-blocked?
   "Is a firing of the rule stored at `rh` — settled bindings `bindings` (a delay),
   placed in `pctx` — blocked by something the *rule* carries: its `exceptWhen`
-  exception, an `(unknown S)` antecedent whose `S` is now derivable, an **aggregate**
-  antecedent whose count has moved, an **inherited** antecedent a more specific claim
-  has undercut, or the qualitative network it joined on having become unsatisfiable?
+  exception, an `(unknown S)` antecedent whose `S` is now derivable, a **closed-extent**
+  negative antecedent that no longer holds, an **aggregate** antecedent whose count has
+  moved, an **inherited** antecedent a more specific claim has undercut, or the
+  qualitative network it joined on having become unsatisfiable?
 
   The context is the **conclusion's**, not the rule's: an exceptWhen query and a NAF
   literal are *about* the conclusion, and one invisible from where it lives has no
@@ -475,10 +502,12 @@
   drift about what counts as blocked."
   [kb rh rsx bindings pctx]
   (boolean
-   (or (when (or (rules/has-naf? rsx) (p/exception-rule? (:index kb) rh))
+   (or (when (or (rules/has-naf? rsx) (reads/watched-rule? (:index kb) rh))
          (or (provers/exceptions-block? kb rh @bindings pctx)
              (and (rules/has-naf? rsx)
                   (naf-blocks? kb (rules/naf-antecedents rsx) @bindings pctx))))
+       (when-let [ce (seq (closed-extent-antecedents kb (rules/antecedents (:sentence rsx))))]
+         (closed-extent-blocks? kb ce @bindings pctx))
        (post-join-withdrawn? kb rsx bindings pctx)
        (inheritance-withdrawn? kb rsx bindings pctx)
        (entailment-withdrawn? kb rsx pctx))))
@@ -526,14 +555,28 @@
 (defn- solve-deferred
   "Solve a deferred antecedent against `bindings` by **computing** it: the substituted
   literal goes to the prover registry, which answers it with `EvaluableProver` /
-  `EvaluateProver` / `DifferentProver`.  Returns the extended binding maps — a test
-  (`lessThan`, `different`) yields the bindings unchanged or nothing at all, while
-  `evaluate` adds the binding it computed, so both the testing and the binding flavour
-  fall out of the one call.
+  `EvaluateProver` / `DifferentProver` / `QuantityProver`.  Returns `[bindings support]`
+  pairs — a test (`lessThan`, `different`) yields the bindings unchanged or nothing at
+  all, while `evaluate` adds the binding it computed, so both the testing and the binding
+  flavour fall out of the one call.
 
-  The context is the wildcard, and deliberately so: a computed literal holds as
-  arithmetic rather than as knowledge asserted somewhere, so there is no context that
-  could fail to see it.  That is the same reason the caller records no handle for it.
+  **`support` is the handles the answer was read from**, and it is what a computed
+  antecedent contributes to the firing's justification.  Empty for the arithmetic
+  comparisons, whose answer is a function of the bindings in front of them and of nothing
+  stored — `(lessThan 3 5)` names no fact and no retraction can un-hold it.  Not empty for
+  a prover whose answer moves with the store: a measure comparison normalizes both sides
+  through the KB's `dimensionOf` / `conversionFactor` table, so `(quantityLessThan
+  (QuantityFn 500 Gram) (QuantityFn 1 Kilogram))` holds *because* a gram is declared a
+  thousandth of a kilogram, and a conclusion drawn from it has to go when that
+  declaration does.  Which provers can say this is `provers/SupportingProver`; the ones
+  that cannot report empty, and the seam is what makes that the honest answer rather than
+  merely the convenient one.
+
+  The context is the wildcard, and deliberately so: a computed literal holds wherever its
+  inputs do, so the join asks the registry the same context-free question it asks the
+  matcher.  Where the answer *did* rest on stored knowledge, the handles above say which,
+  and placement then reads their contexts exactly as it reads a matched fact's — so a
+  conclusion may only be placed where the declarations behind it can be seen.
 
   **Its inputs must already be bound**, and two things arrange that before the join
   runs: `sentex/check-naf-closed` refuses at assert time a rule whose deferred literal
@@ -557,7 +600,8 @@
                              "input " (pr-str (vec unbound)) " — it is computed, not looked up, "
                              "so an earlier antecedent must bind its inputs")
                         {:type :unbound-deferred :literal literal :goal g :unbound (vec unbound)}))))
-    (map #(merge bindings %) (provers/solve-goal kb g '?ctx))))
+    (map (fn [[b sup]] [(merge bindings b) sup])
+         (provers/solve-goal-with-support kb g '?ctx))))
 
 ;; ---- qualitative antecedents: joining on what a network entails ----------
 ;; A relation algebra derives relations nobody stored (docs/qcn.md).  Those could not
@@ -568,9 +612,12 @@
 ;; Support closes it.  The fixpoint now reports which stored facts a tightened
 ;; constraint rests on, so an entailed antecedent contributes *those* handles — the
 ;; conclusion is withdrawn when any fact behind the entailment goes, which is exactly
-;; the contract an ordinary matched antecedent has.  The deferred (evaluable) path
-;; cannot do this and correctly does not try: `(lessThan 1 2)` is a function of the
-;; bindings, where `(partOfRegion A C)` is a function of what is *stored*.
+;; the contract an ordinary matched antecedent has.  The **arithmetic** half of the
+;; deferred path has nothing to report and correctly reports nothing: `(lessThan 1 2)` is
+;; a function of the bindings, where `(partOfRegion A C)` is a function of what is
+;; *stored*.  Which half a deferred literal falls in is not the join's guess —
+;; `provers/SupportingProver` is where a prover says so, and a measure comparison, whose
+;; answer moves with the unit table, is in the same business as this section.
 ;;
 ;; This is **union, not replacement**.  Entailment subsumes assertion — an asserted
 ;; relation is trivially entailed — but the two disagree at the edges (a literal whose
@@ -711,6 +758,151 @@
       ;; move, not facts that matched a pattern.
       {:bindings (merge bindings b) :handles (into handles sup)
        :matched  (conj matched [ak claim])})))
+
+;; ---- computed antecedents: joining on what a prover reads out of the store -----
+;; A `SupportingProver` answers a goal from stored facts nothing about the goal names —
+;; the metric closure over every `temporalDistance` in the network, the `length` rows a
+;; duration sums.  Backward chaining discharges such an antecedent through
+;; `provers/solve-goal`; forward chaining could not, and the reason was the qualitative
+;; and the inherited one over again: a computed answer has no handle, so there was no
+;; antecedent for a justification to rest on, and `ask` and forward chaining came back
+;; with different answers about the same rule.
+;;
+;; Support closes it here too, and the seam is what makes it possible: the prover reports
+;; the handles the answer was read from, so the firing rests on exactly the facts behind
+;; the computation and the ordinary relabel withdraws it when any of them goes.
+;;
+;; **Per reader context**, unlike the deferred arm.  A metric network is what one reader
+;; sees up its `genlCx` cone, so a wildcard read would close one network out of every
+;; context's constraints at once — a bound no reader entails.  `provers/source-contexts`
+;; enumerates the readers, `qcn-kb/reader-contexts`' argument applied to a prover that is
+;; not a calculus.
+;;
+;; **Union, not replacement**, for the reason it is on the other two sides: a
+;; `temporalDistance` is a stored fact as well as a derived bound, so the ordinary matcher
+;; still runs and nothing that matched before stops matching.  A stated constraint is on
+;; its own shortest path, so the two routes agree about what supports it and the TMS
+;; set-dedups the duplicate justification.
+
+(defn- computed-antecedent?
+  "Is `ante` a literal a registered `SupportingProver` answers — and therefore one the
+  join solves by computation as well as by matching?
+
+  Nil is close to free: `provers/support-answered-preds` memoizes against the registry's
+  identity, so this is a set lookup on a functor.  It is not empty for the default
+  registry — `QuantityProver` ships in it — so the gate below is a `contains?` on the
+  literal's own functor and stops there for every ordinary antecedent."
+  [kb ante]
+  (and (sequential? ante) (seq ante) (symbol? (first ante))
+       (contains? (provers/support-answered-preds kb) (first ante))))
+
+(defn- solve-computed
+  "Solve an antecedent by **computation over stored facts**, at each reader context the
+  prover's sources reach.  Each solution carries the handles the answer rested on, so the
+  firing's justification names them and retraction reaches them.
+
+  An answer with **empty** support is dropped rather than answered groundlessly, exactly
+  as an entailment with none is (`qcn-kb/solve-with-support`).  The metric diagonal is the
+  case: `(temporalDistance P P ?d)` is nil by arithmetic, licensed by no constraint, and a
+  conclusion drawn from it would rest on the rule alone while looking as though it rested
+  on the network.
+
+  `:matched` passes through unextended, for `solve-qualitative`'s reason: the answer was
+  licensed by a computation over the store rather than by the taxonomy, so it rests on no
+  `genl` edge and has no antecedent-functor pairing to record.
+
+  `preds` names the facts the answer is read from, and so which contexts are worth asking
+  at.  It defaults to the whole registry's declared sources, which is what a
+  `SupportingProver` with a fixed roster wants; a transitive antecedent passes the edge
+  predicates of its own step relation instead, since what its walk reads is a taxonomy
+  read rather than a constant (`transitive-source-preds`)."
+  ([kb literal states] (solve-computed kb literal states (provers/support-source-preds kb)))
+  ([kb literal states preds]
+   (let [ctxs (provers/source-contexts kb preds)]
+     (distinct
+      (for [{:keys [bindings handles matched]} states
+            :let [g (res/substitute literal bindings)]
+            ctx ctxs
+            [bnd sup] (provers/solve-goal-with-support kb g ctx)
+            :when (seq sup)]
+        {:bindings (merge bindings bnd) :handles (into handles sup) :matched matched})))))
+
+;; ---- a transitive antecedent reads the closure, with the edges it crossed ----
+;; An antecedent on a `(transitive P)` predicate is a fourth shape the join answers by
+;; computation and not only by matching, beside the qualitative, the computed and the
+;; preserving one — and it is the one whose roster is a taxonomy read: which predicates
+;; `TransitivePredicateProver` answers is whatever *this* KB declared, so it cannot be a set
+;; on the prover the way a unit table's predicates are (`provers/SupportingProver`, and the
+;; empty rosters there).
+;;
+;; The join without it sees stored edges only, so `(implies (and (causes ?a ?c) …) …)`
+;; fires across one hop and not across two, and a narrative has to write down every pair it
+;; wants read rather than the links it actually recorded.  With it the closure's answers are
+;; **unioned** with the matcher's — a stated edge is still a stated edge, and the two
+;; routes agree about what supports it, so the TMS set-dedups the duplicate justification.
+;;
+;; Per reader context, as the metric arm is: a hop is visible or not from where it is
+;; read, so a wildcard walk would cross an edge in a context that cannot see it.
+
+(defn- walks-its-own-conclusion?
+  "Does the rule being fired **conclude** on the walked predicate `pred` itself, or on a
+  **sub-predicate** of it — a conclusion that becomes a `pred`-edge by genl subsumption,
+  the graph the walk also reads?
+
+  Such a rule is the closure written out, and the two must not both run.  A rule deriving
+  `(P x z)` from `(P x y)` and `(P y z)` stores its conclusions *inside* the fixpoint, so a
+  walk beside it would find a different shortest chain depending on how far the rule had
+  got — two chainers agreeing about every belief would still record different antecedents
+  for one conclusion.  Nothing is lost by declining: the rule reaches every pair the walk
+  would, and stores each as a hop the matcher then matches directly.
+
+  A property of the **rule**, so it is the same answer whatever else the KB holds and
+  whatever order it arrived in — which a roster of \"predicates some rule concludes\" could
+  not be, that set growing as rules land.  **One direction only.**  A rule concluding
+  `pred` or a *sub*-predicate of it feeds that graph — a sub-predicate tuple is a `pred`
+  tuple by subsumption — so it is the closure one level down and the walk must yield.  A
+  rule concluding a *super*-predicate does not: a general conclusion is no fact about the
+  specific `pred`, so its firing and the walk cannot disagree about `pred`'s chains, and
+  suppressing the walk there would drop sound two-hop derivations for nothing.  So only
+  `pred ∈ genls*(cpred)` (which is reflexive, catching the `pred = cpred` closure rule),
+  never `pred ∈ specs*(cpred)`."
+  [kb pred cpred]
+  (let [tx (:taxonomy kb)]
+    (boolean (and cpred (symbol? cpred)
+                  (contains? (tax/genls-global tx cpred) pred)))))
+
+(defn- transitive-antecedent?
+  "Is `ante` a binary literal whose own functor this KB declares `(transitive P)` — and
+  therefore one the join can solve by walking the stored edges as well as by matching?
+
+  `genl` and `genlCx` are excluded, exactly as they are in the prover: their closures are
+  cached relations answered by their own provers, and nothing about them is a walk over
+  believed facts.  A rule that concludes on what it would walk is excluded too, and
+  `walks-its-own-conclusion?` says why; `cpred` is the consequent predicate the join is
+  running for, nil where there is none to read.
+
+  One map read on a KB that declares no transitive predicate, which is where it stops for
+  nearly every rule; the closure reads behind the recursion test are paid only for an
+  antecedent on a predicate this KB actually declared transitive."
+  [kb ante cpred]
+  (and (sequential? ante) (= 3 (count ante))
+       (let [f (nm/functor ante)]
+         (and (symbol? f) (not (sx/variable? f))
+              (not (contains? provers/transitive-predicates f))
+              (contains? (tax/props (:taxonomy kb) :transitive) f)
+              (not (walks-its-own-conclusion? kb f cpred))))))
+
+(defn- transitive-source-preds
+  "The predicates a walk over `pred` reads its hops from — `pred`'s own sub-predicates,
+  plus every partner an `inverse` records a hop on.  `provers/hop-patterns`' step relation,
+  named as a set so `provers/source-contexts` can say which contexts hold such an edge.
+
+  Global rather than scoped, and over-approximating in the harmless direction: a context
+  holding only a hop the reader cannot see is enumerated, walks nothing it can see, and
+  answers nothing."
+  [kb pred]
+  (let [tx (:taxonomy kb)]
+    (into (tax/specs-global tx pred) (tax/inverses-under tx pred))))
 
 (defn- mirrored-antecedent?
   "Is `ante` a literal the matcher answers through the **symmetric mirror** — a binary
@@ -875,28 +1067,30 @@
 
   `admit` is the arrival filter on the handles this antecedent yields — a
   `(fn [handle] -> boolean)` from `complete-antecedents`, or nil for no suppression
-  (`*agenda-arrivals*`).  **Three** positions decline it, and the rule is the same one
+  (`*agenda-arrivals*`).  **Four** positions decline it, and the rule is the same one
   each time: the join reaches a satisfier no trigger can, so there is nothing to order
   it against.  A **qualitative** antecedent draws its handles from what a network
-  entails rather than from the fact that satisfied it; an **inherited** one is
+  entails rather than from the fact that satisfied it; a **computed** one draws them from
+  what a prover read out of the store rather than from a tuple; an **inherited** one is
   satisfied by a claim nobody stored, whose handles name the stated claim, the
   declaration and the reach edges rather than the tuple that matched; and a
   **mirrored** one is reachable by the join and not by the trigger
-  (`mirrored-antecedent?`).  The first two decline it structurally — the filter is
-  applied to `hit` alone, and both arrive by their own `concat`.  Declining is always
+  (`mirrored-antecedent?`).  The first three decline it structurally — the filter is
+  applied to `hit` alone, and each arrives by its own `concat`.  Declining is always
   safe — it re-derives a duplicate the TMS already rejects — where suppressing wrongly
   loses a firing.
 
-  A deferred literal is computed (see above) and contributes **no handle**.  Every
-  other antecedent contributes the handle of the fact that satisfied it, and a
-  computed one has no fact to name.  Inventing a placeholder would be worse than
-  omitting it: `retract!` withdraws a conclusion by walking its justifications'
-  antecedents, so a handle that names nothing retractable is a support that can never
-  be taken away.  Omitting it is also *sufficient* — the computed literal's truth is a
-  function of the bindings, and those bindings come from the fact handles that are
-  listed, so dropping any contributing fact still withdraws the conclusion.  A firing
-  whose antecedents are all computed lists the rule handle alone, which is the honest
-  reading: nothing but the rule supports it.
+  A computed literal contributes **the handles its answer was read from, and no more**.
+  For the arithmetic comparisons that is nothing: `(lessThan ?a ?b)` is a function of the
+  bindings, those bindings came from the fact handles already listed, and dropping any
+  contributing fact still withdraws the conclusion — so a firing whose antecedents are all
+  arithmetic lists the rule handle alone, which is the honest reading.  Inventing a
+  placeholder there would be worse than omitting it: `retract!` withdraws a conclusion by
+  walking its justifications' antecedents, so a handle naming nothing retractable is a
+  support that can never be taken away.  For a `provers/SupportingProver` it is *not*
+  nothing, and omitting it would be the mirror mistake — a measure comparison holds
+  because of a stored `conversionFactor` no other antecedent names, so a firing that
+  omitted it would keep its conclusion after that row was retracted.
 
   `:matched` pairs each ordinarily matched fact with the **antecedent key it
   satisfied** (`rules/antecedent-key`, a functor or `[:not functor]`), which `:handles`
@@ -906,14 +1100,17 @@
   taxonomy edges it rests on (`subsumption-links`); the key rather than the bare functor
   because under a negation that climb runs the other way, and the bare functor is `not`
   for every negation there is.  A qualitative entailment's support handles are not
-  paired: the network licensed them, not the taxonomy."
-  [kb ante states admit]
+  paired: the network licensed them, not the taxonomy.
+
+  `cpred` is the consequent predicate of the rule this join is running for, read by the
+  transitive arm alone (`transitive-antecedent?`) and nil for a caller that has none."
+  [kb ante states admit cpred]
   (cond
     ;; An `(unknown S)` antecedent is negation as failure, checked at *derive time* in
     ;; the conclusion's placement context — exactly where `exceptWhen` is checked, and
     ;; for the same reason: forward and backward must evaluate it in the same context.
     ;; It binds nothing and names no fact, so the join passes straight through; the
-    ;; block decision is `naf-blocks?` in `derive-conclusion`, and later fact arrivals
+    ;; block decision is `naf-blocks?` in `place-conseq`, and later fact arrivals
     ;; re-block it through the same re-check path exceptions use.
     (sx/unknown? ante) states
 
@@ -934,7 +1131,7 @@
 
     (deferred-antecedent? kb ante)
     (mapcat (fn [{:keys [bindings handles matched]}]
-              (map (fn [b] {:bindings b :handles handles :matched matched})
+              (map (fn [[b sup]] {:bindings b :handles (into handles sup) :matched matched})
                    (solve-deferred kb ante bindings)))
             states)
 
@@ -948,11 +1145,16 @@
                             {:bindings (merge bindings b2) :handles (conj handles h)
                              :matched  (conj matched [ak h])}))
                         states)]
-      (if calc
-        (distinct (concat hit (solve-qualitative kb calc ante states)))
-        (if (preserving-antecedent? kb ante '?ctx)
-          (distinct (concat hit (solve-preserving kb ante states)))
-          hit)))))
+      (cond
+        calc (distinct (concat hit (solve-qualitative kb calc ante states)))
+        (computed-antecedent? kb ante)
+        (distinct (concat hit (solve-computed kb ante states)))
+        (transitive-antecedent? kb ante cpred)
+        (distinct (concat hit (solve-computed kb ante states
+                                              (transitive-source-preds kb (nm/functor ante)))))
+        (preserving-antecedent? kb ante '?ctx)
+        (distinct (concat hit (solve-preserving kb ante states)))
+        :else hit))))
 
 (defn- planned-join
   "Order `antecedents` by estimated fan-out under the bindings already in hand (`b0`),
@@ -971,20 +1173,28 @@
   The **post-join** literals are withheld entirely (`rules/post-join-literals`): an
   aggregate and everything reading its output are evaluated per placement context, so
   a join that ran them would either take the census in the wrong context or reach a
-  comparison whose input nothing here can bind.
+  comparison whose input nothing here can bind.  A **closed-extent** negative literal is
+  withheld beside them (docs/naf.md): under the grant it is negation as failure, and a
+  join over the stored negatives would answer a different question.
 
   `admit` is the arrival filter (`join-antecedent`), nil for a join that suppresses
   nothing.  It is per **handle** rather than per position, so the reordering above
   neither reads it nor disturbs it."
   [kb antecedents b0 consequent-pred seed admit]
   (let [subbed (mapv #(res/substitute % b0) antecedents)
-        post   (set (rules/post-join-literals subbed))
+        ;; ...and a closed-extent negative literal with them, for the sibling reason: it
+        ;; is a **test** on what the conclusion's context believes, not a fact to look up,
+        ;; so joining it would find only the stored negatives and miss the whole point of
+        ;; the grant.  Decided in `derive-conclusion`, where `unknown` is decided.
+        post   (into (set (rules/post-join-literals subbed))
+                     (closed-extent-antecedents kb subbed))
         ;; A registered evaluatable is not in `plan/order`'s static deferred set, so it is
         ;; pinned after its binders by cost instead — computed, so maximally unselective
         ;; until its inputs are bound.  Nil (no override) for the common KB with none, and
         ;; it never disturbs the index model the other antecedents are ranked by.
         est    (provers/evaluatable-est-override (evaluatable-antecedent-preds kb))]
-    (reduce (fn [states ante] (if (post ante) states (join-antecedent kb ante states admit)))
+    (reduce (fn [states ante]
+              (if (post ante) states (join-antecedent kb ante states admit consequent-pred)))
             seed
             (plan/order kb subbed '?ctx {:consequent-pred consequent-pred :est-override est}))))
 
@@ -996,9 +1206,10 @@
   That last one is the asymmetry between the two ways a rule reaches a fact, and it
   is not optional.  A datum triggers on `res/match1`, which is a plain unify; the join
   finds facts through `*matcher*`, which is belief-filtered.  So an OUT datum — a
-  spelling superseded by an equality merge, a defeated default — still fires its rules
-  and still draws conclusions, while no *other* trigger's join can find it.  Its
-  combinations are enumerable here and nowhere else, so here they are all made.
+  defeated default — still fires its rules and still draws conclusions, while no
+  *other* trigger's join can find it.  Its combinations are enumerable here and nowhere
+  else, so here they are all made.  (A **superseded** spelling is the one OUT datum that
+  never reaches a trigger at all, and `process-datum` says why.)
 
   **Admit a candidate whose arrival is at or before the trigger's**, which is semi-naive
   delta evaluation written for an agenda: every satisfying combination is enumerated by
@@ -1125,12 +1336,15 @@
   on this path is a value: an exception escaping a firing would leave the fixpoint half
   computed, and which rule fired first would decide what the KB believes."
   [kb rule sentence pctx all-antes depth bindings strength]
-  ;; A stamped rule concluding a conjunction is polycanonicalized exactly as an asserted
-  ;; one is (`rules/expand-consequent`) — one rule per conjunct, each keyed by its own
-  ;; consequent predicate.  Checked before any of them is stored, for the reason
-  ;; `core/assert` checks its conjuncts first: a mapv is not a transaction, and a mint
-  ;; that half-landed would leave the KB holding part of a rule nobody wrote.
-  (let [minted (rules/expand-consequent sentence)]
+  ;; A stamped rule is polycanonicalized exactly as an asserted one is
+  ;; (`rules/expand-rule`) — one rule per DNF alternative of a disjunctive antecedent,
+  ;; and one per conjunct of a conjunctive consequent, each keyed by its own predicates.
+  ;; This is where a generator's stamped `or` expands: the holes are ground by now, so
+  ;; the alternatives the mint stores are the alternatives of the rule it stamped.
+  ;; Checked before any of them is stored, for the reason `core/assert` checks its
+  ;; conjuncts first: a mapv is not a transaction, and a mint that half-landed would
+  ;; leave the KB holding part of a rule nobody wrote.
+  (let [minted (rules/expand-rule sentence)]
     (if-let [v (some #(checks/rule-violation kb % pctx) minted)]
       (do (violations/report kb [(assoc v :sentence sentence :context pctx
                                         :rule (:rule-handle rule))])
@@ -1267,13 +1481,18 @@
               asym (when new? (special/derive-antisymmetric-equalities kb conseq pctx h))
               axe  (when new? (special/antisym-equate-existing kb conseq))
               axd  (when new? (special/antisym-equate-under-edge kb conseq))
+              ;; ...and a derived `genlCx` edge restates the sentexes its widened cone
+              ;; newly exposes to a merge, as an asserted one does — or which spelling a
+              ;; context reads a fact under would depend on whether the spindle was
+              ;; written or inferred
+              cme  (when new? (special/migrate-under-context-edge kb conseq))
               ;; nil when nothing merged, which is every conclusion on a KB that states
               ;; no equality and every re-derivation on one that does — and a fixpoint
               ;; re-derives the same conclusion on every round of every defaults pass, so
               ;; this is the arm that must cost nothing rather than a little
-              mig  (when (or eq fnl fex fed asym axe axd)
+              mig  (when (or eq fnl fex fed asym axe axd cme)
                      (merge-with into {:new [] :superseded [] :violations []}
-                                 eq fnl fex fed asym axe axd))
+                                 eq fnl fex fed asym axe axd cme))
               ;; The spellings those merges retired, applied here rather than left to the
               ;; settle that follows.  A supersession *starts* when migration says so and
               ;; reaches the reconcile only as its `extra` (`special/supersession-map`),
@@ -1319,6 +1538,22 @@
               ;; they did not have, exactly as an asserted one does — same seeds, or
               ;; the fixpoint would depend on which rule fired first
               (into (special/subsumption-seeds kb conseq))
+              ;; and a *derived* link of a transitive predicate extends its answered
+              ;; closure exactly as an asserted one does — same seeds, same reason.
+              ;;
+              ;; **Only for a new conclusion**, unlike the two seed arms either side of
+              ;; it, and the asymmetry is the point: those seed facts that cannot
+              ;; re-derive the edge which seeded them, so a re-derivation costs a wasted
+              ;; pass and converges.  This one seeds the partner triggers of the rules
+              ;; joined to the predicate — which are exactly the facts whose rule
+              ;; concludes the link, so the datum being processed is itself in the seed
+              ;; set it returns.  Ungated, a re-derivation re-seeds its own trigger,
+              ;; that trigger re-derives the same pair, and since the agenda in `chain`
+              ;; is a plain queue with no dedup the loop never drains: one
+              ;; `(parentOf P0 P1)` under a recursive `ancestorOf` runs to
+              ;; `max-derivations`.  A re-derivation grew no closure, so there is
+              ;; nothing for it to re-drive.
+              (into (when new? (special/transitive-seeds kb conseq)))
               ;; and a derived genlCx edge widens what a rule can see, for the
               ;; same reason and with the same remedy
               (into (special/visibility-seeds kb conseq))))))))
@@ -1383,7 +1618,7 @@
                                 ;; negated: contravariant, so the antecedent is the spec
                                 (and (vector? ak) (vector? fk)) [(second ak) (second fk)]))))))
                 (distinct)
-                (filter (fn [[sub super]] (contains? (tax/genls tax sub) super))))
+                (filter (fn [[sub super]] (contains? (tax/genls-global tax sub) super))))
           matched)))
 
 (defn- subsumption-support
@@ -1406,7 +1641,7 @@
   facts *exist* is not the placement's question, and narrowing the join would drop
   firings placement accepts."
   [kb links vantage]
-  ;; the widest-bottleneck route (reasoning/26): a firing that climbed the genl closure
+  ;; the widest-bottleneck route: a firing that climbed the genl closure
   ;; rests on the *strongest* path relating the two functors, not the shortest, so its
   ;; conclusion is capped at that path's floor.  `supporter-class` is the live JTMS
   ;; defeat-class of each edge supporter, read here where the tms is in hand.
@@ -1634,7 +1869,10 @@
 
 (defn- refusal-reason
   "Why a completed firing may not be placed in `pctx`, or nil — `:post-join`,
-  `:exception`, `:naf` or `:hidden`, in the order they are cheapest to decide.
+  `:exception`, `:naf` or `:hidden`, in the order they are cheapest to decide.  A
+  closed-extent negative antecedent that does not hold reports `:naf`, which is what it
+  is: the same undercutting block, recorded in the same refusal record, released by the
+  same re-evaluation.
 
   Reading the rule *view* rather than the record: `:excepts` and `:naf` are already in
   hand on the firing path, and fetching them again per firing is what the view exists to
@@ -1644,6 +1882,7 @@
     (nil? bindings)                                                 :post-join
     (some #(exception-holds? kb % bindings pctx) (:excepts rule))    :exception
     (naf-blocks? kb (:naf rule) bindings pctx)                       :naf
+    (closed-extent-blocks? kb (:closed-extent rule) bindings pctx)   :naf
     (antecedent-hidden? kb antes pctx)                               :hidden))
 
 (def ^:dynamic *report-no-placement?*
@@ -1872,11 +2111,15 @@
      ;; naming this rule, block-if-any (`provers/rule-exceptions`).  Fetched only when
      ;; the cheap roster gate says the rule is watched, so an ordinary firing pays
      ;; nothing (docs/exceptions.md).
-     :excepts (when (p/exception-rule? (:index kb) handle)
+     :excepts (when (reads/watched-rule? (:index kb) handle)
                 (provers/rule-exceptions kb handle))
      ;; the negation-as-failure antecedents — `(unknown S)` literals, blocked the same
      ;; way an exception is, per placement context (docs/naf.md)
      :naf (rules/naf-antecedents rsx)
+     ;; ...and the negative antecedents a `closedExtentPredicate` grant reads as NAF —
+     ;; withheld from the join and decided here, for the same reason and by the same
+     ;; block/sweep/revive path (docs/naf.md)
+     :closed-extent (closed-extent-antecedents kb (rules/antecedents s))
      ;; the aggregate antecedents and whatever consumes their output — evaluated per
      ;; placement context rather than in the join, since a census depends on where it
      ;; is taken and a comparison on one cannot run before it (docs/aggregate.md)
@@ -1964,7 +2207,7 @@
         tms (:tms kb)
         idx (:index kb)
         rule-hs (into (sorted-set)
-                      (mapcat #(p/rules-by-antecedent idx %))
+                      (mapcat #(reads/as-stored-rules-by-antecedent idx %))
                       (keys @(:rule-antecedents kb)))]
     (into []
           (keep (fn [rh]
@@ -2125,12 +2368,87 @@
     (let [p (first (nm/args fact))]
       (when (and (symbol? p) (not (sx/variable? p)))
         (not-empty
-         (into #{} (mapcat #(p/rules-by-antecedent (:index kb) %))
-               (tax/genls (:taxonomy kb) p)))))))
+         (into #{} (mapcat #(reads/as-stored-rules-by-antecedent (:index kb) %))
+               (tax/genls-global (:taxonomy kb) p)))))))
+
+(defn- computed-rejoin-rules
+  "The forward rules to re-join because `bfn` is a predicate a registered
+  `SupportingProver` **reads** (`provers/support-source-preds`) — the rules carrying an
+  antecedent that such a prover answers.
+
+  The qualitative shape one layer over, and needed for the same reason: a
+  `(conversionFactor Gram Kilogram 0.001)` decides whether `(quantityGreaterThan ?q
+  (QuantityFn 1 Kilogram))` holds of a mass in grams, and nothing connects the two
+  predicates — the trigger index keys on the antecedent's own functor, and the facts that
+  would have triggered the rule have already arrived.  Without this the same three
+  sentences derive a conclusion or not depending on whether the unit table came last.
+
+  `bfn` is the functor of the sentence's **underlying body**, so a believed `(not
+  (conversionFactor …))` reaches here too: it defeats the positive row and so moves the
+  reading exactly as removing it would.
+
+  Two set lookups for every datum that is not one of these — the source set is
+  `#{dimensionOf conversionFactor}` on the shipped registry — and the index reads only for
+  a datum that is."
+  [kb bfn]
+  (let [srcs (provers/support-source-preds kb)]
+    (when (contains? srcs bfn)
+      (not-empty
+       (into #{} (mapcat #(reads/as-stored-rules-by-antecedent (:index kb) %))
+             (provers/support-answered-preds kb))))))
+
+(defn- transitive-rejoin-rules
+  "The forward rules to re-join because the arriving datum moved a transitive walk — it is
+  the `(transitive P)` **declaration** that turns one on, or an **edge** of one already
+  declared: a fact on that predicate, on a sub-predicate of it, or on a partner an
+  `inverse` records its hops on.
+
+  The declaration half is the `(symmetric P)` case exactly (`symmetric-rejoin-rules`): it
+  changes which pairs a `P` antecedent reaches, and the facts it reaches them over have
+  already arrived, so nothing about `P` would ever bring the rule round again.  The
+  antecedent's **own** functor has to be the declared one for the join to walk
+  (`transitive-antecedent?`), so this keys on `P` itself rather than on its `genl`
+  closure.
+
+  The same problem `computed-rejoin-rules` solves one predicate family over, and the same
+  answer.  An arriving `(causes B C)` triggers a `(causes ?a ?c)` antecedent at the tuple
+  it is *stated* at, `?a = B`; the pair it licenses through an already-stored `(causes A
+  B)` is `?a = A`, and no trigger enumerates that.  Without the re-join the same three
+  sentences derive a conclusion or not depending on which hop of the chain arrived last.
+
+  `bfn` is the functor of the sentence's **underlying body**, so a believed `(not (causes
+  B C))` reaches here too: it defeats the edge and so breaks the chain exactly as removing
+  it would.
+
+  Over-approximating on purpose: a rule whose own conclusion is what it would walk takes
+  the matcher's answers alone (`walks-its-own-conclusion?`), and re-joining it in full
+  derives exactly what triggering it would.  A re-join too many is a firing the TMS dedups;
+  one too few is a conclusion that depends on which hop arrived last.
+
+  A symbol compare and one map read for every datum that is neither.  On a KB that does
+  declare a transitive predicate the edge half is a memoized `genls` closure read and a
+  handful of set lookups — and its `inverse` arm costs nothing at all until some KB
+  declares an inverse, `inverses-under` answering empty off one map read until then."
+  [kb fact bfn]
+  (let [tx       (:taxonomy kb)
+        walked?  #(and (symbol? %) (not (sx/variable? %))
+                       (not (contains? provers/transitive-predicates %)))
+        declared (when (and (sequential? fact) (= 2 (count fact))
+                            (= 'transitive (nm/functor fact)))
+                   (filter walked? (take 1 (nm/args fact))))
+        ts       (filter walked? (tax/props tx :transitive))
+        edges    (when (seq ts)
+                   (let [ups (tax/genls-global tx bfn)]
+                     (or (seq (filter ups ts))
+                         (seq (filter #(contains? (tax/inverses-under tx %) bfn) ts)))))]
+    (when-let [hit (seq (distinct (concat declared edges)))]
+      (not-empty
+       (into #{} (mapcat #(reads/as-stored-rules-by-antecedent (:index kb) %)) hit)))))
 
 (defn- rejoin-in-full
   "Re-join in full every forward rule the arriving datum moved a preserved predicate
-  for, or newly declared symmetric.
+  for, newly declared symmetric, fed a `SupportingProver` a source it reads, or gave a
+  new hop to a transitive predicate's walk.
 
   In full rather than at a trigger position, and the reason is the qualitative one: the
   arriving sentence need not unify with the antecedent it enabled.  `(genl chihuahua
@@ -2143,7 +2461,11 @@
   Bounded by the rules carrying an antecedent on a declared predicate, which is none
   for every KB that declares no preservation and none for nearly every KB that does.
   The symmetric caller is bounded the same way — by the rules with an antecedent over
-  the predicate just declared — and is reached only by a declaration datum."
+  the predicate just declared — and is reached only by a declaration datum.  So is the
+  computed one: by the rules with a `support-answered-preds` antecedent, and reached only
+  by a datum on a predicate some registered prover reads.  So is the transitive one: by the
+  rules with an antecedent on a declared-transitive predicate, and reached only by a datum
+  on an edge of one."
   [kb rules max-depth truncated]
   (reduce (fn [nh rh]
             (let [rsx (p/get-sentex (:records kb) rh)]
@@ -2184,9 +2506,11 @@
         ;; edge carries through a negation — read off the rule roster rather than off
         ;; that closure (`rules/trigger-keys`)
         preds    (rules/trigger-keys (:taxonomy kb) fact @(:rule-antecedents kb))
-        ;; the antecedent index is complete, so each candidate's own record decides
-        ;; whether it may fire here: forward-capable is the only question
-        rhs      (into #{} (mapcat #(p/rules-by-antecedent (:index kb) %)) preds)
+        ;; the antecedent index is complete and posts on storage, so each candidate's own
+        ;; record decides whether it may fire here — forward-capable, and believed, which
+        ;; for a rule is `res/rule-believed?` rather than the `jtms/in?` a fact takes
+        ;; (a rule the TMS holds no node for is available, not disbelieved)
+        rhs      (into #{} (mapcat #(reads/as-stored-rules-by-antecedent (:index kb) %)) preds)
         ;; A qualitative fact changes the *whole* network, so it can license an
         ;; entailment on any predicate of its calculus — including predicates the
         ;; trigger index would never connect it to, since a new `ntpp` fact licenses a
@@ -2203,11 +2527,16 @@
         ;; canonical sentence — `sx/underlying-body` would rebuild and re-intern the
         ;; whole sentence to answer the same question).  This runs per datum for every
         ;; fact a chaining run touches, qualitative or not and prover or none.
-        qcal     (qkb/calculus-for kb (if (= sx/not-functor ffn)
-                                        (nm/functor (kb/body-under-not fact))
-                                        ffn))
+        ;;
+        ;; `calculus-triggered-by`, because a network has readers besides its own stored
+        ;; facts: the interval algebra takes a metric **narrowing** from `stp`, so a
+        ;; `temporalDistance` or a `startOf` moves what is entailed between two intervals
+        ;; while being a predicate no interval rule mentions.  The rules re-joined are
+        ;; still the ones carrying an antecedent the calculus *answers*.
+        bfn      (if (= sx/not-functor ffn) (nm/functor (kb/body-under-not fact)) ffn)
+        qcal     (qkb/calculus-triggered-by kb bfn)
         qrhs     (when qcal
-                   (into #{} (mapcat #(p/rules-by-antecedent (:index kb) %))
+                   (into #{} (mapcat #(reads/as-stored-rules-by-antecedent (:index kb) %))
                          (:predicates qcal)))
         ;; The same shape one layer over, and the same reason: a sentence can move what
         ;; a preserved predicate licenses without being on that predicate — a `genl`
@@ -2222,10 +2551,20 @@
         ;; it reaches them over have already arrived.  A symbol compare for every datum
         ;; that is not such a declaration.
         srhs     (symmetric-rejoin-rules kb fact)
+        ;; And once more for a prover rather than for the matcher: a datum on a predicate
+        ;; a `SupportingProver` reads moves what a computed antecedent answers, and no
+        ;; walk from `conversionFactor` reaches `quantityGreaterThan`.
+        crhs     (computed-rejoin-rules kb bfn)
+        ;; And once more for the walk rather than for the table: an arriving edge makes
+        ;; pairs a `(transitive P)` antecedent reaches through it, and the trigger index
+        ;; offers only the tuple the edge is stated at.
+        trhs     (transitive-rejoin-rules kb fact bfn)
         trigger  (cond->> rhs
                    qrhs (remove qrhs)
                    prhs (remove prhs)
-                   srhs (remove srhs))
+                   srhs (remove srhs)
+                   crhs (remove crhs)
+                   trhs (remove trhs))
         ;; forward-capable *and believed*: the antecedent index posts on storage, so a
         ;; rule whose support has gone is still a candidate here and is refused on its
         ;; record rather than by the lookup (`res/rule-believed?`)
@@ -2263,7 +2602,9 @@
      (concat
       (when (seq qrhs) (rejoin-qualitative kb qcal qrhs max-depth truncated))
       (when (seq prhs) (rejoin-in-full kb prhs max-depth truncated))
-      (when (seq srhs) (rejoin-in-full kb srhs max-depth truncated))))))
+      (when (seq srhs) (rejoin-in-full kb srhs max-depth truncated))
+      (when (seq crhs) (rejoin-in-full kb crhs max-depth truncated))
+      (when (seq trhs) (rejoin-in-full kb trhs max-depth truncated))))))
 
 (defn- process-datum
   "In a global chain, a rule datum fires if it is forward-capable — defeasible or
@@ -2297,7 +2638,23 @@
           (if (and (rules/forward-sentex? sx) (res/rule-believed? kb datum))
             (fire-rule kb datum max-depth truncated)
             [])
-          (fire-rules-for kb datum max-depth truncated))))))
+          ;; A **superseded** fact is the one unbelieved datum that does not fire, and
+          ;; the asymmetry with a defeated one is the whole of the reason.  A defeat is
+          ;; a label, so a conclusion drawn off a defeated antecedent is labelled OUT
+          ;; with it and revives with it — which is why an OUT datum is enumerated here
+          ;; at all (`arrival-admit`).  A supersession is not a label: it is deliberately
+          ;; **not** a forced OUT inside the fixpoint, since the twin is justified by
+          ;; the spelling it displaced (docs/equality.md), so a conclusion drawn off a
+          ;; retired spelling would stay believed under that spelling while every read
+          ;; asks after the representative — the same knowledge deriving one conclusion
+          ;; where the merge preceded the fact and two where it followed.  The
+          ;; restatement is on the agenda beside this datum, so the firing is not lost,
+          ;; it is made once at the elected spelling; and when the merge goes away the
+          ;; spelling comes back through `settle`'s un-merge channel and fires then
+          ;; (docs/nmtms.md).
+          (if (jtms/superseded? (:tms kb) datum)
+            []
+            (fire-rules-for kb datum max-depth truncated)))))))
 
 (defn chain
   "Semi-naive fixpoint forward chaining seeded with `seed`, strict and defeasible
@@ -2343,7 +2700,7 @@
                     (when arrivals
                       (doseq [h hs] (.put ^java.util.Map arrivals h (vswap! arrived inc)))))]
     ;; the tick is bound whether or not anybody is listening: it is also how the run
-    ;; counts what it derived, and the loop no longer sees that between datums.
+    ;; counts what it derived, and the loop cannot see that between datums.
     ;; The handle cache is engaged for the same scope, and for the reason that scope
     ;; exists: a fixpoint asks "is this conclusion already stored?" once per witness, so
     ;; a conclusion reached k ways is k walks of the trie to a handle this run minted
@@ -2426,7 +2783,7 @@
   default.  The recovered KB is internally consistent at that default; docs/exceptions.md
   states the one narrow case it can differ from the live session in."
   [kb]
-  (when-let [roster (seq (p/exception-rules (:index kb)))]
+  (when-let [roster (seq (reads/watched-rules (:index kb)))]
     (reset! (:refused kb) {})
     (let [live (filterv (fn [rh]
                           (let [rsx (p/get-sentex (:records kb) rh)]

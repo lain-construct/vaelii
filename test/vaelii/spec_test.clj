@@ -86,8 +86,8 @@
                       (comp (filter (comp opts? val)) (map key) (remove specced))
                       (ns-publics 'vaelii.core))]
     (is (= '#{abduce add-evaluatable argue assert-many bulk-assert-facts! check clear-caches
-              compare-tacticians edit-with-consequences! export! fork import! kb-quality preview
-              search-tree}
+              compare-tacticians edit-with-consequences! export! export-text! fork import!
+              kb-quality preview search-tree}
            gap)
         "the opts-taking publics `public-syms` does not reach — named in its docstring")))
 
@@ -238,9 +238,9 @@
 
 (deftest a-direction-refusal-is-predicted-by-check
   ;; `assert` acts on `:direction`, so every refusal it makes must be one `check`
-  ;; reports — `check-edit` runs `check` per entry, and a batch checked clean that
-  ;; then throws mid-`edit` leaves its earlier adds stored, the half-applied state
-  ;; the dry run exists to prevent.  Both doors read `direction-opt-problem`.
+  ;; reports — `check-edit` runs `check` per entry, and a batch checked clean that then
+  ;; throws mid-`edit` is a batch rolled back whole, which is a write the caller was told
+  ;; would happen and did not.  Both doors read `direction-opt-problem`.
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [dog cat Muffet CxSpec]
       (let [rule (list 'implies (list dog '?x) (list cat '?x))]

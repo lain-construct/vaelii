@@ -24,7 +24,7 @@
 ;; or will not act on, in the refusing agent's context — deliberately UNMARKED, so a
 ;; parse failure outlives what provoked it.  `retracts` is the engine's retract! on a
 ;; handle.  Adjudication is NOT here: this layer only represents the moves, and the
-;; policies that resolve a dispute are vaelii.impl.koinii.adjudication's.  The action
+;; policies that resolve a dispute are vaelii.koinii.adjudication's.  The action
 ;; dimension (request / propose / accept) maps onto A2A, not this vocabulary (D5).
 ;;
 ;; Sees CxCore for its vocabulary.  Actor ids are the individuals registered in

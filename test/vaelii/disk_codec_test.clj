@@ -94,6 +94,18 @@
     (is (= r (codec/decode-sentex (plain r))))
     (is (= d (codec/decode-justification (plain d))))))
 
+(deftest a-frame-tag-this-build-does-not-read-is-refused-by-name
+  ;; The other direction of the same compatibility question: a positional frame whose tag
+  ;; is not one of this codec's must be refused rather than read as an atomic whose fields
+  ;; land in the wrong slots.  Refused *by name*, because `rebuild-premises!`
+  ;; discriminates on the type: `:damaged-dictionary` and `:malformed-record` are crash
+  ;; damage and tombstone the record, while this one rethrows — a build that cannot read a
+  ;; log must not delete it.
+  (let [e (is (thrown? clojure.lang.ExceptionInfo
+                       (codec/decode-sentex [99 '(dog Muffet) 'C 7 :true nil])))]
+    (is (= :unknown-frame (:type (ex-data e))))
+    (is (= 99 (:tag (ex-data e))))))
+
 (deftest the-codec-is-what-shrinks-the-frame
   ;; the point of the codec, asserted rather than assumed: a positional frame is
   ;; materially smaller than the record frame it replaces
@@ -208,10 +220,6 @@
               {:keys [dec]} (get (codec/by-kind d2 true) "sentexes")]
           (is (= shapes (mapv #(dec (nippy/thaw %)) frozen))
               "every frame decodes through a dictionary rebuilt from its log")
-          ;; and a token interned before the restart keeps its id
-          (is (= (mapv #(dec (nippy/thaw %)) frozen)
-                 (mapv #(dec (nippy/thaw %)) frozen))
-              "decoding is repeatable")
           (dtok/close! d2))
         ;; reopen once more so the fixture's close! has a live handle
         (let [d3 (dtok/open-token-log dir)]

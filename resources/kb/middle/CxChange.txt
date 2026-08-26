@@ -1,0 +1,83 @@
+;; CxChange — the theory of change: a state persists until something ends it. A simple
+;; event calculus over CxTime's vocabulary and the point algebra's ordering of instants.
+;; Sees the shared upper ontology via CxUniverse; CxWell sees it.
+;;
+;; A narrative states four things: that an event happened at an instant, which fluents it
+;; started, which it stopped, and which fluents were already the case at the outset. Two
+;; questions follow, and neither is stated: was a fluent ended between two moments
+;; (clipped), and is it the case at a moment (holdsAt). Inertia is the whole content —
+;; a fluent an event started still holds later exactly while nothing has clipped it since,
+;; and "nothing has" is negation as failure over what the KB derives. So an event heard of
+;; afterwards takes the answer back — and the clipped fact it derived is an ordinary stored
+;; conclusion, so retracting that event sweeps it and the answer comes again.
+;;
+;; The two directions are chosen and not arbitrary. clipped is left to chain FORWARD — the
+;; default direction — because the unknown that reads it runs over the registry, which
+;; expands no rule (docs/naf.md): a backward-only clipped would be invisible to the very
+;; antecedent that exists to consult it, and every fluent would persist for ever. holdsAt
+;; is BACKWARD, because a fluent holds at every instant between its start and its end, and
+;; forward chaining would materialize one fact per moment per fluent for a question
+;; anybody can ask directly.
+;;
+;; The theory is predicate-stratified, which is what admits it: holdsAt depends negatively
+;; on clipped and clippedBefore, and neither of those depends on holdsAt at all. So there
+;; is no cycle through negation, and the assert-time check (docs/exceptions.md) passes
+;; without the theory having to be written around it.
+;;
+;; What clipped can see is the order the KB's instantBefore EDGES imply. CxTime declares
+;; instantBefore transitive, and a forward join over an antecedent on a transitive
+;; predicate reads the closure beside the stored facts (docs/taxonomy.md), so a narrative
+;; writes down the consecutive links and inertia reads the order they give. The chain of
+;; edges each answer crossed is in the firing's justification, so retracting a link takes
+;; back the clipped facts that crossed it. An ordering only the point calculus entails is
+;; not an edge and is not read; the calculus is opt-in besides (docs/time.md).
+;;
+;; A fluent is a term, not a sentence: (AsleepFn Whiskers) is a reified NAT, one constant
+;; per animal, declared with (result AsleepFn fluent) by whichever context owns the state
+;; (docs/nat.md). That keeps holdsAt an ordinary binary predicate over two terms, and it
+;; keeps the fluent out of the sentence position, where a quoted sentence would have to be
+;; held opaque to identity congruence to mean anything.
+;;
+;; Nothing here is defeasible. Inertia is undercut rather than defeated — a clipped fluent
+;; has no conclusion to arbitrate, exactly as an excepted default has none — so the rules
+;; are ordinary implications and the KB never holds both halves of "asleep at 6" and
+;; "awake at 6" to settle between.
+
+(genlCx CxChange CxUniverse)
+(genlCx CxWell CxChange)
+
+;; ---- what ended a fluent, and when ---------------------------------------
+;; Left to chain forward, so the unknown below can read it. Both bounds come from the
+;; ordering the narrative's instantBefore edges imply, so the derived extent is bounded by
+;; what the narrative says about time.
+(implies (and (happens ?event ?instant)
+              (terminates ?event ?fluent ?instant)
+              (instantBefore ?instant1 ?instant)
+              (instantBefore ?instant ?instant2))
+         (clipped ?instant1 ?fluent ?instant2))
+
+;; The half-open reading, for a fluent that was the case at the outset: nothing named the
+;; moment it began, so there is no lower bound to state.
+(implies (and (happens ?event ?instant1)
+              (terminates ?event ?fluent ?instant1)
+              (instantBefore ?instant1 ?instant2))
+         (clippedBefore ?fluent ?instant2))
+
+;; ---- inertia: a state persists until something ends it -------------------
+;; Backward, and one literal of negation as failure. clipped is its own predicate rather
+;; than a conjunction inside the unknown precisely so that this stays one literal.
+(set/backwardRule
+  (implies (and (happens ?event ?instant1)
+                (initiates ?event ?fluent ?instant1)
+                (instantBefore ?instant1 ?instant2)
+                (unknown (clipped ?instant1 ?fluent ?instant2)))
+           (holdsAt ?fluent ?instant2)))
+
+;; And the same for a fluent nobody started, because it was already the case. time_point
+;; is the generator: negation as failure is closed, so the moment being asked about has to
+;; be bound by something positive before the unknown can run (docs/naf.md).
+(set/backwardRule
+  (implies (and (initially ?fluent)
+                (time_point ?instant)
+                (unknown (clippedBefore ?fluent ?instant)))
+           (holdsAt ?fluent ?instant)))

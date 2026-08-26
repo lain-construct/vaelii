@@ -59,6 +59,7 @@
             [ring.adapter.jetty :as jetty]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
+            [vaelii.impl.config :as config]
             [vaelii.impl.guard :as guard]
             [vaelii.impl.subscribe :as sub])
   (:import [org.eclipse.jetty.server Server ServerConnector]))
@@ -70,127 +71,375 @@
 
 (defn- op [f] (fn [kb args] (apply f kb args)))
 
+(defn- op*
+  "The same, for a `vaelii.core` fn that takes **no KB** — the static rosters and the
+  pure renderers (`levels`, `calculi`, `readable-sentence`, `quality-report`).  The
+  daemon still supplies a KB to every row, so this one drops it; `kbless-ops` below is
+  the roster a caller generating from this table reads, since a closure cannot be asked
+  which shape it has."
+  [f] (fn [_kb args] (apply f args)))
+
+(def kbless-ops
+  "The ops whose `vaelii.core` fn takes no KB (`op*` above).  Held as data rather than
+  left implicit in the closures, because two generators read this table and both have to
+  know whether an op's first `vaelii.core` parameter is the KB the daemon supplies or an
+  argument the caller sends: `vaelii.impl.client`'s wrappers (arity for arity) and
+  `vaelii.impl.llm.tools`' schemas (parameter by parameter)."
+  #{:levels :calculi :readable-sentence :quality-report})
+
+(defn- wire-handles
+  "`core/handles` as a sorted vector.  The whole-KB roster is a `java.util.Set` that is
+  deliberately *not* an `IPersistentSet` at scale (`vaelii.impl.roster`), and such a
+  value has no EDN print form — it would reach a client as `#object[…]`.  Sorted, so two
+  daemons over the same store answer the same bytes."
+  [kb] (vec (sort (v/handles kb))))
+
+(defn- without-resume
+  "Wrap an anytime read (`ask-within` / `prove-within`) so its partial result crosses the
+  wire.  The contract's `:resume` is a **function** closing over an unrealized lazy tail
+  or a DFS goal stack, and neither a function nor the heap it pins crosses an EDN wire —
+  the same wall `:export`'s `:on-progress` hits.  So the key is dropped and replaced by
+  **`:resumable`**, the one bit of it a remote caller can act on: the search had more to
+  give, and asking for the rest means a fresh call under a larger budget rather than
+  `core/resume`, which is in-process only (docs/anytime.md).
+
+  A boolean rather than a silent omission: a caller writing the documented
+  `(when (:resume r) …)` loop against a daemon would otherwise read every partial as
+  complete and stop one step in."
+  [f]
+  (fn [& args]
+    (let [r (apply f args)]
+      (-> r (dissoc :resume) (assoc :resumable (some? (:resume r)))))))
+
+;; ---- the search ceiling: a bound a request may lower and not raise ------
+
+(def search-bounds
+  "Which of the two ceilings apply to which op, and under which key the op reads it.
+
+  A read that expands rules runs on the daemon's **single write monitor**, so its cost
+  is not the caller's alone: every other request queues behind it.  The two dials a
+  caller sets are the two ceilings — `:max-ms` (`config/max-query-ms`) and `:max-depth`
+  (`config/max-query-depth`) — and this table says which door reads which, because the
+  option rosters differ (`query-opt-keys` has no `:max-ms` to fill in, `search-tree`'s
+  has both, an anytime budget map is `:max-ms` and takes no default of its own).
+
+  **A door with no bound of its own is not on it**, which is a fact about the door rather
+  than a category: `:sentexes-matching` has no dial to raise, so there is nothing to
+  clamp. The four backward-search doors do have one (`core/ask-opt-keys`,
+  `core/prove-opt-keys`), and are held to the ceiling like the rest — `:ask` and `:ask?`
+  to the clock alone, since nothing in the prover registry expands a rule."
+  {:query              #{:max-depth}
+   :query?             #{:max-depth}
+   :argue              #{:max-depth}
+   :why                #{:max-depth}
+   :why-not            #{:max-depth :max-ms}
+   :search-tree        #{:max-depth :max-ms}
+   :compare-tacticians #{:max-depth :max-ms}
+   :ask                #{:max-ms}
+   :ask?               #{:max-ms}
+   :prove              #{:max-depth :max-ms}
+   :provable?          #{:max-depth :max-ms}
+   :ask-within         #{:max-ms}
+   :prove-within       #{:max-depth :max-ms}})
+
+(def ^:private clock-fill
+  "The ops whose ceiling has to reach a caller who sent **no option map at all**, and the
+  arguments to fill in between what they sent and the map.
+
+  A `:max-depth` op needs nothing here: absent there is a *smaller* question than the
+  ceiling — no rule expansion at `query`'s door, the shipped guard at `prove-within`'s —
+  so a call with no map is already inside the bound. Absent `:max-ms` is the opposite: it
+  is **no clock**, and an unbounded backward search on the daemon's single write monitor
+  is the exposure the ceiling exists for. So a short call to one of these is padded out to
+  the arity that has a map, with `vaelii.core`'s own default for each argument in
+  between, and `under-ceiling` then fills the clock in.
+
+  Only the four search doors, and only their one intervening argument — the context,
+  whose default is `?ctx` at each of them. A door added here owes the same reading of its
+  own arglists."
+  {:ask       ['?ctx]
+   :ask?      ['?ctx]
+   :prove     ['?ctx]
+   :provable? ['?ctx]})
+
+(defn- with-opts-map
+  "`args` padded out to the arity whose last argument is the option map: nothing to do
+  when the caller already sent one (or sent nothing at all, which is an arity refusal the
+  op itself owes), else the tail of `fill` the call is short by, and then an empty map for
+  `under-ceiling` to write the clock into."
+  [args fill]
+  (if (or (empty? args) (map? (peek args)))
+    args
+    (conj (into args (subvec fill (min (count fill) (dec (count args))))) {})))
+
+(defn- ceiling-for
+  "The ceiling on `k`, or nil when the operator lifted it (`0`)."
+  [k]
+  (let [n (case k
+            :max-ms    (config/max-query-ms)
+            :max-depth (config/max-query-depth))]
+    (when (pos? n) n)))
+
+(defn- under-ceiling
+  "`opts` — an option or budget map an op's caller sent — held under the ceilings
+  `keys` names, or a refusal.
+
+  Two things happen, and only one of them is a refusal.  A value **over** the ceiling is
+  refused by name (`:over-ceiling`): the caller asked for more than this daemon serves,
+  and answering under a quietly lowered bound would hand back a partial result labelled
+  as the one that was asked for.  A `:max-ms` the caller left **absent** is filled in
+  with the ceiling, because absent there means *no clock at all* — an unbounded read on
+  the write monitor — and the ceiling is the answer to \"how long may this run\" that
+  the daemon already gives every other read.
+
+  An absent `:max-depth` is left alone: absent is not unbounded there, it is the
+  no-rule-expansion answer at `query`'s door and the shipped guard at `prove-within`'s,
+  both of which are *smaller* questions than the ceiling rather than larger ones."
+  [op ks opts]
+  (reduce
+   (fn [m k]
+     (let [ceiling (ceiling-for k)
+           v       (get m k)]
+       (cond
+         (nil? ceiling)                     m
+         (and (number? v) (> v ceiling))
+         (throw (ex-info (str "op " op " " k " " v " is over this daemon's ceiling of "
+                              ceiling " — a request may name a smaller bound and not a"
+                              " larger one, since every op runs on the single writer and"
+                              " holds every other caller behind it")
+                         {:type :over-ceiling :op op :option k :requested v
+                          :ceiling ceiling}))
+         (and (= :max-ms k) (nil? v))       (assoc m k ceiling)
+         :else                              m)))
+   opts
+   ks))
+
+(defn- bounded
+  "Wrap an op's `(fn [kb args])` so the trailing option/budget map its caller sent is
+  held under `search-bounds`' ceilings.
+
+  Wrapped **in the table** rather than at the HTTP route, because the table is what two
+  callers dispatch through: `POST /op` and the model's generated tool set
+  (`vaelii.impl.llm.tools`, which builds its schemas from this map and calls back into
+  it).  A ceiling applied at one of those doors would be a ceiling the other does not
+  have.
+
+  For a `clock-fill` op the args are padded first, so a caller who sent no option map
+  still gets one to be clamped: absent means *no clock* at those doors, and no clock is
+  the exposure rather than a smaller question."
+  [op f]
+  (if-let [ks (search-bounds op)]
+    (let [fill (clock-fill op)]
+      (fn [kb args]
+        (let [args (cond-> (vec args) fill (with-opts-map fill))]
+          (f kb (if (map? (peek args))
+                  (conj (vec (butlast args)) (under-ceiling op ks (peek args)))
+                  args)))))
+    f))
+
 (def ops
   "The reachable operations, keyed by op keyword.  Reads, writes, and introspection —
-  the working set a remote caller needs; extend by adding a `vaelii.core` fn here."
-  {:assert       (op v/assert)
-   :assert-rule  (op v/assert-rule)
-   :assert-many  (op v/assert-many)
-   :retract      (op v/retract!)
-   :edit         (op v/edit!)
-   ;; the same write, reporting what it turned out to mean — the *after* to `:preview`'s
-   ;; *before*, and the one a caller wants when it has just committed rather than when it
-   ;; is deciding whether to
-   :edit-with-consequences (op v/edit-with-consequences!)
-   ;; the dry run of the two above: what `assert` / `edit` would refuse, and why,
-   ;; without storing anything.  A remote editor validates before it writes.
-   :check        (op v/check)
-   :check-edit   (op v/check-edit)
-   ;; and the other dry run: not whether the batch would be *admitted* but what it would
-   ;; *mean* — the belief it adds and takes away (docs/preview.md).  Served with the
-   ;; writes rather than the reads because it applies the batch and rolls it back, so it
-   ;; holds the daemon's single writer for its duration; it stores nothing, and hands the
-   ;; KB back at the same handles.
-   ;; a write to the **filesystem**, not to the KB.  Two things a caller has to know and
-   ;; the wire cannot tell them: the directory is resolved on the **daemon's** host — the
-   ;; only place it can be, since the daemon owns the KB and there is no stream to hand
-   ;; back — and the export reports no progress, because `:on-progress` is a function and
-   ;; functions do not cross an EDN wire.  Served with the writes so it runs under the
-   ;; monitor: the walk fetches record by record, and a dump of a KB something is
-   ;; asserting into is a dump of no single state.
-   :export       (op v/export!)
-   :preview      (op v/preview)
-   :sentexes-matching (op v/sentexes-matching)
-   :query        (op v/query)
-   :query?       (op v/query?)
-   :ask          (op v/ask)
-   :ask?         (op v/ask?)
-   :prove        (op v/prove)
-   :provable?    (op v/provable?)
-   :in?          (op v/in?)
-   :believed?    (op v/believed?)
-   :belief-status (op v/belief-status)
-   :believed     (op v/believed)
-   :why          (op v/why)
-   :why-not      (op v/why-not)
-   :isa?         (op v/isa?)
-   :types-of     (op v/types-of)
-   :disjoint?    (op v/disjoint?)
-   :genls        (op v/genls)
-   :specs        (op v/specs)
-   :types        (op v/types)
-   :contexts     (op v/contexts)
-   :sentex       (op v/sentex)
-   :handle-of    (op v/handle-of)
-   :find-sentexes (op v/find-sentexes)
-   ;; the vocabulary — enumerate / count / search the terms themselves.  Served because
-   ;; the alternative for a remote client is shipping every sentex over the wire to
-   ;; collect the terms out of them.
-   :terms        (op v/terms)
-   :term-count   (op v/term-count)
-   :sentex-count (op v/sentex-count)
-   :find-terms   (op v/find-terms)
-   :forward-chain (op v/forward-chain)
-   :chain-stats  (op v/chain-stats)
-   ;; the per-rule breakdown behind chain-stats — what each forward rule placed, refused
-   ;; (and why), or never did — read O(rules) off the ledger and the justification graph
-   :chain-report (op v/chain-report)
-   :conflicts    (op v/conflicts)
-   :contradictions (op v/contradictions)
-   :violations   (op v/violations)
-   ;; the *standing* disjointness question, as against the arising one `settle` files
-   ;; into `violations` above.  Computed on demand and not filed, so it is asked for
-   ;; rather than accumulated — the read an imported KB needs, since a load rebuilds
-   ;; belief rather than changing it and nothing is newly anything to report
-   :exposed-clashes (op v/exposed-clashes)
-   ;; how a goal would be answered: the provers bearing on it with their estimates, or
-   ;; for a conjunction the join order and the counts behind it
-   :query-plan   (op v/query-plan)
-   ;; and the run that plan predicts: the search tree as data, and the same goal under
-   ;; several tacticians side by side.  Both bound their own work (a node budget + a
-   ;; wall-clock), so a remote reader cannot turn one call into an unbounded search
-   :search-tree       (op v/search-tree)
-   :compare-tacticians (op v/compare-tacticians)
-   ;; introspection reads — the surface a read client (the browser) needs to render
-   ;; a KB it does not own; safe to serve, and shared with vaelii.impl.access
-   :premise?     (op v/premise?)
-   :defeat-class (op v/defeat-class)
-   :justification    (op v/justification)
-   :supporting-justifications (op v/supporting-justifications)
-   :dependent-justifications  (op v/dependent-justifications)
-   ;; the one thing about a justification that belief cannot be read off: blocked by its
-   ;; rule's exception, so every antecedent is IN and it still supports nothing.  Served
-   ;; because a remote reader has no other way to ask — the network is not a record — and
-   ;; a proof tree drawn without it calls a blocked justification supporting
-   :blocked-justifications    (op v/blocked-justifications)
-   :lookup       (op v/lookup)
-   :escalate     (op v/escalate)
-   :explain-levels (op v/explain-levels)
-   :count-in-context (op v/count-in-context)
-   :sentexes-in-context   (op v/sentexes-in-context)
-   :sentexes-with-arg     (op v/sentexes-with-arg)
-   :sentexes-with-functor (op v/sentexes-with-functor)
-   :count-with-arg        (op v/count-with-arg)
-   :count-with-functor    (op v/count-with-functor)
-   :disjoint-metatypes    (op v/disjoint-metatypes)
-   :metatype-members      (op v/metatype-members)
-   ;; what a reified term denotes (docs/nat.md).  A remote reader has no other way to
-   ;; ask: the constant is opaque by construction, so a client that could not resolve it
-   ;; would have to show a reader `nat/g17` — which is the one thing it must not do
-   :term-expression       (op v/term-expression)
-   ;; qualitative constraint reasoning (docs/qcn.md).  Reads: they compute a network
-   ;; from the believed facts and register nothing, so they are safe on a KB the caller
-   ;; does not own.  Every result is already EDN — relation keywords, term symbols, and
-   ;; vectors of the two — so none of them needs the sentex-map projection below.
-   :qualitative-network   (op v/qualitative-network)
-   :possible-relations    (op v/possible-relations)
-   :qualitative-scenario  (op v/qualitative-scenario)
-   :qualitative-scenarios (op v/qualitative-scenarios)
-   ;; what this process is holding beside the store, and the one control that drops it.
-   ;; The clear is a write in the HTTP sense and in no other: it destroys no knowledge,
-   ;; moves no belief, and is the instrument that makes a hit rate mean something
-   :caches       (op v/caches)
-   :clear-caches (op v/clear-caches)})
+  the working set a remote caller needs; extend by adding a `vaelii.core` fn here.
+
+  Every entry is wrapped by `bounded`, which is a no-op for an op `search-bounds` does
+  not name."
+  (into
+   {}
+   (map (fn [[op f]] [op (bounded op f)]))
+   {:assert       (op v/assert)
+    :assert-rule  (op v/assert-rule)
+    :assert-many  (op v/assert-many)
+    :retract      (op v/retract!)
+    :edit         (op v/edit!)
+    ;; the same write, reporting what it turned out to mean — the *after* to `:preview`'s
+    ;; *before*, and the one a caller wants when it has just committed rather than when it
+    ;; is deciding whether to
+    :edit-with-consequences (op v/edit-with-consequences!)
+    ;; the dry run of the two above: what `assert` / `edit` would refuse, and why,
+    ;; without storing anything.  A remote editor validates before it writes.
+    :check        (op v/check)
+    :check-edit   (op v/check-edit)
+    ;; and the other dry run: not whether the batch would be *admitted* but what it would
+    ;; *mean* — the belief it adds and takes away (docs/preview.md).  Served with the
+    ;; writes rather than the reads because it applies the batch and rolls it back, so it
+    ;; holds the daemon's single writer for its duration; it stores nothing, and hands the
+    ;; KB back at the same handles.
+    ;; a write to the **filesystem**, not to the KB.  Two things a caller has to know and
+    ;; the wire cannot tell them: the directory is resolved on the **daemon's** host — the
+    ;; only place it can be, since the daemon owns the KB and there is no stream to hand
+    ;; back — and the export reports no progress, because `:on-progress` is a function and
+    ;; functions do not cross an EDN wire.  Served with the writes so it runs under the
+    ;; monitor: the walk fetches record by record, and a dump of a KB something is
+    ;; asserting into is a dump of no single state.
+    :export       (op v/export!)
+    :preview      (op v/preview)
+    :sentexes-matching (op v/sentexes-matching)
+    :query        (op v/query)
+    :query?       (op v/query?)
+    :ask          (op v/ask)
+    :ask?         (op v/ask?)
+    :prove        (op v/prove)
+    :provable?    (op v/provable?)
+    :in?          (op v/in?)
+    :believed?    (op v/believed?)
+    :belief-status (op v/belief-status)
+    :believed     (op v/believed)
+    :why          (op v/why)
+    :why-not      (op v/why-not)
+    :isa?         (op v/isa?)
+    :types-of     (op v/types-of)
+    :disjoint?    (op v/disjoint?)
+    :genls        (op v/genls)
+    :specs        (op v/specs)
+    :types        (op v/types)
+    :contexts     (op v/contexts)
+    :sentex       (op v/sentex)
+    :handle-of    (op v/handle-of)
+    :find-sentexes (op v/find-sentexes)
+    ;; the vocabulary — enumerate / count / search the terms themselves.  Served because
+    ;; the alternative for a remote client is shipping every sentex over the wire to
+    ;; collect the terms out of them.
+    :terms        (op v/terms)
+    :term-count   (op v/term-count)
+    :sentex-count (op v/sentex-count)
+    :find-terms   (op v/find-terms)
+    :forward-chain (op v/forward-chain)
+    :chain-stats  (op v/chain-stats)
+    ;; the per-rule breakdown behind chain-stats — what each forward rule placed, refused
+    ;; (and why), or never did — read O(rules) off the ledger and the justification graph
+    :chain-report (op v/chain-report)
+    :conflicts    (op v/conflicts)
+    :contradictions (op v/contradictions)
+    :violations   (op v/violations)
+    ;; the *standing* disjointness question, as against the arising one `settle` files
+    ;; into `violations` above.  Computed on demand and not filed, so it is asked for
+    ;; rather than accumulated — the read an imported KB needs, since a load rebuilds
+    ;; belief rather than changing it and nothing is newly anything to report
+    :exposed-clashes (op v/exposed-clashes)
+    ;; how a goal would be answered: the provers bearing on it with their estimates, or
+    ;; for a conjunction the join order and the counts behind it
+    :query-plan   (op v/query-plan)
+    ;; and the run that plan predicts: the search tree as data, and the same goal under
+    ;; several tacticians side by side.  Both bound their own work (a node budget + a
+    ;; wall-clock), so a remote reader cannot turn one call into an unbounded search
+    :search-tree       (op v/search-tree)
+    :compare-tacticians (op v/compare-tacticians)
+    ;; introspection reads — the surface a read client (the browser) needs to render
+    ;; a KB it does not own; safe to serve, and shared with vaelii.impl.access
+    :premise?     (op v/premise?)
+    :defeat-class (op v/defeat-class)
+    :justification    (op v/justification)
+    :supporting-justifications (op v/supporting-justifications)
+    :dependent-justifications  (op v/dependent-justifications)
+    ;; the one thing about a justification that belief cannot be read off: blocked by its
+    ;; rule's exception, so every antecedent is IN and it still supports nothing.  Served
+    ;; because a remote reader has no other way to ask — the network is not a record — and
+    ;; a proof tree drawn without it calls a blocked justification supporting
+    :blocked-justifications    (op v/blocked-justifications)
+    :lookup       (op v/lookup)
+    :escalate     (op v/escalate)
+    :explain-levels (op v/explain-levels)
+    :count-in-context (op v/count-in-context)
+    :sentexes-in-context   (op v/sentexes-in-context)
+    :sentexes-with-arg     (op v/sentexes-with-arg)
+    :sentexes-with-functor (op v/sentexes-with-functor)
+    :count-with-arg        (op v/count-with-arg)
+    :count-with-functor    (op v/count-with-functor)
+    :disjoint-metatypes    (op v/disjoint-metatypes)
+    :metatype-members      (op v/metatype-members)
+    ;; what a reified term denotes (docs/nat.md).  A remote reader has no other way to
+    ;; ask: the constant is opaque by construction, so a client that could not resolve it
+    ;; would have to show a reader `nat/g17` — which is the one thing it must not do
+    :term-expression       (op v/term-expression)
+    ;; qualitative constraint reasoning (docs/qcn.md).  Reads: they compute a network
+    ;; from the believed facts and register nothing, so they are safe on a KB the caller
+    ;; does not own.  Every result is already EDN — relation keywords, term symbols, and
+    ;; vectors of the two — so none of them needs the sentex-map projection below.
+    :qualitative-network   (op v/qualitative-network)
+    :possible-relations    (op v/possible-relations)
+    :qualitative-scenario  (op v/qualitative-scenario)
+    :qualitative-scenarios (op v/qualitative-scenarios)
+    ;; what this process is holding beside the store, and the one control that drops it.
+    ;; The clear is a write in the HTTP sense and in no other: it destroys no knowledge,
+    ;; moves no belief, and is the instrument that makes a hit rate mean something
+    :caches       (op v/caches)
+    :clear-caches (op v/clear-caches)
+    ;; what would have to be true for a goal to follow, and the control that drops it.
+    ;; A **write**, and filed with the writes for that reason: a hypothesis is minted
+    ;; through the whole assert pipeline into a scratch context hung below the asking
+    ;; one, so it holds the daemon's single writer for its run.  Without `{:keep? true}`
+    ;; the scratch is torn down on the way out and the KB is left as it was found
+    ;; (docs/abduction.md)
+    :abduce         (op v/abduce)
+    :abduce-discard (op v/abduce-discard!)
+    ;; the four-valued epistemic read: the case for a sentence, the case against, and
+    ;; which of them the engine can resolve.  A read — it queries both sides and stores
+    ;; nothing (docs/belief.md)
+    :argue        (op v/argue)
+    ;; the reading about the **knowledge** rather than about a run — unfired rules,
+    ;; extent skew, chain depth, taxonomy coverage, stranded declarations — and its
+    ;; Markdown rendering.  `:quality-report` takes the *map*, not the KB, so a caller
+    ;; renders a reading it already holds; it is `kbless-ops` above for that reason.
+    ;; `:on-progress` is a function and does not cross the wire, so a long census over a
+    ;; large KB reports nothing until it answers (docs/quality.md)
+    :kb-quality     (op v/kb-quality)
+    :quality-report (op* v/quality-report)
+    ;; the creation record, read and layered on.  `:add-provenance` is a write — it
+    ;; stores — and is metadata rather than belief, so it moves nothing
+    :provenance     (op v/provenance)
+    :add-provenance (op v/add-provenance)
+    ;; the anytime reads, **without a resumable tail** (`without-resume`).  A continuation
+    ;; is a function over an in-memory lazy tail, so what crosses is the results, the
+    ;; completion status and one `:resumable` bit; continuing is a fresh call under a
+    ;; larger budget (docs/anytime.md)
+    :ask-within   (op (without-resume v/ask-within))
+    :prove-within (op (without-resume v/prove-within))
+    ;; the taxonomy and context questions the browser's own reads left short: the genl
+    ;; test between two *types*, the genlCx cone both ways, and the visibility question
+    ;; behind every scoped read (docs/taxonomy.md, docs/contexts.md)
+    :genl?        (op v/genl?)
+    :context-up   (op v/context-up)
+    :context-down (op v/context-down)
+    :sees?        (op v/sees?)
+    ;; the declared predicate properties, and the inverse pairing — read off the cached
+    ;; closures rather than matched, so a remote caller has no other way to ask
+    :has-prop?    (op v/has-prop?)
+    :props        (op v/props)
+    :inverse-of   (op v/inverse-of)
+    ;; the equality partition, read.  `:deprecated?` is what makes the `rewriteOf` /
+    ;; `sameAs` distinction observable at all — both produce the same class
+    ;; (docs/equality.md)
+    :representative (op v/representative)
+    :same-class?    (op v/same-class?)
+    :equiv-class    (op v/equiv-class)
+    :deprecated?    (op v/deprecated?)
+    ;; the whole-KB enumerations an audit pass folds over: every live handle, the
+    ;; contexts one sentence holds in, the canonical form a sentence *would* key on
+    ;; without storing it, and the census of what the engine does with its own grammar
+    :handles          (op wire-handles)
+    :contexts-of      (op v/contexts-of)
+    :canonical-sentex (op v/canonical-sentex)
+    :vocabulary-audit (op v/vocabulary-audit)
+    ;; the exceptWhen fixpoint's instrumentation (docs/exceptions.md)
+    :settle-stats (op v/settle-stats)
+    ;; the rest of `kbless-ops` (`:quality-report` above is the fourth): the retrieval
+    ;; stack and the shipped calculi as data, and a stored rule's sentence with its
+    ;; author's variable names put back — the last of which a client needs in order to
+    ;; *display* a rule it fetched
+    :levels            (op* v/levels)
+    :calculi           (op* v/calculi)
+    :readable-sentence (op* v/readable-sentence)
+    ;; the three usability reads.  `:describe` is what a remote reader asks instead of a
+    ;; dozen round trips — one call answers arity, declarations, properties, closures and
+    ;; counts for a term, and the browser's term page is built on it.  `:why-not` is
+    ;; already above and needs no entry of its own for `{:nearest n}`: the table `apply`s
+    ;; the var, so a new arity crosses the wire the moment `vaelii.core` grows one
+    :describe     (op v/describe)
+    ;; `kb-diff`'s second side is a **path on the daemon's host**, for the reason `:export`'s
+    ;; destination is: the daemon owns the KB, a KB value does not cross an EDN wire, and a
+    ;; text export is a directory the daemon can read.  So the remote reading is "what has
+    ;; the live KB done since this export was taken"
+    :kb-diff      (op v/kb-diff)}))
 
 ;; ---- the daemon's own ops: the change feed, held open with a cursor ------
 ;;
@@ -278,6 +527,7 @@
   error — still reads as one; a *new* refusal type belongs in this set the day it is
   born, and `wire_contract_test` pins the pairing."
   #{:naming :not-well-formed :not-ground :not-range-restricted :not-indexable
+    :disjunction-too-wide
     :shape :not-encodable
     :arg-type :inter-arg-type :arg-genl :quoted-arg-type :arg-position :arg-constraint-kind
     :arg-variable :arity
@@ -288,14 +538,32 @@
     :disjoint :functional :asymmetric :anti-transitive :irreflexive :anti-symmetric
     :unknown-option :bad-handle
     :unknown-handle :bad-level :exception-not-closed :not-stratified :naf-not-closed
-    :quantifier-not-local :quantified-conjunction
+    :quantifier-not-local
     :not-watchable :not-checkable :not-assertible
     :bad-table-entry
+    ;; a map handed to `:quality-report` that is not one of `:kb-quality`'s answers —
+    ;; the caller reporting on the wrong reading, refused rather than rendered as a page
+    ;; of zeros
+    :not-a-report
     ;; a query context (`CxEverything` / `CxInference` / `CxNothing`) handed to a read
     ;; that does not resolve one — `:why-not`, `:lookup`, `:query-plan`, `:search-tree`
     ;; and the rest.  The caller named a reading this door does not offer, which is the
     ;; same class of mistake as naming an option it does not read
     :unsupported-context
+    ;; a `:find-terms` regex whose backtracking blew the per-term step budget — the
+    ;; caller sent a pathological pattern, which is their mistake to fix, not a fault
+    :pattern-too-costly
+    ;; a `:max-depth` or `:max-ms` past what this daemon serves (`search-bounds`).  The
+    ;; caller named a bound rather than the daemon being at capacity, so it is a 400 and
+    ;; not a 503 — and the refusal carries the ceiling, which is what the next request
+    ;; has to name
+    :over-ceiling
+    ;; and its other side: a bound the request named, or the ceiling standing in for one
+    ;; it did not, that the search did not finish inside.  A 400 for `:over-ceiling`'s
+    ;; reason — the caller decides what to do next, by widening the bound or by asking
+    ;; through `:ask-within` / `:prove-within`, which hand back the prefix with a
+    ;; `:status` — where a 503 would say the daemon is at capacity, which it is not
+    :budget-exhausted
     ;; `:export` is in `ops`, so its destination refusals are caller mistakes too —
     ;; a directory that exists and is not empty is not a backend fault — and so are the
     ;; two that name a dump this build does not write
@@ -423,59 +691,19 @@
   authenticated daemon reads as an oversight to delete: this one is a decision."
   #{"/health"})
 
-(defn- token-matches?
-  "Is `presented` the `expected` token?  Compared in **constant time**:
-  `MessageDigest/isEqual` folds the length difference into its accumulator and reads
-  every byte either way, so neither the token's length nor the prefix a guess shares
-  with it shows up in how long the answer takes.  `=` on strings leaks both, and a
-  refusal that returns faster for a wrong first byte is a token oracle a caller can
-  walk.
-
-  No timing test asserts this, deliberately: a wall-clock assertion over a
-  nanosecond difference is flaky by construction on a machine running anything else.
-  What is testable is that one named fn does the comparison and answers correctly for
-  equal- and unequal-length inputs, which is why the comparison lives here rather than
-  inline in the wrapper below."
-  [expected presented]
-  (java.security.MessageDigest/isEqual
-   (.getBytes (str expected) java.nio.charset.StandardCharsets/UTF_8)
-   (.getBytes (str presented) java.nio.charset.StandardCharsets/UTF_8)))
-
-(defn- presented-token
-  "The token an `Authorization: Bearer …` header carries, or nil when the header is
-  absent or names another scheme.  The scheme is matched case-insensitively, as RFC
-  7235 defines it, and the token's own case is kept."
-  [req]
-  (let [auth (str (get-in req [:headers "authorization"]))]
-    (when (str/starts-with? (str/lower-case auth) "bearer ")
-      (subs auth 7))))
-
 (defn- wrap-bearer-auth
-  "Wrap `handler` so every request presents `token` as `Authorization: Bearer <token>`.
-  A blank token means no wrapper at all — the daemon serves open, which is the loopback
-  default (`-main`).
-
-  **The refusal does not distinguish.**  A wrong token, a missing header and a header
-  spelled some other way answer the *same* 401 with the *same* body: one that said
-  which is a token oracle.  The body is EDN carrying a non-nil `:type` like every other
-  refusal the daemon can answer, plus the `WWW-Authenticate` challenge a 401 is defined
-  to carry.
-
-  **Outermost**, outside the `Host` allowlist and the origin check: a caller with no
-  token is answered before the daemon forms any other opinion about the request."
+  "`guard/wrap-bearer` with the daemon's own 401: EDN carrying a non-nil `:type` like
+  every other refusal the daemon can answer, plus the `WWW-Authenticate` challenge a 401
+  is defined to carry.  The comparison and the header read are the browser's too, and
+  live in `vaelii.impl.guard` for that reason."
   [handler token]
-  (if (str/blank? token)
-    handler
-    (fn [req]
-      (if (or (contains? open-routes (:uri req))
-              (when-let [presented (presented-token req)]
-                (token-matches? token presented)))
-        (handler req)
-        {:status 401
-         :headers {"content-type" "application/edn"
-                   "www-authenticate" "Bearer"}
-         :body (pr-str {:ok false :type :unauthorized
-                        :error "this daemon requires Authorization: Bearer <token>"})}))))
+  (guard/wrap-bearer
+   handler token open-routes
+   (fn [_] {:status 401
+            :headers {"content-type" "application/edn"
+                      "www-authenticate" "Bearer"}
+            :body (pr-str {:ok false :type :unauthorized
+                           :error "this daemon requires Authorization: Bearer <token>"})})))
 
 (def http-threads
   "How many worker threads the daemon's HTTP server runs.
@@ -570,13 +798,24 @@
   refusal (`:unknown-option`) when the flag is present with no address after it.
   Reading that as loopback fails safe and is still a lie: the flag is the explicit
   opt-in to a public bind, and an operator whose flag was silently ignored walks away
-  believing the daemon is reachable when only this machine can see it."
+  believing the daemon is reachable when only this machine can see it.
+
+  **The next flag is not an address either.**  `--listen --whatever` otherwise binds an
+  interface literally named `--whatever`, which is a Jetty failure naming a token rather
+  than the refusal this door owes — the same reading `impl.cli`'s `--dir --starter`
+  refuses, and the more consequential of the two, since this flag publishes the KB's only
+  writer."
   [args]
   (let [tail (drop-while #(not= "--listen" %) args)]
     (if (seq tail)
-      (or (second tail)
-          (throw (ex-info "--listen needs an address (e.g. --listen 0.0.0.0)"
-                          {:type :unknown-option :flag "--listen"})))
+      (let [v (second tail)]
+        (if (and v (not (str/starts-with? v "--")))
+          v
+          (throw (ex-info (str "--listen needs an address and "
+                               (if v (str "the next word is the flag " v)
+                                   "the line ends after it")
+                               " — write --listen <address> (e.g. --listen 0.0.0.0)")
+                          {:type :unknown-option :flag "--listen"}))))
       loopback)))
 
 (defn- positional-args
@@ -590,22 +829,27 @@
   (loop [[a & more] (seq args), pos []]
     (cond
       (nil? a)                        (if (> (count pos) 2)
-                                        (throw (ex-info (str "unexpected argument: " (nth pos 2))
+                                        (throw (ex-info (str "unexpected argument: "
+                                                             (nth pos 2)
+                                                             " — the daemon takes a port"
+                                                             " and a store directory and"
+                                                             " nothing else: <port>"
+                                                             " [<dir>] [--listen <address>]")
                                                         {:type :unknown-option :arg (nth pos 2)}))
                                         pos)
       (= "--listen" a)                (recur (rest more) pos)   ; value read by listen-host
-      (.startsWith ^String a "--")    (throw (ex-info (str "unknown flag: " a)
+      (.startsWith ^String a "--")    (throw (ex-info (str "unknown flag: " a " — the"
+                                                           " daemon reads --listen"
+                                                           " <address>, and takes a port"
+                                                           " and a store directory as"
+                                                           " positionals")
                                                       {:type :unknown-option :flag a}))
       :else                           (recur more (conj pos a)))))
 
-(defn- public-bind?
-  "Does `host` name an interface other than this machine's own?  Membership in
-  `guard/loopback-hosts` rather than equality with `loopback`, so the bind that
-  requires a token is exactly the bind that drops the `Host` allowlist:
-  `--listen 127.0.0.1` is the default said out loud and is held to the loopback rule,
-  `--listen 0.0.0.0` is not."
-  [host]
-  (not (contains? guard/loopback-hosts (str/lower-case (str host)))))
+(def ^:private public-bind?
+  "`guard/public-bind?` — the same question the browser asks, so the bind that requires
+  a token is the same bind on both servers."
+  guard/public-bind?)
 
 (defn- auth-posture
   "Which posture a daemon binding `host` with `token` runs in — and the refusal when
@@ -614,23 +858,18 @@
     :required  a token is set, and every request presents it
     :open      loopback with no token: every process on this machine drives the writes
 
-  **A bind that names an address with no token is refused** (`:unauthorized`), which is
-  the one place the daemon fails closed.  It is the flag that publishes `POST /op` —
-  the KB's only writer — and the same flag drops the `Host` allowlist, so the exposed
+  **A bind that names an address with no token is refused** (`guard/require-token!`,
+  `:unauthorized`), which is the one place the daemon fails closed, and the browser is
+  held to the same rule by the same fn.  It is the flag that publishes `POST /op` — the
+  KB's only writer — and the same flag drops the `Host` allowlist, so the exposed
   configuration would otherwise be the one with the fewest checks.  The loopback
   default is not held to it because `lein serve` on a laptop is a real workflow that a
   required credential would only teach an operator to export a constant.  The `Host`
   allowlist is not held to it either — see `host-posture` for why that one warns
   instead of refusing."
   [host token]
-  (cond
-    (not (str/blank? token)) :required
-    (public-bind? host)
-    (throw (ex-info (str "VAELII_API_TOKEN must be set to bind " host
-                         " — POST /op is the KB's only writer, and naming an address"
-                         " publishes it")
-                    {:type :unauthorized :host host}))
-    :else :open))
+  (guard/require-token! "daemon" host token)
+  (if (str/blank? token) :open :required))
 
 (defn- host-posture
   "Which `Host`-allowlist policy a daemon binding `host` runs under — the question
@@ -676,7 +915,7 @@
 
 (defn -main
   "Run the daemon in the foreground.  Args: `[port [dir]] [--listen ADDR]`, in any
-  order — `dir` selects the durable `:disk` backend (recovered on open, so it
+  order — `dir` selects the durable `:disk-log` backend (recovered on open, so it
   persists across restarts); with no `dir` the KB is in-memory and lives only as
   long as the process.
 
@@ -728,7 +967,7 @@
                        (System/exit 2)))
         hosts (host-posture host)
         kb    (if dir
-                (v/open-kb {:backend :disk :dir dir :recover? :auto})
+                (v/open-kb {:backend :disk-log :dir dir :recover? :auto})
                 (v/open-kb {}))]
     (trove/log! {:level :info :id ::start
                  :msg "vaelii daemon listening"

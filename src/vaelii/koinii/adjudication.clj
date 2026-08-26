@@ -1,10 +1,10 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
-(ns vaelii.impl.koinii.adjudication
+(ns vaelii.koinii.adjudication
   "Koinii adjudication — the DEFAULT policy: leave-open-and-notify, plus the
   lifecycle that keeps disputes from piling up, plus the two escalations (a named
   arbiter's ruling, and a counted majority).  A thin CLIENT
-  wrapper over the dispute reads (`vaelii.impl.koinii.dispute`) — it touches no
+  wrapper over the dispute reads (`vaelii.koinii.dispute`) — it touches no
   engine internals and changes belief only through ordinary asserts / retracts.
 
   koinii's honest first answer to a disagreement is NOT to pick a winner.  When two agents
@@ -35,13 +35,12 @@
   clock is the engine clock (`v/*clock*`), so a lifecycle stamp and its assertion's
   `:created` provenance agree.
 
-  Additive, like the sibling koinii modules: only the public core API plus koinii
-  `dispute` and `identity`, and `naming` for the two content orders it reports
-  (`contested-premises`, `standing-rulings`) — nothing in core loads it."
+  Additive, like the sibling koinii modules: only the public core API — including
+  `sort-by-content` for the two content orders it reports (`contested-premises`,
+  `standing-rulings`) — plus koinii `dispute` and `identity`.  Nothing in core loads it."
   (:require [vaelii.core :as v]
-            [vaelii.impl.koinii.dispute :as d]
-            [vaelii.impl.koinii.identity :as id]
-            [vaelii.impl.naming :as nm]))
+            [vaelii.koinii.dispute :as d]
+            [vaelii.koinii.identity :as id]))
 
 ;; ---- the policy seams the dispute module left to the caller --------------
 
@@ -95,9 +94,10 @@
 ;; ---- the stale sweep: bound the accumulation -----------------------------
 
 (defn- opened-at
-  "When dispute `id` arose: the later `:created` stamp of its two clashing sides (the clash
-  exists once the second side is asserted).  0 if neither side carries a stamp — an
-  un-stamped dispute is treated as old, so the sweep surfaces it rather than hiding it."
+  "When dispute `id` arose: the latest `:created` stamp among its clashing sides (the clash
+  exists once the last of them is asserted — two for a rebuttal, three for an
+  `antiTransitive` chain).  0 if no side carries a stamp — an un-stamped dispute is
+  treated as old, so the sweep surfaces it rather than hiding it."
   [kb id]
   (reduce max 0 (keep #(:created (v/provenance kb %)) id)))
 
@@ -169,8 +169,8 @@
   canonical dedup gives one sentex per (sentence, context), so the sentence alone is a
   total order.
 
-  The order is the engine's structural one (`nm/sort-by-content-key`, i.e.
-  `nm/compare-form`), which is the whole reason to use it here rather than a printed key:
+  The order is the engine's own content order (`v/sort-by-content`), which is the whole
+  reason to use it here rather than a printed key:
   it walks the two forms instead of printing them, so no ambient `*print-*` var can elide
   two rulings to one key and drop the tie back onto the enumeration order this exists to
   keep out — and it reads numbers numerically, so a ruling of 9 precedes one of 10."
@@ -179,9 +179,9 @@
     (into [] (comp (map :id)
                    (filter #(contains? (:dispute-ids (who-ruled kb %)) k))
                    (distinct))
-          (nm/sort-by-content-key :sentence
-                                  (v/sentexes-in-context kb (id/context-for arbiter)
-                                                         {:believed? true})))))
+          (v/sort-by-content :sentence
+                             (v/sentexes-in-context kb (id/context-for arbiter)
+                                                    {:believed? true})))))
 
 (defn rule
   "Arbiter escalation: `arbiter` (an agent id, e.g. `AgentArbiter`) rules dispute `id`
@@ -268,6 +268,11 @@
 ;; REUSES `rule` — a reversible monotonic assertion — so retracting it reopens the dispute
 ;; exactly as an arbiter ruling does; the only differences are who is recorded as deciding
 ;; (`majority-arbiter`) and that a tie decides nobody.
+;;
+;; The count only becomes a ruling under the `:proof-tier` identity policy.  A defeating
+;; verdict tallied by claimed voter name is spoofable under `:cooperative` (one operator,
+;; many names), so `resolve-by-majority` refuses there — trust-weighting needs verified
+;; identity (`identity/*policy*`).  Counting (`tally`) stays open for transparency.
 
 (def majority-arbiter
   "The principal recorded as ruler of a majority-vote resolution — not a real agent but
@@ -313,8 +318,25 @@
   Returns `{:for n :against n :outcome :for/:against/:tie :ruling handle-or-nil
   :withdrawn [handle …]}`, `:withdrawn` naming the rulings this count retired.
   Idempotent: re-running on an unchanged count re-rules the same side (a belief no-op
-  returning the standing handle) and withdraws nothing, so a driver may poll it."
+  returning the standing handle) and withdraws nothing, so a driver may poll it.
+
+  **Requires the `:proof-tier` identity policy.**  A majority ruling is a
+  trust-weighting mechanism — it lands a `:monotonic` verdict that *defeats* the losing
+  side — and `tally` counts by claimed voter name.  Under `:cooperative`, identity is
+  unverified by design (`identity/*policy*`), so one operator can cast ballots under many
+  names and manufacture a defeating ruling from spoofable input, which is exactly what
+  the identity layer forbids (\"trust-weighting a spoofable identity is worse than no
+  trust\").  So this refuses (`:koinii/identity-unverified`) unless the policy is
+  `:proof-tier`, where every ballot was verified at ingest.  `tally` itself is ungated —
+  a cooperative house may still *count* and display its ballots for transparency; it just
+  cannot turn that count into a ruling."
   [kb id claim-handle channel]
+  (when-not (= :proof-tier id/*policy*)
+    (throw (ex-info (str "koinii: majority resolution requires the :proof-tier identity "
+                         "policy; under " (pr-str id/*policy*) " the ballot count is "
+                         "spoofable and must not produce a defeating ruling")
+                    {:type :koinii/identity-unverified :policy id/*policy*
+                     :resolution :majority :dispute id})))
   (let [{yes :for no :against :as counts} (tally kb claim-handle)
         claim    (:sentence (v/sentex kb claim-handle))
         standing (standing-rulings kb majority-arbiter id)
@@ -355,22 +377,53 @@
   silently misled.  A pure read: it changes no belief, unlike `quarantine`.  Returns the
   contested premise handles.
 
+  **Scoped to the CONE, on both sides.**  `S` is resolved the way `ctx` actually sees it —
+  every believed sentex of `S` in a context `ctx` sees (`v/sees?`) — which is the scoping
+  `disputes-in` already reads a dispute at, and the scoping `ask?` answers a goal at.  An
+  exact-context lookup would disagree with both, and disagree in the one direction a safety
+  read must not: forward chaining places a conclusion in the most specific context that sees
+  its premises, which for a channel reading its agents' work is an AGENT's context and not
+  the channel's, so `ctx` proves `S` while storing no `S` of its own.  Keyed on `ctx`'s own
+  store, this would then answer 'nothing contested' for a conclusion built on a disputed
+  claim — the false reassurance the whole read exists to prevent.
+
+  **Every visible derivation, not a chosen one.**  Where more than one context in the cone
+  holds `S`, their support closures are UNIONED rather than one being picked.  A reader
+  trusting `S` at `ctx` is trusting whichever derivation answered, so a premise any of them
+  rests on is a premise the answer rests on.  The union is also what leaves no tie-break to
+  get wrong: a first-one-wins would be decided by the extent's seq order, or by the handles,
+  which are allocated in assertion order — either of which would make the flag a fact about
+  how the KB was loaded rather than about what it holds.
+
+  **Belief-filtered**, the position `standing-rulings` and `rule`'s party test take.  A
+  stored sentex of `S` the JTMS has defeated holds up no answer anybody can read — `ask?`
+  does not return it — so its premises are not premises this conclusion rests on, and
+  counting them would raise the flag over a derivation the KB has already discarded.
+
   **Content-ordered.**  `support-handles` walks a graph into a set, whose seq order is a
   hash artifact, and the handles themselves are allocated in assertion order — so ranking
   on either would make this list a fact about how the KB was loaded.  The order is the
-  premise's own `[sentence context]` (`nm/sort-by-content-key`), which two KBs holding the
-  same knowledge agree on whatever order they were built in."
+  premise's own `[sentence context]` (`v/sort-by-content`), which two KBs holding the
+  same knowledge agree on whatever order they were built in.  The context in that key is
+  load-bearing rather than decoration: a union over the cone can hold one sentence asserted
+  in two agents' contexts, and the sentence alone would not separate them."
   [kb S ctx]
-  (if-let [h (v/handle-of kb S ctx)]
-    (let [contested (into #{} (mapcat :dispute-id) (d/disputes-in kb ctx))]
-      (nm/sort-by-content-key #(let [sx (v/sentex kb %)] [(:sentence sx) (:context sx)])
-                              (filterv contested (support-handles kb h))))
-    []))
+  ;; the cone filter runs before `disputes-in`, which computes whole-KB contradictions:
+  ;; a conclusion `ctx` cannot see costs one index probe rather than that.
+  (let [visible (filterv #(v/sees? kb ctx (:context %)) (v/sentexes-matching kb S '?ctx))]
+    (if (seq visible)
+      (let [contested (into #{} (mapcat :dispute-id) (d/disputes-in kb ctx))
+            support   (into #{} (mapcat #(support-handles kb (:id %))) visible)]
+        (v/sort-by-content #(let [sx (v/sentex kb %)] [(:sentence sx) (:context sx)])
+                           (filterv contested support)))
+      [])))
 
 (defn rests-on-contested?
-  "Does the conclusion `S` in `ctx` rest on any premise that is currently disputed there?
-  The boolean over `contested-premises` — the flag a high-stakes reader checks before
-  trusting a derived answer."
+  "Does the conclusion `S`, as `ctx` sees it, rest on any premise that is currently disputed
+  there?  The boolean over `contested-premises` — the flag a high-stakes reader checks before
+  trusting a derived answer, and it reads `S` up the genlCx cone for exactly that reason: an
+  answer `ask?` gives at `ctx` off a premise stored below it is the case a safety flag exists
+  to catch, not the case it may miss."
   [kb S ctx]
   (boolean (seq (contested-premises kb S ctx))))
 

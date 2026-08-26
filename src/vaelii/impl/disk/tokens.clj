@@ -62,9 +62,12 @@
 
 (defn open-token-log
   "Open `dir/tokens.log` and rebuild the in-memory maps from it: frame *i* holds the
-  token with id *i*.  A torn trailing frame is truncated exactly as a record log's is —
-  the token it held was never handed out, because the append is fsynced before the id
-  is returned."
+  token with id *i*.  A torn trailing frame is truncated exactly as a record log's is,
+  which retires the one id it held and leaves every earlier id where it was.  The
+  record frames citing that id are the other half of the same cross-file skew, and the
+  open repairs them the way it repairs a slot pointing past its log's end: the walk in
+  `record-store`'s `rebuild-premises!` tombstones a record whose ids the dictionary
+  does not hold, and it runs before anything can mint the retired id again."
   [dir]
   (let [path (str dir "/tokens.log")
         log  (f/open-log path)
@@ -95,7 +98,9 @@
     (if-let [id (.get fwd (Key. tok))]
       (long id)
       (let [id (count @rev)]
-        (f/append-record! log tok)    ; written before the frame that cites it; `fsynh!` orders the fsyncs
+        ;; written before the frame that cites it; `record-store/fsync` is what orders
+        ;; the two fsyncs, holding the sentexes kind lock across them
+        (f/append-record! log tok)
         (.put fwd (Key. tok) (Integer/valueOf id))
         (swap! rev conj tok)
         (long id)))))
@@ -108,7 +113,9 @@
   (let [v @rev]
     (if (< -1 id (count v))
       (nth v id)
-      (throw (ex-info "token id is not in the dictionary — the frame or the dictionary is damaged"
+      (throw (ex-info (str "token id " id " is not in the dictionary, which holds "
+                           (count v) " token(s) — the frame cites an id no entry answers"
+                           " to, so the frame or the dictionary is damaged")
                       {:type :damaged-dictionary :id id :dictionary-size (count v)})))))
 
 (defn token-count ^long [{:keys [rev]}] (count @rev))

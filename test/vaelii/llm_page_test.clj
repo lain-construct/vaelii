@@ -454,7 +454,7 @@
     (is (= 1 (count (:entries split))))
     (is (= [(list 'genl penguin bird)] (:known split)) "re-asserting is a no-op, so it is noise")
     (is (= 1 (count (:duplicates split))))
-    (is (= {:proposed 3 :new 1 :known 1 :duplicate 1}
+    (is (= {:proposed 3 :new 1 :known 1 :duplicate 1 :monotonic 0}
            (session/assertion-summary [1 2 3] split)))))
 
 ;; ---- propose-page, end to end against the stub -------------------------
@@ -471,7 +471,7 @@
     (is (= [[(list 'implies (list penguin '?x) (list eats '?x food)) ctx]] (:add (:batch r)))
         "the stored genl edge is not proposed again")
     (is (empty? (:remove (:batch r))) "generation never removes")
-    (is (= {:proposed 2 :new 1 :known 1 :duplicate 0} (:summary r)))
+    (is (= {:proposed 2 :new 1 :known 1 :duplicate 0 :monotonic 0} (:summary r)))
     (is (= "reused what was on the card" (:notes r)))
     (is (empty? (:coined r)))
     (testing ":lines is what a browser panel drops into the editor — entries, with context"

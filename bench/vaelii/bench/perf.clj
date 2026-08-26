@@ -108,6 +108,7 @@
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.settle :as settle]
             [vaelii.impl.space :as space]
+            [vaelii.impl.stp :as stp]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.wiring :as wiring]))
 
@@ -818,10 +819,11 @@
 (defn- quality-declaration-census
   "`kb-quality` over n argument constraints on **one** predicate, under a fixed hierarchy.
 
-  The census takes five readings and `quality-report-scaling` above drives four of them:
+  The census takes seven readings and `quality-report-scaling` above drives four of them:
   its KB declares no `arg`, `genlArg` or `interArg`, so `quality/stranded-declarations`
-  walks an empty list at 4,000 sentexes and at 32,000 alike.  This is the workload that
-  drives the fifth, and it is built the other way round from that one on purpose — the
+  walks an empty list at 4,000 sentexes and at 32,000 alike, and it stores no rule, so the
+  two rule-hygiene readings pair an empty set.  This is the workload that drives the
+  declaration census, and it is built the other way round from that one on purpose — the
   vocabulary is one predicate, one type and `census-supers` supers at **both** sizes, so
   every other reading the census takes is fixed and the whole of the growth here is the
   declaration walk.
@@ -1446,6 +1448,44 @@
        (nanos (dotimes [_ 200]
                 (v/possible-relations kb :rcc8 'CxPerfQcn (first chain) (peek chain))))))))
 
+(def ^:private metric-arrivals
+  "How many constraints arrive one at a time in `metric-closure-warm-start` — the same
+  count at both sizes, since the reading is per arrival."
+  25)
+
+(defn- metric-closure-warm-start
+  "A chain of n instants, closed, and then 25 more instants arriving one constraint at a
+  time with the gap back to the head of the chain read after each — a timeline being
+  loaded, which is the shape that puts a closure in front of every fact.
+
+  **Pure data, and deliberately.**  `stp/close-state-from` knows nothing about a KB, so
+  what this measures is the algorithm and not the belief read in front of it; that the
+  engine actually reaches it is `stp_test/an-arriving-constraint-is-relaxed-into-the-answer
+  -already-held`, which counts the two routes through `stp/closure`. Splitting them is what
+  keeps the ratio a claim about the pass — a KB read is linear in the stated constraints
+  and would sit in the denominator at both sizes flattering neither.
+
+  **Not a flat claim, and the bound says which claim it is instead.**  A closure is a
+  bound between every pair of instants, so an arriving constraint costs at least the pairs
+  it moves and is quadratic in the instant count however it is reached.  What the warm
+  start removes is the *pass*, and the bound is where the two shapes separate."
+  [n]
+  (let [inst  #(symbol (str "Pmt" %))
+        base  (reduce (fn [net i] (stp/narrow net (inst i) (inst (inc i)) 8 12))
+                      {} (range (dec n)))
+        head  (inst 0)]
+    (loop [net base, state (stp/close-state base (stp/nodes base)), i 0, acc []]
+      (if (= i metric-arrivals)
+        acc
+        (let [p     (inst (+ n i -1))
+              q     (inst (+ n i))
+              net'  (stp/narrow net p q 8 12)
+              nodes (stp/nodes net')
+              box   (volatile! nil)
+              t     (nanos (vreset! box (stp/close-state-from net' state nodes)))]
+          (stp/constraint (:net @box) head q)
+          (recur net' @box (inc i) (conj acc t)))))))
+
 ;; ---- the one check that writes to a disk ---------------------------------
 ;;
 ;; Every check above runs on `fresh-kb`, which is `:backend :memory`, so nothing in this
@@ -1463,12 +1503,12 @@
   (java.io.File. (str (System/getProperty "java.io.tmpdir") "/vaelii-perf-disk")))
 
 (defn- fresh-disk-kb
-  "An empty `:backend :disk` KB in a directory of its own — `fresh-kb`'s durable twin.
+  "An empty `:backend :disk-log` KB in a directory of its own — `fresh-kb`'s durable twin.
   Wiped **before** the open as well as after the close, so a run interrupted part way
   leaves nothing for the next one to measure against."
   []
   (let [dir (doto (perf-disk-dir) (delete-tree!) (.mkdirs))]
-    (v/open-kb {:backend :disk :dir (.getAbsolutePath dir) :recover? false})))
+    (v/open-kb {:backend :disk-log :dir (.getAbsolutePath dir) :recover? false})))
 
 (defn- durable-fact-append
   "n facts of one predicate onto a disk-backed KB, timed per assert.
@@ -1704,9 +1744,11 @@
    ;; separates is 2.8x from the 8x a record scan reads, and 4x sits between them with
    ;; room on both sides.
    ;;
-   ;; **Four of the census's five readings**, and the claim says so.  This KB declares no
+   ;; **Four of the census's seven readings**, and the claim says so.  This KB declares no
    ;; `arg`, `genlArg` or `interArg`, so the declarations reading walks an empty list
-   ;; at both sizes and nothing here is a claim about it — the two checks below are.
+   ;; at both sizes and nothing here is a claim about it — the two checks below are.  It
+   ;; stores no rule either, so the two rule-hygiene readings pair an empty set at both
+   ;; sizes: their cost is the rule count and this workload holds it at zero.
    {:name      :quality-report-scaling
     :claim     "the rules, extents, chains and taxonomy readings of kb-quality grow with the vocabulary, not with what the KB stores"
     :sizes     [4000 32000]
@@ -2079,7 +2121,22 @@
     :claim     "8x the claims reaching one term costs under 12x per ask — one reach walk per question, not one per pair of claims"
     :sizes     [8 64]
     :max-ratio 12.0
-    :run       inherit-reach-memo}])
+    :run       inherit-reach-memo}
+
+   ;; The metric twin of the qualitative residency check above, and the bound is calibrated
+   ;; the way `membership-under-depth` and `inherit-reach-memo` are: from both ends, on full
+   ;; runs.  A closure bounds every pair of instants, so an arriving constraint is quadratic
+   ;; in the instant count whatever route it takes and no memo makes it flat — what the gate
+   ;; defends is that the route is a **relaxation** and not a fresh cubic pass.  At 8x the
+   ;; instants it reads 12.6x-13.4x over three full runs, and 99.5x with the same check
+   ;; driving `stp/close-state` instead, which is the shape the bound exists to catch.
+   ;; 35x sits between, and the absolute readings say it louder: 1.9 ms an arrival
+   ;; against 101 ms.
+   {:name      :metric-closure-warm-start
+    :claim     "8x the instants costs under 35x per arriving constraint — the closure is relaxed into, not run again"
+    :sizes     [50 400]
+    :max-ratio 35.0
+    :run       metric-closure-warm-start}])
 
 ;; ---- the runner ---------------------------------------------------------
 

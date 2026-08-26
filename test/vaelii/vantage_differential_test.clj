@@ -72,7 +72,9 @@
       (v/assert kb (list 'arg (preds 0) 1 (types 0)) (ctxs (rint r nctx))))
     ;; an except on one stored fact, sometimes
     (when (zero? (rint r 3))
-      (when-let [h (:id (first (v/sentexes-matching kb (list (preds 0) '?a '?b) '?ctx)))]
+      (when-let [h (:id (first (v/sort-by-content (juxt :sentence :context)
+                                                  (v/sentexes-matching kb (list (preds 0) '?a '?b)
+                                                                       '?ctx))))]
         (v/assert kb (list 'except (list 'sentexHandle h)) (ctxs (rint r nctx)))))
     ;; An equality merge, sometimes — and *deliberately shaped*, because the shape that
     ;; makes the two strategies disagree is narrow and a uniform random draw does not find

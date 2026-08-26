@@ -1,6 +1,6 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
-(ns vaelii.impl.koinii.speech-acts
+(ns vaelii.koinii.speech-acts
   "Koinii speech-acts: the small vocabulary of moves agents make, as
   sentexes in the KB.  A move is not an out-of-band message but knowledge — queryable,
   retractable, auditable like any other fact — and the SHAPE of the move carries the
@@ -32,7 +32,7 @@
   `identity` — nothing under `vaelii.impl`, and nothing in core loads it.  Every write goes
   through the provenance-stamping `assert` path, never `bulk-assert-facts!`."
   (:require [vaelii.core :as v]
-            [vaelii.impl.koinii.identity :as id]))
+            [vaelii.koinii.identity :as id]))
 
 ;; ---- loading the vocabulary ----------------------------------------------
 
@@ -67,7 +67,11 @@
   provenance, which is exactly why an endorsement must be its own object.  Returns the
   claim's handle."
   ([kb agent claim] (assert-claim kb agent claim (id/context-for agent)))
-  ([kb agent claim ctx] (v/assert kb claim ctx {:creator agent})))
+  ([kb agent claim ctx]
+   ;; a cooperative agent may write another agent's context (first-writer-wins reads the
+   ;; provenance, not the destination) — but never the admin registry
+   (id/check-registry-write! agent ctx)
+   (v/assert kb claim ctx {:creator agent})))
 
 (defn pose-query
   "The `queries` move: originate a query NODE `(queries agent question)` in `agent`'s own
@@ -76,6 +80,7 @@
   Returns the query node's handle."
   ([kb agent question] (pose-query kb agent question (id/context-for agent)))
   ([kb agent question ctx]
+   (id/check-registry-write! agent ctx)
    (v/assert kb (list 'queries agent question) ctx {:creator agent})))
 
 ;; ---- response acts: meta-sentexes on the target, stamped by the responder -

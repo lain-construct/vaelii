@@ -19,6 +19,15 @@
 ;; consumer of the measure vocabulary from spelling its own Gram, which is the
 ;; fragmentation this KB exists to prevent, and it is the difference between a grammar
 ;; nobody can compute with and one that answers.
+;;
+;; The **sign** vocabulary is here too, and it is measurement said as coarsely as it can
+;; be said: signOf and trendOf give a quantity one of three values, the three
+;; qualitative* relations do arithmetic over them, derivativeOf joins a rate to the
+;; quantity it is the rate of, and greaterInMagnitudeThan resolves the one ambiguous
+;; entry in the addition table. It belongs beside the measures rather than in a context
+;; of its own for the reason CxSpace holds four calculi: it is about the same quantities
+;; the measures measure, and a KB usually has the sign where it has no figure. See
+;; docs/sign.md.
 
 (genlCx CxMeasure CxCore)
 (genlCx CxUniverse CxMeasure)
@@ -38,6 +47,13 @@
 (dimensionOf Day Duration)
 (conversionFactor Day Second 86400)
 
+(comment derivativeOf
+         "(derivativeOf ?rate ?quantity) means that ?rate is the rate at which ?quantity changes. So (derivativeOf NetInflow WaterLevel) says the net inflow is how fast the water level rises. What joins a sign to a trend: the trend of a quantity IS the sign of its rate, so the two are one value read at either end of this edge, and the sign prover carries it both ways — a rate whose sign is known gives the trend, and a stated trend pins the rate, which can then be an addend of something else. A rate is a quantity like any other, so the rate of a sum is stated as a sum of the rates rather than read off the sum.")
+(binaryPredicate derivativeOf)
+(instanceRelationPredicate derivativeOf)
+(arg derivativeOf 1 thing)
+(arg derivativeOf 2 thing)
+
 (comment dimensionOf
          "(dimensionOf ?unit ?dimension) means that ?unit measures ?dimension. So (dimensionOf Kilogram Mass) says kilograms measure mass. Two measures are comparable only within one dimension, so this is what the quantity provers consult before they normalize anything, and a mismatch comes back not comparable rather than false. An ordinary stored fact.")
 (binaryPredicate dimensionOf)
@@ -51,12 +67,22 @@
 (dimensionOf Gram Mass)
 (conversionFactor Gram Kilogram 0.001)
 
+(comment greaterInMagnitudeThan
+         "(greaterInMagnitudeThan ?quantity1 ?quantity2) means that ?quantity1 is further from zero than ?quantity2, whichever side of zero each falls on. Between two QUANTITIES, which is what separates it from quantityGreaterThan: that one compares two ground measure terms and is computed from the unit table, where this is a stated claim about quantities nobody has put a figure on — the tap running faster than the drain. It exists for the one ambiguous entry in the sign addition table: a positive and a negative sum to the sign of whichever is larger, and this is what says which. Transitive and asymmetric, a strict order, so a cycle of magnitude claims is a contradiction the KB reports rather than a chain it walks.")
+(binaryPredicate greaterInMagnitudeThan)
+(instanceRelationPredicate greaterInMagnitudeThan)
+(arg greaterInMagnitudeThan 1 thing)
+(arg greaterInMagnitudeThan 2 thing)
+(transitive greaterInMagnitudeThan)
+(asymmetric greaterInMagnitudeThan)
+
 (comment heavierThan
-         "(heavierThan ?object1 ?object2) means that ?object1 weighs more than ?object2. Between two particular objects, and derived rather than asserted: a rule compares their two weightOf measures with quantityGreaterThan, so it holds exactly when both weights are known and ordered. The instance-level counterpart of the type-level largerThan, and declared asymmetric, so a KB told it both ways round has a contradiction to report.")
+         "(heavierThan ?object1 ?object2) means that ?object1 weighs more than ?object2. Between two particular objects, and derivable rather than only asserted: a rule compares their two weightOf measures with quantityGreaterThan, so it holds whenever both weights are known and ordered. The instance-level counterpart of the type-level largerThan, and a strict order like it — transitive and asymmetric together. Transitivity is what answers a chain nobody weighed: two stated comparisons carry the third, so a KB that knows an elephant outweighs a horse and a horse a dog answers the elephant against the dog with no measure anywhere. Asymmetry makes the mirror of a claim deny it, and the pair entails irreflexivity as a reading without setting the mark: a lone (heavierThan a a) names no second sentex to weigh against and is admitted, exactly as it is for largerThan.")
 (binaryPredicate heavierThan)
 (instanceRelationPredicate heavierThan)
 (arg heavierThan 1 physical_object)
 (arg heavierThan 2 physical_object)
+(transitive heavierThan)
 (asymmetric heavierThan)
 
 (comment heightOf
@@ -94,6 +120,27 @@
 (comment Minute "Sixty seconds.")
 (dimensionOf Minute Duration)
 (conversionFactor Minute Second 60)
+
+(comment qualitativeDifference
+         "(qualitativeDifference ?a ?b ?q) means that quantity ?q is ?a minus ?b. A declaration about which quantities stand in the relation, not a sentence about numbers — there are no numbers in the sign theory at all — and what the sign prover reads to give ?q a sign from the signs of ?a and ?b. Read as ?a plus the negation of ?b, so it shares the addition table and its one ambiguity, with the cases turned round: two quantities of the SAME sign are the ambiguous difference, and greaterInMagnitudeThan is what resolves it.")
+(ternaryPredicate qualitativeDifference)
+(arg qualitativeDifference 1 thing)
+(arg qualitativeDifference 2 thing)
+(arg qualitativeDifference 3 thing)
+
+(comment qualitativeProduct
+         "(qualitativeProduct ?a ?b ?q) means that quantity ?q is ?a times ?b. The one arithmetic relation that is never ambiguous: anything times nothing is nothing, like signs give a positive and opposite signs a negative, and magnitudes do not come into it — so no greaterInMagnitudeThan is ever read for a product and a product of two known signs is always a known sign.")
+(ternaryPredicate qualitativeProduct)
+(arg qualitativeProduct 1 thing)
+(arg qualitativeProduct 2 thing)
+(arg qualitativeProduct 3 thing)
+
+(comment qualitativeSum
+         "(qualitativeSum ?a ?b ?q) means that quantity ?q is ?a plus ?b. A declaration about which quantities stand in the relation, not a sentence about numbers. The sign prover reads it to give ?q a sign from the signs of ?a and ?b: two positives give a positive and two negatives a negative, a zero is the identity, and a positive with a negative gives the sign of whichever is larger — which is all three values, and so no answer at all, until a greaterInMagnitudeThan says which. Never a guess between the three.")
+(ternaryPredicate qualitativeSum)
+(arg qualitativeSum 1 thing)
+(arg qualitativeSum 2 thing)
+(arg qualitativeSum 3 thing)
 
 (comment QuantityFn
          "(QuantityFn ?magnitude ?unit) means the measure of ?magnitude ?unit. So (QuantityFn 5 Kilogram) is five kilograms. An unreifiableFunction application, a structural NAT: it stays structural instead of being minted into an opaque constant, so the magnitude and the unit are still readable inside the sentence, and the quantity provers normalize it through the dimensionOf and conversionFactor facts.")
@@ -142,17 +189,45 @@
 (dimensionOf Second Duration)
 (conversionFactor Second Second 1)
 
+(comment sign_value
+         "One of the three values a quantity's sign takes: SignNegative, SignZero, SignPositive. Jointly exhaustive and pairwise disjoint over the reals — exactly one holds of any quantity — which is what makes a set of them a real constraint rather than an absence of knowledge, and what licenses the sign prover to answer a negated goal by refutation the way a relation algebra does.")
+(genl sign_value thing)
+
+(comment SignNegative "The sign of a quantity below zero: falling, when it is a trend.")
+(sign_value SignNegative)
+
+(comment signOf
+         "(signOf ?quantity ?sign) means that ?quantity is negative, nil or positive, ?sign being one of SignNegative, SignZero and SignPositive. The coarsest measurement there is, and the one a common-sense KB nearly always has: nobody knows how fast the tap runs, and everybody knows that it runs. Computed by a prover from the stated signs, the three qualitative arithmetic relations, the greaterInMagnitudeThan comparisons and the derivativeOf edges — and a stated one is answered back out of that same reading, so registering the prover never changes what a KB says about what it wrote down. NOT declared functional, though a quantity has one sign: functional merges two symbol arguments through the equality partition, so a KB that had said both positive and negative would have the two sign terms made one instead of the contradiction reported, and the prover reports it as a :sign-inconsistency entry.")
+(binaryPredicate signOf)
+(instanceRelationPredicate signOf)
+(arg signOf 1 thing)
+(arg signOf 2 sign_value)
+
+(comment SignPositive "The sign of a quantity above zero: rising, when it is a trend.")
+(sign_value SignPositive)
+
+(comment SignZero "The sign of a quantity that is exactly zero: steady, when it is a trend.")
+(sign_value SignZero)
+
 (comment tallerThan
-         "(tallerThan ?object1 ?object2) means that ?object1 stands higher than ?object2. Derived by comparing two heightOf measures, the same shape heavierThan has over weights, and asymmetric for the same reason.")
+         "(tallerThan ?object1 ?object2) means that ?object1 stands higher than ?object2. Derivable by comparing two heightOf measures, the same shape heavierThan has over weights, and a strict order for the same reasons: transitive, so two stated comparisons answer the third with nothing measured, and asymmetric, so the mirror of a claim denies it.")
 (binaryPredicate tallerThan)
 (instanceRelationPredicate tallerThan)
 (arg tallerThan 1 physical_object)
 (arg tallerThan 2 physical_object)
+(transitive tallerThan)
 (asymmetric tallerThan)
 
 (comment Tonne "A thousand kilograms.")
 (dimensionOf Tonne Mass)
 (conversionFactor Tonne Kilogram 1000)
+
+(comment trendOf
+         "(trendOf ?quantity ?sign) means that ?quantity is falling, steady or rising — the sign of its rate of change. Not a second theory beside signOf: it is signOf read at the other end of a derivativeOf edge, so a rate known positive makes the quantity it is the rate of rising, and a quantity stated rising makes that rate positive. Stated directly where the rate has no name worth giving it.")
+(binaryPredicate trendOf)
+(instanceRelationPredicate trendOf)
+(arg trendOf 1 thing)
+(arg trendOf 2 sign_value)
 
 (comment Week "Seven days.")
 (dimensionOf Week Duration)

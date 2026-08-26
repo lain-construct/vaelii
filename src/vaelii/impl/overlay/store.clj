@@ -41,6 +41,7 @@
   recovering over the merged view, and nothing here layers one truth-maintenance graph
   over another."
   (:require [clojure.set :as set]
+            [vaelii.impl.capabilities :as cap]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.protocols :as p]))
 
@@ -66,6 +67,24 @@
   answers nil for a sentence the KB does not hold."
   [id]
   (when (integer? id) (long id)))
+
+(defn- sample
+  "A handle the **merged** view holds, given the two halves' own samples and a predicate
+  saying whether the merged view keeps one — `nil` only when neither half holds anything.
+
+  `nil` is the load-bearing part.  Every caller of a sampler reads it as *this store is
+  empty* (`kb/write-hazards`, `kb/discharge-over-empty-store!`, `open-kb`'s recovery
+  branch), so a fork that deleted the one record its base happened to sample must not read
+  as an empty fork: where the sample is a handle this fork took out, the answer falls back
+  to the merged enumeration, which is the walk the capability exists to avoid and is
+  reached only in that case.  Which handle comes back is the store's own choice
+  (`protocols/Tallying`), so preferring the overlay's costs nothing and skips the base."
+  [own inherited keeps? ids]
+  (let [h (if (some? own) own inherited)]
+    (cond
+      (nil? h)   nil
+      (keeps? h) h
+      :else      (first (ids)))))
 
 (defn- note! [a meta-kv k id]
   (swap! a conj id)
@@ -231,6 +250,68 @@
     (reset! jd-tombstoned #{})
     (reset! pv-tombstoned #{})
     (reset! released #{})
+    nil)
+
+  ;; **The samplers are what this is for; the tallies are the honest merged count.**
+  ;; `Tallying` exists so a store whose enumeration is a *query* is not made to run one to
+  ;; answer *how many* and *is there anything* — and a fork over such a base inherits that
+  ;; question whole: `open-kb`'s recovery branch and `kb/write-hazards` both ask, and
+  ;; without this the answer is `base ∪ overlay − tombstoned` materialized, which over a
+  ;; `:pg` base is the table.  The samplers escape it by asking each half for one handle.
+  ;;
+  ;; The two tallies do not, and cannot: the merged cardinality is
+  ;; `|base| + |own \ base| − |tombstoned|`, and the middle term needs both sets.  They are
+  ;; implemented rather than left out because **this protocol cannot be half-implemented**
+  ;; — `capabilities` branches on `satisfies?`, which a `defrecord` answers true for the
+  ;; whole protocol however few methods it lists, so an omitted one is an
+  ;; `AbstractMethodError` at the call rather than the fallback the door promises
+  ;; (`protocols/BulkAnnotating` states the same rule one seam over).  So they read exactly
+  ;; what the fallback read, and the fork pays for the samplers alone.
+  p/Tallying
+  (sentex-tally        [this] (count (p/sentex-ids this)))
+  (justification-tally [this] (count (p/justification-ids this)))
+  (a-sentex-id [this]
+    (sample (cap/some-sentex-id overlay)
+            (when-not @hidden? (cap/some-sentex-id base))
+            #(not (contains? @sx-tombstoned (handle %)))
+            #(p/sentex-ids this)))
+  (a-justification-id [this]
+    (sample (cap/some-justification-id overlay)
+            (when-not @hidden? (cap/some-justification-id base))
+            #(not (contains? @jd-tombstoned (handle %)))
+            #(p/justification-ids this)))
+  (a-premise-id [this]
+    ;; `premise-ids` subtracts the released marks as well as the tombstones, and the
+    ;; subtraction there covers the union rather than the base half alone — so the same
+    ;; predicate is applied to whichever half the sample came from
+    (sample (cap/some-premise-id overlay)
+            (when-not @hidden? (cap/some-premise-id base))
+            #(let [h (handle %)]
+               (not (or (contains? @released h) (contains? @sx-tombstoned h))))
+            #(p/premise-ids this)))
+
+  ;; **The hint is forwarded to both halves, and it is the base's that is worth having.**
+  ;; A fork's own records are `:memory` or `:disk` (a `:pg` overlay is refused at
+  ;; `open-kb`), neither of which prefetches, so the overlay arm is a no-op today and is
+  ;; here so a later one is not silently skipped.  The base arm is the point: a fork
+  ;; `recover`s over the merged view, which walks every record it inherits, and over a
+  ;; `:pg` base that is a round trip apiece without the chunk hint.
+  ;;
+  ;; What it costs a fork over a base that does **not** prefetch: `cap/prefetcher` answers
+  ;; non-nil for every fork now, so the two recovery walks wrap their enumeration in
+  ;; `cap/hinting`'s lazy seq and issue a no-op call per chunk of 1,000.  Both walks
+  ;; consume sequentially and neither keeps the enumeration, which is the condition
+  ;; `hinting` states for that substitution.
+  p/Prefetching
+  (prefetch-sentexes! [_ ids]
+    (when (satisfies? p/Prefetching overlay) (p/prefetch-sentexes! overlay ids))
+    (when (and (not @hidden?) (satisfies? p/Prefetching base))
+      (p/prefetch-sentexes! base ids))
+    nil)
+  (prefetch-justifications! [_ ids]
+    (when (satisfies? p/Prefetching overlay) (p/prefetch-justifications! overlay ids))
+    (when (and (not @hidden?) (satisfies? p/Prefetching base))
+      (p/prefetch-justifications! base ids))
     nil))
 
 (defn overlay-record-store

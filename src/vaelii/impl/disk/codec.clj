@@ -80,7 +80,11 @@
         ;; by name, never misread as an atomic record whose fields land in the wrong
         ;; slots (the tokenized tags decode on their own path, dictionary in hand)
         :else
-        (throw (ex-info (str "unknown sentex frame tag " (pr-str tag))
+        (throw (ex-info (str "unknown sentex frame tag " (pr-str tag) " — this path reads"
+                             " tag " atomic-tag " (atomic) and " rule-tag " (rule), and"
+                             " the two tokenized twins decode with the dictionary in"
+                             " hand; a tag outside those four is a frame some other build"
+                             " wrote")
                         {:type :unknown-frame :tag tag}))))))
 
 ;; ---- justifications ---------------------------------------------------------
@@ -202,7 +206,11 @@
                             (persistent! acc)
                             (let [k (form-from bb dict lits n)]
                               (recur (assoc! acc k (form-from bb dict lits (read-varint! bb))))))))
-    :else             (throw (ex-info "malformed tokenized record body" {:type :malformed-record :code v}))))
+    :else             (throw (ex-info (str "malformed tokenized record body — the code is "
+                                           v ", and a body holds a non-negative"
+                                           " dictionary id or one of this codec's"
+                                           " sentinels")
+                                      {:type :malformed-record :code v}))))
 
 (defn- body-reader
   "A thunk yielding the encoded fields back in order."

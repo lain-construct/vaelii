@@ -38,7 +38,7 @@ same place `qcn` is:
 
 | Half | Knows about |
 |------|-------------|
-| the algorithm | pure data. A network is `{[p q] → [lo hi]}` and a closure is a function of it |
+| the algorithm | pure data. A network is `{[p q] → [lo hi]}`, a closure is a function of it, and a **closed state** is that closure beside the distance matrix it was read off — also a function of the network, and what the next arriving constraint is relaxed into |
 | the KB half | measures, the unit table, belief, context, the violations ledger, the prover |
 
 So the closure is testable with no KB in sight, and memoizable on the network *value*, for
@@ -66,6 +66,61 @@ reads the result back as bounds. Two ways it answers `:inconsistent`:
 As with `qcn`, passing every node the network mentions is the **caller's** obligation, and
 passing extra ones is always safe: an isolated node has a finite edge in neither direction,
 so it can tighten no pair and lie on no cycle.
+
+### Warm-starting: an arriving constraint is relaxed in
+
+A KB being loaded asks for the closure again after every arriving fact, and all but a
+handful of the bounds are exactly where the last pass left them. The memo cannot help
+there — an arriving constraint is a different network and so a different key — so closing
+again is the cubic loop redoing work it has already done.
+
+The identity that licenses starting from the last answer is the one shortest paths already
+rest on. A closed matrix `D` is the least-weight path between every pair, so adding an edge
+`p → q` of weight `w` improves exactly the paths that run `i ⇝ p → q ⇝ j`:
+
+```
+D'[i][j] = min(D[i][j], D[i][p] + w + D[q][j])
+```
+
+That is the whole update, over every pair at once — O(n²) rather than O(n³), and not an
+approximation but the same closure reached without re-deriving what did not move. One round
+is enough: a path using the new edge twice decomposes into two that use it once, so a
+shorter one exists unless one of those rounds is *negative*, and that is exactly what the
+verdict catches — `D'[p][p]` becomes `min(0, w + D[q][p])`, which is the weight of the cycle
+the new edge closes. Tightening both sides of a `[lo hi]` bound is two such updates, since
+the network stores the pair both ways round.
+
+`close-state` is therefore the pass answering `{:net :node-vec :d}` — the closure beside the
+matrix it was read off — and `close-state-from` relaxes a network into an earlier state. The
+matrix rides along rather than being rebuilt from the closed network, because rebuilding it
+costs a map lookup per instant pair, which at four hundred instants is more than the update
+it precedes. It is written once and every reader clones it before touching it, so a state
+is a value the way the network in it is; `close` is `close-state`'s `:net` and is what every
+caller with no next constraint coming takes.
+
+**It applies to tightening only.** A retraction, a defeat, a loosened bound — anything that
+*widens* a constraint — has no such identity: the closed matrix does not record which of its
+bounds the departing constraint was behind, and a shortest path cannot be run backwards. So
+a widening recomputes from nothing and pays the whole pass, and the memo on the network
+value is what keeps it paid once. `tightening-of?` is the precondition, checked by the
+caller against the network the previous answer was computed from. That is the honest trade
+rather than a gap, and it is the same trade [qcn.md](qcn.md) makes on the qualitative side —
+retraction is rare where loading is not.
+
+Two further things bound the work. Only the bounds a relaxation actually moved are read
+back, so an arriving constraint that pins one new instant rewrites that instant's row and
+leaves the rest of the closed network the object it already was. And **relaxing more edges
+than there are instants costs more than one full pass** — `k` updates are `k·n²` against the
+closure's `n³` — so past that it takes the pass; the branch is a cost decision and cannot
+change the answer.
+
+**The answer is the same one, in every order.** `stp_incremental_test` is where that is held
+rather than assumed: generated networks, three permutations of each, every permutation
+folded in one constraint at a time with each step warm-started off the last, all checked
+against a single run from nothing — the closed network bound for bound and the inconsistency
+verdict alike. A KB loading one fact at a time and a KB recovered from a dump close the
+same constraints by two different routes, and order independence is the claim that they
+agree ([nmtms.md](nmtms.md)).
 
 ### Both verdicts are read to the tolerance
 
@@ -150,6 +205,43 @@ The prover is **opt-in**; the vocabulary is not.
 (v/add-reasoner kb :metric-time)
 ```
 
+## What a derived bound rests on
+
+A forward rule may join on a bound nobody stated — `(temporalDistance Dawn Dusk ?d)` where
+only the two legs through noon are written down. The firing then has to say what the bound
+rested on, or retracting a leg would leave the conclusion standing on a reason the JTMS
+cannot reach ([nmtms.md](nmtms.md)). `TemporalDistanceProver` implements
+`provers/SupportingProver` for exactly that: each answer comes back paired with the handles
+behind it.
+
+**The support is the path, not the network.** A bound between P and Q is the least-weight
+chain between them, so the constraints on that chain are what produced it and the rest of
+the network was not read. Naming the whole network would be sound — every derived bound
+follows from all of it — but it would withdraw the conclusion whenever any unrelated
+constraint anywhere was retracted, and locality is one of the four properties the engine
+holds everywhere. Both directions count: `hi` is the chain from P to Q and `lo` the chain
+back, in general two different chains, so the support is their union. Each constraint
+brings the `dimensionOf` / `conversionFactor` rows its magnitude converted through, since
+the conversion is part of what it contributes.
+
+The chain is walked off a **successor** table filled by the same shortest-path pass, on its
+own cache — support is asked for rarely, and every metric goal would otherwise pay to fill
+an `int[n²]` nothing reads. The walk is bounded by the instant count: a shortest path over
+a network with no negative cycle can be taken simple, but a chain of gaps that closes
+*exactly* is a zero-weight cycle a successor chain is free to go round. Past the bound the
+answer falls back to the whole network's supporters — a sound superset, at the cost of
+locality in the one case a local answer is not available.
+
+It over-approximates one derivation on the two counts [qcn.md](qcn.md) states for the
+qualitative side: a pair narrowed by two constraints keeps both, and a second chain
+reaching the same figure contributes nothing. What is guaranteed is the piece a
+justification needs — every handle named was really read into this network, and the
+reported set is enough to have produced the bound on its own.
+
+`support-sources` names `temporalDistance` and the unit table, so a constraint or a
+conversion factor arriving *after* a rule has fired re-joins it
+([inference.md](inference.md), "What a computed answer rests on").
+
 ## An unsatisfiable network is reported
 
 A negative cycle goes to the accumulating `(violations kb)` ledger as
@@ -186,9 +278,9 @@ Two binary predicates naming an interval's bounding instants. With them a metric
 and an Allen relation are claims about the same thing, and the metric layer can say what the
 qualitative one could not.
 
-`allen-narrowing` reads the closure back as an Allen network `{[i j] → #{base relations}}`
-for a caller to intersect into one read from stored facts. It runs **one way only** —
-metric narrows qualitative — asserts nothing, mutates nothing, and returns a value.
+`allen-narrowing-with-support` reads the closure back as an Allen network
+`{[i j] → #{base relations}}` with the handles behind each pair. It runs **one way only** —
+metric narrows qualitative — asserts nothing and mutates nothing.
 
 The mechanism is `endpoint-signature`: each of Allen's thirteen relations forces a specific
 ordering on each of the four endpoint comparisons — A's start against B's start, A's start
@@ -217,9 +309,59 @@ is the absence of a claim. An interval missing one of its bounding instants — 
 stated of two *different* instants, which is a disagreement no reasoning should paper over —
 is not read at all.
 
+### The interval algebra reads it
+
+This is not a value a caller may or may not intersect. `vaelii.impl.interval` declares it
+as the Allen calculus's **narrowing** ([qcn.md](qcn.md), "A network can have a second
+reader"), so every read of an interval network in a context takes it, and a KB that states
+two meetings' endpoints and the gap between them answers `(before A B)` with no interval
+relation written anywhere:
+
+```clojure
+(startOf Standup StandupStart)   (endOf Standup StandupEnd)
+(startOf Review  ReviewStart)    (endOf Review  ReviewEnd)
+(temporalDistance StandupStart StandupEnd (QuantityFn 15 Minute))
+(temporalDistance StandupEnd   ReviewStart (QuantityFn 1 Hour))
+(temporalDistance ReviewStart  ReviewEnd  (QuantityFn 30 Minute))
+
+(v/ask? kb '(before Standup Review) ctx)          ;=> true
+(v/ask? kb '(not (sharesTimeWith Standup Review)) ctx)   ;=> true
+```
+
+The two readers compose in the pass, not before it: one pair narrowed metrically and the
+next by a stored fact compose exactly as two stored facts do, because what
+`qcn/path-consistent` runs over is one network value either way.
+
+**The support is the same shape a derived bound's is.** A pair's handles are the
+`startOf` / `endOf` facts naming both intervals' instants, plus the constraints along the
+shortest chain each of the four gaps was composed out of — `path-support` again, over
+`endpoint-gaps`, so the two readings name the same four gaps and cannot drift. Not the
+whole metric network: a conclusion drawn from `(before A B)` must go when a constraint
+behind it goes and must **not** go when an unrelated interval's does. So a forward rule
+joining on a metrically-entailed relation is an ordinary firing — it names the measures,
+the endpoints and the unit rows as its antecedents, and the JTMS withdraws it when any of
+them is retracted.
+
+**What moves the network is wider than what it answers**, which is why the calculus
+declares two predicate sets. `:sources` — `temporalDistance`, `startOf`, `endOf`,
+`dimensionOf`, `conversionFactor` — is what re-checks and re-joins the rules carrying an
+interval antecedent, since none of those is a predicate such a rule mentions and a
+constraint arriving after the rule would otherwise never reach a join. `:contexts` is the
+subset that puts an interval *into* a network, and so names a context worth reading one
+at; a `conversionFactor` changes what a bound comes to but a context holding one and no
+interval has nothing to narrow.
+
+**A KB that registered no metric prover still pays the read**, and that is the same rule
+the qualitative networks follow: a network is a property of the stored facts rather than
+of the query engine, so `qualitative-network` and `possible-relations` answer whether or
+not anybody opted in. What the opt-in buys is `TemporalDistanceProver` answering a
+`temporalDistance` *goal*. The cost when there is nothing to read is one belief-filtered
+read of `temporalDistance` per context and clock tick, which `problem` holds resident and
+which answers nil before any closure runs.
+
 ## Sharpening an overlap
 
-`overlap-window` is the other half of the bridge and the reason
+`overlap-window-with-support` is the other half of the bridge and the reason
 [duration.md](duration.md)'s `overlapDuration` stops guessing. The shared stretch of two
 intervals runs from the later of the two starts to the earlier of the two ends,
 
@@ -252,4 +394,57 @@ network read is **resident on the KB** under a key of this namespace's own, stam
 change clock exactly as a qualitative network is ([qcn.md](qcn.md), "The network is
 resident, and the clock is what makes that sound"), which
 is what stops a rule joining a metric antecedent from re-reading the KB once per binding —
-and a settle from re-reading it once per firing.
+and a settle from re-reading it once per firing. The closed answer is resident on the same
+atom, which is what an arriving constraint is relaxed into.
+
+Measured by `lein bench-stp` over a chain of instants — the shape a sequence of events
+produces, and the dense case for the read-back, since a chain pins a bound between *every*
+pair however few constraints were written. The closure figure is the fastest of five runs;
+each per-arrival figure is the mean of twenty arrivals.
+
+**The algorithm**, no KB and no belief, both routes side by side:
+
+| instants | one closure | constraint arriving, closing | …, relaxed in | instant arriving, closing | …, relaxed in |
+|---|---|---|---|---|---|
+| 25  | 0.26 ms | 0.31 ms | 0.23 ms | 0.41 ms | 0.32 ms |
+| 100 | 3.2 ms  | 3.5 ms  | 0.47 ms | 4.0 ms  | 0.54 ms |
+| 400 | 78 ms   | 94 ms   | 12 ms   | 86 ms   | 1.9 ms  |
+
+**Through the engine**, where the belief-filtered read and the magnitude normalization sit
+in front of the pass:
+
+| instants | belief read | assert, then ask | repeat ask |
+|---|---|---|---|
+| 25  | 0.76 ms | 1.4 ms | 2.2 µs |
+| 100 | 1.4 ms  | 2.5 ms | 1.4 µs |
+| 400 | 3.6 ms  | 19 ms  | 1.7 µs |
+
+Three things to read off them.
+
+**The memo is the whole of what a query loop costs.** A repeat ask is a couple of
+microseconds at four hundred instants and at twenty-five alike — the network is the same
+object read after read, so the resident lookup is a reference compare and the content key
+behind it is never reached. Against that, an ask *after* a constraint arrived is three to
+four orders of magnitude larger, which is what makes an arriving fact and not a query the
+thing worth making cheaper.
+
+**What a warm start saves is the pass, and what it cannot save is the bounds that moved.**
+The two arriving columns are the two ends of that. A constraint spanning half the chain and
+far tighter than the chain implies moves most of the n² bounds, and relaxing it in reads
+12 ms against 94 — the read-back is most of what is left. A constraint naming an **instant
+the network has never held** — a timeline being loaded, which is the ordinary shape — moves
+that instant's own row and nothing else, and reads 1.9 ms against 86: forty-five times.
+
+**The belief read is linear where the closure is cubic**, so which one dominates is a
+question of size. At four hundred instants the read is 3.6 ms against a 78 ms pass and
+disappears into it; at twenty-five it is most of what an ask costs, and no closure work
+would be noticed there at all.
+
+`lein perf`'s `metric-closure-warm-start` is the gate over the arriving-instant column: 8×
+the instants under 35× per arrival. It reads 12.6× to 13.4× across full runs, and 99.5×
+with the same check driving `close-state` on the whole network instead — the cubic shape the
+bound exists to catch.
+
+A **widening** is outside all of this. A retraction, a defeat or a loosened bound recomputes
+from nothing at the full O(n³), and the memo on the network value is what keeps that paid
+once rather than once per question.

@@ -105,8 +105,31 @@ selected_ns_count() {
 # How wide a row of marks is: as many groups of ten as the terminal has room
 # for, keeping the right-hand column free for the running count.  Ten to a group
 # because the point of grouping is to be countable at a glance.
-COLS=$(tput cols 2>/dev/null)
+#
+# THE SIZE IS ASKED OF `/dev/tty` FIRST, and that is not belt-and-braces.  `tput` reads
+# the size from its own stdout, and every script sourcing this file can be reached
+# through a pipe — `lein test-backends` and `lein test-matrix` go through lein-shell,
+# which always pipes the child's stdout — where `tput` answers terminfo's DEFAULTS, 80
+# by 24, rather than the terminal's size.  `/dev/tty` is the controlling terminal
+# whatever stdout has been redirected to, so `stty` on it answers where `tput` cannot.
+# Where there is no controlling terminal either — CI, a cron, a container — both fail
+# and the defaults are the honest answer.  `SUITE_TTY` already carries the tty question
+# across the same boundary for the same reason; this carries the size.
+term_size() {                                      # -> "<rows> <cols>"
+  local s
+  # the `2>/dev/null` is on the GROUP, not on `stty`: where there is no controlling
+  # terminal the `</dev/tty` fails during redirection, before `stty` runs, and bash
+  # reports that on its own stderr — a diagnostic on every CI run for a probe that is
+  # allowed to fail.
+  { s=$(stty size </dev/tty); } 2>/dev/null
+  [[ "$s" =~ ^[0-9]+\ [0-9]+$ ]] && { printf '%s' "$s"; return; }
+  printf '%s %s' "$(tput lines 2>/dev/null)" "$(tput cols 2>/dev/null)"
+}
+read -r ROWS COLS <<<"$(term_size)"
 [[ "$COLS" =~ ^[0-9]+$ ]] && (( COLS >= 40 )) || COLS=80   # a pty can report 0
+# The height matters to one caller — `test-matrix.sh` will not paint a frame taller than
+# the terminal, because a frame that scrolls cannot be repainted in place.
+[[ "$ROWS" =~ ^[0-9]+$ ]] && (( ROWS >= 10 )) || ROWS=24
 ROW_GROUPS=$(( (COLS - 13 + 1) / 11 ))
 (( ROW_GROUPS < 1 )) && ROW_GROUPS=1
 MARKS_PER_ROW=$(( ROW_GROUPS * 10 ))

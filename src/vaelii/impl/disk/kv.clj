@@ -1,8 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.disk.kv
-  "The index store on disk — a `KvBackend` (`vaelii.impl.kv`) over a durable
-  write-ahead log.
+  "The **log index** — the `:disk-log` half of `:disk-log` and `:pg-disk-log`: a
+  `KvBackend` (`vaelii.impl.kv`) over a durable write-ahead log.
 
   The index is derived state (small next to the records, and `reindex` can rebuild it
   from the records alone), so the disk KV keeps the whole key→value map in RAM — a `Long` at
@@ -31,6 +31,19 @@
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.kv :as kv]))
 
+(defn- usable!
+  "Throw `:compaction-failed` when `failed` holds the exception of a compaction that
+  could not install past its commit point.  The live log is then torn — half-copied
+  from a fsynced temp — so a write over it would compound the damage; the store is
+  repaired by reopening, which finishes the install off the commit marker.  Reads are
+  left working: they answer from the in-RAM map, which the failed install never touched
+  (`kv-clear!`, the kv twin of `clear-records!`, supersedes rather than consulting this)."
+  [failed log-path]
+  (when-let [t @failed]
+    (throw (ex-info (str "disk kv: a compaction of " log-path " failed after its commit"
+                         " point — the store refuses writes until it is reopened")
+                    {:type :compaction-failed :log log-path} t))))
+
 (defn- apply-ops!
   "Apply write ops: fold them into the RAM map, append one frame **per op** to the WAL
   — every frame of the batch in **one write** (`f/append-records!`), so the batch is on
@@ -51,8 +64,9 @@
   the whole pre-clear map over a log that was just truncated.  The clear case is the one
   that bites: `reindex` is clear-plus-rebuild, and a large reindex is exactly when a
   compaction is queued."
-  [{:keys [data log lock frames]} ops]
+  [{:keys [data log lock frames failed log-path]} ops]
   (locking lock
+    (usable! failed log-path)
     (let [[m1 replies]
           (reduce (fn [[m rs] op]
                     (let [[m' r] (kv/apply-op m op)]
@@ -66,7 +80,7 @@
 ;; `closed` (a volatile boolean, written and read under `lock`) is `compact!`'s guard:
 ;; the durability daemon's queued-task check runs outside this store's lock, so a close
 ;; can land between that check and `compact!` acquiring the lock — see `compact!`.
-(defrecord DiskKvBackend [dir data log log-path lock frames closed damaged]
+(defrecord DiskKvBackend [dir data log log-path lock frames closed damaged failed]
   kv/KvBackend
   (kv-get  [_ k]   (get @data k))
   (kv-put  [b k v] (apply-ops! b [[:put k v]]) nil)
@@ -100,9 +114,16 @@
   ;; writes every entry of it back over the log this just emptied
   (kv-clear! [_]
     (locking lock
+      ;; a wipe SUPERSEDES a pending (or failed) compaction: drop the commit marker and
+      ;; temps under the same lock, or a `reindex` (clear-then-rebuild) landing after a
+      ;; post-commit failure would leave them for the next open's `recover-compaction!`
+      ;; to replay the pre-wipe snapshot back over the rebuilt log
+      (let [{:keys [temps marker]} (f/compact-temp-paths log-path)]
+        (f/delete-compact-temps! marker temps))
       (f/truncate! log)
       (vreset! frames 0)
-      (reset! data {}))
+      (reset! data {})
+      (reset! failed nil))
     nil))
 
 (defn open-kv-backend
@@ -143,7 +164,7 @@
                             (vswap! frames inc)
                             (vswap! m (fn [mm] (first (kv/apply-op mm op))))))
           (->DiskKvBackend root (atom @m) log log-path (Object.) frames (volatile! false)
-                           damaged?))
+                           damaged? (atom nil)))
         (catch Throwable t
           (try (f/close! log) (catch Throwable _ nil))
           (throw t))))))
@@ -178,8 +199,9 @@
   compaction.  Under the lock there is no window: `close!` sets the flag holding the
   same lock, so a compaction that acquires it either runs against a store that stays
   open until it finishes, or sees the flag and writes nothing."
-  [{:keys [data log log-path lock frames closed]}]
+  [{:keys [data log log-path lock frames closed failed]}]
   (locking lock
+    (usable! failed log-path)
     (if @closed
       (trove/log! {:level :debug
                    :msg (str "disk kv: compact! of " log-path
@@ -208,8 +230,38 @@
             (vreset! frames (count snapshot))
             (catch Throwable t
               (f/close! tlog)
-              (when-not @committed? (f/delete-compact-temps! marker temps))
-              (throw t))))))))
+              (if-not @committed?
+                ;; before the marker: the original stays authoritative, so drop the temp
+                ;; (a later open would too, but the next compaction in THIS session would
+                ;; open and append to it — resurrecting deleted keys) and rethrow.
+                (do (f/delete-compact-temps! marker temps)
+                    (throw t))
+                ;; after the marker: the fsynced temp is the truth, and
+                ;; `replay-temp-onto-raf!` truncates before copying, so the live log may
+                ;; now be half-copied.  Retry the install once — the same replay an open
+                ;; would make off the marker.  If it fails too, flip `failed`: writes and
+                ;; the next compaction refuse (`usable!`) rather than the frames staying
+                ;; unreset and a second compaction appending to the stale temp, and a
+                ;; reopen finishes the install off the marker.
+                (let [again (try (f/replay-temp-onto-raf! log tmp)
+                                 (f/delete-compact-temps! marker temps)
+                                 (vreset! frames (count snapshot))
+                                 nil
+                                 (catch Throwable t2 (.addSuppressed t2 t) t2))]
+                  (if again
+                    (do (reset! failed again)
+                        (trove/log! {:level :error :id ::compaction-failed
+                                     :msg (str "disk kv: compaction of " log-path
+                                               " failed after its commit point and the"
+                                               " retry failed too — the store refuses"
+                                               " writes until it is reopened")
+                                     :error again})
+                        (throw again))
+                    (trove/log! {:level :warn :id ::compaction-retried
+                                 :msg (str "disk kv: compaction of " log-path
+                                           " failed after its commit point; the retried"
+                                           " install succeeded")
+                                 :error t})))))))))))
 
 (defn close!
   "Compact if the deltas have earned it, flush durably, record the length the WAL closed
@@ -232,9 +284,12 @@
   lock on a failed close as deliberately as on a clean one; a store left with `closed`
   false and its RAF still open is then one a queued auto-compaction will still try to
   rewrite, over a directory another process may already hold."
-  [{:keys [dir log lock closed] :as b}]
+  [{:keys [dir log lock closed failed] :as b}]
   (try
-    (when (and (dur/auto-compact?) (>= (dead-ratio b) (dur/compact-dead-ratio)))
+    ;; not a `failed` store: its log is torn and a reopen finishes the install off the
+    ;; marker, so re-compacting here would only throw `:compaction-failed` out of close
+    (when (and (dur/auto-compact?) (nil? @failed)
+               (>= (dead-ratio b) (dur/compact-dead-ratio)))
       (compact! b))
     (fsync b)
     ;; **The flag is set in the same critical section that reads the length.**  The

@@ -93,14 +93,14 @@
       (let [body   (second pat)
             got    (proj (res/match-pattern kb pat '?ctx))
             manual (proj (mapcat (fn [f'] (res/raw-match kb (negate (cons f' (rest body))) '?ctx))
-                                 (tax/genls (:taxonomy kb) (first body))))]
+                                 (tax/genls-global (:taxonomy kb) (first body))))]
         (is (= manual got)
             (str "the negative fan diverged from the genl-union on " (pr-str pat)))))))
 
 (tu/deftest-kb super-predicates-is-the-genl-closure
   (tu/with-terms [dog_t animal_t]
     (v/assert kb (list 'genl dog_t animal_t) 'CxCore {:strength :monotonic})
-    (is (= (tax/genls (:taxonomy kb) dog_t) (res/super-predicates kb dog_t nil)))
+    (is (= (tax/genls-global (:taxonomy kb) dog_t) (res/super-predicates kb dog_t nil)))
     (is (contains? (res/super-predicates kb dog_t nil) animal_t))
     (is (not (contains? (res/sub-predicates kb dog_t nil) animal_t)))))
 
@@ -230,7 +230,7 @@
       (testing "a negation on an unrelated predicate reaches nothing"
         (is (empty? (rules/trigger-keys tax' (negate (list other_t A)) (roster)))))
       (testing "a positive fact still names its predicate and its supertypes"
-        (is (= (tax/genls tax' dog_t)
+        (is (= (tax/genls-global tax' dog_t)
                (set (rules/trigger-keys tax' (list dog_t A) (roster)))))))))
 
 ;; ---- the fan is scoped by the vantage ------------------------------------

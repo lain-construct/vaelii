@@ -19,6 +19,12 @@ rather than each carrying a copy.
 Each entry names the doc it defends, and the sections below follow the grouping the
 [doc map](README.md) uses.
 
+Many of the entries defend a **refusal**, and none of them indexes one. The `:type`
+keyword a refusal carries is looked up in
+[troubleshooting.md](troubleshooting.md#i-have-a-type-and-do-not-know-what-it-means),
+which holds the whole vocabulary and the page that owns each; come here for why the door
+refuses, go there for what a keyword you caught means.
+
 ## Belief and truth maintenance
 
 Defends [nmtms.md](nmtms.md).
@@ -73,10 +79,10 @@ antecedents. That membership is what makes retracting or defeating the rule with
 everything it licensed — a *validity* role, not a ground. A rule takes `:default` unless
 its own assertion says otherwise, exactly as a fact does, so capping on it too would drop
 every datum an ordinary rule licensed to `:default`. This is why a rule's own class
-(`:strength`, what `defeat-class` answers for its handle) and its defeasibility (`:strength
-:default` on a firing versus a bare rule, what its firings confer) are two slots: only the
-second moves belief, and nothing in the engine defeats a rule, so the first takes part in
-no contest.
+(`:strength`, what `defeat-class` answers for its handle) and its defeasibility
+(`:defeasible`, which `set/defaultRule` spells and `chain/rule-view-of` reads to decide
+what its firings confer) are two slots: only the second moves belief, and nothing in the
+engine defeats a rule, so the first takes part in no contest.
 
 ### The subsumption path is the widest bottleneck, not the shortest route
 
@@ -138,7 +144,8 @@ The reference network's persistent maps are region-local by construction. The de
 that rebuilds a bitmap costs one pass over all of its 65,536-value containers — so it
 satisfies locality up to 65,536 nodes, where there is exactly one container, and silently
 violates it above. At the largest graph a reference-network table measures, nothing could
-show it; it takes a rebuild over nine million premises. So whatever else a second
+show it; it takes a rebuild over three million premises, where the copying shape costs
+14.9× per premise and the reference stays flat. So whatever else a second
 representation is proven to match, **cost shape is part of it** — an oracle test that
 compares only answers passes a representation whose answers were never wrong and whose cost
 grew with the KB.
@@ -152,9 +159,9 @@ both wrong.
 A dense network cannot simply replace the reference. `RoaringBitmap` is mutable, and
 `jtms_atomicity_test` pins that a mutation applies all-or-nothing; a mutable bitmap inside
 a persistent value would break `swap!`'s retry and let a reader observe a half-applied
-relabel. So the dense one serializes writers on a monitor and leaves readers unlocked — the
-latitude the one-writer contract already grants ([storage.md](storage.md)) — while the
-reference one gets its consistent snapshot from a single deref.
+relabel. So the dense one serializes its writers on the exclusive stamp of a `StampedLock`
+and validates its readers against them (below), while the reference one gets its consistent
+snapshot from a single deref.
 
 Order independence rests on the backward dependency and the forward propagation being the
 **same** edge set. The class fixpoint re-examines a node when something it derives from
@@ -179,9 +186,12 @@ on a report whose `:sentence` reads the same either way; `(first (contradictions
 answers which pair was typed first on a call whose every other reading is
 order-independent; a firing seeded by whichever antecedent triggered it would store `[h_b2
 h_b1 rule]` one way round and `[h_b1 h_b2 rule]` the other. What a sentex *says* is the same
-whenever it is asserted, so `solve/content-key`, `kb/antecedent-order` and
-`kb/justification-content-key` sort by sentence, then context. The two `kb` keys stop
-there, and they are **structural** — `nm/compare-form` walks the two forms in place, so
+whenever it is asserted, so every one of those keys reads content: `solve/content-key` and
+`kb/antecedent-order` take the sentence and then the context, and
+`kb/justification-content-key` takes the informant's own sentence, its antecedents'
+sentences, the firing's bindings and the conclusion's sentence and context — enough to
+separate one firing placed into two contexts, which the sentence alone leaves tied. The two
+`kb` keys are **structural** — `nm/compare-form` walks the two forms in place, so
 nothing is printed and no ambient `*print-length*` can elide two long sentences to one
 prefix, collapse the key and drop the tie back onto arrival. `solve/content-key` is the
 one printed key of the three, with the print vars bound off, and it alone appends the
@@ -200,6 +210,20 @@ handle there would decide the whole comparison on which rule was typed first. Or
 antecedent vector once, where it is built, is what makes `why`'s `:because`, `why-not`'s
 `:missing` and `preview`'s `:antecedents` functions of the knowledge rather than of the
 write.
+
+The rule reaches one more shape, which is a read rather than an ordering: taking **one**
+member out of a set. `matches-visible` promises the set of matches and the three extent
+readers (`sentexes-in-context`, `sentexes-with-functor`, `sentexes-with-arg`) answer
+everything under one index key — none of them promises which comes first, so a `first` on
+one is a question about what the postings enumerate, and that is arrival order again. A
+caller wanting a single answer orders on content before it takes one, bounds the read and
+counts (the LLM inventory reads 64 of a functor's facts and answers the arity most of
+them carry), or states why there can be only one — a `functional` predicate leaves one
+value in the slot, a second symbol merging into the first through the `(equals V1 V2)` the
+KB derives from the pair and a second non-symbol refused outright, and resting on that is a
+claim worth writing down.
+`sort_by_content_key_test`'s positional-take scan reads `src/` for the ones that do
+neither.
 
 ### The touched window is a superset, not the flip set
 
@@ -227,9 +251,11 @@ clashes carry forward the answer for any pair whose members did not move. This i
 the recomputation, not an optimization to taste.
 
 One check per standing pair per settle is quadratic in the clashes a load creates: measured
-at 36ms an assert against 8ms at 300 standing definitional clashes, and 56ms against 7.5ms
-at 1600 standing dilemmas. The carry is sound because the memo compares as **values** every
-input a check reads that is small enough to — the separations, the predicate properties,
+at roughly 35 ms an assert with 300 standing definitional clashes against under 10 ms with
+50, and the negation half separates 12x on `lein perf`'s `negation-arbitration`, which holds 8x the
+standing dilemmas to under 11x the per-assert cost. The carry is sound because the memo
+compares as **values** every input a check reads that is small enough to — the
+separations, the predicate properties,
 the disjoint metatypes' membership — and weighs per pair the one input too big to compare,
 the `genl` closure: a pair of unary memberships is decided by `disjoint?` of the two types
 its sentexes name, so the memo stamps those two supertype closures, and an edge leaving both
@@ -282,15 +308,18 @@ than decided.
 ### The solver split is guarded in both directions
 
 Only `:default` content is ever decided; `:monotonic` is the fixed background a solve
-reasons *from*. That followed from `decide-nogood`, but nothing checked it, so `settle`
-guards both ends: `check-solver-eligible` rejects a contested handle that is not `:default`
+reasons *from*. `decide-nogood` already implies it, and `settle` makes that a check rather
+than a consequence, guarding both ends: `check-solver-eligible` rejects a contested handle
+that is not `:default`
 (read before any defeat lands, since `defeat-class` reports nil once a datum is OUT), and
 `accepted-defeat` keeps only defeats the program actually offered.
 
 The guards matter because `set-solver` takes any implementation, and an unclamped `:defeat`
 would let a third-party solver withdraw known-true content the program never handed it. The
 cost of a regression here is not a wrong answer; it is the engine quietly giving away
-something it knows to be true. `asp_label_test` covers both directions.
+something it knows to be true. `nmtms_test` covers both guards directly; `asp_label_test`
+covers the surface above them — that a plain rebuttal reaches no solver at all, and that a
+monotonic handle is never given an atom.
 
 ## Namespaces and layering
 
@@ -304,15 +333,16 @@ Three calls break that order, and all three live in `impl/wiring.clj` instead of
 call site that needs them.
 
 None of the three is a misplaced function waiting to be moved somewhere that restores
-the one-way order. `assert-sentence` is called back from `impl/nat.clj` and
-`impl/skolem.clj` because storing is a whole assert — naming, the definitional checks,
-the index, chaining, settle — so the write path itself runs chaining, and chaining mints
-a constant by calling back into that same write path. The cycle is in the behaviour a
-NAT or a skolem witness needs, not in how the code happens to be arranged, so no
-rearrangement removes it. `solve-goal` is the prover registry that
-`impl/resolution.clj` calls to discharge a deferred antecedent, and `unknown` runs that
-same registry back over its own argument — negation-as-failure is mutually recursive
-with the chainer that asked for it, not merely calling down into it. `import-dump` sits
+the one-way order. `assert-sentence` is called back from `impl/nat.clj`,
+`impl/skolem.clj` and `impl/quasiquote.clj` because storing is a whole assert — naming,
+the definitional checks, the index, chaining, settle — so the write path itself runs
+chaining, and chaining mints a constant by calling back into that same write path. The
+cycle is in the behaviour a NAT, a skolem witness or a quasiquotation mark needs, not in
+how the code happens to be arranged, so no rearrangement removes it. `solve-goal` is the
+prover registry that `impl/resolution.clj` calls to discharge a deferred antecedent, and
+`unknown` runs that same registry back over its own argument — negation-as-failure is
+mutually recursive with the chainer that asked for it, not merely calling down into it.
+`import-dump` sits
 `impl/io/import.clj` above `vaelii.core` because reading a dump is asserting: it
 re-canonicalizes records, reindexes and recovers through the public write path.
 `core/import!` is `export!`'s inverse, and a round trip whose two halves are not both
@@ -323,13 +353,43 @@ call site. Scattered, a `requiring-resolve` is invisible: nothing counts it, not
 stops the next one, and the set of places the layering is broken can only be recovered
 by grepping for it. Gathered, they are an inventory — three entries, each owing the
 reason it cannot be an ordinary require — and `lein lint`'s E8 fails a literal
-`requiring-resolve` anywhere else under `src/`, excepting the keyword-dispatch
-registries it names. A cut with a real fix takes the fix; one that lands in the
-inventory argues for itself in writing first.
+`requiring-resolve` anywhere else under `src/`, excepting the optional dependencies it
+names by target. Only the literal form is a cut: a symbol computed off a keyword-dispatch
+registry names no edge at read time, so E8 never sees one. A cut with a real fix takes
+the fix; one that lands in the inventory argues for itself in writing first.
 
 ## Storage and the single writer
 
 Defends [storage.md](storage.md).
+
+### An as-stored read is named, never implied
+
+Every `IndexStore` posting is storage rather than belief — a defeated default, a
+withdrawn conclusion and a retired spelling all stay in it, because all three are
+revivable and the JTMS is where belief lives. Both readings of a posting are therefore
+legitimate, and a great deal of the engine wants the stored one: a stratification refusal
+is about what is written, a re-check trigger has to over-approximate, a report on rules
+that never fired must include the rules that never fired.
+
+What is not legitimate is leaving which one unsaid. Read straight off the protocol, a
+caller that meant to filter belief and forgot looks exactly like one that meant not to —
+the difference is invisible in the code, invisible in review, and shows up as a wrong
+answer on the first KB that defeats something. Comments do not close it: the two reads are
+the same call, so there is nothing for a comment to attach to that a copy-paste will not
+carry along with it.
+
+So both readings get a name — `reads/as-stored-…` and `reads/believed-…` — and the raw
+protocol read is refused outside the implementers (`lein lint`'s E16). The as-stored door
+is the one that had to be named rather than left as the default, because it is the one
+whose omission is silent: a missing belief filter answers *more* than it should, and more
+is what an unfiltered read looks like whether or not anybody chose it. Naming it also
+forces the docstring, which is where the actual argument lives — the roster in the lint
+check records that a caller has a reason, and the docstring says what it is.
+
+The same argument, one relation over, produces `tax/genls-global` beside `tax/genls`
+(E17): a scoped closure and a global one return the *same object* on a KB where no edge is
+context-restricted, so the caller that meant to scope and did not is right on every KB but
+the one it is wrong on.
 
 ### Records and the index are separate stores
 
@@ -346,7 +406,7 @@ actually is: the record store to durability, the index store to representation.
 
 ### RAM records under a durable index is refused
 
-The durable `:disk` index needs durable records, and RAM records under it is the
+The `:disk-log` index needs durable records, and RAM records under it is the
 pairing `open-kb` refuses. The index is derived from the records, so persisting it
 over a record store that empties at JVM exit would leave index files on disk
 describing records that no longer exist once the process ends. The next open of
@@ -360,11 +420,11 @@ rejected before a KB is ever built from it.
 
 A frame holds its record's fields positionally rather than as a self-describing
 map, because nippy's default encoding writes the record's type tag and every field
-name into every frame it serializes. Measured, that per-frame tagging costs 56% of
-the store's size — over half of every durable byte written is field names and type
-tags repeated once per record rather than payload. A positional frame carries only
-the values, in a fixed field order the decoder already knows from the frame's
-shape, so the redundant tag and name bytes are never written at all.
+name into every frame it serializes. Measured on a corpus of ordinary ground facts,
+that per-frame tagging costs **over half** the store's size — more durable bytes go to
+field names and type tags repeated once per record than to payload. A positional frame
+carries only the values, in a fixed field order the decoder already knows from the
+frame's shape, so the redundant tag and name bytes are never written at all.
 
 ### The index WAL logs the operation, not the value
 
@@ -394,7 +454,9 @@ power to make the recovery path erase it.
 ### The columnar and dense backends use unsynchronized fields
 
 The `:columnar` and `:dense` index backends hold their mutable state in
-`^:unsynchronized-mutable` fields rather than behind a lock or an atom, unlike the
+`^:unsynchronized-mutable` fields — and, for the token dictionary the columnar trie
+labels its edges from (`vaelii.impl.tokens`), in a bare `HashMap` and `ArrayList` —
+rather than behind a lock or an atom, unlike the
 rest of the engine's single-writer contract. Making them synchronized would buy a
 consistent view for an incidental reader thread — one who reads the index
 concurrently with the writer, such as a browser thread beside a REPL's KB — but the
@@ -412,10 +474,12 @@ synchronization cost onto whoever selected it, but a default cannot ask that of 
 KB, so it must honour the incidental-reader guarantee itself. It does, through a
 `StampedLock`: point reads run optimistically and validate, so the steady-state read
 stays lock-free like the index walk, while a reader that races a relabel is validated
-into a consistent retry rather than left to tear. Measured, that costs the hot `in?`
-about 3 ns — and the dense probe is still an order of magnitude faster than the
-reference network's hash-set lookup it replaced as default (density.md), so unlike the
-index there is no hot-loop tax to weigh against the guarantee. Iterating reads take a
+into a consistent retry rather than left to tear. What the steady-state `in?` pays for
+that is a stamp read and a validate, and no allocation — the torn case is marked with an
+interned keyword, measured at 0 extra bytes against the unlocked read. The dense probe is
+still an order of magnitude faster than the reference network's hash-set lookup it stands
+in for as the default ([density.md](density.md)), so unlike the index there is no
+hot-loop tax to weigh against the guarantee. Iterating reads take a
 shared stamp outright; they already allocate O(nodes), so the acquisition is lost in
 the walk.
 
@@ -433,10 +497,11 @@ a belief nobody computed — [order independence](nmtms.md) spent for a warm sta
 of the reason the JTMS cannot be a write-ahead log in the first place
 ([why the index persists and these two do not](storage.md#why-the-index-persists-and-these-two-do-not)).
 What a cold open can safely carry across is not the answer but the *permission to skip
-re-deriving part of it*. So the certificate records only that a clean close found no standing
-clash, plus the record store's slot fingerprint; belief is still rederived from the records
-on every open, and the certificate only lets the closing settle skip the constraint-clash
-scan whose result a clean close already proved. Any fingerprint mismatch discards it, so the
+re-deriving part of it*. So the stamp the open reads records only that a clean close found
+no standing clash, plus the record store's slot fingerprint; belief is still rederived from
+the records on every open, and the certificate only lets the closing settle skip the
+constraint-clash scan whose result a clean close already proved. Any fingerprint mismatch
+discards it, so the
 worst a wrong certificate can do is make an open redo the scan it always did — never believe
 something no derivation produced.
 
@@ -459,14 +524,98 @@ input, not the store it is filling, so nothing in the engine asks.
 `sentex-ids`, `justification-ids` and `premise-ids` say a caller may `contains?`, `count`,
 `seq`, `sort` and `=` the answer — the `java.util.Set` contract — rather than that it is an
 `IPersistentSet`. The narrower promise is the point: the shape is what costs at scale. A
-`PersistentHashSet<Long>` retains 48–75 bytes a handle, so 4.5–7.0 GB at 100M records, held
-while `recover` walks the premises and the justifications on top of it; the same set as a
-`Roaring64Bitmap` behind a `java.util.Set` retains 0.13–0.26 bytes a handle over the
-near-contiguous run `next-id` mints, and answers `contains?` faster than the hash set rather
-than slower. Promising `IPersistentSet` would make that substitution a breaking change for
-every store rather than a choice each one makes. A caller wanting `conj` / `disj` /
+`PersistentHashSet<Long>` retains 48–75 bytes a handle — several gigabytes at 100M
+records, which is the row `lein bench-budget` carries out ([storage.md](storage.md)) —
+held while `recover` walks the premises and the justifications on top of it; the same set
+as a `Roaring64Bitmap` behind a `java.util.Set` retains a fraction of a byte a handle over
+the near-contiguous run `next-id` mints, and answers `contains?` faster than the hash set
+rather than slower. Promising `IPersistentSet` would make that substitution a breaking
+change for every store rather than a choice each one makes. A caller wanting `conj` / `disj` /
 `clojure.set` converts with `(set …)` at the site that wants them, which is the site that
 can afford it.
+
+### A frame naming a class is refused, never resolved
+
+Every nippy thaw the engine runs over a file goes through one door
+(`vaelii.impl.io.thaw`), and that door's allowlist of class names is **empty**: a frame
+that names a class is refused (`:disallowed-class`) before the name is resolved.
+
+The reason it has to be a door rather than a trust is what a class name costs on the way
+in. nippy's frozen form can name a class in three of its type ids, and reading one
+resolves the name and *builds from it* — a record frame loads the class and invokes its
+static `create`, a deftype frame invokes the first public constructor over the fields
+that follow, and a `Serializable` frame opens an `ObjectInputStream` over the bytes that
+follow. A store directory and a dump are whatever an operator copied, so all three are
+reachable from a file the engine is handed, and only the third is allowlisted by the
+library at all — behind a dynamic var an embedding application is invited to widen.
+
+Empty is the right allowlist because it is what the formats already promise. A dump
+frame is a field map and carries no class name by the format's own rule
+([storage.md](storage.md)); a log frame is a positional vector for a size reason; and
+every leaf a sentence may carry is a type nippy has an id for. So a name in a file is a
+name this engine did not write, whatever it turns out to be.
+
+The tempting alternative is to allowlist the classes a *value* may be — nippy's own
+curated set, which admits `java.time.LocalDate` and the throwables. It reads as
+generous and is the wrong shape twice over: it is an allowlist of what is safe to
+*deserialize* rather than of what this engine *writes*, so it grows whenever the library's
+does; and it blesses leaves whose only durable form is Java serialization, which makes
+every later read of that store open an `ObjectInputStream` to answer a query. The front
+door refuses such a leaf instead — `check-encodable` probes a class through this same
+thaw — so what a store can contain and what its readers accept are one decision rather
+than two that agree today.
+
+### An EDN manifest is read under a bound, and a torn one is not a rewrite
+
+`meta.edn`, `format.edn`, `report.edn`, `index.edn` and a machine's `catalog.edn` are
+read through one bounded reader (`import/read-edn-manifest`, `manifest-bytes`), and past
+the bound is a refusal naming the file. The bound is on the **read** rather than on the
+file's stated length, because `File.length` answers 0 for a FIFO and a symlink to one is
+a `slurp` that never ends.
+
+The reason a manifest needs a bound at all, where a data stream does not, is *when* it is
+read: it is the **first** thing read about a directory, before anything about that
+directory has been established. Discovery probes every entry of the KB search path this
+way, so a file that merely has the right name decides how much goes into the heap. A
+data stream is read after its manifest has said what it is.
+
+The store sentinel gets the other half of the same argument. A `format.edn` cut mid-write
+is refused (`:unreadable-store`) rather than stamped with today's version — the absent
+sentinel's treatment — because a directory whose stamp was being written is a directory
+whose *records* were being written at the same moment, and adopting whatever is beside it
+as today's layout is the one reading that is certainly wrong. An index's `layout.edn`
+reads the same damage the opposite way, as `:stale`: it answers "can I prove these entries
+are keyed the way this build keys them", a torn stamp proves nothing, and the answer to
+an unprovable stamp is a rebuild from the records. An index is a cache and records are
+not, and that difference is the whole of why one refuses and the other rebuilds.
+
+### A bulk load installs by compare-and-set, not by overwrite
+
+A bulk index load accumulates on a transient taken off the in-memory backend's state map
+and installs it in one step at the end ([storage.md](storage.md), the bulk-write path).
+The step could be a `reset!`, and one reading of the single-writer contract says it may
+be: one thread mutates a KB, so nothing else can have touched the atom.
+
+That reading is one step short. The atom is held per **space**, and every index store
+over that space shares it — so what the single-writer contract rules out is a second
+*thread*, not a second *batch*. A bulk load stacked inside another over the same space
+installs its own map on the way out, and the enclosing batch, whose accumulator was
+snapshotted before the inner one began, then writes straight over it. Nothing throws and
+nothing logs; the inner load's entries are simply not in the index, and the first symptom
+is a query that answers empty a long way downstream.
+
+So the install compares against the value the batch snapshotted and refuses
+(`:stacked-batch`) when it has moved. The alternative — merging the two maps — is worse
+than the refusal, because the merge has no way to tell an entry the batch added from one
+it inherited, so it would silently pick a winner per key on a KB that had already left
+the contract. And the check costs one compare-and-set per batch, not per record, which is
+why an argument that it can never fire is not a reason to leave it out.
+
+The accumulator is closed as it installs, for the same reason one step out. It lives in a
+dynamic binding, and a binding is conveyed — to a future, to a lazy seq realized after the
+load — so a body that leaks one would otherwise reach a `persistent!`-ed transient and
+throw from wherever it happened to be realized. Cleared, `txn-for` answers nil and the
+write takes the atom, which is where a write outside the batch belongs.
 
 ## Indexing and retrieval
 
@@ -498,7 +647,7 @@ cost model asks this once per literal per plan, so the cost of answering it is p
 on every plan the engine builds. Building the children to answer it would make
 planning one fixed conjunction scale with the size of the KB rather than staying
 flat: measured, over a 32x larger corpus, building the children to answer this reads
-32x the facts and costs 25x the planning time, on a conjunction that never changed.
+32x the facts and costs 30x the planning time, on a conjunction that never changed.
 `lein perf`'s `plan-scaling` check holds the cost flat instead, which is what a
 direct cardinality read buys.
 
@@ -515,14 +664,18 @@ record already answers, for a query nothing in the engine actually asks.
 ### The exception index stays coarse
 
 The exception re-check index answers "which rules might need re-checking", at two
-coarse granularities, deliberately. The trigger is coarse: a fact on a predicate
-arriving or leaving re-checks the rules whose exception mentions it, and any `genl`
-/ `genlCx` edge change re-checks every exception-bearing rule wholesale, rather than
-tracking which cached closure a particular exception query actually touched. Edge
-changes are rare and exception-bearing rules are few, so the coarse trigger is
-cheaper than the fine-grained alternative — and it cannot be subtly wrong the way a
-closure-tracking scheme could, since it re-checks everything an edge change could
-possibly affect rather than trusting a derived subset. The unit indexed is coarse
+coarse granularities, deliberately. The trigger is coarse in what it is *addressed by*:
+a fact on a predicate arriving or leaving re-checks every rule whose exception mentions
+that predicate, a `genl` edge every rule whose exception is keyed at or above the edge's
+supertype (`special/recheck-genl-edge`, over `tax/genls-global` of it), and a `genlCx` edge
+every excepted rule with a firing placed in the cone the edge widened
+(`special/recheck-genlCx-edge`) — never which cached closure entry a particular exception
+query actually read. Exception-bearing rules are few, so a coarse address is cheaper than a
+fine-grained one — and it cannot be subtly wrong the way a closure-tracking scheme could,
+since it re-checks everything the change could possibly affect rather than trusting a
+derived subset. Where a channel's own narrowing is blind — a `recover`, an equality class
+splitting — the answer is the blanket `special/recheck-every-exception`, which is the same
+preference stated at its limit: queue conservatively, never skip. The unit indexed is coarse
 too: the rule, never the individual firing. A rule handle is already an antecedent
 of every justification it licenses, so each conclusion it produced is reachable
 through the consequence links that exist anyway. Indexing individual derivations
@@ -568,8 +721,15 @@ important rule is written nowhere. Asserting the transitivity rule bare would no
 documentation: it would be a forward rule materializing what the closure already
 answers, one derived sentex per pair the closure already covers (see
 [taxonomy.md](taxonomy.md) for the closure). The inert rule (`set/inertRule`) is the
-spelling that writes the rule down without running it, so the claim is on the record
-and no second engine computes it beside the closure.
+spelling that writes a rule down without running it, so a claim can sit on the record with
+no second engine computing it beside the closure.
+
+Which leaves each account free to take the cheaper spelling. What `CxCore.txt` ships this
+way is the global lifting rule, `(implies (?pred . ?args) (ist CxUniverse (?pred . ?args)))`
+— a rule worth reading and worth never firing. `genl`'s own transitivity is carried by the
+`comment` on the predicate instead: prose describing a closure is a smaller thing to keep
+true than a rule sentence nothing runs, and the argument above only says the account must
+be somewhere a reader finds it, never that it must be a rule.
 
 ### Recording a disjoint clique beats asserting it
 
@@ -607,7 +767,8 @@ when no context sees both, which is an answer no reader of the KB has.
 
 One shape is exempt, and it is exempt because the joint reading has nothing to say about
 it. A goal whose every literal is *computed* rather than matched — `different`, `evaluate`,
-`unknown` — rests on no stored fact, so there is no witness to pick and no reader that
+`unknown` and the rest of `sentex/deferred-predicates` — rests on no stored fact, so there
+is no witness to pick and no reader that
 could be the one that answers. Fanning it over the readers would be existential over them,
 and a fanned `(unknown X)` is then satisfied by the most ignorant reader in the KB: the
 one context that happens to know nothing about `X` answers for all of them, which turns a
@@ -635,9 +796,10 @@ So post-hoc runs by default and is **measured out** rather than predicted out. I
 partial solution whose ingredients already have no common descendant — a later literal only
 adds contexts, so a dead row stays dead — and it abandons past a row budget sized off the
 lattice, mid-stage rather than between literals, because the cost is in the rows. The fan
-then answers whatever was abandoned. What is left is a strategy that wins by multiples in
-its regime and costs about 1.5× outside it, the extra being the bounded probe; on a store
-where every join outgrows the budget it simply *is* the fan, reached after that probe. The
+then answers whatever was abandoned. What is left is a strategy that wins 1.5× to 17× in
+its regime and costs at most about 1.5× outside it, the extra being the bounded probe; on
+a store where every join outgrows the budget it simply *is* the fan, reached after that
+probe. The
 budget is sized off the lattice rather than off the readers for the same reason the bail
 exists: enumerating the readers costs O(the goal's match set), which would put that scan on
 the one path that never needs it.
@@ -649,13 +811,13 @@ Defends [argtypes.md](argtypes.md).
 ### A literal is typed by its kind, and the openness moves to the declared type
 
 A type membership cannot be *asserted* of a literal — there is no `(dog "Bob")` to store —
-and the tempting conclusion is the one the checks originally drew: exempt every non-symbol
-from the argument constraints, since nothing could ever satisfy them. That reads a missing
-assertion as an unanswerable question. It is answerable: a literal's EDN kind is knowable
-from the literal itself, and those kinds sit in the `genl` lattice precisely so the
+and the tempting conclusion is to exempt every non-symbol from the argument constraints,
+since nothing could ever satisfy them. That reads a missing assertion as an unanswerable
+question. It is answerable: a literal's EDN kind is knowable from the literal itself
+(`checks/literal-type`), and those kinds sit in the `genl` lattice precisely so the
 comparison can be made. A string is a `string`, a `string` is not a `dog`, and a
-declaration that admitted `(P "Bob")` was constraining only the half of the position
-somebody happened to spell with a name.
+declaration that admits `(P "Bob")` constrains only the half of the position somebody
+happened to spell with a name.
 
 The openness does not disappear, it moves — to the **declared type**. A `t` the lattice
 cannot place the kind against exempts, which is the imported-constraint case; a **symbol**
@@ -682,6 +844,20 @@ assertion defeat that declaration would unbind every other application of the sa
 function. Naming no opposing handle instead would make it a hard door refusal, harsher
 than the reifiable case it mirrors. So the demand-shaped checks read the result
 declaration and the pair-shaped one does not.
+
+### One vocabulary, not two
+
+`string`, `number`, `integer`, `keyword`, `boolean`, `character` and `symbol` are the KB's
+only names for the kinds a literal argument can carry — one per leaf kind, and `arg` and
+`quotedArg` both read the same seven (`checks/literal-type`). The tempting alternative is a
+parallel spelling per declaration, so that what an argument *denotes* and what is *written*
+there never share a name.
+
+It buys nothing and costs a trap. The use/mention distinction is already carried by which
+predicate you write, so a second set of names restates it; and a declaration naming one of
+them stores clean and convicts nothing, because `quotedArg` reads a type outside the
+syntactic lattice open-world. A refusal would be a mistake a reader is told about. Silence
+is one nothing reports.
 
 ## Inference and chaining
 
@@ -710,17 +886,17 @@ triggers strict rules like any other new datum.
 
 Costing a plan by searching over candidate whole orders — summing intermediate rows
 per candidate order, minimized over subsets, using `est-matches` as the per-literal
-cost — is refuted, and measurably: on randomized joins such a search ran a mean 2.31×
-the best permutation's actual rows, against cheapest-first's 1.19×, losing 3 trials of
-9 and winning none.
+cost — is refuted, and measurably: on randomized joins such a search ran a mean of roughly
+2.3× the best permutation's actual rows, against cheapest-first's roughly 1.2×, losing 3
+trials of 9 and winning none.
 
-The reason is not that a search is the wrong shape but that it minimizes a sum of
-incomparable quantities: `est-matches` is an upper bound for some literals and an
-average for others, so summing across literals adds numbers that answer different
-questions. `est-rows` fixes that by giving every literal an expected value that
-composes across a join, and once the numbers compose the ordering does not need a
-search at all — the transposition law (descending `s/(n-1)`) sorts blocks in
-O(k log k), no search.
+The reason is not that a search is the wrong shape but that it minimizes the wrong
+quantity. `est-matches` is a *bound*, one-sided by contract, and a plan's cost is a sum of
+expected intermediate sizes — maxima of products do not factor, so summing bounds across a
+join adds numbers that answer a different question than the one being minimized.
+`est-rows` fixes that by giving every literal an expected value that composes across a
+join, and once the numbers compose the ordering does not need a search at all — the
+transposition law (descending `s/(n-1)`) sorts blocks in O(k log k), no search.
 
 ### The loop guard's scope is the subtree, not the frame
 
@@ -748,18 +924,34 @@ leaf is load-bearing: a leaf that itself backchained would run the engine's rewr
 *plus* a nested search per binding under it, compounding the two costs instead of
 paying one.
 
-Measured on a converging DAG (every node with two parents), against `ask`'s
-6.7 / 3.9 / 4.0 ms:
+Measured on a converging rule graph — the shape that asks one subgoal from many branches
+— a leaf that started its own backward search ran **24-73x slower** than the divided
+arrangement on the same queries. Both shipped leaf solvers expand no rule: `nil` is
+`matches-visible`, the stored facts, and `core/query` passes `provers/solve-goal`, whose
+registry backchains nowhere. That is what keeps either one level with `ask`, and a leaf
+that searches is the one leaf shape the design excludes.
 
-| leaf solver | time |
-|---|---|
-| stored facts (`matches-visible`) | 6.5 / 4.5 / 5.4 ms — level with `ask` |
-| the registry, which expands no rule | 5.2 / 6.4 / 9.6 ms — level with `ask` |
-| a leaf that backchains too | 150 / 411 / 700 ms — 24-73x worse |
+### A defeated datum's other derivations are not a second chance
 
-Both shipped leaf solvers — the stored facts and the registry — expand no rule, which
-is what keeps either one level with `ask`. A leaf that searches is the one leaf shape
-the design excludes.
+A rule expansion that reaches a defeated conclusion is dropped even when it reaches it
+from **other believed premises** than the ones the defeat was decided over. The tempting
+alternative is to let the second derivation stand: the defeat was about the first one, and
+here is a route to the same sentence that does not use it.
+
+It is not, and reading it that way confuses two things belief keeps apart. A defeat is a
+claim about the **datum**, not about a derivation of it: `decide-nogood` resolves a clash
+by forcing the strictly-weaker *side* OUT, and the side is a stored sentex with every
+justification it has. Its other derivations are not evidence against the defeat — they are
+already in the JTMS, already counted in the `:groundable` set the relabel recomputes
+beside belief, and already the reason it is retained for revival rather than swept
+([nmtms.md](nmtms.md)). A chainer that answered on one of them would be re-litigating a
+settled clash from inside a read, and answering it
+differently from `ask`, `sentexes-matching` and `why` about the same KB.
+
+The revival path is what makes that cost nothing. Retract the defeater and the datum is IN
+again on those very derivations, with no cache to invalidate and nothing to re-derive — so
+what the filter withholds is exactly what belief currently withholds, and for exactly as
+long.
 
 ### A generator cycle is refused, not depth-capped
 
@@ -768,7 +960,7 @@ each other mint without end. The tempting bound is a depth cap: let the cycle ru
 rounds and stop. That makes the KB's contents a function of how long the chainer ran — the
 same knowledge loaded twice holds different rules, and reloading it from nothing does not
 reproduce it, which is [order independence](nmtms.md) spent on a shape nobody asked for. A
-cycle is refused where it is written instead, beside the four other shapes a generator
+cycle is refused where it is written instead, beside the five other shapes a generator
 cannot have. A refusal is a fact about the rule, and it reads the same on every load.
 
 ## Exceptions
@@ -790,7 +982,7 @@ Nothing connects them. Both conclusions are derived, and the connection has to b
 puts every hard question in the rediscovery rather than in the knowledge: which
 contexts make the pair a real clash, what breaks a tie between two defaults, and how
 to recover an ordering the ontology already implies without reading it back off the
-genl hierarchy ([why no such ordering is derived](defenses.md#there-is-no-second-axis)).
+genl hierarchy ([why no such ordering is derived](#there-is-no-second-axis)).
 
 The deeper cost is that no argument survives. `why (flies Opus)` and
 `why (not (flies Opus))` are two disjoint trees, and nothing records which won or
@@ -838,21 +1030,45 @@ knowledge asserted in any order must yield the same beliefs.
 
 So a rule set with a cycle through negation is rejected at assert time, as a
 well-formedness check over the rule dependency graph, rather than evaluated under
-some fixed pick of stable model. Refusing the assert is what keeps every stored rule
-set stratified, which is what lets the exception evaluator stay within one settle
-pass instead of hosting its own model-selection machinery.
+some fixed pick of stable model. An exception is not the only edge that closes one, so
+the graph is not walked from the excepted rules: `checks/negative-edge-rules` starts at
+every rule a negative edge leaves — an `exceptWhen`, an `(unknown S)`, an aggregate, a
+closed-extent negative, or a `different` — because a roster short of one of those is a
+roster some cycle passes through no member of, and a cycle nothing walks is a cycle that
+stores. Refusing the assert is what keeps every stored rule set stratified, which is what
+lets the exception evaluator stay within one settle pass instead of hosting its own
+model-selection machinery.
 
 
-### A conjunction under a quantifier is refused rather than read flat
+### A conjunction under a quantifier is joined, never read flat
 
 `(unknown (and A B))` is a guard over two conditions, and under a quantifier the flat
 reading is the wrong one: each conjunct would be free to find its own witness, so "has a
-sick child" would hold of anyone with a child as long as anybody at all is sick. Reading it
-the way its author means requires binding one witness across both conjuncts — a quantifier
-scope the NAF goal does not carry, and cannot acquire without the guard becoming a query
-language of its own. So the shape is refused where it is written, and what the author meant
-is said by binding the witness with a generator antecedent and leaving one literal under
-the `unknown` ([naf.md](naf.md)).
+sick child" would hold of anyone with a child as long as anybody at all is sick. That
+reading is never taken. Reading it the way its author means requires binding one witness
+across both conjuncts, and the boundary the argument fixes is where that binding comes
+from.
+
+A NAF query **carries** it. Its conjuncts are threaded left to right in a planned order
+(`provers/conjunction-solutions`), each substituted with what the ones before it bound —
+a join, and a small one: the registry still answers one goal at a time, and the quantifier
+gives the shared variable a scope the guard does not have to invent. A ground conjunction
+is the degenerate case of exactly that thread, so the flat reading is not a second
+mechanism sitting beside this one; it is this one with nothing to carry.
+
+An **aggregate** carries it too, through the same evaluator: `provers/aggregate-values`
+runs the census body as a joined conjunction, so `(agg/count ?n ?c (and (childOf Bob ?c)
+(asleep ?c)))` counts the children who are asleep. Reducing over `?v` rather than testing
+for a witness changes what is done with the solutions, not how they are found — the join
+produces one witness per solution either way, and the reduction reads `?v` off it.
+
+The line is not the shape of the conjunction but whether the operator reading it threads
+bindings, and both of them do. What is still refused is what no join can repair: a
+**disjunctive** body, since a count over a union is not the sum of two counts and a
+witness satisfying both alternatives would be counted twice; and a census variable no
+conjunct of the body binds and no earlier antecedent names (`:naf-not-closed`), which is
+a census of nothing whatever the KB holds. Both are refused at assert time and in the
+same words as the `unknown` half ([naf.md](naf.md), [aggregate.md](aggregate.md)).
 
 ## Anytime inference
 
@@ -873,8 +1089,9 @@ unmeasured estimate.
 The `:search` tier stays in the taxonomy even though the shipped registry occupies none
 of it. The tier is a claim about what a prover **may** cost, not a census of the ones
 that ship — an application prover added through `add-prover` can claim it. Rule
-expansion, `ask`'s own recursive case, is priced separately by `:max-depth`, because it
-is a bound on depth rather than a claim about cost.
+expansion is not the registry's at all, so it is priced by the engine that does it, as
+`query`'s and `prove-within`'s `:max-depth` — a bound on depth rather than a claim about
+cost.
 
 ### Refusing an unrecognized cost ceiling
 
@@ -887,6 +1104,37 @@ answers a correct one would, only slower, having done the work the bound existed
 avoid. Refusing the value surfaces the typo instead of silently discarding the budget's
 intent.
 
+### A deadline on `ask` / `prove` refuses; a depth does not
+
+`ask`, `ask?`, `prove` and `provable?` take a bound of their own, and a `:max-ms` those
+doors *reach* is `:budget-exhausted` rather than the answer they had in hand. That reads
+as harsh next to `ask-within` / `prove-within`, which hand the same prefix back happily —
+and the difference between the two doors is the whole argument.
+
+An anytime door's return shape **says what it is**: `:status` is `:timeout`, `:count` is
+what this step found, `:resume` continues. A caller that asked for a partial gets one and
+is told. `prove` returns a vector of solutions and `provable?` returns a boolean, and
+neither shape has room for that: a truncated vector is indistinguishable from the whole
+answer of a KB that knows less, and `false` from a search that stopped looking is
+indistinguishable from a KB that does not say so. Silently returning either is the same
+failure `assert`'s option rosters exist to refuse — an answer taken at a setting nobody
+chose, arriving in the shape of one somebody did — and it is worse here, because the
+setting *is* the ceiling the daemon filled in on a request that named no clock at all.
+
+`:max-depth` is on the same doors and does not refuse, which is not an inconsistency but
+the other half of the same rule. A depth **prunes**: the space under it is genuinely
+exhausted, so the run reports `:complete` and the answer is the whole of what that depth
+admits. `(provable? kb g ctx {:max-depth 2})` answering `false` is a true statement — no
+derivation within two rewrites — and a caller who wanted a deeper one names a deeper one.
+A clock cannot be re-read that way: "no answer within 250 ms" is a fact about the machine,
+not about the knowledge, and it is not a question anybody meant to ask.
+
+The rejected alternative is a marker in the result — a truncation flag beside the
+solutions, or a metadata key. It fails on being ignorable: every existing caller reads the
+vector and the boolean, so the flag would be correct, present, and unread, and the wrong
+answers would flow on exactly as before. A refusal is the only signal a caller cannot
+accidentally skip, and `ask-within` / `prove-within` are one call away for the caller who
+wants the prefix.
 
 ## Qualitative constraint networks
 
@@ -997,19 +1245,78 @@ answer cannot: that there is nothing to wait for.
 
 No collector flag is set for either the daemon or the container image, and that omission
 is measured rather than skipped. `lein perf`, two alternating passes at a fixed 6 GiB
-heap, 2026-08-06, put the JDK default at 40.7-41.2 s and 1493-1510 MB peak resident
-against generational ZGC's 55.5-55.9 s and 6224-6258 MB — 36% slower while holding 4.2x
-the resident set, and ZGC alone tripped the `:negation-arbitration` growth bound on both
-passes.
+heap, 2026-08-06, put the JDK default at about 41 s and roughly 1.5 GB peak resident
+against generational ZGC's 56 s and roughly 6 GB — about a third slower while holding
+four times the resident set, and ZGC alone tripped the `:negation-arbitration` growth
+bound on both passes.
 
 A concurrent collector earns its throughput cost on a live set of tens of gigabytes,
 where pause time dominates and a bigger resident set is the price willingly paid for it.
-This engine's peak measured heap is 1.5 GB, nowhere near that regime, so the trade a
+This engine's peak measured heap is about 1.5 GB, nowhere near that regime, so the trade a
 concurrent collector offers is not one this workload benefits from — it pays the
 resident-set cost with nothing to buy back in return. The JDK default collector is not a
 placeholder waiting for someone to pick a better one; it is the measured right answer for
 this footprint, and picking ZGC is left to `lein with-profile +zgc`, for a JVM that runs a
 different workload with a reason to want it.
+
+### A search bound may be lowered by a request and not raised
+
+`:max-depth` and `:max-ms` are the two dials a caller sets on a served read, and each is
+held under a ceiling (`config/max-query-depth`, `config/max-query-ms`) that a request may
+name a smaller value than and is refused (`:over-ceiling`) for naming a larger one. An
+anytime read that names no clock at all is given the ceiling's, since absent there means
+*no clock*, and the daemon has an answer to "how long may this run" for every other read.
+
+The exposure is not the caller's own latency; it is that every op runs under the daemon's
+single write monitor, so a read a caller sized holds every other caller's request behind
+it. That is what makes a bound the daemon's business at all: on a KB with rules, a depth
+a caller chose is an exponential a caller chose to spend on somebody else's behalf.
+
+The ceiling is **30 seconds** because that is when the caller stops listening — the
+zero-dep client's own read timeout ([operations.md](operations.md)) — so a read still
+running past it is holding the writer for an answer nobody is waiting for. The depth
+ceiling is **256** because it is the largest depth the API's own defaults name (`why`'s),
+so every documented call sits inside it.
+
+Two shapes were rejected. **Silently clamping** — answering under a lowered bound — hands
+back a partial result labelled as the one that was asked for, which is the anytime
+contract's `:status` lying; a refusal carrying the ceiling tells the caller what the next
+request has to name. And **applying the ceiling at the HTTP route** would be a ceiling the
+model's generated tool surface does not have, since that surface dispatches through the
+same op table ([llm.md](llm.md)) — so the clamp lives in the table, where both doors
+reach it.
+
+An op with no option map is deliberately not on the table. `:prove` and `:ask` take no
+bound, so a caller has nothing to raise; what bounds them is the KB's own rule set.
+
+### What a server binds decides what it requires
+
+Naming a non-loopback address is refused (`:unauthorized`, exit 2) unless
+`VAELII_API_TOKEN` is set, and the rule is the same fn for the daemon and the browser
+(`guard/require-token!`). A loopback bind is unchanged: the token is used when set, and
+its absence is a startup warning.
+
+The argument is that the exposed configuration must not also be the one with the fewest
+checks. The flag that publishes a server's write routes is the *same* flag that drops the
+`Host` allowlist — the name you reach a public bind by is yours to know, so the allowlist
+cannot be guessed at — which leaves an address-bound server with strictly less standing
+between an anonymous caller and `POST /op` or `/edit` than a loopback one has. The
+routes on the other side are not incidental: the daemon's is the KB's only writer, and
+two of the browser's (`/kbs/export`, `/kbs/load`) write the host filesystem at a path the
+request names.
+
+A **warning** was the previous shape and is the tempting one, because a refusal at
+startup is a server that does not come up. It fails for the reason every fail-open
+default fails: the operator who most needs the line is the one who will not read it, and
+a warning that has never once stopped a deployment is indistinguishable from a comment.
+The loopback default is deliberately not held to the same rule — `lein serve` and `lein
+browser` on a laptop are real workflows, and a credential required there teaches an
+operator to export a constant, which is worse than no credential because it looks like
+one.
+
+The browser presents the token only on a public bind. Wrapping the loopback default in it
+as well would take a variable a daemon on the same machine already needs and make it a
+password on the operator's own browser, for a bind that answers only that machine.
 
 ## The web browser
 

@@ -42,8 +42,8 @@
   Preservation moves an argument along a relation, leaving the predicate and the level
   it lives at alone.  Crossing the line is a *different* claim — it links two
   predicates and has a quantifier reading to pin down (every member? some member?) —
-  and the vocabulary for it is `(typeToInstancePred TypePred InstancePred)`, which the
-  engine does not yet act on.
+  and the vocabulary for it is `(typeToInstancePred TypePred InstancePred)`, which
+  records the pairing for a reader and is inferred from by nothing.
 
   ## Specificity, and why it is not the deleted axis
 
@@ -68,10 +68,18 @@
   A `:monotonic` claim is **never** undercut.  Strength already propagates from a
   justification's antecedents, so `(largerThan dog cat)` asserted `{:strength
   :monotonic}` inherits as known-true and a contrary specific claim is a
-  contradiction — `checks/asymmetry-problem` refuses it — while `(typicallyLargerThan
-  dog cat)` at the default `:default` inherits defeasibly and yields to the specific
-  claim.  One declaration, both behaviours, and the difference is stated where it
-  belongs: on the claim, not on the vocabulary.
+  contradiction, while `(typicallyLargerThan dog cat)` at the default `:default`
+  inherits defeasibly and yields to the specific claim.  One declaration, both
+  behaviours, and the difference is stated where it belongs: on the claim, not on the
+  vocabulary.
+
+  Where the contradiction goes depends on how the contrary claim is spelled.  A converse
+  under an `(asymmetric P)` is `checks/asymmetry-problem`'s, and known-true content
+  refuses it at the door.  A plain `(not (P a b))` needs no mark and is not refused: it is
+  admitted and paired with the inherited claim by `settle/preserving-nogoods`, whose
+  members are the general claim and everything the reading rests on, so `decide-nogood`
+  weighs the set and the weakest member decides (`clashing-claim` below,
+  `docs/inherit.md` for the readings).
 
   Ground goals only.  An open argument is left to the fact and rule provers, in the
   shape `different` and the NAF operators already use — enumerating it would mean
@@ -80,6 +88,7 @@
   (:require [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.strength :as st]
@@ -186,8 +195,8 @@
   (let [idx (:index kb)]
     (boolean
      (some (fn [f]
-             (and (pos? (p/count-with-functor idx f))
-                  (seq (p/sentexes-with-args idx f {1 pred}))))
+             (and (pos? (reads/stored-count-with-functor idx f))
+                  (seq (reads/as-stored-with-args idx f {1 pred}))))
            declaration-functors))))
 
 (defn positions
@@ -241,7 +250,7 @@
   exact whatever anyone believes, since a declaration would be in the root."
   [kb]
   (let [idx (:index kb)]
-    (boolean (some #(pos? (p/count-with-functor idx %)) declaration-functors))))
+    (boolean (some #(pos? (reads/stored-count-with-functor idx %)) declaration-functors))))
 
 (defn declared
   "Every declaration's `[P R]` pair — the predicate that inherits, and the relation it
@@ -261,8 +270,8 @@
   [kb]
   (let [recs (:records kb) idx (:index kb)]
     (into #{}
-          (comp (filter #(pos? (p/count-with-functor idx %)))
-                (mapcat #(p/sentexes-with-functor idx %))
+          (comp (filter #(pos? (reads/stored-count-with-functor idx %)))
+                (mapcat #(reads/as-stored-with-functor idx %))
                 (keep #(p/get-sentex recs %))
                 (keep (fn [sxr]
                         (let [[_ pred _ rel] (:sentence sxr)]
@@ -395,8 +404,8 @@
     (double
      (reduce (fn [n j]
                (let [s (nth slots (nth order j))]
-                 (if-some [t (:pinned s)] (min n (p/count-with-arg idx (inc j) t)) n)))
-             (p/count-with-functor idx pred)
+                 (if-some [t (:pinned s)] (min n (reads/stored-count-with-arg idx (inc j) t)) n)))
+             (reads/stored-count-with-functor idx pred)
              (range (count order))))))
 
 ;; ---- the two ways to find them ------------------------------------------
@@ -772,6 +781,46 @@
            (nm/sort-by-content-key
             (juxt #(str (:rel %)) #(str (:inverse? %)) #(str (:in %))) compare poss)))))
 
+(defn- claim-support
+  "What the reading of claim `c` at the goal's arguments `args` rests on, beyond the
+  claim itself: the declaration permitting each move, the relation edges the reach
+  travelled, and — for a mirrored reading — the `(symmetric …)` that licensed the
+  mirror.  nil when no declaration reaches from the claim's tuple to `args` through
+  edges `context` can see; empty when the claim is stated at the goal's own tuple and
+  nothing had to move.
+
+  The claim's **own** handle is deliberately absent: one caller names it separately
+  (`support-for`'s `:claim`) and the other makes it a member of a nogood in its own
+  right (`clashing-claim`), and folding it in here would have each of them strip it
+  back out.
+
+  `by-n` is `by-position`'s grouping of the declared positions, hoisted by the caller
+  because both of them already hold it."
+  [kb by-n args c context]
+  (when-let [hs (reduce (fn [acc i]
+                          (if-let [ps (by-n (inc i))]
+                            (if-let [s (move-support kb ps (nth args i)
+                                                     (nth (:tuple c) i) context)]
+                              (into acc s)
+                              (reduced nil))
+                            acc))
+                        []
+                        (range (count args)))]
+    ;; A claim whose stored orientation is not the tuple it was read at came through the
+    ;; symmetric mirror, and that reading rests on a `(symmetric …)` declaration exactly
+    ;; as a fact-relation reach rests on `(transitive R)`: name it, so retracting the
+    ;; symmetry withdraws what only the mirror licensed.  The matcher mirrors each fanned
+    ;; literal on *its own* declaration, so the one named is the stored sentence's
+    ;; functor's — the goal predicate's only when they coincide.
+    (let [hs (if (and (= 2 (count args))
+                      (not= (vec (nm/args (:sentence c))) (:tuple c)))
+               (if-let [sh (one-supporter
+                            kb (list 'symmetric (nm/functor (:sentence c))) context)]
+                 (conj hs sh)
+                 hs)
+               hs)]
+      (into [] (distinct) hs))))
+
 (defn support-for
   "What licenses the ground goal `(P a1 … an)` by preservation — `{:claim handle
   :handles [handle …]}`, the claim it was read off and every sentex the reading rests
@@ -805,32 +854,9 @@
             (let [by-n (by-position poss (count args))]
               (first
                (keep (fn [c]
-                       (when-let [hs (reduce (fn [acc i]
-                                               (if-let [ps (by-n (inc i))]
-                                                 (if-let [s (move-support kb ps (nth args i)
-                                                                          (nth (:tuple c) i) context)]
-                                                   (into acc s)
-                                                   (reduced nil))
-                                                 acc))
-                                             [(:handle c)]
-                                             (range (count args)))]
-                         ;; A claim whose stored orientation is not the tuple it was
-                         ;; read at came through the symmetric mirror, and that reading
-                         ;; rests on a `(symmetric …)` declaration exactly as a
-                         ;; fact-relation reach rests on `(transitive R)`: name it, so
-                         ;; retracting the symmetry withdraws what only the mirror
-                         ;; licensed.  The matcher mirrors each fanned literal on *its
-                         ;; own* declaration, so the one named is the stored sentence's
-                         ;; functor's — the goal predicate's only when they coincide.
-                         (let [hs (if (and (= 2 (count args))
-                                           (not= (vec (nm/args (:sentence c))) (:tuple c)))
-                                    (if-let [sh (one-supporter
-                                                 kb (list 'symmetric (nm/functor (:sentence c)))
-                                                 context)]
-                                      (conj hs sh)
-                                      hs)
-                                    hs)]
-                           {:claim (:handle c) :handles (vec (distinct hs))})))
+                       (when-let [hs (claim-support kb by-n args c context)]
+                         {:claim (:handle c)
+                          :handles (into [] (distinct) (cons (:handle c) hs))}))
                      ;; the key mixes a `str` tuple and a printed sentence — built once
                      ;; per survivor now, not per comparison; the `[rank …]` tuple orders
                      ;; under `compare`.  Through `nm/print-key`, because the survivor
@@ -838,8 +864,72 @@
                      ;; justification and `sv` is drawn from a `res/matches-visible`
                      ;; answer *set*
                      (nm/sort-by-content-key (juxt #(- (st/rank-of (:class %)))
-                                                   #(str (:tuple %))
-                                                   #(str (:context %))
+                                                   #(nm/print-key (:tuple %))
+                                                   #(nm/name-key (:context %))
+                                                   #(nm/print-key (:sentence %)))
+                                             compare
+                                             sv))))))))))
+
+(defn clashing-claim
+  "The **known-true** claim that reaches `sentence`'s own tuple by preservation and
+  denies it — `{:sentence :context :claim handle :handles [handle …] :class}` — or nil.
+
+  `sentence` is a stored fact of a preserved predicate, in either polarity; the claim
+  looked for is the opposite one.  A stored `(not (P a b))` is denied by a `(P w b)`
+  above it, and a stored `(P a b)` by a `(not (P w b))` above it, since `claims` reads
+  both polarities out of the reach.
+
+  **Known-true, because that is the whole of what `undercut?` leaves standing.**  A
+  `:default` general claim yields to a nearer contrary one: it is undercut, never fires
+  for that tuple, and there is nothing for anybody to report (docs/inherit.md).  A
+  `:monotonic` one is not undercut — its docstring calls a contrary specific claim \"a
+  contradiction to report rather than a refinement to defer to\" — so it survives beside
+  the stored claim, `verdict` answers `:ambiguous`, and the pair is exactly what has no
+  handle to be reported by.  This is what gives it one.
+
+  **The claim's own tuple is excluded**, and that is what keeps this to the inherited
+  case: a claim stated at the very tuple `sentence` is about is an ordinary `P` beside
+  an ordinary `(not P)`, both stored, which `settle/negation-nogoods` already pairs off
+  the `:opposed` set.  Reporting it here as well would report one pair twice.
+
+  `:handles` is the reading's support and not the claim — the declaration that permits
+  each move, the relation edges the reach travelled, the `(transitive R)` a fact-relation
+  reach is closed under, and the `(symmetric …)` behind a mirrored reading.  Every one of
+  them is a sentex that has to hold for the inherited claim to be read at all, which is
+  what lets a caller pair `sentence` with the whole reading rather than with a claim
+  whose relevance rests on sentexes nobody named.
+
+  One claim is named where several reach, chosen on content — the tuple, then the
+  asserting context, then what the claim says, all spellings rather than handles, since
+  the chosen handle lands in a reported nogood.  Asked from the vantage of `context`,
+  which callers pass as the stored sentence's own: a claim in a context that cannot see
+  the general one is not denied by it."
+  [kb sentence context]
+  (with-memo
+    (let [neg? (and (sequential? sentence) (= 'not (nm/functor sentence))
+                    (= 2 (count sentence)))
+          body (if neg? (second sentence) sentence)]
+      (when (ground-goal? body)
+        (let [pred (nm/functor body)
+              args (vec (nm/args body))
+              poss (positions kb pred context)]
+          (when (seq poss)
+            (let [want (if neg? :for :against)
+                  by-n (by-position poss (count args))
+                  sv   (->> (surviving kb body context)
+                            (filter #(and (= want (:polarity %))
+                                          (st/known-true? (:class %))
+                                          (not= (:tuple %) args))))]
+              (first
+               (keep (fn [c]
+                       (when-let [hs (claim-support kb by-n args c context)]
+                         {:sentence (if neg? body (list 'not body))
+                          :context  context
+                          :claim    (:handle c)
+                          :handles  hs
+                          :class    (:class c)}))
+                     (nm/sort-by-content-key (juxt #(nm/print-key (:tuple %))
+                                                   #(nm/name-key (:context %))
                                                    #(nm/print-key (:sentence %)))
                                              compare
                                              sv))))))))))
@@ -1000,27 +1090,35 @@
   The reads are **global** and not belief-filtered, exactly as `declared`'s are and for
   the same reason: over-selecting costs a join that derives what is already there,
   under-selecting is a conclusion that depends on when a sentence arrived.  Behind
-  `declarations-exist?`, so a KB that declares nothing pays two cardinality reads."
-  [kb sen]
-  (when (and (sequential? sen) (seq sen) (declarations-exist? kb))
-    (let [body  (or (sx/underlying-body sen) sen)
-          f     (nm/functor body)
-          arg1  (nth body 1 nil)
-          decls (declared kb)]
-      (when (symbol? f)
-        (cond
-          (contains? declarations f) (when (symbol? arg1) #{arg1})
-          (= 'transitive f)          (into #{} (comp (filter #(= arg1 (second %))) (map first)) decls)
-          (= 'asymmetric f)          (when (some #(= arg1 (first %)) decls) #{arg1})
-          ;; the mirror is applied per fanned literal on its own declaration, so a
-          ;; symmetry on a sub-predicate moves every preserved super it feeds
-          (= 'symmetric f)           (when (symbol? arg1)
-                                       (let [ups (tax/genls (:taxonomy kb) arg1)]
-                                         (into #{} (comp (filter #(ups (first %))) (map first)) decls)))
-          :else (let [preds (tax/genls (:taxonomy kb) f)]
-                  (into #{}
-                        (comp (filter (fn [[p r]] (or (preds p) (preds r)))) (map first))
-                        decls)))))))
+  `declarations-exist?`, so a KB that declares nothing pays two cardinality reads.
+
+  **The three-argument form takes the `[P R]` pairs**, for a caller holding them already
+  and asking this per member of a settle's region: both reads behind the gate — the
+  cardinalities and `declared`'s own record fetches — are per call, and a caller that
+  knows the KB declares something (`kb`'s `:preserving` roster says so with no index
+  read at all) would pay them once per handle for an answer that cannot move inside one
+  settle."
+  ([kb sen]
+   (when (and (sequential? sen) (seq sen) (declarations-exist? kb))
+     (moved-predicates kb sen (declared kb))))
+  ([kb sen decls]
+   (let [body  (or (sx/underlying-body sen) sen)
+         f     (nm/functor body)
+         arg1  (nth body 1 nil)]
+     (when (symbol? f)
+       (cond
+         (contains? declarations f) (when (symbol? arg1) #{arg1})
+         (= 'transitive f)          (into #{} (comp (filter #(= arg1 (second %))) (map first)) decls)
+         (= 'asymmetric f)          (when (some #(= arg1 (first %)) decls) #{arg1})
+         ;; the mirror is applied per fanned literal on its own declaration, so a
+         ;; symmetry on a sub-predicate moves every preserved super it feeds
+         (= 'symmetric f)           (when (symbol? arg1)
+                                      (let [ups (tax/genls-global (:taxonomy kb) arg1)]
+                                        (into #{} (comp (filter #(ups (first %))) (map first)) decls)))
+         :else (let [preds (tax/genls-global (:taxonomy kb) f)]
+                 (into #{}
+                       (comp (filter (fn [[p r]] (or (preds p) (preds r)))) (map first))
+                       decls)))))))
 
 (defn rejoin-rules
   "The forward rules to re-join in full because `sen` moved what a preserved predicate
@@ -1034,5 +1132,5 @@
   [kb sen]
   (when-let [ps (seq (moved-predicates kb sen))]
     (let [idx (:index kb)
-          rs  (into #{} (mapcat #(p/rules-by-antecedent idx %)) ps)]
+          rs  (into #{} (mapcat #(reads/as-stored-rules-by-antecedent idx %)) ps)]
       (when (seq rs) rs))))

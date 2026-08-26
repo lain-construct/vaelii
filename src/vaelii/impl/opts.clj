@@ -11,8 +11,8 @@
   default where known-true was meant, `{:varient :index}` writes a dump other than the one
   asked for.  Each returns a handle, a count, a summary that looks exactly right.
 
-  So the shape was written out at nine doors, identically bar the noun and one sentence,
-  and this is that shape once.  What a caller supplies is the key set, the `subject` the
+  So every such door runs one shape, identically bar the noun and one sentence, and this
+  is that shape once.  What a caller supplies is the key set, the `subject` the
   message names, and the `consequence` — the clause saying what taking the default
   silently would have cost *here*, which is the sentence worth writing per door and the
   only part of the refusal that ever carried information the others did not.

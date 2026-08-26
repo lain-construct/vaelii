@@ -116,7 +116,9 @@
                 motherOf fatherOf
                 likes eats owns partOf locatedIn hasCapability capabilityType
                 mortal birthYearOf olderThan
-                weightOf heightOf heavierThan tallerThan]]
+                weightOf heightOf heavierThan tallerThan
+                signOf trendOf derivativeOf greaterInMagnitudeThan
+                qualitativeSum qualitativeDifference qualitativeProduct]]
       (is (seq (core-context/comment-of kb p)) (str "relation " p)))))
 
 (tu/deftest-kb every-shipped-unit-converts-to-a-base-in-its-own-dimension

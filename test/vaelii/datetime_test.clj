@@ -1,9 +1,11 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.datetime-test
-  "ISO 8601 datetime containment — docs/context-nat.md.  A reduced-precision ISO string
-  denotes an interval, and a finer instant is inside a coarser one it shares every field
-  with.  Pure and total: `subinterval?` answers any two forms and declines non-datetimes."
+  "Calendar containment — docs/context-nat.md.  A reduced-precision ISO string denotes an
+  interval, and so does a calendar term `(YearFn 2000)` / `(MonthFn 2000 1)` / `(DayFn 2000
+  1 15)`; a finer interval is inside a coarser one it shares every field with, whichever
+  of the two spellings each was written in.  Pure and total: `subinterval?` answers any two
+  forms and declines whatever is not a time term."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.impl.datetime :as dt]))
 
@@ -98,3 +100,60 @@
   (testing "non-datetime terms decline rather than throw"
     (is (not (dt/subinterval? (dtf "2000") '(QuantityFn 5 Meter))))
     (is (not (dt/subinterval? 'Foo (dtf "2000"))))))
+
+;; ---- the calendar constructors ------------------------------------------
+
+(deftest calendar-term-recognition
+  (testing "one integer field per argument, coarsest first"
+    (is (dt/calendar-term? '(YearFn 2000)))
+    (is (dt/calendar-term? '(MonthFn 2000 1)))
+    (is (dt/calendar-term? '(DayFn 2000 1 15))))
+  (testing "the arity IS the precision, so a wrong one names nothing"
+    (is (not (dt/calendar-term? '(YearFn 2000 1))))
+    (is (not (dt/calendar-term? '(MonthFn 2000))))
+    (is (not (dt/calendar-term? '(DayFn 2000 1)))))
+  (testing "the fields are numbers, not strings and not variables"
+    (is (not (dt/calendar-term? '(YearFn "2000"))))
+    (is (not (dt/calendar-term? '(MonthFn 2000 ?m))))
+    (is (not (dt/calendar-term? 'Foo)))
+    (is (not (dt/calendar-term? '(QuantityFn 5 Meter)))))
+  (testing "and each is range-checked, the year by the width ISO gives it"
+    (is (not (dt/calendar-term? '(MonthFn 2000 13))))
+    (is (not (dt/calendar-term? '(MonthFn 2000 0))))
+    (is (not (dt/calendar-term? '(DayFn 2000 1 32))))
+    (is (not (dt/calendar-term? '(YearFn 20260821))))
+    (is (dt/calendar-term? '(DayFn 2000 12 31))))
+  (testing "a calendar term is not an ISO one, and neither claims the other"
+    (is (not (dt/datetime-term? '(MonthFn 2000 1))))
+    (is (not (dt/calendar-term? (dtf "2000"))))))
+
+(deftest a-calendar-month-is-inside-its-year-and-not-beside-it
+  ;; The containment a time-keyed context is ordered by: January 2000 is inside 2000, the
+  ;; fifteenth is inside January, and February is inside neither January nor the fifteenth.
+  (testing "finer sits inside coarser"
+    (is (dt/subinterval? '(MonthFn 2000 1) '(YearFn 2000)))
+    (is (dt/subinterval? '(DayFn 2000 1 15) '(MonthFn 2000 1)))
+    (is (dt/subinterval? '(DayFn 2000 1 15) '(YearFn 2000))))
+  (testing "reflexive, and never the other way"
+    (is (dt/subinterval? '(MonthFn 2000 1) '(MonthFn 2000 1)))
+    (is (not (dt/subinterval? '(YearFn 2000) '(MonthFn 2000 1)))))
+  (testing "siblings nest neither way — which is what keeps January out of February"
+    (is (not (dt/subinterval? '(MonthFn 2000 1) '(MonthFn 2000 2))))
+    (is (not (dt/subinterval? '(MonthFn 2000 2) '(MonthFn 2000 1))))
+    (is (not (dt/subinterval? '(YearFn 2001) '(YearFn 2000))))
+    (is (not (dt/subinterval? '(DayFn 2000 1 15) '(MonthFn 2000 2))))))
+
+(deftest the-two-spellings-name-the-same-intervals
+  ;; A calendar term and the reduced-precision ISO string read to one field vector, so the
+  ;; comparator never learns which constructor it was handed.
+  (testing "each nests under the other's coarser interval"
+    (is (dt/subinterval? '(MonthFn 2000 1) (dtf "2000")))
+    (is (dt/subinterval? (dtf "2000-01") '(YearFn 2000)))
+    (is (dt/subinterval? '(DayFn 2000 1 15) (dtf "2000-01")))
+    (is (dt/subinterval? (dtf "2000-01-15") '(MonthFn 2000 1))))
+  (testing "and the same interval written both ways contains itself both ways"
+    (is (dt/subinterval? '(MonthFn 2000 1) (dtf "2000-01")))
+    (is (dt/subinterval? (dtf "2000-01") '(MonthFn 2000 1))))
+  (testing "a finer ISO field still nests under a calendar day"
+    (is (dt/subinterval? (dtf "2000-01-15T13") '(DayFn 2000 1 15)))
+    (is (not (dt/subinterval? '(DayFn 2000 1 15) (dtf "2000-01-15T13"))))))

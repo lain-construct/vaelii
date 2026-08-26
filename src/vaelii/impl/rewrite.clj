@@ -170,8 +170,8 @@
   "Orient `(equals l r)` into a terminating rewrite `[big small]`, or nil when no
   terminating orientation exists.  The Knuth-Bendix order (`kbo>`) decides: the heavier
   side rewrites to the lighter, and two **equal-weight** sides are oriented by the
-  symbol precedence — so `(f (g ?x)) = (g (f ?x))` now orients, where a size-only rule
-  refused it.  nil only when the sides are KBO-**incomparable**: a *permutative*
+  symbol precedence — so `(f (g ?x)) = (g (f ?x))` orients, where a size-only rule
+  would refuse it.  nil only when the sides are KBO-**incomparable**: a *permutative*
   equation like `(rel ?x ?y) = (rel ?y ?x)`, which no term order can orient, or one
   whose variable condition fails in both directions."
   [l r]
@@ -243,7 +243,10 @@
   safety net."
   [rules term]
   (loop [term term, guard 0]
-    (let [term' (if (sequential? term)
+    ;; `(seq term)` as well as `sequential?`: an empty list has no functor to keep, and
+    ;; rebuilding it as `(apply list (first term) …)` would hand back `(nil)` — a term the
+    ;; caller never wrote, in a form that then keys and matches as itself.
+    (let [term' (if (and (sequential? term) (seq term))
                   (apply list (first term) (map #(normalize rules %) (rest term)))
                   term)]
       (if-let [red (and (< guard normalize-guard) (rewrite-root rules term'))]
@@ -309,8 +312,20 @@
 ;; worth surfacing is two **distinct** equations disagreeing, `f∘f = g` alongside `f∘f
 ;; = h`.
 
+(defn- resolve-var
+  "`t` with a bound variable followed to the **end** of its chain.  One binding may name
+  another — unifying `?a` with `?b` and then `?b` with `?c` leaves `?a → ?b → ?c` — so a
+  single hop can hand back a variable that is itself bound, and reading that as unbound
+  both loses a constraint (the next `assoc` overwrites the binding it should have
+  extended) and hides an occurrence from the occurs check.  Terminates because the occurs
+  check is what forbids a cyclic chain."
+  [subst t]
+  (if (and (sx/variable? t) (contains? subst t))
+    (recur subst (get subst t))
+    t))
+
 (defn- occurs? [subst v t]
-  (let [t (if (and (sx/variable? t) (contains? subst t)) (get subst t) t)]
+  (let [t (resolve-var subst t)]
     (cond
       (= v t)         true
       (sequential? t) (some #(occurs? subst v %) t)
@@ -320,8 +335,8 @@
   [s t subst]
   (if (nil? subst)
     nil
-    (let [s (if (and (sx/variable? s) (contains? subst s)) (get subst s) s)
-          t (if (and (sx/variable? t) (contains? subst t)) (get subst t) t)]
+    (let [s (resolve-var subst s)
+          t (resolve-var subst t)]
       (cond
         (= s t)          subst
         (sx/variable? s) (when-not (occurs? subst s t) (assoc subst s t))

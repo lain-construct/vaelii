@@ -7,7 +7,7 @@
 
   **The two halves open independently.**  A KB's records and its index are chosen on
   separate axes (`vaelii.impl.kb`), and only one of the combinations that reach here
-  wants both: `:disk` is durable records *and* a durable index, while `:disk-memory` /
+  wants both: `:disk-log` is durable records *and* a durable index, while `:disk-memory` /
   `:disk-dense` / `:disk-columnar` keep the derived index in RAM and want the record store
   alone — no index log, no index WAL, nothing written to the directory but the records.  So each
   component is opened on first use rather than as a pair, and the registry records which
@@ -133,8 +133,9 @@
   (store-for dir :records))
 
 (defn index-for
-  "The durable `IndexStore` for `dir` — the `KvIndexStore` over a write-ahead-logged
-  `DiskKvBackend`."
+  "The `:disk-log` `IndexStore` for `dir` — the `KvIndexStore` over a write-ahead-logged
+  `DiskKvBackend`, whose map is in RAM and whose log buys the restart
+  (`vaelii.impl.disk.kv`)."
   [dir]
   (store-for dir :index))
 

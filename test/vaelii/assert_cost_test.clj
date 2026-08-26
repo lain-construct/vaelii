@@ -10,8 +10,8 @@
   reading at both sizes by the same amount and divides out, so every one of its checks
   passes untouched.  One regression has already shipped through that gap —
   `inter-args-problem` ran its `interArg` declaration retrieval unconditionally, on
-  every assert of every KB, and nothing declares `interArg` (`f64b334`, ~11% per assert
-  of a declaration-carrying predicate).  It was found by hand, against a worktree at the
+  every assert of every KB, and nothing declares `interArg` — ~11% per assert of a
+  declaration-carrying predicate.  It was found by hand, against a worktree at the
   parent commit.
 
   This gate closes that gap from the other side.  It runs fourteen fixed workloads with
@@ -20,7 +20,7 @@
   every `unindex-sentex!` batch op by family.  Nine of the fourteen assert and five retract,
   so a constant added to either write path lands here.
 
-  **Six of the eight write a fact and two write the vocabulary**, which is the split to
+  **Seven of the nine write a fact and two write the vocabulary**, which is the split to
   read the assert half by.  A definitional check that grows costs a fact nothing and a
   `genl` edge or an `(arity P n)` everything: the arity descension runs its walk when a
   binding arrives, and the retroactive report is triggered by a binding and never by a
@@ -34,11 +34,12 @@
   against the ratio gate and the reason this one can live in the suite rather than behind
   a command somebody has to remember.  It costs a few seconds.
 
-  It is also *more sensitive than a duration in the region that matters*.  The historical
-  regression above is 4.8% of the plain workload's total reads, which no wall-clock gate
-  would separate from noise — and 33% of the `:argument-root` family, which this one
-  fails on.  Counting per family is what buys that: a constant hides in a total and
-  stands out in the family it lands on.
+  It is also *more sensitive than a duration in the region that matters*.  The regression
+  above is one read against the plain workload's twenty-five per assert — 4% of its total
+  reads, which no wall-clock gate would separate from noise — and 20% of the five
+  `:argument-root` reads it lands beside, which this one fails on.  Counting per family
+  is what buys that: a constant hides in a total and stands out in the family it lands
+  on.
 
   ## Why exact, and not a ceiling
 
@@ -73,9 +74,9 @@
     reports nothing, which is why the KB below is pinned to `:backend :memory` instead of
     inheriting whatever `scripts/test-backends.sh` selected.  The gate therefore says the
     same thing on all eight backend runs rather than eight different things.
-  - **A configuration other than the shipped one.**  `with-shipped-retrieval` pins the
-    four switches that decide which family answers a read, so the budgets are a claim
-    about the defaults and about nothing else.  The reference retrieval path
+  - **A configuration other than the shipped one.**  `with-shipped-retrieval` pins every
+    switch that decides which family answers a read (`tu/shipped-defaults`), so the
+    budgets are a claim about the defaults and about nothing else.  The reference retrieval path
     (`VAELII_HIER=0`) really does cost differently — two reads per sentex off
     `:argument-root` and onto `:trie-lookup` — and it carries no budget here.
   - **Anything that scales.**  A cost that grows with the KB is `lein perf`'s subject and
@@ -669,11 +670,12 @@
   backend, and it is preferred to standing aside, since a gate that skips under a sweep is
   a gate that is not running on the configuration somebody is currently changing.
 
-  The set is `tu/shipped-defaults` and no longer four vars named here.  This gate went
-  four years' worth of switches without the matcher, and survived only because none of the
-  workloads below joins a second antecedent — `chain/*matcher*` is reached from
-  `join-matches` and nowhere else, so a single-antecedent rule never asks for it.  A roster
-  the sweeps and the gates share is what stops the next workload from finding that out."
+  The set is `tu/shipped-defaults` rather than a list of vars named here, and the
+  difference is which switches a local list omits without anybody noticing.
+  `chain/*matcher*` is the standing example: it is reached from `join-matches` and
+  nowhere else, and none of the workloads below joins a second antecedent, so a pin that
+  left it out would read exactly like one that did not.  A roster the sweeps and the
+  gates share is what stops the next workload from finding that out."
   [& body]
   `(tu/with-shipped-config ~@body))
 

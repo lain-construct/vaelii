@@ -15,7 +15,7 @@ on `http://127.0.0.1:3000`).
 ```
 lein run -m vaelii.web                            # loopback, a fresh starter KB
 lein run -m vaelii.web --port 8080
-lein run -m vaelii.web --listen 0.0.0.0           # reachable off-machine (opt-in)
+VAELII_API_TOKEN=… lein run -m vaelii.web --listen 0.0.0.0   # off-machine (opt-in, and required)
 lein run -m vaelii.web --attach HOST PORT [WEBPORT]
 
 lein browser                                           # ...or a REPL with it running in it
@@ -32,6 +32,15 @@ does not parse falls through to the next one rather than refusing to start
 `--listen` and `--attach` are independent axes: `--listen` says who may reach the
 browser, `--attach` says whose KB it shows. The startup log names the interface it
 took.
+
+**`--listen` naming a non-loopback address requires `VAELII_API_TOKEN`.** Without one the
+browser prints a line and exits **2** before it opens a KB; with one, every request to
+that bind carries `Authorization: Bearer <token>` or is answered 401. The routes on the
+other side are why: `/edit` writes belief, and `/kbs/export` and `/kbs/load` write the
+host filesystem at a path the request names. The **loopback** default is unchanged — no
+token, no header, no 401 — and the daemon holds the identical rule through the identical
+fn ([operations.md](operations.md)).
+[why a refusal rather than a warning](defenses.md#what-a-server-binds-decides-what-it-requires)
 
 ### Working on it: `lein browser`
 
@@ -151,7 +160,7 @@ reason a term page is slow**, so the bound is part of the work and not a follow-
 - **Measured** twice. Over the shipped schema plus the test-world cast: **2–10 reads** and
   **0.7–2.9 ms** a page (`dog` +3 reads / +0.7 ms, `animal` +10, a synthetic 5,000-subtype
   hub +9 / +2.9 ms). Over a generated 148k-sentex corpus — 44k terms, 4k types — a type
-  page costs **+0.4 to +0.8 ms**, and the five widest individuals in it, up to 12,093
+  page costs **+0.4 to +0.8 ms**, and the five widest individuals in it, up to ~12k
   incident facts each, cost **−0.4 to +2.5 ms**: inside the run-to-run noise of the page
   they sit on. A hub with 400 subtypes costs exactly what one with 40 does (`web_test`),
   which is the claim a render cap alone would never make.
@@ -721,6 +730,13 @@ round-trip under `--attach`.
   sentexes it is rendering; `sentex-ref` takes one. `handle-ref` is the variant for a
   caller that genuinely holds only a handle (a justification's antecedent, a
   contradictor), and it fetches exactly the one record it needs.
+- **The three type lines are `vaelii.core/describe`'s**, not a second computation beside
+  it. One call answers the supertype, subtype and disjointness closures, each already a
+  window with its size beside it — `{:terms :total :exact? :sorted?}` — so the page renders
+  what `describe` answered and applies no cap of its own. Two things follow. The page and
+  the API cannot come to disagree about what a term is, which they would the moment either
+  side's copy of the disjointness pass was edited. And against a remote daemon
+  (`--attach`) the three lines cost **one** round trip rather than a read apiece.
 - **Disjointness is one pass.** `disjoint?` holds when some supertype of x and some
   different supertype of y are separated. Read from the term's side that inverts: the
   separated partners of the term's own supertypes are what matter, and the types
@@ -728,17 +744,18 @@ round-trip under `--attach`.
   partner (there are one or two) instead of a `disjoint?` per type in the KB.
 - **The three type lines are capped, and the widest of them is bounded before it is
   built.** Supertypes and subtypes come off cached closures, so their counts are free and
-  exact and only the sort has to be given up past `sortable-cap`. The separation line is a
+  exact and only the sort has to be given up past the sort budget. The separation line is a
   *union* of the partners' closures, and building one to show fifty entries is the same
   defect the graph avoids: an imported ontology gives one NAT collection 43 partners
-  spanning 289,947 subtypes, and a union over all of them costs a second and a half to
+  spanning ~290k subtypes, and a union over all of them costs a second and a half to
   produce a list nobody can read. The sum of the closure sizes is free — every closure is
   a cached set — so it is taken as an upper bound (it counts an overlap twice) and, past
-  the budget, only the window is walked and the caption says "up to". The bound is what
+  the budget, only the window is walked, `:exact?` comes back false and the caption says
+  "up to". The bound is what
   keeps a term page of a real ontology usable rather than merely slow: on that ontology
-  `/term?q=thing` renders in **229 KB and 0.39 s**, the NAT collection's page in 19 KB and
-  0.24 s. Unbounded, both are megabytes, and a browser cannot be clicked through either
-  once it arrives.
+  `/term?q=thing` renders in a few hundred KB and well under half a second, the NAT
+  collection's page in tens of KB and less again. Unbounded, both are megabytes, and a
+  browser cannot be clicked through either once it arrives.
 - **The concept graph is bounded before its first read, not after.** Its relation flank is
   read off the index groups the term page built anyway, its taxonomy is probed only where
   the closures the page already read say there is something, and every expansion is spent
@@ -915,8 +932,8 @@ What the browser adds is the bounds:
 - **No model configured is a first-class state.** With nothing set, `provider/provider`
   hands back the offline stub, which proposes nothing, and the panel says so rather than
   reporting a parse failure. `-main` warms a configured backend on a daemon thread at
-  start (`warm-model`), because the latency of a local turn is model *load*: 11.33 s,
-  then 0.39 s, then 0.30 s for three identical turns.
+  start (`warm-model`), because the latency of a local turn is model *load*: ~11 s, then
+  ~0.4 s, then ~0.3 s for three identical turns ([llm.md](llm.md)).
 - **POST, and origin-checked.** The turn writes nothing but it *spends* something — a
   model, and on a local host a GPU — so a page on another site must not be able to make
   this browser run one.
@@ -1043,14 +1060,14 @@ comments open with a template:
 a **signature** naming the argument positions with variables, then a clause saying what
 the predicate means *in those names*. Glossing `(genl penguin bird)` is a lookup and a
 substitution — "Every penguin is a bird." — and everything past that first clause is
-documentation for a reader rather than template. 175 of the 277 comments the starter
-ships carry such a signature; the 102 that do not are read as descriptions instead. 96 of
+documentation for a reader rather than template. 210 of the 328 comments the starter
+ships carry such a signature; the 118 that do not are read as descriptions instead. 111 of
 those are types, units and dimensions, whose comments are noun phrases — which is what a
 type gloss wants, since it reads "X is a dog" and the comment is the apposition after it.
-The other six declare a compound or variable-arity argument (`(implies (and ?antecedent
+The other seven declare a compound or variable-arity argument (`(implies (and ?antecedent
 …) ?consequent)`, `(lessThan ?number1 ?number2 …)`), which cannot be substituted into
-position by position. Measured over every believed sentex in the shipped schema, 1,317 of
-1,321 gloss with zero model calls — **99.7%**. `gloss_test` holds the composition rate to
+position by position. Measured over every believed sentex in the shipped schema, 1,839 of
+1,843 gloss with zero model calls — **99.8%**. `gloss_test` holds the composition rate to
 a **95% floor**, so the percentage is a reading of the schema as it stands and the floor
 is what is guaranteed.
 
@@ -1271,57 +1288,59 @@ instead is the section below.
 ### A cap is not an answer: rank first, then cap
 
 Bounding a list stops a page being megabytes. It does not make the page *useful*, and on a
-real corpus the two came apart completely: fifty of 13,196 contexts alphabetically, fifty
-of 27,196 separated pairs, `thing` → fifty of 6,260 subtypes in index order. Each was a
-short answer to nobody's question — an arbitrary sample of a long one — and no amount of
-scrolling fixes it, because nobody scrolls 27,196 pairs looking for the interesting one.
+real corpus — an OpenCyc import, whose figures are [kbs.md](kbs.md)'s — the two came apart
+completely: fifty of ~13k contexts alphabetically, fifty of ~27k separated pairs, `thing`
+→ fifty of ~6,000 subtypes in index order. Each was a short answer to nobody's question —
+an arbitrary sample of a long one — and no amount of scrolling fixes it, because nobody
+scrolls tens of thousands of pairs looking for the interesting one.
 
 So where a **cheap ranking** exists, the page shows the top of it and says what the whole
 is; where one does not, it caps and continues. Cheap is the constraint, and it is a real
 one — the rankings taken are the ones the index already answers in O(1):
 
 - **Contexts, by what they hold.** `count-in-context` is one set-size read each, so the whole
-  ranking is `n` O(1) reads (150 ms over 13,196, and past `context-rank-cap` the page says
-  it cannot rank rather than spending it). This is the ranking that earns its keep: a
-  corpus's mass is not spread evenly over its contexts, and the four largest name the
-  subject outright — `CxUniversalVocabulary` 609,798, `CxGeneOntologyContent`
-  119,192, `CxBaseKB` 63,497, `CxComputerSoftwareData` 32,469. Fifty alphabetical
-  context names said none of that. It is the front page's lattice fallback and the whole
-  of the stats table.
+  ranking is `n` O(1) reads (~150 ms over ~13k contexts, and past `context-rank-cap` the
+  page says it cannot rank rather than spending it). This is the ranking that earns its
+  keep: a corpus's mass is not spread evenly over its contexts, and on that import the
+  four largest name the subject outright — `CxUniversalVocabulary` around 600k sentexes,
+  then `CxGeneOntologyContent`, `CxBaseKB` and `CxComputerSoftwareData` at roughly a
+  fifth, a tenth and a twentieth of it. Fifty alphabetical context names said none of
+  that. It is the front page's lattice fallback and the whole of the stats table.
 - **Types, by how many things they are separated from.** One frequency pass over the pairs.
   Below the cap the pairs themselves are the answer and are listed as before; above it,
   what a reader can use is which types the ontology's partitions are *about*, each linking
   to its own page where its partners are now listed.
 
-And one ranking deliberately **not** taken: ordering the type tree's 6,260 children of
+And one ranking deliberately **not** taken: ordering the type tree's ~6,000 children of
 `thing` by subtree size reads far better than index order — `individual` and
-`partially_intangible` instead of `aura_flight` — and measured **2.2 s**, because it is a
-closure read per child rather than per row shown. The tree stays in index order and stays
-lazy. A ranking that costs more than the page is not a ranking the page can have.
+`partially_intangible` instead of `aura_flight` — and measured **a couple of seconds**,
+because it is a closure read per child rather than per row shown. The tree stays in index
+order and stays lazy. A ranking that costs more than the page is not a ranking the page can have.
 
 The front page also opens with **what the KB is** — sentexes, types, contexts, terms, four
 O(1) reads, the question a reader landing on an unfamiliar corpus asks before anything
 about its contents. The section titled "Core predicates" says "Documented terms" wherever the KB has more commented
 terms than it can sort: on the shipped schema every one of them is engine vocabulary, and
-on an imported corpus there are 105,882 and calling those core predicates is a claim the
-page cannot make.
+on an imported corpus there are of the order of a hundred thousand, and calling those core
+predicates is a claim the page cannot make.
 
-Measured on an imported OpenCyc corpus (1,173,442 sentexes — exact counts move with the
-import profile), `/` renders **36,045 B in
-250 ms** and `/stats` **24,759 B in 86 ms**. What the ranking and the cap buy is visible
-in what they decline to do: sorting 27,196 separated pairs by name to show fifty of them
-is a second of front page, and 4,721 context rows beside fifty contradictions — each of
-those a pair of whole sentences with every subterm linked — is a megabyte of stats page.
+Measured on an imported OpenCyc corpus of roughly a million sentexes — [kbs.md](kbs.md)
+carries the import's figures, and the exact counts move with the profile and the plugin
+version — `/` renders **tens of KB in a quarter of a second** and `/stats` **tens of KB in
+under a tenth**. What the ranking and the cap buy is visible in what they decline to do:
+sorting tens of thousands of separated pairs by name to show fifty of them is a second of
+front page, and thousands of context rows beside fifty contradictions — each of those a
+pair of whole sentences with every subterm linked — is a megabyte of stats page.
 
 Measured against a synthetic wide taxonomy, the bounded front page holds flat where
 reading the whole edge set does not:
 
 | genl edges | reading every edge | `/` |
 |---|---|---|
-| 47 | 1.9 ms | 2.9 ms |
-| 2,047 | 19.3 ms | 3.7 ms |
-| 8,047 | 77.7 ms | 3.4 ms |
-| 32,047 | 357.7 ms | 9.8 ms |
+| 47 | ~2 ms | ~3 ms |
+| 2,047 | ~19 ms | ~4 ms |
+| 8,047 | ~78 ms | ~3 ms |
+| 32,047 | ~360 ms | ~10 ms |
 
 The middle column is the reads alone; drawing a node per edge grows the document with the
 KB on top of that. The bounded page holds at ~15–22 KB throughout.
@@ -1363,8 +1382,9 @@ A sentence is rendered structurally, not as one opaque string:
   membership in the genl taxonomy, so `dog` colors as a type while `parentOf`
   colors as a predicate — and that membership is checked **before** the non-symbol
   fallback, because a type node need not be a symbol: an imported ontology names a type
-  it has no atomic name for with a function term, and 17,211 of OpenCyc's 132,352 are
-  compounds. Reading those as numbers is a page in the wrong colour. A legend is shown
+  it has no atomic name for with a function term, and over ten thousand of the types in
+  the OpenCyc import [kbs.md](kbs.md) is the route to are compounds.
+  Reading those as numbers is a page in the wrong colour. A legend is shown
   on the home page.
 
 ### A reified term is never shown as its constant

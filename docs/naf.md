@@ -1,6 +1,6 @@
-# Negation as failure: `unknown` and `thereExists`
+# Negation as failure: `unknown`, `thereExists` and `forall`
 
-- **Covers:** closed-world negation as a query operator — `unknown`/`thereExists`,
+- **Covers:** closed-world negation as a query operator — `unknown`/`thereExists`/`forall`,
   ground/closed evaluation, and how a rule antecedent stays maintained as belief changes.
 - **Not here:** the rule-level exception this reuses block/sweep/revive from →
   [exceptions.md](exceptions.md); aggregation, the third member of the same family →
@@ -16,6 +16,7 @@ variable off so it can be negated. Neither is ever stored.
 (unknown S)          ; holds iff S is not derivable — closed-world negation
 (thereExists ?x S)   ; holds iff some binding of ?x makes S derivable
 (thereExists [?x ?y] S)
+(forall ?y (implies Body Head))   ; sugar: the nested NAF below
 ```
 
 `unknown` is negation as failure: `(unknown (flies Tweety))` holds exactly while the
@@ -28,17 +29,18 @@ existential:
 (unknown (thereExists ?c (parentOf ?c Tom)))   ; "Tom has no known parent"
 ```
 
-Both are answered by a prover (`vaelii.impl.provers` — `UnknownProver`,
-`ThereExistsProver`), usable as a top-level goal (`ask` / `ask?`) and as a rule
-antecedent. Neither is assertible: a `wff` arm refuses `(unknown …)` /
-`(thereExists …)` as a stored fact, the way `different` is refused — a query operator
-states no fact.
+All three are answered by a prover (`vaelii.impl.provers` — `UnknownProver`,
+`ThereExistsProver`, `ForallProver`), usable as a top-level goal (`ask` / `ask?`) and as
+a rule antecedent. None is assertible: a `wff` arm refuses `(unknown …)` /
+`(thereExists …)` / `(forall …)` as a stored fact, the way `different` is refused — a
+query operator states no fact.
 
 ## Fully bound to evaluate
 
 `unknown` and `thereExists` are **ground/closed only**. Applicability refuses a goal
 with a free variable — `sentex/free-vars`, which counts every variable *except* the
-ones a nested `thereExists` binds:
+ones a quantifier binds: a nested `thereExists`'s, a `forall`'s, and an aggregate's own
+`?v` and `?n`:
 
 | form | `free-vars` |
 |------|-------------|
@@ -77,7 +79,10 @@ search from inside a relabel loop.
 
 `(unknown S)` is answered by running `S` at level 6 and inverting: **no** solution
 means `S` is not derivable, so `(unknown S)` holds. `(thereExists ?x S)` is answered
-by running `S` at level 6 and reporting existence, binding nothing outside.
+by running `S` at level 6 and reporting existence, binding nothing outside. A
+conjunctive `S` is **joined** across its conjuncts ("The conjunction is joined", below)
+— the registry answers one goal at a time, and the join is the thin thread of bindings
+over it that a quantified conjunction needs and nothing else does.
 
 ## In a rule antecedent
 
@@ -108,10 +113,18 @@ The two block conditions are OR'd wherever a firing's block status is decided.
 The exception's conjunction, inlined per literal — and read the same way, since the
 same evaluator answers both (`provers/exception-holds?`): the conjunction is derivable
 only if **every** conjunct is, so one conjunct short leaves `(unknown S)` holding and
-the rule fires. Closure is what makes that flat reading correct, exactly as it does for
-an exception: every variable is bound before the query runs, so after substitution the
-conjuncts share nothing and each is an independent ground existence check. No join, and
-level 6 needs no conjunctive goal form.
+the rule fires. Closure makes this one cheap: every variable is bound before the query
+runs, so after substitution the conjuncts share nothing and each is an independent
+ground existence check. What runs it is the join below, of which a ground conjunction is
+the degenerate case — one evaluator, and no second reading of `and` to drift from it.
+
+The same argument refuses a **disjunctive** body. `(unknown (or A B))` would need the
+evaluator to union two runs and nothing at level 6 does, so the disjunction would decide
+the rule without being evaluated — the one way a guard passes everything silently. Nor is
+the rule expanded on it, since `(unknown (or A B))` reads as "neither A nor B is
+derivable", which is the De Morgan *opposite* of what one rule per alternative would
+mean. Write the two `unknown` literals as two antecedents; that is the conjunction the
+form already meant.
 
 Conjunct order is **not** the rule's identity — the conjuncts are sorted (blind to
 variable names) in the constructor, so two spellings of one condition are one rule, the
@@ -122,8 +135,9 @@ and the whole query would never hold. A lone conjunct loses the `and` it never n
 and a repeated one is dropped.
 
 A conjunct may itself be a `thereExists`: the binder is local to that one conjunct, so
-the conjuncts still share nothing, and the predicate watched is the one *inside* the
-quantifier.
+the *outer* conjuncts still share nothing, and the predicate watched is the one *inside*
+the quantifier — recursively, so a conjunction under the quantifier is watched conjunct
+by conjunct too.
 
 Every conjunct's predicate is posted in the re-check index, not just the first: a
 conjunction blocks on the *last* of its conjuncts to arrive, so a rule watching one of
@@ -133,16 +147,105 @@ registration) — an aggregate conjunct is watched by its census body, an existe
 by what it quantifies. A negated conjunct is watched under `not`, which is also how the
 trigger side keys an arriving `(not S)`.
 
-**A conjunction under a quantifier is refused** (`:type :quantified-conjunction`) — a
-`thereExists` or an aggregate whose body is an `(and …)`. There the conjuncts share the
-binder, so answering each independently would take each from a *different* witness: "has
-a sick child" would hold of anyone with a child while anyone at all was sick. That is a
-join, the level-6 registry answers one goal at a time, and the honest response is a
-refusal at assert time rather than an answer computed the wrong way. So the existential
-`unknown` is one literal deep — `(unknown (thereExists ?c (parentOf ?c Tom)))` — and a
-witness that has to satisfy two conditions is written as a generator antecedent that
-binds it. An **empty** conjunction is refused for the sibling reason: nothing can make
-it derivable, so the antecedent would guard nothing.
+### The conjunction is joined, so its conjuncts may share a witness
+
+```clojure
+(unknown (thereExists ?c (and (childOf Tom ?c) (sick ?c))))   ; "Tom has no sick child"
+```
+
+The conjuncts here share the binder, so reading them independently would take each from
+a *different* witness — "has a sick child" would hold of anyone with a child while
+anyone at all was sick. That reading is wrong, and it is the one
+[defenses.md](defenses.md#a-conjunction-under-a-quantifier-is-joined-never-read-flat)
+refused. What answers it correctly is a **join**, and that is what
+`provers/conjunction-solutions` is: each conjunct is substituted with what the conjuncts
+before it bound, run through the registry, and its solutions thread on. One evaluator,
+used by `unknown`, by `thereExists` and by an `exceptWhen` alike.
+
+A **ground** conjunction is the degenerate case of it and is unchanged: every conjunct
+substitutes to a ground goal, each contributes one solution or none, and the join *is*
+the independent existence check it always was. Nothing about the flat reading was wrong
+where closure made it ground — what changed is that closure is no longer the only way to
+be answerable.
+
+The conjuncts are run in a **planned** order (`planned-conjuncts`), generators first and
+each computed conjunct — a nested `unknown`, an evaluable, an aggregate — once the
+variables it reads are bound. Canonical order sorts a query's conjuncts blind to
+variable names, so the written order is not available to rely on; the plan is recomputed
+at evaluation, the decision `plan/order` makes for a rule body, in the small.
+
+Two things are refused, and both are refused at assert time:
+
+- A **quantified variable no generator conjunct of the same query binds**
+  (`:naf-not-closed`) — `(unknown (thereExists ?c (and (childOf Tom Tom) (unknown (sick
+  ?c)))))`. Nothing outside can bind `?c`; that is what the quantifier is for. So the
+  computed conjunct can never run, and the query would answer *not derivable* whatever
+  the KB holds.
+- An **empty** conjunction (`:type :not-well-formed`): nothing can make it derivable, so
+  the antecedent would guard nothing.
+
+**An aggregate's census body is joined by the same evaluator.**
+`provers/aggregate-values` runs it through `conjunction-solutions`, so
+`(agg/count ?n ?c (and (childOf Bob ?c) (asleep ?c)))` counts the children who are
+asleep — one witness satisfying both conjuncts, and the reduction reads `?v` off it. The
+two refusals above have their aggregate spelling: a census variable no conjunct of the
+body binds and nothing outside the aggregate names is `:naf-not-closed`, and a
+disjunctive body stays refused for a reason no join repairs
+([aggregate.md](aggregate.md)).
+
+A **standalone positive** `(thereExists ?y (and …))` antecedent needs none of this. Its
+conjunction is spliced in as that many antecedents (`desugar-there-exists`), which is the
+join a reader would have written by hand: the binder is shared by the conjuncts and by
+nothing else, and antecedents sharing a variable are exactly a join.
+
+### `forall` is sugar for a nested `unknown`
+
+```clojure
+(implies (and (person ?x)
+              (forall ?y (implies (childOf ?x ?y) (asleep ?y))))
+         (allKidsAsleep ?x))
+;; "all of ?x's children are asleep"
+```
+
+∀?y (Body ⇒ Head) is ¬∃?y (Body ∧ ¬Head), and in a closed world ¬ is `unknown`. So the
+universal is two negations around the existential the engine already answers, and that
+is exactly what it canonicalizes into (`sentex/desugar-forall-literal`):
+
+```clojure
+(unknown (thereExists ?y (and (childOf ?x ?y) (unknown (asleep ?y)))))
+```
+
+The desugar runs at the **door** — the sentex constructor, and `rules/inner-rule`, which
+every pre-storage check reads through. So range restriction, closure, quantifier
+locality and the stratification graph all see the nested NAF, `canonical-sentex` shows
+it, and the sugared rule and the hand-written nested one are **one rule with one
+handle**. A conjunctive `Body` contributes that many conjuncts to the join; a `Head` is
+left whole, so an `(and …)` head is one nested `unknown` over a conjunction.
+
+Nothing new evaluates it. The inner `unknown` is a conjunct of the outer query like any
+other, reached once the generators of that query have bound `?y` — which is why the join
+plans its conjuncts rather than running them as written. **NAF nests exactly as far as it
+stratifies**: the inner query's predicates are negative edges too
+(`rules/naf-predicates-of` reads through the quantifier and through the nested
+`unknown`), so a cycle through either half is refused at assert time as any other cycle
+through negation is.
+
+Closedness is the same rule read twice: `?y` is local to the `forall` — it may appear
+nowhere else in the rule (`:quantifier-not-local`) — and every *other* variable in the
+body is bound by an antecedent outside it (`:naf-not-closed`).
+
+**The vacuous case reads true**, and deliberately: Bob having no children at all makes
+the existential unsatisfiable, so the `unknown` holds and "all of Bob's children are
+asleep" is true. That is the classical reading of a universal over an empty domain, and
+it is what falls out of the desugar rather than a case decided separately.
+
+A `forall` an arriving fact can **release** is the one place the maintenance differs from
+a plain `unknown`. `(unknown S)` is antitone: a fact can only make `S` derivable, so it
+can only block. A nested one is not — an arriving `(asleep Kid3)` removes the witness the
+inner query had found — so the rule is owed a fresh join whether or not the blocked set
+moved, exactly as an aggregate is (`rules/arrival-releasable?`,
+`settle/rejoin-on-arrival-rules`, and the same exemption at the two taxonomy edge
+triggers).
 
 ### Evaluated in the placement context, not the join
 
@@ -153,8 +256,8 @@ reason: forward and backward must evaluate a NAF condition in the *same* context
 `sentexes-matching` and a backward search would disagree about one rule. Backward
 solves it as a deferred antecedent through the prover at the query's context, which
 is the backward analogue of the placement context. Both read the identical level-6
-judgement (`chain/unknown-inner-holds?` → `provers/exception-holds?` over the single
-inner literal), so the two can never drift.
+judgement (`chain/unknown-inner-holds?` → `provers/exception-holds?` over the query's
+conjuncts), so the two can never drift.
 
 ### Standalone positive `thereExists` desugars
 
@@ -174,6 +277,89 @@ A `thereExists` **inside** `unknown` is a NAF query, evaluated by the prover, an
 left intact. So `thereExists` is deliberately *absent* from `deferred-predicates`;
 only `unknown` is deferred.
 
+## A closed extent: `(not (P a))` without a stored negative
+
+`unknown` chooses closure **per goal** — the author writes it where they want it. A
+`closedExtentPredicate` grant chooses it **per predicate**, for everything read under it:
+
+```clojure
+(v/assert kb '(closedExtentPredicate monthOfYear) 'CxCalendar)
+;; "the months of the year are exactly these twelve"
+```
+
+Where the grant is visible, `monthOfYear`'s **believed** extent is complete, so nothing
+answering `(monthOfYear Smarch)` at level 6 is what answers `(not (monthOfYear Smarch))`.
+`ClosedExtentProver` does that: a ground negative goal, the positive run through the
+registry, and the negative held exactly while the positive finds nothing. Cost tier
+`:compute`, nothing stored — a closed extent creates no negative space, the same refusal
+`exceptWhen` and `unknown` make.
+
+It is a **grant**, and the only thing that closes an extent: an undeclared predicate stays
+open-world, where a fact nobody stated is not thereby false. And it is a **policy of the
+context that gives it**, read from the asking context's `genlCx` up-cone the way
+`abduciblePredicate` is ([abduction.md](abduction.md)) rather than universally — one
+theory may state the twelve months and read a thirteenth as refuted while a sibling,
+reading the same predicate, answers only what it was told. It is belief-following like the
+other predicate marks: a defeated or retracted member leaves the extent, and the closure
+follows.
+
+### Under the grant, a negative antecedent is NAF
+
+```clojure
+(implies (and (candidateMonth ?m) (not (monthOfYear ?m))) (notAMonth ?m))
+```
+
+Without the grant that `(not (monthOfYear ?m))` is an ordinary literal, satisfied by a
+stored negative. Under it the literal is negation as failure, and it takes `unknown`'s
+whole path: **withheld from the join** (`planned-join`, beside the post-join literals),
+decided at **derive time in the placement context** (`chain/closed-extent-blocks?`),
+recorded in the refusal record under the `:naf` reason, and swept and revived by the
+ordinary block / sweep / revive.
+
+Three details make that sound:
+
+- **Only a *closed* negative antecedent** is read this way
+  (`rules/closed-negative-antecedents`) — one every variable of which another generator
+  antecedent binds. A negative antecedent whose variable nothing else binds is what
+  *produces* that binding by matching a stored negative, and withholding it would leave
+  the rule with nothing to fire on.
+- **The question asked at derive time is the whole level-6 one**, not "is there a positive
+  answer". So a stored `(not (P a))` answers it as it always did, and a placement context
+  that cannot see the grant reads the literal exactly as it does today. The join is
+  withheld unconditionally once the predicate is granted **anywhere** — over-selecting,
+  which derive time then decides correctly per context.
+- **What the withholding costs is the support handle**, and the re-check index gives it
+  back. The rule is posted under `P` (`rules/closed-extent-predicates-of`), and
+  `recheck-on-sentence` posts an arriving sentence under its own functor *and* its
+  underlying body's — so one key catches a `(P a)` arriving and a `(not (P a))` leaving
+  alike, and the firing comes round for re-decision either way.
+
+A grant asserted **after** the rules it governs reaches them too:
+`special/index-closed-extent-rules` posts every stored rule with a `[:not P]` antecedent
+and queues it `:all-rejoin`, because the grant blocked nothing for the blocked set to
+notice and the firings it licenses have no justification yet — the same asymmetry a
+widened `genlCx` cone takes that marker for.
+
+### Stratification, from both arrival orders
+
+A closed-extent negative antecedent is a **negative edge** on `P`, so a rule concluding
+`P` whose body reads `(not (P …))` under the grant is a cycle through negation and is
+refused (`:type :not-stratified`). The edge is conditional on the grant, so the *grant* can
+close a cycle too — `checks/check-closed-extent-stratified` walks from each stored rule
+with a `[:not P]` antecedent (one antecedent-index lookup, no scan) and **refuses the
+declaration**, which is the same answer `check-edge-stratified` gives a `genl` edge that
+closes one, and for the same reason: stored state is always stratified.
+
+`why-not` reports `:closed-extent` for a positive goal nothing answers under a visible
+grant. That is the more specific answer than `:not-stored`: the KB is not silent about the
+sentence, it says the extent is complete and this is not in it.
+
+**`defns` and `disjoint` are untouched.** A `defnIff` states a condition, not an extent —
+a thing whose condition is merely unknown is concluded neither a member nor a non-member
+([defns.md](defns.md)) — and disjointness refutes from a *positive* claim about a sibling
+type. Both stay open-world by design; this grant is the one place a KB says otherwise, and
+it says it per predicate and per context.
+
 ## Order independence, and the re-check
 
 Belief must not depend on arrival order. A conclusion drawn while `S` was absent must
@@ -182,7 +368,9 @@ leaves. This is the `exceptWhen` block/sweep/revive path, reused verbatim:
 
 - The rule is posted in the re-check index (`[:exception-index <predicate>]`) under every
   predicate its `unknown` antecedents mention — `rules/recheck-predicates` unions the
-  exception's and the NAF antecedents' predicates. A fact arriving or leaving on one
+  NAF antecedents' predicates with the aggregate bodies'. An exception's predicates ride
+  its own meta-sentex into the same index (`special/index-exceptWhen-meta`), so both
+  kinds of block condition key one index. A fact arriving or leaving on one
   of those predicates (or any subtype, via the genl spec fan-out) queues the rule.
 - An **equality** queues it too, and that one no predicate can key. `(unknown (flies
   Tweety))` is answered under Tweety's representative, so merging Tweety with a Birdy
@@ -272,8 +460,11 @@ defeated `S` — closed-world negation reads current belief, not mere storage.
 - Blocking produces **no nogood**: a blocked conclusion does not exist, so nothing is
   contradictory and nothing is arbitrated. `unknown` is undercutting, like
   `exceptWhen` — not a rebuttal.
-- A blocked conclusion has no handle, so `why-not (kb sentence context)` reports it
-  the same way it reports an excepted one.
+- A blocked conclusion has no handle, so the sentence arity `why-not (kb sentence
+  context)` is the only one that can be asked of it. It reports `:excepted` for an
+  `exceptWhen` block and `:closed-extent` for a positive goal under a visible grant; a
+  conclusion an `(unknown S)` antecedent blocked reads `:not-stored`, nothing having
+  been placed.
 
 ## Deferred antecedents in every chainer
 
@@ -296,23 +487,47 @@ implementations.
 
 - **No existential `unknown` witness.** `(unknown (thereExists ?x S))` answers only
   *whether* a witness exists, never *which*; that is inherent to negation as failure.
-- **One-level quantification.** `free-vars` respects a `thereExists` one level deep;
-  nested quantifiers inside a single literal are not round-one scope.
-- **No joined NAF query.** A conjunction is a set of independent ground checks, so a
-  quantified one is refused rather than answered per-witness (above). The same limit
-  `exceptWhen` states as "no existential exception", and the same workaround: bind the
-  witness with a generator antecedent.
+- **No witness from a `forall` either.** `(forall ?y …)` answers *whether* every `?y`
+  satisfies the head, never *which* one does not; the counterexample is what the inner
+  existential found and projected out.
+- **No disjunctive census body.** An aggregate's body is joined across its conjuncts and
+  refused when it disjoins (`:not-well-formed`): a count over a union is not the sum of
+  two counts, since a witness satisfying both alternatives would be counted twice. Name
+  the extent with a rule — whose antecedent may disjoin — and aggregate over the
+  conclusion ([aggregate.md](aggregate.md)).
+- **No rule expansion inside a query.** The join runs over the registry, so a conjunct
+  reachable only by backward chaining does not contribute — the bound that keeps
+  closed-world reasoning out of an unbounded proof search, unchanged by the join. A
+  closed extent reads the same level: a member derivable only by a `set/backwardRule` is
+  not in the extent the grant calls complete.
+- **A closed extent is read where the goal is, not where a rule is.** The registry is
+  reached from a query, from a rule antecedent's derive-time check, and from a backward
+  chainer whose leaf *is* the registry. A backward chainer running over the stored facts
+  alone answers a `(not (P a))` subgoal from what is stored, as it did before the grant —
+  an under-answer rather than a disagreement, and the same boundary level 6 draws
+  everywhere else.
 
 ## Where the pieces are
 
-- **Two provers** over the level-6 list, ground/closed only, complete and
+- **Three provers** over the level-6 list, ground/closed only, complete and
   authoritative; members of `default-provers` and of the `wff` refusal table.
+  `ForallProver` desugars and hands the goal **back to the registry**, so the goal and
+  the rule antecedent are answered by one mechanism.
+- **`ClosedExtentProver`**, the fourth, for a ground `(not (P …))` under a visible
+  `closedExtentPredicate`. Partial rather than complete (completeness 50): a stored
+  negative is `FactProver`'s answer, and this augments it.
 - **Representation** in `sentex`: `unknown?` / `there-exists?` recognizers, `free-vars`
   respecting the quantifier, `unknown` in `deferred-predicates`, the standalone
-  `thereExists` desugar, `naf-query-conjuncts` (the query's conjuncts, the `unknown`
-  spelling of `exception-query-conjuncts`) with the conjunct sort beside the other
-  literal normalizations, and `check-naf-closed` (closure, quantifier locality, and the
-  quantified-conjunction refusal).
+  `thereExists` desugar (splicing a conjunctive body into that many antecedents),
+  `conjuncts` / `naf-query-conjuncts` (the query's conjuncts, the `unknown` spelling of
+  `exception-query-conjuncts`) with the conjunct sort beside the other literal
+  normalizations, `desugar-forall-literal` / `desugar-forall-rule` (the `forall` sugar,
+  applied at both doors), `census-bound-vars` (what a census body binds for itself), and
+  `check-naf-closed` (closure, quantifier locality, the producible-quantified-variable
+  rule, and the aggregate's census check).
+- **The joined evaluator**, `provers/conjunction-solutions` — one function, used by
+  `UnknownProver`, `ThereExistsProver` and `exception-holds?` alike, so the goal, the
+  antecedent and the exception cannot drift about what a conjunction means.
 - **Forward chaining**: `unknown` skipped in the join and blocked at derive time per
   placement context (`naf-blocks?`), alongside the exception.
 - **Belief maintenance**: `justification-excepted?` blocks on a NAF antecedent too;
@@ -325,7 +540,14 @@ implementations.
   both are entries in the same record.
 - **Stratification**: `checks/negative-predicates` and `check-stratified` treat an
   `unknown` antecedent's predicate as a negative edge, so a cycle through it — by rule
-  or by `genl` edge — is refused.
+  or by `genl` edge — is refused.  A closed-extent negative antecedent adds one too, and
+  `check-closed-extent-stratified` refuses the *grant* that would close a cycle with
+  rules already stored.
+- **The closed extent** in `rules` (`closed-negative-antecedents` / `closed-extent-antecedents`
+  / `closed-extent-predicates-of`, the structural half), `special` (the
+  `closedExtentPredicate` entry and `index-closed-extent-rules`) and `chain`
+  (`closed-extent-blocks?`, the withheld join literal, the `:closed-extent` slot on the
+  rule view).
 - **Every chainer**: `res/solve-deferred` (the registry reached through
   `wiring/solve-goal`, overridable via `*deferred-solver*`) lets `res/prove` and the
   node engine evaluate a deferred antecedent, so every chainer agrees about `unknown`,
@@ -338,9 +560,23 @@ retract), `unknown (thereExists …)` and standalone positive `thereExists` in a
 conjunctive query (`naf-query-conjuncts` itself, block only when every conjunct holds,
 every conjunct's predicate watched — including a `thereExists` conjunct's, the goal and
 backward-rule readings agreeing with the antecedent one, and order, nesting, repetition
-and a lone conjunct all not being the rule's identity), the closure, locality,
-quantified-conjunction and empty-conjunction refusals, and the stratification cycle
-refusals — through *any* conjunct, which is the edge a single-predicate key would miss.
+and a lone conjunct all not being the rule's identity), the **joined** query (one witness
+for every conjunct rather than one apiece, blocking and reviving on the *second*
+conjunct's predicate, the same answer from the other arrival order, and the standalone
+positive existential splicing into the hand-written join), the closure, locality,
+unproducible-quantified-variable, aggregate census and empty-conjunction
+refusals, and the stratification cycle refusals — through *any* conjunct, including one
+reached through a quantifier, which is the edge a single-predicate key would miss.  It
+also covers `forall`: the desugar itself, the sugared and nested spellings storing to one
+handle, "all of Bob's children are asleep" through the vacuous case, two asleep children,
+a third awake one withdrawing the conclusion and its retraction reviving it, the goal
+form agreeing with the antecedent, the other arrival order settling the same way, the
+cycle through either half of the desugar, the escaping binder, and non-assertibility.
+And the **closed extent**: the negative answered from the absence of a positive, the grant
+scoped to the theory that gives it, the rule antecedent firing on nothing stored and
+withdrawing when a member arrives, the reverse arrival order (facts, rule, then grant), a
+stored negative still answering, the cycle refused from the rule side *and* from the grant
+side, and `why-not` saying the extent is closed.
 
 ## The third member of the family
 

@@ -42,8 +42,9 @@ level's whole child set.
 index number can stand in for it. A probe that narrows to a single `lookup` and then reads
 the record behind every handle it returned scores well on `:reads` and badly on what it
 cost: the worked case is `kb/find-sentex-handle`, where the exact-leaf read answers in
-13µs per call at 800 candidates and the wildcard match it replaces takes 2,779µs, at the
-identical `:reads` count ([storage.md](storage.md)). On the durable store a fetch is a
+~10 µs per call at 800 candidates and the wildcard match it replaces takes a few
+milliseconds, at the identical `:reads` count ([storage.md](storage.md)). On the durable
+store a fetch is a
 positional slot read, a positional frame read and a nippy thaw past the LRU, so the two
 quantities are not even the same order. It counts the protocol call — `get-sentex`,
 `get-justification`, `get-provenance` — and not a backend's internal re-reads, so it reads
@@ -154,9 +155,10 @@ a run without it, more slowly.
   `:fetches` by the record store, so none of the three can vary with the index a run
   happens to be on.
 - A retrieval that reaches the index without going through either matcher has no shape:
-  the direct `p/lookup` callers — `find-sentex-handle`, the level-0 raw read, and every
-  term read the interactive arm makes — appear in `:fan` and `:reads` and not in
-  `:goals`.
+  the level-0 raw read calls `p/lookup` directly and so appears in `:fan` and `:reads`
+  and not in `:goals`, and `find-sentex-handle`'s exact-leaf probe and every term read
+  the interactive arm makes appear in `:reads` alone — neither walks, so neither has a
+  fan to record.
 - The binding pattern is one character per **top-level** argument, so it cannot say where
   inside a compound a variable sits. `(mass Obj (QuantityFn ?n Kilogram))` reads `bF`, and
   that `Kilogram` sits behind `?n` within the subterm is not a distinction the key
@@ -209,7 +211,8 @@ Six readings come out, and they answer different questions:
   Two samples, and the split is the arm's whole reading. A `genl` or `genlCx`
   sentence *is* a taxonomy edge, so churning one moves the cached closures
   ([taxonomy.md](taxonomy.md)) rather than the trie under it — on the OpenCyc conversion
-  `genl` is the largest predicate of the 7,550 and the two are a fifth of everything
+  `genl` is the largest predicate in the vocabulary ([quality.md](quality.md) measures the
+  spread) and the two are a fifth of everything
   stored, and a taxonomy pair costs several times an index-path one at the median. So the
   tallies are the **index sample's**, and the taxonomy edges run after under their own
   budget, reported beside it: the comparison between the two is a reading, where one
@@ -255,13 +258,15 @@ Six readings come out, and they answer different questions:
 ## The gate built on it
 
 `test/vaelii/assert_cost_test.clj` is the instrument's second consumer, and it *decides*
-where `lein bench-profile` reports. It runs ten fixed workloads and pins the **exact**
-index-operation counts each costs, every read by family and every `index-sentex` or
-`unindex-sentex!` batch op by family. Six of them assert — a plain binary fact, a type
-membership, a fact of a declaration-carrying predicate, a negative, a compound, and one
-arriving through a forward rule — and four retract: the plain facts, the premises of the
-forward rule, and two on a KB holding reified NATs, one whose retractions name none of
-them and one whose retractions each orphan one.
+where `lein bench-profile` reports. It runs fourteen fixed workloads and pins the
+**exact** index-operation counts each costs, every read by family and every
+`index-sentex` or `unindex-sentex!` batch op by family. Nine of them assert — a plain
+binary fact, a type membership, the same membership at depth 8, a fact of a
+declaration-carrying predicate, a negative, a compound, one arriving through a forward
+rule, a `genl` edge, and an arity declaration — and five retract: the plain facts, the
+premises of the forward rule, two on a KB holding reified NATs (one whose retractions
+name none of them and one whose retractions each orphan one), and one on a KB holding
+equality merges the retractions do not name.
 
 It exists because `lein perf` cannot see this class of defect and says so in its own
 preamble: **a ratio cannot see a constant.** An unconditional read added to the assert
@@ -274,8 +279,8 @@ so there is no warm-up, no tail mean, no noise floor and no tolerance. It is ide
 across runs, machines and a loaded box, which is what lets it live in the suite instead
 of behind a command somebody has to remember. Its configuration is pinned rather than
 inherited — `:backend :memory` because the seams are `KvIndexStore`'s and the columnar
-store has none, and the four retrieval switches at their shipped defaults — so it says
-the same thing on all eight backend runs of `scripts/test-backends.sh` and all five sweeps
+store has none, and every retrieval switch at its shipped default — so it says
+the same thing on all eight backend runs of `scripts/test-backends.sh` and all six sweeps
 of `scripts/test-sweeps.sh`.
 
 Budgets are **exact**, not ceilings. A ceiling lets a change spend whatever is already
@@ -291,13 +296,13 @@ worktree at the parent commit ([argtypes.md](argtypes.md)). Restoring it:
 | | with the regression |
 |---|---|
 | `lein perf`, every ratio check | **all pass** |
-| assert-cost read budgets | **6 of 6 fail**, `:argument-root` +1 per sentex |
-| assert-cost write budgets | 6 of 6 pass |
+| assert-cost read budgets | **every one fails**, `:argument-root` +1 per sentex |
+| assert-cost write budgets | every one passes |
 
 The third row is the one that sets the gate's scope. A counter over the *write* side alone
 would have reported nothing, because the regression was a read; counting per family is
-what makes it visible at all, since one extra read is 4.8% of the plain workload's total
-and 33% of the family it lands on.
+what makes it visible at all, since one extra read is 4% of the plain workload's twenty-five
+reads per assert and 20% of the five that land on the family it hits.
 
 What the gate does not catch is in its own namespace docstring: work that is not an index
 operation, a more expensive version of the same operation, a non-`KvIndexStore` index, and

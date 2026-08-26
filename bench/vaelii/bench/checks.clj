@@ -134,7 +134,7 @@
     (let [t (:taxonomy kb)]
       (println "\nthe primitives the checks are built out of")
       (let [u (unary-samples opts ctx)]
-        (run-arm "genls (unscoped)" (fn [s _] (seq (tax/genls t (first s)))) u)
+        (run-arm "genls (unscoped)" (fn [s _] (seq (tax/genls-global t (first s)))) u)
         (run-arm "genls (scoped)" (fn [s c] (seq (tax/genls t (first s) c))) u)
         (run-arm "specs thing (scoped)" (fn [_ c] (seq (tax/specs t 'thing c))) u)
         (run-arm "disjoint? (unscoped)" (fn [s _] (tax/disjoint? t (first s) 'thing)) u)

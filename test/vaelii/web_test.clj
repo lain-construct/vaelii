@@ -11,6 +11,7 @@
             [vaelii.impl.guard :as guard]
             [vaelii.impl.jobs :as jobs]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.sandbox :as sandbox]
             [vaelii.impl.serve :as serve]
             [vaelii.impl.starter :as starter]
             [vaelii.impl.svg :as svg]
@@ -23,6 +24,16 @@
 (use-fixtures :once
   (fn [f]
     (let [kb (tu/fresh)]
+      ;; The world is loaded under the shipped cost RANKING whatever the run installed.
+      ;; Not a preference: incremental forward chaining over a growing prover extent is
+      ;; complete only because the ranking re-drives the join, so an unranked load leaves
+      ;; this world two `responsibleFor` conclusions short — and the `/chain` test below
+      ;; then derives them mid-test, where the neutrality fixture reads their arrival as a
+      ;; leak.  The incompleteness is real and is witnessed for its own sake by
+      ;; `order_independence_test/a-rule-over-a-growing-prover-extent-is-order-independent`;
+      ;; pinning here is what stops one baseline's gap being reported as this namespace's
+      ;; bug.  It pins the LOAD rather than the test because `/chain` runs on a job thread
+      ;; a `binding` does not reach.
       (-> kb starter/load-into world/load-into)
       (binding [tu/*kb* kb, *app* (web/app kb)] (f))
       (tu/clear-kb! kb))))
@@ -180,15 +191,15 @@
   ;; function term — a NAT — and that is a `PersistentList`, which `compare` throws on
   ;; instead of ordering.  So every list the browser sorts is sorted by *name*: it is what
   ;; the list is read in, and it is the one ordering that exists for every term a KB can
-  ;; hold.  Injected at the access facade because nothing pure's own assert path stores is
-  ;; one.
+  ;; hold.  Injected at the two taxonomy reads `describe` makes — the page's three type
+  ;; lines are its answer (docs/web.md) — because nothing the assert path stores is one.
   (let [nat        '(QuantityFn 5 Meter)
-        real-types acc/types
-        real-specs acc/specs]
-    (with-redefs [acc/types (fn [target & args] (conj (vec (apply real-types target args)) nat))
-                  acc/specs (fn [target t & args]
-                              (cond-> (apply real-specs target t args)
-                                (= 'cat t) (conj nat)))]
+        real-types v/types
+        real-specs v/specs]
+    (with-redefs [v/types (fn [kb & args] (conj (set (apply real-types kb args)) nat))
+                  v/specs (fn [kb t & args]
+                            (cond-> (apply real-specs kb t args)
+                              (= 'cat t) (conj nat)))]
       (let [r (GET "/term" "q=dog")]                        ; dog ⊥ cat, so cat's specs are read
         (is (= 200 (:status r)))
         (is (re-find #"Disjoint with" (:body r)))
@@ -658,8 +669,8 @@
 (tu/deftest-kb a-compound-type-node-colours-as-a-type-not-a-number
   ;; An imported ontology names a type it has no atomic name for with a function term, so a
   ;; type node need not be a symbol — and the non-symbol fallback is the *number* colour.
-  ;; 17,211 of OpenCyc's 132,352 types are compounds, so getting this order wrong is a page
-  ;; of red.
+  ;; 17,211 of the types in the OpenCyc import `docs/kbs.md` measures are compounds, so
+  ;; getting this order wrong is a page of red.
   (tu/with-terms [CollectionFn base_type member_type]
     (let [nat (list CollectionFn base_type)]
       (v/assert kb (list 'genl nat 'thing) 'CxUniverse {:chain? false})
@@ -683,14 +694,15 @@
 (tu/deftest-kb a-separation-too-wide-to-union-is-capped-on-a-bound
   ;; The line is the union of the partners' spec closures, and building it to show fifty is
   ;; the "capping the render is not bounding the read" defect: 43 partners spanning 290,000
-  ;; subtypes took 1.5s of union to produce a list nobody can read.  Past `sortable-cap` the
-  ;; sum of the closure sizes — free, every closure being a cached set — is taken as the
-  ;; bound and only the window is walked.
+  ;; subtypes took 1.5s of union to produce a list nobody can read.  Past the sort budget
+  ;; (`core/describe-sortable`, the line being `describe`'s answer) the sum of the closure
+  ;; sizes — free, every closure being a cached set — is taken as the bound and only the
+  ;; window is walked.
   (tu/with-terms [left_type right_type]
     (v/assert kb (list 'genl left_type 'thing) 'CxUniverse {:chain? false})
     (wide-type! kb right_type 400)
     (v/assert kb (list 'disjoint left_type right_type) 'CxUniverse {:chain? false})
-    (let [cap  (ns-resolve 'vaelii.impl.web 'sortable-cap)
+    (let [cap  (ns-resolve 'vaelii.core 'describe-sortable)
           body (with-redefs-fn {cap 100}
                  #(:body (GET "/term" (str "q=" left_type))))
           djs  (type-line-of body "Disjoint with")]
@@ -1003,7 +1015,7 @@
           (is (empty? (visible-nats (:body r)))))))))
 
 (tu/deftest-kb sentex-page-shows-a-believed-sentex-as-in
-  (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'CxNaturalWorld)))
+  (let [bob (v/handle-of kb '(parentOf Tom Bob) 'CxNaturalWorld)
         r   (GET (str "/sentex/" bob))]
     (is (re-find #"tag-in" (:body r)))))                  ; the IN belief pill
 
@@ -1078,21 +1090,21 @@
       (is (re-find #"Lookup-to-query stack" (:body r))))))
 
 (tu/deftest-kb sentex-page-links-into-the-stack
-  (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'CxNaturalWorld)))
+  (let [bob (v/handle-of kb '(parentOf Tom Bob) 'CxNaturalWorld)
         r   (GET (str "/sentex/" bob))]
     (is (= 200 (:status r)))
     (is (re-find #"Trace through the stack" (:body r)))
     (is (re-find #"/levels\?q=" (:body r)))))
 
 (tu/deftest-kb sentex-page-shows-supports-and-dependents
-  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))
+  (let [gp (v/handle-of kb '(grandparentOf Tom Ann) 'CxNaturalWorld)
         r  (GET (str "/sentex/" gp))]
     (is (= 200 (:status r)))
     (is (re-find #"grandparentOf" (:body r)))
     (is (re-find #"Supported by" (:body r)))
     (is (re-find #"justification #" (:body r))))            ; it was derived
   (testing "a premise fact shows its dependents"
-    (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'CxNaturalWorld)))
+    (let [bob (v/handle-of kb '(parentOf Tom Bob) 'CxNaturalWorld)
           r   (GET (str "/sentex/" bob))]
       (is (re-find #"premise" (:body r)))
       (is (re-find #"Dependents" (:body r))))))
@@ -1100,8 +1112,9 @@
 (tu/deftest-kb a-rule-renders-with-the-authors-variable-names
   ;; rules are stored with canonical variables (?var0, …); the page restores the
   ;; author's names from the sentex :varmap so it reads as it was written.
-  (let [rule (first (filter :antecedent (v/find-sentexes kb 'grandparentOf)))
-        r    (GET (str "/sentex/" (:id rule)))]
+  (let [[rule & more] (filter :antecedent (v/find-sentexes kb 'grandparentOf))
+        r             (GET (str "/sentex/" (:id rule)))]
+    (is (nil? more) "one grandparentOf rule, so reading it is not a choice between several")
     (is (some? rule) "the starter's grandparentOf rule is stored")
     (is (= 200 (:status r)))
     (testing "the canonical names are not what the reader sees"
@@ -1110,7 +1123,7 @@
       (is (re-find #"\?x" (:body r))))))
 
 (tu/deftest-kb justification-page-shows-supports-and-conclusion
-  (let [gp  (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))
+  (let [gp  (v/handle-of kb '(grandparentOf Tom Ann) 'CxNaturalWorld)
         ded (first (v/supporting-justifications kb gp))
         r   (GET (str "/justification/" (:id ded)))]
     (is (= 200 (:status r)))
@@ -1271,6 +1284,65 @@
       (is (re-find #"expected \[sentence context\]" (:body r)))
       (is (v/in? kb h1) "nothing was written"))))
 
+(tu/deftest-kb a-line-that-does-not-read-at-all-is-an-unreadable-row-on-every-write-form
+  ;; `(this is not a vector)` above reads as EDN and is graded on its shape.  A line that
+  ;; does not *read* is the other failure, and it is answered before any grading: the
+  ;; reader's own message is handed back beside the line the caller typed.  All three
+  ;; textareas that take EDN say it with the same word, because a reader who learns it on
+  ;; one form has learned it on the others.
+  (tu/with-terms [likesOf Alice Bob CxEdit]
+    (let [h1     (v/assert kb (list likesOf Alice Bob) CxEdit)
+          unread (str "(" likesOf " " Alice)]              ; no closing paren: EOF
+      (testing "the edit form answers the row rather than saving"
+        (let [r (POST "/edit" {"handles" (str h1) "text" unread})]
+          (is (= 200 (:status r)))
+          (is (str/includes? (:body r) "<span class=\"tag\">unreadable</span>"))
+          (is (v/in? kb h1) "and the selected sentex is untouched")))
+      (testing "the assert form answers it too, with the reader's own complaint"
+        (let [r (POST "/assert" {"text" unread "ctx" (str CxEdit)})]
+          (is (= 200 (:status r)))
+          (is (str/includes? (:body r) "<span class=\"tag\">unreadable</span>"))
+          (is (empty? (v/sentexes-matching kb (list likesOf '?x) CxEdit))
+              "one bad line stores none of the form")))
+      (testing "and the rows themselves carry the type, which is what a caller reading
+                the problems apart from the page has to triage on"
+        (is (= [:unreadable] (mapv :type (:problems (#'web/assert-lines unread CxEdit nil))))
+            "the assert form's reader")
+        (is (= [:unreadable] (mapv :type (:problems (#'web/accepted-entries [unread]))))
+            "and the proposal commit's, which reads lines the browser posts back")))))
+
+;; ---- the one control that destroys knowledge says what it took ----------
+
+(tu/deftest-kb a-sandbox-reset-answers-with-a-row-of-its-own
+  ;; A teardown is worth reporting even when it is exactly what was asked for: the number
+  ;; is the only evidence the sweep reached the conclusions as well as the premises.  The
+  ;; report rides the same list a refusal does, and the `:type` is what tells the reader
+  ;; the two apart — nothing here went wrong.
+  (tu/with-terms [Rufus]
+    (let [sbx (sandbox/context-for (sandbox/mint-token))]
+      (sandbox/open kb sbx)
+      (v/assert kb (list 'living_thing Rufus) sbx)
+      (is (v/ask? kb (list 'mortal Rufus) sbx) "so there is a conclusion to sweep too")
+      (let [rows (#'web/sandbox-note (sandbox/reset! kb sbx))]
+        (is (= [:reset] (mapv :type rows)))
+        (is (re-find #"sandbox reset — \d+ sentex.* and \d+ justification"
+                     (:message (first rows)))
+            "with what it discarded, premises and conclusions both"))
+      (testing "and a reset with nothing to discard is no row at all, rather than a
+                report of a teardown that took nothing"
+        (is (nil? (#'web/sandbox-note (sandbox/reset! kb sbx))))))
+    (testing "the row reaches the page the reset answers with"
+      (let [opened (*app* {:request-method :get :uri "/assert" :headers {}})
+            cookie (some-> (get-in opened [:headers "Set-Cookie"]) (str/split #";") first)
+            sbx    (second (re-find #"value=\"(CxSandbox[0-9a-f]+)\"" (:body opened)))
+            hdrs   {"cookie" cookie "host" "localhost:3000"}]
+        (*app* {:request-method :post :uri "/assert" :scheme :http :headers hdrs
+                :params {"text" (str "(living_thing " Rufus ")") "ctx" sbx}})
+        (let [r (*app* {:request-method :post :uri "/sandbox/reset" :scheme :http
+                        :params {} :headers hdrs})]
+          (is (= 200 (:status r)))
+          (is (str/includes? (:body r) "<span class=\"tag\">reset</span>")))))))
+
 ;; ---- htmx asks for a fragment, a browser asks for a page ---------------
 ;; The client swaps #main and discards the rest, so an htmx request is answered with
 ;; #main alone.  Without htmx (or restoring a history entry) the whole document is
@@ -1390,9 +1462,19 @@
         (is (re-find (re-pattern (str n " stored")) first-body)
             "the O(1) count reports the whole extent, however long it is")
         (is (= 60 (rows first-body)) "and the first page is the cap, not the extent")
+        ;; The walk ends one of two ways and the assertion count is a gate, so each arm
+        ;; states the three things ITS side is owed and neither stands aside.  40 pages is
+        ;; the extent's own shape and the bound is five times it, so a walk that reaches
+        ;; the bound is a sentinel cycling rather than one advancing.
         (loop [[uri qs] (next-url first-body), seen (handles first-body), pages 1]
           (cond
-            (> pages 200) (is false "the continuation walk did not terminate")
+            (> pages 200) (do (is (<= pages 200)
+                                  "the continuation walk terminates rather than cycling")
+                              (is (= (count seen) (count (distinct seen)))
+                                  "a walk that runs on is serving rows it already served")
+                              (is (<= (count seen) n)
+                                  "and it yields no more than the group's extent, however
+                                   long it runs"))
             (nil? uri)    (do (is (= n (count seen)) "every row is reachable by following the sentinel")
                               (is (= stored (set seen))
                                   "and the rows are exactly the group's extent — nothing the
@@ -1677,7 +1759,7 @@
 ;; ---- why: the whole proof tree, not one hop ----------------------------
 
 (tu/deftest-kb the-why-page-renders-the-proof-down-to-the-premises
-  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))
+  (let [gp (v/handle-of kb '(grandparentOf Tom Ann) 'CxNaturalWorld)
         r  (GET (str "/why/" gp))]
     (is (= 200 (:status r)))
     (testing "the goal, the justification that concluded it, and the rule that licensed it"
@@ -1771,13 +1853,13 @@
         (finally (.stop ^org.eclipse.jetty.server.Server server))))))
 
 (tu/deftest-kb the-sentex-page-links-to-the-proof-tree
-  (let [gp (:id (first (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))
+  (let [gp (v/handle-of kb '(grandparentOf Tom Ann) 'CxNaturalWorld)
         r  (GET (str "/sentex/" gp))]
     (is (re-find (re-pattern (str "/why/" gp)) (:body r)))
     (is (re-find #"Why is this believed" (:body r)))))
 
 (tu/deftest-kb the-why-page-of-a-premise-terminates-at-it
-  (let [bob (:id (first (v/sentexes-matching kb '(parentOf Tom Bob) 'CxNaturalWorld)))
+  (let [bob (v/handle-of kb '(parentOf Tom Bob) 'CxNaturalWorld)
         r   (GET (str "/why/" bob))]
     (is (= 200 (:status r)))
     (is (re-find #"tag-premise" (:body r)))))
@@ -2087,6 +2169,34 @@
       (is (= {:host "0.0.0.0" :port dflt :attach ["h" 4200]}
              (select-keys (#'web/parse-args ["--attach" "h" "4200" "--listen" "0.0.0.0"])
                           [:host :port :attach]))))))
+
+(deftest an-address-bind-requires-the-token-and-then-presents-it
+  ;; The browser has the daemon's problem and the same answer: `/edit` writes belief and
+  ;; two routes (`/kbs/export`, `/kbs/load`) write the host filesystem at a path the
+  ;; request names, so naming an address requires `VAELII_API_TOKEN` — refused at start,
+  ;; `guard/require-token!`, which `vaelii.guard-test` pins on its own.  What is the
+  ;; browser's alone is the second half: with the token set, a public bind serves behind
+  ;; it, and the loopback default is untouched.
+  (let [served (fn [host token]
+                 (#'web/with-token (fn [_] {:status 200 :body "page"}) host token))
+        get*   (fn [h] (h {:request-method :get :uri "/" :headers {}}))]
+    (testing "loopback is unchanged whether or not a token is set"
+      (is (= 200 (:status (get* (served "127.0.0.1" nil)))))
+      (is (= 200 (:status (get* (served "127.0.0.1" "s3cret"))))
+          "a token a daemon on this machine needs is not a password on the browser"))
+    (testing "a public bind answers 401 without the header"
+      (let [h (served "0.0.0.0" "s3cret")
+            r (get* h)]
+        (is (= 401 (:status r)))
+        (is (= "Bearer" (get-in r [:headers "WWW-Authenticate"])))
+        (is (re-find #"VAELII_API_TOKEN" (:body r))
+            "the refusal names the variable, since that is what the operator has to set")
+        (is (= 200 (:status (h {:request-method :get :uri "/"
+                                :headers {"authorization" "Bearer s3cret"}})))
+            "and serves the page with it")))
+    (testing "there is no open public bind to reach — the start refused it first"
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (guard/require-token! "browser" "0.0.0.0" nil))))))
 
 (deftest the-web-port-variable-moves-main-and-not-only-the-repl-browser
   ;; `dev-repl` read VAELII_WEB_PORT and `-main` did not, while the docs said the

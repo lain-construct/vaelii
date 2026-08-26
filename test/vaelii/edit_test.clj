@@ -5,7 +5,11 @@
   a stable belief state: adds land before removes, so a conclusion the removed premise
   solely-supported but an added one re-derives keeps a witness through the
   dependency-directed sweep — it is never swept and rebuilt, and never flickers OUT and
-  back.  The final state equals running the asserts and retracts singly."
+  back.  The final state equals running the asserts and retracts singly.
+
+  And it is **all-or-nothing**: an engine refusal `check-edit` cannot predict — one that
+  only bites because an earlier entry in the same batch landed first — is raised on the
+  entry that trips it, and the batch is then taken back at the handles it wrote."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -133,3 +137,92 @@
                  (v/retract! kb ghost))))
         (testing "and a nil :remove entry stays nothing-to-remove"
           (is (= 0 (:removed-sentexes (:removed (v/edit! kb {:remove [nil]}))))))))))
+
+;;; ── all-or-nothing ──────────────────────────────────────────────────────
+
+(deftest a-refusal-check-edit-cannot-see-takes-the-whole-batch-back
+  ;; The dry run checks each entry against the KB **as it stands**, so a batch whose
+  ;; third entry clashes with its *first* is admissible to `check-edit` and refused by
+  ;; the engine two entries in.  That is the case a rollback exists for.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog cat Muffet Whiskers Rex CxThe]
+      (v/assert kb (list 'genlCx CxThe 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
+      (let [sentences [(list dog Muffet) (list cat Whiskers)
+                       (list cat Muffet) (list dog Rex)]
+            batch     {:add (mapv #(vector % CxThe) sentences)}
+            before    {:count      (v/sentex-count kb)
+                       :sentexes   (tu/sentex-ids kb)
+                       :premises   (tu/premise-ids kb)
+                       :justifs    (tu/justification-ids kb)
+                       :contras    (v/contradictions kb)}]
+        (testing "the dry run predicts nothing: every entry is fine on its own"
+          (is (= [] (v/check-edit kb batch))))
+        (let [e (is (thrown? clojure.lang.ExceptionInfo (v/edit! kb batch)))
+              d (ex-data e)]
+          (testing "the engine's own refusal comes back, saying where and that it was undone"
+            (is (= :disjoint (:type d)) "the original ex-data is kept")
+            (is (true? (:rolled-back d)))
+            (is (= :add (:in d)))
+            (is (= 2 (:index d)))
+            (is (= (nth (:add batch) 2) (:entry d)))
+            (is (some? (ex-cause e)) "with the original hung off it as the cause")))
+        (testing "and the KB is exactly what it was — count, roster, belief, dilemmas"
+          (is (= (:count before) (v/sentex-count kb)))
+          (is (= (:sentexes before) (tu/sentex-ids kb)))
+          (is (= (:premises before) (tu/premise-ids kb)))
+          (is (= (:justifs before) (tu/justification-ids kb)))
+          (is (= (:contras before) (v/contradictions kb)))
+          (doseq [sentence sentences]
+            (is (nil? (v/handle-of kb sentence CxThe))
+                (str "nothing is stored for " (pr-str sentence)))))
+        (testing "the same batch without the entry that tripped lands whole"
+          (let [ok    (into [] (keep-indexed #(when (not= 2 %1) %2)) (:add batch))
+                added (:added (v/edit! kb {:add ok}))]
+            (is (= 3 (count added)))
+            (doseq [[sentence _] ok]
+              (is (v/in? kb (v/handle-of kb sentence CxThe))
+                  (str (pr-str sentence) " is believed")))))))))
+
+(deftest a-batch-that-refuses-leaves-a-premise-it-named-for-removal-believed
+  ;; Removes run after adds, so a batch refused on an add has not reached its removals —
+  ;; and the rollback owes the premise, and everything derived from it, untouched.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog cat barks Muffet Whiskers CxThe]
+      (v/assert kb (list 'genlCx CxThe 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
+      (v/assert-rule kb [(list dog '?x)] (list barks '?x) CxThe)
+      (let [h  (v/assert kb (list dog Muffet) CxThe)
+            bh (v/handle-of kb (list barks Muffet) CxThe)]
+        (is (v/in? kb bh) "the conclusion the removal would sweep is derived")
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (v/edit! kb {:add [[(list cat Whiskers) CxThe]
+                                        [(list cat Muffet) CxThe]]
+                                  :remove [h]})))
+        (testing "the removal was never made: the premise stands at its handle"
+          (is (= h (v/handle-of kb (list dog Muffet) CxThe)))
+          (is (v/in? kb h))
+          (is (true? (v/premise? kb h))))
+        (testing "and so does what it supported, at its own handle"
+          (is (= bh (v/handle-of kb (list barks Muffet) CxThe)))
+          (is (v/in? kb bh)))
+        (testing "with neither add left behind"
+          (is (nil? (v/handle-of kb (list cat Whiskers) CxThe)))
+          (is (nil? (v/handle-of kb (list cat Muffet) CxThe))))))))
+
+(deftest a-strength-a-refused-batch-raised-goes-back-down
+  ;; The audit's third case: a handle the batch did not create and did not merely
+  ;; re-assert, but **re-classed**.  `mark-premise` resolves by content and keeps the
+  ;; stronger class, which is right for an assertion and wrong for an undo.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog cat Muffet Whiskers CxThe]
+      (v/assert kb (list 'genlCx CxThe 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
+      (let [h (v/assert kb (list dog Muffet) CxThe)]
+        (is (= :default (v/defeat-class kb h)))
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (v/edit! kb {:add [[(list dog Muffet) CxThe {:strength :monotonic}]
+                                        [(list cat Whiskers) CxThe]
+                                        [(list cat Muffet) CxThe]]})))
+        (testing "the class the batch raised is back where the KB had it"
+          (is (= :default (v/defeat-class kb h))))))))

@@ -15,14 +15,14 @@
     (tax/add-genl t 'animal 'thing 2)
     (tax/add-genl t 'cat 'animal 3)
     (testing "reflexive-transitive up/down"
-      (is (= '#{dog animal thing} (tax/genls t 'dog)))
-      (is (= '#{animal dog cat} (tax/specs t 'animal)))
-      (is (tax/genl? t 'dog 'thing))
-      (is (not (tax/genl? t 'thing 'dog))))
+      (is (= '#{dog animal thing} (tax/genls-global t 'dog)))
+      (is (= '#{animal dog cat} (tax/specs-global t 'animal)))
+      (is (tax/genl?-global t 'dog 'thing))
+      (is (not (tax/genl?-global t 'thing 'dog))))
     (testing "removing an edge recomputes the closure"
       (tax/del-genl! t 'dog 'animal 1)
-      (is (not (tax/genl? t 'dog 'thing)))
-      (is (= '#{dog} (tax/genls t 'dog))))))
+      (is (not (tax/genl?-global t 'dog 'thing)))
+      (is (= '#{dog} (tax/genls-global t 'dog))))))
 
 (deftest an-edge-survives-while-any-supporter-remains
   (let [t (tax/create-taxonomy)]
@@ -30,10 +30,10 @@
       (tax/add-genl t 'dog 'animal 1)
       (tax/add-genl t 'dog 'animal 2)
       (tax/del-genl! t 'dog 'animal 1)
-      (is (tax/genl? t 'dog 'animal)))
+      (is (tax/genl?-global t 'dog 'animal)))
     (testing "dropping the last supporter removes it"
       (tax/del-genl! t 'dog 'animal 2)
-      (is (not (tax/genl? t 'dog 'animal))))))
+      (is (not (tax/genl?-global t 'dog 'animal))))))
 
 (deftest closures-follow-belief
   (let [t (tax/create-taxonomy)]
@@ -41,15 +41,15 @@
     (tax/add-genl t 'animal 'thing 2)
     (testing "a disbelieved supporter withdraws its edge"
       (tax/refresh-beliefs t #{2})                    ; only #2 is IN
-      (is (not (tax/genl? t 'dog 'animal)))
-      (is (tax/genl? t 'animal 'thing)))
+      (is (not (tax/genl?-global t 'dog 'animal)))
+      (is (tax/genl?-global t 'animal 'thing)))
     (testing "and believing it again revives the edge"
       (tax/refresh-beliefs t #{1 2})
-      (is (tax/genl? t 'dog 'thing)))
+      (is (tax/genl?-global t 'dog 'thing)))
     (testing "an edge with one believed supporter of two stays active"
       (tax/add-genl t 'dog 'animal 9)
       (tax/refresh-beliefs t #{2 9})                  ; #1 out, #9 in
-      (is (tax/genl? t 'dog 'animal)))))
+      (is (tax/genl?-global t 'dog 'animal)))))
 
 (deftest clear-relations-drops-support-too
   (let [t (tax/create-taxonomy)]
@@ -59,7 +59,7 @@
     (testing "both transitive relations are empty, edges and support alike"
       (is (empty? (tax/genl-edges t)))
       (is (empty? (tax/genlCx-edges t)))
-      (is (not (tax/genl? t 'dog 'animal))))
+      (is (not (tax/genl?-global t 'dog 'animal))))
     (testing "and a refresh cannot resurrect them"
       (tax/refresh-beliefs t (constantly true))
       (is (empty? (tax/genl-edges t))))))
@@ -227,7 +227,7 @@
   [t rel-key]
   (let [[up-fn dn-fn] (if (= rel-key :genlCx)
                         [tax/context-up tax/context-down]
-                        [tax/genls tax/specs])
+                        [tax/genls-global tax/specs-global])
         nodes (into #{} (mapcat identity) (get-in @t [rel-key :edges]))]
     {:up   (into {} (map (fn [n] [n (up-fn t n)])) nodes)
      :down (into {} (map (fn [n] [n (dn-fn t n)])) nodes)}))
@@ -247,10 +247,10 @@
       (is (agrees? t :genl))
       (tax/del-genl! t 'l 'top 3)
       (is (agrees? t :genl))
-      (is (tax/genl? t 'd 'top))                        ; still reachable via r
+      (is (tax/genl?-global t 'd 'top))                        ; still reachable via r
       (tax/del-genl! t 'r 'top 4)
       (is (agrees? t :genl))
-      (is (not (tax/genl? t 'd 'top)))))
+      (is (not (tax/genl?-global t 'd 'top)))))
   (testing "deleting the only edge at a node drops it from the taxonomy entirely"
     (let [t (tax/create-taxonomy)]
       (tax/add-genl t 'x 'y 1)
@@ -263,7 +263,7 @@
       (tax/add-genl t 'a 'b 1) (tax/add-genl t 'c 'd 2)
       (tax/add-genl t 'b 'c 3)                          ; joins the two chains
       (is (agrees? t :genl))
-      (is (tax/genl? t 'a 'd)))))
+      (is (tax/genl?-global t 'a 'd)))))
 
 (deftest incremental-closure-survives-random-edit-sequences
   ;; Oracle comparison over pseudo-random DAGs. Edges only ever point from a lower
@@ -321,7 +321,7 @@
                 (do (tax/add-genl t a b 1) (swap! live conj [a b])))
               (let [up (ref-up t)]
                 (is (every? (fn [x] (every? (fn [y]
-                                              (= (tax/genl? t x y)
+                                              (= (tax/genl?-global t x y)
                                                  (contains? (get up x #{x}) y)))
                                             nodes))
                             nodes)
@@ -407,15 +407,15 @@
     (testing "withdrawing one supporter of a doubly-supported edge changes nothing"
       (tax/refresh-beliefs t #{2 3})
       (is (agrees? t :genl))
-      (is (tax/genl? t 'p 'r)))
+      (is (tax/genl?-global t 'p 'r)))
     (testing "withdrawing the last supporter drops the edge"
       (tax/refresh-beliefs t #{2})
       (is (agrees? t :genl))
-      (is (not (tax/genl? t 'p 'r))))
+      (is (not (tax/genl?-global t 'p 'r))))
     (testing "and restoring belief brings it back"
       (tax/refresh-beliefs t #{1 2 3})
       (is (agrees? t :genl))
-      (is (tax/genl? t 'p 'r)))))
+      (is (tax/genl?-global t 'p 'r)))))
 
 ;; ---- the derived context state -------------------------------------------
 ;; `:edge-ctxs` carries each active edge's supporting contexts, `:ctx-counts` /
@@ -448,7 +448,7 @@
     (is (= '#{CxA CxB} (tax/edge-contexts t :genl '[dog animal])))
     (tax/refresh-beliefs t #{1})
     (testing "the edge stays active while B's support leaves"
-      (is (tax/genl? t 'dog 'animal))
+      (is (tax/genl?-global t 'dog 'animal))
       (is (= '#{CxA} (tax/edge-contexts t :genl '[dog animal]))))
     (tax/refresh-beliefs t #{2})
     (is (= '#{CxB} (tax/edge-contexts t :genl '[dog animal])))
@@ -568,7 +568,7 @@
     (testing "the shared edge loses one supporter and keeps the other"
       (tax/del-genl! t 'p 'q 1)
       (is (exact? t))
-      (is (tax/genl? t 'p 'r)))
+      (is (tax/genl?-global t 'p 'r)))
     (testing "and the last supporter of an edge takes its entry with it"
       (tax/del-genl! t 'p 'q 3)
       (is (exact? t))
@@ -576,7 +576,7 @@
     (testing "a delete naming a handle that never supported the edge changes nothing"
       (tax/del-genl! t 'q 'r 99)
       (is (exact? t))
-      (is (tax/genl? t 'q 'r)))))
+      (is (tax/genl?-global t 'q 'r)))))
 
 (deftest a-scoped-reconcile-answers-as-an-unconditional-one-does
   ;; `refresh-beliefs` is handed the region a settle relabelled and reconciles only the

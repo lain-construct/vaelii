@@ -46,7 +46,7 @@
   - **Another thread's fsyncs.**  The count is scoped to the calling thread on purpose,
     so the durability daemon's own tick cannot move it.
 
-  The KB is pinned to `:backend :disk` rather than inheriting `VAELII_TEST_BACKEND`, for
+  The KB is pinned to `:backend :disk-log` rather than inheriting `VAELII_TEST_BACKEND`, for
   the reason `assert_cost_test` pins `:memory`: the gate then says the same thing on all
   thirteen matrix configurations instead of thirteen different things."
   (:require [clojure.java.io :as io]
@@ -102,7 +102,7 @@
 (defn- populated-kb
   "A disk KB over `dir` holding enough that a wipe has records to drop."
   [dir]
-  (doto (v/open-kb {:backend :disk :dir dir :recover? false})
+  (doto (v/open-kb {:backend :disk-log :dir dir :recover? false})
     (v/assert '(genl dog animal) 'CxUniverse {:strength :monotonic})
     (v/assert '(genl animal organism) 'CxUniverse {:strength :monotonic})
     (v/assert '(isa Muffet dog) 'CxUniverse {:strength :monotonic})))

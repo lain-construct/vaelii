@@ -30,18 +30,41 @@
   them runs in any *linear extension* without throwing, so a failing property is a real
   order-dependence and not a bad input.
 
-  The `genl` edge is the operation this file was once written without.  An edge arriving
+  The `genl` edge is the one operation in the pool that reaches backwards.  An edge arriving
   *after* the rule and the fact it connects has to re-fire that rule over facts already
   stored, which is not the same work as firing the rules keyed on `genl` — the seeding
   `vaelii.impl.special/subsumption-seeds` does, and the claim
   `order_independence_test/a-firing-that-subsumes-is-order-independent` pins on four
   hand-written sentences.  Here it is one draw among the rest, so the seeding is asked
-  about against defeat, revival and a removal at once rather than on its own."
-  (:require [clojure.test :refer [use-fixtures]]
+  about against defeat, revival and a removal at once rather than on its own.
+
+  **Each generated step is also read for the window contract**, which is the same
+  invariant seen from the other side.  A settle publishes the region it moved
+  (`jtms/touched`) so three readers — a consequence preview, a consequence report, a
+  change feed — get one answer instead of each diffing the believed set at O(KB) per
+  write.  The window is deliberately a *superset* of the flip set
+  ([docs/defenses.md](../../docs/defenses.md)), and a belief that moved *outside* it is a
+  stale answer handed to all three with nothing to notice it.  So the property does the
+  O(KB) diff the readers are spared, per step, and asks whether the window covered it.
+  The region half of the containment — the window inside the affected region of the
+  step's own seeds — is `jtms_dense_oracle_test`'s, where the seeds are the operation's
+  own arguments rather than something a public assert decides internally.
+
+  **Two runs of one property, and the difference is the seed.**  The `:default` sweep
+  fixes it, so the forty scenarios it draws are the same forty on every machine and every
+  run: a red is reproducible from the failure alone, and a gate that is red for one person
+  is red for everybody — which is what makes it a check to run before landing rather than
+  a source of flakes.  What a fixed seed cannot do is find a shape nobody has drawn yet,
+  so the `^:slow` run leaves the seed to the clock and takes 300 draws of it; between them
+  the property is both a gate and a search.  A counterexample from either shrinks to the
+  same minimal chain list."
+  (:require [clojure.set :as set]
+            [clojure.test :refer [use-fixtures]]
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [vaelii.core :as v]
+            [vaelii.impl.jtms :as jtms]
             [vaelii.test-util :as tu]))
 
 ;; Flush the scratch space after this namespace's generated runs, so the KB content
@@ -131,12 +154,39 @@
      :premise-set        (into #{} (map #(:sentence (v/sentex kb %)))
                                (tu/premise-ids kb))}))
 
+(defn- believed-handles
+  "The believed datums of the KB's network — what a step's flips are read off.  The TMS
+  rather than a query, because the claim is about labels and a retrieval would filter them
+  again by context."
+  [kb]
+  (set (jtms/in-datums (:tms kb))))
+
 (defn- run-ops
-  "Apply `ops` (op fns) to a freshly cleared KB and return `observe`'s reading."
+  "Apply `ops` (op fns) to a freshly cleared KB and return both readings the property
+  compares: `observe`'s whole-KB answer, and every step whose belief moved outside the
+  window its settles published.
+
+  The window is only visible from outside a settle by taking it as it is **cleared** —
+  `settle-finish` reads it and then calls `jtms/reset-touched!`, so by the time `assert`
+  returns there is nothing left to read.  One step may settle more than once (a retraction
+  inside a batch, a re-derivation), so every window the step published is unioned: the
+  claim is about the step, and each settle publishes its own part of it."
   [ops]
-  (let [kb (tu/fresh)]
-    (doseq [op ops] (op kb))
-    (observe kb)))
+  (let [kb      (tu/fresh)
+        orig    jtms/reset-touched!
+        escaped (atom [])]
+    (doseq [[i op] (map-indexed vector ops)]
+      (let [before (believed-handles kb)
+            window (atom #{})]
+        (with-redefs [jtms/reset-touched!
+                      (fn [tms] (swap! window into (jtms/touched tms)) (orig tms))]
+          (op kb))
+        (let [after   (believed-handles kb)
+              flipped (set/union (set/difference before after) (set/difference after before))
+              missed  (set/difference flipped @window)]
+          (when (seq missed)
+            (swap! escaped conj {:step i :handles missed})))))
+    {:reading (observe kb) :outside-the-window @escaped}))
 
 (defn- gen-linearization
   "A generator of one random linear extension of `chains`: at each step pick a chain that
@@ -167,7 +217,22 @@
             b     (gen-linearization picks)]
     {:picks picks :a a :b b}))
 
+(defn- orderings-agree-and-stay-in-the-window
+  "The property both runs below check: two orderings of one scenario read the same, and
+  neither moved a belief the settle's window did not name.  A shrunk counterexample prints
+  the chain **labels**, so a failure names the operations rather than a closure."
+  [a b]
+  (let [ra (run-ops (map second a))
+        rb (run-ops (map second b))]
+    (and (empty? (:outside-the-window ra))
+         (empty? (:outside-the-window rb))
+         (= (:reading ra) (:reading rb)))))
+
+(defspec order-independence-holds-over-a-seeded-sweep
+  {:num-tests 40 :seed 20260824}
+  (prop/for-all [{:keys [a b]} gen-scenario]
+                (orderings-agree-and-stay-in-the-window a b)))
+
 (defspec ^:slow order-independence-holds-over-generated-scenarios 300
   (prop/for-all [{:keys [a b]} gen-scenario]
-                (= (run-ops (map second a))
-                   (run-ops (map second b)))))
+                (orderings-agree-and-stay-in-the-window a b)))

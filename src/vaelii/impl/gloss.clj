@@ -37,9 +37,9 @@
   This is why the composer is a lookup and a substitution rather than a table of
   hand-written patterns: adding a predicate with a documented signature gives it a gloss
   for free, and a comment edited to say something else changes the gloss with it.  Of the
-  277 shipped comments, 175 carry a signature; the 102 that do not are nouns — 86 types
-  and 16 unit individuals — which need none, because a type gloss is \"X is a dog\" and
-  the comment is the apposition after it.
+  328 shipped comments, 210 carry a signature; the 118 that do not are nouns — 100 types
+  and 18 individuals (the units, the dimensions, the three signs) — which need none,
+  because a type gloss is \"X is a dog\" and the comment is the apposition after it.
 
   What the composition rate does **not** measure is whether a gloss is worth reading.  It
   earns its place where the predicate name is opaque — `genl` glossed as \"Every dog is an
@@ -62,7 +62,8 @@
   `docs/web.md` states it for the browser."
   (:require [clojure.string :as str]
             [taoensso.trove :as trove]
-            [vaelii.core :as v]))
+            [vaelii.core :as v]
+            [vaelii.impl.naming :as nm]))
 
 ;; ---- reading a comment as a template -------------------------------------
 
@@ -126,13 +127,18 @@
 (defn- comment-template
   "The template for `term`, or nil when the KB says nothing about it.  A term can
   carry a believed `comment` in more than one context, so the pick is content-least
-  rather than retrieval order — the gloss reads the same however the KB was loaded."
+  rather than retrieval order — the gloss reads the same however the KB was loaded.
+
+  `nm/print-key` because the key is a *printed* one and its lexicographic order is the
+  contract: it releases all three print bounds, where a `*print-meta*` left at the
+  caller's setting keys a form carrying metadata apart from one that does not.  Built
+  once per candidate rather than once per comparison (`min-by-content-key`), which is
+  the whole of what a term commented in one context costs."
   [kb term]
-  (when-let [hit (->> (v/sentexes-matching kb (list 'comment term '?text) '?ctx)
-                      (sort-by (fn [sx]
-                                 (binding [*print-length* nil *print-level* nil]
-                                   (pr-str [(:sentence sx) (str (:context sx))]))))
-                      first)]
+  (when-let [hit (nm/min-by-content-key
+                  #(nm/print-key [(:sentence %) (str (:context %))])
+                  compare
+                  (v/sentexes-matching kb (list 'comment term '?text) '?ctx))]
     (template (nth (:sentence hit) 2 nil))))
 
 ;; ---- rendering a term ----------------------------------------------------

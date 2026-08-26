@@ -17,6 +17,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
+            [vaelii.impl.capabilities :as cap]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.kv :as kv]
@@ -443,13 +444,13 @@
   (let [base (fresh-base 8)
         dir  (tmpdir)]
     (try
-      (let [f (v/fork base {:backend :disk :dir dir})]
+      (let [f (v/fork base {:backend :disk-log :dir dir})]
         (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
         (v/retract! f (v/handle-of f '(dog Muffet) 'CxOverlay))
         (is (= '#{(dog Rex)} (sentences (v/sentexes-matching f '(dog ?x) 'CxOverlay)))))
       (disk/close-dir! dir)
       (testing "remounted over the same base, the fork is where it was left"
-        (let [f2 (v/fork base {:backend :disk :dir dir})]
+        (let [f2 (v/fork base {:backend :disk-log :dir dir})]
           (is (= '#{(dog Rex)} (sentences (v/sentexes-matching f2 '(dog ?x) 'CxOverlay)))
               "the inherited premise stayed retracted and the fork's own fact came back")
           (is (empty? (v/sentexes-matching f2 '(mammal Muffet) 'CxOverlay))
@@ -471,7 +472,7 @@
   (let [base (fresh-base 9)
         dir  (tmpdir)]
     (try
-      (let [f (v/fork base {:backend :disk :dir dir})]
+      (let [f (v/fork base {:backend :disk-log :dir dir})]
         (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
         ;; canonical both sides — the store canonicalizes, so `/var` arrives as `/private/var`
         (is (= (.getCanonicalPath (File. (str dir)))
@@ -479,7 +480,7 @@
             "a durable fork carries its own directory")
         (v/close! f))
       (testing "the directory is free, so it mounts again"
-        (let [f2 (v/fork base {:backend :disk :dir dir})]
+        (let [f2 (v/fork base {:backend :disk-log :dir dir})]
           (is (= '#{(dog Muffet) (dog Rex)}
                  (sentences (v/sentexes-matching f2 '(dog ?x) 'CxOverlay)))
               "with both halves of the merged view intact")
@@ -581,8 +582,8 @@
       (finally (reset! counter prior)))))
 
 (deftest a-durable-fork-own-index-is-stamped-and-gated
-  ;; The fork's own `:disk` index half carries the layout sentinel like any plain
-  ;; `:disk` index: unstamped, the next `index-layout-version` bump would replay its
+  ;; The fork's own `:disk-log` index half carries the layout sentinel like any plain
+  ;; `:disk-log` index: unstamped, the next `index-layout-version` bump would replay its
   ;; keys cleanly and miss every read whose shape moved — the base gets a clean
   ;; `:stale-index-layout` refusal, and without this the fork got silence.  The half
   ;; is the fork's own to rebuild, so a stale stamp rebuilds from the fork's own
@@ -590,7 +591,7 @@
   (let [base (fresh-base 9)
         dir  (tmpdir)]
     (try
-      (let [f (v/fork base {:backend :disk :dir dir})]
+      (let [f (v/fork base {:backend :disk-log :dir dir})]
         (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
         (is (.isFile (java.io.File. (str dir "/index/layout.edn")))
             "the fork's own index half is stamped at open"))
@@ -599,7 +600,7 @@
       (spit (str dir "/index/layout.edn")
             (pr-str {:index-layout (dec kv/index-layout-version)}))
       (testing "remounted under a moved layout, the fork's own half is rebuilt"
-        (let [f2 (v/fork base {:backend :disk :dir dir})]
+        (let [f2 (v/fork base {:backend :disk-log :dir dir})]
           (is (= '#{(dog Muffet) (dog Rex)}
                  (sentences (v/sentexes-matching f2 '(dog ?x) 'CxOverlay)))
               "the fork-local fact is findable again")
@@ -610,6 +611,45 @@
         (disk/close-dir! dir)
         (rm-rf! dir)
         (v/clear! base)))))
+
+(deftest a-durable-base-under-a-moved-key-layout-is-refused-rather-than-mounted
+  ;; `open-kb`'s layout gate reads the *fork's* directory, so a base named by `:base` opts
+  ;; slips past it — and a mounted index whose key shape moved reads as populated while
+  ;; every query whose keys moved answers nothing.  The repair the gate makes elsewhere is
+  ;; a clear-and-rebuild, which is a write, and a base is mounted read-only: so this arm
+  ;; refuses and names the directory to open as a KB of its own first.
+  (let [dir    (tmpdir)
+        forked (fn []
+                 (try (let [f (v/open-kb {:backend  :overlay
+                                          :base     {:backend :disk-log :dir dir}
+                                          :overlay  (fork-opts 31)
+                                          :recover? false})]
+                        (v/clear! f)
+                        :mounted)
+                      (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+    (try
+      (let [b (v/open-kb {:backend :disk-log :dir dir :recover? false})]
+        (v/assert b '(dog Muffet) 'CxOverlay {:strength :monotonic})
+        (is (.isFile (java.io.File. (str dir "/index/layout.edn")))
+            "the base's own open stamped it"))
+      (disk/close-dir! dir)
+      (is (= :mounted (forked)) "a current stamp is what a fork mounts over")
+      (disk/close-dir! dir)
+      ;; the stamp an older build's key layout leaves behind
+      (spit (str dir "/index/layout.edn")
+            (pr-str {:index-layout (dec kv/index-layout-version)}))
+      (let [d (forked)]
+        (is (= :stale-index-layout (:type d)))
+        (is (= (str dir "/index") (:dir d))
+            "naming the directory whose index only its own KB may rebuild"))
+      (testing "and opening that directory as a KB is what repairs it"
+        (disk/close-dir! dir)
+        (v/open-kb {:backend :disk-log :dir dir :recover? :auto})
+        (disk/close-dir! dir)
+        (is (= (pr-str {:index-layout kv/index-layout-version})
+               (slurp (str dir "/index/layout.edn"))))
+        (is (= :mounted (forked)) "after which the fork mounts"))
+      (finally (disk/close-dir! dir) (rm-rf! dir)))))
 
 (deftest a-durable-fork-remount-keeps-its-removals-and-its-merged-counts
   ;; The fork's own index half is its *delta* over the base — copy-on-write counters
@@ -631,7 +671,7 @@
                    (binding [trove/*log-fn* (fn [_ _ _ id _] (swap! logged conj id))]
                      (v/open-kb {:backend  :overlay
                                  :base     (base-opts 10)
-                                 :overlay  {:backend :disk :dir dir}
+                                 :overlay  {:backend :disk-log :dir dir}
                                  :recover? :auto})))
         check!  (fn [f]
                   (is (nil? (v/handle-of f owned 'CxOverlay))
@@ -646,7 +686,7 @@
                   (is (not-any? rebuilt @logged)
                       "a healthy own half is not rebuilt"))]
     (try
-      (let [f (v/fork base {:backend :disk :dir dir})]
+      (let [f (v/fork base {:backend :disk-log :dir dir})]
         (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
         (v/retract! f (v/handle-of f owned 'CxOverlay))
         (is (nil? (v/handle-of f owned 'CxOverlay)) "the fork took the inherited fact out")
@@ -661,3 +701,194 @@
         (disk/close-dir! dir)
         (rm-rf! dir)
         (v/clear! base)))))
+
+;; ---- what the capability doors read off a fork ----------------------------
+;; A fork's record store is a decorator over two others, so the two OPTIONAL capabilities
+;; a base may carry have to reach it or be lost at the seam: the `Tallying` samplers
+;; `open-kb` asks before the KB has answered anything, and the `Prefetching` hint a
+;; recovery walk gives a store whose fetch is a round trip.  Both are exercised against a
+;; base that carries them, since none of the stores the engine ships does.
+
+(defn- watched-base
+  "`inner`, carrying the two capabilities a base may have and the engine's own stores do
+  not: every prefetch hint recorded into `hints` by kind, and — when `pin` is non-nil — a
+  sampler that always names that one handle, so a test can put the base's sample on
+  exactly the handle the fork is about to take out rather than hoping it lands there.
+
+  A `reify` rather than a `with-redefs`: a protocol method dispatches on the value's type
+  and never reads the var root, so a redef of one intercepts nothing and the test would
+  pass for the buggy and the fixed code alike."
+  [inner hints pin]
+  (reify
+    p/RecordStore
+    (put-sentex [_ sx] (p/put-sentex inner sx))
+    (get-sentex [_ id] (p/get-sentex inner id))
+    (delete-sentex! [_ id] (p/delete-sentex! inner id))
+    (put-justification [_ d] (p/put-justification inner d))
+    (get-justification [_ id] (p/get-justification inner id))
+    (delete-justification! [_ id] (p/delete-justification! inner id))
+    (next-id [_] (p/next-id inner))
+    (put-provenance [_ id prov] (p/put-provenance inner id prov))
+    (get-provenance [_ id] (p/get-provenance inner id))
+    (delete-provenance! [_ id] (p/delete-provenance! inner id))
+    (sentex-ids [_] (p/sentex-ids inner))
+    (justification-ids [_] (p/justification-ids inner))
+    (mark-premise [_ id st] (p/mark-premise inner id st))
+    (unmark-premise! [_ id] (p/unmark-premise! inner id))
+    (premise-ids [_] (p/premise-ids inner))
+    (premise-strength [_ id] (p/premise-strength inner id))
+    (clear-records! [_] (p/clear-records! inner))
+
+    p/Tallying
+    (sentex-tally        [_] (cap/count-sentexes inner))
+    (justification-tally [_] (cap/count-justifications inner))
+    (a-sentex-id         [_] (or pin (cap/some-sentex-id inner)))
+    (a-justification-id  [_] (cap/some-justification-id inner))
+    (a-premise-id        [_] (or pin (cap/some-premise-id inner)))
+
+    p/Prefetching
+    (prefetch-sentexes!       [_ ids] (swap! hints update :sentexes (fnil into []) ids) nil)
+    (prefetch-justifications! [_ ids] (swap! hints update :justifications (fnil into []) ids) nil)))
+
+(defn- fork-over
+  "A fork whose base records are `store` — the `:base-stores` road `core/fork` takes,
+  spelled out so a test can hand in a wrapped base."
+  [base store n]
+  (v/open-kb {:backend :overlay
+              :base-stores {:records store :index (:index base)}
+              :overlay (fork-opts n)
+              :recover? :auto}))
+
+(deftest a-forks-sampler-never-names-a-handle-the-merged-view-dropped
+  ;; `Tallying`'s samplers are how `open-kb`'s recovery branch and `kb/write-hazards` ask
+  ;; *does this store hold anything* without materializing `base u overlay - tombstoned`.
+  ;; So the answer has to be a handle `get-sentex` answers for, and `nil` has to mean
+  ;; empty: a fork that deleted the one record its base happened to sample is not an
+  ;; empty fork, and reading it as one would skip the recovery that fork needs.
+  (let [base    (fresh-base 21)
+        before  (base-snapshot base)
+        victim  (v/handle-of base '(dog Muffet) 'CxOverlay)
+        watched (watched-base (:records base) (atom {}) victim)]
+    (testing "the pin holds, so the fallback is under test rather than a coincidence"
+      (is (= victim (p/a-sentex-id watched)))
+      (is (= victim (p/a-premise-id watched))))
+
+    (testing "a tombstoned base handle is never the sample"
+      (let [f    (fork-over base watched 21)
+            recs (:records f)]
+        (is (= victim (cap/some-sentex-id recs)) "before the retraction it is the sample")
+        (v/retract! f victim)
+        (let [h (cap/some-sentex-id recs)
+              p (cap/some-premise-id recs)]
+          (is (some? h) "a fork that deleted one record still holds the rest")
+          (is (not= victim h) "and never names the handle it tombstoned")
+          (is (contains? (set (p/sentex-ids recs)) h) "the sample is in the merged roster")
+          (is (some? (p/get-sentex recs h)) "and it fetches")
+          (is (some? p) "the premise sampler survives the same deletion")
+          (is (contains? (set (p/premise-ids recs)) p)))))
+
+    (testing "nor is a released one"
+      (let [f    (fork-over base watched 23)
+            recs (:records f)]
+        (p/unmark-premise! recs victim)
+        (let [p (cap/some-premise-id recs)]
+          (is (some? p) "releasing one inherited mark does not empty the premise set")
+          (is (not= victim p) "and the released handle is not the sample")
+          (is (contains? (set (p/premise-ids recs)) p)))))
+
+    (testing "an empty fork over an empty base samples nil, which is what nil means"
+      (let [e     (doto (v/open-kb (assoc (base-opts 24) :recover? false)) (v/clear!))
+            f     (fork-over e (watched-base (:records e) (atom {}) nil) 24)
+            recs  (:records f)]
+        (is (nil? (cap/some-sentex-id recs)))
+        (is (nil? (cap/some-justification-id recs)))
+        (is (nil? (cap/some-premise-id recs)))
+        (is (zero? (cap/count-sentexes recs)) "and the merged tally agrees")
+        (v/clear! e)))
+
+    (is (= before (base-snapshot base)) "and none of it wrote the base")
+    (v/clear! base)))
+
+(deftest a-forks-recovery-walk-hints-the-base-that-can-use-one
+  ;; A fork gets its own belief by `recover`ing over the MERGED view, so it walks every
+  ;; record and justification it inherits — which over a base whose fetch is a network
+  ;; round trip is the one place `Prefetching` earns its keep.  The decorators are the
+  ;; only thing between that walk and the base, so a hint they swallowed would be lost
+  ;; with nothing to show it.
+  (let [base   (fresh-base 25)
+        before (base-snapshot base)
+        hints  (atom {})
+        f      (fork-over base (watched-base (:records base) hints nil) 25)]
+    (testing "the door sees the capability through both decorators"
+      (is (some? (cap/prefetcher (:records f)))
+          "a frozen base's hint is forwarded, not refused at the seam")
+      (is (some? (cap/justification-prefetcher (:records f)))))
+    (testing "and the open's own recover used it"
+      (is (seq (:justifications @hints))
+          "recover walks the merged justifications and hints the base's chunk")
+      (is (every? #(contains? (set (p/justification-ids (:records base))) %)
+                  (:justifications @hints))
+          "every hinted handle is one the base actually holds"))
+    (testing "so does the record walk a reindex makes"
+      (reset! hints {})
+      (v/reindex f)
+      (is (seq (:sentexes @hints)) "reindex fetches every live record and hints them")
+      (is (= (set (p/sentex-ids (:records f))) (set (:sentexes @hints)))
+          "the hint covers the merged roster, which is what the walk consumes"))
+    (is (= before (base-snapshot base)) "and hinting wrote nothing")
+    (v/clear! base)))
+
+(deftest every-write-op-on-a-frozen-base-is-refused-by-name
+  ;; `a-frozen-base-refuses-every-write` above takes one op per half.  This takes the
+  ;; whole roster, because invariant 1 of docs/overlay.md is structural rather than
+  ;; reviewed: a base shared by N forks is only shared if *nothing* can write it, and a
+  ;; single method that forwarded to the base instead of refusing is exactly the hole
+  ;; that claim rules out.  Each refusal names the op in `:op`, which is what a caller
+  ;; reading the ex-data can act on, so that is what is asserted.
+  (let [b   (frozen/frozen-kv (mem/memory-kv-backend {:space [::frozen-roster]}))
+        r   (frozen/frozen-records (mem/memory-record-store {:space [::frozen-roster]}))
+        ops [["kv-put"               #(kv/kv-put b [:x] 1)]
+             ["kv-delete"            #(kv/kv-delete b [:x])]
+             ["kv-increment"         #(kv/kv-increment b [:x])]
+             ["kv-decrement"         #(kv/kv-decrement b [:x])]
+             ["kv-add-to-set"        #(kv/kv-add-to-set b [:x] 1)]
+             ["kv-remove-from-set"   #(kv/kv-remove-from-set b [:x] 1)]
+             ["kv-batch"             #(kv/kv-batch b [[:kv-put [:x] 1]])]
+             ["kv-load"              #(kv/kv-load b [[[:x] 1]])]
+             ["kv-clear!"            #(kv/kv-clear! b)]
+             ["put-sentex"           #(p/put-sentex r {:sentence '(dog Muffet)})]
+             ["delete-sentex!"       #(p/delete-sentex! r 1)]
+             ["put-justification"    #(p/put-justification r {:consequent 1})]
+             ["delete-justification!" #(p/delete-justification! r 1)]
+             ["put-provenance"       #(p/put-provenance r 1 {:informant :test})]
+             ["delete-provenance!"   #(p/delete-provenance! r 1)]
+             ["mark-premise"         #(p/mark-premise r 1 :default)]
+             ["unmark-premise!"      #(p/unmark-premise! r 1)]
+             ["clear-records!"       #(p/clear-records! r)]]
+        ;; one `is` over the whole roster, not one per op: the count of assertions a
+        ;; test makes is a gate, and it must not read the length of this vector
+        outcome (into {} (map (fn [[op f]]
+                                [op (try (f)
+                                         :no-refusal
+                                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]))
+                      ops)]
+    (is (= (into #{} (map first) ops)
+           (into #{} (comp (filter (fn [[_ d]] (= :frozen-base (:type d)))) (map key))
+                 outcome))
+        "every write op on either half refuses as :frozen-base, and none forwards")
+    (is (= (into {} (map (fn [[op _]] [op op])) ops)
+           (into {} (map (fn [[op d]] [op (:op d)])) outcome))
+        "and each refusal names the op the caller called")
+    (is (and (nil? (kv/kv-get b [:x])) (set? (p/sentex-ids r)))
+        "while the reads on both halves still answer")))
+
+(deftest an-overlay-with-nothing-to-fork-is-refused-by-name
+  ;; The one mistake the fork API invites: `:overlay` names a decorator, and a decorator
+  ;; with nothing under it is not an empty KB — it is a request with a required half
+  ;; missing.  Answered with a plain backend it would be a KB that reads and writes
+  ;; correctly and forks nothing, which nothing downstream can tell from a fork whose base
+  ;; was empty, so the refusal names both ways the base can be given instead.
+  (let [d (try (v/open-kb {:backend :overlay :overlay (fork-opts 30) :recover? false})
+               nil
+               (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+    (is (= :no-base (:type d)) "a fork with no base is refused rather than answered")))

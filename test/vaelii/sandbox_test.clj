@@ -42,7 +42,8 @@
         (is (v/ask? kb '(mortal SandboxRufus) sbx)
             "CxBiology's default rule reached content in the sandbox")
         (testing "and the conclusion was placed in the sandbox, not in the rule's context"
-          (is (= sbx (:context (first (v/sentexes-matching kb '(mortal SandboxRufus) '?ctx)))))))
+          (is (= #{sbx} (set (map :context (v/sentexes-matching kb '(mortal SandboxRufus)
+                                                                '?ctx)))))))
       (finally (sandbox/reset! kb sbx)))))
 
 (tu/deftest-kb nothing-is-created-until-something-is-written

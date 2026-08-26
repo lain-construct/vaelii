@@ -60,17 +60,19 @@ assumed.
 `res/prove` is the DFS backward chainer.  A **dead end** is a subgoal it could neither
 match nor expand: no visible believed fact unified with it, and no rule concluding it
 unified either.  `res/*dead-end*` is an optional observer of exactly those —
-`(fn [goal depth])`, nil by default, one var deref per exhausted subgoal when unbound.
+`(fn [goal depth])`, nil by default, one var deref per expanded goal when unbound.
 
 It is a **sink, not a filter**.  An observed run and an unobserved one take byte-identical
 paths, so abduction gets the very search `prove` runs rather than a variant of it, and
 nothing about `prove` changes to make abduction possible.
 
-Two branches deliberately do *not* report:
+Three branches deliberately do *not* report:
 
 * the per-path loop guard cut the expansion (the goal is re-entering its own derivation
-  path), and
-* `:max-depth` bit.
+  path),
+* `:max-depth` bit, and
+* the term-growth ceiling (`res/default-max-term-growth`) refused the expansion, the
+  subgoal's arguments having nested deeper than its own path had already met.
 
 A truncated branch is a search that ran out of **budget**; a dead end is a search that ran
 out of **knowledge**, and only the second names something the KB could be told.  Without
@@ -114,7 +116,7 @@ ratio of matches to dead ends it is not there at all.
    The shipped schema grants exactly one: `CxBiology` declares `(abduciblePredicate
    asleep)`, so *why is this animal not awake* is answerable and *why does it not fly*
    comes back with `(bird …)` named as the dead end it refused to assume.
-3. **Legally assertible.**  The same triple every minted sentence passes
+3. **Legally assertible.**  The same four checks every minted sentence passes
    (`special/inadmissible`) — naming, the definitional constraints, well-formedness, edge
    stratification.  A sentence `assert` would refuse must not be one the search assumes,
    or abduction is a way around the checks.

@@ -99,7 +99,9 @@
           ;; the closed socket's own throwable rides as the cause: `:llm-timeout` says
           ;; the deadline fired, and what the read was doing when it did is the next
           ;; question anyone asks.
-          (throw (ex-info (str label " stopped answering while its response was being read")
+          (throw (ex-info (str label " stopped answering while its response was being"
+                               " read — " ms " ms of the turn's :timeout-ms budget"
+                               " remained for the body; raise :timeout-ms to wait longer")
                           {:type :llm-timeout :timeout-ms ms}
                           t))
           (throw t)))

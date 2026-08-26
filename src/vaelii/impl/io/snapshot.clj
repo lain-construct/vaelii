@@ -279,7 +279,11 @@
   (let [n (volatile! 0)]
     (doseq [batch (partition-all install-batch frames)]
       (when-not (every? #(and (sequential? %) (= 2 (count %))) batch)
-        (throw (ex-info "index entry stream holds something that is not a [key value] pair"
+        (throw (ex-info (str "index entry stream holds "
+                             (pr-str (first (remove #(and (sequential? %) (= 2 (count %)))
+                                                    batch)))
+                             ", which is not a [key value] pair — every entry of an index"
+                             " section is a two-element sequential")
                         {:type :malformed-entry})))
       (vswap! n + (count batch))
       (p/index-load index batch))

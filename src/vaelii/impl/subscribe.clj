@@ -255,7 +255,8 @@
         (when-not (get-in old [:subs token])
           (core/unwatch kb wt)
           (throw (ex-info (str "feed subscription " (pr-str token)
-                               " was dropped while it was being registered")
+                               " was dropped while it was being registered — watch again"
+                               " to open one")
                           {:type :unknown-subscription :token token}))))
       {:token token :cursor 0 :max-events max-events})))
 
@@ -366,7 +367,9 @@
                             :token token})))))
      (let [current (or (get-in @reg [:subs token])
                        (throw (ex-info (str "feed subscription " (pr-str token)
-                                            " was dropped while this poll was waiting")
+                                            " was dropped while this poll was waiting —"
+                                            " watch again, and poll the new token from"
+                                            " cursor 0")
                                        {:type :unknown-subscription :token token})))]
        (swap! reg (fn [r] (cond-> r
                             (get-in r [:subs token])

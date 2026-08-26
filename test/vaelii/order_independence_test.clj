@@ -266,6 +266,82 @@
       (is (false? (:travels result))))
     (tu/clear-kb! (tu/test-kb))))
 
+(deftest a-rule-joined-to-a-growing-transitive-extent-is-order-independent
+  ;; The closure of a user-declared `transitive` predicate is answered by a PROVER and
+  ;; never stored, so no pair of it is ever a datum on the agenda.  A rule joined to it
+  ;; can therefore only reach a closure pair from its *other* antecedent's trigger — and
+  ;; when a later link extends the closure, nothing puts that trigger back.
+  ;;
+  ;;   (does A1 E0)  (causes E0 E1)  (causes E1 E2)  (does A0 E1)
+  ;;
+  ;; `(responsibleFor A1 E2)` needs `(does A1 E0)` joined to the closure pair
+  ;; `(causes E0 E2)`, which exists only once BOTH links are in.  Assert the `does`
+  ;; first and the trigger has already fired against a shorter closure; assert it last
+  ;; and the join reaches the whole of it.
+  ;;
+  ;; This is the exact office `special/subsumption-seeds` does for a `genl` edge, whose
+  ;; docstring states the principle: "firing the rules keyed on `genl` is not the same
+  ;; thing as re-firing the rules the edge just connected".  `special/transitive-seeds`
+  ;; is that for a transitive link.  Two `does` facts rather than one because a single
+  ;; one is reached by the surviving trigger in every order and the split does not show.
+  (let [ops [#(v/assert % '(does A1 E0) 'CxUniverse {:strength :monotonic})
+             #(v/assert % '(does A0 E1) 'CxUniverse {:strength :monotonic})
+             #(v/assert % '(causes E0 E1) 'CxUniverse {:strength :monotonic})
+             #(v/assert % '(causes E1 E2) 'CxUniverse {:strength :monotonic})]
+        observe (fn [kb]
+                  {:responsible (set (map :sentence
+                                          (v/sentexes-matching kb '(responsibleFor ?a ?e)
+                                                               'CxUniverse)))})
+        result (one-outcome-under!
+                "a rule joined to a growing transitive extent"
+                (into [[#(v/assert % '(transitive causes) 'CxUniverse {:strength :monotonic})
+                        #(v/assert-rule % '[(does ?a ?act) (causes ?act ?e)]
+                                        '(responsibleFor ?a ?e) 'CxUniverse)]]
+                      (mapv vector ops))
+                observe
+                ordering-sample)]
+    (testing "the agent reaches every event its action causes, however the links arrived"
+      (is (= '#{(responsibleFor A1 E1)
+                (responsibleFor A1 E2)
+                (responsibleFor A0 E2)}
+             (:responsible result))))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-rule-over-a-growing-prover-extent-is-order-independent
+  ;; The antecedent `(causes ?act ?e)` is answered by the TRANSITIVITY prover, so its
+  ;; extent grows as each link of the chain arrives — and a rule whose join is driven
+  ;; from the other side sees only the extent that existed when it last fired.  Four
+  ;; assertions, 24 orderings, and the outcome must be the three conclusions the closure
+  ;; supports whichever order the links arrive in.
+  ;;
+  ;; The long-chain half of the pair.  What re-drives the join as the closure grows is
+  ;; `special/transitive-seeds` (docs/inference.md); the sibling below,
+  ;; `a-rule-joined-to-a-growing-transitive-extent-…`, is the two-agent shape that
+  ;; isolated the defect, and this one walks a three-link chain instead.  Both ran
+  ;; order-dependent before the seeding and neither needs the cost ranking pinned to
+  ;; hold, which is the point: completeness here is the chainer's, not the estimator's.
+  (let [ops [#(v/assert % '(transitive causes) 'CxUniverse {:strength :monotonic})
+             #(v/assert-rule % '[(does ?a ?act) (causes ?act ?e)]
+                             '(responsibleFor ?a ?e) 'CxUniverse)
+             #(v/assert % '(does FoxO Flatter) 'CxUniverse {:strength :monotonic})
+             #(v/assert % '(causes Flatter Sings) 'CxUniverse {:strength :monotonic})
+             #(v/assert % '(causes Sings Falls) 'CxUniverse {:strength :monotonic})
+             #(v/assert % '(causes Falls GetsCheese) 'CxUniverse {:strength :monotonic})]
+        observe (fn [kb]
+                  {:responsible (set (map :sentence
+                                          (v/sentexes-matching kb '(responsibleFor ?a ?e)
+                                                               'CxUniverse)))})
+        ;; 720 orderings, sampled: the split this guards against is a majority of them,
+        ;; so a deterministic spread finds it at a fraction of the walk (`ordering-sample`
+        ;; above says why sampling is the norm here).
+        result (one-outcome! "a rule over a growing prover extent" ops observe 120)]
+    (testing "every link of the causal chain is one the agent is responsible for"
+      (is (= '#{(responsibleFor FoxO Sings)
+                (responsibleFor FoxO Falls)
+                (responsibleFor FoxO GetsCheese)}
+             (:responsible result))))
+    (tu/clear-kb! (tu/test-kb))))
+
 (deftest a-re-assert-never-downgrades-a-premises-class
   ;; The class a sentex is held at is resolved from **content**, so the door cannot let
   ;; arrival order decide it.  A re-assert carrying no `:strength` states nothing about
@@ -945,6 +1021,42 @@
         "a rule fires off what its context can see, whenever it was told it could"))
   (tu/clear-kb! (tu/test-kb)))
 
+(deftest a-subsumed-firing-across-a-context-edge-is-order-independent
+  ;; The two closures at once, which is the shape neither seeding covers on its own.
+  ;; `special/visibility-seeds` enumerates from `:rule-antecedents`, so a rule taking
+  ;; `(vs_dog_t ?x)` sends it to the facts filed under `vs_dog_t` — and the fact that
+  ;; answers that antecedent is filed under `vs_terrier_t`, matchable only down the
+  ;; `genl` spec fan (`roster-antecedent-functors` is what walks it).  Five sentences:
+  ;; the edge arriving last has to re-join the rule over a fact one type below the
+  ;; antecedent it names.
+  (let [ops [#(v/assert % '(genlCx CxSMid CxUniverse) 'CxUniverse)
+             #(v/assert % '(genlCx CxSLow CxSMid) 'CxUniverse)
+             #(v/assert % '(genl vs_terrier_t vs_dog_t) 'CxSMid {:strength :monotonic})
+             #(v/assert % '(vs_terrier_t SRex) 'CxSMid {:strength :monotonic})
+             #(v/assert % '(implies (vs_dog_t ?x) (vsSeenP ?x)) 'CxSLow)]
+        observe (fn [kb]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(vsSeenP SRex) 'CxSLow)))})]
+    (is (= {:derived true} (one-outcome! "subsumed visibility firing" ops observe ordering-sample))
+        "a rule fires off a subtype of what its antecedent names, in any arrival order"))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-negated-antecedent-firing-across-a-context-edge-is-order-independent
+  ;; The negated-antecedent twin of the visibility case, and the same gap on the other
+  ;; branch: `special/visibility-seeds` looked a negated antecedent's roster key
+  ;; `[:not vNegP]` up in the functor-root index, which nothing is written under, so a
+  ;; genlCx edge arriving after the negative fact never re-joined the rule.  These four
+  ;; sentences must derive `(vNegSeenP VA)` in every arrival order, not only the ones
+  ;; that put the edge before the rule and the fact.
+  (let [ops [#(v/assert % '(genlCx CxVNMid CxUniverse) 'CxUniverse)
+             #(v/assert % '(genlCx CxVNLow CxVNMid) 'CxUniverse)
+             #(v/assert % '(not (vNegP VA)) 'CxVNMid {:strength :monotonic})
+             #(v/assert % '(implies (not (vNegP ?x)) (vNegSeenP ?x)) 'CxVNLow)]
+        observe (fn [kb]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(vNegSeenP VA) 'CxVNLow)))})]
+    (is (= {:derived true} (one-outcome! "negated visibility firing" ops observe))
+        "a rule with a negated antecedent fires off what its context can see, in any order"))
+  (tu/clear-kb! (tu/test-kb)))
+
 (deftest a-rule-above-fires-on-the-facts-of-a-context-newly-wired-under-it
   ;; the other direction of the same edge, and the one that survives a fix taking only
   ;; the first: a rule stated *above* applies in every context that sees it, so wiring a
@@ -958,6 +1070,96 @@
                   {:derived (boolean (seq (v/sentexes-matching kb '(xSeenP XB) 'CxXLow)))})]
     (is (= {:derived true} (one-outcome! "inherited-rule firing" ops observe))
         "a rule above is inherited into a context wired under it, whenever that happened"))
+  (tu/clear-kb! (tu/test-kb)))
+
+;; ---- a context edge widens what a merge reaches -------------------------
+
+(defn- merged-spelling-observe
+  "The reading a merge-across-a-context-edge scenario is judged by: the sentences the
+  KB actually answers with on `pred`, both spellings asked at the backward door, and
+  the partition itself.
+
+  All three are needed and none of them alone is.  A sentex whose spelling a merge
+  retired stays *believed* — supersession subtracts reported belief, not the label — so
+  a belief reading alone calls two orderings equal while one of them answers no query at
+  all.  The partition is read beside them because it is the half that cannot vary here:
+  it agrees in every ordering, so a disagreement in the other two names **migration**
+  rather than the closure."
+  [pred old new ctx]
+  (fn [kb]
+    {:answered (set (map :sentence (v/sentexes-matching kb (list pred '?x) ctx)))
+     :asked    [(v/ask? kb (list pred old) ctx) (v/ask? kb (list pred new) ctx)]
+     :equiv    (v/equiv-class kb old ctx)}))
+
+(deftest a-merge-above-a-context-edge-restates-the-facts-it-newly-reaches
+  ;; An equality applies where it is **visible**, so which sentexes it restates is as
+  ;; much a question about the genlCx cone as about the closure — and the arriving datum
+  ;; is again the edge.  `(equals MTom MThomas)` in `CxMUp` cannot displace
+  ;; `(mFactP MTom)` in `CxMLow` until `(genlCx CxMLow CxMUp)` says `CxMLow` can see it —
+  ;; so without `special/migrate-under-context-edge` the two orderings that wire the
+  ;; contexts last keep the spelling `CxMLow` stored the fact in, while every read from
+  ;; `CxMLow` asks after the representative: believed, and answering no query under
+  ;; either name.  The supersession reconcile cannot cover it, since an entry there is
+  ;; only ever dropped or restated and this one was never written.
+  (let [ops [#(v/assert % '(genlCx CxMLow CxMUp) 'CxUniverse {:strength :monotonic})
+             #(v/assert % '(equals MTom MThomas) 'CxMUp {:strength :monotonic})
+             #(v/assert % '(mFactP MTom) 'CxMLow {:strength :monotonic})]]
+    (is (= {:answered '#{(mFactP MThomas)} :asked [true true] :equiv '#{MTom MThomas}}
+           (one-outcome! "a merge above a context edge" ops
+                         (merged-spelling-observe 'mFactP 'MTom 'MThomas 'CxMLow)))
+        "the reader that newly sees the merge reads the fact under the name it elected"))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-merge-below-a-context-edge-restates-the-facts-it-newly-sees
+  ;; The other direction of the same edge, and the one a fix taking only the first
+  ;; leaves broken: the merge sits in `CxNLow` and the fact above it in `CxNUp`, so what
+  ;; the edge newly hands the reader is the *fact* rather than the merge.  `CxNUp` has
+  ;; been told nothing and keeps its own spelling; `CxNLow` elects the representative and
+  ;; owes a restatement of its own.
+  (let [ops [#(v/assert % '(genlCx CxNLow CxNUp) 'CxUniverse {:strength :monotonic})
+             #(v/assert % '(equals NTom NThomas) 'CxNLow {:strength :monotonic})
+             #(v/assert % '(nFactP NTom) 'CxNUp {:strength :monotonic})]
+        observe (fn [kb]
+                  (assoc ((merged-spelling-observe 'nFactP 'NTom 'NThomas 'CxNLow) kb)
+                         :above (set (map :sentence
+                                          (v/sentexes-matching kb '(nFactP ?x) 'CxNUp)))))]
+    (is (= {:answered '#{(nFactP NThomas)} :asked [true true] :equiv '#{NTom NThomas}
+            :above '#{(nFactP NTom)}}
+           (one-outcome! "a merge below a context edge" ops observe))
+        "the reader below restates the fact for itself and leaves the original where it lives"))
+  (tu/clear-kb! (tu/test-kb)))
+
+;; ---- a rule reaching a merged term concludes once -----------------------
+
+(deftest a-rule-over-a-merged-term-concludes-at-the-elected-spelling-in-every-order
+  ;; A merge retires a spelling without moving a label — supersession is deliberately
+  ;; not a forced OUT inside the fixpoint, since the twin is justified by the spelling it
+  ;; displaced (docs/equality.md).  So without the gate in `chain/process-datum` a retired
+  ;; spelling reaching the chaining agenda draws a conclusion that stays *believed* under
+  ;; a name no read asks after, where the same three sentences in any other order
+  ;; conclude once.  The two orderings with both the merge and the rule ahead of the fact
+  ;; are the ones that put the fact on the agenda already displaced.
+  ;;
+  ;; The believed set is read as well as the answer set, and that is the point: what
+  ;; splits here is a sentence the KB believes and retrieval never returns, which an
+  ;; answer-set reading alone calls agreement.
+  (let [ops [#(v/assert % '(equals RTom RThomas) 'CxROne {:strength :monotonic})
+             #(v/assert % (default-rule '[(rMammalP ?x)] '(rFurP ?x)) 'CxROne)
+             #(v/assert % '(rMammalP RTom) 'CxROne {:strength :monotonic})]
+        observe (fn [kb]
+                  {:answered (set (map :sentence (v/sentexes-matching kb '(rFurP ?x) 'CxROne)))
+                   :asked    [(v/ask? kb '(rFurP RTom) 'CxROne)
+                              (v/ask? kb '(rFurP RThomas) 'CxROne)]
+                   :believed (into #{}
+                                   (comp (filter #(v/in? kb %))
+                                         (keep #(some-> (v/sentex kb %) :sentence))
+                                         (filter #(contains? '#{rMammalP rFurP} (first %))))
+                                   (tu/sentex-ids kb))})]
+    (is (= {:answered '#{(rFurP RThomas)}
+            :asked    [true true]
+            :believed '#{(rMammalP RThomas) (rFurP RThomas)}}
+           (one-outcome! "a rule over a merged term" ops observe))
+        "the rule fires at the elected spelling only, whenever the merge arrived"))
   (tu/clear-kb! (tu/test-kb)))
 
 ;; The ops are shared by the sampled test and the exhaustive one, so the two cannot

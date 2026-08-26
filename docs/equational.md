@@ -180,8 +180,8 @@ both rules and both forms) and logged. So two equations that disagree about a sh
 term — `f∘f = g` alongside `f∘f = h` — are surfaced to the author.
 
 It is **detection, not resolution**: nothing is dropped. The normal form stays
-deterministic (rules applied in content-sorted order), and `unify` remains the arbiter
-of every match, so a non-confluent set can only make a term written one way miss a
+deterministic (rules applied in content-sorted order), and `match` remains the arbiter
+of every rewrite, so a non-confluent set can only make a term written one way miss a
 theory-equal term written another — never match wrongly. **Self-overlaps are
 excluded**: a lone rule's abstract non-confluence (`f³` reduces two ways) is absorbed
 by the deterministic normalization — the same syntactic term always normalizes the

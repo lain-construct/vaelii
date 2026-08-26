@@ -186,6 +186,41 @@
         (is (not (believed? kb (list knownPlace Paris) CxName))
             "Bob is excepted again under the original rule")))))
 
+;; The mirror of the above with the arrival order flipped: the merge runs FIRST, then the
+;; exception arrives.  Migration ran before the exception existed, so it never saw it —
+;; the exception lands on the superseded original and the live twin fires *unguarded*
+;; unless it is re-pointed onto the twin on arrival (`migrate-meta-onto-twins`,
+;; docs/equality.md, the meta-after-merge case).
+
+(tu/deftest-kb an-exception-asserted-after-the-merge-guards-the-live-twin
+  (tu/with-terms [bornIn birthplaceOf knownPlace secret Ada London Bob Paris CxName]
+    (v/assert kb (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c)) CxName)
+    (v/assert kb (list birthplaceOf Ada London) CxName)
+    (v/assert kb (list birthplaceOf Bob Paris) CxName)
+    (v/assert kb (list secret Bob) CxName)
+    (let [eq (v/assert kb (list 'rewriteOf bornIn birthplaceOf) CxName)]  ; merge migrates the rule FIRST
+      (testing "the twin concludes for both before any exception exists"
+        (is (believed? kb (list knownPlace London) CxName))
+        (is (believed? kb (list knownPlace Paris) CxName) "Bob concludes — nothing guards him yet"))
+      ;; NOW the exception arrives, naming the rule by its (superseded) wrapper form
+      (v/assert kb (list 'exceptWhen (list secret '?x)
+                         (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c)))
+                CxName)
+      (testing "the late exception re-points onto the twin and guards it"
+        (is (believed? kb (list knownPlace London) CxName) "Ada is not secret — still concludes")
+        (is (not (believed? kb (list knownPlace Paris) CxName))
+            "Bob is now excepted — the exception migrated onto the live twin"))
+      (testing "and it still guards a NEW secret fed to the twin's predicate"
+        (tu/with-terms [Cid Rome]
+          (v/assert kb (list bornIn Cid Rome) CxName)
+          (is (believed? kb (list knownPlace Rome) CxName) "Cid concludes while not secret")
+          (v/assert kb (list secret Cid) CxName)
+          (is (not (believed? kb (list knownPlace Rome) CxName)) "asserting secret blocks the twin")))
+      (testing "retracting the merge revives the original rule, still guarded"
+        (v/retract! kb eq)
+        (is (believed? kb (list knownPlace London) CxName))
+        (is (not (believed? kb (list knownPlace Paris) CxName)) "Bob excepted under the original")))))
+
 (tu/deftest-kb a-migrated-multi-antecedent-rule-realigns-its-exception
   ;; When a merge reorders a rule's antecedents, the twin renumbers its canonical
   ;; variables — so the exception query (stored in canonical vars) must be realigned or
