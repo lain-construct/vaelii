@@ -3,25 +3,25 @@
 (ns vaelii.except-rule-visibility-test
   "A visibility `(except (sentexHandle R))` whose target is a **rule**.
 
-  docs/contexts.md says the removal is total — reads and derivations both — and the
-  stored justification carries the rule handle among its antecedents, so the arrival
-  side already holds: excepting a rule sweeps its conclusions, and a fact arriving
-  under a hidden rule concludes nothing.  Two arms did not hold before the fix:
+  docs/contexts.md says the removal is total — reads and derivations both.  A firing
+  rests on its rule exactly as it rests on its facts (the stored justification
+  carries the rule handle among its antecedents), and every arm of the machinery has
+  to honor that, including the two whose triggers cannot come for free:
 
-  * **Revival.**  `special/recheck-except`'s departure arms are keyed on a *fact*
-    target — `dependents` (empty once the firing is swept) and the predicate fan
-    (which a rule sentence never matches) — so retracting a rule-targeting except
-    restored the rule's visibility and none of its conclusions.
-  * **Backward chaining.**  `provers/candidate-rules` filtered direction, belief,
-    and context inheritance but never the visibility hidden set, so a goal in the
-    cone quietly rebuilt through the hidden rule what forward chaining had swept.
+  * **Revival.**  `special/recheck-except` re-chains a rule target on departure,
+    because its other arms are keyed on a *fact* target — `dependents` is empty once
+    the firing is swept, and the predicate fan never matches a rule sentence — so
+    without the rule arm nothing re-derives what the except was hiding.
+  * **Backward chaining.**  `provers/candidate-rules` drops a rule the visibility
+    hidden set hides from the asking context, so a goal in the cone cannot rebuild
+    through a hidden rule what forward chaining sweeps.
 
   Each test pins one arm: the sweep of an existing firing, the block of a late one,
   the revival on retraction, the backward chainer's candidate filter, and the
-  dispute-resolution shape the bug was found in (a justified dispute whose defeated
-  side must vanish from every read surface, not only from the argue tree).  House
-  rules as everywhere else: gensym'd temporaries via `tu/with-terms`, engine
-  vocabulary literal, the neutral fixture asserts the KB is restored."
+  dispute-resolution shape (a justified dispute whose defeated side must vanish from
+  every read surface, not only from the argue tree).  House rules as everywhere
+  else: gensym'd temporaries via `tu/with-terms`, engine vocabulary literal, the
+  neutral fixture asserts the KB is restored."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.rules :as vr]
