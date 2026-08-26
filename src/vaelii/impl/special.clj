@@ -861,7 +861,16 @@
     * the rules that could **fire on H** (`rules-by-antecedent` over H's predicate and
       its supertypes, the same fan matching does) — the conclusions to re-derive when
       the except leaves, since by then the firing that used H has been swept away and
-      `dependents` no longer names it.
+      `dependents` no longer names it; and
+
+    * **H itself, when H is a rule.**  A firing rests on its rule as it rests on its
+      antecedents — the rule handle is in the stored justification, which is what
+      sweeps its conclusions when the except arrives — but on departure the swept
+      firing is gone from `dependents`, and the predicate fan above is keyed on a
+      *fact's* functor, which a rule sentence never matches.  Re-chaining the rule is
+      the departure-side twin the fact arm has in `rules-by-antecedent`: without it,
+      retracting a rule-targeting except revives the rule's visibility and none of
+      its conclusions.
 
   Queuing both on both directions over-approximates (the per-placement hidden-set test
   in `chain/justification-excepted?` and `derive-conclusion`'s block narrow it), which is
@@ -887,7 +896,8 @@
                       (mapcat #(reads/as-stored-rules-by-antecedent (:index kb) %)
                               (rules/trigger-keys (:taxonomy kb) (:sentence target)
                                                   @(:rule-antecedents kb))))
-           marked   (vec (into (set users) firers))]
+           marked   (vec (cond-> (into (set users) firers)
+                           (and target (rules/rule? target)) (conj h)))]
        (mark-recheck kb marked trigger)
        marked))))
 
