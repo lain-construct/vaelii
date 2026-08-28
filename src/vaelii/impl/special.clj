@@ -2871,6 +2871,34 @@
                 (tax/context-down tax context))
         (derive-functional-equalities-in kb sentence context handle)))))
 
+(defn- functional-family-declaration
+  "The predicate `sentence` marks, when it is a functional-family declaration —
+  `(functional P)` or `(functionalInArg P n)` — else nil.  The one door the
+  declaration-arriving-last merge path opens through.
+
+  **The lane map, because this door has eaten a fix before.**  A mark family
+  lives in two lanes, and joining one vocabulary does not join the other:
+
+  * **Merges (this namespace):** fact-last → `derive-functional-equalities`;
+    declaration-last → `equate-existing`, through this door; `genl`-edge-last →
+    `equate-under-edge`; `genlCx`-edge-last → `equate-under-context-edge`.
+  * **Clash exposure (`settle.clj`):** `clash-declaration-functors`, the
+    discovery arms, the trigger case — reported via
+    `checks/arbitrable-violations`.
+
+  The 2026-08 `functionalInArg` gap sat exactly here: settle's lane was swept
+  thoroughly while an exact-functor test in `equate-existing` quietly excluded
+  the generalized declaration, and nothing named the exclusion.  A new mark
+  family joins this cond and settle's vocabularies **separately**."
+  [sentence]
+  (let [f (nm/functor sentence)]
+    (cond
+      (and (= 'functional f) (= 1 (nm/arity sentence)))
+      (first (nm/args sentence))
+      (and (= 'functionalInArg f) (= 2 (nm/arity sentence)))
+      (first (nm/args sentence))
+      :else nil)))
+
 (defn equate-existing
   "When a `(functional P)` declaration arrives, derive the equalities P's **already
   stored** facts license — the other direction of `derive-functional-equalities`, which
@@ -2903,16 +2931,14 @@
   `subtree-sentexes` reads it, snapshotted before the first merge, since migration writes
   twins to the roots the walk is reading."
   [kb sentence]
-  (when (or (and (= 'functional (nm/functor sentence)) (= 1 (nm/arity sentence)))
-            (and (= 'functionalInArg (nm/functor sentence)) (= 2 (nm/arity sentence))))
-    (let [pred (first (nm/args sentence))]
-      (when (symbol? pred)
-        (reduce (fn [acc sx]
-                  (merge-with into acc
-                              (derive-functional-equalities
-                               kb (:sentence sx) (:context sx) (:id sx))))
-                {:new [] :superseded [] :violations []}
-                (subtree-sentexes kb pred))))))
+  (when-let [pred (functional-family-declaration sentence)]
+    (when (symbol? pred)
+      (reduce (fn [acc sx]
+                (merge-with into acc
+                            (derive-functional-equalities
+                             kb (:sentence sx) (:context sx) (:id sx))))
+              {:new [] :superseded [] :violations []}
+              (subtree-sentexes kb pred)))))
 
 (defn equate-under-edge
   "When a `(genl sub super)` edge arrives, derive the equalities a `(functional …)` mark
