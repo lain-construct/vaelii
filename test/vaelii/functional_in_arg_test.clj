@@ -428,3 +428,53 @@
           (v/assert kb (wide-sentence wideP other  hi) U)
           (check (not (merged? kb lo hi))
                  "one position out of 211 differs, so these fill two slots and neither binds the other"))))))
+
+;; ---- declaration-last: the arrival order the settle sweep exists for ------
+
+;; `equate-existing`'s docstring states order-independence as an invariant, and vaelii#43
+;; found it holds for declaration-last and predicate-`genl`-edge-last while failing for
+;; context-`genlCx`-edge-last.  Declaration-last is the order `functional` gets RIGHT,
+;; and it gets it right through `settle`: `clash-declaration-functors` names the functors
+;; whose arrival implicates content already stored, and the dispatch beside it sweeps the
+;; marked predicate's subtree.
+;;
+;; `functionalInArg` was merged (#44) without reaching `settle.clj` at all, so it enforces
+;; at assert and is invisible to that sweep — a generalization weaker than the special
+;; case it generalizes, on the one axis the special case handles.  These two tests are
+;; the receipt for that, and the control is not optional: without it a red pair proves
+;; only that the fixture is wrong.
+
+(tu/deftest-kb control-declaring-functional-after-the-facts-convicts
+  ;; THE CONTROL.  Read this result first.  If this is red the fixture is broken and the
+  ;; test below measures nothing — the S175 lesson about a probe whose own known-good
+  ;; case never engaged the machinery it was aimed at.
+  (tu/with-terms [parentOf Tom]
+    (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
+      (v/assert kb (list parentOf Tom lo) U)
+      (v/assert kb (list parentOf Tom hi) U)
+      (v/assert kb (list 'functional parentOf) U)          ; declaration LAST
+      (is (merged? kb lo hi)
+          "today's functional convicts a pair already stored when the mark arrives"))))
+
+(tu/deftest-kb declaring-functional-in-arg-after-the-facts-convicts
+  ;; Same fixture, same arrival order, spelled the generalized way.  Must behave exactly
+  ;; as the control does: the regression half of the generalization applies to arrival
+  ;; order as much as to verdict.
+  (tu/with-terms [parentOf Tom]
+    (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
+      (v/assert kb (list parentOf Tom lo) U)
+      (v/assert kb (list parentOf Tom hi) U)
+      (v/assert kb (list 'functionalInArg parentOf 2) U)   ; declaration LAST
+      (is (merged? kb lo hi)
+          "(functionalInArg P 2) must convict retroactively exactly as (functional P) does"))))
+
+(tu/deftest-kb control-declaring-functional-in-arg-before-the-facts-still-convicts
+  ;; The already-passing order, restated here so a regression in the fix is visible
+  ;; beside the thing it fixes rather than in another test's file.
+  (tu/with-terms [parentOf Tom]
+    (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
+      (v/assert kb (list 'functionalInArg parentOf 2) U)   ; declaration FIRST
+      (v/assert kb (list parentOf Tom lo) U)
+      (v/assert kb (list parentOf Tom hi) U)
+      (is (merged? kb lo hi)
+          "declaration-first was never broken and must stay unbroken"))))

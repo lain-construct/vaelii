@@ -2138,7 +2138,12 @@
 
 (def ^:private clash-declaration-functors
   "Sentence functors whose arrival implicates content already stored.  A membership or
-  a relation fact needs no entry here: it is its own candidate, found in the region."
+  a relation fact needs no entry here: it is its own candidate, found in the region.
+
+  **Clash exposure only.**  The *merge* half of a mark family lives in
+  `special.clj`'s `equate-*` lane, behind `functional-family-declaration` --
+  joining this vocabulary does not join that one, and a family wired into one
+  lane alone fails silently in the other (the lane map is on that door)."
   (into '#{disjoint disjointMetatype siblingDisjoint genl genlCx}
         definitional-mark-symbols))
 
