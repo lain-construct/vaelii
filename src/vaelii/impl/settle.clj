@@ -2753,16 +2753,21 @@
   turns out to convict nothing costs one check that finds nothing, where a context left
   out is a pair nobody weighs.
 
-  **Exact and unbudgeted for the membership, functional and asymmetric shapes**, for the
-  reason `*exposure-instance-budget*` gives about the membership route it bounds nothing
-  of: each is O(1) postings per candidate rather than an extent sweep, and the candidate
-  set is the settle's region, which the budget already bounds where it came from a
-  declaration reaching back.  There is no enumeration in those three for a budget to cut
-  short, and cutting one short would drop a pair rather than defer it.
+  **Exact and unbudgeted for the membership, functional, asymmetric and arity-2
+  `functionalInArg` shapes**, for the reason `*exposure-instance-budget*` gives about the
+  membership route it bounds nothing of: each is O(1) postings per candidate rather than
+  an extent sweep, and the candidate set is the settle's region, which the budget already
+  bounds where it came from a declaration reaching back.  A `functionalInArg` mark
+  declared at exactly `2` is the same key/value split `functional` makes — position 2 is
+  the value, position 1 is the whole of the determinant — so it reads the same single
+  argument root and joins that group rather than needing a shape of its own.  There is no
+  enumeration in those four for a budget to cut short, and cutting one short would drop a
+  pair rather than defer it.
 
-  **The empty-determinant `functionalInArg` shape is the exception**: it has no shared
-  argument root to read a posting from — every tuple of the marked predicate is a
-  candidate partner — so it genuinely is an extent sweep, and it is budgeted (below) for
+  **The truly empty and the composite `functionalInArg` shapes are the exception**: a
+  mark declared at arity 1 leaves no other position to read a posting from at all, and one
+  declared above arity 2 leaves more than one — a key `believed-at-arg`'s single-position
+  root cannot narrow by.  Both are a real extent sweep, and both are budgeted (below) for
   that reason, unlike the rest of this function."
   [kb s]
   (let [sen (:sentence s)
@@ -2771,21 +2776,29 @@
         f   (nm/functor sen)
         tax (:taxonomy kb)
         k   (count as)
-        ;; **The fourth shape, read separately and unioned rather than folded into the
-        ;; `case` below.**  An empty-determinant `functionalInArg` partner is neither a
-        ;; shared-argument-value read (`membership-sentexes`, the arity-1 disjointness
-        ;; shape a unary `functionalInArg` predicate is not, even when its own arity
-        ;; happens to match) nor a shared-slot read (the arity-2 case below): every
-        ;; tuple of the marked predicate — and its `genl` subtree, since the mark
-        ;; descends exactly as `functional` does — is comparable to every other, so the
-        ;; partners are `subtree-facts` of whichever marked predicate `f` reaches at
-        ;; this arity, not an argument-root posting.  Checked at every arity because
-        ;; `functionalInArg` is not arity-2-only, unlike the `case` it sits beside.
+        ;; **The unnarrowed shapes, read separately and unioned rather than folded into
+        ;; the `case` below.**  A `functionalInArg` mark declared at exactly `k` names
+        ;; every other position as the determinant, which is none of them when `k` is 1
+        ;; (`(functionalInArg P 1)` on a unary predicate — every believed tuple is then
+        ;; automatically comparable to every other, since there is no key left to differ
+        ;; on) and more than one when `k` is above 2 — a *composite* key no single
+        ;; argument root narrows by, a different candidate rule `constraint-facts-in-cone`
+        ;; and `could-clash?` do not make either (`checks/functional-clashes` already
+        ;; opens `n=k` correctly; it is only this settle-time discovery that has not
+        ;; caught up).  Declared at exactly `2` is neither of those — a lone leftover
+        ;; position **is** an argument root to read — so it is excluded here by the
+        ;; `(not= 2 k)` guard and folded into the `case` below instead, beside `functional`
+        ;; and `asymmetric`, whose shape it shares.
         ;;
-        ;; **Budgeted, unlike the two shapes below it.**  Those are O(1) postings per
+        ;; Every tuple the two shapes kept here reach — and their `genl` subtree, since
+        ;; the mark descends exactly as `functional` does — is comparable to every other,
+        ;; so the partners are `subtree-facts` of whichever marked predicate `f` reaches at
+        ;; this arity, not an argument-root posting.
+        ;;
+        ;; **Budgeted, unlike the shapes below it.**  Those are O(1) postings per
         ;; candidate, which is what this function's own docstring's "exact and
         ;; unbudgeted" claims — this one is a real extent sweep (`subtree-facts` is
-        ;; lazy for exactly this reason) and pays for it: an empty-determinant mark on a
+        ;; lazy for exactly this reason) and pays for it: an unnarrowed mark on a
         ;; predicate with a wide stored extent must not turn one ordinary assert's
         ;; exposure check into an O(extent) read, repeated per assert into an
         ;; O(extent²) load.  Capped at `tax/*exposure-instance-budget*` via a plain
@@ -2794,13 +2807,13 @@
         ;; local cap is what stops the unbounded read; a cut here can miss naming a
         ;; partner past the cap, which is the same shape as every other bounded read in
         ;; this namespace and, unlike them, does not yet file its own notice.
-        empty-det (into #{}
+        swept-det (into #{}
                         (comp (remove #(= own (:id %))) (map :context)
                               (take (max 0 (long tax/*exposure-instance-budget*))))
                         (mapcat #(subtree-facts kb (first %))
-                                (filter #(= k (second %))
+                                (filter #(and (= k (second %)) (not= 2 k))
                                         (tax/functional-in-arg-over tax f))))]
-    (into empty-det
+    (into swept-det
           (case k
             1 (into #{} (comp (remove #(= own (:id %))) (map :context))
                     (membership-sentexes kb (first as)))
@@ -2822,16 +2835,23 @@
                     ;; unless one stands at or above the functor.
                     ;; Every mark reads down the hierarchy (`marks-above?`), so one on a
                     ;; super-predicate selects its postings exactly as one on the functor does.
+                    ;; `fnarg` is `functionalInArg`'s own reach at exactly this arity and
+                    ;; position, read the same way: `tax/functional-in-arg-over` already
+                    ;; walks up to the predicates carrying the mark, so it needs no
+                    ;; `marks-above?` gate of its own the way `fun`/`asym`/`anti` do.
                     fun   (tax/props-over tax :functional f)
                     asym  (tax/props-over tax :asymmetric f)
                     anti  (tax/props-over tax :anti-transitive f)
-                    marks (-> (set fun) (into asym) (into anti))
+                    fnarg (into [] (comp (filter #(= 2 (second %))) (map first))
+                                (tax/functional-in-arg-over tax f))
+                    marks (-> (set fun) (into asym) (into anti) (into fnarg))
                     srcs (distinct
                           (cond-> []
-                            (seq fun)  (conj [1 (first as)])
-                            (seq asym) (conj [1 (second as)])
-                            (seq anti) (into [[1 (first as)]  [2 (first as)]
-                                              [1 (second as)] [2 (second as)]])))
+                            (seq fun)   (conj [1 (first as)])
+                            (seq asym)  (conj [1 (second as)])
+                            (seq fnarg) (conj [1 (first as)])
+                            (seq anti)  (into [[1 (first as)]  [2 (first as)]
+                                               [1 (second as)] [2 (second as)]])))
                     ;; **The partner need not share this sentence's functor.**  Under
                     ;; `(functional parentOf)` a `motherOf` filler is a partner of a `fatherOf`
                     ;; one — that is the whole of what descending the mark means — so the
