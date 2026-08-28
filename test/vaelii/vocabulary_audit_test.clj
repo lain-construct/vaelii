@@ -16,6 +16,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
+            [vaelii.impl.settle :as settle]
             [vaelii.impl.special :as special]
             [vaelii.impl.vocabulary :as vocab]
             [vaelii.test-util :as tu]))
@@ -72,3 +73,38 @@
         (str term " must be enforced or inert, and say which"))
     (is (seq (or (:enforced entry) (:inert entry)))
         (str term " carries no reason"))))
+
+;; The same question one layer in: not "does anybody read this declaration" but "does
+;; every declaration the settle enrols get read the same way twice".  #45 is what these
+;; two are about — `functional`, `asymmetric` and `antiTransitive` were spelled out at
+;; four executable sites of `settle.clj` in three spellings, so `functionalInArg` landed
+;; in none of them and a sweep naming it everywhere changed nothing.  A mark the roster
+;; holds and a pass does not read is the failure this namespace exists for, wearing a
+;; different hat: the KB believes a definitional contradiction and reports nothing,
+;; which is indistinguishable from having no clash at all.
+
+(deftest every-clash-declaration-functor-carries-a-reach
+  (let [marks      @#'settle/definitional-marks
+        kinds      @#'settle/clash-declaration-kinds
+        functors   @#'settle/clash-declaration-functors
+        by-functor @#'settle/clash-declaration-kind]
+    (is (= functors (set (keys by-functor)))
+        "a functor enrolled as a clash declaration with no kind sweeps nothing silently")
+    (is (= (count functors) (reduce + (map count (vals kinds))))
+        "the kinds partition: a functor in two makes which reach runs an ordering question")
+    (is (= (set (map first marks)) (:predicate-marked kinds))
+        "the definitional marks reach as themselves, not as a second list beside the roster")
+    (is (= (set (map second marks)) @#'settle/definitional-mark-keywords)
+        "and both spellings of every mark come from the one table of pairs")))
+
+(tu/deftest-kb the-clash-fingerprint-moves-for-every-definitional-mark
+  ;; `clash-vocabulary` decides whether a memoized clash answer still holds.  A mark it
+  ;; does not fingerprint reads as *nothing that decides clash-ness has moved* while
+  ;; that mark's declarations arrive, so the memo answers from before the KB said
+  ;; anything about them.
+  (doseq [[functor _] @#'settle/definitional-marks]
+    (tu/with-terms [CxMark holdsFor]
+      (let [before (#'settle/clash-vocabulary (:taxonomy kb))]
+        (v/assert kb (list functor holdsFor) CxMark)
+        (is (not= before (#'settle/clash-vocabulary (:taxonomy kb)))
+            (str functor " must move the clash-vocabulary fingerprint"))))))

@@ -2136,16 +2136,39 @@
   key or a violation's `:type` is compared against."
   (into #{} (map second) definitional-marks))
 
+(def ^:private clash-declaration-kinds
+  "Which reach `declaration-reach` runs for a declaration, as one map from the kind to
+  the functors that have it — **the shape of the split is part of the roster**.  A
+  functor is a clash declaration by carrying a kind here, so enrolling one and leaving
+  `declaration-reach` with no arm for it is not a state this can be in.
+
+  `:type-separating` implicates the memberships of the terms the declaration separates;
+  `:predicate-marked` implicates the facts beneath the predicate a descending mark now
+  stands over.  `genl` is `:both`, and the only one: the sub's instances gain the super's
+  ancestors *and* a mark standing on the super descends into a subtree that never held
+  one."
+  {:type-separating  '#{disjoint disjointMetatype siblingDisjoint genlCx}
+   :predicate-marked definitional-mark-symbols
+   :both             '#{genl}})
+
 (def ^:private clash-declaration-functors
   "Sentence functors whose arrival implicates content already stored.  A membership or
   a relation fact needs no entry here: it is its own candidate, found in the region.
+
+  Derived from `clash-declaration-kinds` rather than stated beside it, so being a clash
+  declaration and having a reach are one fact and not two that can disagree.
 
   **Clash exposure only.**  The *merge* half of a mark family lives in
   `special.clj`'s `equate-*` lane, behind `functional-family-declaration` --
   joining this vocabulary does not join that one, and a family wired into one
   lane alone fails silently in the other (the lane map is on that door)."
-  (into '#{disjoint disjointMetatype siblingDisjoint genl genlCx}
-        definitional-mark-symbols))
+  (into #{} cat (vals clash-declaration-kinds)))
+
+(def ^:private clash-declaration-kind
+  "Functor → its `clash-declaration-kinds` key, or nil — the roster inverted once, at
+  load time, so `declaration-reach` dispatches on one hash lookup rather than walking a
+  `cond` of set memberships per trigger."
+  (into {} (for [[kind functors] clash-declaration-kinds, f functors] [f kind])))
 
 (defn- metatype-member?
   "Is `sen` a term **joining** a disjoint metatype — `(M T)` where the taxonomy already
@@ -2176,9 +2199,9 @@
   (filter #(= 2 (count (:sentence %))) (believed-at-arg1 kb term)))
 
 (defn- clash-marked-below
-  "Every predicate a `functional` (its `functionalInArg` generalization included),
-  `asymmetric` or `antiTransitive` mark reaches — the marked ones and everything
-  beneath them, as one set.
+  "Every predicate a `definitional-marks` mark reaches — `functionalInArg`, which
+  generalizes `functional` off argument 2 rather than restating it, read beside them —
+  the marked ones and everything beneath them, as one set.
 
   **A mark is read down the hierarchy and not off the exact functor**, for the reason the
   checks read it that way: a `genl` edge says the sub's tuples *are* the super's, so
@@ -2205,10 +2228,9 @@
   **Free on a KB that declares neither**, which is every bulk load: the rosters are read
   first and an empty pair seeds an empty walk."
   [tax]
-  (tax/specs-of-all tax (-> (tax/props tax :functional)
-                            (into (tax/functional-in-arg-predicates tax))
-                            (into (tax/props tax :asymmetric))
-                            (into (tax/props tax :anti-transitive)))))
+  (tax/specs-of-all tax (into (tax/functional-in-arg-predicates tax)
+                              (mapcat #(tax/props tax %))
+                              definitional-mark-keywords)))
 
 (def ^:dynamic *clash-marked-below*
   "A `delay` over `clash-marked-below` for the pass in flight, or nil.
@@ -2289,9 +2311,8 @@
 
 (defn- subtree-facts
   "The believed facts of `pred` and of every predicate beneath it — the candidates a
-  `functional`, `asymmetric` or `antiTransitive` mark reaching `pred` implicates,
-  whichever sentence carried it there.  Lazy, so the budgeted caller realizes only what
-  it takes.
+  `definitional-marks` mark reaching `pred` implicates, whichever sentence carried it
+  there.  Lazy, so the budgeted caller realizes only what it takes.
 
   Two triggers land here and the mark is what both are about: the **declaration** naming
   `pred`, and a `(genl pred super)` edge carrying a mark standing on `super` down to a
@@ -2354,16 +2375,16 @@
         marked (fn [pred]
                  (let [[ss cut?] (take-budgeted left (subtree-facts kb pred))]
                    {:cut? cut? :sentexes ss}))]
-    (cond
-      (contains? '#{disjoint disjointMetatype siblingDisjoint genlCx} f)
+    (case (clash-declaration-kind f)
+      :type-separating
       (implicated (declaration-reach kb sen))
 
-      (contains? definitional-mark-symbols f)
+      :predicate-marked
       (marked a)
 
       ;; the one trigger with both reaches, spending one budget between them: the
       ;; membership half first, the predicate half out of what it left
-      (= 'genl f)
+      :both
       (let [types (implicated (declaration-reach kb sen))]
         (if-not (marks-above? tax a)
           types
@@ -2371,15 +2392,15 @@
             {:cut?     (or (:cut? types) (:cut? preds))
              :sentexes (concat (:sentexes types) (:sentexes preds))})))
 
-      ;; `(M T)` — the shape the taxonomy names rather than the vocabulary, and a `cond`
-      ;; rather than a `case` arm for exactly that reason: there is no functor to
-      ;; dispatch on
-      (metatype-member? kb sen)
-      (implicated (metatype-member-reach kb f a))
-
-      ;; total on purpose: a functor added to `clash-declaration-functors` without an arm
-      ;; here sweeps nothing and spends nothing, which is a reading the caller can act on
-      :else {:cut? false :sentexes nil})))
+      ;; No kind — and a declaration functor always has one, since
+      ;; `clash-declaration-functors` *is* this roster's functors and every kind in it
+      ;; has an arm above.  So what reaches here is the one implicating shape the
+      ;; taxonomy names rather than the vocabulary: `(M T)`, whose functor is whatever
+      ;; the metatype happens to be called and so cannot be dispatched on at all.
+      ;; Everything else implicates nothing and spends nothing.
+      (if (metatype-member? kb sen)
+        (implicated (metatype-member-reach kb f a))
+        {:cut? false :sentexes nil}))))
 
 (defn- content-order
   "Sentexes in **content** order — the sentence, then the context.
@@ -2571,11 +2592,17 @@
   "Everything a clash's existence depends on **beyond the two sentexes and the `genl`
   closure**: the separations, the metatypes whose members separate each other and *which
   types those members are*, the sibling-disjoint parents, the sibling-disjointness
-  exceptions, the three predicate properties,
-  and the generation of the context closure a separation is read through.
+  exceptions, one predicate-property set per `definitional-marks` mark with
+  `functionalInArg`'s beside them, and the generation of the context closure a
+  separation is read through.
 
-  Cheap to compute and cheap to compare — eight small collections and one counter, none of
-  them proportional to the KB — which is what lets `clash-nogoods` separate *nothing that
+  The mark half is read **through the roster**, so a mark added there is fingerprinted
+  by arriving rather than by somebody remembering this vector: one left out reads as
+  *nothing moved* while its declarations move, which is a memo answering from before the
+  KB said anything about them.
+
+  Cheap to compute and cheap to compare — a small collection per entry and one counter,
+  none of them proportional to the KB — which is what lets `clash-nogoods` separate *nothing that
   decides clash-ness has moved* from *something has*, without re-deriving anything in
   order to find out.
 
@@ -2613,10 +2640,8 @@
          (tax/disjoint-metatypes tax))
    (tax/sibling-disjoints tax)
    (tax/sib-exceptions tax)
-   (tax/props tax :functional)
+   (mapv #(tax/props tax (second %)) definitional-marks)
    (tax/functional-in-arg-predicates tax)
-   (tax/props tax :asymmetric)
-   (tax/props tax :anti-transitive)
    (tax/relation-gen tax :genlCx)])
 
 (defn- genl-view-keys
@@ -3151,10 +3176,10 @@
                (seq (tax/sibling-disjoints tax)))))
 
 (defn- tuple-marks?
-  "Does any predicate carry one of the three tuple marks — `functional` (its
-  `functionalInArg` generalization included), `asymmetric`, `antiTransitive`?
-  `separations?`'s other half, and the same reading: a KB declaring none can form none
-  of those clashes and pays four set-emptiness reads to say so.
+  "Does any predicate carry a `definitional-marks` mark, or the `functionalInArg`
+  generalization read beside them?  `separations?`'s other half, and the same reading: a
+  KB declaring none can form none of those clashes, and pays one set-emptiness read per
+  roster entry plus `functionalInArg`'s to say so.
 
   `functional-in-arg-predicates` alongside `props :functional` for the reason
   `equate-under-context-edge` already reads both: `functional-clashes` unions the two
@@ -3180,11 +3205,11 @@
 
 (defn- constraint-nogoods
   "`clash-nogoods`, behind the O(1) gate that makes it free for a KB declaring none of
-  the features — which is most of them.  Six set-emptiness reads and not one:
+  the features — which is most of them.  A set-emptiness read per feature and not one:
   disjointness is spelled three ways (`disjoint-pairs`, `disjoint-metatypes` and
-  `sibling-disjoints`) and the `functional`, `asymmetric` and `anti-transitive` props are
-  read separately, and a KB declaring none takes all six, since the `or` short-circuits
-  only on a hit.
+  `sibling-disjoints`), each `definitional-marks` mark holds its own prop set, and
+  `functionalInArg` is a fourth mark read beside them.  A KB declaring none takes every
+  read, since the `or` short-circuits only on a hit.
 
   **Deliberately not gated on `*rebuilding?*`**, unlike the exposure pass beside it,
   and the difference is what the two produce.  Exposure files an *event* — \"this
