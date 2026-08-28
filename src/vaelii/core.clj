@@ -1567,8 +1567,16 @@
               ;; record keeps a spelling every read from below has retired
               ;; (docs/equality.md, "An equality applies where it is visible")
               cme  (special/migrate-under-context-edge kb sentence)
+              ;; ...and the fourth arrival order of the functional/antisymmetric merge
+              ;; itself, alongside the declaration meeting the facts and the `genl` edge
+              ;; bringing them under a mark above them: a `genlCx` edge can make two
+              ;; already-marked facts jointly visible for the first time, and without
+              ;; this the merge those two arrival orders derive would depend on whether
+              ;; the contexts were ever wired together before the facts arrived
+              cfn  (special/equate-under-context-edge kb sentence)
+              cax  (special/antisym-equate-under-context-edge kb sentence)
               mig  (merge-with into {:new [] :superseded [] :violations []}
-                               eq own fnl fex fdn asym axe axd cme)]
+                               eq own fnl fex fdn asym axe axd cme cfn cax)]
           ;; Only when this assert actually merged something.  The reconcile re-examines
           ;; every entry the closure currently displaces, and an assert that merged
           ;; nothing cannot change one: an entry stops being displaced when its terms
@@ -4778,8 +4786,9 @@
 
   ### Bounded — the pass did not cover everything
 
-  So a cap never reads as full coverage. Five kinds, separate because a reader acts on
-  them differently, and each one entry per settle rather than one per trigger.
+  So a cap never reads as full coverage. Six kinds, separate because a reader acts on
+  them differently, and each one entry per settle (or, for the last, per `genlCx` edge)
+  rather than one per trigger.
 
   | entry | means | detail |
   |---|---|---|
@@ -4788,6 +4797,7 @@
   | `:arity-truncated` | the retroactive arity reach was cut short — it sweeps the whole spec subtree a binding descends to and the cone a `genlCx` edge opens, and past the budget the predicates it never reached, and the ones it never got as far as looking *for*, hold facts neither refused nor named | `:predicates` `:sample` `:edges` `:edge-sample` `:budget` `:message` |
   | `:arity-report-truncated` | the arity reach files at most **8** entries for a pass, the content-first 8 of the predicates it convicted, so one binding over a wide subtree cannot evict every other violation from the ledger | `:predicates` `:filed` `:facts` `:sample` `:message` |
   | `:constraint-exposure-truncated` | one cross-context constraint pass found **more clashing pairs than it will file** — a functional slot filled from N contexts one vantage sees is N−1 pairs off a single arriving fact, against a ledger keeping the newest 1000 — or left a `genlCx` edge unswept | `:pairs` `:filed` `:cap` `:unswept` `:sample` `:budget` `:message` |
+  | `:context-edge-exposure-truncated` | a `genlCx` edge's own **merge**-deriving sweep — the mergeable twin of `:constraint-exposure-truncated`, over `functional` / `functionalInArg` / `antiSymmetric` — was cut short, so pairs beyond the budget go **unmerged for this edge** | `:context` `:mark` `:budget` `:message` |
 
   The first three are sweeps cut short.  `:arity-report-truncated` is not one: everything
   it counts was swept, examined and convicted, and only the entry naming it was withheld
@@ -4798,6 +4808,14 @@
   `asymmetric` **declaration** reaches back over stored content on the deciding path and
   on no other — and `:arity-truncated` counts `:predicates` rather than `:triggers`
   because its budget is spent walking a subtree.
+
+  `:context-edge-exposure-truncated` is the one entry here that is *not* filed from a
+  settle's exposure pass — it is filed eagerly, from the `genlCx`-edge assert that
+  triggers `special/equate-under-context-edge`, and its residual is narrower than every
+  other row's for it: a pair `:exposure-truncated` or `:arbitration-truncated` cuts short
+  goes undecided *this settle* and is remembered for the next one to re-examine, where a
+  merge this row's sweep does not reach is not derived by anything else afterward, since
+  nothing re-triggers on a `genlCx` edge that has already landed.
 
   Why a retroactive `:arity` reach reports rather than decides, why a truncation is one
   entry per settle rather than per trigger, and what the instance budget bounds:

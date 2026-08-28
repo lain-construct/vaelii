@@ -748,7 +748,7 @@ named. They do not cover the same triggers — the disjointness sweeps are the
 type-separating declarations and the constraint sweeps the three tuple marks, and the
 `genl` edge that carries a mark down is read by both — and each is
 one entry per settle rather than one per trigger. What bounds those sweeps is
-`settle/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md)).
+`tax/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md)).
 
 The other two bound the **report** rather than the sweep, and both mean *found, examined
 and not named*, which is a different thing to act on from a sweep that stopped early. A

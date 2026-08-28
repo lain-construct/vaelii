@@ -247,7 +247,7 @@
   Distinct subjects, so nothing in the cone pairs: this measures the reach, not the
   reporting."
   [n]
-  (binding [settle/*exposure-instance-budget* 100]
+  (binding [tax/*exposure-instance-budget* 100]
     (let [kb (fresh-kb)]
       (v/assert kb '(functional pbirth) 'CxPerf {:strength :monotonic})
       (v/assert kb '(genlCx CxPSrc CxPerf) 'CxPerf {:strength :monotonic})
@@ -1205,7 +1205,7 @@
   The edge carries the strength difference — written at `:default` so the monotonic
   negation defeats it, exactly as that check builds its own."
   [n]
-  (binding [settle/*exposure-instance-budget* 100]
+  (binding [tax/*exposure-instance-budget* 100]
     (let [kb (fresh-kb)]
       (v/assert kb '(binaryPredicate pabcRoot) 'CxPerf {:strength :monotonic})
       (v/with-deferred-settle kb
@@ -1242,7 +1242,7 @@
   vocabulary gate is open in both shapes and the only difference is the one being measured."
   [marked? budget]
   (fn [n]
-    (binding [settle/*exposure-instance-budget* budget]
+    (binding [tax/*exposure-instance-budget* budget]
       (let [kb (fresh-kb)]
         (v/assert kb (list 'functional (if marked? 'pcegTop 'pcegElse))
                   'CxPerf {:strength :monotonic})

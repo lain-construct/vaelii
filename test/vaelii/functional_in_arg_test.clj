@@ -44,16 +44,34 @@
   pin that the verdict is a property of *what a context sees*, not of which context ran
   first or of state left behind by the first descent.
 
-  STATUS.  Written before the implementation existed, deliberately.  Five of these now
-  pass: the arity-2 regression half, the composite-determinant case this mark exists
-  for, and both 212-arity rows.
+  STATUS.  Written before the implementation existed, deliberately.  vaelii#43 closed
+  the cross-context arrival-order gap this matrix was blocked on: rows 1, 2 and 4 are
+  unpended and pass, alongside the five that never needed it (the arity-2 regression
+  half, the composite-determinant case this mark exists for, and both 212-arity rows).
+  Closing it took more than the accessor `functionalInArg` was missing from
+  `special/equate-under-context-edge`'s own predicate roster — `derive-functional-
+  equalities` (and its antisymmetric twin) now sweep every reader below a fact's own
+  context on **every** arrival order, not only the genlCx-edge one, since these rows
+  wire their contexts before their facts and so exercise the plain fact-arrival
+  trigger; and `settle/could-clash?`, `partner-contexts` and `constraint-facts-in-
+  cone` needed their own empty-determinant arm, since none of the three had ever read
+  past arity 2 for a `functional`-family mark.  Two of the two-argument rows also had
+  their own assertions corrected rather than the engine bent to fit them — row 1
+  checked `contradictions` where an unmergeable cross-context clash actually lands in
+  `violations` (the same door the arity-2 case already takes), and row 2's \"neither
+  side alone concludes anything\" used the unscoped whole-KB `same-class?` where a
+  scoped, per-context read was the question actually being asked.
 
-  The remaining four are marked `^:pending` and excluded from the default run.  They are
-  **not** a gap in `functionalInArg`.  Each needs a clash to be seen from a vantage below
-  two mutually-blind contexts, and today's arity-2 `functional` does not do that either —
-  nor does `antiSymmetric`, nor `disjoint`.  That is vaelii#43, where it is a design
-  decision rather than a defect to fix here.  `lein test :pending` runs them; they stay
-  red on purpose until the question is answered."
+  Row 3 (`an-asserted-difference-blocks-the-merge-and-leaves-a-contradiction`) stays
+  `^:pending`, but the reason has changed: the clash it sets up is now reached and
+  correctly settles as a represented dilemma at `:default` strength — belief
+  order-independent, contradiction reported once, exactly `nixon-diamond-is-the-same-
+  dilemma-every-time`'s shape — which is not what the row's own assertions expect
+  (\"the difference denies the equality,\" full stop).  Whether the fix is to expect a
+  dilemma, or to mark the denial `:monotonic` and read belief rather than storage, is
+  a call about what the row is *for*; the comment above it has the full finding.
+  `lein test :pending` runs it; it stays red on purpose until that question is
+  answered."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -109,6 +127,27 @@
   [kb]
   (boolean (seq (v/contradictions kb))))
 
+(defn- violation-contexts
+  "The set of contexts named `:visible-from` by every recorded `:functional`
+  violation — the `violations`-ledger analogue of `clash-contexts`.
+
+  An unmergeable clash a `genlCx` edge completes is **reported, not decided**: nothing
+  was ever refused (both facts were already stored and believed before the edge made
+  them jointly visible, so there was no write left to turn away) and nothing is
+  arbitrated under the default `:refuse` constraint policy, so it never reaches
+  `contradictions` — `settle/expose-constraint-clashes!` is the door it takes instead,
+  and `docs/equality.md`'s own account of the arity-2 `functional` case takes the
+  identical door for the identical reason.  Checking `contradictions` here would be
+  the same mistake vaelii#43's own repro made checking it over `violations`."
+  [kb]
+  (into #{} (mapcat #(get-in % [:detail :visible-from]))
+        (filter #(= :functional (:violation %)) (v/violations kb))))
+
+(defn- any-functional-violation?
+  "Is there any recorded `:functional` violation at all?"
+  [kb]
+  (boolean (some #(= :functional (:violation %)) (v/violations kb))))
+
 (defn- ex-type
   "The `:type` of the ex-info a thunk throws, or nil.  A refusal that collapses into an
   arity or naming error is exactly the regression a bare `thrown?` stays green through."
@@ -136,11 +175,17 @@
 
 ;; ---- Pace's matrix, rows 1 and 2 ----------------------------------------
 
-;; PENDING — blocked on vaelii#43 (genlCx and order-independence).
-;; the clash is complete only from CxBottom, and no definitional check runs from a vantage.
-;; Not a defect in functionalInArg: today's arity-2 `functional` fails this
-;; shape identically, so it waits on the design decision rather than a fix here.
-(tu/deftest-kb ^:pending two-numbers-under-an-empty-determinant-contradict-in-the-context-below
+;; vaelii#43 closed the gap: `special/equate-under-context-edge` (and the
+;; `derive-functional-equalities` sweep it now shares with the plain fact-arrival
+;; trigger) derives the merge from CxBottom, and `settle/could-clash?` /
+;; `partner-contexts` / `constraint-facts-in-cone` — none of which had ever read the
+;; `:functional-in-arg` table, only the arity-2 `:functional` one — now admit the
+;; empty-determinant shape too, so `expose-constraint-clashes!` finds the unmergeable
+;; pair.  That ledger, `v/violations`, is where an unmergeable cross-context clash
+;; lands under the default `:refuse` policy — not `contradictions`, which the arity-2
+;; `functional` case does not reach here either (docs/equality.md).  This row now
+;; reads `violations`, not the door the original spec checked.
+(tu/deftest-kb two-numbers-under-an-empty-determinant-contradict-in-the-context-below
   ;; Row 1.  `(p 1)` in CxLeft and `(p 2)` in CxRight are each fine where they stand;
   ;; CxBottom sees both and no merge can reconcile two numbers, so the clash is a
   ;; contradiction rather than knowledge.
@@ -150,9 +195,9 @@
     (v/assert kb (list p 1) CxLeft)
     (v/assert kb (list p 2) CxRight)
     (testing "the clash is reported, and it belongs to the vantage that sees it"
-      (check (any-contradiction? kb)
+      (check (any-functional-violation? kb)
              "two numbers, one empty-determinant slot, nothing to merge")
-      (check (= #{CxBottom} (clash-contexts kb))
+      (check (= #{CxBottom} (violation-contexts kb))
              "CxBottom, not the leaves the fillers were asserted in"))
     (testing "and no equality is derived anywhere, numbers being unmergeable"
       (check (not (equality-in? kb 1 2 CxBottom)) "no (equals 1 2)"))))
@@ -179,11 +224,12 @@
            "no context sees both fillers, so the clash does not exist to be had")
     (check (empty? (clash-contexts kb)) "and nothing is stamped with a vantage")))
 
-;; PENDING — blocked on vaelii#43 (genlCx and order-independence).
-;; the merge is owed to CxBottom, which sees both fillers and derives nothing.
-;; Not a defect in functionalInArg: today's arity-2 `functional` fails this
-;; shape identically, so it waits on the design decision rather than a fix here.
-(tu/deftest-kb ^:pending two-symbols-under-an-empty-determinant-merge-in-the-context-below
+;; vaelii#43 closed the gap.  The two facts arrive into a topology `contexts!` wires
+;; before either one exists, so this is the *fact*-arrives-last shape rather than the
+;; *edge*-arrives-last one — which needed `derive-functional-equalities` itself to
+;; sweep every reader below a fact's own context (`tax/context-down`), not only
+;; `equate-under-context-edge`'s own genlCx-triggered sweep.
+(tu/deftest-kb two-symbols-under-an-empty-determinant-merge-in-the-context-below
   ;; Row 2, and the one Pace specified the answer for: the desired behaviour is
   ;; `(equals ThingOne ThingTwo)` in CxBottom.  This is where a functional clash is
   ;; *knowledge* — two names for one thing — rather than an error.
@@ -193,8 +239,15 @@
     (v/assert kb (list p ThingOne) CxLeft)
     (v/assert kb (list p ThingTwo) CxRight)
     (testing "neither side alone concludes anything about the pair"
-      (is (not (merged? kb ThingOne ThingTwo))
-          "CxLeft and CxRight cannot see each other"))
+      ;; `merged?` reads the unscoped, whole-KB partition — true the moment ANY context
+      ;; derives the equality, CxBottom included, so it cannot be the check for "this
+      ;; particular vantage sees nothing" (docs/equality.md: identity is a fact about the
+      ;; world once believed anywhere, and it is the *scoped* read — `same-class?` with a
+      ;; context — that answers what a given reader is entitled to rely on).
+      (is (not (v/same-class? kb ThingOne ThingTwo CxLeft))
+          "CxLeft cannot see CxRight's filler")
+      (is (not (v/same-class? kb ThingOne ThingTwo CxRight))
+          "CxRight cannot see CxLeft's filler"))
     (testing "and the context below both derives the equality"
       (is (some? (v/handle-of kb (list 'equals ThingOne ThingTwo) CxBottom))
           "(equals ThingOne ThingTwo) in CxBottom, which is what was asked for")
@@ -203,10 +256,34 @@
 
 ;; ---- row 3: the explicit different ---------------------------------------
 
-;; PENDING — blocked on vaelii#43 (genlCx and order-independence).
-;; needs the cross-context clash to exist before the asserted difference can block it.
-;; Not a defect in functionalInArg: today's arity-2 `functional` fails this
-;; shape identically, so it waits on the design decision rather than a fix here.
+;; STILL PENDING after vaelii#43's arrival-order fix — but no longer for that reason.
+;; The cross-context clash now exists (`(not (equals ThingOne ThingTwo))` and the
+;; functional derivation do meet), and empirically, in both orderings: `(not (equals
+;; ThingOne ThingTwo))` asserted at `:default` (no `:strength` given, exactly as
+;; written below) does not "deny exactly that" — it ties.  `derive-equality` always
+;; labels its own justification `:monotonic`, but a derivation's effective class is
+;; the weakest of its antecedents (docs/nmtms.md), and `(p ThingOne)` / `(p ThingTwo)`
+;; are asserted `:default` too, so the derived equality caps at `:default` — the same
+;; class as the negation.  Two `:default` claims at equal class do not pick a loser in
+;; this engine; they are a represented dilemma, exactly `nixon-diamond-is-the-same-
+;; dilemma-every-time`'s shape (order_independence_test.clj): BOTH `(equals ThingOne
+;; ThingTwo)` and `(not (equals ThingOne ThingTwo))` end up *believed*, and
+;; `contradictions` reports the pair once — verified directly against this KB.  So the
+;; third assertion below (`any-contradiction?`) already passes; the first two
+;; (`merged?`, `equality-in?`) do not, because they expect the negation to win
+;; outright rather than tie.
+;;
+;; Marking `(not (equals …))` `{:strength :monotonic}` does make it win outright in
+;; both orderings (verified: `same-class?` reads false either order) — but the
+;; derived equality is then *defeated*, not *unmade*: its sentex is still stored in
+;; CxBottom, so `equality-in?` (deliberately storage-only, "so it is not the door for
+;; a distinction row 3 needs) still reads true and the row still needs `same-class?`
+;; or `v/in?` in place of it, not only the strength change.  Whether the intended
+;; reading is "a `:default` denial ties, order-independently, and this row's
+;; assertions want revising to expect a dilemma" or "the denial should be
+;; `:monotonic` and the row wants its two storage-checks changed to belief-checks
+;; alongside that" is a call about what this row is *for*, not a bug this arrival-
+;; order fix owes — left `^:pending` for that decision rather than guessed at here.
 (tu/deftest-kb ^:pending an-asserted-difference-blocks-the-merge-and-leaves-a-contradiction
   ;; Row 3, and the row most likely to expose a real defect: two resolution paths meet
   ;; here.  The functional constraint wants to derive `(equals ThingOne ThingTwo)`; the
@@ -239,11 +316,11 @@
 
 ;; ---- row 4: two bottoms, same verdict ------------------------------------
 
-;; PENDING — blocked on vaelii#43 (genlCx and order-independence).
-;; both bottoms see both fillers; neither reaches any verdict today.
-;; Not a defect in functionalInArg: today's arity-2 `functional` fails this
-;; shape identically, so it waits on the design decision rather than a fix here.
-(tu/deftest-kb ^:pending both-contexts-below-reach-the-same-verdict
+;; vaelii#43 closed the gap, and this row is what pins the fix has no favorite
+;; reader: `equate-under-context-edge`'s candidate walk and `derive-functional-
+;; equalities`' own `context-down` sweep both reach every reader below a marked
+;; predicate's stored facts, not the first one asked.
+(tu/deftest-kb both-contexts-below-reach-the-same-verdict
   ;; Row 4.  CxBottomOne and CxBottomTwo see exactly the same two facts and neither sees
   ;; the other.  A verdict that differs between them would mean the answer depends on
   ;; which descent ran first, or on state one left behind — which is the failure mode
@@ -266,7 +343,11 @@
         (v/assert kb (list 'functionalInArg p 1) U)
         (v/assert kb (list p 1) CxLeft)
         (v/assert kb (list p 2) CxRight)
-        (is (any-contradiction? kb) "the unmergeable clash is reported")
+        ;; `violations`, not `contradictions` — see row 1's comment: an unmergeable
+        ;; cross-context clash is reported through the exposure ledger under the
+        ;; default `:refuse` policy, the same door the arity-2 `functional` case
+        ;; already takes.
+        (is (any-functional-violation? kb) "the unmergeable clash is reported")
         (doseq [b [CxBottomOne CxBottomTwo]]
           (is (not (equality-in? kb 1 2 b))
               (str "and no equality is manufactured in " b)))))))

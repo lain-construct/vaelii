@@ -1129,6 +1129,83 @@
         "the reader below restates the fact for itself and leaves the original where it lives"))
   (tu/clear-kb! (tu/test-kb)))
 
+;; ---- a context edge widens what a mark derives, not only what it restates -
+;;
+;; The two tests above cover an `equals` that is already stored becoming newly visible.
+;; These cover the sharper gap `special/equate-under-context-edge` closes: no `equals`
+;; exists anywhere until the widened cone makes two `functional` (or `antiSymmetric`)
+;; fillers jointly visible for the first time — the mark, the two fillers and the
+;; `genlCx` edge are the fourth arrival order of one merge, matching the three
+;; `derive-functional-equalities` / `equate-existing` / `equate-under-edge` already own.
+;;
+;; **Not a free permutation of all four**, and that is a finding rather than a
+;; simplification.  `one-outcome!` over the full 24 orderings reds on exactly the six
+;; where the *filler in the wider context* (`CxFuUp`) is asserted dead last, after the
+;; mark, the other filler and the edge are all already in place — every one of those six
+;; fails identically on unmodified `main`, so it is a pre-existing gap in the plain
+;; **fact-arrives** trigger (`core.clj`'s `derive-functional-equalities` call scopes the
+;; clash search to the arriving fact's *own* context, never to a reader below it that
+;; already sees that context through a standing `genlCx` edge), not something this arm
+;; introduces or is positioned to fix — its own trigger is the edge, and in all six the
+;; edge is not what arrived last.  Scoping to the literal shape issue #43 asks for —
+;; the edge arriving last, with the mark and both fillers free among themselves before
+;; it — is exactly the six orderings that are unaffected by that other gap, and every one
+;; of them is green.  Filed as a follow-up rather than fixed here: closing it changes the
+;; cost of every ordinary assert under a marked predicate, not only the `genlCx` path
+;; this issue is about, and deserves its own review.
+(defn- one-outcome-edge-last!
+  "`one-outcome!`'s reading, restricted to the orderings that put `edge-op` **last**
+  after every permutation of `free-ops` — the shape `one-outcome!` cannot express, since
+  its chains interleave freely rather than pinning one op to the tail of every walk.
+  Built from the namespace's own `permutations` and `outcome-census` rather than a new
+  helper of its own, since one caller does not earn a third combinator beside
+  `one-outcome!` / `one-outcome-under!`."
+  [label free-ops edge-op observe]
+  (let [trials (mapv #(conj (vec %) edge-op) (permutations free-ops))
+        census (outcome-census trials observe)]
+    (is (= 1 (count census))
+        (str label ": " (count census) " distinct outcomes across " (count trials)
+             " orderings with the edge last —" (census-report census)))
+    (key (first (sort-by (comp :at val) census)))))
+
+(deftest a-functional-mark-derives-when-a-context-edge-arrives-last
+  (let [mark    #(v/assert % '(functional fuP) 'CxFuUp)
+        fact-up #(v/assert % '(fuP FuTom FuV1) 'CxFuUp)
+        fact-lo #(v/assert % '(fuP FuTom FuV2) 'CxFuLow)
+        edge    #(v/assert % '(genlCx CxFuLow CxFuUp) 'CxUniverse {:strength :monotonic})
+        observe (fn [kb]
+                  {:merged (boolean (v/same-class? kb 'FuV1 'FuV2 'CxFuLow))
+                   :equals (some? (v/handle-of kb '(equals FuV1 FuV2) 'CxFuLow))})]
+    (is (= {:merged true :equals true}
+           (one-outcome-edge-last! "functional mark, context edge arriving last"
+                                   [mark fact-up fact-lo] edge observe))
+        "whichever order the mark and the two fillers arrived in, the reader below
+         derives the equality once the edge that joins it to both lands — matching what
+         `equate-existing` and `equate-under-edge` already guarantee for their own
+         arrival orders"))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest an-antisymmetric-mark-derives-when-a-context-edge-arrives-last
+  ;; The antisymmetric twin, over a converse pair instead of two fillers of one argument
+  ;; — `relation_properties_test/an-antisymmetric-converse-derives-an-equality` is the
+  ;; same clash in one context; this is that clash split across the widened cone.  Same
+  ;; scoping as the functional test above and for the identical reason: the converse in
+  ;; the wider context (`CxAuUp`) arriving dead last hits the same pre-existing
+  ;; fact-arrival gap, unrelated to this arm's own trigger.
+  (let [mark     #(v/assert % '(antiSymmetric auP) 'CxAuUp)
+        conv-up  #(v/assert % '(auP AuAlice AuBob) 'CxAuUp)
+        conv-low #(v/assert % '(auP AuBob AuAlice) 'CxAuLow)
+        edge     #(v/assert % '(genlCx CxAuLow CxAuUp) 'CxUniverse {:strength :monotonic})
+        observe  (fn [kb]
+                   {:merged (boolean (v/same-class? kb 'AuAlice 'AuBob 'CxAuLow))
+                    :equals (some? (v/handle-of kb '(equals AuAlice AuBob) 'CxAuLow))})]
+    (is (= {:merged true :equals true}
+           (one-outcome-edge-last! "antisymmetric mark, context edge arriving last"
+                                   [mark conv-up conv-low] edge observe))
+        "the converse forces the merge from the reader below once the edge that joins it
+         to both lands, however the mark and the two directions arrived"))
+  (tu/clear-kb! (tu/test-kb)))
+
 ;; ---- a rule reaching a merged term concludes once -----------------------
 
 (deftest a-rule-over-a-merged-term-concludes-at-the-elected-spelling-in-every-order

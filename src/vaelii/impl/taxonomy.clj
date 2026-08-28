@@ -2648,6 +2648,45 @@
       (reduce (fn [floor [h _]] (strength/min floor (or (supporter-class h) :default)))
               :monotonic path))))
 
+(def ^:dynamic *exposure-instance-budget*
+  "How many candidate instances one bounded cone/closure sweep will enumerate —
+  `vaelii.impl.settle`'s exposure passes (a separating declaration, a metatype
+  membership, a genl edge and a genlCx edge each implicate every instance below their
+  types or in their cone, and on a large corpus that is the extent, not the region) and
+  `vaelii.impl.special/equate-under-context-edge`'s eager merge-deriving twin, which
+  spends it on the same genlCx trigger for the same reason: a small edge can make a
+  large, already-stored extent jointly visible, and the walk that decides whether any
+  of it clashes must not grow with the extent once both sides are past the cap.  A
+  sweep cut short is never silent — each caller files its own notice naming its
+  trigger.  A membership move is exact and unbudgeted; it is O(1) per moved membership,
+  and it is the route ordinary writes take.
+
+  **Where a cut can see arrival order, and why it is left there.**  What orders a sweep
+  is the trigger level — `settle`'s moved region is walked in content order, which is
+  affordable because a region is small.  Below that — the down-closure, the context
+  cone, the posting list of one type or predicate — nothing is sorted, and the reason is
+  the same at every level: the enumerations are lazy so a budgeted consumer realizes
+  only its prefix, and sorting to choose that prefix forces the whole extent, which is
+  the cost the cap was added to refuse.
+
+  That is measured rather than assumed.  Sorting the context cone took
+  `retract-context-cycle-scaling` from 0.08 to 0.28 ms/op at 2048 contexts — a 3.4x
+  growth against a 2x bound — because a context cycle makes the cone the whole graph.
+  The check exists to say a retraction is flat in the graph it is not about, and a sort
+  is exactly what stops it being.
+
+  What the residual is, stated exactly, for `settle`'s own passes.  A cut sweep decides
+  a content-dependent subset of the pairs its trigger implicates, and the rest go
+  **undecided this settle** rather than decided the other way.  Two things carry them:
+  discovery accumulates, so a pair a later settle's region surfaces is remembered in
+  `:clashes` and re-examined every settle after, and the standing whole-KB question
+  takes no budget at all (disjointness only, and it reports rather than arbitrates).  So
+  the order-dependence past the cut is in *when* a pair is arbitrated, not in which way
+  it goes.  `equate-under-context-edge`'s own residual is narrower and stated on it
+  directly, since a merge it fails to reach this edge has no later settle pass revisiting
+  it the way an unmergeable clash does."
+  4096)
+
 ;; ---- genlCx (contexts) ---------------------------------------------------
 
 (defn context-up-global
@@ -3728,6 +3767,20 @@
                                               tax [:functional-in-arg q n] context))]
                                [q n]))))
              (if (some? context) (genls tax p context) (genls-global tax p)))))))
+
+(defn functional-in-arg-predicates
+  "Every predicate carrying **any** `functionalInArg` mark, at any position, as a set —
+  the twin of `props` for a table keyed `pred -> #{n1 n2 …}` rather than membership
+  alone, and read the same ungated way: one map read, no closure walk.
+
+  `functional-in-arg-over` answers a different question and cannot stand in for this
+  one — it walks *up* from one probe predicate to the marks that reach it, so there is
+  no predicate to start it from when the question is the reverse: which predicates carry
+  the mark at all, with no probe in hand yet.  `special/equate-under-context-edge` is
+  exactly that caller — a `genlCx` edge names two contexts, not a predicate, and needs
+  the whole marked roster to walk each one's stored extent, the same way it already
+  reads `props :functional` for the arity-2 mark."
+  [tax] (set (keys (get @tax :functional-in-arg {}))))
 
 (defn inverses-of
   "**Every** predicate declared inverse to `p`, as a set — anywhere, or (with `context`)

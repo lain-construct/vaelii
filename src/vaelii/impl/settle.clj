@@ -30,7 +30,7 @@
             [vaelii.impl.solve :as solve]
             [vaelii.impl.special :as special]
             [vaelii.impl.strength :as strength]
-            [vaelii.impl.taxonomy :as tax]
+            [vaelii.impl.taxonomy :as tax :refer [*exposure-instance-budget*]]
             [vaelii.impl.violations :as violations]))
 
 ;; ---- belief settling: soft, prioritized contradictions ------------------
@@ -1717,38 +1717,13 @@
                                       "), jointly visible from "
                                       (pr-str (vec (sort nm/compare-form mx))))}})))
 
-(def ^:dynamic *exposure-instance-budget*
-  "How many candidate instances one settle's exposure pass will enumerate for the
-  extent-sweeping routes — a separating declaration, a metatype membership, a genl
-  edge, and a genlCx edge each implicate every instance below their types (or
-  in their cone), and on a large corpus that is the extent, not the region.  A
-  sweep cut short files a single `:exposure-truncated` entry naming its trigger, so
-  the cap is never silent.  The membership route is exact and unbudgeted — it is
-  O(1) per moved membership, and it is the route ordinary writes take.
-
-  **Where a cut can see arrival order, and why it is left there.**  What orders the
-  sweep is the **trigger** level: the moved region is walked in content order
-  (`content-order`), which is affordable because a region is small.  Below that — the
-  down-closure, the context cone, the posting list of one type or predicate — nothing
-  is sorted, and the reason is the same at every level: the enumerations are lazy so a
-  budgeted consumer realizes only its prefix, and sorting to choose that prefix forces
-  the whole extent, which is the cost the cap was added to refuse.
-
-  That is measured rather than assumed.  Sorting the context cone took
-  `retract-context-cycle-scaling` from 0.08 to 0.28 ms/op at 2048 contexts — a 3.4x
-  growth against a 2x bound — because a context cycle makes the cone the whole graph.
-  The check exists to say a retraction is flat in the graph it is not about, and a sort
-  is exactly what stops it being.
-
-  What the residual is, stated exactly.  A cut sweep decides a content-dependent subset
-  of the pairs its trigger implicates, and the rest go **undecided this settle** rather
-  than decided the other way.  Two things carry them: discovery accumulates, so a pair
-  a later settle's region surfaces is remembered in `:clashes` and re-examined every
-  settle after (`clash-candidates`), and the standing whole-KB question takes no budget
-  at all (`exposed-clashes`) — though that one reports rather than arbitrates, and
-  disjointness only.  So the order-dependence past the cut is in *when* a pair is
-  arbitrated, not in which way it goes."
-  4096)
+;; `*exposure-instance-budget*` lives in `vaelii.impl.taxonomy` now — `settle` and
+;; `special` both spend it (the settle-time refuse/report exposure passes below, and
+;; `special/equate-under-context-edge`'s eager merge-deriving twin), and `settle`
+;; already requires `special`, so the var cannot live in either without the other
+;; importing back into it.  `:refer`, not a re-`def`: a re-`def` would copy today's
+;; root value into a second, unrelated var, and every `binding` here would rebind the
+;; wrong one — this keeps the one var every existing usage below already names.
 
 ;; ---- the two halves every bounded pass is made of ------------------------
 ;;
@@ -2164,8 +2139,9 @@
   (filter #(= 2 (count (:sentence %))) (believed-at-arg1 kb term)))
 
 (defn- clash-marked-below
-  "Every predicate a `functional`, `asymmetric` or `antiTransitive` mark reaches — the
-  marked ones and everything beneath them, as one set.
+  "Every predicate a `functional` (its `functionalInArg` generalization included),
+  `asymmetric` or `antiTransitive` mark reaches — the marked ones and everything
+  beneath them, as one set.
 
   **A mark is read down the hierarchy and not off the exact functor**, for the reason the
   checks read it that way: a `genl` edge says the sub's tuples *are* the super's, so
@@ -2193,6 +2169,7 @@
   first and an empty pair seeds an empty walk."
   [tax]
   (tax/specs-of-all tax (-> (tax/props tax :functional)
+                            (into (tax/functional-in-arg-predicates tax))
                             (into (tax/props tax :asymmetric))
                             (into (tax/props tax :anti-transitive)))))
 
@@ -2598,6 +2575,7 @@
    (tax/sibling-disjoints tax)
    (tax/sib-exceptions tax)
    (tax/props tax :functional)
+   (tax/functional-in-arg-predicates tax)
    (tax/props tax :asymmetric)
    (tax/props tax :anti-transitive)
    (tax/relation-gen tax :genlCx)])
@@ -2659,34 +2637,69 @@
   (let [all (tax/genls-global tax t)]
     (if (= all (tax/genls tax t ctx)) all scoped-reading)))
 
+(defn- empty-determinant-arity?
+  "Is `k` an arity at which some `functionalInArg` mark reaching `f` constrains the
+  **whole** tuple — declared position `n` equal to the arity itself, so every argument
+  is determinant-free and any two believed tuples of the predicate are automatically
+  comparable?  `(functionalInArg P 1)` on a unary predicate is this shape's arity-1
+  instance, and the one `functional_in_arg_test`'s four cross-context rows all use.
+
+  **Not the general case.**  A *composite* determinant — `n` less than the arity, at an
+  arity above 1, `namesObject`'s own motivating shape — needs a partner read keyed on
+  several argument positions together, which is a different candidate rule from the
+  single-argument-root reads `could-clash?`, `partner-contexts` and
+  `constraint-facts-in-cone` make for the other two shapes, and none of the three make
+  it.  Cross-context exposure of a composite-determinant clash — two blind contexts
+  each holding a candidate tuple, joined by a `genlCx` edge — is therefore still
+  unreached by this settle-time pass; `checks/functional-clashes` itself has always
+  handled it correctly (`nm/args` opened at `n`, not assumed binary), it is only the
+  settle-time *candidate discovery* that has not caught up.  `functional-in-arg-over`
+  reads the marked roster once, so this is one closure-walk-free set membership test
+  past the O(1) gates the three callers already pay."
+  [tax f k]
+  (boolean (some #(= k (second %)) (tax/functional-in-arg-over tax f))))
+
 (defn- could-clash?
   "Could this believed sentex be one half of a definitional clash?  A cheap,
   deliberately **over-approximating** gate in front of the real check, which is a full
   `constraint-problem` pass and far too expensive to run per sentex of a rebuild's
   region.
 
-  Two shapes can pair, and each is answered without a record fetch:
+  Three shapes can pair, and each is answered without a record fetch:
 
   * a **unary membership** `(T x)`, which needs `x` to hold a second membership to
     clash with — read as the O(1) cardinality of `x`'s argument-1 root rather than by
     walking it.  The root spans every predicate and either polarity and is not
     belief-filtered, so a count above one is only evidence that a pair is *possible*;
-    one is proof that it is not.
+    one is proof that it is not.  Gated on `x` being a symbol, so a unary
+    `functionalInArg` tuple whose one argument is a number or another compound falls
+    through to the third shape instead of being answered `false` here on a test this
+    shape does not mean to make about it.
   * a **binary fact** whose predicate is declared `functional`, `asymmetric` or
     `antiTransitive`, all three O(1) property reads (`marks-above?`).
+  * a fact of **any other arity** whose predicate carries an empty-determinant
+    `functionalInArg` mark at exactly that arity (`empty-determinant-arity?`) — the
+    unary case already reads as the first shape when its one argument is a symbol, so
+    this arm is what a numeric filler (`(p 1)`, unmergeable) or an arity above 1 still
+    needs.
 
-  Everything else — a declaration, a rule, an n-ary fact of an ordinary predicate — can
-  convict nothing here and is dropped before the check runs."
+  Everything else — a declaration, a rule, an ordinary n-ary fact, or a composite
+  determinant `empty-determinant-arity?` does not cover — can convict nothing *this
+  gate* admits and is dropped before the real check runs."
   [kb s]
   (let [sen (:sentence s)]
     (and (sequential? sen)
          (symbol? (nm/functor sen))
-         (let [as (rest sen)]
-           (case (count as)
-             1 (let [x (first as)]
-                 (and (symbol? x) (> (reads/stored-count-with-arg (:index kb) 1 x) 1)))
-             2 (marks-above? (:taxonomy kb) (nm/functor sen))
-             false)))))
+         (let [as  (rest sen)
+               f   (nm/functor sen)
+               tax (:taxonomy kb)
+               k   (count as)]
+           (or (case k
+                 1 (let [x (first as)]
+                     (and (symbol? x) (> (reads/stored-count-with-arg (:index kb) 1 x) 1)))
+                 2 (marks-above? tax f)
+                 false)
+               (empty-determinant-arity? tax f k))))))
 
 (defn- partner-contexts
   "The contexts holding a believed sentex that could be the **far half** of a clash with
@@ -2715,60 +2728,76 @@
   [kb s]
   (let [sen (:sentence s)
         as  (vec (nm/args sen))
-        own (:id s)]
-    (case (count as)
-      1 (into #{} (comp (remove #(= own (:id %))) (map :context))
-              (membership-sentexes kb (first as)))
-      2 (let [f   (nm/functor sen)
-              tax (:taxonomy kb)
-              ;; **The postings each property could hold a partner in, and only those.**
-              ;; A `functional` partner is another filler of the same slot, so it shares
-              ;; argument 1; an `asymmetric` partner is the converse, whose argument 1 is
-              ;; *this* sentence's argument 2.  Reading another posting returns nothing
-              ;; the functor filter keeps — and on a term shared across an extent that
-              ;; posting *is* the extent, which turns a per-assert cost into one that
-              ;; grows with the KB (`perf`'s `constraint-exposure-shared-arg`).  A
-              ;; predicate carrying several properties reads each one's postings.
-              ;;
-              ;; `antiTransitive` is the one that reads **all four**, and it has to: a
-              ;; two-step chain meets `(P a b)` at either end and from either side —
-              ;; `(P a m)`, `(P m b)`, `(P b c)`, `(P z a)` are all steps beside it, and
-              ;; so is the closing tuple of a chain this one is a step of.  So the
-              ;; hazard above is this mark's ordinary case rather than its edge, and what
-              ;; keeps it affordable is that the mark is rare: nothing is read at all
-              ;; unless one stands at or above the functor.
-              ;; Every mark reads down the hierarchy (`marks-above?`), so one on a
-              ;; super-predicate selects its postings exactly as one on the functor does.
-              fun   (tax/props-over tax :functional f)
-              asym  (tax/props-over tax :asymmetric f)
-              anti  (tax/props-over tax :anti-transitive f)
-              marks (-> (set fun) (into asym) (into anti))
-              srcs (distinct
-                    (cond-> []
-                      (seq fun)  (conj [1 (first as)])
-                      (seq asym) (conj [1 (second as)])
-                      (seq anti) (into [[1 (first as)]  [2 (first as)]
-                                        [1 (second as)] [2 (second as)]])))
-              ;; **The partner need not share this sentence's functor.**  Under
-              ;; `(functional parentOf)` a `motherOf` filler is a partner of a `fatherOf`
-              ;; one — that is the whole of what descending the mark means — so the
-              ;; exact-functor test dropped exactly the pairs the descension exists to
-              ;; catch.  What it does have to be is a tuple of a predicate one of *these*
-              ;; marks reaches, which is the narrowing the functor test was standing in
-              ;; for while a mark could only sit on the functor itself.  The same functor
-              ;; is the common case and still answers without a closure read.
-              partner? (fn [p]
-                         (let [g (nm/functor (:sentence p))]
-                           (or (= f g)
-                               (and (symbol? g)
-                                    (let [up (tax/genls-global tax g)]
-                                      (boolean (some #(contains? up %) marks)))))))]
-          (into #{} (comp (mapcat (fn [[pos t]] (believed-at-arg kb pos t)))
-                          (remove #(= own (:id %)))
-                          (filter partner?)
-                          (map :context))
-                srcs))
-      #{})))
+        own (:id s)
+        f   (nm/functor sen)
+        tax (:taxonomy kb)
+        k   (count as)
+        ;; **The fourth shape, read separately and unioned rather than folded into the
+        ;; `case` below.**  An empty-determinant `functionalInArg` partner is neither a
+        ;; shared-argument-value read (`membership-sentexes`, the arity-1 disjointness
+        ;; shape a unary `functionalInArg` predicate is not, even when its own arity
+        ;; happens to match) nor a shared-slot read (the arity-2 case below): every
+        ;; tuple of the marked predicate — and its `genl` subtree, since the mark
+        ;; descends exactly as `functional` does — is comparable to every other, so the
+        ;; partners are `subtree-facts` of whichever marked predicate `f` reaches at
+        ;; this arity, not an argument-root posting.  Checked at every arity because
+        ;; `functionalInArg` is not arity-2-only, unlike the `case` it sits beside.
+        empty-det (into #{} (comp (remove #(= own (:id %))) (map :context))
+                        (mapcat #(subtree-facts kb (first %))
+                                (filter #(= k (second %))
+                                        (tax/functional-in-arg-over tax f))))]
+    (into empty-det
+          (case k
+            1 (into #{} (comp (remove #(= own (:id %))) (map :context))
+                    (membership-sentexes kb (first as)))
+            2 (let [              ;; **The postings each property could hold a partner in, and only those.**
+                    ;; A `functional` partner is another filler of the same slot, so it shares
+                    ;; argument 1; an `asymmetric` partner is the converse, whose argument 1 is
+                    ;; *this* sentence's argument 2.  Reading another posting returns nothing
+                    ;; the functor filter keeps — and on a term shared across an extent that
+                    ;; posting *is* the extent, which turns a per-assert cost into one that
+                    ;; grows with the KB (`perf`'s `constraint-exposure-shared-arg`).  A
+                    ;; predicate carrying several properties reads each one's postings.
+                    ;;
+                    ;; `antiTransitive` is the one that reads **all four**, and it has to: a
+                    ;; two-step chain meets `(P a b)` at either end and from either side —
+                    ;; `(P a m)`, `(P m b)`, `(P b c)`, `(P z a)` are all steps beside it, and
+                    ;; so is the closing tuple of a chain this one is a step of.  So the
+                    ;; hazard above is this mark's ordinary case rather than its edge, and what
+                    ;; keeps it affordable is that the mark is rare: nothing is read at all
+                    ;; unless one stands at or above the functor.
+                    ;; Every mark reads down the hierarchy (`marks-above?`), so one on a
+                    ;; super-predicate selects its postings exactly as one on the functor does.
+                    fun   (tax/props-over tax :functional f)
+                    asym  (tax/props-over tax :asymmetric f)
+                    anti  (tax/props-over tax :anti-transitive f)
+                    marks (-> (set fun) (into asym) (into anti))
+                    srcs (distinct
+                          (cond-> []
+                            (seq fun)  (conj [1 (first as)])
+                            (seq asym) (conj [1 (second as)])
+                            (seq anti) (into [[1 (first as)]  [2 (first as)]
+                                              [1 (second as)] [2 (second as)]])))
+                    ;; **The partner need not share this sentence's functor.**  Under
+                    ;; `(functional parentOf)` a `motherOf` filler is a partner of a `fatherOf`
+                    ;; one — that is the whole of what descending the mark means — so the
+                    ;; exact-functor test dropped exactly the pairs the descension exists to
+                    ;; catch.  What it does have to be is a tuple of a predicate one of *these*
+                    ;; marks reaches, which is the narrowing the functor test was standing in
+                    ;; for while a mark could only sit on the functor itself.  The same functor
+                    ;; is the common case and still answers without a closure read.
+                    partner? (fn [p]
+                               (let [g (nm/functor (:sentence p))]
+                                 (or (= f g)
+                                     (and (symbol? g)
+                                          (let [up (tax/genls-global tax g)]
+                                            (boolean (some #(contains? up %) marks)))))))]
+                (into #{} (comp (mapcat (fn [[pos t]] (believed-at-arg kb pos t)))
+                                (remove #(= own (:id %)))
+                                (filter partner?)
+                                (map :context))
+                      srcs))
+            #{}))))
 
 (defn- clash-vantages
   "The contexts `s`'s definitional question is asked **from**, beyond its own.
@@ -3043,11 +3072,20 @@
                (seq (tax/sibling-disjoints tax)))))
 
 (defn- tuple-marks?
-  "Does any predicate carry one of the three tuple marks — `functional`, `asymmetric`,
-  `antiTransitive`?  `separations?`'s other half, and the same reading: a KB declaring
-  none can form none of those clashes and pays three set-emptiness reads to say so."
+  "Does any predicate carry one of the three tuple marks — `functional` (its
+  `functionalInArg` generalization included), `asymmetric`, `antiTransitive`?
+  `separations?`'s other half, and the same reading: a KB declaring none can form none
+  of those clashes and pays four set-emptiness reads to say so.
+
+  `functional-in-arg-predicates` alongside `props :functional` for the reason
+  `equate-under-context-edge` already reads both: `functional-clashes` unions the two
+  mark sources when it looks for a clash, so a gate that answered for only one would
+  turn this pass off for a KB that declares `functionalInArg` and nothing else — which
+  is every `functionalInArg`-only KB, since the two are independent declarations and
+  a predicate need carry only one."
   [tax]
   (boolean (or (seq (tax/props tax :functional))
+               (seq (tax/functional-in-arg-predicates tax))
                (seq (tax/props tax :asymmetric))
                (seq (tax/props tax :anti-transitive)))))
 
@@ -3317,10 +3355,11 @@
     (for [s     (believed-in-cone kb (tax/context-up tax sub))
           :let  [sen (:sentence s)]
           :when (and (sequential? sen)
-                     (= 2 (count (nm/args sen)))
-                     (let [f (nm/functor sen)]
+                     (let [f (nm/functor sen)
+                           k (count (nm/args sen))]
                        (and (symbol? f)
-                            (marks-above? tax f))))]
+                            (or (and (= 2 k) (marks-above? tax f))
+                                (empty-determinant-arity? tax f k)))))]
       s)))
 
 (defn- constraint-exposure-candidates
@@ -3379,10 +3418,11 @@
         declared? (fn [s]
                     (let [sen (:sentence s)]
                       (and (sequential? sen)
-                           (= 2 (count (nm/args sen)))
-                           (let [f (nm/functor sen)]
+                           (let [f (nm/functor sen)
+                                 k (count (nm/args sen))]
                              (and (symbol? f)
-                                  (marks-above? tax f))))))
+                                  (or (and (= 2 k) (marks-above? tax f))
+                                      (empty-determinant-arity? tax f k)))))))
         region    (into [] (believed-xf kb) touched)
         ;; the two edges and the mark declaration, told apart by shape: a `case` on the
         ;; functor, so a region sentex under none of the five costs one hash dispatch

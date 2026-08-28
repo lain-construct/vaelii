@@ -28,7 +28,7 @@
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.rules :as vr]
-            [vaelii.impl.settle :as settle]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -146,7 +146,7 @@
   ;; A bounded sweep that read as full coverage would be worse than no sweep: a reader
   ;; would take an entry's `:count` for the whole answer.  Budget bound low rather than
   ;; asserting 4096 facts, which is what the var is dynamic for.
-  (binding [settle/*exposure-instance-budget* 2]
+  (binding [tax/*exposure-instance-budget* 2]
     (tu/with-terms [manyOf X]
       (doseq [i (range 6)]
         (v/assert kb (list manyOf X (symbol (str "TmpM" i)) 'Extra) 'CxUniverse))

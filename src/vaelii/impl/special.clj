@@ -2647,8 +2647,13 @@
     (when new? (derived-sentex-added kb s h))
     (integrate-equality kb s h)))
 
-(defn derive-functional-equalities
-  "`(functional P)` plus two symbol values for the same first argument **derives**
+(defn- derive-functional-equalities-in
+  "`derive-functional-equalities`, scoped to exactly `context` and no reader below it —
+  the single-context mechanics `derive-functional-equalities` sweeps over every reader
+  that can see `context`.  Read this one for how the merge is found and justified;
+  read the public wrapper for why one call becomes several.
+
+  `(functional P)` plus two symbol values for the same first argument **derives**
   `(equals V1 V2)` rather than throwing (docs/equality.md).
 
   `equals` specifically, not `sameAs`: the value of a functional role need not be an
@@ -2790,6 +2795,54 @@
               {:new [] :superseded [] :violations []}
               clashes))))
 
+(defn derive-functional-equalities
+  "`derive-functional-equalities-in`, run from `context` **and from every reader that
+  can see it** — `(tax/context-down tax context)`, which already includes `context`
+  itself.
+
+  A functional clash is a property of what a vantage sees, not of where the arriving
+  fact happens to be stored.  Scoping to `context` alone was fine while nothing could
+  see `context` but `context` — the ordinary KB, one flat namespace — but a fact
+  arriving into a context that some *other*, already-connected reader below it can see
+  is exactly the shape two mutually-blind siblings joined from below present: neither
+  `CxLeft` nor `CxRight` can see the other's filler when its own fact lands, so a
+  derivation scoped only to the arriving fact's own context finds nothing, and the
+  reader below — `CxBottom`, which was told about both edges before either fact
+  arrived — is never asked at all.  `functional-clashes` is itself already
+  context-scoped and answers a different, generally *wider*, set of clashes for a
+  reader below than for `context` alone (that is the whole point of asking it again
+  per reader rather than reusing one answer), so this cannot be phrased as `context`'s
+  own result handed down to its readers — each reader gets its own call.
+
+  **Gated before `context-down` is read, on the same global roster
+  `equate-under-edge`/`equate-under-context-edge` gate on** — a KB that declares
+  nothing `functional` and nothing `functionalInArg` gets one map read here and never
+  the closure walk, whatever context topology it has, matching the docstring's own
+  standing claim that a KB using none of the feature pays an O(1) set lookup per fact
+  and no more.  On the common single-context KB `context-down` answers `#{context}`,
+  so the sweep runs its one iteration and reduces to exactly today's behaviour.
+
+  **Idempotent for the reason `equate-existing` gives**, applied once per reader
+  instead of once per direction: `derive-functional-equalities-in` itself skips a pair
+  `same-class-in?` already holds from that reader's own view, so a reader whose cone
+  overlaps another's — which every reader below `context` overlaps `context` on, since
+  `context-down` always includes it — pays a repeated no-op read rather than a repeated
+  merge.
+
+  **This is what lets `equate-under-context-edge` and `equate-under-edge` stay the same
+  shape**: each already calls this function once per stored fact, using that fact's own
+  storage context, exactly as it always has — the sweep this wrapper adds is what
+  reaches the readers a fact's own context cannot, so neither caller needs a reader
+  computation of its own any more.  `derive-antisymmetric-equalities` is the twin, over
+  `derive-antisymmetric-equalities-in`."
+  [kb sentence context handle]
+  (let [tax (:taxonomy kb)]
+    (when (or (seq (tax/props tax :functional)) (seq (tax/functional-in-arg-predicates tax)))
+      (reduce (fn [acc r]
+                (merge-with into acc (derive-functional-equalities-in kb sentence r handle)))
+              {:new [] :superseded [] :violations []}
+              (tax/context-down tax context)))))
+
 (defn equate-existing
   "When a `(functional P)` declaration arrives, derive the equalities P's **already
   stored** facts license — the other direction of `derive-functional-equalities`, which
@@ -2879,8 +2932,11 @@
                 {:new [] :superseded [] :violations []}
                 (subtree-sentexes kb sub))))))
 
-(defn derive-antisymmetric-equalities
-  "`(antiSymmetric P)` plus a believed converse `(P b a)` for `(P a b)` **derives**
+(defn- derive-antisymmetric-equalities-in
+  "`derive-antisymmetric-equalities`, scoped to exactly `context` and no reader below
+  it — see the public wrapper for why one call becomes several.
+
+  `(antiSymmetric P)` plus a believed converse `(P b a)` for `(P a b)` **derives**
   `(equals a b)` and merges — the antisymmetric twin of `derive-functional-equalities`,
   and the same machinery.
 
@@ -2938,6 +2994,22 @@
                  {:new [] :superseded [] :violations []}
                  converses)))))))))
 
+(defn derive-antisymmetric-equalities
+  "`derive-antisymmetric-equalities-in`, run from `context` and from every reader that
+  can see it — the antisymmetric twin of `derive-functional-equalities`'s own wrapper,
+  same reachability (`tax/context-down`), same gate-before-the-closure-read shape, same
+  reason: two mutually-blind contexts each holding one direction of a converse pair
+  merge only from a reader below both, and a context edge alone (`antisym-equate-under-
+  context-edge`) is not the only way that reader comes to exist — the *facts* can just as
+  well be the last of the three to arrive, into a topology the edges already connect."
+  [kb sentence context handle]
+  (let [tax (:taxonomy kb)]
+    (when (seq (tax/props tax :anti-symmetric))
+      (reduce (fn [acc r]
+                (merge-with into acc (derive-antisymmetric-equalities-in kb sentence r handle)))
+              {:new [] :superseded [] :violations []}
+              (tax/context-down tax context)))))
+
 (defn antisym-equate-existing
   "When an `(antiSymmetric P)` declaration arrives, derive the equalities P's **already
   stored** facts license — the twin of `equate-existing`, over the antisymmetric merge.
@@ -2975,6 +3047,158 @@
                                  kb (:sentence sx) (:context sx) (:id sx)))))
                 {:new [] :superseded [] :violations []}
                 (subtree-sentexes kb sub))))))
+
+(defn- budgeted-context-edge-candidates
+  "Up to `tax/*exposure-instance-budget*` stored, positive, non-rule sentexes drawn from
+  `preds`' spec subtrees — the shared shape `equate-under-context-edge` and
+  `antisym-equate-under-context-edge` fold `derive-functional-equalities` /
+  `derive-antisymmetric-equalities` over — as `[candidates cut-budget-or-nil]`.
+
+  **The cap bounds the derive calls, not the subtree read.**  `subtree-sentexes` is
+  eager by design (its own docstring: a snapshot the walk needs, since a merge posts to
+  the very roots being read), so one predicate whose whole stored extent exceeds the
+  budget still costs that one read in full — what this refuses to let grow with it is
+  calling `derive-functional-equalities` per candidate, which is the expensive half: a
+  `functional-clashes` probe plus, since that function now sweeps every reader below its
+  context, a closure read per candidate.  `constraint-exposure-context-edge` measures
+  exactly this — 8x the facts stored behind one `genlCx` edge must cost the same past the
+  cap — and it is the derive calls the growth was in, not the read.
+
+  Sharing `*exposure-instance-budget*` with `vaelii.impl.settle`'s exposure passes rather
+  than inventing a second knob: both are 'how much work will one genlCx edge's cross-
+  context sweep spend', and a KB operator wants one dial for that, not two that can drift
+  apart.
+
+  **The residual this leaves is narrower than `settle`'s own, and worth stating plainly.**
+  A pair `settle`'s exposure pass cuts short goes undecided *this settle* and is
+  remembered in `:clashes` for the next one to re-examine — this cap has no such second
+  chance: a merge this sweep does not reach because the budget ran out is not derived by
+  anything else later, since nothing else re-triggers on a `genlCx` edge that already
+  finished landing.  That is why the caller files a violation naming the cut rather than
+  treating it as routine — it is closer to `:exposure-truncated`'s honesty than to a
+  bound with a safety net behind it."
+  [kb preds]
+  (let [budget (max 0 (long tax/*exposure-instance-budget*))
+        xs     (into []
+                     (comp (filter #(and (= :true (:truth %)) (nil? (:antecedent %))))
+                           (take (inc budget)))
+                     (mapcat #(subtree-sentexes kb %) preds))]
+    (if (> (count xs) budget)
+      [(subvec xs 0 budget) budget]
+      [xs nil])))
+
+(defn- context-edge-exposure-truncation
+  "The violation entry `equate-under-context-edge`/`antisym-equate-under-context-edge`
+  file when `budgeted-context-edge-candidates` cuts short — never silently, matching
+  every other bounded sweep in this KB."
+  [sub mark budget]
+  {:violation :context-edge-exposure-truncated
+   :detail    {:context sub :mark mark :budget budget
+               :message (str "genlCx edge into " sub " bounded its " (name mark)
+                             " merge sweep at " budget " instances; some pairs the"
+                             " widened cone newly makes jointly visible may go"
+                             " unmerged for this edge")}})
+
+(defn equate-under-context-edge
+  "When a `(genlCx sub super)` edge arrives, derive the equalities a `(functional …)`
+  mark already licenses over facts the widened cone newly makes jointly visible — the
+  fourth arrival order of the same three ingredients, and the context twin of
+  `equate-under-edge`.
+
+  **This is `equate-under-edge`'s exact shape**, over the whole marked roster instead of
+  one predicate's subtree: sweep every stored fact under a predicate carrying either
+  mark (`tax/props :functional` and `tax/functional-in-arg-predicates` — the arity-2
+  roster and the any-position one together, since `functional-clashes` itself already
+  unions the two), and hand each back to `derive-functional-equalities` **at its own
+  storage context**, exactly as `equate-under-edge` already does.  What makes that
+  correct here is that `derive-functional-equalities` no longer answers only for the
+  context it is handed — it sweeps every reader below that context too
+  (`tax/context-down`), which is what reaches a joining context this edge just
+  connected without this arm needing a reachability computation of its own.  Before that
+  wrapper existed, this function *was* that computation, reading each candidate's
+  visibility here instead of leaving it to the callee — one caller's worth of
+  correctness-sensitive logic that a second caller (the plain fact-arrival trigger,
+  which has exactly the same problem when the topology is wired *before* the facts
+  arrive rather than after) could not share.  Centralizing it is what let both shrink
+  back to this shape.
+
+  **Still `genlCx`-triggered and still necessary**, not redundant with the wrapper's own
+  sweep: a `genlCx` edge arriving *after* both facts are already stored changes no
+  fact and fires no ordinary assert, so nothing else re-invokes `derive-functional-
+  equalities` for either of them — this arm is what does, over the marked roster's
+  whole stored extent.  Gated identically to `equate-under-edge`: free for a KB that
+  declares nothing functional and nothing functionalInArg, decided before the subtree
+  is read.
+
+  **Unlike `equate-under-edge`, this walk is budgeted.**  A `genl` edge's own subtree is
+  bounded by real vocabulary growth — the edge names the very predicate whose subtree is
+  swept, so a big walk means a big subtree the edge itself accounts for.  A `genlCx` edge
+  names two *contexts*, which carry no such relationship to how much the marked-predicate
+  roster holds: one small, otherwise-unrelated edge can make the whole roster's stored
+  extent newly relevant, regardless of what `sub`/`super` themselves hold.
+  `budgeted-context-edge-candidates` caps the candidates this arm hands to
+  `derive-functional-equalities` at `tax/*exposure-instance-budget*` — the same knob
+  `vaelii.impl.settle`'s exposure passes spend, so a cut here and a cut there answer to
+  one dial — and files a `:context-edge-exposure-truncated` violation when it cuts, since
+  a pair past the cap is not derived by anything else afterward (docs/equality.md).
+
+  **Idempotent** for the reason every other direction is: `derive-functional-
+  equalities` skips a pair `same-class-in?` already holds from a reader's own view, so
+  reprocessing the same candidate on a later edge, or reaching the same reader through
+  two different marked predicates, costs a repeated no-op read rather than a repeated
+  merge.
+
+  **Retracting the edge does not un-merge, and that is a pre-existing limitation of
+  `derive-functional-equalities` rather than something owed here.**  Its antecedents
+  name the declaration, the two facts, and any `genl` edges either spelling descended
+  (`checks/edge-support`) — never a `genlCx` edge, because no arrival order needs a
+  context edge in that list.  An equality this arm derives therefore rests on nothing
+  that names the `genlCx` edge that made the pair jointly visible, and the same is
+  already true of every other arrival order whenever a fact or a declaration arrives
+  last under a `genlCx` edge asserted earlier: the merge outlives a later retraction of
+  that edge exactly as it would here.  Closing it is a `genlCx`-support addition to
+  `edge-support` and to the antecedent list `derive-functional-equalities` builds, not a
+  gap this arrival order introduces or one its own addition should paper over."
+  [kb sentence]
+  (when (= 'genlCx (nm/functor sentence))
+    (let [tax   (:taxonomy kb)
+          [_ sub super] sentence
+          preds (into (tax/props tax :functional) (tax/functional-in-arg-predicates tax))]
+      (when (and (symbol? sub) (symbol? super) (seq preds))
+        (let [[candidates cut] (budgeted-context-edge-candidates kb preds)
+              result (reduce (fn [acc sx]
+                               (merge-with into acc
+                                           (derive-functional-equalities
+                                            kb (:sentence sx) (:context sx) (:id sx))))
+                             {:new [] :superseded [] :violations []}
+                             candidates)]
+          (cond-> result
+            cut (update :violations conj
+                        (context-edge-exposure-truncation sub :functional cut))))))))
+
+(defn antisym-equate-under-context-edge
+  "When a `(genlCx sub super)` edge arrives, derive the equalities an
+  `(antiSymmetric …)` mark already licenses over facts the widened cone newly makes
+  jointly visible — the twin of `equate-under-context-edge`, over the antisymmetric
+  merge and the whole `:anti-symmetric` roster in place of the functional one.  Same
+  shape, same reasoning throughout — see `equate-under-context-edge`, including for why
+  a later retraction of this edge does not un-merge what it derives."
+  [kb sentence]
+  (when (= 'genlCx (nm/functor sentence))
+    (let [tax   (:taxonomy kb)
+          [_ sub super] sentence
+          preds (tax/props tax :anti-symmetric)]
+      (when (and (symbol? sub) (symbol? super) (seq preds))
+        (let [[candidates cut] (budgeted-context-edge-candidates kb preds)
+              result (reduce (fn [acc sx]
+                               (merge-with into acc
+                                           (derive-antisymmetric-equalities
+                                            kb (:sentence sx) (:context sx) (:id sx))))
+                             {:new [] :superseded [] :violations []}
+                             candidates)]
+          (cond-> result
+            cut (update :violations conj
+                        (context-edge-exposure-truncation sub :anti-symmetric cut))))))))
 
 (defn- stored-declarations
   "Every **stored** sentex whose functor is `f`, believed or not.

@@ -1488,13 +1488,18 @@
               ;; context reads a fact under would depend on whether the spindle was
               ;; written or inferred
               cme  (when new? (special/migrate-under-context-edge kb conseq))
+              ;; ...and the fourth arrival order of the functional/antisymmetric merge, a
+              ;; derived `genlCx` edge making two already-marked facts jointly visible for
+              ;; the first time, exactly as an asserted one does
+              cfn  (when new? (special/equate-under-context-edge kb conseq))
+              cax  (when new? (special/antisym-equate-under-context-edge kb conseq))
               ;; nil when nothing merged, which is every conclusion on a KB that states
               ;; no equality and every re-derivation on one that does — and a fixpoint
               ;; re-derives the same conclusion on every round of every defaults pass, so
               ;; this is the arm that must cost nothing rather than a little
-              mig  (when (or eq fnl fex fed asym axe axd cme)
+              mig  (when (or eq fnl fex fed asym axe axd cme cfn cax)
                      (merge-with into {:new [] :superseded [] :violations []}
-                                 eq fnl fex fed asym axe axd cme))
+                                 eq fnl fex fed asym axe axd cme cfn cax))
               ;; The spellings those merges retired, applied here rather than left to the
               ;; settle that follows.  A supersession *starts* when migration says so and
               ;; reaches the reconcile only as its `extra` (`special/supersession-map`),

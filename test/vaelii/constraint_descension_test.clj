@@ -20,7 +20,7 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
-            [vaelii.impl.settle :as settle]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -953,7 +953,7 @@
   ;; The exact silent case: `aaa…` spends the budget and convicts nothing, so there is no
   ;; entry to carry `:truncated`; `zzz…` sorts after it, holds the wrong-length fact, and
   ;; is swept zero facts deep.
-  (binding [settle/*exposure-instance-budget* 4]
+  (binding [tax/*exposure-instance-budget* 4]
     (tu/with-terms [parentOf A B C]
       (let [aaa (symbol (str "aaa" (name parentOf)))
             zzz (symbol (str "zzz" (name parentOf)))]
@@ -994,7 +994,7 @@
   ;; end and the one walked (`a-context-edge-is-swept-from-whichever-end-is-smaller` is
   ;; the same shape) — and the predicates it binds hold nothing for a subtree walk to
   ;; read, which is what leaves `:predicates` at zero.
-  (binding [settle/*exposure-instance-budget* 2]
+  (binding [tax/*exposure-instance-budget* 2]
     (tu/with-terms [CxVocab CxDown plainOf]
       (dotimes [_ 40]
         (v/assert kb (list plainOf (tu/tmp-ind "Subj") (tu/tmp-ind "Obj")) CxDown))
@@ -1021,7 +1021,7 @@
   ;; could not have refused is named, or the reader is told the sweep did not reach it.
   ;; Never neither.
   (doseq [budget [4 4096]]
-    (binding [settle/*exposure-instance-budget* budget]
+    (binding [tax/*exposure-instance-budget* budget]
       (tu/with-neutral-kb [kb tu/isolated-fresh]
         (tu/with-terms [parentOf A B C]
           (let [aaa (symbol (str "aaa" (name parentOf)))
@@ -1044,7 +1044,7 @@
   ;; `expose-clashes!`' reading, for its reason: past the cut the predicates are dropped
   ;; by arithmetic rather than by anything about themselves, so a per-predicate entry
   ;; would say one fact about the settle once per predicate.
-  (binding [settle/*exposure-instance-budget* 1]
+  (binding [tax/*exposure-instance-budget* 1]
     (tu/with-terms [parentOf A B C]
       (let [subs (mapv #(symbol (str "sub" % (name parentOf))) (range 6))]
         (doseq [s subs]

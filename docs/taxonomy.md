@@ -779,7 +779,7 @@ buy real coverage:
 
 - **what to enumerate** — one record fetch per instance below the declared types,
   which on a real ontology is the *extent* rather than the moved region. This is what
-  `settle/*exposure-instance-budget*` bounds.
+  `tax/*exposure-instance-budget*` bounds.
 - **what an enumerated term is a candidate for** — a `believed-memberships` read, a
   pairwise disjointness probe, and behind that a witness enumeration. Far more
   expensive per term, and needed only for terms that could really be convicted.
@@ -841,7 +841,7 @@ the spec subtree beneath the predicate it newly puts under a mark — both budge
 as the disjointness sweep beside it; and its *entries* are not bounded by the region
 either — a functional slot filled from N contexts one vantage sees is N−1 pairs off a
 single arriving fact, where the ledger keeps the newest 1000. So the pass stops its walk
-at `settle/*exposure-instance-budget*`, files at most **8** entries whatever it found,
+at `tax/*exposure-instance-budget*`, files at most **8** entries whatever it found,
 and files one **`:constraint-exposure-truncated`** naming whichever bound it met —
 `:pairs` `:filed` `:cap` `:unswept` `:sample` `:budget` `:message`. One kind rather than two because a
 reader acts on them the same way: pairs are visible and unreported, and nothing went

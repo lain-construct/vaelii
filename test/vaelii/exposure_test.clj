@@ -18,6 +18,7 @@
             [vaelii.impl.checks :as checks]
             [vaelii.impl.rules :as vr]
             [vaelii.impl.settle :as settle]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]
             [vaelii.violation-roster-test :as roster]))
 
@@ -202,7 +203,7 @@
   ;; bounded per settle by *exposure-instance-budget*; a sweep cut short files
   ;; :exposure-truncated naming its trigger rather than silently reading as full
   ;; coverage.  The membership route is exact and unbudgeted.
-  (binding [settle/*exposure-instance-budget* 1]
+  (binding [tax/*exposure-instance-budget* 1]
     (tu/with-terms [CxA CxC t1 t2 Pip Quo Rex]
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
       (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
@@ -233,7 +234,7 @@
   ;; The first spends the budget and every one after it is cut short by arithmetic —
   ;; so the ledger gets one entry with a count, not one per trigger.  Left unfixed this
   ;; was 41,500 entries on an OpenCyc load, against a ledger that keeps 1,000.
-  (binding [settle/*exposure-instance-budget* 1]
+  (binding [tax/*exposure-instance-budget* 1]
     (tu/with-terms [CxC t1 t2 Pip Quo]
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
       (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
@@ -267,7 +268,7 @@
   ;; Forty terms sit below t1 alone and one below both, against a budget of four —
   ;; so a sweep of everything below either side spends the budget ten times over on
   ;; the fillers and never reaches the clash, while the cheaper side is one term.
-  (binding [settle/*exposure-instance-budget* 4]
+  (binding [tax/*exposure-instance-budget* 4]
     (tu/with-terms [CxA CxC t1 t2 Pip]
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
       (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
@@ -296,7 +297,7 @@
   ;; the pass files nothing else, so an entry hung on a finding would have nowhere to
   ;; ride and the eighteen instances past the bound would read as eighteen that were
   ;; cleared.
-  (binding [settle/*exposure-instance-budget* 2]
+  (binding [tax/*exposure-instance-budget* 2]
     (tu/with-terms [CxA CxC t1 t2]
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
       (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
@@ -380,7 +381,7 @@
   ;; it and no clash sits above it.  The reach is empty outright rather than falling out
   ;; of the sizing arithmetic, and in particular the *symbol* side's extent is not swept
   ;; on the strength of a side that can convict nobody.
-  (binding [settle/*exposure-instance-budget* 3]
+  (binding [tax/*exposure-instance-budget* 3]
     (tu/with-terms [CxC real_t Pip]
       (v/assert kb (list 'genl real_t 'thing) 'CxUniverse)
       (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
@@ -401,7 +402,7 @@
   ;; which route ran — so the arbitrating path gets the same narrowing, and the same
   ;; budget spent on enumeration rather than on terms that convict nobody.
   (binding [checks/*arbitrate-constraints?* true
-            settle/*exposure-instance-budget* 4]
+            tax/*exposure-instance-budget* 4]
     (tu/with-kb [kb]
       (tu/with-terms [dog_t cat_t Rex]
         (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
@@ -419,7 +420,7 @@
   ;; The member route, `(M T)` arriving: T's instances can now clash with instances of
   ;; M's *other* members, so a term below T holding nothing else of M is not a
   ;; candidate.  Twenty such terms sit below dog_t against a budget of three.
-  (binding [settle/*exposure-instance-budget* 3]
+  (binding [tax/*exposure-instance-budget* 3]
     (tu/with-terms [CxA CxC animalSpecies dog_t cat_t Rex]
       (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
       (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
@@ -459,7 +460,7 @@
   ;; as an arrival-order effect when it was a leftover.  Its own terms make the second
   ;; arm's reach the same size as the first's, whatever is still standing beside it.
   (binding [checks/*arbitrate-constraints?* true
-            settle/*exposure-instance-budget* 11]
+            tax/*exposure-instance-budget* 11]
     (let [run (fn [backwards?]
                 (tu/with-kb [k]
                   (tu/with-terms [aa_t bb_t cc_t dd_t Pip Quo]
@@ -525,7 +526,7 @@
                        (dotimes [_ 9] (v/assert k (list t2 (tu/tmp-ind "Other")) 'CxUniverse))
                        (v/assert k (list t2 Pip) 'CxUniverse)
                        (v/clear-violations! k)
-                       (binding [settle/*exposure-instance-budget* budget]
+                       (binding [tax/*exposure-instance-budget* budget]
                          (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
                        {:cut     (seq (filter #(= :arbitration-truncated (:violation %))
                                               (v/violations k)))
@@ -548,7 +549,7 @@
 
 (tu/deftest-kb an-arbitration-sweep-cut-short-says-so
   (binding [checks/*arbitrate-constraints?* true
-            settle/*exposure-instance-budget* 2]
+            tax/*exposure-instance-budget* 2]
     (tu/with-terms [t1 t2 Pip]
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
       (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
@@ -577,7 +578,7 @@
   ;; notice hung on what the sweep found would then have nothing to ride on, and the
   ;; instances past the bound would read as instances this settle weighed and let stand.
   (binding [checks/*arbitrate-constraints?* true
-            settle/*exposure-instance-budget* 2]
+            tax/*exposure-instance-budget* 2]
     (tu/with-terms [t1 t2]
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
       (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
@@ -619,7 +620,7 @@
   ;; in a single pass.)  The whole batch is one `with-deferred-settle`, since the cut
   ;; sweep and the extra pass have to be the same settle.
   (binding [checks/*arbitrate-constraints?* true
-            settle/*exposure-instance-budget* 2]
+            tax/*exposure-instance-budget* 2]
     (tu/with-terms [t1 t2 Pip bird penguin flies Opus]
       ;; the separation, with a reach the budget cannot finish
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
@@ -653,7 +654,7 @@
   ;; `functional` implicates stored content on the deciding path and on no other, so a
   ;; reader watching only `:exposure-truncated` would never learn its sweep was cut.
   (binding [checks/*arbitrate-constraints?* true
-            settle/*exposure-instance-budget* 2]
+            tax/*exposure-instance-budget* 2]
     (tu/with-terms [ownerOf]
       (v/assert kb (list 'binaryPredicate ownerOf) 'CxUniverse)
       (dotimes [_ 20]
@@ -668,7 +669,7 @@
 
 (tu/deftest-kb a-sweep-that-finished-reports-nothing
   (binding [checks/*arbitrate-constraints?* true
-            settle/*exposure-instance-budget* 4096]
+            tax/*exposure-instance-budget* 4096]
     (tu/with-terms [t1 t2 Pip]
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
       (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
@@ -703,7 +704,7 @@
         (tu/with-terms [t1 t2 Pip]
           (tu/with-kb [k]
             (build k t1 t2 Pip)
-            (binding [settle/*exposure-instance-budget* 2
+            (binding [tax/*exposure-instance-budget* 2
                       settle/*rebuilding?* true]
               (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
             (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations k)))
@@ -713,7 +714,7 @@
         (tu/with-terms [t1 t2 Pip]
           (tu/with-kb [k]
             (build k t1 t2 Pip)
-            (binding [settle/*exposure-instance-budget* 4096
+            (binding [tax/*exposure-instance-budget* 4096
                       settle/*rebuilding?* true]
               (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
             (is (= [:disjoint] (mapv :kind (v/contradictions k))))))))))
@@ -824,7 +825,7 @@
   ;; The entries are bounded by neither the region nor the sweep: one slot filled from N
   ;; contexts a single vantage sees is N-1 pairs off one arriving fact.  The ledger keeps
   ;; the newest 1000 and logs each at `:warn`, so the cap has to be *below* that — and
-  ;; `settle/*exposure-instance-budget*` is no bound at all here, being 4096 and a count
+  ;; `tax/*exposure-instance-budget*` is no bound at all here, being 4096 and a count
   ;; of enumerated instances rather than of entries.
   (tu/with-terms [CxW birthYear Tom]
     (v/assert kb (list 'functional birthYear) 'CxUniverse)
@@ -1012,7 +1013,7 @@
     (doseq [i (range 6)]
       (v/assert kb (list birthYear (tu/tmp-ind "Subj") (+ 1900 i)) CxSrc))
     (v/clear-violations! kb)
-    (binding [settle/*exposure-instance-budget* 2]
+    (binding [tax/*exposure-instance-budget* 2]
       (v/assert kb (list 'genlCx CxW CxSrc) 'CxUniverse))
     (let [vs  (v/violations kb)
           cut (filter (comp #{:constraint-exposure-truncated} :violation) vs)]
@@ -1137,7 +1138,7 @@
     (doseq [i (range 6)]
       (v/assert kb (list plainOf (tu/tmp-ind "Subj") (+ 1900 i)) CxSrc))
     (v/clear-violations! kb)
-    (binding [settle/*exposure-instance-budget* 2]
+    (binding [tax/*exposure-instance-budget* 2]
       (v/assert kb (list 'genl plainOf otherOf) 'CxUniverse))
     (is (empty? (v/violations kb))
         "nothing marked above either end, so nothing was enumerated and nothing was cut")))
@@ -1155,7 +1156,7 @@
     (doseq [i (range 6)]
       (v/assert kb (list birthYear (tu/tmp-ind "Subj") (+ 1900 i)) CxSrc))
     (v/clear-violations! kb)
-    (binding [settle/*exposure-instance-budget* 2]
+    (binding [tax/*exposure-instance-budget* 2]
       (v/assert kb (list 'genl birthYear measureOf) 'CxUniverse))
     (let [vs  (v/violations kb)
           cut (filter (comp #{:constraint-exposure-truncated} :violation) vs)]
@@ -1284,7 +1285,7 @@
     (v/assert kb (list 'disjoint left_t right_t) 'CxUniverse)
     (siblings! kb {:a CxA :b CxB :t1 left_t :t2 right_t :x Pip})
     (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
-    (let [h (binding [settle/*exposure-instance-budget* -1]
+    (let [h (binding [tax/*exposure-instance-budget* -1]
               (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse))]
       (is (nat-int? h)
           "the settle reading a negative budget completes and the edge gets a handle"))))
