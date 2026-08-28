@@ -316,11 +316,18 @@
   (str locator-prefix (hex (sha256 (byte-array 0)))))
 
 (defn- sorted-leaves
-  "The sorted vector of leaf digests for `locators` — leaf-hash each, then order by hex
-  (equal-width, so hex order is unsigned lexicographic byte order).  Sorting is what makes
-  the root a function of the *set*: two seats at the same state build the identical tree."
+  "The sorted vector of leaf digests for `locators` — leaf-hash each, then order by
+  unsigned lexicographic byte comparison, which over equal-width digests is exactly hex
+  order.  Sorting is what makes the root a function of the *set*: two seats at the same
+  state build the identical tree.  Compared as bytes rather than by a hex key:
+  `sort-by` runs its keyfn inside the comparator, so a `(sort-by hex …)` would rebuild
+  the 64-char key ~2·n·log₂n times — 32 Formatter allocations each — on the path
+  `commit-id` folds every believed sentex through."
   [locators]
-  (->> locators (map leaf-hash) (sort-by hex) vec))
+  (->> locators
+       (map leaf-hash)
+       (sort (fn [^bytes a ^bytes b] (java.util.Arrays/compareUnsigned a b)))
+       vec))
 
 (defn- largest-pow2-below
   "The largest power of two strictly less than `n` (`n` > 1) — RFC-6962's split point."
