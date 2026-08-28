@@ -187,10 +187,16 @@
                  (if (next hs)
                    ;; the context joins the key: one implication stated in two contexts
                    ;; shares sentence and signature, and the residual tie fell to the
-                   ;; handle set's iteration order — ahead of the `take limit` cap
-                   (sort-by (fn [h] (let [rl (rule-line kb h)]
-                                      [(pr-str (:sentence rl)) (str (:context rl))]))
-                            hs)
+                   ;; handle set's iteration order — ahead of the `take limit` cap.
+                   ;; `print-key`, not a bare `pr-str`: an ambient `*print-length*`
+                   ;; elides two long sentences to one prefix and the tie falls back to
+                   ;; handle order (naming.clj says why).  Decorated, so the record
+                   ;; store is read once per rule and not once per comparison.
+                   (nm/sort-by-content-key
+                    (fn [h] (let [rl (rule-line kb h)]
+                              [(nm/print-key (:sentence rl)) (nm/name-key (:context rl))]))
+                    compare
+                    hs)
                    hs)))
        (take limit)
        (into [] (keep #(rule-line kb %)))))

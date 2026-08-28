@@ -72,13 +72,8 @@
   "Version 1: field-map frames, chunked framing, handles preserved."
   1)
 
-(def ^:private meta-file          "meta.edn")
-(def ^:private sentex-file        "sentexes.nippy.stream")
-(def ^:private justification-file "justifications.nippy.stream")
-(def ^:private provenance-file    "provenance.nippy.stream")
-(def ^:private index-dir          "index")
-(def ^:private index-entry-file   "entries.nippy.stream")
-(def ^:private index-meta-file    "index.edn")
+;; The stream names live in `vaelii.impl.io.frames`, shared with the import reader —
+;; the two halves of the round trip must agree on the layout, so it is stated once.
 
 (def variants
   "What a dump can hold.  `:records` is the whole KB — everything else is derived from
@@ -203,7 +198,7 @@
   "Write `meta.edn` — an array map, so the file reads in the order the schema is
   stated rather than in hash order."
   [^File d m]
-  (spit (io/file d meta-file)
+  (spit (io/file d frames/meta-file)
         (with-out-str (binding [*print-length* nil *print-level* nil] (prn m)))))
 
 ;;; ── the entry point ───────────────────────────────────────────────────
@@ -242,11 +237,11 @@
   entries, for the same reason `meta.edn` is written last: a half-written entry stream
   with no `index.edn` beside it is read as a dump that simply has no index."
   [^File d index fingerprint frame-opts]
-  (let [idx-d (io/file d index-dir)]
+  (let [idx-d (io/file d frames/index-dir)]
     (.mkdirs idx-d)
-    (let [n (frames/write-frames! (io/file idx-d index-entry-file) (snapshot/index-frames index)
+    (let [n (frames/write-frames! (io/file idx-d frames/index-entry-file) (snapshot/index-frames index)
                                   frame-opts)]
-      (spit (io/file idx-d index-meta-file)
+      (spit (io/file idx-d frames/index-meta-file)
             (with-out-str
               (binding [*print-length* nil *print-level* nil]
                 (prn (array-map :index-layout kv/index-layout-version
@@ -323,10 +318,10 @@
          ;; the writer already fetches every record, and on `:disk` that is a page read
          ;; apiece
          fprint   (when index? (fp/accumulator))
-         sx-n (frames/write-frames! (io/file d sentex-file)
+         sx-n (frames/write-frames! (io/file d frames/sentex-file)
                                     (record-frames records p/get-sentex sx-ids fprint)
                                     (assoc frame-opts :on-chunk (chunk :sentexes (count sx-set))))
-         j-n  (frames/write-frames! (io/file d justification-file)
+         j-n  (frames/write-frames! (io/file d frames/justification-file)
                                     (record-frames records p/get-justification j-ids)
                                     (assoc frame-opts :on-chunk (chunk :justifications (count j-set))))
          ;; `seq` realizes only as far as the first handle carrying provenance, so a KB
@@ -336,7 +331,7 @@
          prov (when provenance?
                 (seq (provenance-frames records (concat sx-ids j-ids))))
          p-n  (if prov
-                (frames/write-frames! (io/file d provenance-file) prov
+                (frames/write-frames! (io/file d frames/provenance-file) prov
                                       (assoc frame-opts :on-chunk (chunk :provenance nil)))
                 0)
          i-n  (if index?

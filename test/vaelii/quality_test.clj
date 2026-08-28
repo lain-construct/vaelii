@@ -152,6 +152,35 @@
             (str "and the two listed are the content-smallest, which are the two asserted "
                  "*last* — a handle ranking would have shown the other pair"))))))
 
+(tu/deftest-kb the-signature-tie-break-survives-an-ambient-print-length
+  ;; Two rules sharing one signature (same consequent predicate, same antecedent
+  ;; predicate set) are tie-broken on their *printed sentences*.  A bare `pr-str` key
+  ;; honours the caller's `*print-length*` — a REPL's, typically — which elides both
+  ;; sentences to the same `(implies ...)` prefix, collapses the key, and drops the tie
+  ;; back onto handle order, i.e. the order the author happened to write the rules in.
+  ;; The guard is `nm/print-key` (naming.clj says why); this pins that the tie-break
+  ;; wears it.
+  ;;
+  ;; The discriminator: two same-signature rules asserted in reverse content order, a
+  ;; limit of one, and `*print-length*` bound the way a REPL would leave it.  Guarded,
+  ;; the listed rule is the content-smallest; unguarded, it is whichever came first.
+  (tu/with-terms [a_type pShared]
+    ;; content-larger sentence first: `(implies (and (a_type ?x)) (pShared ?x ?x))`
+    ;; sorts *after* `(implies (and (a_type ?x) (a_type ?y)) (pShared ?x ?y))` — at the
+    ;; first divergence the two-antecedent form has a space where this one has `)`.
+    (v/assert-rule kb [(list a_type '?x)] (list pShared '?x '?x) 'CxUniverse)
+    (v/assert-rule kb [(list a_type '?x) (list a_type '?y)]
+                   (list pShared '?x '?y) 'CxUniverse)
+    (let [q     (binding [*print-length* 1]
+                  (:rules (v/kb-quality kb {:limit 1})))
+          shown (into #{} (map :sentence) (:never q))]
+      (is (= 2 (:never-count q)) "both rules are in the count")
+      (is (= #{(list 'implies (list 'and (list a_type '?x) (list a_type '?y))
+                     (list pShared '?x '?y))}
+             shown)
+          (str "and the one listed is the content-smallest, which was asserted *second*"
+               " — a collapsed print key would have listed the first-asserted rule")))))
+
 ;; ---- chain depth over the rule graph -------------------------------------
 
 (tu/deftest-kb chain-depth-is-per-rule-and-counts-the-transitive-cycle-as-one

@@ -1004,3 +1004,21 @@
         (is (zero? (v/sentex-count kb)))
         (is (empty? (p/sentex-ids (:records kb)))))
       (finally (rm-rf! dump) (tu/clear-kb! kb)))))
+
+;;; ── the on-disk layout has one home ───────────────────────────────────
+
+(deftest the-dump-layout-is-stated-once-and-these-are-its-names
+  ;; The writer (`export`) and the reader (`import`) must agree on which streams a dump
+  ;; holds and what each is called — a rename on one side alone produces a dump the
+  ;; other reports as *missing* rather than misnamed, and the discovery moment is a
+  ;; restore.  So the names live once, in `frames` beside the framing they name, and
+  ;; this pins them to the literal on-disk spellings: the layout is a **frozen wire
+  ;; contract** (existing dumps must stay readable), so a change here is a format
+  ;; version, never a refactor.
+  (is (= "meta.edn"                     frames/meta-file))
+  (is (= "sentexes.nippy.stream"        frames/sentex-file))
+  (is (= "justifications.nippy.stream"  frames/justification-file))
+  (is (= "provenance.nippy.stream"      frames/provenance-file))
+  (is (= "index"                        frames/index-dir))
+  (is (= "entries.nippy.stream"         frames/index-entry-file))
+  (is (= "index.edn"                    frames/index-meta-file)))
