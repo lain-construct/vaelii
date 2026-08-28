@@ -62,16 +62,12 @@
   side alone concludes anything\" used the unscoped whole-KB `same-class?` where a
   scoped, per-context read was the question actually being asked.
 
-  Row 3 (`an-asserted-difference-blocks-the-merge-and-leaves-a-contradiction`) stays
-  `^:pending`, but the reason has changed: the clash it sets up is now reached and
-  correctly settles as a represented dilemma at `:default` strength — belief
-  order-independent, contradiction reported once, exactly `nixon-diamond-is-the-same-
-  dilemma-every-time`'s shape — which is not what the row's own assertions expect
-  (\"the difference denies the equality,\" full stop).  Whether the fix is to expect a
-  dilemma, or to mark the denial `:monotonic` and read belief rather than storage, is
-  a call about what the row is *for*; the comment above it has the full finding.
-  `lein test :pending` runs it; it stays red on purpose until that question is
-  answered."
+  Row 3 (`an-asserted-difference-ties-the-merge-into-a-represented-dilemma`) settled
+  its open question (vaelii#43/#44): the clash it sets up settles as a represented
+  dilemma at `:default` strength — belief order-independent, contradiction reported
+  once, exactly `nixon-diamond-is-the-same-dilemma-every-time`'s shape — and the row
+  now asserts exactly that, because a represented dilemma is what \"the clash is not
+  lost\" means, and it is stronger than the storage-checks the old expectations used."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -256,39 +252,32 @@
 
 ;; ---- row 3: the explicit different ---------------------------------------
 
-;; STILL PENDING after vaelii#43's arrival-order fix — but no longer for that reason.
-;; The cross-context clash now exists (`(not (equals ThingOne ThingTwo))` and the
-;; functional derivation do meet), and empirically, in both orderings: `(not (equals
-;; ThingOne ThingTwo))` asserted at `:default` (no `:strength` given, exactly as
-;; written below) does not "deny exactly that" — it ties.  `derive-equality` always
-;; labels its own justification `:monotonic`, but a derivation's effective class is
-;; the weakest of its antecedents (docs/nmtms.md), and `(p ThingOne)` / `(p ThingTwo)`
-;; are asserted `:default` too, so the derived equality caps at `:default` — the same
-;; class as the negation.  Two `:default` claims at equal class do not pick a loser in
-;; this engine; they are a represented dilemma, exactly `nixon-diamond-is-the-same-
-;; dilemma-every-time`'s shape (order_independence_test.clj): BOTH `(equals ThingOne
-;; ThingTwo)` and `(not (equals ThingOne ThingTwo))` end up *believed*, and
-;; `contradictions` reports the pair once — verified directly against this KB.  So the
-;; third assertion below (`any-contradiction?`) already passes; the first two
-;; (`merged?`, `equality-in?`) do not, because they expect the negation to win
-;; outright rather than tie.
+;; DECIDED (vaelii#43 discussion -> #44): the row expects the dilemma.  The
+;; cross-context clash exists (`(not (equals ThingOne ThingTwo))` and the functional
+;; derivation do meet), and empirically, in both orderings, a `:default` denial does
+;; not "deny exactly that" — it ties.  `derive-equality` always labels its own
+;; justification `:monotonic`, but a derivation's effective class is the weakest of
+;; its antecedents (docs/nmtms.md), and `(p ThingOne)` / `(p ThingTwo)` are asserted
+;; `:default` too, so the derived equality caps at `:default` — the same class as the
+;; negation.  Two `:default` claims at equal class do not pick a loser in this
+;; engine; they are a represented dilemma, exactly `nixon-diamond-is-the-same-
+;; dilemma-every-time`'s shape (order_independence_test.clj).
 ;;
-;; Marking `(not (equals …))` `{:strength :monotonic}` does make it win outright in
-;; both orderings (verified: `same-class?` reads false either order) — but the
-;; derived equality is then *defeated*, not *unmade*: its sentex is still stored in
-;; CxBottom, so `equality-in?` (deliberately storage-only, "so it is not the door for
-;; a distinction row 3 needs) still reads true and the row still needs `same-class?`
-;; or `v/in?` in place of it, not only the strength change.  Whether the intended
-;; reading is "a `:default` denial ties, order-independently, and this row's
-;; assertions want revising to expect a dilemma" or "the denial should be
-;; `:monotonic` and the row wants its two storage-checks changed to belief-checks
-;; alongside that" is a call about what this row is *for*, not a bug this arrival-
-;; order fix owes — left `^:pending` for that decision rather than guessed at here.
-(tu/deftest-kb ^:pending an-asserted-difference-blocks-the-merge-and-leaves-a-contradiction
+;; Why dilemma-expectation over marking the denial `:monotonic` (the road not
+;; taken, from the #43 finding): `:monotonic` defeats the derived equality without
+;; unmaking it — its sentex stays stored in CxBottom, so the row's storage-checks
+;; would still need replacing with belief-checks *and* the strength change, and the
+;; row would then pin an arbitration rather than the thing it exists for.  What the
+;; row is for is "the clash is not lost": both sides believed, neither defeated,
+;; the pair reported exactly once, in both orders.  A represented dilemma in
+;; `contradictions` is that claim — stronger than the old expectations, which only
+;; said the negation wins and nothing about how the tie is reported.
+(tu/deftest-kb an-asserted-difference-ties-the-merge-into-a-represented-dilemma
   ;; Row 3, and the row most likely to expose a real defect: two resolution paths meet
   ;; here.  The functional constraint wants to derive `(equals ThingOne ThingTwo)`; the
-  ;; asserted `(different ThingOne ThingTwo)` denies exactly that.  Whichever runs first
-  ;; must not decide the answer, so this is asserted in both orders.
+  ;; asserted `(not (equals ThingOne ThingTwo))` commits to distinctness at the same
+  ;; `:default` class.  Whichever runs first must not decide the answer, so this is
+  ;; asserted in both orders, and the reading must not vary between them.
   ;; NOTE: spelled `(not (equals …))`, not `(different …)`.  `different` is **not
   ;; assertible** — it is negation as failure over the equality closure, answered by a
   ;; prover and never stored (`wff.clj` `different-problems`, `docs/equality.md:83`), and
@@ -307,12 +296,19 @@
         (when-not difference-first?
           (v/assert kb (list 'not (list 'equals ThingOne ThingTwo)) U))
         (testing label
-          (is (not (merged? kb ThingOne ThingTwo))
-              "the asserted difference denies the equality the constraint wants")
-          (is (not (equality-in? kb ThingOne ThingTwo CxBottom))
-              "so no equality is stored in the context that sees both")
-          (is (any-contradiction? kb)
-              "and the clash has nowhere to resolve to, so it stands as a contradiction"))))))
+          (is (merged? kb ThingOne ThingTwo)
+              "the tie leaves the derived equality believed — the merge is not undone")
+          (is (equality-in? kb ThingOne ThingTwo CxBottom)
+              "and its sentex stored in the context that sees both")
+          (let [pos (v/handle-of kb (list 'equals ThingOne ThingTwo) CxBottom)
+                neg (v/handle-of kb (list 'not (list 'equals ThingOne ThingTwo)) U)]
+            (is (= [:default :default]
+                   [(v/defeat-class kb pos) (v/defeat-class kb neg)])
+                "neither side was defeated — the dilemma is represented, not decided"))
+          (is (= 1 (count (v/contradictions kb)))
+              "the pair is reported exactly once")
+          (is (zero? (count (v/conflicts kb)))
+              "as a dilemma, not a conflict"))))))
 
 ;; ---- row 4: two bottoms, same verdict ------------------------------------
 
