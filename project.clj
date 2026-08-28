@@ -76,12 +76,20 @@
   ;; namespace becomes the answer for every test whose metadata lacks the key, and
   ;; `lein test :llm some.ns` runs the whole suite instead of one marked namespace.
   ;; Every selector here is a fn for that reason.
-  :test-selectors {:default   (fn [m & _] (not (or (:slow m) (:llm m) (:multi-jvm m) (:fuzz m))))
-                   :slow      (fn [m & _] (and (:slow m) (not (or (:llm m) (:multi-jvm m) (:fuzz m)))))
+  ;; `:pending` marks a test that states behaviour the engine does not have yet, where
+  ;; the gap is a **known open question rather than a defect to fix in place**. It is
+  ;; excluded from `:default` and from `:all`, so a pending test never reddens a run that
+  ;; was not asking for it, and `lein test :pending` runs exactly the pending set — which
+  ;; is what makes the marker honest: the tests keep running on demand and keep failing
+  ;; until the question is answered, rather than being commented out and forgotten.
+  ;; Every `^:pending` test must name the issue it waits on, in its docstring or a comment.
+  :test-selectors {:default   (fn [m & _] (not (or (:slow m) (:llm m) (:multi-jvm m) (:fuzz m) (:pending m))))
+                   :slow      (fn [m & _] (and (:slow m) (not (or (:llm m) (:multi-jvm m) (:fuzz m) (:pending m)))))
                    :llm       (fn [m & _] (boolean (:llm m)))
                    :multi-jvm (fn [m & _] (boolean (:multi-jvm m)))
                    :fuzz      (fn [m & _] (boolean (:fuzz m)))
-                   :all       (fn [m & _] (not (or (:llm m) (:multi-jvm m) (:fuzz m))))}
+                   :pending   (fn [m & _] (boolean (:pending m)))
+                   :all       (fn [m & _] (not (or (:llm m) (:multi-jvm m) (:fuzz m) (:pending m))))}
   :profiles {;; `:aot :all` plus a no-op SLF4J binding: silences Jetty's "no providers"
              ;; line inside the standalone jar. Not top-level `:dependencies` — that would
              ;; make it a transitive dependency of every application that depends on
