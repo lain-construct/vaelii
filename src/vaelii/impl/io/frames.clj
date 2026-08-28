@@ -18,8 +18,12 @@
   is meant to be *a thin adapter over this framing, not a second copy of it*.  A second
   copy is exactly the drift a shared projection was created to avoid one layer up: two
   writers that agree today and diverge on the next compression tweak.  So the framing lives
-  once, here, and the container-specific concerns (a dump's `meta.edn`, an image's
-  manifest, which streams exist) stay with each caller.
+  once, here, and the container-specific concerns (what a dump's `meta.edn` records, an
+  image's manifest) stay with each caller.  The dump's stream **names** are not one of
+  those concerns: which streams exist and what each is called is the layout the writer
+  and the reader must agree on — a second copy is the same drift one level down — so the
+  names live here too, beside the framing they name (`meta-file` and its six siblings
+  below).
 
   The legacy single-window reader (`read-window-seq`) is kept for a v4/v5 foreign dump that
   wrote one compression window over the whole file; the engine's own dumps have been chunked
@@ -33,6 +37,35 @@
            (java.lang.reflect Constructor)
            (java.util.zip GZIPInputStream GZIPOutputStream)
            (org.tukaani.xz LZMA2Options XZInputStream XZOutputStream)))
+
+;;; ── the dump's on-disk layout ─────────────────────────────────────────
+;;; One home for the stream names the export writer and the import reader share, so the
+;;; two halves of the round trip cannot drift: a rename on the write side alone would
+;;; produce a dump the reader reports as *missing* rather than misnamed, and the
+;;; discovery moment would be a restore.  `round_trip_test` pins the literal spellings:
+;;; the layout is a frozen wire contract, so a change here is a format version.
+
+(def meta-file
+  "The dump's manifest — what `vaelii.impl.io.export` writes about the dump."
+  "meta.edn")
+(def sentex-file
+  "The sentex record stream."
+  "sentexes.nippy.stream")
+(def justification-file
+  "The justification record stream."
+  "justifications.nippy.stream")
+(def provenance-file
+  "The `[handle provenance-map]` stream."
+  "provenance.nippy.stream")
+(def index-dir
+  "The subdirectory a `:records+index` dump carries the index cache in."
+  "index")
+(def index-entry-file
+  "The index `[key value]` entry stream, inside `index-dir`."
+  "entries.nippy.stream")
+(def index-meta-file
+  "The index cache's own manifest, inside `index-dir`."
+  "index.edn")
 
 ;;; ── writing ───────────────────────────────────────────────────────────
 

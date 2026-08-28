@@ -168,13 +168,8 @@
                                 " never one")
                            {:type :malformed-manifest :file (.getPath f)} e))))))
 
-(def ^:private meta-file           "meta.edn")
-(def ^:private sentex-file         "sentexes.nippy.stream")
-(def ^:private justification-file  "justifications.nippy.stream")
-(def ^:private provenance-file     "provenance.nippy.stream")
-(def ^:private index-dir           "index")
-(def ^:private index-entry-file    "entries.nippy.stream")
-(def ^:private index-meta-file     "index.edn")
+;; The stream names live in `vaelii.impl.io.frames`, shared with the export writer —
+;; the two halves of the round trip must agree on the layout, so it is stated once.
 
 ;;; ── stream readers ────────────────────────────────────────────────────
 ;;; The chunked/window nippy framing itself lives in `vaelii.impl.io.frames`, shared
@@ -274,7 +269,7 @@
   "Read a dump's `meta.edn` (the marker + schema) without loading any records — under
   `manifest-bytes`, since a dump directory is whatever an operator copied."
   [dir]
-  (let [^java.io.File f (io/file dir meta-file)]
+  (let [^java.io.File f (io/file dir frames/meta-file)]
     (when-not (.exists f)
       (throw (ex-info (str "no dump at " (.getPath f) " (missing meta.edn)")
                       {:type :no-dump :dir (str dir)})))
@@ -764,7 +759,7 @@
   this map cannot resolve is dropped rather than written under a number now holding
   something else."
   [kb dir compression read-fn handles]
-  (let [^java.io.File f (io/file dir provenance-file)]
+  (let [^java.io.File f (io/file dir frames/provenance-file)]
     (if-not (.exists f)
       0
       ;; Written a chunk at a time through `cap/put-all-provenance` — one statement per
@@ -797,7 +792,7 @@
   ordinary — a `:records` dump has none, and so does a `:records+index` export that was
   cancelled before `index.edn` was written, which is why the writer writes it last."
   [dir]
-  (let [^java.io.File f (io/file dir index-dir index-meta-file)]
+  (let [^java.io.File f (io/file dir frames/index-dir frames/index-meta-file)]
     (when (.exists f)
       ;; The `.exists` guard already ruled out absence, so this catch fires only on a
       ;; CORRUPT index.edn — a different fact from "there wasn't one", and the caller
@@ -853,7 +848,7 @@
     (try
       (let [n (snapshot/install-entries!
                (:index kb)
-               (vreset! frames (read-fn (io/file dir index-dir index-entry-file)
+               (vreset! frames (read-fn (io/file dir frames/index-dir frames/index-entry-file)
                                         compression)))]
         (when-not (= (long n) (long expected))
           (trove/log! {:level :warn :id ::index-short
@@ -1048,7 +1043,7 @@
                         (= kv/index-layout-version (:index-layout index-meta))
                         preserve?)
         result     (bulk-load-records-only!
-                    kb (read-fn (io/file dir sentex-file) compression) decode preserve?
+                    kb (read-fn (io/file dir frames/sentex-file) compression) decode preserve?
                     (not possible?) report-every on-progress (:sentex-count meta))
         preserved? (and preserve? (zero? (long (:minted result))))
         idx        (if possible?
@@ -1270,10 +1265,10 @@
                   ;; already holding every sentex the dump had (`assert-no-naf-justifications!`)
                   _ (when ours?
                       (assert-no-naf-justifications!
-                       (read-fn (io/file dir justification-file) compression)))
+                       (read-fn (io/file dir frames/justification-file) compression)))
                   {:keys [sx-meta embedding collapsed minted fingerprint naming frames
                           refused]}
-                  (import-sentexes! kb (read-fn (io/file dir sentex-file) compression)
+                  (import-sentexes! kb (read-fn (io/file dir frames/sentex-file) compression)
                                     decode ours? (tick :sentexes (:sentex-count meta)))
                   _ (check-frame-count! :sentexes frames (:sentex-count meta))
                   _ (when-let [line (nm/tally-line naming)]
@@ -1304,7 +1299,7 @@
                     ;; premise is a sentex carrying a strength
                     (let [{:keys [dropped dropped-orphaned ids frames]}
                           (import-justifications!
-                           kb (read-fn (io/file dir justification-file) compression) old->new
+                           kb (read-fn (io/file dir frames/justification-file) compression) old->new
                            orphaned kept?
                            (tick :justifications (:justification-count meta)))
                           ;; the same witness the sentex stream gets, and the stream that
