@@ -274,7 +274,7 @@
           :equality (empty-equality)
           :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
           :sibling-disjoint #{} :sib-exception-index {}
-          :props {} :inverse {} :arity {}
+          :props {} :inverse {} :arity {} :functional-in-arg {}
           :cache-support {} :cache-handle-keys {} :cache-dirty #{} :cache-ctxs {}
           ;; A KB installs two read-only callbacks after construction: whether any
           ;; supporter needs exception-aware scoping, and whether one supporter is
@@ -906,7 +906,13 @@
     :sib-exception (index-symmetric t :sib-exception-index a true)  ; a = #{x y}
     :prop     (update-in t [:props a] (fnil conj #{}) b)             ; a = prop-kind, b = pred
     :inverse  (index-symmetric t :inverse a true)                  ; a = #{p q}
-    :arity    (update-in t [:arity a] (fnil conj #{}) b)))                        ; a = pred, b = n
+    :arity    (update-in t [:arity a] (fnil conj #{}) b)                          ; a = pred, b = n
+    ;; `:functional-in-arg` is `:arity`'s shape and not `:prop`'s, because the
+    ;; declaration carries an integer and a `:props` roster is a set of predicates with
+    ;; nowhere to put one.  A predicate may hold several positions at once, so this
+    ;; accumulates rather than replacing — `(functionalInArg P 2)` and
+    ;; `(functionalInArg P 3)` are two constraints, both live.
+    :functional-in-arg (update-in t [:functional-in-arg a] (fnil conj #{}) b)))    ; a = pred, b = n
 
 (defn- cache-uninstall
   "Remove the derived cache entry for support key `k` — the exact inverse of
@@ -926,7 +932,15 @@
     :prop     (update-in t [:props a] (fnil disj #{}) b)
     :inverse  (index-symmetric t :inverse a false)
     :arity    (let [ns' (disj (get-in t [:arity a] #{}) b)]
-                (if (seq ns') (assoc-in t [:arity a] ns') (update t :arity dissoc a)))))
+                (if (seq ns') (assoc-in t [:arity a] ns') (update t :arity dissoc a)))
+    ;; Dropping the last position drops the predicate's whole entry, so
+    ;; `functional-in-arg-over`'s `(filter table)` gate stays exact and an emptied
+    ;; predicate does not linger as a key mapping to `#{}`.
+    :functional-in-arg
+    (let [ns' (disj (get-in t [:functional-in-arg a] #{}) b)]
+      (if (seq ns')
+        (assoc-in t [:functional-in-arg a] ns')
+        (update t :functional-in-arg dissoc a)))))
 
 ;; ---- incremental adjacency maintenance ----------------------------------
 ;; Only the O(V+E) direct adjacency is stored; the closure is answered on demand
@@ -2244,7 +2258,7 @@
          :equality (empty-equality)
          :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
          :sibling-disjoint #{} :sib-exception-index {}
-         :props {} :inverse {} :arity {}
+         :props {} :inverse {} :arity {} :functional-in-arg {}
          :cache-support {} :cache-handle-keys {} :cache-dirty #{} :cache-ctxs {}
          :rewrite-support {} :rewrite-active {})
   ;; The read memo is stamped with each relation's `:gen`, which the fresh
@@ -3655,6 +3669,65 @@
                 (filterv #(cache-entry-visible? tax [:arity pred %] context) ns')
                 (vec ns'))]
      (when (= 1 (count seen)) (first seen)))))
+
+(defn add-functional-in-arg
+  ([tax pred n handle] (add-functional-in-arg tax pred n handle nil))
+  ([tax pred n handle ctx]
+   (let [k [:functional-in-arg pred n]]
+     (swap! tax supported-add k handle ctx #(cache-install % k)))
+   tax))
+(defn del-functional-in-arg! [tax pred n handle]
+  (let [k [:functional-in-arg pred n]]
+    (swap! tax supported-del k handle #(cache-uninstall % k)))
+  tax)
+
+(defn functional-in-arg-supporters
+  "The **handles** of the sentexes declaring `(functionalInArg pred n)`, as a set.
+
+  The `functionalInArg` twin of `prop-supporters`, and it keys on the *pair*: a merge
+  derived under `(functionalInArg P 3)` rests on the declarations naming position 3, not
+  on every `functionalInArg` declaration `P` happens to carry.  Defeated members
+  included, for the reason `prop-supporters` gives."
+  [tax pred n] (cache-supporters tax [:functional-in-arg pred n]))
+
+(defn functional-in-arg-over
+  "`[pred n]` pairs — `p` and every **super-predicate** of it carrying a
+  `(functionalInArg pred n)` declaration, anywhere or (with `context`) declared from a
+  context the reader can see.  Empty when none does.
+
+  This is `props-over`'s shape and it walks **up** for `props-over`'s reason: the
+  constraint refuses tuples rather than licensing them, so a declaration on a super
+  binds the sub.  `(functionalInArg parentOf 2)` has to convict two `fatherOf` mothers
+  exactly as `(functional parentOf)` does, or the generalization would be weaker than
+  the arity-2 case it generalizes — which the regression half of
+  `functional-in-arg-test` forbids.
+
+  Storage is `arity`'s rather than `:props`': the declaration carries an integer, and a
+  `:props` roster is a set of predicates with nowhere to put one.  `::prop-kind` is
+  therefore **not** extended — `arity` is not in it either, and `special-table-test`
+  holds that roster in sync with `:props` as sets, which a kind derived from `n` would
+  break.
+
+  Unlike `declared-arity` this does **not** collapse to a single `n`.  Two arities for
+  one predicate are a genuine ambiguity about which one it has; two functional positions
+  are two independent constraints, both of which hold, and a KB is free to say
+  `(functionalInArg P 2)` and `(functionalInArg P 3)` of the same predicate.  Visibility
+  is asked per `[pred n]` entry, which is what scopes a declaration to the vantage that
+  can see it without any machinery of its own."
+  ([tax p] (functional-in-arg-over tax p nil))
+  ([tax p context]
+   (let [table (get @tax :functional-in-arg {})]
+     (if (empty? table)
+       #{}
+       (into #{}
+             (comp (filter table)
+                   (mapcat (fn [q]
+                             (for [n     (get table q)
+                                   :when (or (not (scoped-context? context))
+                                             (cache-entry-visible?
+                                              tax [:functional-in-arg q n] context))]
+                               [q n]))))
+             (if (some? context) (genls tax p context) (genls-global tax p)))))))
 
 (defn inverses-of
   "**Every** predicate declared inverse to `p`, as a set — anywhere, or (with `context`)

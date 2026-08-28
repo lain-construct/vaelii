@@ -200,6 +200,34 @@
                " fixpoint — declare (transitive " rel ") before the preservation, or"
                " name one of " (str/join " / " (sort inherit/virtual-relations))))))
 
+(defn functional-in-arg-problems
+  "`functionalInArg` — a predicate and a positive-integer position, and nothing else.
+
+  `arg-preserving-problems` above is the near neighbour and the difference is the third
+  argument it has and this does not: `transitiveInArg` names a relation the argument is
+  preserved *along*, and has to refuse a non-transitive one because `inherit` would walk
+  it to a fixpoint and manufacture transitivity for it. `functionalInArg` licenses
+  nothing and walks nothing — it refuses tuples — so there is no relation to name and no
+  such restriction to impose. The two share a name shape and sit on opposite sides of
+  the prover/checker divide; `props-over`'s docstring draws the same line.
+
+  The position is held to a **positive** integer for the reason
+  `arg-preserving-problems` holds its own: argument positions are one-based throughout,
+  so `(functionalInArg P 0)` names no slot. That an `n` exceeding the predicate's
+  declared arity is not refused here is deliberate and matches `arity`'s own
+  open-worldness — the declaration may legitimately arrive before the arity does, and a
+  position past the end simply never matches a tuple.
+
+  The predicate is held to what `prop-problems` holds its subject to rather than to
+  `arg-preserving-problems`' looser symbol-or-compound test: this mark is read off a
+  sentence's functor, and a functor is a symbol."
+  [_ [f pred n :as s]]
+  (cond-> []
+    (not= 3 (count s))    (conj (str f " takes two arguments"))
+    (nm/individual? pred) (conj (str pred " is an individual; " f " marks a predicate"))
+    (not (and (integer? n) (pos? n)))
+    (conj (str f " position must be a positive integer"))))
+
 (defn prop-problems [_ [f pred :as s]]
   (cond-> []
     (not= 2 (count s))    (conj (str f " takes one argument"))

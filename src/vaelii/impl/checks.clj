@@ -1414,16 +1414,25 @@
   fans down over its specs — so one stored filler comes back under every mark above it.
   That is one clash, not three: the pair is `[this sentence, that filler]` whichever
   declaration convicts it.  Lazy, because `functional-problem` takes the first and an
-  eager dedup would walk a whole functional extent to answer whether one exists."
-  [triples]
-  (letfn [(step [xs seen]
-            (lazy-seq
-             (when-let [s (seq xs)]
-               (let [t (first s), k [(nth t 0) (nth t 1)]]
-                 (if (contains? seen k)
-                   (step (rest s) seen)
-                   (cons t (step (rest s) (conj seen k))))))))]
-    (step triples #{})))
+  eager dedup would walk a whole functional extent to answer whether one exists.
+
+  The key is `[handle value]` by default and a caller may widen it.  `functional-clashes`
+  does, to `[handle value position]`: with `functionalInArg` a predicate may be
+  constrained at more than one position at once, and two positions filled by one stored
+  sentex are two different slots with two different incoming fillers, so a key that
+  ignored the position would drop one of them.  For the arity-2 marks the position is
+  always 2 and the widened key dedups identically, which is what keeps today's behaviour
+  byte-for-byte."
+  ([triples] (first-per-slot triples (fn [t] [(nth t 0) (nth t 1)])))
+  ([triples key-fn]
+   (letfn [(step [xs seen]
+             (lazy-seq
+              (when-let [s (seq xs)]
+                (let [t (first s), k (key-fn t)]
+                  (if (contains? seen k)
+                    (step (rest s) seen)
+                    (cons t (step (rest s) (conj seen k))))))))]
+     (step triples #{}))))
 
 (defn functional-clashes
   "The believed `[handle value via]` triples that already fill a functional slot for the
@@ -1442,17 +1451,69 @@
   written either way through the matcher's fan, where `(fatherOf a ?v)` would miss one
   written at the general spelling.  Empty when nothing above the sentence's predicate is
   marked — one map read on a KB that declares nothing functional, which is every bulk
-  load."
+  load.
+
+  **The quadruple carries the position**, because `functionalInArg` moved it.  A
+  `(functional P)` mark always constrains argument 2, so the arity-2 path reads its
+  incoming filler as `(second (nm/args sentence))` and nothing had to say so; a
+  `(functionalInArg P n)` constrains argument `n`, and which argument the clash is about
+  is no longer a constant the caller can assume.  Every consumer reads `b` off the
+  quadruple rather than off the sentence.
+
+  Both marks are consulted and their clashes unioned, so a predicate carrying
+  `(functional P)` **and** `(functionalInArg P 2)` yields one deduped clash resting on
+  both declarations — which is the behaviour `derive-functional-equalities` already
+  wants of two `(functional P)` sentexes in different contexts, applied one level up."
   [kb sentence context]
-  (let [pred (nm/functor sentence)]
-    (when (= 2 (nm/arity sentence))
-      (let [[a b] (nm/args sentence)]
-        (first-per-slot
-         (for [q       (sort (tax/props-over (:taxonomy kb) :functional pred context))
-               [h bnd] (res/matches-visible kb (list q a '?fv) context)
-               :let    [v (get bnd '?fv)]
-               :when   (and v (not= v b))]
-           [h v q]))))))
+  (let [pred (nm/functor sentence)
+        tax  (:taxonomy kb)
+        args (vec (nm/args sentence))
+        k    (count args)
+        ;; `(q a1 … ?fv … ak)` — the sentence's own arguments with position `n` opened
+        ;; up.  At arity 2 with n=2 this is `(q a ?fv)`, the probe the arity-2 path built
+        ;; by hand, so the generalization reproduces it rather than replacing it.
+        probe (fn [q n] (apply list q (assoc args (dec n) '?fv)))
+        ;; `[via position]` pairs constraining this sentence.  The arity-2 mark speaks
+        ;; only for arity-2 sentences, exactly as before.  `functionalInArg` speaks
+        ;; wherever the declared position is a position this sentence actually has — a
+        ;; declaration past the end matches no tuple, which is `arity`'s open-worldness
+        ;; and the reason `wff` does not refuse it either.
+        marks (into (if (= 2 k)
+                      (into #{} (map (fn [q] [q 2]))
+                            (tax/props-over tax :functional pred context))
+                      #{})
+                    (filter (fn [[_ n]] (<= n k)))
+                    (tax/functional-in-arg-over tax pred context))]
+    (when (seq marks)
+      (first-per-slot
+       (for [[q n]  (sort marks)
+             :let   [b (nth args (dec n))]
+             [h bnd] (res/matches-visible kb (probe q n) context)
+             :let    [v (get bnd '?fv)]
+             :when   (and v (not= v b))]
+         [h v q n])
+       (fn [t] [(nth t 0) (nth t 1) (nth t 3)])))))
+
+(defn functional-filler
+  "The incoming filler a clash quadruple is about — argument `n` of `sentence`.
+
+  One reader for the thing three call sites used to spell `(second (nm/args sentence))`,
+  so the arg-2 assumption has exactly one place left to live and it is this function."
+  [sentence [_ _ _ n]]
+  (nth (vec (nm/args sentence)) (dec n)))
+
+(defn functional-declaration-supporters
+  "The handles of every declaration supporting a functional constraint on `via` at
+  position `n` — the `(functional via)` sentexes when `n` is 2, and the
+  `(functionalInArg via n)` sentexes always, unioned.
+
+  Both genuinely support the merge, so both belong in its antecedents: retracting one
+  leaves it standing on the other, which is the rule
+  `a-merge-rests-on-every-functional-declaration-not-on-one-of-them` pins for two
+  `(functional P)` sentexes and holds for the same reason across the two spellings."
+  [tax via n]
+  (into (if (= 2 n) (tax/prop-supporters tax :functional via) #{})
+        (tax/functional-in-arg-supporters tax via n)))
 
 (defn- functional-problems
   "A (P a b) where P is functional and `a` already has a value for P that no
@@ -1471,27 +1532,35 @@
   not depend on the order the extent came back in.
 
   The message names the predicate the mark is on, which is the sentence's own unless the
-  declaration descended — the slot that is already filled is that predicate's."
+  declaration descended — the slot that is already filled is that predicate's.  It names
+  the **position** too once the constraint is not at argument 2, because with
+  `functionalInArg` the determinant is every other argument and reporting only the first
+  would describe a slot the reader does not have."
   [kb sentence context]
-  (let [b (second (nm/args sentence))]
-    (for [[h v via] (functional-clashes kb sentence context)
-          ;; violation iff no merge could reconcile them: a clash between two symbols is
-          ;; not a violation but a co-reference the KB *derives* an equality from (see
-          ;; `special/derive-functional-equalities`), everything else is the hard
-          ;; contradiction it always was.  A "no merge already has" guard was here as
-          ;; `(not (tax/same-class? tax v b))`, but the partition is over symbols, so
-          ;; `same-class?` can only hold of two symbols — and `mergeable-values?` has
-          ;; already excluded that whole case, so the conjunct only ever ran where it was
-          ;; false and could not change the answer.  Deleted rather than left as an
-          ;; unscoped read to be widened into: the derivation twin keeps the guard, where
-          ;; it is live and scoped (`special/derive-functional-equalities`), and if this
-          ;; door ever admits a symbol clash it wants that same context-scoped read, not
-          ;; the global one this was.
-          :when (not (mergeable-values? v b))]
-      {:type :functional :sentence sentence :existing v :new b :opposing-handle h
-       :pred via
-       :message (str "functional violation: " via " of "
-                     (first (nm/args sentence)) " is already " v ", not " b)})))
+  (for [[h v via n :as clash] (functional-clashes kb sentence context)
+        :let [b (functional-filler sentence clash)]
+        ;; violation iff no merge could reconcile them: a clash between two symbols is
+        ;; not a violation but a co-reference the KB *derives* an equality from (see
+        ;; `special/derive-functional-equalities`), everything else is the hard
+        ;; contradiction it always was.  A "no merge already has" guard was here as
+        ;; `(not (tax/same-class? tax v b))`, but the partition is over symbols, so
+        ;; `same-class?` can only hold of two symbols — and `mergeable-values?` has
+        ;; already excluded that whole case, so the conjunct only ever ran where it was
+        ;; false and could not change the answer.  Deleted rather than left as an
+        ;; unscoped read to be widened into: the derivation twin keeps the guard, where
+        ;; it is live and scoped (`special/derive-functional-equalities`), and if this
+        ;; door ever admits a symbol clash it wants that same context-scoped read, not
+        ;; the global one this was.
+        :when (not (mergeable-values? v b))]
+    {:type :functional :sentence sentence :existing v :new b :opposing-handle h
+     :pred via :position n
+     :message (if (= 2 n)
+                (str "functional violation: " via " of "
+                     (first (nm/args sentence)) " is already " v ", not " b)
+                (str "functional violation: argument " n " of " via " under "
+                     (pr-str (vec (keep-indexed (fn [i a] (when (not= i (dec n)) a))
+                                                (nm/args sentence))))
+                     " is already " v ", not " b))}))
 
 (defn- functional-problem
   "The first functional clash, for the refusal paths."
