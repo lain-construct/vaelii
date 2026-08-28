@@ -3305,6 +3305,35 @@
                         (when (and (symbol? pred) (integer? n))
                           (tax/add-arity tax pred n id ctx)))
         :derived?     true}]
+      ['functionalInArg
+       ;; `(functionalInArg P n)` says the other arguments of `P` determine argument `n`
+       ;; — `functional` generalized off its fixed arg-2 slot.  Cached exactly as `arity`
+       ;; is and for the same reason: the definitional checks read it on every assert,
+       ;; and a declaration is not something to re-derive per write.
+       ;;
+       ;; Registered here beside `arity` rather than through `prop-entry`, which cannot
+       ;; carry the integer, and deliberately NOT the way `transitiveInArg` is: that one
+       ;; licenses tuples and is read for the goal's own predicate, this one refuses them
+       ;; and is read up the hierarchy (`tax/functional-in-arg-over`).  The two share a
+       ;; name shape and sit on opposite sides of the prover/checker divide — the same
+       ;; line `props-over`'s docstring draws, and the reason `functional` is absent from
+       ;; the recheck table below.
+       ;;
+       ;; `:derived?` for `arity`'s reason: a `decontextualizedPredicate` lift makes a
+       ;; CxUniverse copy carrying its own context, and the scoped read wants it recorded.
+       {:integrate    (fn [kb sx h]
+                        (let [[_ pred n] (:sentence sx)]
+                          (when (and (symbol? pred) (integer? n) (pos? n))
+                            (tax/add-functional-in-arg (:taxonomy kb) pred n h (:context sx)))))
+        :disintegrate (fn [kb sx]
+                        (let [[_ pred n] (:sentence sx)]
+                          (when (and (symbol? pred) (integer? n) (pos? n))
+                            (tax/del-functional-in-arg! (:taxonomy kb) pred n (:id sx)))))
+        :rebuild      (fn [tax {[_ pred n] :sentence id :id ctx :context}]
+                        (when (and (symbol? pred) (integer? n) (pos? n))
+                          (tax/add-functional-in-arg tax pred n id ctx)))
+        :wff          wff/functional-in-arg-problems
+        :derived?     true}]
       ['inverse {:integrate    (fn [kb sx h]
                                  (let [[_ p q] (:sentence sx)]
                                    (tax/add-inverse (:taxonomy kb) p q h (:context sx))))
