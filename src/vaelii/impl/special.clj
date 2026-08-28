@@ -2737,7 +2737,6 @@
   (let [tax     (:taxonomy kb)
         recs    (:records kb)
         pred    (nm/functor sentence)
-        b       (second (nm/args sentence))
         ;; content-ordered, so which pair gets the explicit equality is a function of
         ;; what the KB says rather than of which filler was written first — it shows when
         ;; a standing merge among the fillers is later retracted.  **The whole triple is
@@ -2749,35 +2748,45 @@
         ;; equality's antecedent vector, so that is not cosmetic.  Structural, so nothing
         ;; is printed and no ambient `*print-length*` can collapse it.
         clashes (nm/sort-by-content-key
-                 (fn [[oh v via]] (let [s (p/get-sentex recs oh)]
-                                    [v (:sentence s) (:context s) via]))
+                 (fn [[oh v via n]] (let [s (p/get-sentex recs oh)]
+                                      [v (:sentence s) (:context s) via n]))
                  (checks/functional-clashes kb sentence context))]
     (when (seq clashes)
-      (reduce (fn [acc [oh v via]]
-                ;; the idempotence guard is **scoped to `context`**: skip a pair only
-                ;; when the merge that reconciles them is one `context` can already see.
-                ;; Read globally it skipped a pair merged behind an edge `context` cannot
-                ;; see, so a context could not derive a functional equality it is owed
-                ;; because some other context happened to hold one — belief drifting with
-                ;; a merge the reader never heard of.
-                (if-not (and (checks/mergeable-values? v b)
-                             (not (res/same-class-in? kb v b context)))
-                  acc
-                  ;; the edges *both* sides of the pair descended to reach the mark —
-                  ;; deduped, since the two descents share every hop they have in common
-                  ;; and the same functor on both sides shares all of them
-                  (let [other (some-> (p/get-sentex recs oh) :sentence nm/functor)
-                        edges (into [] (distinct)
-                                    (cond-> (vec (checks/edge-support kb pred via context))
-                                      (and (symbol? other) (not= other pred))
-                                      (into (checks/edge-support kb other via context))))
-                        antes (map #(into [%] edges)
-                                   (sort (tax/prop-supporters tax :functional via)))]
-                    (reduce (fn [acc a]
-                              (merge-with into acc
-                                          (derive-equality kb v b context 'functional
-                                                           (into [handle oh] a))))
-                            acc antes))))
+      (reduce (fn [acc [oh v via n :as clash]]
+                ;; the incoming filler is argument `n`, read off the clash rather than
+                ;; assumed to be argument 2 — with `functionalInArg` the constrained
+                ;; position moves, and two clashes on one sentence may be about two
+                ;; different arguments of it.
+                (let [b (checks/functional-filler sentence clash)]
+                  ;; the idempotence guard is **scoped to `context`**: skip a pair only
+                  ;; when the merge that reconciles them is one `context` can already see.
+                  ;; Read globally it skipped a pair merged behind an edge `context` cannot
+                  ;; see, so a context could not derive a functional equality it is owed
+                  ;; because some other context happened to hold one — belief drifting with
+                  ;; a merge the reader never heard of.
+                  (if-not (and (checks/mergeable-values? v b)
+                               (not (res/same-class-in? kb v b context)))
+                    acc
+                    ;; the edges *both* sides of the pair descended to reach the mark —
+                    ;; deduped, since the two descents share every hop they have in common
+                    ;; and the same functor on both sides shares all of them
+                    (let [other (some-> (p/get-sentex recs oh) :sentence nm/functor)
+                          edges (into [] (distinct)
+                                      (cond-> (vec (checks/edge-support kb pred via context))
+                                        (and (symbol? other) (not= other pred))
+                                        (into (checks/edge-support kb other via context))))
+                          ;; every declaration constraining `via` at this position — the
+                          ;; `(functional via)` sentexes at position 2 and the
+                          ;; `(functionalInArg via n)` sentexes always, so a merge holding
+                          ;; under both spellings survives retracting either.
+                          antes (map #(into [%] edges)
+                                     (sort (checks/functional-declaration-supporters
+                                            tax via n)))]
+                      (reduce (fn [acc a]
+                                (merge-with into acc
+                                            (derive-equality kb v b context 'functional
+                                                             (into [handle oh] a))))
+                              acc antes)))))
               {:new [] :superseded [] :violations []}
               clashes))))
 
