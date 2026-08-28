@@ -2104,11 +2104,43 @@
 ;; first.  Those sweeps draw on the same instance budget the exposure pass uses, and
 ;; behind the same O(1) gate — the five set-emptiness reads `constraint-nogoods` names.
 
+(def ^:private definitional-marks
+  "The tuple marks every clash-detection pass in this namespace treats as
+  definitional, as `[symbol keyword]` pairs — the **one** place naming the trio, so
+  every reader below asks this roster instead of restating it.
+
+  Two spellings coexist and neither can be dropped: a *declaration* arrives under the
+  sentence-level functor (`(functional P)`, camelCase, matching predicate naming), and
+  a *stored* mark or a `checks/arbitrable-violations` `:type` is keyed by the
+  taxonomy's prop keyword (kebab-case — `tax/props`, `tax/props-over`).  Deriving one
+  spelling from the other by case-conversion alone would get `antiTransitive` wrong
+  (`:anti-transitive`, not `:antitransitive`), which is why this is a table of pairs
+  and not a `->kebab-case` function over one list.
+
+  **`functionalInArg` does not belong here**, and adding it would be the same mistake
+  #45 filed: it is a distinct declaration (`(functionalInArg P n)`, a different functor
+  and a different shape) rather than another spelling of `functional`.  A caller that
+  needs both reads `tax/functional-in-arg-predicates` beside whatever it reads this
+  roster's `:functional` entry for — `clash-marked-below` and `tuple-marks?` both do."
+  [['functional     :functional]
+   ['asymmetric     :asymmetric]
+   ['antiTransitive :anti-transitive]])
+
+(def ^:private definitional-mark-symbols
+  "`definitional-marks`' declaration-functor spelling, as a set — what a sentence's own
+  functor is compared against."
+  (into #{} (map first) definitional-marks))
+
+(def ^:private definitional-mark-keywords
+  "`definitional-marks`' taxonomy-prop-key spelling, as a set — what a stored mark's
+  key or a violation's `:type` is compared against."
+  (into #{} (map second) definitional-marks))
+
 (def ^:private clash-declaration-functors
   "Sentence functors whose arrival implicates content already stored.  A membership or
   a relation fact needs no entry here: it is its own candidate, found in the region."
-  '#{disjoint disjointMetatype siblingDisjoint genl genlCx
-     functional asymmetric antiTransitive})
+  (into '#{disjoint disjointMetatype siblingDisjoint genl genlCx}
+        definitional-mark-symbols))
 
 (defn- metatype-member?
   "Is `sen` a term **joining** a disjoint metatype — `(M T)` where the taxonomy already
@@ -2192,7 +2224,8 @@
   nil)
 
 (defn- marks-above?
-  "Is any `functional`, `asymmetric` or `antiTransitive` mark at or above predicate `f`?
+  "Is any `definitional-marks` mark (`functional`, `asymmetric` or `antiTransitive`) at
+  or above predicate `f`?
 
   The only thing any pass asks about a mark, and the reason the answer is a set membership
   rather than the marks themselves: every gate here wanted the boolean.  Unbound, it
@@ -2271,12 +2304,13 @@
   them reaches and the other does not would be reported as *visible* by one mechanism
   and *decided* by the other depending on which route ran.
 
-  `functional`, `asymmetric` and `antiTransitive` have no type reach and a **predicate**
-  reach rather than none: the mark descends (`marks-above?`, which is how the checks read
-  it), so what the declaration implicates is the facts of the whole spec subtree beneath
-  the predicate it names (`subtree-facts`).  Reading the named predicate's own extent
-  instead is reading the one thing a general spelling is usually empty of, and it descends nothing while the
-  door descends everything — `checks/functional-clashes` and `checks/asymmetry-problems`
+  `definitional-marks` (`functional`, `asymmetric` and `antiTransitive`) have no type
+  reach and a **predicate** reach rather than none: the mark descends (`marks-above?`,
+  which is how the checks read it), so what the declaration implicates is the facts of
+  the whole spec subtree beneath the predicate it names (`subtree-facts`).  Reading the
+  named predicate's own extent instead is reading the one thing a general spelling is
+  usually empty of, and it descends nothing while the door descends everything —
+  `checks/functional-clashes` and `checks/asymmetry-problems`
   convict a `fatherOf` pair under `(functional parentOf)` whichever spelling arrives last.
   **And a pair this sweep does not reach is missed permanently rather than late**: the
   sweep is the only route in, so nothing puts the pair in `:clashes`, and `:clashes` is
@@ -2319,7 +2353,7 @@
       (contains? '#{disjoint disjointMetatype siblingDisjoint genlCx} f)
       (implicated (declaration-reach kb sen))
 
-      (contains? '#{functional asymmetric antiTransitive} f)
+      (contains? definitional-mark-symbols f)
       (marked a)
 
       ;; the one trigger with both reaches, spending one budget between them: the
@@ -3104,10 +3138,8 @@
   is every `functionalInArg`-only KB, since the two are independent declarations and
   a predicate need carry only one."
   [tax]
-  (boolean (or (seq (tax/props tax :functional))
-               (seq (tax/functional-in-arg-predicates tax))
-               (seq (tax/props tax :asymmetric))
-               (seq (tax/props tax :anti-transitive)))))
+  (boolean (or (some #(seq (tax/props tax %)) definitional-mark-keywords)
+               (seq (tax/functional-in-arg-predicates tax)))))
 
 (def ^:dynamic *skip-constraint-nogoods*
   "When true, `constraint-nogoods` takes the same branch a KB declaring no
@@ -3382,6 +3414,17 @@
                                 (empty-determinant-arity? tax f k)))))]
       s)))
 
+(def ^:private trigger-functor-kind
+  "Functor → which arity check `constraint-exposure-candidates`' `trigger?` runs, or
+  nil — the two visibility-edge functors and `definitional-mark-symbols` merged once,
+  at load time, into the single map a functor is looked up in.  A `case` cannot take
+  `definitional-mark-symbols` as one of its own dispatch values (its test constants
+  must be literal), so the roster is folded in here instead, ahead of the call, which
+  keeps the same one-hash-lookup-per-functor cost `trigger?` was written for."
+  (into '{genl :edge genlCx :edge}
+        (map #(vector % :mark))
+        definitional-mark-symbols))
+
 (defn- constraint-exposure-candidates
   "The believed binary facts whose predicate one of the three tuple marks reaches — in
   the moved region, and in what a trigger there implicates about content stored before
@@ -3444,16 +3487,14 @@
                                   (or (and (= 2 k) (marks-above? tax f))
                                       (empty-determinant-arity? tax f k)))))))
         region    (into [] (believed-xf kb) touched)
-        ;; the two edges and the mark declaration, told apart by shape: a `case` on the
-        ;; functor, so a region sentex under none of the five costs one hash dispatch
-        ;; rather than a membership test per vocabulary
+        ;; the two edges and the mark declaration, told apart by shape: a `case` on
+        ;; `trigger-functor-kind`, so a region sentex under none of the five costs one
+        ;; hash dispatch rather than a membership test per vocabulary
         trigger?  (fn [sen]
                     (let [as (nm/args sen)]
-                      (case (nm/functor sen)
-                        (genl genlCx)
-                        (and (= 2 (count as)) (every? symbol? as))
-                        (functional asymmetric antiTransitive)
-                        (and (= 1 (count as)) (symbol? (first as)))
+                      (case (trigger-functor-kind (nm/functor sen))
+                        :edge (and (= 2 (count as)) (every? symbol? as))
+                        :mark (and (= 1 (count as)) (symbol? (first as)))
                         false)))
         triggers  (content-order
                    (filterv (fn [s]
@@ -3552,7 +3593,7 @@
                                          (distinct))
                                 (checks/opposing-handles v))
                       members (into #{(:id s)} opp)]
-              :when  (and (contains? #{:functional :asymmetric :anti-transitive} (:type v))
+              :when  (and (contains? definitional-mark-keywords (:type v))
                           (seq opp)
                           (not (contains? arbitrated members)))
               :let   [others (keep #(p/get-sentex (:records kb) %) opp)]
