@@ -313,14 +313,16 @@ decides at all, rather than every non-symbol being exempt:
 [defenses.md](defenses.md#a-literal-is-typed-by-its-kind-and-the-openness-moves-to-the-declared-type).
 
 **One vocabulary, not two.** `string`, `number`, `integer`, `keyword`, `boolean`,
-`character` and `symbol` are the KB's only names for the kinds a literal argument can
-carry — one per leaf kind, deliberately complete — and both declarations read them: the
-use/mention distinction is carried by *which predicate you write*, not by a second set of
-type names. A string literal denotes itself, so `(arg comment 2 string)` and
-`(quotedArg p n string)` ask two questions of one set — what the argument denotes, and
-what is written there. A parallel domain spelling would buy nothing and cost a trap:
-`quotedArg` reads a type outside the syntactic lattice open-world, so a second spelling
-stores clean and convicts nothing, with no report
+`character` and `symbol` name the EDN kinds a literal argument can carry — one per leaf
+kind, deliberately complete — and both declarations read them. `arg` can additionally
+use the value-refined integer types `positive_integer`, `negative_integer`,
+`non_negative_integer` and `non_positive_integer`; zero satisfies both non-positive and
+non-negative. `quotedArg` still asks only what syntax was written, so an integer literal
+is an `integer` there regardless of its value. A string literal denotes itself, so
+`(arg comment 2 string)` and `(quotedArg p n string)` ask two questions of one set — what
+the argument denotes, and what is written there. A parallel domain spelling would buy
+nothing and cost a trap: `quotedArg` reads a type outside the syntactic lattice
+open-world, so a second spelling stores clean and convicts nothing, with no report
 ([why one vocabulary](defenses.md#one-vocabulary-not-two)).
 
 `symbol` is the exception, and is **mention-only**. A symbol does not denote itself, so

@@ -97,6 +97,20 @@
     (and (symbol? x) (not (sx/variable? x))) 'symbol
     :else                                    nil))
 
+(defn- literal-denotation-types
+  "The most specific built-in types known from a literal's value.
+
+  Most literals have only their EDN kind. Integers additionally carry the sign-refined
+  types declared in CxCore. Zero belongs to both non-negative and non-positive; returning
+  a set rather than forcing one artificial leaf keeps both argument constraints exact."
+  [x]
+  (if (integer? x)
+    (cond
+      (pos? x) '#{positive_integer non_negative_integer}
+      (neg? x) '#{negative_integer non_positive_integer}
+      :else    '#{non_negative_integer non_positive_integer})
+    (if-some [t (literal-type x)] #{t} #{})))
+
 (defn- syntactic-type?
   "Is `t` a type `quotedArg` can judge a literal against — a syntactic root or a subtype
   of one?  A declared type outside this lattice leaves the constraint open-world."
@@ -237,10 +251,11 @@
     (let [ms (types arg)]
       (and (kb/isa-among? (:closures ms) 'thing)
            (not (kb/isa-among? (:closures ms) t))))
-    (when-some [k (literal-type arg)]
-      (and (symbol? t)
-           (tax/genl? tax t 'thing context)
-           (not (tax/genl? tax k t context))))))
+    (let [ks (literal-denotation-types arg)]
+      (when (seq ks)
+        (and (symbol? t)
+             (tax/genl? tax t 'thing context)
+             (not-any? #(tax/genl? tax % t context) ks))))))
 
 (defn- application-term?
   "Is `x` a function **application** — a compound whose head is a name?
