@@ -54,14 +54,14 @@
          "(genlArg ?predicate ?position ?type) means that argument ?position of ?predicate must be a subtype of ?type. The arg constraint one level up, for a typeRelationPredicate whose arguments name kinds rather than instances: (genlArg partType 1 physical_object) says the argument names a kind of physical object, where (arg partOf 1 physical_object) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it.")
 (ternaryPredicate genlArg)
 (arg genlArg 1 predicate)
-(arg genlArg 2 integer)
+(arg genlArg 2 positive_integer)
 (genlArg genlArg 3 thing)
 
 (comment arg
          "(arg ?predicate ?position ?type) means that argument ?position of ?predicate must be of ?type. Checked through genl transitivity whenever a sentex is asserted, and open-world: an argument whose type is unknown cannot violate it, so this narrows what can be said without demanding that everything be typed.")
 (ternaryPredicate arg)
 (arg arg 1 predicate)
-(arg arg 2 integer)
+(arg arg 2 positive_integer)
 (genlArg arg 3 thing)
 ;; arg / genlArg / interArg generalize along genl on the query surface the way
 ;; check walks them internally — a stored subtype constraint answers its supertypes, and
@@ -75,7 +75,7 @@
          "(quotedArg ?predicate ?position ?type) means that argument ?position of ?predicate, taken AS A TERM — the syntactic object written in that position, not what it denotes — must be of ?type. The mention twin of arg: (arg nameOfGuy 1 agent) types what the first argument names, (quotedArg nameOfGuy 1 string) types the argument itself, the literal sitting there. Its ?type is a syntactic type — string, number (with integer below it), symbol — and the argument is classified by its EDN kind, then checked through genl like arg. Closed about a literal whose kind is decidable: (nameOfGuy 5) violates (quotedArg nameOfGuy 1 string), 5 being a number and not a string. It does not read the referent's type, which is arg's business.")
 (ternaryPredicate quotedArg)
 (arg quotedArg 1 predicate)
-(arg quotedArg 2 integer)
+(arg quotedArg 2 positive_integer)
 (genlArg quotedArg 3 thing)
 
 ;; The literal types — the EDN kinds a literal argument can carry, placed in the genl
@@ -106,6 +106,10 @@
 (comment string  "A run of text. The EDN string kind, and what a text-valued argument position holds — either as the literal written there (quotedArg) or as what the term written there denotes (arg).")
 (comment number  "A number, with integer below it. The EDN numeric kinds.")
 (comment integer "A whole number.")
+(comment positive_integer "A whole number greater than zero.")
+(comment negative_integer "A whole number less than zero.")
+(comment non_negative_integer "A whole number greater than or equal to zero.")
+(comment non_positive_integer "A whole number less than or equal to zero.")
 (comment keyword "An EDN keyword, :like_this. A term that names itself and carries no denotation the KB reasons about.")
 (comment boolean "True or false, written as the literal.")
 (comment character "A single character, written \\a. Not a one-letter string: the two are separate EDN kinds and neither is below the other.")
@@ -113,6 +117,14 @@
 (genl string thing)
 (genl number thing)
 (genl integer number)
+(genl positive_integer integer)
+(genl negative_integer integer)
+(genl non_negative_integer integer)
+(genl non_positive_integer integer)
+(defnIff positive_integer (and (integer ?x) (greaterThan ?x 0)))
+(defnIff negative_integer (and (integer ?x) (lessThan ?x 0)))
+(defnIff non_negative_integer (and (integer ?x) (greaterThan ?x -1)))
+(defnIff non_positive_integer (and (integer ?x) (lessThan ?x 1)))
 (genl keyword thing)
 (genl boolean thing)
 (genl character thing)
@@ -123,9 +135,9 @@
 (arity interArg 5)
 (instanceRelationPredicate interArg)
 (arg interArg 1 predicate)
-(arg interArg 2 integer)
+(arg interArg 2 positive_integer)
 (arg interArg 3 unaryPredicate)
-(arg interArg 4 integer)
+(arg interArg 4 positive_integer)
 (arg interArg 5 unaryPredicate)
 
 (comment arity
@@ -134,7 +146,7 @@
 (instanceRelationPredicate arity)
 (functional arity)
 (arg arity 1 predicate)
-(arg arity 2 integer)
+(arg arity 2 non_negative_integer)
 
 ;; The meta-ontology rules below conclude into the ORDINARY placement — the maximal
 ;; context that sees the rule and the declaration — and not into a named one.  Every
@@ -311,7 +323,7 @@
          "(contextArgSubrelation ?function ?position ?subrelation) means that two contexts denoted by ?function and identical except at argument ?position are ordered by ?subrelation on that argument: the context whose argument is ?subrelation-below the other's is a spec (sub)context of it, and the producer materializes the genlCx edge. So (contextArgSubrelation CxTimeFn 2 subintervalOf) makes (CxTimeFn CxMonad (DatetimeFn \"2000-01\")) a subcontext of (CxTimeFn CxMonad (DatetimeFn \"2000\")) because January 2000 is a subinterval of 2000 — with nobody asserting that genlCx edge. ?position is 1-based over ?function's arguments. See docs/context-nat.md.")
 (ternaryPredicate contextArgSubrelation)
 (arg contextArgSubrelation 1 function)
-(arg contextArgSubrelation 2 integer)
+(arg contextArgSubrelation 2 positive_integer)
 (arg contextArgSubrelation 3 predicate)
 
 (comment termOfUnit
@@ -494,14 +506,14 @@
          "(transitiveInArg ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and their reaches union. ?relation must be genl, genlCx, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
 (ternaryPredicate transitiveInArg)
 (arg transitiveInArg 1 predicate)
-(arg transitiveInArg 2 integer)
+(arg transitiveInArg 2 positive_integer)
 (arg transitiveInArg 3 predicate)
 
 (comment transitiveInArgInverse
          "(transitiveInArgInverse ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along ?relation read backwards. A stored (?predicate … W …) licenses the claim about A whenever (?relation W A) holds, so with genl this is upward inheritance. It exists so that direction never requires declaring an inverse predicate with no other use. Same restriction on ?relation.")
 (ternaryPredicate transitiveInArgInverse)
 (arg transitiveInArgInverse 1 predicate)
-(arg transitiveInArgInverse 2 integer)
+(arg transitiveInArgInverse 2 positive_integer)
 (arg transitiveInArgInverse 3 predicate)
 
 (comment ternaryPredicate    "A predicate of three arguments, such as arg.")

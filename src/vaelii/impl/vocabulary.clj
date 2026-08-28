@@ -69,11 +69,15 @@
 
     ;; ---- the literal types, read by name ----------------------------------
     ;; One vocabulary for both readings (docs/argtypes.md): `arg` types what an argument
-    ;; denotes and `quotedArg` the term written there, and a literal denotes itself, so
-    ;; the same four names answer both.  `symbol` is the exception and is mention-only.
+    ;; denotes and `quotedArg` the term written there. The EDN kinds answer both; the
+    ;; sign-refined integers are value types read only by the denotation path.
     string      {:enforced "checks/syntactic-roots — the kind quotedArg judges a literal against, matched by name"}
     number      {:enforced "checks/syntactic-roots — the same, with integer below it"}
     integer     {:enforced "checks/syntactic-roots — the same"}
+    positive_integer     {:enforced "checks/literal-denotation-types — a positive integer literal satisfies an arg constraint naming it"}
+    negative_integer     {:enforced "checks/literal-denotation-types — a negative integer literal satisfies an arg constraint naming it"}
+    non_negative_integer {:enforced "checks/literal-denotation-types — zero and positive integer literals satisfy an arg constraint naming it"}
+    non_positive_integer {:enforced "checks/literal-denotation-types — zero and negative integer literals satisfy an arg constraint naming it"}
     keyword     {:enforced "checks/syntactic-roots — the same"}
     boolean     {:enforced "checks/syntactic-roots — the same"}
     character   {:enforced "checks/syntactic-roots — the same; a one-letter string is not one"}
