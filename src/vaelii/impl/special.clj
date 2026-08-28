@@ -2795,6 +2795,20 @@
               {:new [] :superseded [] :violations []}
               clashes))))
 
+(defn- functional-mark-relevant?
+  "Could `sentence`'s own functor, or something it descends from, carry a `functional`
+  or `functionalInArg` mark — the cheap pre-gate `derive-functional-equalities` reads
+  before paying for a reader sweep, so a fact of a predicate no mark reaches never pays
+  for one.  Two unscoped, over-approximating `genl`-walk reads (`tax/props-over`,
+  `tax/functional-in-arg-over`), the same reads `checks/functional-clashes` already
+  makes internally to answer the single-context question — this asks it once more,
+  early, purely to decide whether `context-down` is worth reading at all."
+  [tax sentence]
+  (let [f (nm/functor sentence)]
+    (and (symbol? f)
+         (or (seq (tax/props-over tax :functional f))
+             (seq (tax/functional-in-arg-over tax f))))))
+
 (defn derive-functional-equalities
   "`derive-functional-equalities-in`, run from `context` **and from every reader that
   can see it** — `(tax/context-down tax context)`, which already includes `context`
@@ -2834,14 +2848,28 @@
   storage context, exactly as it always has — the sweep this wrapper adds is what
   reaches the readers a fact's own context cannot, so neither caller needs a reader
   computation of its own any more.  `derive-antisymmetric-equalities` is the twin, over
-  `derive-antisymmetric-equalities-in`."
+  `derive-antisymmetric-equalities-in`.
+
+  **A second, per-fact gate stands in front of the reader sweep**
+  (`functional-mark-relevant?`), and it is not redundant with the KB-wide one above it.
+  The KB-wide gate answers *does this feature exist at all*; a KB that declares
+  `(functional birthYear)` and nothing else still asserts every other predicate it has,
+  and without the per-fact gate every one of those unrelated facts pays a full
+  `context-down` closure read regardless — a plain, unrelated fact landing in a context
+  with thousands of readers below it costs a thousands-of-contexts sweep for a
+  `functional-clashes` call that is always going to answer empty.  The per-fact gate is
+  what `functional-clashes` is always going to check anyway (`tax/props-over`,
+  `tax/functional-in-arg-over`), asked once, early, before the expensive part rather
+  than N times inside it."
   [kb sentence context handle]
   (let [tax (:taxonomy kb)]
     (when (or (seq (tax/props tax :functional)) (seq (tax/functional-in-arg-predicates tax)))
-      (reduce (fn [acc r]
-                (merge-with into acc (derive-functional-equalities-in kb sentence r handle)))
-              {:new [] :superseded [] :violations []}
-              (tax/context-down tax context)))))
+      (if (functional-mark-relevant? tax sentence)
+        (reduce (fn [acc r]
+                  (merge-with into acc (derive-functional-equalities-in kb sentence r handle)))
+                {:new [] :superseded [] :violations []}
+                (tax/context-down tax context))
+        (derive-functional-equalities-in kb sentence context handle)))))
 
 (defn equate-existing
   "When a `(functional P)` declaration arrives, derive the equalities P's **already
@@ -2994,21 +3022,33 @@
                  {:new [] :superseded [] :violations []}
                  converses)))))))))
 
+(defn- anti-symmetric-mark-relevant?
+  "The antisymmetric twin of `functional-mark-relevant?`: could `sentence`'s own
+  functor, or something it descends from, carry an `antiSymmetric` mark?  One unscoped
+  `tax/props-over` read — no `functionalInArg` twin exists for this mark, so this is
+  the whole of the check."
+  [tax sentence]
+  (let [f (nm/functor sentence)]
+    (and (symbol? f) (seq (tax/props-over tax :anti-symmetric f)))))
+
 (defn derive-antisymmetric-equalities
   "`derive-antisymmetric-equalities-in`, run from `context` and from every reader that
   can see it — the antisymmetric twin of `derive-functional-equalities`'s own wrapper,
-  same reachability (`tax/context-down`), same gate-before-the-closure-read shape, same
-  reason: two mutually-blind contexts each holding one direction of a converse pair
-  merge only from a reader below both, and a context edge alone (`antisym-equate-under-
-  context-edge`) is not the only way that reader comes to exist — the *facts* can just as
-  well be the last of the three to arrive, into a topology the edges already connect."
+  same reachability (`tax/context-down`), same two-gate shape (KB-wide, then
+  `anti-symmetric-mark-relevant?` per fact before the closure read), same reason: two
+  mutually-blind contexts each holding one direction of a converse pair merge only from
+  a reader below both, and a context edge alone (`antisym-equate-under-context-edge`) is
+  not the only way that reader comes to exist — the *facts* can just as well be the last
+  of the three to arrive, into a topology the edges already connect."
   [kb sentence context handle]
   (let [tax (:taxonomy kb)]
     (when (seq (tax/props tax :anti-symmetric))
-      (reduce (fn [acc r]
-                (merge-with into acc (derive-antisymmetric-equalities-in kb sentence r handle)))
-              {:new [] :superseded [] :violations []}
-              (tax/context-down tax context)))))
+      (if (anti-symmetric-mark-relevant? tax sentence)
+        (reduce (fn [acc r]
+                  (merge-with into acc (derive-antisymmetric-equalities-in kb sentence r handle)))
+                {:new [] :superseded [] :violations []}
+                (tax/context-down tax context))
+        (derive-antisymmetric-equalities-in kb sentence context handle)))))
 
 (defn antisym-equate-existing
   "When an `(antiSymmetric P)` declaration arrives, derive the equalities P's **already
@@ -3048,41 +3088,99 @@
                 {:new [] :superseded [] :violations []}
                 (subtree-sentexes kb sub))))))
 
+(defn- context-edge-reader-cone
+  "Every context a `(genlCx sub super)` edge's widened readers can see, once the edge
+  has integrated — `context-down(sub)`'s own members' up-cones, unioned.  The exact
+  reachability `migrate-under-context-edge` computes for the same trigger (above): a
+  merge's restatement and a functional/antiSymmetric clash are the same kind of event —
+  a fact becoming newly visible to a reader — so the two share the reachability rule.
+
+  `context-up(super)` alone would be a strict subset and not enough on its own: `sub`
+  is a member of `context-down(sub)` (that closure always includes its own root), so
+  `context-up(sub)` is one of the sets this unions — and after the edge integrates it
+  already reaches everything `context-up(super)` does, by transitivity.  What it adds
+  beyond that subset is every *other* reader whose cone also runs through `sub` — a
+  context wired under `sub` before this edge arrived gained the same new visibility
+  the edge gives `sub` itself, and a candidate fact stored in *its* own pre-existing
+  cone can newly clash with something in `super`'s cone exactly as one stored in
+  `sub`'s own cone can."
+  [tax sub]
+  (into #{} (mapcat #(tax/context-up tax %)) (tax/context-down tax sub)))
+
+(defn- stored-facts-in-cone
+  "Stored, positive, non-rule sentexes across `contexts`, kept when `marked?` admits
+  them — the cone-scoped analogue of `subtree-sentexes`' spec-subtree walk, over
+  contexts instead of predicates, and lazy for the same reason: a budgeted caller
+  realizes only its prefix, and a context cycle can make a cone the whole graph.
+
+  Reimplemented here rather than sharing `vaelii.impl.settle`'s own cone walkers
+  (`believed-in-cone`, `constraint-facts-in-cone`), for two reasons.  `settle` already
+  requires `special`, so the reverse would be a namespace cycle.  And those are
+  **belief**-filtered, where this deliberately is not, for `equate-existing`'s reason:
+  an equality derived off a defeated fact rests on that fact and is defeated with it,
+  so skipping a defeated candidate here would leave a revival's merge missing —
+  `derive-functional-equalities`/`-in` read the store, never the belief filter, and
+  this feeds them, so it has to agree."
+  [kb contexts marked?]
+  (let [tax (:taxonomy kb)]
+    (for [c     (filter symbol? contexts)
+          h     (reads/as-stored-in-context (:index kb) c)
+          :let  [s (p/get-sentex (:records kb) h)]
+          :when (and s (= :true (:truth s)) (nil? (:antecedent s))
+                     (sequential? (:sentence s))
+                     (marked? tax (:sentence s)))]
+      s)))
+
 (defn- budgeted-context-edge-candidates
   "Up to `tax/*exposure-instance-budget*` stored, positive, non-rule sentexes drawn from
-  `preds`' spec subtrees — the shared shape `equate-under-context-edge` and
-  `antisym-equate-under-context-edge` fold `derive-functional-equalities` /
-  `derive-antisymmetric-equalities` over — as `[candidates cut-budget-or-nil]`.
+  the cone `(genlCx sub super)` widens, kept when `marked?` admits them — the shared
+  shape `equate-under-context-edge` and `antisym-equate-under-context-edge` fold
+  `derive-functional-equalities` / `derive-antisymmetric-equalities` over — as
+  `[candidates cut-budget-or-nil]`.
 
-  **The cap bounds the derive calls, not the subtree read.**  `subtree-sentexes` is
-  eager by design (its own docstring: a snapshot the walk needs, since a merge posts to
-  the very roots being read), so one predicate whose whole stored extent exceeds the
-  budget still costs that one read in full — what this refuses to let grow with it is
-  calling `derive-functional-equalities` per candidate, which is the expensive half: a
-  `functional-clashes` probe plus, since that function now sweeps every reader below its
-  context, a closure read per candidate.  `constraint-exposure-context-edge` measures
-  exactly this — 8x the facts stored behind one `genlCx` edge must cost the same past the
-  cap — and it is the derive calls the growth was in, not the read.
+  **Scoped to the edge, not to the whole KB's marked-predicate roster.**  An earlier
+  draft of this walk read every stored fact under every functional/functionalInArg-
+  marked predicate anywhere in the KB, capped only by the budget — which meant the cap
+  was reached by 'does *any* marked predicate anywhere exceed the budget', not by
+  anything about the arriving edge, so on a KB past that size *every* subsequent
+  `genlCx` edge paid the capped walk and risked a cut, including edges with nothing to
+  do with the predicate that put the KB over the line.  Worse: because the walk was
+  KB-wide and handle-ordered, which of a clashing pair's facts survived the cut
+  depended on assertion order — the same content, asserted in a different order,
+  merged in one ordering and not in the other, an outright violation of this engine's
+  order-independence invariant rather than only a completeness gap.
+  `context-edge-reader-cone` fixes both: the candidate set is what this edge actually
+  makes newly relevant, so an edge between two small, unrelated contexts costs what it
+  actually touches, and content lands in the same cone regardless of when it arrived.
 
-  Sharing `*exposure-instance-budget*` with `vaelii.impl.settle`'s exposure passes rather
-  than inventing a second knob: both are 'how much work will one genlCx edge's cross-
-  context sweep spend', and a KB operator wants one dial for that, not two that can drift
-  apart.
+  **The cap still bounds the derive calls, not the enumeration itself.**  Unlike the
+  eager `subtree-sentexes` an unscoped walk would have to accept in full,
+  `stored-facts-in-cone` is lazy, so `take` here genuinely stops the read early rather
+  than merely capping what gets handed to `derive-functional-equalities` afterward —
+  what remains bounded-but-real is `derive-functional-equalities` itself, since that
+  function now sweeps every reader below its context, a closure read per candidate.  `constraint-exposure-context-edge` measures exactly this — 8x the facts
+  the cone holds must cost the same past the cap.
 
-  **The residual this leaves is narrower than `settle`'s own, and worth stating plainly.**
-  A pair `settle`'s exposure pass cuts short goes undecided *this settle* and is
-  remembered in `:clashes` for the next one to re-examine — this cap has no such second
-  chance: a merge this sweep does not reach because the budget ran out is not derived by
-  anything else later, since nothing else re-triggers on a `genlCx` edge that already
-  finished landing.  That is why the caller files a violation naming the cut rather than
+  Sharing `*exposure-instance-budget*` with `vaelii.impl.settle`'s exposure passes
+  rather than inventing a second knob: both are 'how much work will one genlCx edge's
+  cross-context sweep spend', and a KB operator wants one dial for that, not two that
+  can drift apart.
+
+  **The residual this leaves is narrower than `settle`'s own, and worth stating
+  plainly.**  A pair `settle`'s exposure pass cuts short goes undecided *this settle*
+  and is remembered in `:clashes` for the next one to re-examine — this cap has a
+  narrower second chance than that, not none: because the candidate set is now scoped
+  to *this* edge's own cone, a merge it misses is not automatically retried by an
+  unrelated later edge the way the unscoped draft accidentally allowed, but a *later*
+  `genlCx` edge widening the *same* cone further would re-walk it and could still
+  reach the pair.  That is why the caller files a violation naming the cut rather than
   treating it as routine — it is closer to `:exposure-truncated`'s honesty than to a
-  bound with a safety net behind it."
-  [kb preds]
-  (let [budget (max 0 (long tax/*exposure-instance-budget*))
-        xs     (into []
-                     (comp (filter #(and (= :true (:truth %)) (nil? (:antecedent %))))
-                           (take (inc budget)))
-                     (mapcat #(subtree-sentexes kb %) preds))]
+  bound with a guaranteed safety net behind it."
+  [kb sub marked?]
+  (let [tax    (:taxonomy kb)
+        budget (max 0 (long tax/*exposure-instance-budget*))
+        xs     (into [] (take (inc budget))
+                     (stored-facts-in-cone kb (context-edge-reader-cone tax sub) marked?))]
     (if (> (count xs) budget)
       [(subvec xs 0 budget) budget]
       [xs nil])))
@@ -3105,42 +3203,42 @@
   fourth arrival order of the same three ingredients, and the context twin of
   `equate-under-edge`.
 
-  **This is `equate-under-edge`'s exact shape**, over the whole marked roster instead of
-  one predicate's subtree: sweep every stored fact under a predicate carrying either
-  mark (`tax/props :functional` and `tax/functional-in-arg-predicates` — the arity-2
-  roster and the any-position one together, since `functional-clashes` itself already
-  unions the two), and hand each back to `derive-functional-equalities` **at its own
-  storage context**, exactly as `equate-under-edge` already does.  What makes that
-  correct here is that `derive-functional-equalities` no longer answers only for the
-  context it is handed — it sweeps every reader below that context too
-  (`tax/context-down`), which is what reaches a joining context this edge just
-  connected without this arm needing a reachability computation of its own.  Before that
-  wrapper existed, this function *was* that computation, reading each candidate's
-  visibility here instead of leaving it to the callee — one caller's worth of
-  correctness-sensitive logic that a second caller (the plain fact-arrival trigger,
-  which has exactly the same problem when the topology is wired *before* the facts
-  arrive rather than after) could not share.  Centralizing it is what let both shrink
-  back to this shape.
+  **The context twin of `equate-under-edge`'s shape, over a cone instead of a
+  subtree**: sweep the stored facts `context-edge-reader-cone` says this edge newly
+  makes relevant, kept when `functional-mark-relevant?` admits their functor, and hand
+  each back to `derive-functional-equalities` **at its own storage context**, exactly
+  as `equate-under-edge` already does.  What makes that correct here is that
+  `derive-functional-equalities` no longer answers only for the context it is handed —
+  it sweeps every reader below that context too (`tax/context-down`), which is what
+  reaches a joining context this edge just connected without this arm needing a second,
+  independent reachability computation of its own.  Before that wrapper existed, this
+  function *was* that computation, reading each candidate's visibility here instead of
+  leaving it to the callee — one caller's worth of correctness-sensitive logic that a
+  second caller (the plain fact-arrival trigger, which has exactly the same problem
+  when the topology is wired *before* the facts arrive rather than after) could not
+  share.  Centralizing it is what let both shrink back to this shape.
 
   **Still `genlCx`-triggered and still necessary**, not redundant with the wrapper's own
   sweep: a `genlCx` edge arriving *after* both facts are already stored changes no
   fact and fires no ordinary assert, so nothing else re-invokes `derive-functional-
-  equalities` for either of them — this arm is what does, over the marked roster's
-  whole stored extent.  Gated identically to `equate-under-edge`: free for a KB that
-  declares nothing functional and nothing functionalInArg, decided before the subtree
-  is read.
+  equalities` for either of them — this arm is what does, over the extent
+  `context-edge-reader-cone` names.  Gated identically to `equate-under-edge` at the
+  top: free for a KB that declares nothing functional and nothing functionalInArg,
+  decided before the cone is read.
 
-  **Unlike `equate-under-edge`, this walk is budgeted.**  A `genl` edge's own subtree is
-  bounded by real vocabulary growth — the edge names the very predicate whose subtree is
-  swept, so a big walk means a big subtree the edge itself accounts for.  A `genlCx` edge
-  names two *contexts*, which carry no such relationship to how much the marked-predicate
-  roster holds: one small, otherwise-unrelated edge can make the whole roster's stored
-  extent newly relevant, regardless of what `sub`/`super` themselves hold.
-  `budgeted-context-edge-candidates` caps the candidates this arm hands to
+  **Budgeted, unlike `equate-under-edge`.**  A `genl` edge's own subtree is bounded by
+  real vocabulary growth — the edge names the very predicate whose subtree is swept, so
+  a big walk means a big subtree the edge itself accounts for.  A `genlCx` edge names
+  two *contexts*: `context-edge-reader-cone` scopes the walk to what this specific edge
+  makes relevant, so an edge between two small, unrelated contexts no longer costs a
+  KB-wide predicate's whole extent — but the cone itself can still be large (a small
+  edge into a context whose readers reach a genuinely huge, genuinely relevant store),
+  so `budgeted-context-edge-candidates` still caps what reaches
   `derive-functional-equalities` at `tax/*exposure-instance-budget*` — the same knob
   `vaelii.impl.settle`'s exposure passes spend, so a cut here and a cut there answer to
-  one dial — and files a `:context-edge-exposure-truncated` violation when it cuts, since
-  a pair past the cap is not derived by anything else afterward (docs/equality.md).
+  one dial — and files a `:context-edge-exposure-truncated` violation when it cuts,
+  since a pair past the cap is not derived by anything else afterward this same edge
+  (docs/equality.md).
 
   **Idempotent** for the reason every other direction is: `derive-functional-
   equalities` skips a pair `same-class-in?` already holds from a reader's own view, so
@@ -3161,11 +3259,13 @@
   gap this arrival order introduces or one its own addition should paper over."
   [kb sentence]
   (when (= 'genlCx (nm/functor sentence))
-    (let [tax   (:taxonomy kb)
-          [_ sub super] sentence
-          preds (into (tax/props tax :functional) (tax/functional-in-arg-predicates tax))]
-      (when (and (symbol? sub) (symbol? super) (seq preds))
-        (let [[candidates cut] (budgeted-context-edge-candidates kb preds)
+    (let [tax (:taxonomy kb)
+          [_ sub super] sentence]
+      (when (and (symbol? sub) (symbol? super)
+                 (or (seq (tax/props tax :functional))
+                     (seq (tax/functional-in-arg-predicates tax))))
+        (let [[candidates cut] (budgeted-context-edge-candidates
+                                kb sub functional-mark-relevant?)
               result (reduce (fn [acc sx]
                                (merge-with into acc
                                            (derive-functional-equalities
@@ -3180,16 +3280,16 @@
   "When a `(genlCx sub super)` edge arrives, derive the equalities an
   `(antiSymmetric …)` mark already licenses over facts the widened cone newly makes
   jointly visible — the twin of `equate-under-context-edge`, over the antisymmetric
-  merge and the whole `:anti-symmetric` roster in place of the functional one.  Same
+  merge and `anti-symmetric-mark-relevant?` in place of the functional one.  Same
   shape, same reasoning throughout — see `equate-under-context-edge`, including for why
   a later retraction of this edge does not un-merge what it derives."
   [kb sentence]
   (when (= 'genlCx (nm/functor sentence))
-    (let [tax   (:taxonomy kb)
-          [_ sub super] sentence
-          preds (tax/props tax :anti-symmetric)]
-      (when (and (symbol? sub) (symbol? super) (seq preds))
-        (let [[candidates cut] (budgeted-context-edge-candidates kb preds)
+    (let [tax (:taxonomy kb)
+          [_ sub super] sentence]
+      (when (and (symbol? sub) (symbol? super) (seq (tax/props tax :anti-symmetric)))
+        (let [[candidates cut] (budgeted-context-edge-candidates
+                                kb sub anti-symmetric-mark-relevant?)
               result (reduce (fn [acc sx]
                                (merge-with into acc
                                            (derive-antisymmetric-equalities

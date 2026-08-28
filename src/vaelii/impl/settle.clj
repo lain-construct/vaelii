@@ -2719,12 +2719,17 @@
   turns out to convict nothing costs one check that finds nothing, where a context left
   out is a pair nobody weighs.
 
-  **Exact and unbudgeted**, for the reason `*exposure-instance-budget*` gives about the
-  membership route it bounds nothing of: this is O(1) postings per candidate rather than
-  an extent sweep, and the candidate set is the settle's region, which the budget already
-  bounds where it came from a declaration reaching back.  There is no enumeration here
-  for a budget to cut short, and cutting one short would drop a pair rather than defer
-  it."
+  **Exact and unbudgeted for the membership, functional and asymmetric shapes**, for the
+  reason `*exposure-instance-budget*` gives about the membership route it bounds nothing
+  of: each is O(1) postings per candidate rather than an extent sweep, and the candidate
+  set is the settle's region, which the budget already bounds where it came from a
+  declaration reaching back.  There is no enumeration in those three for a budget to cut
+  short, and cutting one short would drop a pair rather than defer it.
+
+  **The empty-determinant `functionalInArg` shape is the exception**: it has no shared
+  argument root to read a posting from — every tuple of the marked predicate is a
+  candidate partner — so it genuinely is an extent sweep, and it is budgeted (below) for
+  that reason, unlike the rest of this function."
   [kb s]
   (let [sen (:sentence s)
         as  (vec (nm/args sen))
@@ -2742,7 +2747,22 @@
         ;; partners are `subtree-facts` of whichever marked predicate `f` reaches at
         ;; this arity, not an argument-root posting.  Checked at every arity because
         ;; `functionalInArg` is not arity-2-only, unlike the `case` it sits beside.
-        empty-det (into #{} (comp (remove #(= own (:id %))) (map :context))
+        ;;
+        ;; **Budgeted, unlike the two shapes below it.**  Those are O(1) postings per
+        ;; candidate, which is what this function's own docstring's "exact and
+        ;; unbudgeted" claims — this one is a real extent sweep (`subtree-facts` is
+        ;; lazy for exactly this reason) and pays for it: an empty-determinant mark on a
+        ;; predicate with a wide stored extent must not turn one ordinary assert's
+        ;; exposure check into an O(extent) read, repeated per assert into an
+        ;; O(extent²) load.  Capped at `tax/*exposure-instance-budget*` via a plain
+        ;; `take` rather than threaded through `take-budgeted`'s shared, notice-filing
+        ;; volatile — this caller has no settle-wide budget passed in to share, and a
+        ;; local cap is what stops the unbounded read; a cut here can miss naming a
+        ;; partner past the cap, which is the same shape as every other bounded read in
+        ;; this namespace and, unlike them, does not yet file its own notice.
+        empty-det (into #{}
+                        (comp (remove #(= own (:id %))) (map :context)
+                              (take (max 0 (long tax/*exposure-instance-budget*))))
                         (mapcat #(subtree-facts kb (first %))
                                 (filter #(= k (second %))
                                         (tax/functional-in-arg-over tax f))))]
