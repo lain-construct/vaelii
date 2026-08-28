@@ -34,6 +34,7 @@
   catch, and it would be invisible to a belief-only reading."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 (defn- interleavings
@@ -1204,6 +1205,39 @@
                                    [mark conv-up conv-low] edge observe))
         "the converse forces the merge from the reader below once the edge that joins it
          to both lands, however the mark and the two directions arrived"))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-functional-mark-merges-across-a-context-edge-regardless-of-unrelated-kb-noise
+  ;; b3bfb23b (#43 follow-up): `special/equate-under-context-edge`'s candidate walk
+  ;; once read every stored fact under *any* functional/functionalInArg-marked
+  ;; predicate anywhere in the KB, capped only by `*exposure-instance-budget*` with no
+  ;; relationship to the arriving edge's own contexts.  Past a KB-wide size threshold
+  ;; that made the cut depend on handle-assignment order: the same three facts and two
+  ;; edges, asserted in a different order, merged in one ordering and not another --
+  ;; an outright order-independence violation, not only a completeness gap.  The fix
+  ;; (`context-edge-reader-cone`) scopes the walk to what the edge itself connects, so
+  ;; an unrelated marked predicate's own noise -- however much of it, and whichever
+  ;; side of the merge's own ops it lands on -- must never change whether this merge
+  ;; completes.  The budget is bound well below the noise's size so an unscoped walk
+  ;; would have spent it entirely on the noise before ever reaching this scenario's own
+  ;; three facts.
+  (let [mark    #(v/assert % '(functional nzP) 'CxNzUp)
+        fact-up #(v/assert % '(nzP NzTom NzV1) 'CxNzUp)
+        fact-lo #(v/assert % '(nzP NzTom NzV2) 'CxNzLow)
+        edge    #(v/assert % '(genlCx CxNzLow CxNzUp) 'CxUniverse {:strength :monotonic})
+        noise   #(do (v/assert % '(functional nzNoiseP) 'CxNzNoise)
+                     (dotimes [i 12]
+                       (v/assert % (list 'nzNoiseP (tu/tmp-ind (str "NzSubj" i)) i)
+                                 'CxNzNoise)))
+        observe (fn [kb]
+                  {:merged (boolean (v/same-class? kb 'NzV1 'NzV2 'CxNzLow))
+                   :equals (some? (v/handle-of kb '(equals NzV1 NzV2) 'CxNzLow))})]
+    (binding [tax/*exposure-instance-budget* 4]
+      (is (= {:merged true :equals true}
+             (one-outcome-edge-last! "functional mark, context edge last, KB-wide noise"
+                                     [mark fact-up fact-lo noise] edge observe))
+          "an unrelated marked predicate's own noise must not change whether -- or in
+           which orderings -- the edge-triggered merge completes")))
   (tu/clear-kb! (tu/test-kb)))
 
 ;; ---- a rule reaching a merged term concludes once -----------------------
