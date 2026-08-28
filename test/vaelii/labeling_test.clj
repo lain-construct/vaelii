@@ -334,3 +334,24 @@
                         (set (map :sentence (v/sentexes-in-context kb ctx)))))))]
     (is (= (labeled false) (labeled true))
         "the same knowledge in either order labels the same sentence")))
+
+(deftest a-labeling-that-disagrees-with-its-own-classification-is-refused-by-name
+  ;; `check-agrees` guards the seam between two solves over one program — the failure
+  ;; this design is most exposed to, per its own docstring — and refuses with
+  ;; `:labeling-inconsistent`.  A genuine disagreement cannot be staged through the
+  ;; doors (two consistent solves is what the solver contract promises), so the guard
+  ;; is provoked directly, in both directions it checks.  No solver needed: this is
+  ;; the check, not the solve.
+  (let [check @#'label/check-agrees]
+    (testing "an assumption every optimum keeps, dropped by the labeling"
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (check {:fixed #{}} #{} {:true '[a1] :false []})))]
+        (is (= :labeling-inconsistent (:type (ex-data e))))
+        (is (= '[a1] (:missing-true (ex-data e))))))
+    (testing "an assumption no optimum keeps, kept by the labeling"
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (check {:fixed #{}} #{'a2} {:true [] :false '[a2]})))]
+        (is (= :labeling-inconsistent (:type (ex-data e))))
+        (is (= '[a2] (:kept-false (ex-data e))))))
+    (testing "and known-true background is never an assumption the labeling owes"
+      (is (nil? (check {:fixed #{'bg}} #{} {:true '[bg] :false []}))))))

@@ -89,6 +89,45 @@
         (recur (conj out {:name (.group m 1) :pos (.start m)}))
         out))))
 
+(defn- blank-prose
+  "`src` with every string body and comment blanked to spaces — length, offsets,
+  newlines and delimiters all preserved, so `delimiter-analysis` reads the blanked
+  text exactly as it reads the original.
+
+  The scan below collects keyword literals by regex, and a keyword named in a
+  docstring or a `;;` comment is prose, not coverage: fed raw source, a refusal
+  keyword listed in a ns docstring counted as \"a test provokes it\", and a refusal
+  whose only mention in `test/` was a comment was silently excused — invisible to
+  `unprovokable`'s staleness check too, since no entry names it.  Blanking is the
+  same lexer walk `delimiter-analysis` makes (`:code` / `:string` / `:comment`, char
+  literals and string escapes skipped), applied to the text instead of the stack."
+  ^String [^String src]
+  (let [n   (.length src)
+        out (char-array src)]
+    (loop [i 0, mode :code]
+      (when (< i n)
+        (let [c (.charAt src i)]
+          (case mode
+            :code
+            (cond
+              (= c \") (recur (inc i) :string)
+              (= c \;) (recur (inc i) :comment)
+              (= c \\) (recur (+ i 2) :code)
+              :else    (recur (inc i) :code))
+            :string
+            (cond
+              (= c \\) (do (aset out i \space)
+                           (when (< (inc i) n) (aset out (inc i) \space))
+                           (recur (+ i 2) :string))
+              (= c \") (recur (inc i) :code)
+              :else    (do (when-not (= c \newline) (aset out i \space))
+                           (recur (inc i) :string)))
+            :comment
+            (if (= c \newline)
+              (recur (inc i) :code)
+              (do (aset out i \space) (recur (inc i) :comment)))))))
+    (String. out)))
+
 (defn- asserted-in
   "Every keyword literal in one test source that sits inside a top-level form which reads
   a refusal's `:type` — directly, or through one of the file's own helpers.
@@ -126,7 +165,7 @@
     (into #{} (comp (filter (comp about-types? :pos)) (map (comp keyword :name))) lits)))
 
 (defn- asserted-types []
-  (transduce (map (comp asserted-in slurp)) into #{} (test-files)))
+  (transduce (map (comp asserted-in blank-prose slurp)) into #{} (test-files)))
 
 ;; ---- what the docs name --------------------------------------------------
 
