@@ -784,8 +784,8 @@ here.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `vaelii.build` | `src/vaelii/impl/io/export.clj:190+` | any label | the git HEAD, else `dev` | How the writing build names itself in a dump's `meta.edn`. Diagnostic: a dump that will not read is first a question about which build wrote it. |
-| `VAELII_BUILD` | `src/vaelii/impl/io/export.clj:190+` | any label | as above | The same label, read after the property. |
+| `vaelii.build` | `src/vaelii/impl/io/export.clj:180+` | any label | the git HEAD, else `dev` | How the writing build names itself in a dump's `meta.edn`. Diagnostic: a dump that will not read is first a question about which build wrote it. |
+| `VAELII_BUILD` | `src/vaelii/impl/io/export.clj:180+` | any label | as above | The same label, read after the property. |
 
 ### Developer — the suite and the scripts
 
