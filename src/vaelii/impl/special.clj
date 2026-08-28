@@ -2903,7 +2903,8 @@
   `subtree-sentexes` reads it, snapshotted before the first merge, since migration writes
   twins to the roots the walk is reading."
   [kb sentence]
-  (when (and (= 'functional (nm/functor sentence)) (= 1 (nm/arity sentence)))
+  (when (or (and (= 'functional (nm/functor sentence)) (= 1 (nm/arity sentence)))
+            (and (= 'functionalInArg (nm/functor sentence)) (= 2 (nm/arity sentence))))
     (let [pred (first (nm/args sentence))]
       (when (symbol? pred)
         (reduce (fn [acc sx]
