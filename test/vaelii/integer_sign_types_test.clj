@@ -77,3 +77,55 @@
     (is (thrown? clojure.lang.ExceptionInfo
                  (v/assert kb (list 'arity impossible -1) 'CxUniverse))
         "a negative arity is impossible")))
+
+;; ---- the mention reading -------------------------------------------------
+
+;; Putting the sign types in the `genl` lattice under `integer` put them inside
+;; `quotedArg`'s domain too, `checks/syntactic-type?` admitting any type below a
+;; syntactic root.  Judged by EDN kind alone the comparison ran the wrong way round —
+;; asking whether `integer` is below `positive_integer` — so the check refused every
+;; integer literal written in such a position (#55).  A literal denotes itself, which is
+;; why the two readings share `checks/literal-value-types` and agree here.
+
+(tu/deftest-kb sign-refined-integers-work-as-quoted-argument-types
+  (tu/with-terms [tagPositive tagNegative tagNonNegative tagNonPositive]
+    (doseq [[pred type accepted rejected]
+            [[tagPositive 'positive_integer 1 0]
+             [tagNegative 'negative_integer -1 0]
+             [tagNonNegative 'non_negative_integer 0 -1]
+             [tagNonPositive 'non_positive_integer 0 1]]]
+      (v/assert kb (list 'unaryPredicate pred) 'CxUniverse)
+      (v/assert kb (list 'quotedArg pred 1 type) 'CxUniverse)
+      (is (integer? (v/assert kb (list pred accepted) 'CxUniverse))
+          (str type " admits a member literal written in the position"))
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list pred rejected) 'CxUniverse))
+          (str type " refuses a literal outside its boundary")))))
+
+(tu/deftest-kb the-quoted-reading-still-refuses-across-kinds
+  ;; The regression half: widening the comparison to the value types must not make the
+  ;; check admit what it always refused, and must not disturb the non-integer kinds.
+  (tu/with-terms [needsString needsInteger]
+    (v/assert kb (list 'unaryPredicate needsString) 'CxUniverse)
+    (v/assert kb (list 'quotedArg needsString 1 'string) 'CxUniverse)
+    (is (integer? (v/assert kb (list needsString "Bob") 'CxUniverse))
+        "a string satisfies string")
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (v/assert kb (list needsString 5) 'CxUniverse))
+        "5 is a number, not a string")
+    (v/assert kb (list 'unaryPredicate needsInteger) 'CxUniverse)
+    (v/assert kb (list 'quotedArg needsInteger 1 'integer) 'CxUniverse)
+    (is (integer? (v/assert kb (list needsInteger -7) 'CxUniverse))
+        "an unrefined integer position still takes either sign")))
+
+(tu/deftest-kb a-refused-sign-refinement-names-the-value-type
+  ;; "it is a integer" says nothing useful about -5 refused a positive_integer, so the
+  ;; message names what the value actually is when the refinement is what failed.
+  (tu/with-terms [tagPositive]
+    (v/assert kb (list 'unaryPredicate tagPositive) 'CxUniverse)
+    (v/assert kb (list 'quotedArg tagPositive 1 'positive_integer) 'CxUniverse)
+    (let [m (try (v/assert kb (list tagPositive -5) 'CxUniverse) nil
+                 (catch clojure.lang.ExceptionInfo e (ex-message e)))]
+      (is (some? m) "the assert is refused")
+      (is (re-find #"negative_integer" (str m))
+          (str "the message names the value's own type, not the bare EDN kind: " m)))))

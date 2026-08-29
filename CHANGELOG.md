@@ -2,6 +2,57 @@
 
 ## Unreleased
 
+- **A `functionalInArg` declaration arriving after the facts it convicts is reported.**
+  The generalized mark reaches stored content through two rosters in `vaelii.impl.settle`
+  — one saying what a declaration's arrival puts back in question, one saying what shape
+  the declaration is written in — and it was in neither, having been kept out of the
+  `definitional-marks` pairing table it is genuinely not a member of (that table pairs a
+  functor with the prop key it stores under, and this mark's table is keyed `[pred n]`).
+  *Departure:* `(functionalInArg P n)` asserted after two fillers no merge can reconcile
+  convicted nothing, where `(functional P)` in the same order files a `:functional`
+  violation — a generalization weaker than the case it generalizes, on the one arrival
+  order the special case handles. The merge half of the same door was already correct, so
+  a symbol pair merged and only the unmergeable pair went quiet. Both spellings now sweep
+  the subtree beneath the predicate they name, and
+  `exposure_test/every-functional-family-mark-is-in-both-of-settles-rosters` states the
+  agreement over the rosters themselves so a further spelling cannot land in one alone.
+  *Class:* **Fix**. *Migration:* none — a KB using the mark gains reports it was owed;
+  nothing that was believed stops being.
+  [docs/taxonomy.md](docs/taxonomy.md)
+
+- **`quotedArg` reads the sign-refined integer types instead of refusing every integer.**
+  `positive_integer` and its three siblings sit below `integer` in the `genl` lattice, so
+  they are inside the mention check's domain and the open-world escape for a type outside
+  it does not apply. *Departure:* the check compared a literal's bare EDN kind *upward*
+  against the declared type — asking whether `integer` is below `positive_integer` — so
+  `(quotedArg P n positive_integer)` refused `5` along with `-5`. Both argument readings
+  now share one reader (`checks/literal-value-types`), which is the arrangement the kinds
+  have always had and the reason they are in the lattice: a literal denotes itself, and a
+  sign is as decidable from the term written as from what it denotes. A refusal also names
+  the value's own type now rather than the bare kind. *Class:* **Fix**. *Migration:* none
+  — a declaration that previously refused everything now refuses only what it means to.
+  [docs/argtypes.md](docs/argtypes.md)
+
+- **The quality report's rule-conflict detector reads both functional spellings.** Two
+  rules concluding different values for one slot are a `:functional` clash in waiting, and
+  a KB whose mark is `(functionalInArg P 2)` rather than `(functional P)` read as
+  clash-free. *Departure:* none in what the engine believes — this is a report — but a KB
+  spelling the mark that way now sees the pairs it was owed. The mark's reach is asked at
+  three points in the detector (does the KB declare any, which group does a conclusion
+  join, do these two share one) and each spelled it for itself; all three now go through
+  one reader, which is what the fix is. *Class:* **Fix**. *Migration:* none.
+  [docs/quality.md](docs/quality.md)
+
+- **A bounded partner sweep says so: `:partner-sweep-truncated`.** Finding the far half of
+  a cross-context constraint clash normally reads one argument root, but a
+  `functionalInArg` mark whose declared position covers the whole tuple leaves no root to
+  narrow by, so discovery becomes an extent sweep. It was capped at
+  `tax/*exposure-instance-budget*` and silent. *Departure:* a new `violations` kind, so a
+  consumer branching on the ledger sees one it did not before; what a cut costs is a
+  *vantage* — a context that would have seen a clashing pair is not consulted — which no
+  other truncation entry's counts can reflect. *Class:* **Additive**.
+  [docs/nmtms.md](docs/nmtms.md)
+
 - **A visibility `except` targeting a rule now removes totally in both directions.**
   The arrival side already held — the stored justification carries the rule handle
   among its antecedents, so excepting a rule swept its conclusions and blocked late

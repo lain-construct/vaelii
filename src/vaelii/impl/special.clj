@@ -1635,7 +1635,7 @@
       ;; the declaration arriving last, over links already stored
       (and (= 'transitive functor) (sequential? sentence) (= 2 (count sentence)))
       (let [pred (second sentence)]
-        (when (and (symbol? pred) (not (contains? #{'genl 'genlCx} pred)))
+        (when (and (symbol? pred) (not (contains? tax/closure-relations pred)))
           (let [partners (transitive-partner-functors kb pred)]
             (when (seq partners)
               (believed-facts-with-functors
@@ -1646,7 +1646,7 @@
       (and (symbol? functor)
            (sequential? sentence)
            (= 3 (count sentence))
-           (not (contains? #{'genl 'genlCx} functor))
+           (not (contains? tax/closure-relations functor))
            (tax/has-prop? (:taxonomy kb) :transitive functor))
       (let [partners (transitive-partner-functors kb functor)]
         (when (seq partners)
@@ -1678,7 +1678,7 @@
     (when (seq antes)
       (let [functors (into #{} (keep nm/functor) antes)
             trans    (into #{} (filter #(and (symbol? %)
-                                             (not (contains? #{'genl 'genlCx} %))
+                                             (not (contains? tax/closure-relations %))
                                              (tax/has-prop? (:taxonomy kb) :transitive %)))
                            functors)]
         (when (seq trans)
@@ -1822,8 +1822,11 @@
 
 (def ^:private edge-functors
   "The two relations a firing can name a witness for, and so the two whose removal owes
-  a re-chain."
-  #{'genl 'genlCx})
+  a re-chain.  The same set the taxonomy names `closure-relations`, aliased for the
+  local reading the way `provers/transitive-predicates` and `inherit/virtual-relations`
+  are: a firing rests on a *reachability* rather than on a stored link precisely because
+  these two answer from a cached closure, so the two readings are one fact."
+  tax/closure-relations)
 
 (defn resubsumption-seeds
   "The chaining seeds a teardown owes, given the `removed` sentexes its sweep collected
@@ -2863,7 +2866,7 @@
   than N times inside it."
   [kb sentence context handle]
   (let [tax (:taxonomy kb)]
-    (when (or (seq (tax/props tax :functional)) (seq (tax/functional-in-arg-predicates tax)))
+    (when (tax/functional-family-declared? tax)
       (if (functional-mark-relevant? tax sentence)
         (reduce (fn [acc r]
                   (merge-with into acc (derive-functional-equalities-in kb sentence r handle)))
@@ -2877,7 +2880,7 @@
   declaration-arriving-last merge path opens through.
 
   **The lane map, because this door has eaten a fix before.**  A mark family
-  lives in two lanes, and joining one vocabulary does not join the other:
+  lives in two lanes:
 
   * **Merges (this namespace):** fact-last → `derive-functional-equalities`;
     declaration-last → `equate-existing`, through this door; `genl`-edge-last →
@@ -2888,16 +2891,38 @@
 
   The 2026-08 `functionalInArg` gap sat exactly here: settle's lane was swept
   thoroughly while an exact-functor test in `equate-existing` quietly excluded
-  the generalized declaration, and nothing named the exclusion.  A new mark
-  family joins this cond and settle's vocabularies **separately**."
+  the generalized declaration, and nothing named the exclusion.  So the spellings
+  are no longer written in each lane — `tax/functional-family-marks` holds them
+  once and both lanes read it, which is what makes a new spelling reach this door
+  and settle's rosters together rather than separately.  What stays here is the
+  arity, since this door is downstream of well-formedness and settle's triggers,
+  coming off a moved region, are not."
   [sentence]
-  (let [f (nm/functor sentence)]
-    (cond
-      (and (= 'functional f) (= 1 (nm/arity sentence)))
-      (first (nm/args sentence))
-      (and (= 'functionalInArg f) (= 2 (nm/arity sentence)))
-      (first (nm/args sentence))
-      :else nil)))
+  (when (case (tax/functional-family-marks (nm/functor sentence))
+          :mark        (= 1 (nm/arity sentence))
+          :mark-in-arg (= 2 (nm/arity sentence))
+          false)
+    (first (nm/args sentence))))
+
+(defn- equate-declared-subtree
+  "The body `equate-existing` and `antisym-equate-existing` share: every **stored** fact
+  of `pred`'s spec subtree handed back to the family's `derive` in its own context, for
+  the declaration-arriving-last direction.
+
+  Stored rather than believed, and unfiltered where `equate-under-edge-via` filters — an
+  equality derived off a defeated fact rests on that fact and is defeated with it, where
+  skipping it would leave the merge missing when the fact revives.  The two doors state
+  that reasoning once between them because they are one rule about one arrival order.
+
+  nil for a `pred` that is not a symbol, so a caller's door can hand over whatever its
+  declaration named without checking first."
+  [kb pred derive]
+  (when (symbol? pred)
+    (reduce (fn [acc sx]
+              (merge-with into acc
+                          (derive kb (:sentence sx) (:context sx) (:id sx))))
+            {:new [] :superseded [] :violations []}
+            (subtree-sentexes kb pred))))
 
 (defn equate-existing
   "When a `(functional P)` declaration arrives, derive the equalities P's **already
@@ -2932,13 +2957,35 @@
   twins to the roots the walk is reading."
   [kb sentence]
   (when-let [pred (functional-family-declaration sentence)]
-    (when (symbol? pred)
-      (reduce (fn [acc sx]
-                (merge-with into acc
-                            (derive-functional-equalities
-                             kb (:sentence sx) (:context sx) (:id sx))))
-              {:new [] :superseded [] :violations []}
-              (subtree-sentexes kb pred)))))
+    (equate-declared-subtree kb pred derive-functional-equalities)))
+
+(defn- equate-under-edge-via
+  "The body `equate-under-edge` and `antisym-equate-under-edge` share: a `(genl sub
+  super)` edge arriving over facts already stored, with every believed premise of `sub`'s
+  spec subtree handed back to the family's `derive` in its own context.
+
+  `declares?` is the family's cheap pre-gate, asked of the taxonomy before the subtree is
+  read — so a `genl` write into a KB declaring nothing of the family costs one map lookup
+  and no traversal.
+
+  **Shared rather than written twice, because the two doors differ in nothing else.**
+  They answer one arrival order — the edge arriving last — for two mark families, and a
+  fix to that order has to reach both or reach neither: vaelii#43 was exactly such a fix,
+  applied to two copies by hand.  A family joins by passing its gate and its derive, which
+  is the same reading `tax/functional-family-marks` gives the spellings one lane up."
+  [kb sentence declares? derive]
+  (when (and (= 'genl (nm/functor sentence))
+             (= 2 (nm/arity sentence))
+             (declares? (:taxonomy kb)))
+    (let [[_ sub] sentence]
+      (when (symbol? sub)
+        (reduce (fn [acc sx]
+                  (if-not (and (= :true (:truth sx)) (nil? (:antecedent sx)))
+                    acc
+                    (merge-with into acc
+                                (derive kb (:sentence sx) (:context sx) (:id sx)))))
+                {:new [] :superseded [] :violations []}
+                (subtree-sentexes kb sub))))))
 
 (defn equate-under-edge
   "When a `(genl sub super)` edge arrives, derive the equalities a `(functional …)` mark
@@ -2958,12 +3005,20 @@
   licenses or what justifies the merge.  Re-deriving is idempotent for the reason
   `equate-existing` gives.
 
-  **Free for a KB that declares nothing functional**, and that is decided *before* the
-  subtree is read rather than per fact inside the fold.  This arm fires on a `genl` edge —
-  the commonest thing an ontology says — where the other two fire on a declaration and
-  are gated by their own trigger, so it is the one that reaches for an extent on an
-  ordinary write.  `tax/props` answers it in one map read; `subtree-sentexes` filters what
-  survives by index cardinality.
+  **Free for a KB that declares nothing of the functional family**, and that is decided
+  *before* the subtree is read rather than per fact inside the fold.  This arm fires on a
+  `genl` edge — the commonest thing an ontology says — where the other two fire on a
+  declaration and are gated by their own trigger, so it is the one that reaches for an
+  extent on an ordinary write.  `tax/functional-family-declared?` answers it in two map
+  reads; `subtree-sentexes` filters what survives by index cardinality.
+
+  **The family, not the arity-2 spelling alone**, and it is the gate rather than the body
+  that had to learn this: the fold below asks `derive-functional-equalities`, which reads
+  both spellings, so a gate on `props :functional` alone shut the whole arm for a KB whose
+  only mark was `(functionalInArg P n)` — the `genl` edge arriving last merged nothing
+  where `(functional P)` in the same order merged, which is the arity-2 behaviour
+  `functional_in_arg_test` exists to hold still.  Reading the shared predicate is what
+  keeps this door and `equate-under-context-edge` asking one question.
 
   **What that does not buy is a smaller edge.**  `subsumption-seeds` walks the same spec
   subtree on the same edge and must — those facts really do become matchable — so a
@@ -2973,19 +3028,9 @@
   because repeated work and a false docstring are both worth removing, not because it
   moves a curve."
   [kb sentence]
-  (when (and (= 'genl (nm/functor sentence))
-             (= 2 (nm/arity sentence))
-             (seq (tax/props (:taxonomy kb) :functional)))
-    (let [[_ sub] sentence]
-      (when (symbol? sub)
-        (reduce (fn [acc sx]
-                  (if-not (and (= :true (:truth sx)) (nil? (:antecedent sx)))
-                    acc
-                    (merge-with into acc
-                                (derive-functional-equalities
-                                 kb (:sentence sx) (:context sx) (:id sx)))))
-                {:new [] :superseded [] :violations []}
-                (subtree-sentexes kb sub))))))
+  (equate-under-edge-via kb sentence
+                         tax/functional-family-declared?
+                         derive-functional-equalities))
 
 (defn- derive-antisymmetric-equalities-in
   "`derive-antisymmetric-equalities`, scoped to exactly `context` and no reader below
@@ -3086,14 +3131,8 @@
   declares nothing antisymmetric."
   [kb sentence]
   (when (and (= 'antiSymmetric (nm/functor sentence)) (= 1 (nm/arity sentence)))
-    (let [pred (first (nm/args sentence))]
-      (when (symbol? pred)
-        (reduce (fn [acc sx]
-                  (merge-with into acc
-                              (derive-antisymmetric-equalities
-                               kb (:sentence sx) (:context sx) (:id sx))))
-                {:new [] :superseded [] :violations []}
-                (subtree-sentexes kb pred))))))
+    (equate-declared-subtree kb (first (nm/args sentence))
+                             derive-antisymmetric-equalities)))
 
 (defn antisym-equate-under-edge
   "When a `(genl sub super)` edge arrives, derive the equalities an `(antiSymmetric …)`
@@ -3101,19 +3140,9 @@
   `equate-under-edge`.  Free for a KB declaring nothing antisymmetric, decided before the
   subtree is read.  nil when `sentence` is not a `genl` edge."
   [kb sentence]
-  (when (and (= 'genl (nm/functor sentence))
-             (= 2 (nm/arity sentence))
-             (seq (tax/props (:taxonomy kb) :anti-symmetric)))
-    (let [[_ sub] sentence]
-      (when (symbol? sub)
-        (reduce (fn [acc sx]
-                  (if-not (and (= :true (:truth sx)) (nil? (:antecedent sx)))
-                    acc
-                    (merge-with into acc
-                                (derive-antisymmetric-equalities
-                                 kb (:sentence sx) (:context sx) (:id sx)))))
-                {:new [] :superseded [] :violations []}
-                (subtree-sentexes kb sub))))))
+  (equate-under-edge-via kb sentence
+                         #(seq (tax/props % :anti-symmetric))
+                         derive-antisymmetric-equalities))
 
 (defn- context-edge-reader-cone
   "Every context a `(genlCx sub super)` edge's widened readers can see, once the edge
@@ -3171,14 +3200,27 @@
   was reached by 'does *any* marked predicate anywhere exceed the budget', not by
   anything about the arriving edge, so on a KB past that size *every* subsequent
   `genlCx` edge paid the capped walk and risked a cut, including edges with nothing to
-  do with the predicate that put the KB over the line.  Worse: because the walk was
-  KB-wide and handle-ordered, which of a clashing pair's facts survived the cut
-  depended on assertion order — the same content, asserted in a different order,
-  merged in one ordering and not in the other, an outright violation of this engine's
-  order-independence invariant rather than only a completeness gap.
-  `context-edge-reader-cone` fixes both: the candidate set is what this edge actually
+  do with the predicate that put the KB over the line.
+  `context-edge-reader-cone` fixes that: the candidate set is what this edge actually
   makes newly relevant, so an edge between two small, unrelated contexts costs what it
-  actually touches, and content lands in the same cone regardless of when it arrived.
+  actually touches, and an unrelated predicate's extent can no longer spend this edge's
+  budget.
+
+  **What it does not fix is the cut's own order-dependence, and that is stated here
+  rather than claimed away.**  `stored-facts-in-cone` enumerates
+  `reads/as-stored-in-context` per cone member, which is handle order, which is
+  assertion order; `take` selects a *prefix* of that.  So once a cone holds more
+  candidates than the budget, which merges this edge derives is still a function of when
+  the facts arrived — the same content in a different order merging in one ordering and
+  not the other, which is an order-independence residual and not merely a completeness
+  gap.  Sorting the cone to content order would remove it and is refused for the reason
+  `tax/*exposure-instance-budget*` measures: the sort forces the whole extent, which is
+  the cost the cap exists to refuse, and a context cycle makes the cone the graph.  So
+  the residual is left, and it is left **named** — the caller files
+  `:context-edge-exposure-truncated` whenever the cut happens, so no reader has to infer
+  from silence that the sweep was complete.  Below the cap, which is every KB that has
+  not put >`*exposure-instance-budget*` marked facts in one cone, the sweep is exact and
+  the invariant holds outright.
 
   **The cap still bounds the derive calls, not the enumeration itself.**  Unlike the
   eager `subtree-sentexes` an unscoped walk would have to accept in full,
@@ -3223,6 +3265,34 @@
                              " merge sweep at " budget " instances; some pairs the"
                              " widened cone newly makes jointly visible may go"
                              " unmerged for this edge")}})
+
+(defn- equate-under-context-edge-via
+  "The body `equate-under-context-edge` and `antisym-equate-under-context-edge` share: a
+  `(genlCx sub super)` edge arriving over facts a widened cone newly makes jointly
+  visible, with each candidate handed back to the family's `derive` in its own context,
+  and the budget's cut reported as `prop`'s truncation rather than swallowed.
+
+  `declares?` gates on the family being declared at all and `relevant?` narrows the cone
+  sweep to the facts a mark of it could actually reach — the two places the families
+  differ, beside the derive and the truncation key.
+
+  **Shared for `equate-under-edge-via`'s reason**, and more sharply: this is the budgeted
+  door, so a copy that drifted would not merely miss merges but report a different
+  coverage story for the same cut."
+  [kb sentence declares? relevant? derive prop]
+  (when (= 'genlCx (nm/functor sentence))
+    (let [tax (:taxonomy kb)
+          [_ sub super] sentence]
+      (when (and (symbol? sub) (symbol? super) (declares? tax))
+        (let [[candidates cut] (budgeted-context-edge-candidates kb sub relevant?)
+              result (reduce (fn [acc sx]
+                               (merge-with into acc
+                                           (derive kb (:sentence sx) (:context sx) (:id sx))))
+                             {:new [] :superseded [] :violations []}
+                             candidates)]
+          (cond-> result
+            cut (update :violations conj
+                        (context-edge-exposure-truncation sub prop cut))))))))
 
 (defn equate-under-context-edge
   "When a `(genlCx sub super)` edge arrives, derive the equalities a `(functional …)`
@@ -3285,23 +3355,12 @@
   `edge-support` and to the antecedent list `derive-functional-equalities` builds, not a
   gap this arrival order introduces or one its own addition should paper over."
   [kb sentence]
-  (when (= 'genlCx (nm/functor sentence))
-    (let [tax (:taxonomy kb)
-          [_ sub super] sentence]
-      (when (and (symbol? sub) (symbol? super)
-                 (or (seq (tax/props tax :functional))
-                     (seq (tax/functional-in-arg-predicates tax))))
-        (let [[candidates cut] (budgeted-context-edge-candidates
-                                kb sub functional-mark-relevant?)
-              result (reduce (fn [acc sx]
-                               (merge-with into acc
-                                           (derive-functional-equalities
-                                            kb (:sentence sx) (:context sx) (:id sx))))
-                             {:new [] :superseded [] :violations []}
-                             candidates)]
-          (cond-> result
-            cut (update :violations conj
-                        (context-edge-exposure-truncation sub :functional cut))))))))
+  (equate-under-context-edge-via
+   kb sentence
+   tax/functional-family-declared?
+   functional-mark-relevant?
+   derive-functional-equalities
+   :functional))
 
 (defn antisym-equate-under-context-edge
   "When a `(genlCx sub super)` edge arrives, derive the equalities an
@@ -3311,21 +3370,12 @@
   shape, same reasoning throughout — see `equate-under-context-edge`, including for why
   a later retraction of this edge does not un-merge what it derives."
   [kb sentence]
-  (when (= 'genlCx (nm/functor sentence))
-    (let [tax (:taxonomy kb)
-          [_ sub super] sentence]
-      (when (and (symbol? sub) (symbol? super) (seq (tax/props tax :anti-symmetric)))
-        (let [[candidates cut] (budgeted-context-edge-candidates
-                                kb sub anti-symmetric-mark-relevant?)
-              result (reduce (fn [acc sx]
-                               (merge-with into acc
-                                           (derive-antisymmetric-equalities
-                                            kb (:sentence sx) (:context sx) (:id sx))))
-                             {:new [] :superseded [] :violations []}
-                             candidates)]
-          (cond-> result
-            cut (update :violations conj
-                        (context-edge-exposure-truncation sub :anti-symmetric cut))))))))
+  (equate-under-context-edge-via
+   kb sentence
+   #(seq (tax/props % :anti-symmetric))
+   anti-symmetric-mark-relevant?
+   derive-antisymmetric-equalities
+   :anti-symmetric))
 
 (defn- stored-declarations
   "Every **stored** sentex whose functor is `f`, believed or not.

@@ -2121,7 +2121,17 @@
   #45 filed: it is a distinct declaration (`(functionalInArg P n)`, a different functor
   and a different shape) rather than another spelling of `functional`.  A caller that
   needs both reads `tax/functional-in-arg-predicates` beside whatever it reads this
-  roster's `:functional` entry for — `clash-marked-below` and `tuple-marks?` both do."
+  roster's `:functional` entry for — `clash-marked-below` and `tuple-marks?` both do.
+
+  **Staying out of this roster is not staying out of the pass**, and reading it as
+  though it were is what #54 filed.  Two rosters below are about a functor's *reach*
+  and its *written shape* rather than about which prop key it stores under, and
+  `functionalInArg` is enrolled in both by name: `clash-declaration-kinds`, so a
+  declaration arriving after the facts sweeps the subtree it now marks, and
+  `trigger-functor-kind`, so the same declaration is recognized at its own arity.
+  Derive a *reach* from this pairing table and the generalized mark silently loses the
+  one arrival order — declaration-last over an unmergeable pair — that `functional`
+  itself handles."
   [['functional     :functional]
    ['asymmetric     :asymmetric]
    ['antiTransitive :anti-transitive]])
@@ -2146,9 +2156,23 @@
   `:predicate-marked` implicates the facts beneath the predicate a descending mark now
   stands over.  `genl` is `:both`, and the only one: the sub's instances gain the super's
   ancestors *and* a mark standing on the super descends into a subtree that never held
-  one."
+  one.
+
+  **`functionalInArg` is `:predicate-marked` alongside `definitional-mark-symbols`, and
+  arrives here from `tax/functional-family-marks` rather than by name.**  It is not in
+  `definitional-marks`, which pairs a functor with the prop key it stores under and which
+  the generalized mark has none of (it stores `[pred n]` pairs in a table of its own).
+  What this roster asks is different — what a declaration puts back in question — and the
+  answer for both spellings is identical, the facts of the subtree beneath the predicate
+  they name.  `declaration-implicates`' `:predicate-marked` arm reads that predicate as
+  `(second sen)`, which is argument 1 of either shape, so the arm needs nothing of its
+  own.  Left out, the mark enforced at the door and went unswept behind it: a
+  `(functionalInArg P n)` arriving after two unmergeable fillers convicted nothing,
+  where `(functional P)` in the same order convicts (#54).  Reading the family roster is
+  what keeps a third spelling from repeating that in whichever lane it is not spelled
+  into."
   {:type-separating  '#{disjoint disjointMetatype siblingDisjoint genlCx}
-   :predicate-marked definitional-mark-symbols
+   :predicate-marked (into definitional-mark-symbols (keys tax/functional-family-marks))
    :both             '#{genl}})
 
 (def ^:private clash-declaration-functors
@@ -2169,6 +2193,24 @@
   load time, so `declaration-reach` dispatches on one hash lookup rather than walking a
   `cond` of set memberships per trigger."
   (into {} (for [[kind functors] clash-declaration-kinds, f functors] [f kind])))
+
+(def ^:private type-reach-functors
+  "The functors `declaration-reach` has an arm for — the kinds whose reach is over
+  **terms**, which is `:type-separating` and `:both` and not `:predicate-marked`.
+
+  Derived rather than spelled, because `exposure-candidates` and `declaration-implicates`
+  must agree about it exactly: the two answer one question about one KB, and a functor
+  one of them sweeps and the other does not is a pair reported as *visible* by one route
+  and *decided* by the other depending on which ran — the drift `declaration-implicates`'
+  docstring names. Spelled out, enrolling a sixth type-separating functor in
+  `clash-declaration-kinds` and giving `declaration-reach` its arm left the candidate
+  sweep silently behind.
+
+  `:predicate-marked` is absent because its reach is `subtree-facts` of a predicate
+  rather than an enumeration of terms, and `declaration-reach` returns nil for it: the
+  marks reach this pass through `constraint-exposure-candidates`' own trigger roster
+  (`trigger-functor-kind`) instead."
+  (into #{} cat ((juxt :type-separating :both) clash-declaration-kinds)))
 
 (defn- metatype-member?
   "Is `sen` a term **joining** a disjoint metatype — `(M T)` where the taxonomy already
@@ -2765,6 +2807,32 @@
                  false)
                (empty-determinant-arity? tax f k))))))
 
+(def ^:dynamic *partner-cut*
+  "A volatile holding the `partner-contexts` determinant sweeps this pass cut short, or
+  nil — the notice channel for the one bounded read in this namespace that has no
+  settle-wide budget to debit.
+
+  Nil by default, and that is the door's binding: `clash-askers` runs `partner-contexts`
+  on every assert under a mark, where there is no ledger open to file into and the write
+  is answering about its own sentence.  A pass that *does* report — `expose-constraint-
+  clashes!` — binds a volatile for the duration and drains it into
+  `:partner-sweep-truncated`, so a vantage the cap cost the pass is named rather than
+  inferred from a clash that simply never appears.
+
+  A volatile and not an atom for `take-budgeted`'s reason: single-threaded within a
+  pass, and the cost of the read is what decides whether the gate can sit in a hot
+  path."
+  nil)
+
+(defn- note-partner-cut!
+  "Record that a `partner-contexts` determinant sweep for `[pred arity]` stopped at
+  `budget`.  One entry per distinct `[pred arity budget]`, since a pass sweeping a wide
+  extent hits the same cap once per candidate and a ledger reading `N` identical rows
+  says nothing the first does not."
+  [pred arity budget]
+  (when-some [v *partner-cut*]
+    (vswap! v conj {:pred pred :arity arity :budget budget})))
+
 (defn- partner-contexts
   "The contexts holding a believed sentex that could be the **far half** of a clash with
   `s` — its term's other memberships for a separation, the other fillers of the slot for
@@ -2831,18 +2899,26 @@
         ;; lazy for exactly this reason) and pays for it: an unnarrowed mark on a
         ;; predicate with a wide stored extent must not turn one ordinary assert's
         ;; exposure check into an O(extent) read, repeated per assert into an
-        ;; O(extent²) load.  Capped at `tax/*exposure-instance-budget*` via a plain
-        ;; `take` rather than threaded through `take-budgeted`'s shared, notice-filing
-        ;; volatile — this caller has no settle-wide budget passed in to share, and a
-        ;; local cap is what stops the unbounded read; a cut here can miss naming a
-        ;; partner past the cap, which is the same shape as every other bounded read in
-        ;; this namespace and, unlike them, does not yet file its own notice.
+        ;; O(extent²) load.  Capped at `tax/*exposure-instance-budget*` locally rather
+        ;; than through `take-budgeted`'s shared settle-wide volatile — this caller has
+        ;; no settle-wide budget passed in to share, and runs at the door as well as
+        ;; inside a pass.  A cut can miss naming a partner context, so the vantage that
+        ;; would have seen the pair is never asked; and because the prefix is stable, a
+        ;; later settle re-reads the same one rather than reaching past it.  So it is
+        ;; reported: `note-partner-cut!` files through `*partner-cut*` when a pass has
+        ;; bound one, and costs a nil read at the door, where there is no ledger to file
+        ;; into and the assert is answering about its own sentence anyway.
+        det-budget (max 0 (long tax/*exposure-instance-budget*))
+        det-facts  (into [] (take (inc det-budget))
+                         (mapcat #(subtree-facts kb (first %))
+                                 (filter #(and (= k (second %)) (not= 2 k))
+                                         (tax/functional-in-arg-over tax f))))
+        _          (when (> (count det-facts) det-budget)
+                     (note-partner-cut! f k det-budget))
         swept-det (into #{}
-                        (comp (remove #(= own (:id %))) (map :context)
-                              (take (max 0 (long tax/*exposure-instance-budget*))))
-                        (mapcat #(subtree-facts kb (first %))
-                                (filter #(and (= k (second %)) (not= 2 k))
-                                        (tax/functional-in-arg-over tax f))))]
+                        (comp (take det-budget)
+                              (remove #(= own (:id %))) (map :context))
+                        det-facts)]
     (into swept-det
           (case k
             1 (into #{} (comp (remove #(= own (:id %))) (map :context))
@@ -3293,7 +3369,7 @@
                   ;; arm below would otherwise claim it and file the metatype itself as a
                   ;; term holding a type — leaving an arriving metatype declaration with no
                   ;; sweep at all.
-                  (contains? '#{disjoint disjointMetatype siblingDisjoint genl genlCx} f)
+                  (contains? type-reach-functors f)
                   (let [{:keys [enumerate keep? roots]} (declaration-reach kb sen)]
                     (sweep m sen enumerate keep? roots))
 
@@ -3466,12 +3542,30 @@
 
 (def ^:private trigger-functor-kind
   "Functor → which arity check `constraint-exposure-candidates`' `trigger?` runs, or
-  nil — the two visibility-edge functors and `definitional-mark-symbols` merged once,
-  at load time, into the single map a functor is looked up in.  A `case` cannot take
-  `definitional-mark-symbols` as one of its own dispatch values (its test constants
-  must be literal), so the roster is folded in here instead, ahead of the call, which
-  keeps the same one-hash-lookup-per-functor cost `trigger?` was written for."
-  (into '{genl :edge genlCx :edge}
+  nil — the two visibility-edge functors, `tax/functional-family-marks`, and
+  `definitional-mark-symbols` merged once, at load time, into the single map a functor
+  is looked up in.  A `case` cannot take `definitional-mark-symbols` as one of its own
+  dispatch values (its test constants must be literal), so the roster is folded in here
+  instead, ahead of the call, which keeps the same one-hash-lookup-per-functor cost
+  `trigger?` was written for.
+
+  **Three shapes, not two, because `functionalInArg` is written at arity 2.**  A
+  `:mark` is `(functional P)` — one symbol; a `:mark-in-arg` is `(functionalInArg P n)`
+  — a symbol and a position, which the `:mark` test rejects on its argument count
+  alone.  Both spellings and both shapes come from `tax/functional-family-marks`, the
+  one roster `special`'s merge door reads as well, so a family joined there reaches this
+  lane and that one together rather than whichever it was spelled into.  This is
+  otherwise a roster of *written shapes* and so is not derivable from
+  `clash-declaration-kinds`, which groups by reach and holds three type-separating
+  functors that are no trigger of this pass at all.  What the two must agree on is
+  narrower — every mark of the functional family carries a kind *there* and a shape
+  *here* — and that is what `exposure_test`'s
+  `every-functional-family-mark-is-in-both-of-settles-rosters` pins, so a fourth
+  spelling cannot pass by being wired into one roster alone.
+  The sweep past this gate reads the marked predicate as argument 1 of the trigger
+  (`[x y]`, then `subtree-facts` of `x`), which is the same position in both mark
+  shapes, so the widened roster needs no arm of its own there either."
+  (into (into '{genl :edge genlCx :edge} tax/functional-family-marks)
         (map #(vector % :mark))
         definitional-mark-symbols))
 
@@ -3509,14 +3603,20 @@
   depend on the order a region or a cone came back in.
 
   **And the mark itself, which is the third trigger and the same reach as the second.**
-  `(functional P)`, `(asymmetric P)` or `(antiTransitive P)` arriving after the facts it
+  `(functional P)`, `(asymmetric P)`, `(antiTransitive P)` or `(functionalInArg P n)`
+  arriving after the facts it
   convicts moves nothing but the mark, so both halves of every pair beneath `P` sit
   outside the region — the declaration's own arrival order deciding whether the KB says
   anything at all, which is the objection `docs/nmtms.md` opens with and the one the
   disjointness pass answers with `declaration-reach`. What it implicates is what a `genl`
   edge carrying the same mark down implicates, `subtree-facts` of the predicate it names,
   so the two share one arm: a mark stands above its own predicate, `marks-above?` is
-  therefore true of it, and the reach is the subtree either way.
+  therefore true of it, and the reach is the subtree either way.  `functionalInArg` is
+  a fourth *functor* rather than a fourth trigger for that reason — it differs from the
+  three only in being written at arity 2, which is `trigger-functor-kind`'s
+  `:mark-in-arg` shape and nothing else — and `marks-above?` already answers for it,
+  `clash-marked-below` having read `tax/functional-in-arg-predicates` beside the prop
+  rosters since the mark existed.
 
   The property reads are the unscoped ones `could-clash?` uses and over-approximate for
   the same reason: a candidate that convicts nothing costs one check that finds nothing,
@@ -3545,6 +3645,11 @@
                       (case (trigger-functor-kind (nm/functor sen))
                         :edge (and (= 2 (count as)) (every? symbol? as))
                         :mark (and (= 1 (count as)) (symbol? (first as)))
+                        ;; `(functionalInArg P n)` — the position is not read here, only
+                        ;; the predicate, but a malformed declaration must not reach the
+                        ;; sweep as though it named one
+                        :mark-in-arg (and (= 2 (count as)) (symbol? (first as))
+                                          (integer? (second as)))
                         false)))
         triggers  (content-order
                    (filterv (fn [s]
@@ -3751,6 +3856,15 @@
   the same way — pairs are visible and unreported, and nothing went *undecided* — which is
   what separates it from `:arbitration-truncated` and from either sweep's own notice.
 
+  **`:partner-sweep-truncated` is the third bound and a separate entry**, because a
+  reader acts on it differently again: it is not about what this pass filed but about a
+  vantage it never asked from, so the pairs it costs are *invisible* to the counts above
+  rather than visible and unreported.  It comes from `partner-contexts`' unnarrowed
+  `functionalInArg` determinant sweep — the one bounded read with no settle-wide budget
+  to debit, since it runs at the assert door too — through the `*partner-cut*` volatile
+  bound here for the pass's duration.  The door leaves that binding nil and pays a nil
+  read.
+
   **Two bounds in one entry, which is why it is built here rather than by `cut-notice`.**
   The cone sweep is bounded like every other and fires off its cut; the pair cap is a
   bound on what one pass will *file* and fires with nothing swept short at all, carrying
@@ -3772,11 +3886,34 @@
       ;; exists.  The `genl` and mark triggers ask once per arriving sentence and the
       ;; region filter asks per binary sentex, so the askers scale with the region while
       ;; the answer does not.
-      (binding [*clash-marked-below* (delay (clash-marked-below tax))]
+      (binding [*clash-marked-below* (delay (clash-marked-below tax))
+                ;; the pass's own notice channel for `partner-contexts`' determinant
+                ;; sweep — a set, so one wide extent hit once per candidate files one row
+                *partner-cut*        (volatile! #{})]
         (let [{:keys [candidates stale unswept]} (constraint-exposure-candidates kb touched)
               all     (constraint-exposure-entries kb candidates stale arbitrated)
               over    (- (count all) max-constraint-findings)
+              ;; drained after `constraint-exposure-entries`, which is what runs
+              ;; `clash-vantages` and so what fills it
+              pcut    (nm/sort-by-content-key (juxt (comp nm/name-key :pred) :arity)
+                                              compare @*partner-cut*)
               entries (cond-> (vec (take max-constraint-findings all))
+                        (seq pcut)
+                        (conj {:violation :partner-sweep-truncated
+                               :detail    {:sweeps  pcut
+                                           :budget  *exposure-instance-budget*
+                                           :message
+                                           (str "partner discovery bounded at "
+                                                *exposure-instance-budget*
+                                                " instances for "
+                                                (str/join ", "
+                                                          (map #(str (:pred %) "/" (:arity %))
+                                                               pcut))
+                                                "; a vantage that sees a clashing pair"
+                                                " past the cap is not asked, and the"
+                                                " prefix is stable, so a later settle"
+                                                " re-reads it rather than reaching past"
+                                                " it")}})
                         (or (pos? over) (seq unswept))
                         (conj {:violation :constraint-exposure-truncated
                                :detail    {:pairs   (count all)

@@ -278,6 +278,29 @@ constraint naming it dormant. The same precondition governs the entailment readi
 [argtypes.md](argtypes.md), whose "Where it does not mint" table is the full list of cases
 where nothing is derived.
 
+## A `functionalInArg` clash is not reported
+
+Two things stop one, and they are different failures.
+
+**The determinant differs.** `(functionalInArg P n)` says every argument *except* `n`
+fixes the filler at `n`, so two tuples are the same slot only when they agree on all the
+others. `(namesObject NsA PathA ObjOne)` and `(namesObject NsA PathB ObjTwo)` differ at
+argument 2 and are two slots, not one — nothing is owed. Check the determinant before the
+declaration.
+
+**Or the position is one settle-time discovery does not narrow by.** The assert door
+checks every shape correctly. What is bounded is *cross-context* discovery: the pass finds
+a pair's far half by reading one argument root, and a declaration whose `n` is **below**
+the arity — `(functionalInArg P 2)` on a ternary predicate — leaves a composite key no
+single root narrows by, so two mutually blind contexts each holding half of such a clash
+are not brought together. A declaration whose `n` *is* the arity is covered, at the cost
+of an extent sweep bounded by `tax/*exposure-instance-budget*`; past that bound the pass
+files `:partner-sweep-truncated` rather than going quiet. Same context, or a vantage that
+already sees both halves when the second arrives, is the door's business and is checked.
+
+[taxonomy.md](taxonomy.md) has the shape table; [equality.md](equality.md) has the merge
+rule and the four arrival orders.
+
 ## `prove` returns more solutions than there are answers
 
 `prove` returns **one solution per derivation**, so a goal reachable two ways — a fact
@@ -504,7 +527,7 @@ so one vocabulary reads both.
 | `:exception-not-closed` | an `exceptWhen` reads a variable no antecedent binds, or the anonymous wildcard `_`, which binds nothing | [exceptions.md](exceptions.md) |
 | `:export-busy` | an export is already running, and one runs at a time | [catalog.md](catalog.md) |
 | `:frozen-base` | a write reached the overlay's base, which is mounted read-only | [overlay.md](overlay.md) |
-| `:functional` | a second value for a predicate declared `functional` — see [`assert` refused it](#assert-refused-it) | [equality.md](equality.md) |
+| `:functional` | a second value for a predicate declared `functional`, or for the position a `functionalInArg` declaration names — see [`assert` refused it](#assert-refused-it) | [equality.md](equality.md) |
 | `:handle-ceiling` | a handle past the dense TMS's int-keyed ceiling | [density.md](density.md) |
 | `:incomplete-racer` | a portfolio was handed a strategy with `:first-result?` on, which stops the search rather than steering it | [inference.md](inference.md) |
 | `:inter-arg-type` | an `interArg` constraint convicted one argument because of what another one is | [argtypes.md](argtypes.md) |

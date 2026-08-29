@@ -280,11 +280,14 @@ of them:
 |---|---|
 | `:negation` | one concludes `S` and the other `(not T)` where `S` entails `T` — `(dog X)` against `(not (animal X))`, and never `(animal X)` against `(not (dog X))` |
 | `:disjoint` | two unary type conclusions about one term whose types a `disjoint`, `siblingDisjoint` or `disjointMetatype` declaration separates ([taxonomy.md](taxonomy.md)) |
-| `:functional` | two conclusions filling one `functional` slot for one subject with values that are not the same term |
+| `:functional` | two conclusions filling one `functional` slot for one subject with values that are not the same term. Both spellings of the mark count — `(functionalInArg P 2)` says the same thing about the same slot as `(functional P)`, and at position 2 only, this reading being arity-2 |
 | `:asymmetric` | one tuple concluded both ways round under a predicate declared `asymmetric`. A self tuple `(P a a)` is not one — the ontology admits it |
 
 The two property marks are read **up** the predicate hierarchy, as every constraint is
 convicted against them: two `fatherOf` conclusions clash against `(functional parentOf)`.
+A mark's reach is asked at three points — whether the KB declares any, which group a
+conclusion joins, and whether two conclusions share one — and all three go through one
+reader, so a spelling reaches the detector through every read or through none.
 
 "Jointly satisfiable" is **shallow**, and three things rule it out: a literal appearing
 under σ together with its own negation, one term claimed to be of two separated types, and

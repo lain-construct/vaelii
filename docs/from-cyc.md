@@ -240,8 +240,11 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - One equality partition behind `rewriteOf` / `sameAs` / `equals` → [equality.md](equality.md)
 - Defeasible defaults with exceptions → [exceptions.md](exceptions.md)
 - The relation-property marks, enforced rather than recorded: `symmetric`, `asymmetric`,
-  `transitive`, `reflexive`, `functional`, `inverse`, `irreflexive`, `antiSymmetric`,
-  `antiTransitive`, `equivalenceRelation`, `arity` and `variableArity`
+  `transitive`, `reflexive`, `functional`, `functionalInArg`, `inverse`, `irreflexive`,
+  `antiSymmetric`, `antiTransitive`, `equivalenceRelation`, `arity` and `variableArity`
+  → [taxonomy.md](taxonomy.md). `functionalInArg` is the one with no Cyc counterpart to
+  map from: it names the *determined* argument rather than fixing it at 2, so a
+  composite determinant — `(namespace, path) → object` — is sayable in one declaration
   → [taxonomy.md](taxonomy.md)
 - Polycanonicalization, so a conjunctive consequent becomes one rule per conjunct and a
   disjunctive antecedent one rule per alternative → [canonicalization.md](canonicalization.md)

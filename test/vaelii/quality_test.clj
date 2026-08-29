@@ -719,6 +719,34 @@
       (is (= :functional (:kind e)))
       (is (= 1 (:pair-count (clashes kb)))))))
 
+(tu/deftest-kb the-generalized-functional-mark-is-a-clash-in-waiting-too
+  ;; #56, and the same fixture as the row above with the mark spelled the other way.
+  ;; `(functionalInArg parentOf 2)` says exactly what `(functional parentOf)` says about
+  ;; exactly this slot, so a KB that spells it that way must read as clash-prone rather
+  ;; than clash-free — the detector read `:props` alone and answered for one spelling.
+  (tu/with-terms [parentOf fatherOf motherOf begat bore]
+    (v/assert kb (list 'functionalInArg parentOf 2) 'CxUniverse)
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
+    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse)
+    (let [e (first (:pairs (clashes kb)))]
+      (is (= :functional (:kind e)))
+      (is (= 1 (:pair-count (clashes kb)))))))
+
+(tu/deftest-kb a-generalized-mark-at-another-position-is-no-arity-2-clash
+  ;; The counterpart, and what keeps the widening honest: `(functionalInArg parentOf 3)`
+  ;; constrains a slot a binary conclusion does not have, so pairing two binary
+  ;; conclusions on it would report a constraint neither is subject to.
+  (tu/with-terms [parentOf fatherOf motherOf begat bore]
+    (v/assert kb (list 'functionalInArg parentOf 3) 'CxUniverse)
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
+    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse)
+    (is (zero? (:pair-count (clashes kb)))
+        "position 3 says nothing about two binary conclusions")))
+
 (tu/deftest-kb one-tuple-concluded-both-ways-round-is-a-clash-in-waiting
   (tu/with-terms [outranks bossOf juniorTo]
     (v/assert kb (list 'asymmetric outranks) 'CxUniverse)

@@ -1240,7 +1240,9 @@
     :arity-truncated
     vaelii.constraint-descension-test/the-budget-running-out-on-an-innocent-predicate-is-still-said-out-loud
     :arity-report-truncated
-    vaelii.constraint-descension-test/a-wide-subtree-cannot-file-its-way-through-the-ledger})
+    vaelii.constraint-descension-test/a-wide-subtree-cannot-file-its-way-through-the-ledger
+    :partner-sweep-truncated
+    vaelii.exposure-test/an-unnarrowed-partner-sweep-that-finds-nobody-still-says-it-was-cut})
 
 (deftest every-truncation-kind-has-a-test-of-what-fires-it
   ;; `code-only` and not a bare `slurp`: every one of the five kinds is *named in prose*
@@ -1289,3 +1291,88 @@
               (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse))]
       (is (nat-int? h)
           "the settle reading a negative budget completes and the edge gets a handle"))))
+
+;;; ── the partner sweep's own bound ─────────────────────────────────────
+;;
+;; `partner-contexts` is the one bounded read in `settle` with no settle-wide budget to
+;; debit: it runs at the assert door as well as inside a pass, so there is no `left`
+;; volatile to thread through it.  Its unnarrowed arm — a `functionalInArg` mark whose
+;; declared position is the whole tuple, leaving no single argument root to narrow by —
+;; is a real extent sweep, and it shipped capped but silent.  A cut there costs a
+;; *vantage*, so the pairs it loses are invisible to `:constraint-exposure-truncated`'s
+;; own counts rather than visible and unreported, which is why it is its own kind.
+
+(tu/deftest-kb an-unnarrowed-partner-sweep-that-finds-nobody-still-says-it-was-cut
+  ;; **The zero-findings cut**, this read's entry in `truncation-kind-tests`.  Every
+  ;; fact sits in its own leaf context and no context is below two of them, so no
+  ;; vantage sees a pair and the pass files no clash at all — an entry riding on a
+  ;; finding would have nowhere to go, and the six instances past the bound would read
+  ;; as six that were cleared.
+  (binding [tax/*exposure-instance-budget* 2]
+    (tu/with-terms [p]
+      (v/assert kb (list 'unaryPredicate p) 'CxUniverse)
+      (v/assert kb (list 'functionalInArg p 1) 'CxUniverse)
+      (let [ctxs (vec (repeatedly 6 #(tu/tmp-ctx "Leaf")))]
+        (doseq [c ctxs]
+          (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+        (doseq [[i c] (map-indexed vector (butlast ctxs))]
+          (v/assert kb (list p (inc i)) c))
+        (v/clear-violations! kb)
+        (v/assert kb (list p 99) (last ctxs))
+        (let [vs  (v/violations kb)
+              cut (filter #(= :partner-sweep-truncated (:violation %)) vs)]
+          (is (empty? (filter #(= :functional (:violation %)) vs))
+              "no context is below two leaves, so there is no clash to expose")
+          (is (= 1 (count cut))
+              "and the pass says the partner sweep stopped early rather than claiming it looked")
+          (is (= 2 (get-in (first cut) [:detail :budget])))
+          (is (= [{:pred p :arity 1 :budget 2}] (get-in (first cut) [:detail :sweeps]))
+              "naming the predicate and the arity whose determinant left no root to narrow by")
+          (is (re-find #"not asked" (get-in (first cut) [:detail :message]))
+              "the reader is told what it costs: a vantage that is never consulted"))))))
+
+(tu/deftest-kb a-partner-sweep-inside-its-bound-files-nothing
+  ;; The gate on the notice is the cap, not the mark: an ordinary KB using
+  ;; `functionalInArg` at an unnarrowed position must not start carrying one.
+  (binding [tax/*exposure-instance-budget* 64]
+    (tu/with-terms [p]
+      (v/assert kb (list 'unaryPredicate p) 'CxUniverse)
+      (v/assert kb (list 'functionalInArg p 1) 'CxUniverse)
+      (let [ctxs (vec (repeatedly 4 #(tu/tmp-ctx "Leaf")))]
+        (doseq [c ctxs]
+          (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+        (doseq [[i c] (map-indexed vector (butlast ctxs))]
+          (v/assert kb (list p (inc i)) c))
+        (v/clear-violations! kb)
+        (v/assert kb (list p 99) (last ctxs))
+        (is (empty? (filter #(= :partner-sweep-truncated (:violation %)) (v/violations kb)))
+            "four instances against a budget of sixty-four is not a cut")))))
+
+;;; ── the mark rosters, which drifted once ──────────────────────────────
+
+(deftest every-functional-family-mark-is-in-both-of-settles-rosters
+  ;; #54.  A mark family reaches stored content through two rosters in `settle`, and they
+  ;; are separate because they answer different questions: `clash-declaration-kind` says
+  ;; what a declaration's arrival puts back in question, `trigger-functor-kind` says what
+  ;; shape the declaration is written in.  `functionalInArg` was in neither, having been
+  ;; kept out of `definitional-marks` — correctly, that one pairs a functor with the prop
+  ;; key it stores under and the generalized mark has none — and the exclusion silently
+  ;; carried into the two rosters derived beside it.  The mark enforced at the door and
+  ;; went unswept behind it.
+  ;;
+  ;; Behaviourally this is `functional_in_arg_test`'s three declaration-last rows; here it
+  ;; is stated over the rosters themselves, so a *fourth* spelling added tomorrow cannot
+  ;; pass by being wired into one of them.
+  (let [kinds  @#'settle/clash-declaration-kind
+        shapes @#'settle/trigger-functor-kind
+        family (conj @#'settle/definitional-mark-symbols 'functionalInArg)]
+    (is (contains? family 'functionalInArg)
+        "the roster under test reads the generalized mark at all")
+    (doseq [f family]
+      (is (= :predicate-marked (kinds f))
+          (str f " must implicate the facts beneath the predicate it names"))
+      (is (contains? #{:mark :mark-in-arg} (shapes f))
+          (str f " must be recognized as a trigger at the arity it is written in")))
+    (testing "and the two shapes are told apart by argument count, not by name"
+      (is (= :mark (shapes 'functional)))
+      (is (= :mark-in-arg (shapes 'functionalInArg))))))

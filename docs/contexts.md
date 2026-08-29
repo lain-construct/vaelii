@@ -565,8 +565,8 @@ Two boundaries, both deliberate:
 ### What the shipped ontology declares it of
 
 Every shipped declaration is a claim about a **predicate** rather than about a world.
-`functional`, `inverse`, `reflexive`, `irreflexive`, `symmetric`, `antiSymmetric`,
-`asymmetric`, `transitive`, `antiTransitive` and `equivalenceRelation` carry
+`functional`, `functionalInArg`, `inverse`, `reflexive`, `irreflexive`, `symmetric`,
+`antiSymmetric`, `asymmetric`, `transitive`, `antiTransitive` and `equivalenceRelation` carry
 the mark — so a `(symmetric P)` stated in one theory is the KB's claim about `P` and not
 that theory's — and `genlCx` carries the forced variant below. **No domain relation
 carries either**, and two things hold that line:

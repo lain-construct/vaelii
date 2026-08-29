@@ -356,6 +356,14 @@ existing facts. Each full match records a justification. See
 both facts and the declaration. Two non-symbols stay a hard rejection. See
 [equality.md](equality.md).
 
+**`functionalInArg`** ![kb](../.github/badges/cat-kb.svg): `(functionalInArg P n)` —
+`functional` generalized off its fixed argument 2: every argument of `P` except `n`,
+taken together, fixes the filler at `n`. Same merge/refuse rule and same four arrival
+directions; what it adds is a **composite determinant**, as in
+`(functionalInArg namesObject 3)` for "one namespace and one path name one object".
+`(functionalInArg P 2)` on a binary predicate is `(functional P)`. See
+[taxonomy.md](taxonomy.md) and [equality.md](equality.md).
+
 **Functor root** ![backend](../.github/badges/cat-backend.svg): The secondary
 index root `[:functor-root pred]` — every fact by functor, any arity, either polarity —
 read via `sentexes-with-functor` / `count-with-functor`. See
@@ -842,11 +850,14 @@ arg / disjoint / functional check, a placement-less firing, or a derived
 cycle through negation — recorded rather than thrown. Four groups drop nothing
 and report: the **cross-context** clashes neither writer could see (`:disjoint`,
 `:functional` and `:asymmetric`, each carrying `:visible-from`, and the latter two
-under `:refuse` only); the five that say bounded work did not cover everything —
+under `:refuse` only); the seven that say bounded work did not cover everything —
 `:exposure-truncated`, `:arbitration-truncated` and `:arity-truncated`, all three
-sweeps cut short, and `:constraint-exposure-truncated` and `:arity-report-truncated`,
+sweeps cut short; `:constraint-exposure-truncated` and `:arity-report-truncated`,
 each a pass finding more than it will file — the first naming whichever bound it met, a
-cut walk or the entry cap, the second the cap alone; a retroactive
+cut walk or the entry cap, the second the cap alone; `:partner-sweep-truncated`, a
+vantage the cap kept a pass from consulting at all; and
+`:context-edge-exposure-truncated`, the only one filed eagerly from an assert rather than
+a settle, over merges a `genlCx` edge's cone did not reach; a retroactive
 `:arity` reach beside a `:non-confluent` pair of equations; and the provers' own —
 `:aggregate` for an extent that will not reduce, `:qualitative-inconsistency` and the two
 `:metric-temporal-*` for a network a context cannot satisfy, and `:sign-inconsistency`

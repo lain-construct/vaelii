@@ -44,9 +44,12 @@
   pin that the verdict is a property of *what a context sees*, not of which context ran
   first or of state left behind by the first descent.
 
-  STATUS.  Written before the implementation existed, deliberately.  vaelii#43 closed
-  the cross-context arrival-order gap this matrix was blocked on: rows 1, 2 and 4 are
-  unpended and pass, alongside the five that never needed it (the arity-2 regression
+  STATUS.  Written before the implementation existed, deliberately.  Every row passes;
+  nothing here is pending.  Two rounds of closing got it there, and the second is the
+  one worth reading, because the first looked complete.
+
+  vaelii#43 closed the cross-context arrival-order gap this matrix was blocked on: rows
+  1, 2 and 4 unpended, alongside the five that never needed it (the arity-2 regression
   half, the composite-determinant case this mark exists for, and both 212-arity rows).
   Closing it took more than the accessor `functionalInArg` was missing from
   `special/equate-under-context-edge`'s own predicate roster — `derive-functional-
@@ -67,7 +70,19 @@
   dilemma at `:default` strength — belief order-independent, contradiction reported
   once, exactly `nixon-diamond-is-the-same-dilemma-every-time`'s shape — and the row
   now asserts exactly that, because a represented dilemma is what \"the clash is not
-  lost\" means, and it is stronger than the storage-checks the old expectations used."
+  lost\" means, and it is stronger than the storage-checks the old expectations used.
+
+  vaelii#54 then closed what all of that had missed, and the shape of the miss is the
+  lesson.  Every row above turns on a pair of **symbol** fillers, so every one of them
+  exercises the *merge* lane — `special/equate-existing` and the `derive-*` family.  The
+  unmergeable pair takes an entirely different lane, `settle`'s clash exposure, and
+  `functionalInArg` had joined neither of that lane's two rosters: a declaration arriving
+  after two numbers convicted nothing, where `(functional P)` in the same order convicts.
+  A generalization weaker than the special case it generalizes, on an axis no row here
+  looked at, behind a docstring that argued the exclusion was correct.  The
+  declaration-last-over-an-unmergeable-pair block at the end of this file is the receipt,
+  and `exposure_test/every-functional-family-mark-is-in-both-of-settles-rosters` states
+  it over the rosters themselves so a fourth spelling cannot repeat it."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -168,6 +183,55 @@
       (v/assert kb (list birthYearOf Tom 1980) U)
       (is (some? (ex-type #(v/assert kb (list birthYearOf Tom 1990) U)))
           "no merge can make 1980 and 1990 one thing"))))
+
+;; The third arrival order of the same three ingredients, and the one the arity-2
+;; regression above does not reach: the declaration and the facts are both stored, and
+;; the `genl` edge that puts the facts under the mark arrives LAST
+;; (`special/equate-under-edge`).
+;;
+;; It failed for the generalized spelling alone.  The door's body asks
+;; `derive-functional-equalities`, which reads both spellings — but its pre-gate asked
+;; `props :functional` and nothing else, so a KB whose only mark was `(functionalInArg P
+;; n)` took the "declares nothing functional, free" exit and merged nothing, where
+;; `(functional P)` over the identical shape merged.  The same omission as vaelii#52 and
+;; vaelii#54, in the third of the family's three doors: each door spelled the gate for
+;; itself, so joining the vocabulary to two of them left the third silently closed.
+;;
+;; The gate is now `tax/functional-family-declared?`, read by every door of the family,
+;; which is what makes this one test cover all three rather than one of them.
+;; **Two tests and not one parameterized over the spelling**, which is the trap this
+;; pair walked into first: the gate under test is *global* (does the taxonomy hold any
+;; functional-family mark at all), so two arms sharing one KB cannot tell the spellings
+;; apart — the control arm's `(functional …)` leaves the gate open and the generalized
+;; arm then passes against the very bug it is meant to catch.  `:each` gives each
+;; `deftest` its own fresh KB, so the isolation has to be at that grain.
+(defn- merges-when-the-edge-arrives-last?
+  "Assert `decl` on a super-predicate and two fillers on a sub-predicate, then the `genl`
+  edge between them LAST.  True iff the fillers ended up merged.  Checks along the way
+  that nothing merged *before* the edge, so a true answer is the edge's doing."
+  [kb decl]
+  (tu/with-terms [parentOf fatherOf Tom]
+    (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
+      ;; the mark on the super-predicate, and the facts on the sub — with no edge
+      ;; between them yet, so nothing is under the mark and nothing may merge
+      (v/assert kb (decl parentOf) U)
+      (v/assert kb (list fatherOf Tom lo) U)
+      (v/assert kb (list fatherOf Tom hi) U)
+      (check (not (merged? kb lo hi))
+             "no edge yet, so the fillers are not under the mark")
+      ;; ...and the edge last, which is what puts them there
+      (v/assert kb (list 'genl fatherOf parentOf) U)
+      (merged? kb lo hi))))
+
+(tu/deftest-kb a-genl-edge-arriving-last-merges-under-functional
+  ;; the control: the arity-2 spelling, which has always worked
+  (check (merges-when-the-edge-arrives-last? kb #(list 'functional %))
+         "(functional P): the edge arriving last reaches the facts already stored"))
+
+(tu/deftest-kb a-genl-edge-arriving-last-merges-under-functional-in-arg
+  ;; the regression, in its own KB so the gate is genuinely closed to begin with
+  (check (merges-when-the-edge-arrives-last? kb #(list 'functionalInArg % 2))
+         "(functionalInArg P 2): the same, or the generalization moved arity-2 behaviour"))
 
 ;; ---- Pace's matrix, rows 1 and 2 ----------------------------------------
 
@@ -474,3 +538,76 @@
       (v/assert kb (list parentOf Tom hi) U)
       (is (merged? kb lo hi)
           "declaration-first was never broken and must stay unbroken"))))
+
+;; ---- declaration-last over an UNMERGEABLE pair ---------------------------
+
+;; The declaration-last rows above test the *merge* lane: two symbol fillers, reconciled
+;; by `special/equate-existing`, which learned the `functionalInArg` door in #52.  The
+;; other half of the same arrival order is the pair no merge can reconcile, and it takes
+;; an entirely different lane — `settle`'s clash exposure, which `functionalInArg` had
+;; not joined (#54).  The generalization enforced at the door and went unswept behind it:
+;; a mark arriving after two numbers convicted nothing, where `(functional P)` in the
+;; same order convicts.
+;;
+;; Both halves of the lane map on `special/functional-family-declaration` are therefore
+;; pinned here, and the control is not optional for the reason the merge rows give.
+
+(tu/deftest-kb control-functional-declared-after-unmergeable-facts-is-reported
+  ;; THE CONTROL for the two rows below.  Read this result first.
+  (tu/with-terms [birthYearOf Tom]
+    (v/assert kb (list birthYearOf Tom 1980) U)
+    (v/assert kb (list birthYearOf Tom 1990) U)
+    (v/assert kb (list 'functional birthYearOf) U)       ; declaration LAST
+    (check (any-functional-violation? kb)
+           "today's functional reports a pair already stored when the mark arrives")))
+
+(tu/deftest-kb functional-in-arg-2-declared-after-unmergeable-facts-is-reported
+  ;; The regression half of the generalization, applied to the clash lane: at arity 2
+  ;; this is `(functional P)` spelled the new way and must behave identically.
+  (tu/with-terms [birthYearOf Tom]
+    (v/assert kb (list birthYearOf Tom 1980) U)
+    (v/assert kb (list birthYearOf Tom 1990) U)
+    (v/assert kb (list 'functionalInArg birthYearOf 2) U) ; declaration LAST
+    (check (any-functional-violation? kb)
+           "(functionalInArg P 2) must report retroactively exactly as (functional P) does")))
+
+(tu/deftest-kb functional-in-arg-3-declared-after-unmergeable-facts-is-reported
+  ;; The shape the mark exists for, in the arrival order the special case handles: a
+  ;; composite determinant whose declaration lands after the tuples it convicts.
+  (tu/with-terms [namesObject NsA PathA]
+    (v/assert kb (list namesObject NsA PathA 1) U)
+    (v/assert kb (list namesObject NsA PathA 2) U)
+    (v/assert kb (list 'functionalInArg namesObject 3) U) ; declaration LAST
+    (check (any-functional-violation? kb)
+           "one namespace and one path cannot name two numbers, whenever the mark arrives")))
+
+(tu/deftest-kb a-genl-edge-arriving-last-carries-the-generalized-mark-down
+  ;; The third arrival order for the clash lane, and the one that proves the reach is
+  ;; read down the hierarchy rather than off the exact functor: the mark and the facts
+  ;; are both already stored, and it is the `genl` edge between their predicates that
+  ;; puts the pair under it.
+  ;;
+  ;; Green before #54 as well as after — `clash-marked-below` has read
+  ;; `tax/functional-in-arg-predicates` beside the prop rosters since the mark existed,
+  ;; so `marks-above?` already answered for it and only the declaration's *own* functor
+  ;; was missing from the two rosters.  Pinned anyway: the fix widens what reaches
+  ;; `marks-above?`, and this is the row that says the widening did not cost the
+  ;; descension.
+  (tu/with-terms [parentOf fatherOf Tom]
+    (v/assert kb (list 'functionalInArg parentOf 2) U)
+    (v/assert kb (list fatherOf Tom 1980) U)
+    (v/assert kb (list fatherOf Tom 1990) U)
+    (v/assert kb (list 'genl fatherOf parentOf) U)        ; edge LAST
+    (check (any-functional-violation? kb)
+           "the mark descends to fatherOf when the edge lands, and the stored pair is reported")))
+
+(tu/deftest-kb a-malformed-generalized-declaration-triggers-no-sweep
+  ;; The trigger gate reads the position as well as the predicate.  A declaration whose
+  ;; second argument is not an integer names no slot, and must not reach the sweep as
+  ;; though it did — nor take the assert down on the way.
+  (tu/with-terms [parentOf Tom Mary]
+    (v/assert kb (list parentOf Tom Mary) U)
+    (check (some? (ex-type #(v/assert kb (list 'functionalInArg parentOf 'Two) U)))
+           "a non-integer position is refused outright")
+    (check (not (any-functional-violation? kb))
+           "and nothing is swept on its behalf")))

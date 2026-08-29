@@ -849,7 +849,8 @@ declaration and the pair-shaped one does not.
 
 `string`, `number`, `integer`, `keyword`, `boolean`, `character` and `symbol` are the KB's
 only names for the kinds a literal argument can carry — one per leaf kind, and `arg` and
-`quotedArg` both read the same seven (`checks/literal-type`). The tempting alternative is a
+`quotedArg` both read the same seven, along with the four sign-refined integer types below
+`integer` (`checks/literal-value-types`). The tempting alternative is a
 parallel spelling per declaration, so that what an argument *denotes* and what is *written*
 there never share a name.
 
@@ -858,6 +859,16 @@ predicate you write, so a second set of names restates it; and a declaration nam
 them stores clean and convicts nothing, because `quotedArg` reads a type outside the
 syntactic lattice open-world. A refusal would be a mistake a reader is told about. Silence
 is one nothing reports.
+
+**The sign refinements are the case that shows why the shared reader has to be shared all
+the way down.** They were added denotation-only, on the reasoning that a sign is a fact
+about a value and `quotedArg` asks about syntax. But they live *below* `integer` in the
+lattice, so they are inside `quotedArg`'s domain and the open-world escape above does not
+reach them: the mention check compared a literal's bare kind upward against the declared
+type and convicted every integer written in such a position. Half a vocabulary is worse
+than two, because the half that is missing does not go quiet — it answers wrongly. A
+literal denotes itself, which is the whole reason the kinds are in the `genl` lattice, and
+it is why both readings now go through one reader.
 
 ## Inference and chaining
 

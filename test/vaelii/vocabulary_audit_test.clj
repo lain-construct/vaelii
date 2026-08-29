@@ -13,7 +13,8 @@
 
   A CxCore baseline is the whole population, which is why this is its own namespace
   — the constraint tests beside it (`constraint-vocabulary-test`) need a cleared KB."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.set :as set]
+            [clojure.test :refer [deftest is use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.settle :as settle]
@@ -92,8 +93,20 @@
         "a functor enrolled as a clash declaration with no kind sweeps nothing silently")
     (is (= (count functors) (reduce + (map count (vals kinds))))
         "the kinds partition: a functor in two makes which reach runs an ordering question")
-    (is (= (set (map first marks)) (:predicate-marked kinds))
+    ;; #54: the reach roster is a superset of the pairing table, not a copy of it.  Every
+    ;; definitional mark must reach as itself — that is the half #45 filed, and deriving
+    ;; the reach from a hand-written second list is what it forbids — but the *functional
+    ;; family* is wider than the pairing table, which pairs a functor with the prop key it
+    ;; stores under and so cannot hold `functionalInArg`, whose table is keyed `[pred n]`.
+    ;; That mark reaches stored content in exactly the same way and is enrolled by name.
+    (is (set/subset? (set (map first marks)) (:predicate-marked kinds))
         "the definitional marks reach as themselves, not as a second list beside the roster")
+    (is (contains? (:predicate-marked kinds) 'functionalInArg)
+        (str "the generalized functional mark reaches too — left out, a declaration"
+             " arriving after an unmergeable pair convicts nothing, where (functional P)"
+             " in the same order convicts"))
+    (is (= (into (set (map first marks)) '#{functionalInArg}) (:predicate-marked kinds))
+        "and nothing else is in there — a new functor is a deliberate roster change")
     (is (= (set (map second marks)) @#'settle/definitional-mark-keywords)
         "and both spellings of every mark come from the one table of pairs")))
 

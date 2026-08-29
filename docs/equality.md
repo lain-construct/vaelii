@@ -366,6 +366,19 @@ alike.
 declaration]`. Everything else — two numbers, two strings, a compound — stays the hard
 contradiction it is, because no merge can make two numbers one thing.
 
+**`(functionalInArg P n)` is the same machinery with the determined position named**
+rather than fixed at argument 2 ([taxonomy.md](taxonomy.md)). Everything in this section
+holds of it unchanged: the same merge/refuse rule, the same four arrival directions, the
+same justification shape. Two differences are worth stating. The clash the checks hand
+back carries the **position** — with the generalized mark a predicate may be constrained
+at more than one position at once, and two slots of one sentex are two different incoming
+fillers — so nothing downstream reads the filler as "argument 2" any more
+(`checks/functional-filler` is the one place that assumption is left). And the merge rests
+on *every* declaration constraining that position, both spellings unioned
+(`checks/functional-declaration-supporters`), so a predicate carrying `(functional P)` and
+`(functionalInArg P 2)` keeps its merge when either one is retracted — the same rule two
+`(functional P)` sentexes in different contexts already follow, applied one level up.
+
 `equals` specifically, not `sameAs`: a functional value need not be an individual —
 a birth year, a measurement — and `sameAs` is individuals-only by OWL. `equals` is
 the only one of the three that always type-checks here.
@@ -397,8 +410,13 @@ edge meeting both, sweeping the arriving `(genl sub super)`'s own subtree, and
 `special/equate-under-context-edge` is the fourth: a `genlCx` edge meeting both, over the
 *context* cone rather than the predicate one. It has no subtree of its own to sweep — a
 context edge changes no predicate and no fact, only which contexts see one another — so
-it sweeps the full stored extent of every `functional`-marked predicate instead (up to
-`tax/*exposure-instance-budget*` candidates, below), and hands each candidate to
+what it sweeps is the **cone the edge widens**: every context the readers of `sub` can
+see once the edge integrates, which is the same reachability `migrate-under-context-edge`
+computes for the same trigger. (An earlier draft swept every marked predicate's whole
+extent KB-wide, capped only by the budget; that made an edge between two small unrelated
+contexts pay for a predicate it had nothing to do with.) It keeps the stored facts there
+whose functor a mark could reach, up to `tax/*exposure-instance-budget*` candidates
+(below), and hands each to
 `special/derive-functional-equalities` **at its own storage context**; that function no
 longer answers only for the context it is handed, it now sweeps every reader below that
 context too (`context-down`), which is what reaches the joining context this edge
@@ -413,15 +431,26 @@ read.
 
 **This one direction is budgeted, unlike the other three.** A `genl` edge's subtree is
 bounded by real vocabulary growth — the edge names the predicate whose subtree is swept —
-where a `genlCx` edge names two contexts with no such relationship to the marked-predicate
-roster's size: one small edge can make the whole roster newly relevant regardless of what
-it itself connects. `equate-under-context-edge` caps its candidates at
+where a `genlCx` edge names two *contexts*, and the cone they open can be large even when
+the edge itself is small: a context wired under a genuinely huge store makes all of it
+newly relevant. `equate-under-context-edge` caps its candidates at
 `tax/*exposure-instance-budget*` (shared with `vaelii.impl.settle`'s own exposure passes,
 so one dial governs every cross-context sweep in the KB) and, past it, files a
 `:context-edge-exposure-truncated` violation — never silently. Unlike a cut sweep in
 `settle`, whose residual a later settle's exposure pass re-examines, a merge this cap
 prevents has no second chance: nothing re-triggers on a `genlCx` edge that already
 finished landing, so the pairs past the cut stay unmerged for good, this edge.
+
+**Past that cap, and only past it, order independence is a residual rather than a
+guarantee.** The cone is enumerated in handle order — assertion order — and the budget
+takes a prefix of it, so which merges a cut edge derives depends on when the facts
+arrived. Sorting the cone to content order would remove that and is refused for a
+measured reason: the sort forces the whole extent, which is the cost the cap exists to
+refuse, and a context cycle makes the cone the graph ([taxonomy.md](taxonomy.md) has the
+measurement). So the residual is left, and left **named** — the violation is filed on
+every cut, so no reader has to infer completeness from silence. Below the cap, which is
+every KB that has not put more than `*exposure-instance-budget*` marked facts in one
+cone, the sweep is exact and the invariant holds outright.
 
 The four directions ask one question from four sides, so none can drift about what a
 functional slot licenses: the equality names both facts and the declaration whichever way

@@ -10,7 +10,8 @@
   or throws — nothing here writes.  Both mutation paths consume these: `assert`
   (vaelii.core) throws the value, the derivation path (vaelii.impl.chain) records
   it in the violations ledger."
-  (:require [taoensso.nippy :as nippy]
+  (:require [clojure.string :as str]
+            [taoensso.nippy :as nippy]
             [vaelii.impl.config :as config]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.io.thaw :as safe]
@@ -97,12 +98,23 @@
     (and (symbol? x) (not (sx/variable? x))) 'symbol
     :else                                    nil))
 
-(defn- literal-denotation-types
+(defn- literal-value-types
   "The most specific built-in types known from a literal's value.
 
   Most literals have only their EDN kind. Integers additionally carry the sign-refined
   types declared in CxCore. Zero belongs to both non-negative and non-positive; returning
-  a set rather than forcing one artificial leaf keeps both argument constraints exact."
+  a set rather than forcing one artificial leaf keeps both argument constraints exact.
+
+  **Read by both argument readings, which is why it is not named for either.**  `arg`
+  types what an argument denotes and `quotedArg` the term written there, and for a
+  *literal* those coincide — a literal denotes itself, which is the whole reason the EDN
+  kinds sit in the `genl` lattice at all (CxCore, and `vocabulary.clj`'s note on the
+  literal types).  A sign is as decidable from `5` written in a position as from what
+  `5` denotes, so a reading that admitted `integer` and refused `positive_integer` would
+  not be more conservative, only wrong in one direction: `args-quoted-problem` read
+  `literal-type` alone and so convicted **every** integer of failing
+  `(quotedArg P n positive_integer)`, the declared type being *below* the kind rather
+  than above it (#55).  One reader, both doors."
   [x]
   (if (integer? x)
     (cond
@@ -251,7 +263,7 @@
     (let [ms (types arg)]
       (and (kb/isa-among? (:closures ms) 'thing)
            (not (kb/isa-among? (:closures ms) t))))
-    (let [ks (literal-denotation-types arg)]
+    (let [ks (literal-value-types arg)]
       (when (seq ks)
         (and (symbol? t)
              (tax/genl? tax t 'thing context)
@@ -501,13 +513,23 @@
   "First `(quotedArg pred n type)` violation for a sentence, or nil.
 
   The **mention** twin of `args-problem`: where that types what an argument *denotes*,
-  this types the argument *as a term* — its EDN kind (`literal-type`), checked through
-  genl against the declared syntactic type.  `(quotedArg nameOfGuy 1 string)` refuses
+  this types the argument *as a term* — what is decidable from the literal itself
+  (`literal-value-types`), checked through genl against the declared syntactic type.
+  `(quotedArg nameOfGuy 1 string)` refuses
   `(nameOfGuy 5)` because `5` is a `number`, not a `string`, and admits `(nameOfGuy
   \"Bob\")`.  Closed about a decidable literal — every leaf kind has a name
   (`syntactic-roots`), a keyword and a character included — and open-world about the one
   shape no kind answers for, a **compound**, which is exempt on the same floor
   `args-problem` gives an argument outside the hierarchy.
+
+  **`literal-value-types`, not `literal-type`, and the difference is the sign-refined
+  integers.**  `syntactic-type?` admits any type below a syntactic root, so
+  `positive_integer` — `(genl positive_integer integer)` in CxCore — is inside this
+  check's domain and always was.  Judged by EDN kind alone the comparison ran the wrong
+  way round, asking whether `integer` is below `positive_integer`, and refused every
+  integer literal written in such a position (#55).  The shared reader answers the
+  question the declaration actually asks, and the mention and denotation readings agree
+  about a literal for the reason they always have: a literal denotes itself.
 
   Behind the same O(1) gate as `inter-args-problem`, and for the same reason: nothing
   declares `quotedArg` in a bare KB, and this runs on every assert, so a
@@ -524,14 +546,20 @@
                     n   (get b '?n)
                     t   (get b '?type)
                     arg (arg-at as n)
-                    lit (literal-type arg)]
+                    lit (literal-type arg)
+                    ks  (literal-value-types arg)]
              :when (and (some? arg) lit (symbol? t)
-                        (not= lit t)
+                        (not (contains? ks t))
                         (syntactic-type? tax t context)
-                        (not (tax/genl? tax lit t context)))]
+                        (not-any? #(tax/genl? tax % t context) ks))]
          {:type :quoted-arg-type :sentence sentence :arg arg :expected t :position n
+          ;; the value types when the refinement is what failed, the bare EDN kind
+          ;; otherwise: "it is a integer" says nothing useful about -5 refused a
+          ;; positive_integer, where the kind alone is the whole answer for "Bob"
+          ;; refused a number
           :message (str "quoted-arg constraint: " arg " must be a " t " as a term — it is a "
-                        lit " (arg " n " of " pred (via-clause (declared-of d) pred) ")")})))))
+                        (if (= ks #{lit}) (str lit) (str/join " / " (sort ks)))
+                        " (arg " n " of " pred (via-clause (declared-of d) pred) ")")})))))
 
 ;; ---- the argument constraints, checked against each other ----------------
 

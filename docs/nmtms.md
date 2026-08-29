@@ -734,7 +734,7 @@ with **no placement context** is recorded as `:no-placement`, and a *derived*
 `:not-stratified`. A rule a **generator** minted and the rule checks refuse is dropped
 the same way, under whichever refusal type the check threw.
 
-Seven kinds on this path drop nothing, and report instead. `:arity` is an arity binding
+Eight kinds on this path drop nothing, and report instead. `:arity` is an arity binding
 arriving after facts that do not conform to it, and `:non-confluent` two schematic
 equations disagreeing about a shared term. Three of the rest say a **bounded sweep did
 not finish**, so bounded work never reads as full coverage: `:exposure-truncated` means
@@ -758,6 +758,24 @@ without evicting everything else from a ledger of 1,000, so the pass files at mo
 `:constraint-exposure-truncated` says one cross-context constraint pass found more
 clashing pairs than it will file, naming whichever bound it met — its cut walk or the
 entry cap.
+
+The eighth is neither, and is worth holding apart from both: `:partner-sweep-truncated`
+names a question the pass never *asked*. Finding the far half of a constraint clash
+normally reads one argument root, but a `functionalInArg` mark whose declared position is
+the whole tuple leaves no root to narrow by ([taxonomy.md](taxonomy.md)), so partner
+discovery becomes an extent sweep, bounded like the others. What a cut there costs is a
+**vantage** — a context that would have seen a clashing pair is not consulted — so the
+pairs it loses appear in no `:pairs` or `:unswept` count, there being nothing to count
+them from. Its prefix is stable, so a later settle re-reads it rather than reaching past
+it; raising `tax/*exposure-instance-budget*` is what reaches past it.
+
+One truncation kind is **not** on this path at all.
+`:context-edge-exposure-truncated` is filed eagerly, from the `genlCx`-edge assert that
+triggers the merge-deriving sweep in `special/equate-under-context-edge`, not from a
+settle ([equality.md](equality.md)). Its residual is the strongest of the set: nothing
+re-triggers on a context edge that has already landed, so a merge past its cut is not
+derived by anything afterward, where every kind above goes undecided *this settle* and is
+re-examined by the next.
 
 The kinds are not only this path's. An aggregate prover that cannot reduce an extent
 files `:aggregate`; the qualitative and metric-temporal networks file

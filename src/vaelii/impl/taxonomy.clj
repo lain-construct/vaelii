@@ -2682,9 +2682,15 @@
   `:clashes` and re-examined every settle after, and the standing whole-KB question
   takes no budget at all (disjointness only, and it reports rather than arbitrates).  So
   the order-dependence past the cut is in *when* a pair is arbitrated, not in which way
-  it goes.  `equate-under-context-edge`'s own residual is narrower and stated on it
-  directly, since a merge it fails to reach this edge has no later settle pass revisiting
-  it the way an unmergeable clash does."
+  it goes.
+
+  **`equate-under-context-edge`'s residual is the stronger one, and is stated on it
+  directly.**  That cap selects a handle-ordered prefix too, but a merge it fails to
+  reach has no later settle pass revisiting it the way an unmergeable clash does — so
+  past *that* cap the order-dependence is in whether a merge is derived at all, not only
+  in when.  It is bounded the same way and reported the same way (a
+  `:context-edge-exposure-truncated` violation per cut), and below the cap it is exact;
+  what it is not is covered by the sentence above."
   4096)
 
 ;; ---- genlCx (contexts) ---------------------------------------------------
@@ -3639,6 +3645,35 @@
   '{arg :declares-arg-isa, genlArg :declares-arg-genl, quotedArg :declares-quoted-arg,
     interArg :declares-inter-arg-isa})
 
+(def functional-family-marks
+  "The spellings of the **functional** mark, each with its written shape: `:mark` for
+  the one-place `(functional P)`, `:mark-in-arg` for the two-place `(functionalInArg P
+  n)`.  The marked predicate is argument 1 of either, which is what lets a reader that
+  only wants the predicate ignore the shape entirely.
+
+  **One roster because the family lives in two lanes and has twice been joined to only
+  one.**  A functional mark is acted on by the *merge* lane (`special`'s `equate-*`
+  doors, where two fillers of a functional slot are equated) and by the *clash exposure*
+  lane (`settle`'s declaration reach and trigger rosters, where two unmergeable fillers
+  are reported).  Both lanes have to recognize the same spellings, and neither fails
+  loudly when it does not — the merge simply does not happen, or the clash simply is not
+  reported, in the one arrival order that route was the only way into.  Enrolling
+  `functionalInArg` by name in each place is what left #52 (the declaration-last merge
+  door held an exact-functor test) and #54 (the declaration arrived and swept nothing)
+  open at the same time, in different lanes, from the same omission.
+
+  So a new spelling is added here and the lanes follow.  What a lane still owns for
+  itself is what it does with the shape: `settle` also checks the argument *kinds*
+  because its triggers come off a moved region and may be malformed, where `special`'s
+  door is downstream of well-formedness and checks only the arity.
+
+  Not `:props`-keyed, and that is the point of the split from `settle`'s
+  `definitional-marks`: `functional` stores under the `:functional` prop where
+  `functionalInArg` stores `[pred n]` pairs in the `:functional-in-arg` table, so the two
+  have no common storage to be rostered by — only a common family and a common argument
+  1."
+  '{functional :mark, functionalInArg :mark-in-arg})
+
 ;; The supporters behind a flat-cache entry, read back.  A consumer that *justifies*
 ;; something on a declaration needs the declaring sentexes as antecedents, and reading
 ;; them here beats re-querying the store for a sentence the cache was built from.
@@ -3781,6 +3816,25 @@
   the whole marked roster to walk each one's stored extent, the same way it already
   reads `props :functional` for the arity-2 mark."
   [tax] (set (keys (get @tax :functional-in-arg {}))))
+
+(defn functional-family-declared?
+  "Does the taxonomy carry a functional-family mark of **either** spelling — the global,
+  unscoped gate every merge door of that family opens on, before it reads any extent?
+
+  One predicate rather than the `or` written at each door, because the two spellings
+  store in different places (`props :functional` and the `:functional-in-arg` table) and
+  a door that asks only the first is closed to the generalized mark while reporting
+  itself as free-for-a-KB-that-declares-nothing.  That is not hypothetical: it is what
+  `equate-under-edge` did, so a `genl` edge arriving last under `(functionalInArg P 2)`
+  merged nothing where the same edge under `(functional P)` merged — the arity-2
+  behaviour the generalization is not allowed to move.  See
+  `functional-family-marks` for the spelling roster this is the storage half of.
+
+  Two set-emptiness reads and no walk, the `or` short-circuiting on the commoner
+  spelling, which is what lets it sit in front of every extent sweep."
+  [tax]
+  (boolean (or (seq (props tax :functional))
+               (seq (functional-in-arg-predicates tax)))))
 
 (defn inverses-of
   "**Every** predicate declared inverse to `p`, as a set — anywhere, or (with `context`)
