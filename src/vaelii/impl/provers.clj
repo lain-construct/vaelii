@@ -1686,29 +1686,54 @@
 ;; forward rule (completeness 50): a condition that *is* believed is answered identically
 ;; through `FactProver` and deduped, so this only adds the computed case.
 ;;
-;; What is deliberately NOT here: precedence over `defnNecessary`.  This admits on the
-;; sufficient condition alone; the necessary-checking admittance algorithm over the genl
-;; lattice is a separate build.
+;; **Positive membership descends to a spec's sufficient (v2).**  `(Coll a)` is provable
+;; when `Coll`'s own defnSufficient passes OR a **spec**'s does — a spec is more specific,
+;; below `Coll` on the genl edges (`(genl spec Coll)`), and its members are `Coll`s.  So
+;; the walk descends the spec cone (`tax/specs`, which is reflexive — it includes `Coll`
+;; itself, folding the own-sufficient and the spec-sufficient cases into one iteration).
+;;
+;; What is deliberately NOT here: precedence over `defnNecessary`.  A passing sufficient
+;; admits even against a failing own-necessary — sufficient is authoritative (v2), the
+;; resulting inconsistency documented not arbitrated.  The negation prover (a failing
+;; necessary proves ¬member) and the genl-necessary fast-fail are separate builds.
 
-(def ^:private ^:dynamic *defn-sufficient-stack*
-  "The collections a `DefnSufficientProver` solve is already inside, so a self-referential
+(def ^:private ^:dynamic *defn-stack*
+  "The collections a defn prover solve is already inside — the re-entry guard shared by the
+  positive (sufficient-descent) and negative (necessary-ascent) walks, so a self-referential
   condition — `(defnSufficient Coll (Coll ?x))`, which nothing forbids — cannot recur
   without end.  Level-6 has no depth guard of its own, so the re-entry is bounded here."
   #{})
 
-(defn- sufficient-conditions
-  "The conditions `C` of every `(defnSufficient Coll C)` visible from `context` — the
-  member still named by `sx/defn-member-var`, which fact canonicalization preserves (only
-  rule canonicalization renames variables)."
-  [kb coll context]
+(defn- defn-conditions
+  "The conditions `C` of every visible `(pred coll C)` for the definitional relation
+  `pred` (`defnSufficient` / `defnNecessary`), from `context` — the member still named by
+  `sx/defn-member-var`, which fact canonicalization preserves (only rule canonicalization
+  renames variables).  Lazy, so a `take 1` applicability probe stops at the first."
+  [kb pred coll context]
   (keep #(get (second %) '?cond)
-        (res/matches-visible kb (list 'defnSufficient coll '?cond) context)))
+        (res/matches-visible kb (list pred coll '?cond) context)))
+
+(defn- condition-holds?
+  "Does the defn condition `cond` hold for `member`, evaluated at query time through the
+  registry (level-6, no backchaining)?  The member is substituted for `sx/defn-member-var`
+  and each conjunct answered by the evaluables, the facts and the closures.  **Two-valued**:
+  a condition that is not derivable is false — there is no third 'unknown' state (v2)."
+  [kb cond member context]
+  (conjunction-derivable?
+   kb (sx/conjuncts (res/substitute cond {sx/defn-member-var member})) {} context))
+
+(defn- spec-sufficient-conditions
+  "Every defnSufficient condition in `coll`'s spec cone (reflexive `tax/specs`), lazily —
+  `coll`'s own and every spec's, the descent the positive walk admits on."
+  [kb coll context]
+  (mapcat #(defn-conditions kb 'defnSufficient % context)
+          (tax/specs (:taxonomy kb) coll context)))
 
 (defrecord DefnSufficientProver []
   Prover
-  ;; A ground unary membership goal `(Coll a)` for a `Coll` carrying a visible
-  ;; defnSufficient.  Ground because the condition is evaluated against the member: an open
-  ;; `(Coll ?x)` would ask a computed condition to *enumerate* its members, which a
+  ;; A ground unary membership goal `(Coll a)` for a `Coll` whose spec cone carries a
+  ;; visible defnSufficient.  Ground because the condition is evaluated against the member:
+  ;; an open `(Coll ?x)` would ask a computed condition to *enumerate* its members, which a
   ;; sufficient built from `integer` / `lessThan` cannot do (the infinite-extent generator
   ;; is the punted, theoretically-hard case).
   (applicable? [_ kb goal context]
@@ -1716,8 +1741,8 @@
          (symbol? (first goal))
          (= 1 (count (rest goal)))
          (ground? goal)
-         (not (contains? *defn-sufficient-stack* (first goal)))
-         (boolean (seq (take 1 (sufficient-conditions kb (first goal) context))))))
+         (not (contains? *defn-stack* (first goal)))
+         (boolean (seq (take 1 (spec-sufficient-conditions kb (first goal) context))))))
   (est-bindings [_ _ _ _] 1)                    ; a ground membership test: it holds or not
   (cost         [_ _ _ _] :compute)             ; a bounded level-6 subquery, at worst a closure
   ;; Augments `FactProver` and the forward defn rule rather than replacing them: a
@@ -1726,13 +1751,12 @@
   (completeness [_ _ _ _] 50)
   (solve [_ kb goal context]
     (let [coll   (first goal)
-          member (second goal)
-          holds? (fn [cond]
-                   (conjunction-derivable?
-                    kb (sx/conjuncts (res/substitute cond {sx/defn-member-var member}))
-                    {} context))]
-      (binding [*defn-sufficient-stack* (conj *defn-sufficient-stack* coll)]
-        (if (some holds? (sufficient-conditions kb coll context)) [{}] [])))))
+          member (second goal)]
+      (binding [*defn-stack* (conj *defn-stack* coll)]
+        (if (some (fn [c] (condition-holds? kb c member context))
+                  (spec-sufficient-conditions kb coll context))
+          [{}]
+          [])))))
 
 ;; ---- aggregation: a reduction over a query's solutions ------------------
 ;; `(agg/count ?n ?v <body>)` and its four siblings are the third member of the
