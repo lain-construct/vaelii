@@ -61,28 +61,73 @@
     (is (not (v/ask? kb (list negnum 7) 'CxUniverse))
         "7 is an integer but not below zero")))
 
-;; ---- 2. precedence: a failing defnNecessary vetoes a satisfied defnSufficient ----
+;; ---- 2. v2 semantics: sufficient is authoritative, necessary is an optimization ----
+;; Pace, 2026-08-29: defns are two-valued; a defnSufficient that passes admits, full stop;
+;; a defnNecessary is a sound negative witness / fast-fail, never a positive gate.
 
-(tu/deftest-kb a-failing-necessary-vetoes-a-satisfied-sufficient
-  ;; "when defnNecessary and defnSufficient fight, who wins?" — the necessary.
+(tu/deftest-kb sufficient-is-authoritative-a-failing-necessary-does-not-veto
+  ;; A passing sufficient admits even when a necessary fails. That makes the KB
+  ;; inconsistent — (widget 7) and (not (widget 7)) both become provable — which is FINE:
+  ;; we DOCUMENT it and pin no arbitration. Here we pin only the v2 rule (sufficient
+  ;; admits); the negative half is exercised in the negation tests below.
+  ;; Green after Phase A: the query-time sufficient prover admits without consulting necessaries.
   (tu/with-terms [widget suff nec]
     (v/add-evaluatable kb suff (fn [_] true))
     (v/add-evaluatable kb nec  (fn [_] false))
     (v/assert kb (list 'defnSufficient widget (list suff '?x)) 'CxUniverse)
     (v/assert kb (list 'defnNecessary  widget (list nec  '?x)) 'CxUniverse)
-    (is (not (v/ask? kb (list widget 7) 'CxUniverse))
-        "the sufficient condition holds, but the failed necessary denies membership")))
+    (is (v/ask? kb (list widget 7) 'CxUniverse)
+        "sufficient is authoritative: (suff 7) holds, so 7 is admitted; the failing necessary does not veto (the resulting inconsistency is documented, not pinned)")))
 
-(tu/deftest-kb every-genl-necessary-must-pass
-  ;; admittance at the spec must satisfy the genl's necessary too (all genls checked).
-  (tu/with-terms [animal dog dogSuff animalNec]
-    (v/add-evaluatable kb dogSuff   (fn [_] true))
-    (v/add-evaluatable kb animalNec (fn [_] false))       ; the genl's necessary fails
+;; ---- 3. positive membership descends to a SPEC's sufficient (down the genl edges) ----
+
+(tu/deftest-kb positive-membership-descends-to-a-specs-sufficient
+  ;; Pace, "specs down the genl edges": (animal 7) is provable because 7 is a dog (dog's
+  ;; sufficient holds) and dog ⊑ animal. The positive walk descends to a spec's sufficient.
+  ;; RED until Phase B — Phase A consults only the queried collection's OWN sufficient.
+  (tu/with-terms [animal dog dogSuff]
+    (v/add-evaluatable kb dogSuff (fn [_] true))
+    (v/assert kb (list 'genl dog animal) 'CxUniverse)               ; dog is the spec (below animal)
+    (v/assert kb (list 'defnSufficient dog (list dogSuff '?x)) 'CxUniverse)
+    (is (v/ask? kb (list animal 7) 'CxUniverse)
+        "7 is a dog and dog ⊑ animal, so 7 is an animal — positive walk descends to the spec's sufficient")))
+
+;; ---- 4. negation: (not (coll x)) via a FAILING necessary, ascending genls (the converse) ----
+
+(tu/deftest-kb negative-membership-from-a-failing-own-necessary
+  ;; (not (widget x)) is provable when widget's own necessary fails for x (member ⇒ nec,
+  ;; contrapositive). Two-valued: a necessary that does not hold is a disproof. RED until Phase B.
+  (tu/with-terms [widget nec]
+    (v/add-evaluatable kb nec (fn [_] false))
+    (v/assert kb (list 'defnNecessary widget (list nec '?x)) 'CxUniverse)
+    (is (v/ask? kb (list 'not (list widget 7)) 'CxUniverse)
+        "(nec 7) fails and member ⇒ nec, so ¬(widget 7) is provable")))
+
+(tu/deftest-kb negative-membership-ascends-to-a-genls-necessary
+  ;; the converse of positive-descends-to-specs: (not (dog x)) is provable when a GENL's
+  ;; necessary fails — ascend up the genl edges. RED until Phase B.
+  (tu/with-terms [animal dog animalNec]
+    (v/add-evaluatable kb animalNec (fn [_] false))
     (v/assert kb (list 'genl dog animal) 'CxUniverse)
-    (v/assert kb (list 'defnSufficient dog    (list dogSuff   '?x)) 'CxUniverse)
-    (v/assert kb (list 'defnNecessary  animal (list animalNec '?x)) 'CxUniverse)
-    (is (not (v/ask? kb (list dog 7) 'CxUniverse))
-        "dog's sufficient holds, but animal's necessary fails — a dog must be an animal")))
+    (v/assert kb (list 'defnNecessary animal (list animalNec '?x)) 'CxUniverse)
+    (is (v/ask? kb (list 'not (list dog 7)) 'CxUniverse)
+        "animal's necessary fails and dog ⊑ animal, so ¬(animal 7) ⇒ ¬(dog 7) — negative walk ascends to the genl's necessary")))
+
+(tu/deftest-kb negated-defn-of-non-members-is-provable
+  ;; Pace's concrete slice: (not (positive_integer x)) for a zero / a string / a predicate,
+  ;; each provable by FAILING a necessary conjunct. Self-contained pos_int. RED until Phase B.
+  (tu/with-terms [pos_int isInt isPos]
+    (v/add-evaluatable kb isInt integer?)
+    (v/add-evaluatable kb isPos (fn [n] (and (number? n) (pos? n))))
+    (v/assert kb (list 'defnNecessary pos_int
+                       (list 'and (list isInt '?x) (list isPos '?x)))
+              'CxUniverse)
+    (is (v/ask? kb (list 'not (list pos_int 0)) 'CxUniverse)
+        "0 fails isPos ⇒ ¬(pos_int 0)")
+    (is (v/ask? kb (list 'not (list pos_int "string")) 'CxUniverse)
+        "a string fails isInt ⇒ ¬(pos_int string)")
+    (is (v/ask? kb (list 'not (list pos_int 'unaryPredicate)) 'CxUniverse)
+        "a predicate fails isInt ⇒ ¬(pos_int unaryPredicate)")))
 
 ;; ---- 3. the genl diamond: dedup on admit, short-circuit on reject ----
 
@@ -90,13 +135,13 @@
   "Build the diamond dbottom ⊏ {dmid_a,dmid_b} ⊏ dtop with a defnNecessary on all four and a
   defnSufficient on dbottom, each condition a counted evaluatable.  Returns the counters."
   [kb dtop dmid_a dmid_b dbottom topNec midANec midBNec bottomNec bottomSuff
-   {:keys [top mida midb bottomn]}]
+   {:keys [top mida midb bottomn bsuff] :or {bsuff true}}]
   (let [ct  (atom 0) ca (atom 0) cb (atom 0) cbn (atom 0) cbs (atom 0)]
     (counted! kb topNec     ct  top)
     (counted! kb midANec    ca  mida)
     (counted! kb midBNec    cb  midb)
     (counted! kb bottomNec  cbn bottomn)
-    (counted! kb bottomSuff cbs true)
+    (counted! kb bottomSuff cbs bsuff)
     (v/assert kb (list 'genl dbottom dmid_a) 'CxUniverse)
     (v/assert kb (list 'genl dbottom dmid_b) 'CxUniverse)
     (v/assert kb (list 'genl dmid_a dtop) 'CxUniverse)
@@ -108,32 +153,42 @@
     (v/assert kb (list 'defnSufficient dbottom  (list bottomSuff '?x)) 'CxUniverse)
     {:top ct :mida ca :midb cb :bottomn cbn :bottomsuff cbs}))
 
-(tu/deftest-kb diamond-admitted-evaluates-each-defn-exactly-once
+(tu/deftest-kb diamond-admitted-checks-no-defn-more-than-once
+  ;; v2: admitting via dbottom's sufficient does NOT require checking necessaries
+  ;; (sufficient authoritative). Whatever necessaries the walk touches, it touches each
+  ;; AT MOST once — dtop is reachable by two genl paths and must never be double-checked.
+  ;; The admitting sufficient is evaluated exactly once.
   (tu/with-terms [dtop dmid_a dmid_b dbottom
                   topNec midANec midBNec bottomNec bottomSuff]
     (let [c (diamond! kb dtop dmid_a dmid_b dbottom
                       topNec midANec midBNec bottomNec bottomSuff
                       {:top true :mida true :midb true :bottomn true})]
       (is (v/ask? kb (list dbottom 42) 'CxUniverse)
-          "42 satisfies dbottom's sufficient and every necessary in the diamond")
-      (is (= 1 @(:bottomsuff c)) "dbottom's defnSufficient evaluated once")
-      (is (= 1 @(:top c))     "dtop's defnNecessary evaluated once — deduped across the two genl paths")
-      (is (= 1 @(:mida c))    "dmid_a's defnNecessary once")
-      (is (= 1 @(:midb c))    "dmid_b's defnNecessary once")
-      (is (= 1 @(:bottomn c)) "dbottom's defnNecessary once"))))
+          "dbottom's sufficient holds ⇒ 42 admitted")
+      (is (= 1 @(:bottomsuff c)) "the admitting sufficient is evaluated exactly once")
+      (is (<= @(:top c) 1)     "dtop's necessary checked at most once — never twice across the two genl paths (dedup)")
+      (is (<= @(:mida c) 1)    "dmid_a's necessary at most once")
+      (is (<= @(:midb c) 1)    "dmid_b's necessary at most once")
+      (is (<= @(:bottomn c) 1) "dbottom's necessary at most once"))))
 
-(tu/deftest-kb diamond-rejected-at-top-short-circuits-before-the-sides
+(tu/deftest-kb diamond-a-failing-topmost-necessary-short-circuits-the-optimization
+  ;; v2 optimization: querying (dbottom 42) where 42 genuinely is NOT a dbottom
+  ;; (sufficient false — consistent KB) and the topmost necessary (dtop) fails. The
+  ;; fast-fail checks the most-general necessary first, sees it fail, and rejects WITHOUT
+  ;; evaluating the sides or the (possibly expensive) sufficient — a pure speedup.
+  ;; RED until Phase B builds the fast-fail. (Phase A would call bottomSuff and skip the
+  ;; necessaries: top==0, bottomsuff==1 — the inverse of the target.)
   (tu/with-terms [dtop dmid_a dmid_b dbottom
                   topNec midANec midBNec bottomNec bottomSuff]
     (let [c (diamond! kb dtop dmid_a dmid_b dbottom
                       topNec midANec midBNec bottomNec bottomSuff
-                      {:top false :mida true :midb true :bottomn true})] ; dtop's necessary fails
+                      {:top false :mida true :midb true :bottomn true :bsuff false})]
       (is (not (v/ask? kb (list dbottom 42) 'CxUniverse))
-          "dtop's necessary fails, so 42 is not a dbottom")
-      (is (= 1 @(:top c))   "dtop's defnNecessary checked exactly once — not >=1, no re-check on the fail path")
-      (is (= 0 @(:mida c))  "dmid_a not checked — fast-fail short-circuits before the sides")
-      (is (= 0 @(:midb c))  "dmid_b not checked")
-      (is (= 0 @(:bottomsuff c)) "dbottom's sufficient not even tried once the top necessary fails"))))
+          "42 is not a dbottom (sufficient false), and the failing top necessary confirms it")
+      (is (= 1 @(:top c))       "dtop's necessary checked exactly once, first — the broadest disqualifier")
+      (is (= 0 @(:mida c))      "dmid_a not checked — short-circuit before the sides")
+      (is (= 0 @(:midb c))      "dmid_b not checked")
+      (is (= 0 @(:bottomsuff c)) "the sufficient is skipped once the top necessary fails"))))
 
 ;; ---- 4. characterization: pin what asking a defn collection of a literal does TODAY ----
 
