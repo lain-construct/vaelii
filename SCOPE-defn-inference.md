@@ -29,12 +29,13 @@
 4. **Pin `(?pred 212)` current behavior.** Whatever it does today, capture it in a test **with a comment about defns**, so the change is visible against a recorded baseline. (Cousin of [[practice-settled-markers-carry-receipts]] — pin the receipt.)
 5. **Evaluative defnSufficient (the core build):** `(negative_integer -212)` provable on query via computable-condition evaluation; no hand-assert of membership.
 
-### Added 2026-08-29 10:09 — genl-diamond admittance test (Pace, msg 1543306713397067887)
-> add a defn test that has a genl diamond. test defn admittance on the bottom. defnNecessary on all four, defnSufficient on the bottom. ensure each defn is called exactly once.
+### Added 2026-08-29 10:09 — genl-diamond admittance test (Pace, msg 1543306713397067887, edited 10:10)
+> add a defn test that has a genl diamond. test defn admittance on the bottom. defnNecessary on all four, defnSufficient on the bottom. ensure each defn is called exactly once in the admitted case. ensure the side defns are not called when the topmost defnNecessary fails.
 
-**Reading (Lain):** four collections in a diamond — `Bottom` genl two middles `MidA`/`MidB`, both genl `Top`. `defnNecessary` on **all four**; `defnSufficient` only on `Bottom`. Admit a candidate at `Bottom` (via its defnSufficient) and assert admittance requires **every** defnNecessary in the diamond to pass (precedence rule #1/#2 applied over a lattice, not a chain).
-- **The teeth: each defn evaluated exactly once.** `Top` is reachable via two genl paths (`Bottom→MidA→Top`, `Bottom→MidB→Top`). A naive walk checks `Top`'s defnNecessary twice. The test must assert **exactly one** evaluation per defn — i.e. the admittance algorithm dedups the genl lattice (visited-set / memoized), not re-walks it. Instrument the count (spy/counter on each defn's check) and assert `= 1` for all four.
-- This is the lattice generalization of the fast-fail item: correctness (all necessaries pass) **and** efficiency (no defn re-evaluated) over a DAG, not just a path.
+**Reading (Lain):** four collections in a diamond — `Bottom` genl two middles `MidA`/`MidB`, both genl `Top`. `defnNecessary` on **all four**; `defnSufficient` only on `Bottom`. Two cases, both asserted by counting calls (spy/counter on each defn's check):
+- **Admitted case — each defn evaluated exactly once.** Candidate satisfies everything. `Top` is reachable via two genl paths (`Bottom→MidA→Top`, `Bottom→MidB→Top`); a naive walk checks `Top`'s defnNecessary twice. Assert **exactly one** call per defn — the algorithm dedups the lattice (visited-set / memoized), not re-walks it. All four counters = 1.
+- **Rejected-at-top case — short-circuit, side defns not called.** `Top`'s defnNecessary fails. Assert `Top` is checked and **`MidA`/`MidB` are NOT called** (nor `Bottom`'s sufficient). This is the fast-fail made concrete: the highest/cheapest disqualifier is checked first and the walk stops — it does not spread to the siblings. Counters: `Top` ≥ 1, `MidA` = `MidB` = 0.
+- Together: correctness (all necessaries pass to admit) **and** efficiency over a DAG — dedup on success, short-circuit on failure. Ordering must guarantee `Top` is reachable-and-checked before the middles so the short-circuit holds.
 
 ## Postponed (Pace + Syne, vaelii-thread 2026-08-29 — Pace: "I'm fine with postponing quoted defns")
 **Quoted defn analogues are OUT of this PR.** Syne's audit: vaelii has **no `quotedDefnNecessary/Sufficient/Iff` forms**, `quotedArg` doesn't meaningfully type compound payloads, and **schematic `equals` still rewrites through quotation** (the opacity boundary is missing). Mirroring a quoted suite now would "certify fiction."
