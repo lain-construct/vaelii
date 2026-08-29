@@ -37,6 +37,18 @@
 - **Rejected-at-top case — short-circuit, side defns not called.** `Top`'s defnNecessary fails. Assert `Top` is checked **exactly once** and **`MidA`/`MidB` are NOT called** (nor `Bottom`'s sufficient). This is the fast-fail made concrete: the highest/cheapest disqualifier is checked first and the walk stops — it does not spread to the siblings, and it does not re-check `Top` on the way out. Counters: **`Top` == 1** (Pace, 2026-08-29 — not ≥1; no redundant re-check even on the failure path), `MidA` == `MidB` == 0.
 - Together: correctness (all necessaries pass to admit) **and** efficiency over a DAG — dedup on success, short-circuit on failure. Ordering must guarantee `Top` is reachable-and-checked before the middles so the short-circuit holds.
 
+### Semantics v2 (Pace, 2026-08-29) — sufficient authoritative, necessary is an optimization; defns are TWO-VALUED
+- **Two-valued.** A defn condition passes or it doesn't — no third "unknown" state, no false-vs-unknown distinction.
+- **Positive `(coll x)`** is proved by a **defnSufficient** that passes (coll's own, or a spec's — descend to specs). Necessary is NOT a positive gate.
+- **defnNecessary = optimization / negative witness.** A **failing** necessary means ¬member (member⇒necessary, contrapositive), so it fast-fails positive admittance and *proves the negative*.
+- **Both fire** (a sufficient passes AND a necessary fails) ⇒ the KB is inconsistent; `(coll x)` and `(not (coll x))` are both provable ⇒ the existing **clash machinery** surfaces the contradiction. The defn algorithm does NOT arbitrate it (fork resolved: not (a)/(b)/(c) — it's a contradiction, by two-valuedness).
+
+### Negated defn checks — the exact converse (Pace, 2026-08-29)
+`(not (coll x))` is provable iff a **defnNecessary fails** — coll's own or a **genl's** (ascend the genl chain; a failed necessary anywhere above proves ¬member). The negative algorithm is the positive one with three flips:
+- flip truth (member ↔ non-member) · flip **necessary ↔ sufficient** · flip **genl-walk direction** (positive descends to specs' sufficients; negative ascends to genls' necessaries).
+- Examples, all provable by failing `positive_integer`'s (or a genl's) necessary: `(not (positive_integer 0))`, `(not (positive_integer "string"))`, `(not (positive_integer unaryPredicate))`.
+- **Every positive defn test gets a negated analog.** Parametrize/DRY the positive and negative suites over one spec.
+
 ## Postponed (Pace + Syne, vaelii-thread 2026-08-29 — Pace: "I'm fine with postponing quoted defns")
 **Quoted defn analogues are OUT of this PR.** Syne's audit: vaelii has **no `quotedDefnNecessary/Sufficient/Iff` forms**, `quotedArg` doesn't meaningfully type compound payloads, and **schematic `equals` still rewrites through quotation** (the opacity boundary is missing). Mirroring a quoted suite now would "certify fiction."
 - Do **not** add a mirrored quoted suite. Do **not** take a dependency on Syne's quoting WIP in this PR.
