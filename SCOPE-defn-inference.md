@@ -29,6 +29,13 @@
 4. **Pin `(?pred 212)` current behavior.** Whatever it does today, capture it in a test **with a comment about defns**, so the change is visible against a recorded baseline. (Cousin of [[practice-settled-markers-carry-receipts]] — pin the receipt.)
 5. **Evaluative defnSufficient (the core build):** `(negative_integer -212)` provable on query via computable-condition evaluation; no hand-assert of membership.
 
+### Added 2026-08-29 10:09 — genl-diamond admittance test (Pace, msg 1543306713397067887)
+> add a defn test that has a genl diamond. test defn admittance on the bottom. defnNecessary on all four, defnSufficient on the bottom. ensure each defn is called exactly once.
+
+**Reading (Lain):** four collections in a diamond — `Bottom` genl two middles `MidA`/`MidB`, both genl `Top`. `defnNecessary` on **all four**; `defnSufficient` only on `Bottom`. Admit a candidate at `Bottom` (via its defnSufficient) and assert admittance requires **every** defnNecessary in the diamond to pass (precedence rule #1/#2 applied over a lattice, not a chain).
+- **The teeth: each defn evaluated exactly once.** `Top` is reachable via two genl paths (`Bottom→MidA→Top`, `Bottom→MidB→Top`). A naive walk checks `Top`'s defnNecessary twice. The test must assert **exactly one** evaluation per defn — i.e. the admittance algorithm dedups the genl lattice (visited-set / memoized), not re-walks it. Instrument the count (spy/counter on each defn's check) and assert `= 1` for all four.
+- This is the lattice generalization of the fast-fail item: correctness (all necessaries pass) **and** efficiency (no defn re-evaluated) over a DAG, not just a path.
+
 ## Postponed (Pace + Syne, vaelii-thread 2026-08-29 — Pace: "I'm fine with postponing quoted defns")
 **Quoted defn analogues are OUT of this PR.** Syne's audit: vaelii has **no `quotedDefnNecessary/Sufficient/Iff` forms**, `quotedArg` doesn't meaningfully type compound payloads, and **schematic `equals` still rewrites through quotation** (the opacity boundary is missing). Mirroring a quoted suite now would "certify fiction."
 - Do **not** add a mirrored quoted suite. Do **not** take a dependency on Syne's quoting WIP in this PR.
