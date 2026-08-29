@@ -2,13 +2,59 @@
 
 **Owner:** Lain · **Authority:** Pace (vaelii-thread, 2026-08-29) · **Target:** upstream vaelii PR → `vaelii/vaelii` develop · **Branch:** TBD (`lain/defn-inference`)
 
+## ⚡ S192 accepted contract — full re-grill with Pace (2026-08-29 PM, HARD CUTOVER)
+
+**A deliberate breaking redesign.** Syne's OpenCyc/upstream audit confirmed it *contradicts* the repo-visible `defn*` intent; Pace chose it anyway, scope creep stopped at `IntegerFromToFn`. Bound to Pace's individual rulings. **This supersedes the pre-grill "evaluative defnSufficient by evaluating the WFF condition" framing below** — the evaluation is now a code-owned hook.
+
+### 1. Hard cutover — `defn*` names hooks; composites are ordinary rules
+- `defn*` arg2 is a **code-owned hook** (a registered classifier named by string), NOT a WFF condition.
+- **Composite** definitions move to **ordinary rules + `genl`**, out of `defn*`. Pace's shape for `negative_integer`: `(genl negative_integer integer)` + `(implies (negative_integer ?n) (lessThan ?n 0))` (necessary direction; no redundant `(integer ?n)` — `genl` carries it) + `(implies (and (integer ?n) (lessThan ?n 0)) (negative_integer ?n))` (sufficient).
+- `defn*` stays ONLY for **primitive** membership backed by a hook. `integer` refactored onto a hook (`(defnSufficient integer "integer-literal?")` via the existing `add-evaluatable` seam) instead of hardcoded.
+
+### 2. Primitives & sugar
+`defnNecessary` and `defnSufficient` are the two primitives; `defnIff` is derived sugar asserting both over the same hook (Pace: *"defnIff isn't really a primitive… its behavior follows from the two"*).
+
+### 3. Hook return contract — TWO-VALUED + error
+A resolved hook invocation normalizes to exactly `true`, `false`, or a structured **error** (an exception OR a non-boolean return — never coerced to false; Pace vetoed nil-DWIM: *"a footpun"*). `unknown` is a **query/inference outcome, not a hook result** (Pace corrected an in-flight four-value framing: *"my past self is right — two-valued plus error"*; Semantics v2 below stands).
+
+### 4. Hook ABI — candidate is arg1
+- Signature: **candidate first**, then the functional-collection args. `integer-hook(candidate)`; `integer-from-to-hook(candidate, low, high)`.
+- The hook receives ONLY candidate + functional args — **never** the functor or constructed collection term (Pace: *"the hook should just receive the args, not the whole predicate… a cleaner internal interface"*).
+- **Memoization** keys the full canonical ground subproblem (functor + args + candidate) *separately*, outside the hook interface (Pace: *"the memo key might need that stuff, but the hook ought not"*) — so `(IntegerFromToFn 0 255)` and `(IntegerFromToFn 0 100)` cannot alias.
+- **Purity ↔ dedup coupling (required, not advisory):** hooks are pure / synchronous / deterministic (no KB/context arg, no mutation/network/clock/randomness). The genl-diamond "each defn evaluated exactly once" dedup is *sound only if* hooks are deterministic; relaxing purity means reconsidering the memoized dedup, never silently keeping it.
+
+### 5. Arity via reflection
+No duplicate arity declaration in `def-defn`. Clojure reflection reads the hook's supported arities; the KB invariant compares against `1 + functional-arg-count` (multi-arity valid if one matches). Runtime still catches a mismatch as a structured error if validation was bypassed.
+
+### 6. Grounding — hooks run only when fully ground
+A logic variable in the candidate OR any functional arg ⇒ **do not invoke the hook**; the query stays ordinary-unresolved (not a hook call, not an error). Pace: *"only when ground… unground is punted to the faraway land of defnGenerator"* — the same enumeration this PR already punts.
+
+### 7. Registry — global, code-owned
+Explicit hook registry (`def-defn` or project-idiomatic name); registers at namespace load; every KB validates its string references against the shared catalog. A **bad/unresolved reference** is accepted into the KB, the invariant warns once per bad reference, and runtime resolution is an **inspectable error** (Pace: *"the unresolved reference as an inspectable error"*) — not open-world unknown.
+
+### 8. Error surfacing — on `search-tree`, not `ask*`/`argue`
+`ask*` and `argue` stay **unchanged** (argue has no error channel: `:true/:false/:unknown/:contradiction`; an otherwise-unprovable errored query stays `:unknown`). Hook failures live on the relevant **`search-tree`** node — ground subproblem, hook key, structured error type/data, readable message; the tree's top-level `:status` stays its run status. Independent proof paths continue; an error on a non-decisive branch is retained as non-decisive; an error never fabricates either polarity. (Pace: *"put the errors on the relevant search-tree node."*)
+
+### 9. `IntegerFromToFn` — the one n-ary stress case
+- Mirrors Cyc (Syne's OpenCyc source-check corrected the name from `IntegerBetweenFn`): `(IntegerFromToFn LOW HIGH)` = every integer LOW..HIGH **inclusive**; LOW/HIGH integers.
+- **Reversed bounds (LOW > HIGH) ⇒ structured `:invalid-range` error** (Pace: *"invalid ranges should error"*) — never false, never silently-empty.
+- `integerBetween` (ternary predicate) is **OUT of scope** (Pace: *"stop the scope creep somewhere"*). General non-denoting / `undefined` functional terms are **deferred** (Pace: *"a problem for another day"*).
+
+### OPEN for Pace's acceptance
+- **Does #59 convert `negative_integer` itself to the composite (ordinary-rules) shape?** The `-212` demonstration needs it (integer-hook + ordinary rules), but "keep it to just IntegerFromToFn" was about *new* collections. Confirm whether the `negative_integer` conversion rides this PR or is follow-on.
+
+### What still stands from the pre-grill card below
+Semantics v2 (two-valued; sufficient authoritative; necessary = negative gate; clash on both-fire) — Pace vindicated it verbatim. The admittance algorithm + genl-diamond test (exactly-once dedup, fast-fail short-circuit) — unchanged; the leaf checks are now hook calls. Negated defn checks, the test list, the defn-inconsistency TODO, and the quoted-defn postponement all stand.
+
+---
+
 ## Why this is its own PR (Lain's call — Pace: "Your call whether we make this a separate PR or chonk it in with predAll")
 **Separate PR, gating predAll.** Syne independently recommended the same split (vaelii-thread 2026-08-29). Rationale:
 - **predAll depends on defn inference** (Pace: "Either way, predAll depends on defn inference"). The `-212` demonstration in predAll only works once `(negative_integer -212)` is dynamically provable, which is *this* PR's evaluative-defnSufficient build.
 - defn inference has its **own substantial semantics** (precedence, admittance algorithm, current-behavior pinning) — enough surface to be atomic and bisectable on its own.
 - A green defn-inference PR is a clean foundation the predAll matrix lands on top of.
 
-## The core build (from the S189 design session, corrected)
+## The core build (from the S189 design session) — SUPERSEDED by §1 of the S192 accepted contract (hook model); kept for the admittance/test specs that still hold
 **Make `defnSufficient` prove `(Coll x)` on query by *evaluating* the sufficient condition** — computable predicates (`integer`, `lessThan`) evaluated at ask-time — not only firing a FORWARD rule when the condition is already believed.
 - **Current state (verified S189):** `defnSufficient` materializes a forward rule `(implies C (Coll ?x))` (sentex.clj:1815) that fires only when condition `C` is *believed*. `(integer -212)` is never a believed fact, so `(negative_integer -212)` is never derived. `defnIff` **expands** to necessary+sufficient (sentex.clj:1816/1828); there is **NO `(genl defnIff defnSufficient)` edge** — expansion, not genl.
 - **After:** `(negative_integer -212)` dynamically provable on query by evaluating `(and (integer -212) (lessThan -212 0))`. No stored fact, no enumeration.
