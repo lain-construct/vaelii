@@ -1692,10 +1692,12 @@
 ;; the walk descends the spec cone (`tax/specs`, which is reflexive — it includes `Coll`
 ;; itself, folding the own-sufficient and the spec-sufficient cases into one iteration).
 ;;
-;; What is deliberately NOT here: precedence over `defnNecessary`.  A passing sufficient
-;; admits even against a failing own-necessary — sufficient is authoritative (v2), the
-;; resulting inconsistency documented not arbitrated.  The negation prover (a failing
-;; necessary proves ¬member) and the genl-necessary fast-fail are separate builds.
+;; A passing sufficient admits even against a failing OWN necessary — sufficient is
+;; authoritative (v2), the resulting inconsistency documented not arbitrated.  But a failing
+;; necessary of a *strict genl* fast-fails the query (`genl-necessary-fails?`): on a
+;; consistent KB the broadest disqualifier is checked most-general-first and the walk
+;; rejects before the sides or the sufficient are ever evaluated.  The negation prover (a
+;; failing necessary proves ¬member) is the converse build, below.
 
 (def ^:private ^:dynamic *defn-stack*
   "The collections a defn prover solve is already inside — the re-entry guard shared by the
@@ -1729,6 +1731,33 @@
   (mapcat #(defn-conditions kb 'defnSufficient % context)
           (tax/specs (:taxonomy kb) coll context)))
 
+(defn- most-general-first
+  "`colls` ordered most-general-first — a linear extension of the genl partial order, so an
+  ancestor is always checked before any of its descendants.  The key is the ancestor count
+  (`tax/genls` is reflexive; a genl's ancestors are a subset of its spec's, so the count
+  ascends down the chain), with a printed-term tie-break for a deterministic order."
+  [tx context colls]
+  (sort-by (fn [c] [(count (tax/genls tx c context)) (nm/print-key c)]) colls))
+
+(defn- genl-necessary-fails?
+  "Does some necessary of a **strict** genl of `coll` fail for `member` — the positive
+  query's fast-fail?  Walks the strict-genl cone most-general-first and stops at the first
+  failing necessary (the broadest disqualifier), so a consistent KB rejects without
+  evaluating the sides or the (possibly expensive) sufficient.
+  **Strict** (excludes `coll` itself): a collection's own necessary does not veto its own
+  sufficient — sufficient is authoritative (v2) — and the cone is a set, so a defn reachable
+  by two genl paths (a diamond's apex) is checked exactly once.  Sound only on a consistent
+  KB, which is what the card asks for: on an inconsistent one the negation prover records
+  the ¬member half and this merely declines to admit."
+  [kb coll member context]
+  (let [tx        (:taxonomy kb)
+        ancestors (disj (tax/genls tx coll context) coll)]
+    (boolean
+     (some (fn [g]
+             (some (fn [c] (not (condition-holds? kb c member context)))
+                   (defn-conditions kb 'defnNecessary g context)))
+           (most-general-first tx context ancestors)))))
+
 (defrecord DefnSufficientProver []
   Prover
   ;; A ground unary membership goal `(Coll a)` for a `Coll` whose spec cone carries a
@@ -1753,10 +1782,13 @@
     (let [coll   (first goal)
           member (second goal)]
       (binding [*defn-stack* (conj *defn-stack* coll)]
-        (if (some (fn [c] (condition-holds? kb c member context))
-                  (spec-sufficient-conditions kb coll context))
-          [{}]
-          [])))))
+        ;; Fast-fail FIRST (short-circuit `or`), so a failing genl-necessary rejects
+        ;; without the sufficient ever being evaluated — a pure speedup on a consistent KB.
+        (if (or (genl-necessary-fails? kb coll member context)
+                (not (some (fn [c] (condition-holds? kb c member context))
+                           (spec-sufficient-conditions kb coll context))))
+          []
+          [{}])))))
 
 ;; ---- negated defn checks: (not (coll x)) via a FAILING necessary (the converse) --------
 ;; The exact converse of the positive walk, with three flips (v2, Pace 2026-08-29):
