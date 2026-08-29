@@ -41,7 +41,7 @@
 - **Two-valued.** A defn condition passes or it doesn't — no third "unknown" state, no false-vs-unknown distinction.
 - **Positive `(coll x)`** is proved by a **defnSufficient** that passes (coll's own, or a spec's — descend to specs). Necessary is NOT a positive gate.
 - **defnNecessary = optimization / negative witness.** A **failing** necessary means ¬member (member⇒necessary, contrapositive), so it fast-fails positive admittance and *proves the negative*.
-- **Both fire** (a sufficient passes AND a necessary fails) ⇒ the KB is inconsistent; `(coll x)` and `(not (coll x))` are both provable ⇒ the existing **clash machinery** surfaces the contradiction. The defn algorithm does NOT arbitrate it (fork resolved: not (a)/(b)/(c) — it's a contradiction, by two-valuedness).
+- **Both fire** (a sufficient passes AND a necessary fails) ⇒ the KB is inconsistent; `(coll x)` and `(not (coll x))` are both provable ⇒ the existing **clash machinery** surfaces the contradiction. The defn algorithm does NOT arbitrate it (fork resolved: not (a)/(b)/(c) — it's a contradiction, by two-valuedness). **An inconsistent KB may yield inconsistent answers, and that is fine (Pace): the test DOCUMENTS the inconsistency and pins NO particular happenstance behavior.**
 
 ### Negated defn checks — the exact converse (Pace, 2026-08-29)
 `(not (coll x))` is provable iff a **defnNecessary fails** — coll's own or a **genl's** (ascend the genl chain; a failed necessary anywhere above proves ¬member). The negative algorithm is the positive one with three flips:
@@ -54,6 +54,9 @@
 - Do **not** add a mirrored quoted suite. Do **not** take a dependency on Syne's quoting WIP in this PR.
 - Add quoted-defn tests only as `pending`/spec markers if useful, not as passing coverage.
 - Syncategorematic operators (`not`/`all`/`implies`) are the **sharpest first cases** for the eventual quoted-defn suite — no independent referent to hide a category error (Syne, same thread). Recorded for when that PR happens.
+
+### TODO (future, NOT this PR) — defn-inconsistency integrity check
+A KB integrity check that scans for defn inconsistencies: collections where some term satisfies a `defnSufficient` yet fails a `defnNecessary` (both `(coll x)` and `(not (coll x))` provable). Sibling of predAll's `predAllSpecified` violation-reporting. Leave as a code comment / todo where the defn machinery lives; do not build here. (Pace, 2026-08-29.)
 
 ## Ceiling / non-goals
 - Unquoted defn inference only. No quoted-defn surface, no quoting-WIP dependency.
