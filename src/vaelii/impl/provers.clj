@@ -1758,6 +1758,54 @@
           [{}]
           [])))))
 
+;; ---- negated defn checks: (not (coll x)) via a FAILING necessary (the converse) --------
+;; The exact converse of the positive walk, with three flips (v2, Pace 2026-08-29):
+;; member ↔ non-member, sufficient ↔ necessary, and the genl-walk direction — the positive
+;; walk descends to a spec's *sufficient*, the negative ascends to a genl's *necessary*.
+;; `(not (Coll x))` is provable iff a defnNecessary fails for `x` — `Coll`'s own or any
+;; genl's (member ⇒ every necessary up the chain, so a failed one anywhere at-or-above
+;; proves ¬member).  This is NOT closed-world negation-as-failure: it never fires merely
+;; because `(Coll x)` cannot be proved; it fires only on a necessary that positively FAILS
+;; (two-valued — the condition is evaluably false).  A `Coll` with no necessary in its cone
+;; makes this prover inapplicable, so absence of a proof is never mistaken for a disproof.
+
+(defn- cone-necessary-conditions
+  "Every defnNecessary condition in `coll`'s **reflexive** genl cone (`tax/genls`), lazily
+  — `coll`'s own and every genl's.  Reflexive (unlike the positive fast-fail's strict cone)
+  because a collection's own failing necessary is itself a sound negative witness."
+  [kb coll context]
+  (mapcat #(defn-conditions kb 'defnNecessary % context)
+          (tax/genls (:taxonomy kb) coll context)))
+
+(defrecord DefnNecessaryNegationProver []
+  Prover
+  ;; A ground `(not (Coll x))` for a `Coll` whose reflexive genl cone carries a visible
+  ;; defnNecessary.  Ground, for the positive walk's reason: an open `(not (Coll ?x))` is a
+  ;; search over the domain's complement, not a test.
+  (applicable? [_ kb goal context]
+    (and (rules/negative-literal? goal)
+         (empty? (sx/free-vars goal))
+         (let [lit (second goal)]
+           (and (= 1 (count (rest lit)))
+                (ground? lit)
+                (not (contains? *defn-stack* (first lit)))
+                (boolean (seq (take 1 (cone-necessary-conditions kb (first lit) context))))))))
+  (est-bindings [_ _ _ _] 1)                    ; a ground test: ¬member holds or it does not
+  (cost         [_ _ _ _] :compute)             ; a bounded level-6 subquery, at worst a closure
+  ;; Augments a stored `(not (Coll x))` (FactProver) and `ClosedExtentProver` rather than
+  ;; replacing them; the union dedups, so the three agree wherever more than one answers.
+  (completeness [_ _ _ _] 50)
+  (solve [_ kb goal context]
+    (let [lit    (second goal)
+          coll   (first lit)
+          member (second lit)]
+      (binding [*defn-stack* (conj *defn-stack* coll)]
+        ;; ¬member is proved by the first necessary that fails anywhere in the cone.
+        (if (some (fn [c] (not (condition-holds? kb c member context)))
+                  (cone-necessary-conditions kb coll context))
+          [{}]
+          [])))))
+
 ;; ---- aggregation: a reduction over a query's solutions ------------------
 ;; `(agg/count ?n ?v <body>)` and its four siblings are the third member of the
 ;; `unknown` / `thereExists` family, and they are built out of the same three
@@ -2253,7 +2301,7 @@
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
    (->EvaluableProver) (->DifferentProver) (->EvaluateProver) (->QuantityProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
-   (->DefnSufficientProver)
+   (->DefnSufficientProver) (->DefnNecessaryNegationProver)
    (->AggregateProver) (->BeliefProjectionProver)
    ;; FactProver before ArgTypeProver: both are :lookup / completeness 50, so vector
    ;; order breaks the stable-sort tie in the union path (`solve-goal-with`).  A stored
