@@ -139,13 +139,14 @@
 
 (tu/deftest-kb pin-baseline-a-computed-sufficient-does-not-admit-a-literal-yet
   ;; Pace: "what currently happens when you ask (?pred 212)? pin it with a test, with a
-  ;; comment about defns."  BASELINE, pre-evaluative-defnSufficient: a defnSufficient
-  ;; whose condition is computed never fires forward (the condition is never a stored
-  ;; sentex), so the literal is NOT admitted.  This assertion is expected to FLIP to
-  ;; `is` (admitted) when `sufficient-admits-by-evaluating-a-computed-condition` above
-  ;; goes green — update it in the same commit that lands the evaluative build.
+  ;; comment about defns."  This assertion was pinned against the PRE-evaluative baseline
+  ;; (a computed defnSufficient never fired forward, so the literal was not admitted) and
+  ;; was designed to FLIP once `sufficient-admits-by-evaluating-a-computed-condition` went
+  ;; green.  Phase A (query-time evaluative defnSufficient) is exactly that change, so it
+  ;; is flipped here in the same commit: 12 is now admitted by EVALUATING `(under 12)`
+  ;; against the queried literal, no stored membership and no forward firing needed.
   (tu/with-terms [small under]
     (v/add-evaluatable kb under (fn [n] (< n 100)))
     (v/assert kb (list 'defnSufficient small (list under '?x)) 'CxUniverse)
-    (is (not (v/ask? kb (list small 12) 'CxUniverse))
-        "BASELINE: computed sufficient condition does not admit literal 12; forward defn rule never fires. FLIPS when evaluative defnSufficient lands.")))
+    (is (v/ask? kb (list small 12) 'CxUniverse)
+        "POST-Phase-A: the computed sufficient condition (under 12) is evaluated at query time and admits literal 12; no forward defn rule fires, no membership is stored.")))

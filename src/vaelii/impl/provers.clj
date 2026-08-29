@@ -1669,6 +1669,71 @@
     ;; mechanism rather than by two readings that could drift (docs/naf.md).
     (solve-goal-with kb (registry kb) (sx/desugar-forall-literal goal) context)))
 
+;; ---- evaluative defnSufficient: prove membership by evaluating the condition ----
+;; `(defnSufficient Coll C)` says the condition `C` on the member `?x` is enough for
+;; membership.  Its forward materialization (`sentex/defn-companion-rules`) is a rule
+;; `(implies C (Coll ?x))` that fires only when `C` is a *believed* fact — so a `C` built
+;; from **computed** predicates (`integer`, `lessThan`, an `add-evaluatable` check) is
+;; never stored, the rule never fires, and the member is never derived.  This prover
+;; closes that at query time: on `(Coll a)` it finds `Coll`'s visible defnSufficient
+;; conditions, substitutes the queried member `a` for `?x`, and asks whether the condition
+;; holds through the registry — which *evaluates* the computed predicates against `a`.
+;;
+;; Level-6 (`conjunction-derivable?` over the registry, no backchaining), so its reach
+;; matches the forward rule's: a conjunctive condition is joined, and each conjunct is
+;; answered by the evaluables, the facts and the closures — the same evaluator
+;; `unknown` / `thereExists` / `exceptWhen` read.  It **augments** the fact prover and the
+;; forward rule (completeness 50): a condition that *is* believed is answered identically
+;; through `FactProver` and deduped, so this only adds the computed case.
+;;
+;; What is deliberately NOT here: precedence over `defnNecessary`.  This admits on the
+;; sufficient condition alone; the necessary-checking admittance algorithm over the genl
+;; lattice is a separate build.
+
+(def ^:private ^:dynamic *defn-sufficient-stack*
+  "The collections a `DefnSufficientProver` solve is already inside, so a self-referential
+  condition — `(defnSufficient Coll (Coll ?x))`, which nothing forbids — cannot recur
+  without end.  Level-6 has no depth guard of its own, so the re-entry is bounded here."
+  #{})
+
+(defn- sufficient-conditions
+  "The conditions `C` of every `(defnSufficient Coll C)` visible from `context` — the
+  member still named by `sx/defn-member-var`, which fact canonicalization preserves (only
+  rule canonicalization renames variables)."
+  [kb coll context]
+  (keep #(get (second %) '?cond)
+        (res/matches-visible kb (list 'defnSufficient coll '?cond) context)))
+
+(defrecord DefnSufficientProver []
+  Prover
+  ;; A ground unary membership goal `(Coll a)` for a `Coll` carrying a visible
+  ;; defnSufficient.  Ground because the condition is evaluated against the member: an open
+  ;; `(Coll ?x)` would ask a computed condition to *enumerate* its members, which a
+  ;; sufficient built from `integer` / `lessThan` cannot do (the infinite-extent generator
+  ;; is the punted, theoretically-hard case).
+  (applicable? [_ kb goal context]
+    (and (sequential? goal)
+         (symbol? (first goal))
+         (= 1 (count (rest goal)))
+         (ground? goal)
+         (not (contains? *defn-sufficient-stack* (first goal)))
+         (boolean (seq (take 1 (sufficient-conditions kb (first goal) context))))))
+  (est-bindings [_ _ _ _] 1)                    ; a ground membership test: it holds or not
+  (cost         [_ _ _ _] :compute)             ; a bounded level-6 subquery, at worst a closure
+  ;; Augments `FactProver` and the forward defn rule rather than replacing them: a
+  ;; believed condition is answered by both and deduped, so the union carries the stored
+  ;; path and adds the computed one.  Not the sole complete method, so it never runs alone.
+  (completeness [_ _ _ _] 50)
+  (solve [_ kb goal context]
+    (let [coll   (first goal)
+          member (second goal)
+          holds? (fn [cond]
+                   (conjunction-derivable?
+                    kb (sx/conjuncts (res/substitute cond {sx/defn-member-var member}))
+                    {} context))]
+      (binding [*defn-sufficient-stack* (conj *defn-sufficient-stack* coll)]
+        (if (some holds? (sufficient-conditions kb coll context)) [{}] [])))))
+
 ;; ---- aggregation: a reduction over a query's solutions ------------------
 ;; `(agg/count ?n ?v <body>)` and its four siblings are the third member of the
 ;; `unknown` / `thereExists` family, and they are built out of the same three
@@ -2164,6 +2229,7 @@
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
    (->EvaluableProver) (->DifferentProver) (->EvaluateProver) (->QuantityProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
+   (->DefnSufficientProver)
    (->AggregateProver) (->BeliefProjectionProver)
    ;; FactProver before ArgTypeProver: both are :lookup / completeness 50, so vector
    ;; order breaks the stable-sort tie in the union path (`solve-goal-with`).  A stored
