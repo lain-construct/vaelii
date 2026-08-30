@@ -2662,7 +2662,13 @@
 (def ^:private subsumption-relations
   "The two relations drawn on the vertical axis.  They are not relation-flank edges: a
   `genl` edge drawn twice, once as a row and once as an arrow, would say two different
-  things about one claim."
+  things about one claim.
+
+  The same two the `/tree/rows` handler admits, and it reads this rather than spelling
+  them again: a relation the tree can be opened on is one this axis draws, so the pair
+  is one fact about the page and not two that can disagree.  (The engine's own name for
+  the set is `taxonomy/closure-relations`; this namespace reaches the engine through
+  `access` and does not require the taxonomy for it.)"
   '#{genl genlCx})
 
 ;; layout, in the flat user space `vaelii.impl.svg` crops to what is drawn
@@ -6464,7 +6470,7 @@
          ["/tree/rows"  {:get (fn [req]
                                 (let [rel  (->form (get-in req [:query-params "rel"]))
                                       node (->form (get-in req [:query-params "node"]))]
-                                  (if (and ('#{genl genlCx} rel) (symbol? node))
+                                  (if (and (subsumption-relations rel) (symbol? node))
                                     (tree-rows-page (view (current target) req) rel node
                                                     (->offset (get-in req [:query-params "offset"])))
                                     (frag ""))))}]

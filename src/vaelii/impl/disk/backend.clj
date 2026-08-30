@@ -25,6 +25,7 @@
   (:require [clojure.java.io :as io]
             [taoensso.trove :as trove]
             [vaelii.impl.disk.durability :as dur]
+            [vaelii.impl.disk.index-snapshot :as snap]
             [vaelii.impl.disk.kv :as dkv]
             [vaelii.impl.disk.lock :as lock]
             [vaelii.impl.disk.record-store :as drs]
@@ -173,6 +174,55 @@
                       (assoc :snapshot save-fn)
                       (assoc-in [:dur-ids :snapshot] id))))))))
 
+(defn maybe-refresh-index-snapshot!
+  "Rewrite `cdir`'s index image if the live index has drifted past the threshold.
+
+  **`cdir` is already canonical** — the KB carries the resolved path (`kb`'s
+  `:snapshot-dir`), so nothing here calls `getCanonicalPath` and the write door pays no
+  `realpath` per assert.  A caller holding a directory as its user spelled it canonicalizes
+  it once and keeps the answer; this is the wrong place to do it per call.
+
+  **Called on the writer's thread, from the write door** (`kb/create-sentex`), because
+  that is the only thread allowed to touch the columnar index (`disk/index_snapshot.clj`,
+  \"the cadence\").  So the gate is asked per write, and what it costs is worth stating
+  rather than guessing at: one read of the registry here, which is where a directory with
+  no image writer registered stops — and then, for one that has, `due?`'s two property
+  reads, the canonical path its state is keyed by, one map read and a clock.  The caller
+  reaches this at all only when its KB carries a `:snapshot-dir`, which is what keeps the
+  whole of it off every other backend's write path.
+
+  **A refresh that throws must not fail the write.**  By the time this runs the sentex is
+  durably stored and indexed; the image is a cache of the derived half, and `save!` is
+  full of steps that can throw for reasons that say nothing about the record — a full
+  disk, a section that will not map.  Letting one out would take down the assert *after*
+  it succeeded, and skip the observation seams that come after this call, leaving an
+  incremental matcher's alpha memories permanently behind the store.  So the failure is
+  logged and swallowed, the same posture `close-dir!` above takes for the close-path save,
+  and the image simply stays as stale as it was — which the next open catches and rebuilds
+  from.
+
+  `roots-now` is passed in rather than read here — the caller has the index and this
+  namespace does not depend on it."
+  [cdir roots-now]
+  (when-let [save-fn (get-in @stores [cdir :snapshot])]
+    (when (snap/due? cdir roots-now)
+      ;; the clock is restarted *before* the attempt, not after a success.  A directory
+      ;; that cannot be written to is still drifted when this returns, so a cadence
+      ;; stamped only by `note-image!` would find the refresh due again on the very next
+      ;; assert: an image-sized write per write, each one failing.  Stamping the attempt
+      ;; puts a broken directory back on the ordinary interval — it retries, once a floor,
+      ;; and a fixed disk resumes without an open.  It costs nothing on the happy path,
+      ;; where `save!` overwrites this with the real baseline a moment later.
+      (snap/note-attempt! cdir)
+      (try (save-fn)
+           (catch Throwable t
+             (trove/log! {:level :warn
+                          :msg (str "disk backend: the index snapshot for " cdir
+                                    " was not refreshed (" (.getMessage t)
+                                    ") — the image on disk stays as it was, and the next"
+                                    " open rebuilds from the records if it no longer"
+                                    " describes them")}))))))
+
 (def ^:private components [:records :index :overlay-meta])
 
 (defn- close-component!
@@ -237,6 +287,9 @@
                                                   #(dkv/close! overlay-meta)))])]
           (lock/release! cdir)
           (swap! stores dissoc cdir)
+          ;; after the close wrote one, so the next open measures its drift against the
+          ;; image it actually finds rather than against one this process left behind
+          (snap/forget-image! cdir)
           (when-first [t failures] (throw t)))))))
 
 (defn disk-dir

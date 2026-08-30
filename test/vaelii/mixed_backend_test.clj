@@ -18,7 +18,6 @@
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as backend]
-            [vaelii.impl.disk.index-snapshot :as snap]
             [vaelii.impl.disk.lock :as lock]
             [vaelii.impl.kb :as kb])
   (:import [java.nio.file Files]
@@ -120,7 +119,7 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown record backend .* :memory, :disk, :sqlite or :pg"
                         (v/open-kb {:records :nonesuch :index :memory})))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"unknown index backend .* :memory, :dense, :columnar, or :disk-log"
+                        #"unknown index backend .* :memory, :dense, :columnar, :snapshot, or :disk-log"
                         (v/open-kb {:records :memory :index :nonesuch}))))
 
 (deftest one-number-names-both-of-a-KBs-stores
@@ -360,21 +359,23 @@
           (let [before (observations (populate! (v/open-kb {:backend mode :dir dir :recover? false})))]
             (testing "the durable directory holds records and nothing else"
               (is (.isDirectory (io/file dir "records")) "the records are on disk")
-              ;; unless the mapped image is on, which writes one `index/` directory and
-              ;; is a *cache* of the derived index rather than a second ground truth —
-              ;; that it can be deleted at any moment and the KB still answers is
-              ;; `index_snapshot_test`'s question, not this file's
-              (when-not (snap/enabled?)
-                (is (not (.exists (io/file dir "index")))
-                    "and no index was written — it is derived state")))
+              ;; Unconditionally, for all three: the `index/` directory belongs to the
+              ;; mapped image, and an image is what `{:index :snapshot}` names
+              ;; (`kb/backend-axes`).  These three modes name `:memory` / `:dense` /
+              ;; `:columnar`, so none of them has one to write however the platform
+              ;; answers — and a derived-index backend that started writing an index
+              ;; directory would be writing a second ground truth nothing reads back.
+              ;; What an image costs and what it is allowed to lose is
+              ;; `index_snapshot_test`'s question, not this file's.
+              (is (not (.exists (io/file dir "index")))
+                  "and no index was written — it is derived state"))
             before))
         (fn [dir before]
           (testing "reopening rebuilds the index from the records and answers identically"
             (let [kb (v/open-kb {:backend mode :dir dir :recover? :auto})]
               (is (= before (observations kb)))
-              (when-not (snap/enabled?)
-                (is (not (.exists (io/file dir "index")))
-                    "still nothing written on the index side")))))))))
+              (is (not (.exists (io/file dir "index")))
+                  "still nothing written on the index side"))))))))
 
 (deftest a-restart-is-recoverable-only-because-the-reindex-runs-first
   ;; This is the ordering the mixed modes turn on.  `recover` rebuilds the TMS and

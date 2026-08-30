@@ -779,7 +779,7 @@ buy real coverage:
 
 - **what to enumerate** — one record fetch per instance below the declared types,
   which on a real ontology is the *extent* rather than the moved region. This is what
-  `settle/*exposure-instance-budget*` bounds.
+  `tax/*exposure-instance-budget*` bounds.
 - **what an enumerated term is a candidate for** — a `believed-memberships` read, a
   pairwise disjointness probe, and behind that a witness enumeration. Far more
   expensive per term, and needed only for terms that could really be convicted.
@@ -819,13 +819,28 @@ are **undecided this settle** rather than decided the other way — discovery ac
 (`core/exposed-clashes`) takes no budget at all. Arrival order can move *when* a pair is
 arbitrated, not which way it goes.
 
+**One cap in the engine is the exception to that last sentence**, and it is not one of
+settle's: `special/equate-under-context-edge`'s merge-deriving sweep takes a handle-ordered
+prefix of the cone a `genlCx` edge widens, and nothing re-triggers on an edge that has
+already landed. So past *that* cap arrival order decides whether a merge is derived at
+all, not only when. It is bounded by the same dial, reported on every cut
+(`:context-edge-exposure-truncated`), and exact below the cap; the residual is stated in
+full in [equality.md](equality.md).
+
 **No cut is silent.** A bounded sweep that read as full coverage is the failure every
 half guards against, so each files one entry per settle: `:exposure-truncated` from
 `settle/expose-clashes!`, `:arbitration-truncated` from
 `settle/report-arbitration-cut!`, and `:arity-truncated` from
 `settle/report-arity-reach!` — the first two carrying `:triggers` `:sample` `:budget`
 `:message`, the third `:predicates` in place of `:triggers`, because its budget is spent
-walking a subtree of predicates rather than a list of triggers. They stay separate kinds because a reader acts differently on *went
+walking a subtree of predicates rather than a list of triggers. A fourth,
+`:partner-sweep-truncated`, comes from the one bounded read with no settle-wide budget to
+debit: `settle/partner-contexts` runs at the assert door as well as inside a pass, so its
+unnarrowed `functionalInArg` arm (a declared position covering the whole tuple, leaving no
+argument root to narrow by) caps locally and reports through a volatile the pass binds and
+the door leaves nil. It carries `:sweeps` `:budget` `:message`, and what its cut costs is
+a **vantage** rather than a pair — a context that would have seen the clash is never
+asked — so it is the one notice whose loss no other entry's counts can reflect. They stay separate kinds because a reader acts differently on *went
 unreported* than on *went undecided*, and because the two paths sweep for different
 things. The deciding path sweeps for a `functional` or `asymmetric` **declaration** and
 for a `genl` edge that carries one down; the reporting path sweeps for the edge and not
@@ -841,7 +856,7 @@ the spec subtree beneath the predicate it newly puts under a mark — both budge
 as the disjointness sweep beside it; and its *entries* are not bounded by the region
 either — a functional slot filled from N contexts one vantage sees is N−1 pairs off a
 single arriving fact, where the ledger keeps the newest 1000. So the pass stops its walk
-at `settle/*exposure-instance-budget*`, files at most **8** entries whatever it found,
+at `tax/*exposure-instance-budget*`, files at most **8** entries whatever it found,
 and files one **`:constraint-exposure-truncated`** naming whichever bound it met —
 `:pairs` `:filed` `:cap` `:unswept` `:sample` `:budget` `:message`. One kind rather than two because a
 reader acts on them the same way: pairs are visible and unreported, and nothing went
@@ -1115,6 +1130,42 @@ maintained by `integrate-sentex`:
 - `(functional P)` — a *constraint*: `assert` rejects a second, different value
   for the same first argument (`checks/functional-problems`). With equality this would
   instead unify the two values.
+- `(functionalInArg P n)` — the same constraint with the *determined* position named
+  rather than fixed at 2: every argument of `P` except `n`, taken together, fixes the
+  filler at `n`. `(functional P)` is the arity-2 case, and `(functionalInArg P 2)` on a
+  binary predicate is behaviourally identical to it — the regression half of
+  `functional_in_arg_test` holds that. What the generalization buys is a **composite
+  determinant**, which the arity-2 spelling cannot express:
+  `(functionalInArg namesObject 3)` says one namespace and one path name one object,
+  where `(functional namesObject)` could only speak about argument 1 determining
+  argument 2. `n` is one-based and held to a positive integer; an `n` past the
+  predicate's declared arity is admitted and simply matches no tuple, matching `arity`'s
+  own open-worldness about a declaration arriving before the arity does. Several
+  positions may be declared for one predicate and each is an independent constraint —
+  unlike `arity`, which collapses to a single value because two lengths are an ambiguity
+  where two functional positions are two facts.
+
+  It resolves exactly as `functional` does: two symbol fillers derive `(equals V1 V2)`
+  and merge, two non-symbols are refused outright, and a merge rests on **every**
+  declaration constraining that position, so a predicate carrying both `(functional P)`
+  and `(functionalInArg P 2)` keeps its merge when either is retracted
+  (`checks/functional-declaration-supporters`). It is read up the hierarchy for
+  `functional`'s reason, through a reader of its own — `tax/functional-in-arg-over`,
+  since the table is keyed `pred → #{n …}` and a `:props` roster has nowhere to put the
+  integer, which is also why `functionalInArg` is not a `::prop-kind`.
+
+  The degenerate end is worth naming: `(functionalInArg P 1)` on a *unary* predicate
+  leaves an **empty** determinant, which reads as "at most one filler, full stop" — every
+  believed tuple of `P` is then comparable to every other. `settle`'s partner discovery
+  narrows by a single argument root and has none to use in that shape, so it falls back
+  to an extent sweep bounded by `tax/*exposure-instance-budget*`; a cut there files
+  `:partner-sweep-truncated` ([operations.md](operations.md)). The same fallback carries
+  a *composite* determinant whose `n` is the **last** argument — `(functionalInArg P 3)`
+  on a ternary — for the same reason: several positions together are no more a single
+  argument root than none are. What settle-time discovery does **not** reach is a mark on
+  a position that is not the last, `(functionalInArg P 2)` on a ternary, which its
+  candidate gate (`marked-at-final-arg?`) never asks about. The door checks that one
+  correctly like any other; it is cross-context *discovery* that stops there.
 - `(irreflexive P)` — a *constraint*, and the strict counterpart of `reflexive`: a self
   tuple `(P a a)` is contradictory and refused at the door (`ex-info` `:type`
   `:irreflexive`). Stronger than `asymmetric`, which **admits** the self tuple — asymmetry
@@ -1156,7 +1207,10 @@ maintained by `integrate-sentex`:
 **The constraint marks are read up the predicate hierarchy; the generative marks
 are not.** Which family a mark belongs to decides whether it descends, and the reader
 differs by mark. `tax/props-over` walks up for `asymmetric`, `functional`, `irreflexive`,
-`anti-symmetric` and `anti-transitive`, the `::prop-kind` marks on the `:props` roster. `arity` is no prop at all:
+`anti-symmetric` and `anti-transitive`, the `::prop-kind` marks on the `:props` roster.
+`functionalInArg` walks up too and is no prop: `tax/functional-in-arg-over` reads a
+table keyed `pred → #{n …}`, which is `arity`'s shape rather than a roster's, and
+returns the `[pred n]` pairs a probe predicate is reached by. `arity` is no prop at all:
 `checks/declared-arity` reads it off the arity table and the predicate-type memberships,
 falling back to `inherited-arity` where the predicate declares nothing of its own. And
 `inverse` has a reader of its own, `tax/inverses-under`, which walks the hierarchy the
@@ -1167,6 +1221,7 @@ other way.
 | `arity`, and the predicate-type memberships | yes — read where the sub-predicate declares none of its own, and where it declares one the two are held to **match** | a ternary `fatherOf` fact is a ternary `parentOf` tuple |
 | `asymmetric` | yes | `(fatherOf a b)` beside `(parentOf b a)` is two `parentOf` tuples one way round each |
 | `functional` | yes | two `fatherOf` mothers for one child are two `parentOf` values |
+| `functionalInArg` | yes — through `tax/functional-in-arg-over` rather than `props-over`, the table carrying an integer | `(functionalInArg parentOf 2)` must convict two `fatherOf` mothers exactly as `(functional parentOf)` does, or the generalization would be weaker than the case it generalizes |
 | `irreflexive` | yes | a `fatherOf` self tuple is a `parentOf` self tuple |
 | `anti-symmetric` | yes | a `fatherOf` pair both ways is a `parentOf` pair both ways, merged under the super's mark |
 | `anti-transitive` | yes | a `fatherOf` chain is a `parentOf` chain, and the steps may be spelled one at each level |

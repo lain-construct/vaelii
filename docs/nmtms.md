@@ -4,7 +4,8 @@
   resolves soft contradictions without throwing.
 - **Not here:** the belief a batch would move before it commits →
   [preview.md](preview.md); the ASP backend a contested edge renders to →
-  [asp.md](asp.md).
+  [asp.md](asp.md). Nor what an *agent* believes — `(believes Alice P)` is a projection
+  into Alice's context and no part of this layer → [belief.md](belief.md).
 - **Assumes:** sentex, context, justification, strength → [glossary.md](glossary.md).
 
 `vaelii.impl.strength`, `vaelii.impl.solve`, `vaelii.impl.jtms`, and the settle layer in
@@ -145,6 +146,21 @@ survives too: the region starts with nothing believed inside it and only ever ad
 so a support cycle within the region that has no ground outside it never enters,
 exactly as in the global computation.
 
+**Locality is more than one claim, and they are secured differently.** The
+*equivalence* — a region relabel reaches the labels a global one would — is semantic,
+and the differential oracle holds it by comparing the whole network after every step.
+The *containment* — the flips are inside the published window, and the window inside the
+region — is what says a small region was asked for, and it is measured on both networks.
+That **no work is paid per boundary node** is neither: it is structural, secured by the
+`Tms` protocol passing no store, so no implementation of it *can* turn a boundary read
+into a lock and a slot decode or a round trip. That is the same fact the resident
+strength copy rests on. What is left — the cost of the in-region work itself — is the
+one piece nothing at the seam holds, and
+[defenses.md](defenses.md#locality-is-a-claim-about-every-representation) is where the
+shape that would break it is measured. The obligations a second network inherits are
+listed once, with the gate for each, in the protocol's own docstring
+(`src/vaelii/impl/jtms_protocol.clj`).
+
 The region is also **the answer to a question callers ask**, which is why `settle`
 publishes it rather than discarding it. Three readers want the same thing — a
 consequence preview, a consequence report, and a change feed
@@ -261,7 +277,10 @@ sits behind a `Tms` protocol with two implementations, chosen by `open-kb`'s `:t
 **The seam is the representation, not the algorithm.** Both run the same least fixpoint
 over the same affected region, because that is the semantics of belief here and not an
 implementation detail; what differs is where a node's premise flag, depth and adjacency
-live. `jtms_dense_oracle_test` compares the two in full after every step of randomized
+live. What a second network owes — the fixpoint, atomicity to a concurrent reader, the
+containment `touched` promises, and holding no store — is enumerated with its gate per
+item in the `Tms` docstring, which is the one file both implementations depend on and
+neither on the other. `jtms_dense_oracle_test` compares the two in full after every step of randomized
 operation streams; plain `lein test` runs the whole engine through the default dense one,
 and `VAELII_TEST_TMS=reference lein test` through the persistent-map baseline.
 
@@ -448,8 +467,7 @@ assert / retract / `forward-chain` / `recover`:
    declaration destroys its own premise, and the clash is decided once and then re-derived
    by nobody. So its retroactive half reports instead
    ([taxonomy.md](taxonomy.md#what-each-constraint-does-in-each-arrival-order) has the
-   measurement). The rule it generalizes to: **a nogood whose detection reads a
-   belief-following cache its own member supports is not stable.**
+   measurement). What it is an instance of is *What qualifies as a nogood*, below.
 3. Resolve each nogood from its members' **defeat-classes** (`decide-nogood`), read over
    the whole member set rather than over two — a nogood is a set that must not hold in
    full, and `antiTransitive` forms one over three sentexes:
@@ -471,6 +489,38 @@ represents it rather than picking a side.
 The solver seam below therefore has no caller on the negation path. It is kept because
 `set-solver` is public and because arbitration is still the right answer for nogoods
 that are not plain rebuttals.
+
+### What qualifies as a nogood
+
+A nogood is a set the settle may resolve by defeating a member, so it has to survive
+being acted on. The admission criterion, and
+[why the tempting looser one is wrong](defenses.md#a-nogood-must-survive-being-acted-on):
+
+> **A nogood must stay derivable exactly as long as what it convicts stands.** Defeating
+> its weakest member may dissolve it — that is what a resolution *is* — but only by
+> removing something the conviction was **about**. What is inadmissible is a set whose
+> defeat makes the clash undetectable while the content it convicted goes on standing.
+
+The failure it is drawn from is a member the detection reads *through*: a nogood
+defeating the vocabulary entry its own conviction is looked up in destroys its own
+premise, so the clash is decided once and re-derived by nobody. The shorter wording that
+suggests — *a nogood whose detection reads a belief-following cache one of its members
+supports* — is not the line, because it indicts a source that is sound. What separates
+them is what stands after the defeat, not what the detection touched. So the members and
+the reading are audited per source:
+
+| source | members | read *through* | admissible because |
+|---|---|---|---|
+| `negation-nogoods` | the believed `P` and the believed `(not P)` | joint visibility — `common-descendant?` of one context from each polarity | no member supports the visibility verdict, and defeating either side removes one of the two claims the pair was about |
+| `constraint-nogoods` | the clashing sentexes alone. The entry is keyed on the **handle pair**, and the separations, predicate properties and disjoint metatypes are `clash-vocabulary` — read through, never members | the separating declaration and the `genl` closure | the vocabulary is not on the ballot, so no defeat this nogood licenses can unmake the reading that convicted |
+| `preserving-nogoods` | the stored claim **and its reasons** — the general claim, the declaration permitting the move, the relation edges the reach travelled, any `(transitive R)` the reading hangs on | the same reasons, which here *are* members | the case the criterion has to admit rather than exclude. Defeating a reason does dissolve the detection, and that is the intended resolution: the inherited claim has no sentex of its own to defeat instead of its reasons, so withdrawing the reach withdraws precisely what the pair was about — and it stays withdrawn, because the reason stays defeated |
+| **not** `arity` | would be the offending sentex plus the `(arity P n)` declaration | `declared-arity`, a cache that follows belief | inadmissible: defeating the declaration unmakes the conviction while the offending sentex stands, so the clash is decided once and never again. It reports instead |
+| **not** `arg` / `genlArg` / `interArg` | there is no second sentex at all | the **absence** of a path — an open-world NAF judgement | not a nogood in the first place: nothing to weigh, no class to compare. A refusal at the door, a drop on the derivation path |
+
+The first three rows are the criterion's whole content as a runtime property — which
+member handles a source may file — so `nogood_admissibility_test` pins them: a
+definitional clash's `:nogood` set holds the two clashing sentexes and not the
+declaration that convicted them, and an inherited clash's holds its reasons, deliberately.
 
 ### A revived datum is a datum the agenda has not seen
 
@@ -734,7 +784,7 @@ with **no placement context** is recorded as `:no-placement`, and a *derived*
 `:not-stratified`. A rule a **generator** minted and the rule checks refuse is dropped
 the same way, under whichever refusal type the check threw.
 
-Seven kinds on this path drop nothing, and report instead. `:arity` is an arity binding
+Eight kinds on this path drop nothing, and report instead. `:arity` is an arity binding
 arriving after facts that do not conform to it, and `:non-confluent` two schematic
 equations disagreeing about a shared term. Three of the rest say a **bounded sweep did
 not finish**, so bounded work never reads as full coverage: `:exposure-truncated` means
@@ -748,7 +798,7 @@ named. They do not cover the same triggers — the disjointness sweeps are the
 type-separating declarations and the constraint sweeps the three tuple marks, and the
 `genl` edge that carries a mark down is read by both — and each is
 one entry per settle rather than one per trigger. What bounds those sweeps is
-`settle/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md)).
+`tax/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md)).
 
 The other two bound the **report** rather than the sweep, and both mean *found, examined
 and not named*, which is a different thing to act on from a sweep that stopped early. A
@@ -758,6 +808,24 @@ without evicting everything else from a ledger of 1,000, so the pass files at mo
 `:constraint-exposure-truncated` says one cross-context constraint pass found more
 clashing pairs than it will file, naming whichever bound it met — its cut walk or the
 entry cap.
+
+The eighth is neither, and is worth holding apart from both: `:partner-sweep-truncated`
+names a question the pass never *asked*. Finding the far half of a constraint clash
+normally reads one argument root, but a `functionalInArg` mark whose declared position is
+the whole tuple leaves no root to narrow by ([taxonomy.md](taxonomy.md)), so partner
+discovery becomes an extent sweep, bounded like the others. What a cut there costs is a
+**vantage** — a context that would have seen a clashing pair is not consulted — so the
+pairs it loses appear in no `:pairs` or `:unswept` count, there being nothing to count
+them from. Its prefix is stable, so a later settle re-reads it rather than reaching past
+it; raising `tax/*exposure-instance-budget*` is what reaches past it.
+
+One truncation kind is **not** on this path at all.
+`:context-edge-exposure-truncated` is filed eagerly, from the `genlCx`-edge assert that
+triggers the merge-deriving sweep in `special/equate-under-context-edge`, not from a
+settle ([equality.md](equality.md)). Its residual is the strongest of the set: nothing
+re-triggers on a context edge that has already landed, so a merge past its cut is not
+derived by anything afterward, where every kind above goes undecided *this settle* and is
+re-examined by the next.
 
 The kinds are not only this path's. An aggregate prover that cannot reduce an extent
 files `:aggregate`; the qualitative and metric-temporal networks file

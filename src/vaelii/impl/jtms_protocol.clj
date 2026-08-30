@@ -25,6 +25,70 @@
   the semantics, not an implementation detail.  What differs is where a node's
   premise flag, depth and adjacency live.
 
+  ## What an implementation owes
+
+  Four obligations.  Miss one and a network is *wrong*, not slow — belief is the last
+  thing in the engine that may drift silently, since a bad label does not throw, it
+  just answers a query differently.  Each names the gate that holds it, because an
+  obligation with no gate is a comment.
+
+  1. **The same fixpoint over the same region.**  A datum is believed when it is a
+     premise or has a valid justification (all antecedents believed), minus the
+     defeated set; the label is recomputed over the forward consequence closure of
+     whatever changed, with the rest held fixed as boundary.  That is the *semantics*
+     of belief here (docs/nmtms.md), not a strategy an implementation may improve on:
+     the region fixpoint is equal to the global one because a least fixpoint with the
+     boundary fixed is unique, and uniqueness is also the whole of why locality costs
+     no order independence.  An implementation may move where the graph lives; it may
+     not move what is believed.  Gate: `jtms_dense_oracle_test`, which compares the
+     entire `-snapshot` after **every** step of a randomized operation stream — not a
+     sampled read, because a divergence in `:groundable` is invisible to `-believed?`
+     until a retraction three operations later collects the wrong node.
+
+  2. **A mutation is atomic to a concurrent reader.**  A reader sees the state wholly
+     before or wholly after a relabel, never half of one — the single-writer contract
+     owes the incidental reader that much (a web browser over a REPL's KB,
+     docs/storage.md).  *How* is not the obligation and the two differ: the reference
+     by compare-and-set on its state atom, the dense network by taking its
+     `StampedLock` for writing.  Gate: `jtms_atomicity_test`, whose atomicity half runs
+     against both networks for exactly this reason.
+
+  3. **The flips are inside the published window, and the window inside the region.**
+     `-touched` is not diagnostics: `preview`, the consequence report and the change
+     feed all read it instead of diffing the believed set, which would be O(KB) per
+     write (docs/preview.md, docs/feed.md).  A window that missed a flip serves a stale
+     report; one that outran its own region would say the operation was not local after
+     all.  The containment is deliberately one-way — the window is a **superset** of
+     the flip set (defenses.md) — so this obligation is containment and never equality.
+     Gate: the oracle test checks both containments on both networks after every
+     step, and `jtms_locality_test` measures the published window across graph sizes
+     on both — a region widened back to the whole graph answers identically, so a
+     comparison of labels alone would pass it.
+
+  4. **No store, by construction.**  Every method here takes the network plus integers
+     and plain values.  Nothing in the seam can carry a record store, an index or a KB,
+     and no implementation may acquire one.  Two things rest on that and neither is
+     optional.  A node holds **no reference to the sentex it labels** — the network is
+     always resident, so a strong reference would pin every record in RAM and defeat a
+     paging backend entirely (measured: the nodes reached 50% of the record store).
+     And the class fixpoint's per-node strength read is a *memory* read on every
+     representation, which is what makes locality a claim about all of them rather than
+     about the one whose reads happen to be free — on a disk store that read would be a
+     lock and a slot decode, on a server store a round trip, per in-region node per
+     worklist pop.  Gate: the shape of this protocol, plus both implementations' `ns`
+     forms, which name no store.  A store-backed network would break the structural
+     guarantee and inherit an obligation nothing here gates: it would owe a
+     read-counting one of its own.
+
+  One claim is deliberately **not** on that list, because nothing at this seam can hold
+  it: the cost of the in-region work itself.  Obligation 3 says a small region was asked
+  for and obligation 4 says nothing was paid per boundary node, and neither says the
+  small region was *cheap* — a structure whose every write rebuilds a whole container
+  satisfies both and still grows with the KB, at a scale no unit test reaches
+  (docs/defenses.md argues it under *Locality is a claim about every representation*).
+  It is held by `lein bench-jtms` and by review.  It is written down here anyway,
+  because an implementation that is never told about a claim cannot be held to it.
+
   Every method is named with a leading `-`; the plain names (`in?`, `add-premise`, …)
   are the public functions in `vaelii.impl.jtms`, which dispatch here.  Callers use those."
   (-believed?        [tms datum] "Is `datum` believed (IN, minus supersession)?")

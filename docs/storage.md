@@ -169,19 +169,41 @@ and `enumeration_shape_test` is where core proves it: one session run
 against a store answering rosters and one answering Clojure sets, compared at the KB level
 — beliefs, answers, `reindex`, `recover`, `export!` — rather than at the protocol call.
 
-**The engine's own stores answer Clojure sets**, because that is what their own state
-already is: the memory store's key set, and the disk store's resident live-id set. So the
-ceiling is measured rather than a guess. The disk store keeps one live-id set per kind —
-sentexes, justifications, provenance — and the premise set beside them, all resident for
-as long as the store is open, at **48–75 bytes a handle** (measured with jol; the hash
-trie's fill varies with cardinality). `lein bench-budget` carries that row to 100M
-sentexes and reports **7.69 GB of roster with a justification per two records, 9.47 GB at
-j/n 1.1** — before a single record is fetched, and linear across both of its steps, so the
-figure is a fit the bench confirmed rather than a coefficient multiplied out
-([density.md](density.md#the-budget-at-100m)). That is this backend's limit rather than a
-defect in it: the sets are what make
-`sentex-ids` an O(1) read and `premise-strength` a slot read instead of a frame fetch. A
-store past that size wants the compressed roster, which is why the seam permits one.
+**The engine's own stores answer Clojure sets**, because that is what most of their own
+state already is — the memory store's key set, the disk store's premise set. What each
+*holds* is a separate question from what it answers, and the disk store's live-handle sets
+are the one place the two come apart.
+
+**The disk store holds its live handles as compressed bitmaps.** One per kind — sentexes,
+justifications, provenance — resident for as long as the store is open, and the four
+things they are asked are the four a bitmap answers directly: membership (`kill!`),
+iteration (`sentex-ids`), cardinality (`sentex-tally`) and a first handle (`a-sentex-id`).
+As a `PersistentHashSet<Long>` those sets retain **48–75 bytes a handle** (measured with
+jol; the hash trie's fill varies with cardinality), which `lein bench-budget` carries to
+**9.47 GB at 100M sentexes and j/n 1.1** — the second-largest resident row in the engine,
+before a single record is fetched. The same handles as a `Roaring64Bitmap` measure
+**33.0 MB**, still linear across both of the bench's steps
+([density.md](density.md#the-budget-at-100m)). It is the shape the allocation gives them:
+`next-id` mints in assertion order, so a kind's live set is a strided run through the
+handle space with holes where records were deleted.
+
+`sentex-ids` still hands back a `PersistentHashSet<Long>`, built from a snapshot at the
+call — so no caller can tell, and the *call* still allocates the extent even though
+holding it no longer does. That allocation is the door's, not the store's.
+
+The bitmap is mutated in place and is not thread-safe, so **a read of the live set takes
+the kind lock**, which the boxed set did not need. That is the whole price: a tally and a
+first handle are O(1) under a monitor the writer holds only for two file writes, and a
+read that hands the set onward takes a snapshot inside the lock — a bitmap copy, costing
+the roster's size rather than the corpus's. Left unsynchronized the failure is real and
+measured, not theoretical: an iterator over a bitmap being written throws
+`ArrayIndexOutOfBoundsException` once the handle space is spread widely enough for the ART
+trie to restructure under it, which a store whose handles interleave with two other kinds'
+is (`disk_record_store_test`, the live roster beside a writer).
+
+The premise set is still a `PersistentHashSet<Long>` and still resident, and it needs
+neither monitor on the write path — one `swap!` on one atom, and the pair that matters is
+a `kill!` the writer makes on the thread that reads it back.
 
 ### `Tallying` — the questions that do not need the roster
 
@@ -296,8 +318,8 @@ which is the next section's subject.
 The asymmetry above is a **selection** axis, not only a design note. The records answer
 to durability and the index to representation, so `open-kb` chooses them separately —
 `:records` (`:memory` / `:disk`, and the adapter axes `:sqlite` / `:pg`) and `:index`
-(`:memory` / `:dense` / `:columnar` / `:disk-log`) — and `:backend` is sugar naming a pair,
-spelled **`<records>-<index>`**.
+(`:memory` / `:dense` / `:columnar` / `:snapshot` / `:disk-log`) — and `:backend` is sugar
+naming a pair, spelled **`<records>-<index>`**.
 `vaelii.impl.kb` is the only place a concrete store is named (`record-store-for` /
 `index-store-for`); everything above reads the protocols.
 
@@ -309,6 +331,7 @@ spelled **`<records>-<index>`**.
 | `:disk-memory` | durable | RAM map | rebuilt on open |
 | `:disk-dense` | durable | int postings | rebuilt on open |
 | `:disk-columnar` | durable | native trie | rebuilt on open |
+| `:disk-snapshot` | durable | native trie, **mapped from an image** | the same trie, read back instead of rebuilt |
 | `:disk-log` | durable | durable | the index is a RAM map with a write-ahead log under it |
 | `:sqlite` | durable (SQLite file) | RAM map | an Apache adapter, resolved lazily — below |
 | `:pg-memory` | durable (Postgres) | RAM map | an Apache adapter — rebuilt on open, every open |
@@ -459,40 +482,98 @@ re-`assert` of a stored sentence mints a second handle for it. The dangling just
 is the worse of the two, since `recover` skips one — so the loss reads as silent disbelief
 rather than as a phantom, and neither is visible to a reader afterwards.
 
-#### The image (`vaelii.index.snapshot`, off by default)
+#### The image (`:disk-snapshot`)
 
-`:disk-columnar` can write that rebuilt index to disk and **map it back** instead of
-recomputing it — `vaelii.impl.disk.index-snapshot`. The compacted trie's CSR arrays and
-the roots' packed postings are already flat `int` runs, so the image is a write rather
-than a serialization. **Resident on open**: the CSR skeleton, the roots' key and offset
-columns, the token dictionary, and the fallback blob. **Mapped**: the leaf handles and the
-*routed* roots' handle run — the predicate-scoped argument roots are the family that does
-not route, so they ride the resident blob instead ([indexing.md](indexing.md), §8).
+`:index :snapshot` writes that rebuilt index to disk and **maps it back** instead of
+recomputing it — `vaelii.impl.disk.index-snapshot`.
 
-It is a **cache of derived state**, and everything else follows from that. The image is
-stamped with the record store's slot fingerprint and checked on every open — never behind
-a flag — and any doubt at all (format, `kv/index-layout-version`, byte order, records that
-moved, a short section, a missing commit marker) discards it and runs the same `reindex`
-above. A write thaws whatever it lands on, mapped or frozen alike. The image is written
-when the directory closes, so it never outlives what it describes by more than a crash,
-and a crash leaves no image at all.
+**It pairs with `:disk` records and with nothing else.** The stamp below is the *disk*
+record store's slot fingerprint — a reading of its own slot files, taken under its own
+kind locks, which no other record store keeps and the `RecordStore` seam has no method to
+ask for. So `{:index :snapshot}` over `:memory`, `:sqlite` or `:pg` records is refused
+with `:unknown-backend`, and records on a server take `:pg-disk-log` for a durable index
+or `:pg-memory` and the rebuild.
+
+**It is a representation, and it is not a promise that the image is valid.** Those are
+two different things and the name carries only the first. What `{:backend
+:disk-snapshot}` says is that this KB's index is meant to be read from bytes rather than
+rebuilt — recorded in the opts map, where a reader of the KB's own configuration can see
+it. What it does *not* say is that an image will be there: the stamp is checked on every
+open, any doubt discards it, and the KB reindexes and answers correctly. The difference a
+name makes is that such an open **warns**, naming the mismatch class, rather than passing
+for a fast one that quietly took an hour.
+
+The compacted trie's CSR arrays and the roots' packed postings are already flat `int`
+runs, so the image is a write rather than a serialization. **Resident on open**: the CSR
+skeleton, the roots' key and offset columns, the argument roots' scope table, the token
+dictionary, and the fallback blob. **Mapped**: the leaf handles and the roots' handle run.
+Every handle family routes, argument roots included ([indexing.md](indexing.md), §8).
+
+**A write still thaws the mapped run into heap**, so this is a read-mostly backend: a KB
+that writes steadily holds its index in heap between images, exactly as `:disk-columnar`
+does, and the residency the image buys is a property of the read phase.
+
+##### The cadence, and whose thread it runs on
+
+The image is written when the directory closes, which a process killed outright never
+reaches — so a writer that ran for weeks would reopen onto no image and pay the whole
+`reindex` the backend exists to skip. The writer therefore refreshes it mid-life, when the
+live index has drifted far enough from the one on disk: `vaelii.index.snapshot-drift`
+(default 0.5), measured in **indexed roots** — the count now against the count the image
+holds — and floored by `vaelii.disk.compact-min-interval-ms`, the same floor the record
+store's compaction takes. A directory with no image drifts from zero, so its *first* image
+is written mid-life rather than at a close it may never reach.
+
+**Only `assert` reaches the cadence.** The gate hangs off the write door, so a store filled
+by `reindex` or by the importer's inline bulk load — both of which post through
+`reindex/index-one!` to `p/index-sentex` directly — never crosses it, and gets exactly one
+image, at the close, whatever the threshold says. A batch build is therefore already on the
+cadence it wants without asking for anything.
+
+**And it can be declined.** `vaelii.disk.auto-compact=false` turns the mid-life refresh off
+and leaves the image to the close and the shutdown hook: a refresh *is* an opportunistic
+compaction of a derived structure — `save!` compacts the live trie to write it — so it
+answers to the knob that already governs those rather than to one of its own. Note that
+`vaelii.index.snapshot-drift` cannot say this: `0` is a *threshold*, so it means "any drift
+at all" and is the most eager setting in the range rather than the off one.
+
+**It runs on the writer's thread, and that is forced rather than chosen.** The record
+store and the KV hand their compaction to `disk/durability.clj`'s daemon, which runs it on
+a background executor; both are built around a monitor and can afford to. The columnar
+index is not: its fields are `^:unsynchronized-mutable` because the walk reads them at
+every frontier node, and its contract says the caller keeps its reads on the writer's
+thread. Writing the image compacts the live trie in place, so queueing that onto the
+daemon would mutate this index from a second thread. It is written by whoever writes the
+index, or not at all.
+
+The cost is a stall: a refresh is a full CSR write and not a delta, so the writer waits out
+an image-sized write. The drift threshold and the interval floor are what keep it rare, and
+a KB that cannot afford the pause at all takes `:disk-columnar` and pays the rebuild on
+open instead.
+
+The bytes on disk are **derived state**, and everything else follows from that. The image
+is stamped with the disk record store's slot fingerprint and checked on every open — never
+behind a flag — and any doubt at all (format, `kv/index-layout-version`, byte order,
+records that moved, a short section, a missing commit marker) discards it and runs the
+same `reindex` above. That is what makes the backend safe to name: the index is
+recomputable from the records, so a discarded image costs time and never an answer.
 
 The swap is an atomic rename of the new file over the live one, which Windows will not do
 while the target is mapped — so **Windows is the refused platform and everything else is
 admitted**. The evidence is one operating system's file-locking model, so "not Windows" is
-what the guard reads (`publishable-platform?`); `vaelii.index.snapshot` there throws
-`:unsupported-platform` naming the property, the OS and the reason, and an image already
-in the directory is discarded as one more `decision` mismatch class. Only the publish is
-implicated: the durable store's logs, slots and lock run on every platform, and with
-the property unset a `:disk-columnar` KB opens there and rebuilds its index from the
-records.
+what the guard reads (`publishable-platform?`); `:index :snapshot` there throws
+`:unsupported-platform` naming the OS, the reason and the pairing to take instead
+(`{:index :columnar}`), and an image already in the directory is discarded as one more
+`decision` mismatch class. Only the publish is
+implicated: the durable store's logs, slots and lock run on every platform, and a
+`:disk-columnar` KB opens there and rebuilds its index from the records.
 
-Two parts of it do not hold the acceptance property it was built for, which is why it is
-off by default. The **token dictionary** is fact-scaled rather than vocabulary-scaled
-wherever something mints a symbol per fact, and it is read into heap whole; and the
-**fallback blob** carries the predicate-scoped argument roots, which are fact-scaled too
-(their four-part key does not fit the packed `long`, so they cannot ride the mapped run).
-So resident heap still grows with the facts.
+One part of it does not hold the acceptance property it was built for. The **token
+dictionary** is fact-scaled rather than vocabulary-scaled wherever something mints a
+symbol per fact, and it is read into heap whole; `sentex/*min-indexed-depth*` refuses that
+by default ([density.md](density.md)), so it is a property of the corpus rather than of
+the image. Every other resident section is path- or vocabulary-scaled, which
+[indexing.md](indexing.md) §8 states section by section.
 
 The dictionary is also the one mismatch class that **repairs itself**. Its log is keyed
 on `tokens/Key`, so `2` and `(int 2)` are one entry; a log written before it was keyed
@@ -561,8 +642,8 @@ over that argument-root family (`arg-scoped-members` / `arg-scoped-intersect` /
 `arg-agnostic-members` / `arg-agnostic-count`). It carries an `Object` default that
 rebuilds the four-part vector keys and folds the generic set ops, so a backend that
 implements nothing answers exactly what a flat `key → set` map answers and a new adapter
-owes it nothing. `MemoryKvBackend` overrides it with the trie, and `dense-roots`
-delegates to that one ([indexing.md](indexing.md), §2).
+owes it nothing. `MemoryKvBackend` overrides it with the trie; `dense-roots` takes the
+default over its packed keys ([indexing.md](indexing.md), §2).
 
 `kv-member?` is there for a *cost* rather than an answer. `exception-rule?` — the gate
 the firing path takes once per candidate rule per new datum — asks whether one handle is
@@ -751,8 +832,8 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   an append is **all or nothing**: a write that fails partway sets the log back to its
   pre-write length before the failure travels, so no frame ever promises bytes that did
   not land (a torn frame mid-log is what the next dirty open's length walk would stop
-  at, truncating every record after it).  Only the small set of live handles per kind
-  sits in RAM (for O(1) enumeration), plus a **bounded LRU of hot records**
+  at, truncating every record after it).  Only the live handles per kind sit in RAM (a
+  compressed bitmap, for O(1) enumeration), plus a **bounded LRU of hot records**
   (`vaelii.disk.cache`, `:cache-capacity`, 0 disables) — sound because a record is an
   immutable value and the three paths that change what lives at an id all maintain it
   (`store!` replaces, `kill!` evicts, `clear-records!` empties; compaction preserves
@@ -931,10 +1012,12 @@ last left holding — is not the writer's alone, and a field written outside a m
 one another thread can catch mid-pair.
 
 - The **kind lock** covers that kind's log and idx *and* the resident state derived from
-  them. A store, a kill, a batch and the compactor's reconcile each take it once and do
-  both halves inside it, so no reader finds an id live whose slot says tombstone, or a
-  cleared delta set under a writer folding an id into it. The cost is a `conj` and a map
-  put inside a monitor already held for two file writes.
+  them — on the read side as well, since the live-handle roster is a bitmap mutated in
+  place and a read taken beside a concurrent add reads a structure mid-edit. A store, a
+  kill, a batch and the compactor's reconcile each take it once and do both halves inside
+  it, so no reader finds an id live whose slot says tombstone, or a cleared delta set
+  under a writer folding an id into it. The cost is an `addLong` and a map put inside a
+  monitor already held for two file writes.
 - **A monitor of the store's own** covers the three that belong to no kind and move
   together: the handle counter, `counters.nippy`, and the stamp saying what that blob
   holds. `fsync` reads and writes them on the daemon's thread and `clear-records!` on the
@@ -953,9 +1036,11 @@ which takes the kind lock beside the live-set drop it belongs with.
 (`vaelii.disk.sync-ms`), `vaelii.disk.fsync`, `vaelii.disk.auto-compact`,
 `vaelii.disk.compact-dead-ratio`, `vaelii.disk.compact-min-interval-ms`,
 `vaelii.disk.compress`, `vaelii.disk.cache`, `vaelii.disk.tokens`, `vaelii.disk.lock`,
-`vaelii.index.snapshot`, `vaelii.belief.snapshot` — has a domain in `vaelii.impl.config`,
-and a value outside it is refused with `:unknown-option` naming the property, the value
-and the legal spellings.
+`vaelii.belief.snapshot` — has a domain in `vaelii.impl.config`, and a value outside it is
+refused with `:unknown-option` naming the property, the value and the legal spellings.
+`vaelii.index.snapshot` has an empty domain and is refused at every spelling, naming
+`{:backend :disk-snapshot}` instead: the mapped index image is a *representation*, and a
+representation belongs in the opts map where the KB's own configuration records it.
 `open-kb` reads the lot before it opens anything (`config/check!`), which is the earliest
 door: two of them are read per fsync tick, where a throw is a log line nobody can
 attribute.  The boolean switches share one vocabulary — `true` / `1` / `on` / `yes` and

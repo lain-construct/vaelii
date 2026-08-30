@@ -718,22 +718,32 @@ crash window and not a shutdown one. `vaelii.disk.fsync=dsync` closes it and mak
 append durable when it returns, which is the trade a store of record wants and most of a
 common-sense KB does not. The other defaults are off because *on* is the choice that
 costs something a KB cannot give back for free: `tokens` adds a durable ground truth a
-store opts into, `compress` spends CPU per frame, and `index.snapshot` publishes an
-image that only macOS and Linux can swap.
+store opts into, and `compress` spends CPU per frame.
+
+The mapped index image is not among them, because it is not a switch. It is an index
+representation, named in the KB's own opts as `{:backend :disk-snapshot}` — the one
+pairing there is, the image being stamped with the disk record store's own slot
+fingerprint — so which index a KB holds is readable from its configuration rather than
+from the JVM's, and only macOS and Linux can swap one, so that backend is refused
+elsewhere ([storage.md](storage.md)). `vaelii.index.snapshot` is read for one purpose
+only, which is to **refuse** it: it has the row below because the build reads the name,
+and a process whose unit file sets it fails at `open-kb` rather than running on a
+representation nobody chose.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
 | `vaelii.disk.dir` | `src/vaelii/impl/disk/backend.clj:240+` | a directory path | `<java.io.tmpdir>/vaelii-disk` | The base a disk KB's space directory hangs under when no `:dir` names one. |
 | `vaelii.disk.fsync` | `src/vaelii/impl/config.clj:10+` | `dsync`, or unset | unset | Whether every append is durable when it returns (`dsync`), or durability waits for the tick below. |
 | `vaelii.disk.sync-ms` | `src/vaelii/impl/config.clj:160+` | a whole number ≥ 0; `0` stops the daemon | `3000` | The durability daemon's tick, in milliseconds. |
-| `vaelii.disk.auto-compact` | `src/vaelii/impl/config.clj:10+` | the boolean vocabulary | `true` | Whether background and opportunistic compaction runs at all — one knob for the tick and the close path. |
+| `vaelii.disk.auto-compact` | `src/vaelii/impl/config.clj:10+` | the boolean vocabulary | `true` | Whether background and opportunistic compaction runs at all — one knob for the fsync tick, the close path, and a `:disk-snapshot` KB's mid-life image refresh, which is an opportunistic compaction of a derived structure like the others. `false` is how a batch that fills a KB in one run and closes cleanly asks for exactly one image, at the end. |
 | `vaelii.disk.compact-dead-ratio` | `src/vaelii/impl/config.clj:200+` | a number from 0 to 1 | `0.5` | The dead fraction a log must reach before compacting it is worth the write. |
 | `vaelii.disk.compact-min-interval-ms` | `src/vaelii/impl/config.clj:210+` | a whole number ≥ 0 | `300000` | The floor between two auto-compactions of one backend. |
 | `vaelii.disk.compress` | `src/vaelii/impl/config.clj:170+` | `zstd` `lz4` `none` `off` `false` | uncompressed | The codec durable frames are written with. |
 | `vaelii.disk.tokens` | `src/vaelii/impl/config.clj:60+` | the boolean vocabulary | `false` | Whether sentex bodies are written as token ids. Reading is never gated on it — a frame carries its own tag. |
 | `vaelii.disk.cache` | `src/vaelii/impl/config.clj:180+` | a whole number ≥ 0; `0` disables the cache | `65536` | Hot records held in memory per kind. |
 | `vaelii.disk.lock` | `src/vaelii/impl/config.clj:210+` | the boolean vocabulary | `true` | Whether the single-writer `FileLock` is taken when a directory opens. Off removes the enforcement and not the contract. |
-| `vaelii.index.snapshot` | `src/vaelii/impl/config.clj:220+` | the boolean vocabulary | `false` | Whether the mapped index image is written and read. Publishing one is refused on Windows whatever this says. |
+| `vaelii.index.snapshot` | `src/vaelii/impl/config.clj:230+` | none — the domain is empty and every value is refused | unset | **Refused, not read.** The mapped index image is an index representation, so it is named in the KB's opts (`{:backend :disk-snapshot}`) and not process-wide. `config/check!` reads it at every `open-kb`, so a `-D` left over from an older unit file fails the open with `:unknown-option` naming the backend to take instead — rather than a KB quietly rebuilding the index the property was meant to save. |
+| `vaelii.index.snapshot-drift` | `src/vaelii/impl/config.clj:250+` | a ratio, 0–1 | `0.5` | How far a `:disk-snapshot` KB's live index may drift from its image — in indexed roots, against the count the image holds — before the writer rewrites it. The rewrite happens on the writer's thread and is a full image write, so `vaelii.disk.compact-min-interval-ms` floors how often it can happen. **`0` is the most eager setting in the range, not the off one**: as a threshold it means "any drift at all", so it rewrites the image on every write past the floor — 400 asserts under it measured 401 images. `vaelii.disk.auto-compact=false` is what turns the mid-life refresh off. Only `assert` drives the cadence: a store filled by `reindex` or by an import gets one image, at the close, whatever this says. |
 | `vaelii.belief.snapshot` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `false` | Whether a belief certificate is written on a full recover and read on the next cold open, letting a clean disk KB skip the closing settle's definitional-clash scan. Off is byte-identical to never having the file. |
 
 **Finding a KB.**
@@ -784,8 +794,8 @@ here.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `vaelii.build` | `src/vaelii/impl/io/export.clj:190+` | any label | the git HEAD, else `dev` | How the writing build names itself in a dump's `meta.edn`. Diagnostic: a dump that will not read is first a question about which build wrote it. |
-| `VAELII_BUILD` | `src/vaelii/impl/io/export.clj:190+` | any label | as above | The same label, read after the property. |
+| `vaelii.build` | `src/vaelii/impl/io/export.clj:180+` | any label | the git HEAD, else `dev` | How the writing build names itself in a dump's `meta.edn`. Diagnostic: a dump that will not read is first a question about which build wrote it. |
+| `VAELII_BUILD` | `src/vaelii/impl/io/export.clj:180+` | any label | as above | The same label, read after the property. |
 
 ### Developer — the suite and the scripts
 

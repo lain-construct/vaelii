@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.13.0"
+(defproject com.vaelii/vaelii "0.14.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -120,7 +120,7 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.13.0"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.14.0"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects

@@ -13,12 +13,14 @@
       whole rather than through the dictionary;
     * the **argument roots**, `[:argument-root pred pos term]` — four parts, the
       predicate included (index layout 2, `kv/arg-key`).  They are the interesting case
-      precisely because they are *not* packed: family | pos | term-id is already full,
-      so `route` sends them to the generic map, and this is the oracle that says the
-      generic path answers what the memory backend answers.  `dense_routing_test` is
-      what pins the routing decision itself, which no behavioural test can see;
+      because they are the one key with two names in it against a packed long with one
+      term field: the `(pred, pos)` scope is interned to a dense id of its own and rides
+      the `pos` field (`dense-roots`' `argfam-id`), so a read has two dictionaries to
+      miss in rather than one.  This is the oracle that says the packed path answers
+      what the memory backend answers.  `dense_routing_test` is what pins the routing
+      decision itself, which no behavioural test can see;
     * the `[:argument-slot pos term]` roster beside them, whose members are
-      **predicates rather than handles** and which takes the same generic path;
+      **predicates rather than handles** and which stays in the fallback;
     * multi-family `kv-intersect`, and the fallback for unrecognized keys (counters /
       scalars — where the contract-test keyspace lives)."
   (:require [clojure.test :refer [deftest is testing]]
@@ -98,19 +100,101 @@
         (is (= (kv/kv-count   m k) (kv/kv-count   d k)) (str "scard "    k)))
       (is (= #{'q0} (kv/kv-members d [:argument-slot 1 'B0]))))))
 
-(deftest the-reserved-argument-root-family-has-no-decode
-  ;; `packed` and `unpack` are each other's inverse over every family `route` packs, and
-  ;; family 2 is the hole in that: an argument root's key carries a predicate the packed
-  ;; long has no room for, so it takes the generic map and nothing ever packs the tag.
-  ;; The throw is what keeps the reservation a fact — a decode invented for the tag would
-  ;; be one with the wrong shape, inherited rather than designed.
-  (let [dict (doto (tok/token-dict) (tok/intern-token! 'A0))
-        pk   (fn [family] (bit-shift-left (long family) 56))]
-    (is (= [:functor-root 'A0] (#'dr/unpack dict (pk 1)))
-        "the families beside it decode, so the refusal is about the tag and not the key")
-    (let [e (is (thrown? clojure.lang.ExceptionInfo (#'dr/unpack dict (pk 2))))]
-      (is (= :reserved-family (:type (ex-data e))))
-      (is (= (pk 2) (:packed (ex-data e))) "naming the key it was asked to decode"))))
+(deftest route-and-unpack-are-inverses-over-every-family
+  ;; `route` and `unpack` are each other's inverse over every family the index writes, and
+  ;; the oracle cannot see it: a key that decoded to the wrong shape would still answer
+  ;; set-equal, since both sides went through the same router.  So the pair is checked
+  ;; directly, on one key per family, argument roots included — theirs is the key with two
+  ;; names in it, and the scope dictionary is the half that has to survive the round trip.
+  (let [dict   (tok/token-dict)
+        argfam (tok/token-dict)
+        keys   ['[:context-root C0]
+                '[:functor-root p0]
+                '[:argument-root p0 2 A0]
+                '[:argument-root p0 3 A0]      ; same predicate, another position
+                '[:argument-root q1 2 A0]      ; same position, another predicate
+                '[:argument-root p0 2 (fatherOf A0)]   ; a compound term
+                '[:term-index A0]
+                '[:rule-index :antecedent p0]
+                '[:rule-index :consequent p0]
+                '[:exception-index p0]
+                [:exception-index :rules]]]
+    (doseq [k keys]
+      (let [pk (#'dr/route dict argfam k true)]
+        (is (instance? Long pk) (str k " routes to a packed long"))
+        (is (= k (#'dr/unpack dict argfam pk)) (str "round trip " k))))
+    (testing "distinct keys take distinct packed longs"
+      (is (= (count keys)
+             (count (into #{} (map #(#'dr/route dict argfam % true)) keys)))))
+    (testing "a read of a pair nothing has scoped finds no posting to look for"
+      (is (= :absent (#'dr/route dict argfam '[:argument-root neverSeen 2 A0] false))))
+    (testing "a read of a scoped pair at an uninterned term is absent for the term"
+      (is (= :absent (#'dr/route dict argfam '[:argument-root p0 2 NeverSeen] false))))))
+
+(deftest the-argument-scope-dictionary-refuses-to-overflow
+  ;; The pair rides 24 bits, and the bound is (distinct predicates × their arities) rather
+  ;; than the fact count — so it holds on any KB anyone has measured.  It is asserted
+  ;; anyway: a ceiling that throws is a fact, one that wraps is two families sharing a key
+  ;; and answering each other's postings.
+  (with-redefs-fn {#'dr/argfam-ceiling 3}
+    (fn []
+      (let [dict   (tok/token-dict)
+            argfam (tok/token-dict)]
+        (doseq [pos [1 2 3]]
+          (is (instance? Long (#'dr/route dict argfam [:argument-root 'p0 pos 'A0] true))))
+        (let [e (is (thrown? clojure.lang.ExceptionInfo
+                             (#'dr/route dict argfam '[:argument-root p0 4 A0] true)))
+              d (ex-data e)]
+          (is (= :argument-family-ceiling (:type d)))
+          (is (= 3 (:ceiling d)))
+          (is (= 4 (:pairs d)))
+          (is (= 'p0 (:pred d)) "naming the pair it could not scope")
+          (is (= 4 (:position d)))
+          (is (= {:index :memory} (:remedy d)) "and what to take instead"))))))
+
+(deftest a-refused-scope-is-never-minted
+  ;; The refusal has to land *before* the pair is interned, and this is the test that says
+  ;; so.  Minting the id and throwing afterwards leaves it in the dictionary, and the read
+  ;; path never reaches the ceiling — `argfam-id` consults it only when it allocates — so
+  ;; a caller that swallows the throw gets a routed read over a scope id past 24 bits,
+  ;; which `packed` puts in a 24-bit field.  `argfam-table` would write the entry into an
+  ;; image too, and `load-argfam!` counts it back in agreement.
+  (with-redefs-fn {#'dr/argfam-ceiling 3}
+    (fn []
+      (let [dict   (tok/token-dict)
+            argfam (tok/token-dict)]
+        (doseq [pos [1 2 3]] (#'dr/route dict argfam [:argument-root 'p0 pos 'A0] true))
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (#'dr/route dict argfam '[:argument-root p0 4 A0] true)))
+        (testing "the dictionary holds the scopes it granted and no more"
+          ;; `argfam-table`'s length is this count, so a clean dictionary is a clean table
+          (is (= 3 (tok/token-count argfam)))
+          (is (neg? (tok/token-id argfam '[p0 4])) "the refused pair has no id"))
+        (testing "so a later read of the refused pair finds no posting to look for"
+          ;; the assertion the swallowed throw turns on: `:absent`, not a packed long
+          (is (= :absent (#'dr/route dict argfam '[:argument-root p0 4 A0] false))))
+        (testing "and a scope already granted still answers while the dictionary is full"
+          (is (instance? Long (#'dr/route dict argfam '[:argument-root p0 2 A0] true))))))))
+
+(deftest no-packed-field-carries-into-the-next
+  ;; `unpack` is the exact inverse of `route` only while every field stays inside its own
+  ;; width, so `packed` masks rather than trusting its callers.  A scope id one past the
+  ;; 24 bits would otherwise set bit 56, and the argument key would decode as
+  ;; `[:term-index …]` — a routed read answering another family's posting with nothing to
+  ;; signal it.  Asserted on `packed` directly, because reaching it through `route` means
+  ;; minting 16.7M pairs and the ceiling above refuses at the first one.
+  (let [family #(bit-shift-right % 56)
+        pos    #(bit-and (bit-shift-right % 32) 0xffffff)]
+    (testing "a scope past its field cannot reach the family tag"
+      (is (= 2 (family (#'dr/packed 2 (bit-shift-left 1 24) 0)))))
+    (testing "a term id past its field cannot reach the scope"
+      (is (= 2 (family (#'dr/packed 2 0 (bit-shift-left 1 32)))))
+      (is (zero? (pos (#'dr/packed 2 0 (bit-shift-left 1 32))))))
+    (testing "and the fields the engine does pass are untouched"
+      (let [pk (#'dr/packed 2 7 9)]
+        (is (= 2 (family pk)))
+        (is (= 7 (pos pk)))
+        (is (= 9 (bit-and pk 0xffffffff)))))))
 
 (deftest dense-roots-batch-and-clear
   (let [m (mem/->MemoryKvBackend (atom {}))

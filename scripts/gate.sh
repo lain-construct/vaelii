@@ -27,8 +27,8 @@
 #     (project.clj). `lein gate --all` / `lein release-gate --all` runs it here.
 #   - `./scripts/test-backends.sh` — the eight record×index pairs plus the overlay
 #     decorator.  **Anything touching storage, the index, records, or recovery must
-#     run this**; the suite must be failing-set-identical across all eight, and the
-#     memory-store run the gate does is one of the eight.
+#     run this**; the suite must be failing-set-identical across all nine, and the
+#     memory-store run the gate does is one of the nine.
 #
 # NOT fail-fast by default, and that is the main decision here.  The suite takes
 # minutes; stopping at the first failure means fixing lint, waiting out the

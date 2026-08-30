@@ -247,7 +247,7 @@
   Distinct subjects, so nothing in the cone pairs: this measures the reach, not the
   reporting."
   [n]
-  (binding [settle/*exposure-instance-budget* 100]
+  (binding [tax/*exposure-instance-budget* 100]
     (let [kb (fresh-kb)]
       (v/assert kb '(functional pbirth) 'CxPerf {:strength :monotonic})
       (v/assert kb '(genlCx CxPSrc CxPerf) 'CxPerf {:strength :monotonic})
@@ -258,6 +258,74 @@
        (for [i (range 60)]
          (nanos (v/assert kb (list 'genlCx (symbol (str "CxPW" i)) 'CxPSrc)
                           'CxPerf {:strength :monotonic})))))))
+
+(defn- unrelated-fact-under-marked-kb-fanout
+  "100 facts of a wholly unrelated, unmarked predicate, timed as they arrive in a context
+  sitting below n `genlCx` readers -- with a `(functional ...)` mark declared somewhere
+  else in the KB, on a predicate this fact's own predicate never touches.
+
+  b3bfb23b bug #2: `derive-functional-equalities` swept `(tax/context-down tax context)`
+  on **every** assert the moment any predicate anywhere carried a `functional` or
+  `functionalInArg` mark -- gated only by the mark existing in the KB at all, never by
+  whether the arriving fact's own predicate had anything to do with it.  Measured up to
+  75x slower for an unrelated fact at 6400 context readers.  `special/functional-mark-
+  relevant?` is the per-fact pre-gate that skips the closure read entirely once the
+  predicate is not reached by any mark; this check is what would have caught its absence
+  and is what would catch its guard being loosened back open.
+
+  The mark sits on a predicate the timed facts never mention, and the readers grow below a
+  context the marked predicate never stores into: nothing here should make `context-down`
+  worth reading at all, so the claim is flatness in the fanout, not merely staying under
+  some bound the fanout itself would also satisfy."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(functional pFanoutMarked) 'CxPerf {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'genlCx (symbol (str "CxFanR" i)) 'CxFanBase) 'CxPerf
+                  {:strength :monotonic})))
+    (doall
+     (for [i (range 100)]
+       (nanos (v/assert kb (list 'pFanoutUnrelated (symbol (str "PFU" i)) i)
+                        'CxFanBase {}))))))
+
+(defn- functional-in-arg-empty-determinant-sweep
+  "100 facts arriving under a unary predicate carrying `(functionalInArg P 1)` -- the
+  truly-empty determinant shape, where every stored tuple is a candidate partner for
+  every other and `settle/partner-contexts` has no argument root to narrow by at all, so
+  the partner read is a genuine `subtree-facts` sweep of the predicate's own extent
+  (`subtree-facts` reads believed facts KB-wide, with no context filter of its own —
+  visibility is decided by the caller, after this walk). Times the assert cost once the
+  KB already holds n facts under the mark, under the default `:refuse` policy.
+
+  **Each of the n facts, and each of the 100 timed ones, sits in its own context with no
+  `genlCx` edge to anywhere** — mutually blind to every other, including one another.
+  An empty-determinant mark makes *any two co-visible* fillers a clash (row 1,
+  `functional_in_arg_test.clj`), which a shared context would hit immediately and
+  `:refuse` would throw on; isolating every filler is what lets n grow at all without
+  the scenario becoming a series of refusals instead of the sweep this measures. It does
+  not make the walk this check is about any cheaper: `subtree-facts` still has to read
+  KB-wide, unfiltered by visibility, before anything downstream discovers there is
+  nothing to convict.
+
+  b3bfb23b bug #3: this sweep shipped **unbudgeted** in fe937b55 -- `subtree-facts` read
+  in full per candidate sentex on every settle, contradicting its own docstring's
+  'exact and unbudgeted... no enumeration here for a budget to cut short' -- so loading n
+  facts under an empty-determinant mark cost O(n) per assert and O(n²) over the load.
+  Capped at `*exposure-instance-budget*` here (bound well below `n`, `constraint-
+  exposure-context-edge`'s reason): the claim is flatness *past* the cap, not that the
+  cap holds the reading down from something worse it would otherwise still grow into."
+  [n]
+  (binding [tax/*exposure-instance-budget* 100]
+    (let [kb (fresh-kb)]
+      (v/assert kb '(functionalInArg pEmptyDet 1) 'CxPerf {:strength :monotonic})
+      (v/with-deferred-settle kb
+        (dotimes [i n]
+          (v/assert kb (list 'pEmptyDet i) (symbol (str "CxPed" i)) {})))
+      (doall
+       (for [i (range 100)]
+         (nanos (v/assert kb (list 'pEmptyDet (+ 1000000 i)) (symbol (str "CxPedT" i))
+                          {})))))))
 
 (defn- defeasible-load
   "n facts arriving through one defeasible forward rule.  The rule fires per fact and the
@@ -1205,7 +1273,7 @@
   The edge carries the strength difference — written at `:default` so the monotonic
   negation defeats it, exactly as that check builds its own."
   [n]
-  (binding [settle/*exposure-instance-budget* 100]
+  (binding [tax/*exposure-instance-budget* 100]
     (let [kb (fresh-kb)]
       (v/assert kb '(binaryPredicate pabcRoot) 'CxPerf {:strength :monotonic})
       (v/with-deferred-settle kb
@@ -1242,7 +1310,7 @@
   vocabulary gate is open in both shapes and the only difference is the one being measured."
   [marked? budget]
   (fn [n]
-    (binding [settle/*exposure-instance-budget* budget]
+    (binding [tax/*exposure-instance-budget* budget]
       (let [kb (fresh-kb)]
         (v/assert kb (list 'functional (if marked? 'pcegTop 'pcegElse))
                   'CxPerf {:strength :monotonic})
@@ -1573,6 +1641,18 @@
     :sizes     [250 2000]
     :max-ratio 2.0
     :run       constraint-exposure-context-edge}
+
+   {:name      :unrelated-fact-under-marked-kb-fanout
+    :claim     "an unrelated predicate's assert is flat in the genlCx fanout below its context, however many other predicates elsewhere carry a functional mark"
+    :sizes     [250 2000]
+    :max-ratio 2.0
+    :run       unrelated-fact-under-marked-kb-fanout}
+
+   {:name      :functional-in-arg-empty-determinant-sweep
+    :claim     "past the instance cap, 8x the facts under an empty-determinant functionalInArg mark costs the same per assert"
+    :sizes     [250 2000]
+    :max-ratio 2.0
+    :run       functional-in-arg-empty-determinant-sweep}
 
    {:name      :defeasible-load
     :claim     "a fact arriving through a defeasible rule costs the same at 2000 as at 250"

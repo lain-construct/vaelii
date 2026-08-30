@@ -69,6 +69,7 @@
   "vaelii.disk.sync-ms"
   "vaelii.disk.tokens"
   "vaelii.index.snapshot"
+  "vaelii.index.snapshot-drift"
   "vaelii.kb.catalog"
   "vaelii.kb.path"
   "vaelii.llm.provider"

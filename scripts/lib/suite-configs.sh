@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# scripts/lib/suite-configs.sh — the thirteen configurations the whole suite can be run
+# scripts/lib/suite-configs.sh — the fifteen configurations the whole suite can be run
 # in, and the environment that selects each.  One table, three readers.
 #
 # Two axes, and they are independent (which is why they are two lists and not a
 # cross-product):
 #
-#   BACKENDS — where the sentexes live.  Seven legal record×index pairs, spelled
-#              `<records>-<index>`, plus `overlay`, which is not an eighth pair but the
+#   BACKENDS — where the sentexes live.  Eight legal record×index pairs, spelled
+#              `<records>-<index>`, plus `overlay`, which is not a ninth pair but the
 #              fork decorator over an empty base (docs/overlay.md).
 #   SWEEPS   — which implementation answers, storage held at the default.  Six
 #              components the engine otherwise picks for itself.
@@ -18,7 +18,7 @@
 #
 # Three more readings of the same table live here for the same reason: the GROUP words a
 # runner takes in place of a list of names (`config_group`), the ROUTINE roster a bare
-# run uses against the full thirteen (`ROUTINE_SKIP`), and what a changed FILE owes
+# run uses against the full fifteen (`ROUTINE_SKIP`), and what a changed FILE owes
 # (`config_owed_for_path`), which is how a change runs the configurations that could
 # disagree about it instead of all of them.
 #
@@ -29,10 +29,10 @@
 # shellcheck disable=SC2034
 
 # In the order they run: the three RAM-record pairs first (fast, no files), then the
-# four durable-record ones — derived indexes before the durable one, so the runs that
-# write least go first — then the decorator.
+# five durable-record ones — the rebuilt indexes, then the mapped image, then the durable
+# one, so the runs that write least go first — then the decorator.
 ALL_BACKENDS=(memory memory-dense memory-columnar
-              disk-memory disk-dense disk-columnar disk-log
+              disk-memory disk-dense disk-columnar disk-snapshot disk-log
               overlay)
 
 # Cheapest first, so a matrix that is going to fail on the retrieval switch says so
@@ -50,7 +50,7 @@ SWEEP_ENVS=(
 
 # ---- the ROUTINE roster ---------------------------------------------------
 #
-# What a bare `test-matrix.sh` runs, against the fourteen `full` runs.  Two
+# What a bare `test-matrix.sh` runs, against the fifteen `full` runs.  Two
 # configurations sit it out, and both are the same one claim written a third time.
 #
 # `disk-memory`, `disk-dense` and `disk-columnar` are durable records under a DERIVED
@@ -61,7 +61,7 @@ SWEEP_ENVS=(
 # session on all three, so one of them stands for the composition here and the other two
 # are the cross-product for its own sake.
 #
-# They are also three of the four longest runs, at the head of a longest-first schedule,
+# They are also three of the five longest runs, at the head of a longest-first schedule,
 # which is what makes the difference readable rather than notional: the routine roster
 # finishes in about two thirds of the full one's wall clock.
 #
@@ -132,12 +132,16 @@ expand_configs() {
 # **This is a floor, not a proof.**  A configuration disagreeing about a third-bucket
 # file is possible — it is a bug in one of the first two, reached from an odd angle —
 # so a change whose blast radius you cannot see owes `routine`, and saying so costs one
-# argument.  What the floor buys is that the common case stops running fourteen suites
-# to learn something twelve of them were never asked.
+# argument.  What the floor buys is that the common case stops running fifteen suites
+# to learn something thirteen of them were never asked.
 config_owed_for_path() {
   case "$1" in
     # --- swapped: the file IS half of a configuration ---
-    src/vaelii/impl/disk/*)              printf 'disk-log disk-memory' ;;
+    # one per representation this directory holds a half of: the durable log index,
+    # the record store every durable pairing shares (`disk-memory` is the cheapest
+    # that reindexes over it), and the mapped image, whose writer, stamp and cadence
+    # live here too — so `index_snapshot.clj` owes the configuration it implements
+    src/vaelii/impl/disk/*)              printf 'disk-log disk-memory disk-snapshot' ;;
     src/vaelii/impl/overlay/*)           printf 'overlay' ;;
     src/vaelii/impl/columnar.clj)        printf 'memory-columnar disk-columnar' ;;
     src/vaelii/impl/dense_kv.clj)        printf 'memory-dense disk-dense' ;;
@@ -219,7 +223,7 @@ config_wants_disk() {
 
 # ---- how many assertions a configuration is EXPECTED to run short ----------
 #
-# The suite is failing-set-identical across all thirteen, and the assertion COUNT moves
+# The suite is failing-set-identical across all fifteen, and the assertion COUNT moves
 # only where a test says why.  `test-backends.sh` and `test-sweeps.sh` have both stated
 # that for as long as they have existed; what follows is the same claim, checked.  Any
 # other difference is a run that skipped something the others ran — a namespace that

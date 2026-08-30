@@ -26,18 +26,33 @@
 
   ## What the scan reads
 
-  Four forms over `src/`, `test/`, `bench/`, `project.clj` and `scripts/*.sh`, all
+  Five forms over `src/`, `test/`, `bench/`, `project.clj` and `scripts/*.sh`, all
   normalized to the name as it is spelled where it is set:
 
   - `(System/getenv \"VAELII_…\")` — a literal environment variable.
   - `(System/getProperty \"vaelii.…\")` — a literal system property.
   - `(prop-bool \"…\")` / `prop-long` / `prop-double` / `prop-enum`, alias-qualified or
-    not — `vaelii.impl.config`'s readers, which take the name as an **argument**.  Ten
-    of the twenty properties reach `System/getProperty` only this way, so a scanner
-    built on the two literal forms alone finds half of them and reports itself
-    complete.  `the-scan-catches-the-helper-form` is the test that says so.
+    not — `vaelii.impl.config`'s readers, which take the name as an **argument**.
+    Twelve of the twenty-one properties reach `System/getProperty` only this way, so a
+    scanner built on the two literal forms alone finds under half of them and reports
+    itself complete.  `the-scan-catches-the-helper-form` is the test that says so.
+  - `(raw \"…\")` — the reader **under** those helpers, called with a literal name where a
+    switch has no domain to parse: an empty domain has nothing for `prop-enum` to accept,
+    so the reader is called directly and the value is refused whatever it says.  A
+    refused switch is still a name the build reads — `check!` reads it at every
+    `open-kb`, and an operator whose unit file sets it meets the refusal — so it belongs
+    on this surface exactly as much as one with a default.  Leaving the form unscanned is
+    how such a name drops off the golden and out of the table while the code still fails
+    every open on it.
   - `${VAELII_…}` in a shell script.  One regex over `.sh` text rather than a shell
     parser, and it is enough because the name carries its own prefix.
+
+  The Clojure forms sit at three depths on purpose, and the two tests below keep them
+  apart: the literal pair is what a naive scanner sees, the helper form is what the
+  domain-carrying switches hide behind, and `raw` is what the domain-*less* one does.
+  Each depth is asserted to reach switches the depths above it do not, so widening one
+  form to cover another's job makes that assertion unfalsifiable rather than making it
+  pass.
 
   A name is an environment variable when it is spelled in caps and a system property
   otherwise — the same rule `config/raw` dispatches on, and nothing in the tree names a
@@ -60,13 +75,14 @@
 ;; ---- the scan -----------------------------------------------------------
 
 (def clj-forms
-  "The three Clojure spellings of a read, each capturing the switch's name.  The helper
-  form is the third and it is the one worth having: `prop-long` takes the name as an
-  argument, so the property it reads appears in no `System/getProperty` literal
-  anywhere."
+  "The four Clojure spellings of a read, each capturing the switch's name.  The last two
+  are the ones worth having, and for the same reason at two depths: `prop-long` takes the
+  name as an argument and `raw` is what `prop-long` itself calls, so a property read
+  either way appears in no `System/getProperty` literal anywhere."
   [#"System/getenv\s+\"([A-Z][A-Z0-9_]*)\""
    #"System/getProperty\s+\"(vaelii\.[a-z0-9.-]+)\""
-   #"\((?:[a-z][\w.-]*/)?prop-(?:bool|long|double|enum)\s+\"([A-Za-z][\w.-]*)\""])
+   #"\((?:[a-z][\w.-]*/)?prop-(?:bool|long|double|enum)\s+\"([A-Za-z][\w.-]*)\""
+   #"\((?:[a-z][\w.-]*/)?raw\s+\"([A-Za-z][\w.-]*)\""])
 
 (def shell-form
   "`${VAELII_…}` in a shell script.  Deliberately prefix-anchored: a regex for every
@@ -184,7 +200,7 @@
                                  (scan-text clj-forms form)))
           (str "the scan missed " form))))
   (testing "and the helper form is the ONLY way most of the store's switches are read"
-    ;; So a scanner that dropped the third regex would lose these ten and report a
+    ;; So a scanner that dropped the third regex would lose these nine and report a
     ;; complete surface: this is the assertion that fails when somebody simplifies it.
     ;; `src/` alone, because a test that saves and restores a property around a case
     ;; names it literally without reading it as configuration.
@@ -195,11 +211,41 @@
       (doseq [nm ["vaelii.disk.auto-compact" "vaelii.disk.fsync" "vaelii.disk.compress"
                   "vaelii.disk.tokens" "vaelii.disk.cache" "vaelii.disk.sync-ms"
                   "vaelii.disk.compact-dead-ratio" "vaelii.disk.compact-min-interval-ms"
-                  "vaelii.disk.lock" "vaelii.index.snapshot"]]
+                  "vaelii.disk.lock"]]
         (is (not (contains? literal-only nm))
             (str nm " now has a literal System/getProperty read too — if that is"
                  " deliberate, drop it from this list; the point of the list is that"
                  " the two literal forms alone do not see these."))))))
+
+(deftest the-scan-catches-the-domainless-form
+  ;; The third depth, and the one a scanner arrives at last: a switch whose domain is
+  ;; EMPTY has nothing for `prop-enum` to accept, so it is read straight off `raw` and
+  ;; refused whatever it says.  `vaelii.index.snapshot` is that switch — `check!` calls
+  ;; its reader at every `open-kb`, so an operator with `-Dvaelii.index.snapshot=true` in
+  ;; a unit file meets a hard refusal — and a scan blind to the form drops the name from
+  ;; the golden and its row from the table while the code goes on failing every open on
+  ;; it.  A refused switch is one the build reads.
+  (testing "a switch read straight off `raw` is found"
+    (doseq [form ["(raw \"vaelii.disk.nonsense\")"
+                  "(config/raw \"VAELII_NONSENSE\")"]]
+      (is (seq (set/intersection #{"vaelii.disk.nonsense" "VAELII_NONSENSE"}
+                                 (scan-text clj-forms form)))
+          (str "the scan missed " form))))
+  (testing "and the tree's own one is on the surface"
+    (is (contains? (set (keys (surface-sites))) "vaelii.index.snapshot")
+        "the refused switch is a name the build reads, so it is pinned like any other"))
+  (testing "which neither shallower depth reaches"
+    ;; The assertion that keeps the fourth regex from being redundant with the third:
+    ;; over `src/`, no literal read and no `prop-*` helper names this switch.  If one
+    ;; ever does, the reader grew a domain and this whole form is somebody's dead weight.
+    (let [shallower (into #{}
+                          (comp (filter #(str/starts-with? (.getPath ^File %) "src/"))
+                                (mapcat #(scan-text (subvec clj-forms 0 3) (slurp %))))
+                          (clj-sources))]
+      (is (not (contains? shallower "vaelii.index.snapshot"))
+          (str "vaelii.index.snapshot is now read literally or through a prop-* helper"
+               " — if that is deliberate it has a domain, and this test is describing a"
+               " reader that no longer exists")))))
 
 ;; ---- and the table that describes it ------------------------------------
 

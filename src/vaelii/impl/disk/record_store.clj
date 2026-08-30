@@ -10,9 +10,19 @@
   (`vaelii.impl.disk.codec`), so the type tag and field names are not rewritten into
   every one of them; a frame written before that codec still reads, as its own shape.  A record is **paged** from disk on `get`: read the slot, read the frame
   it points at, thaw it — two positional reads, no seek, and the records do not sit in
-  RAM.  What does sit in RAM per kind is the small set of live handles (so enumeration
-  is O(1)), rebuilt from the idx on open, and a **bounded LRU of hot records** in front
+  RAM.  What does sit in RAM per kind is the set of live handles (so enumeration is
+  O(1)), rebuilt from the idx on open, and a **bounded LRU of hot records** in front
   of the read (`vaelii.disk.cache`, 0 to disable).
+
+  That live set is a **compressed bitmap** (`vaelii.impl.roster`'s `LiveRoster`), not a
+  `PersistentHashSet<Long>`.  Handles are minted in assertion order, so a live set is a
+  strided run of longs with holes where records were deleted, and the boxed set retains
+  48–75 bytes a handle for it — 9.47 GB at 100M records, the second-largest resident row
+  in the engine (`docs/density.md`).  A bitmap answers all four things the
+  set is asked (membership, iteration, cardinality, a first handle) at about a bit a
+  handle.  What it costs is a monitor: the bitmap is mutated in place and is not
+  thread-safe, so a read of the live set takes the kind lock, exactly as a write does —
+  see the two-monitors section below.
 
   `next-id` is a monotonic counter recovered as `max(the counters blob, 1 + the
   highest slot id across the record kinds)` — the highest slot id is stable across
@@ -64,6 +74,13 @@
     kill, a batch and the compactor's reconcile each take it once and do both halves
     inside it, so an id is never live to a reader while its slot says tombstone, and the
     compaction delta set is never cleared under a writer folding an id into it.
+
+    It covers `live-ids` on the **read** side too, which the other three do not need: the
+    roster is a bitmap mutated in place, so a tally or an enumeration taken beside a
+    concurrent `addLong` reads a structure mid-edit.  A read that hands the set onward
+    takes a `roster/live-snapshot` inside the lock and lets go of it — the copy costs the
+    bitmap's size, not the corpus's, which is what makes holding the writer's monitor for
+    an enumeration affordable at all.
   - **`counters-lock`** covers the three that move together and belong to no kind: the
     handle `counter`, the `counters.nippy` blob, and `synced-seq` — read and written by
     `fsync` on the daemon's thread and by `clear-records!` on the writer's.  Its own
@@ -84,6 +101,7 @@
             [vaelii.impl.io.fingerprint :as fp]
             [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.roster :as roster]
             [vaelii.impl.strength :as strength]))
 
 (def ^:private kind-names ["sentexes" "justifications" "provenance"])
@@ -195,12 +213,17 @@
       (try
         (f/truncate-log! log (first (f/log-tail-offset-from log clean-length)))
         (f/validate-idx-tail! idx log)                        ; tombstone slots past EOF
-        (let [live  (java.util.HashSet.)
+        ;; the roster is filled straight off the scan, which walks slots by position and
+        ;; so hands ids up in ascending order — the one order Roaring's run containers
+        ;; want, and `live-optimize!` folds the runs once the walk is done.  Nothing
+        ;; intermediate is built, so an open's peak is the roster itself.
+        (let [live  (roster/live-roster)
               {:keys [enc dec]} (codecs name)]
           (f/scan-idx! idx (fn [id _ _ flags]
-                             (.add live id)
+                             (roster/live-add! live id)
                              (when slot-tap (slot-tap id flags))))
-          (->Kind log idx (Object.) (atom (set live)) log-path idx-path (atom nil) (atom nil)
+          (roster/live-optimize! live)
+          (->Kind log idx (Object.) live log-path idx-path (atom nil) (atom nil)
                   (when (pos? cache-cap) (lru cache-cap)) enc dec))
         (catch Throwable t
           (f/close! log)
@@ -233,7 +256,7 @@
        (f/write-slot! (:idx k) id off plen
                       (f/premise-flags premise? (strength/rank-of (:strength rec))) 0))
      (track-touched k id)
-     (swap! (:live-ids k) conj id)
+     (roster/live-add! (:live-ids k) id)
      ;; a just-written record is hot, and this is also what keeps the cache honest when a
      ;; re-store (mark-premise) replaces an id's record with a different value
      (when-let [^java.util.Map c (:cache k)] (.put c id rec)))
@@ -268,7 +291,7 @@
                              batch offs)))
       (doseq [[id] batch] (track-touched k id))
       ;; the resident half under the same acquisition, for `store!`'s reason
-      (swap! (:live-ids k) #(into % (map first) batch))
+      (roster/live-add-all! (:live-ids k) (map first batch))
       (when-let [^java.util.Map c (:cache k)]
         (doseq [[id] batch] (.remove c id)))))
   nil)
@@ -305,14 +328,19 @@
   "Tombstone handle `id` in kind `k` and drop it from the live set (a no-op when it
   was never live).  The tombstone and the two resident drops are one acquisition, for
   `store!`'s reason: an id that is live to a reader and tombstoned on disk is a handle
-  `sentex-ids` names and `get-sentex` answers nothing for."
+  `sentex-ids` names and `get-sentex` answers nothing for.
+
+  The liveness test is **inside** the lock with the drop it guards, because the roster it
+  reads is a bitmap mutated in place: a test outside would read one beside a concurrent
+  append.  It is the same acquisition either way — the test only ever decided whether to
+  take one."
   [k id]
-  (when (contains? @(:live-ids k) id)
-    (locking (:lock k)
+  (locking (:lock k)
+    (when (roster/live-has? (:live-ids k) id)
       (usable! k)
       (f/tombstone-slot! (:idx k) id)
       (track-touched k id)
-      (swap! (:live-ids k) disj id)
+      (roster/live-remove! (:live-ids k) id)
       (when-let [^java.util.Map c (:cache k)] (.remove c id)))))
 
 (defn- clear-counter!
@@ -425,8 +453,14 @@
   (get-provenance    [_ id]      (prof/record-fetch :provenance) (fetch (:provenance kinds) id))
   (delete-provenance! [_ id]     (kill! (:provenance kinds) id) nil)
 
-  (sentex-ids    [_] (set @(:live-ids (:sentexes kinds))))
-  (justification-ids [_] (set @(:live-ids (:justifications kinds))))
+  ;; Snapshot under the lock, materialize outside it.  The snapshot is a bitmap copy and
+  ;; costs the roster's size; the `set` is the caller-visible shape, which every store the
+  ;; engine ships answers and which nothing here changes.  Doing the second inside the
+  ;; lock would put a whole-extent allocation in front of the writer.
+  (sentex-ids    [_] (set (locking (:lock (:sentexes kinds))
+                            (roster/live-snapshot (:live-ids (:sentexes kinds))))))
+  (justification-ids [_] (set (locking (:lock (:justifications kinds))
+                                (roster/live-snapshot (:live-ids (:justifications kinds))))))
 
   (mark-premise [_ id strength]
     ;; the strength lives on the sentex record: re-store it with :strength set (a new
@@ -486,7 +520,7 @@
       (locking (:lock k)
         (f/truncate! (:log k))
         (f/truncate! (:idx k))
-        (reset! (:live-ids k) #{})
+        (roster/live-clear! (:live-ids k))
         (when-let [^java.util.Map c (:cache k)] (.clear c))
         ;; an in-flight compaction snapshotted the pre-wipe state — tell it to abort
         ;; (discard its temps) rather than replay them over the now-empty files.
@@ -514,15 +548,20 @@
       (reset! synced-seq 1))
     nil)
 
-  ;; Both live-id sets and the premise set are resident already (the namespace docstring
-  ;; says why), so a tally is a read of one of them rather than the `set` copy the
-  ;; enumeration takes.  Cheap either way here; on the seam it is the difference between
-  ;; one number and a table.
+  ;; Both live-id rosters and the premise set are resident already (the namespace
+  ;; docstring says why), so a tally is a read of one of them rather than the `set` copy
+  ;; the enumeration takes.  On a bitmap it is the cardinality it already tracks and the
+  ;; lowest set bit — neither walks the roster, so all four are O(1) under a lock the
+  ;; writer holds only for two file writes.
   p/Tallying
-  (sentex-tally        [_] (count @(:live-ids (:sentexes kinds))))
-  (justification-tally [_] (count @(:live-ids (:justifications kinds))))
-  (a-sentex-id         [_] (first @(:live-ids (:sentexes kinds))))
-  (a-justification-id  [_] (first @(:live-ids (:justifications kinds))))
+  (sentex-tally        [_] (locking (:lock (:sentexes kinds))
+                             (roster/live-tally (:live-ids (:sentexes kinds)))))
+  (justification-tally [_] (locking (:lock (:justifications kinds))
+                             (roster/live-tally (:live-ids (:justifications kinds)))))
+  (a-sentex-id         [_] (locking (:lock (:sentexes kinds))
+                             (roster/live-least (:live-ids (:sentexes kinds)))))
+  (a-justification-id  [_] (locking (:lock (:justifications kinds))
+                             (roster/live-least (:live-ids (:justifications kinds)))))
   (a-premise-id        [_] (first @premises))
 
   ;; A record at a time here is two syscalls on an unbuffered `RandomAccessFile` — the log
@@ -704,7 +743,15 @@
   self-healing, so the next open is fast again."
   [k root dict marked unsaid dirty?]
   (let [prem    (java.util.HashSet. ^java.util.Collection marked)
-        walk    (if (or dict dirty?) @(:live-ids k) unsaid)
+        ;; A snapshot rather than the roster itself: the walk below tombstones a damaged
+        ;; record through `kill!`, which drops that handle from the live set — an
+        ;; iteration over the live bitmap would be walking a structure it is editing.
+        ;; Under the lock like every other read of it, though this one runs on the opening
+        ;; thread before the store is published: an invariant with an exception in it is
+        ;; one nobody can check.
+        walk    (if (or dict dirty?)
+                  (locking (:lock k) (roster/live-snapshot (:live-ids k)))
+                  unsaid)
         damaged (volatile! 0)
         fixed   (volatile! 0)]
     (doseq [id walk]
@@ -903,7 +950,7 @@
                      ;; so the call from inside the reconcile costs a recursion count.
                      (when (seq @lost)
                        (locking (:lock k)
-                         (swap! (:live-ids k) #(reduce disj % @lost))
+                         (roster/live-remove-all! (:live-ids k) @lost)
                          (swap! premises #(reduce disj % @lost))
                          (when-let [^java.util.Map c (:cache k)]
                            (doseq [id @lost] (.remove c id))))))

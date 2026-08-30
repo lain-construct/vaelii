@@ -119,7 +119,6 @@
                                                -update-blocked -supersede -retract -sweep
                                                -snapshot]]
             [vaelii.impl.observe :as observe]
-            [vaelii.impl.protocols]
             [vaelii.impl.strength :as strength]))
 
 ;; A justification's `strength` is the defeat-class it confers, capping the derived

@@ -161,7 +161,7 @@
   or renamed keyword fails the comparison below until it is added here deliberately —
   with a changelog entry, since callers discriminate on it (CONTRIBUTING.md §3.8)."
   #{:already-loaded :anti-symmetric :anti-transitive :arg-constraint-kind :arg-genl :arg-position
-    :arg-type :arg-variable :arity :asymmetric :bad-algebra :bad-arg
+    :arg-type :arg-variable :argument-family-ceiling :arity :asymmetric :bad-algebra :bad-arg
     :bad-args :bad-batch :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
     :bad-level :bad-registrant :bad-reply
     :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large :budget-exhausted
@@ -184,7 +184,7 @@
     :not-watchable :not-well-formed :over-ceiling :pattern-too-costly
     :quantifier-not-local :quoted-arg-type
     :report-only
-    :reserved-family :reset :shape :short-transfer :solver-failed :solver-unavailable
+    :reset :shape :short-transfer :solver-failed :solver-unavailable
     :stacked-batch
     :stacked-fork :stale-index-layout :stale-index-records :still-exporting :still-loading :still-stopping
     :too-many-subscriptions :too-many-waiters

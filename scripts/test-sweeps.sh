@@ -36,8 +36,8 @@
 # reason.
 #
 # WHY THIS IS A SCRIPT AND NOT A CI JOB.  It is both, and the local one is the
-# gate.  `deep.yml` runs these six and the eight backends on a runner, which is
-# 209 job-minutes against a 2,000-minute monthly allowance — nine runs a month,
+# gate.  `deep.yml` runs these six and the nine backends on a runner, which is
+# 240 job-minutes against a 2,000-minute monthly allowance — eight runs a month,
 # for a matrix a release wants once.  The same coverage here costs wall time and
 # no money, so the CI job is the confirmation and this is what you run before a
 # cut.  `lein gate` covers neither: it is one backend and every switch at its
@@ -46,7 +46,7 @@
 # Runs here are SEQUENTIAL for the reason `test-backends.sh` gives — one run at a time
 # is one readable wall time, on a box somebody is still using — and not because
 # anything forbids sharing: these six write no durable store at all.
-# **`scripts/test-matrix.sh` is the concurrent one**, these six and the eight backends
+# **`scripts/test-matrix.sh` is the concurrent one**, these six and the nine backends
 # at once in ~13 minutes rather than ~55, and it is what to run when a change owes the
 # matrix.  This script is for one sweep, or for a timing that means something.
 #

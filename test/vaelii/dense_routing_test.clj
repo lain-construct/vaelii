@@ -61,13 +61,15 @@
 (def ^:private unpackable-handle-families
   "Handle families the dense layout cannot int-route, and why.
 
-  `[:argument-root pred pos term]` carries a predicate (index layout 2, `kv.clj`), and
-  the packed long is already full — family 8 bits | pos 24 | term id 32 — with no room
-  for a second interned id. So it takes the fallback: boxed vector keys and un-interned
-  postings on the dense backends, which is a real cost of the scoping and is recorded
-  here rather than left to be discovered. Packing it again needs a wider key (two longs,
-  or a (pred,pos) composite token), not a routing tweak."
-  #{[:argument-root]})
+  Empty, and that is a claim worth checking rather than a blank: **every** handle family
+  packs. The one that carries two names — `[:argument-root pred pos term]`, index layout
+  2 in `kv.clj` — packs because its `(pred, pos)` scope is interned to a dense id of its
+  own and rides the `pos` field (`dense-roots`' `argfam-id`), so the packed long spends
+  family 8 bits | scope 24 | term id 32 and no family is left keyed by a boxed vector.
+
+  A family added here must state which of the two it lacks: a term the shared dictionary
+  can intern, or a field in the packed long to put it in."
+  #{})
 
 ;;; ── the KB, and the backends under test ───────────────────────────────
 

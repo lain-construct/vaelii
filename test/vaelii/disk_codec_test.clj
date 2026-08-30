@@ -253,3 +253,31 @@
             (let [{other :dec} (get (codec/by-kind empty-d true) "sentexes")]
               (is (thrown? clojure.lang.ExceptionInfo (other frame))))))
         (is (= '(dog Muffet) (:sentence (dec frame))) "and the real dictionary still decodes it")))))
+
+;; ---- the two crash-damage refusals, by name ------------------------------
+;; `rebuild-premises!` discriminates on the `:type`: `:damaged-dictionary` and
+;; `:malformed-record` are crash damage and TOMBSTONE the record, while
+;; `:unknown-frame` (provoked above) rethrows — a build that cannot read a log must
+;; not delete it.  Provoking both here keeps the discrimination covered: a swapped or
+;; regressed arm would silently delete a recoverable log.
+
+(deftest an-id-the-dictionary-never-recorded-is-refused-by-name
+  (with-dict
+    (fn [d _]
+      (let [e (is (thrown? clojure.lang.ExceptionInfo (dtok/token d 99)))]
+        (is (= :damaged-dictionary (:type (ex-data e))))
+        (is (= 99 (:id (ex-data e))) "the frame's orphaned id is named")
+        (is (= 0 (:dictionary-size (ex-data e))) "and so is what the dictionary holds")))))
+
+(deftest a-body-code-outside-the-codec-is-refused-by-name
+  (with-dict
+    (fn [d _]
+      (let [{:keys [enc dec]} (get (codec/by-kind d true) "sentexes")
+            frame   (enc (sx/->AtomicSentex '(dog Muffet) 'C 7 :true nil))
+            ;; -11 is one past the codec's lowest control code; its zigzag varint is
+            ;; the single byte 21 — a body no writer of this format produces
+            corrupt (assoc frame 1 (byte-array [(byte 21)]))
+            e (is (thrown? clojure.lang.ExceptionInfo
+                           (dec (nippy/thaw (nippy/freeze corrupt)))))]
+        (is (= :malformed-record (:type (ex-data e))))
+        (is (= -11 (:code (ex-data e))) "the refusing code is named")))))

@@ -73,10 +73,14 @@
    ["vaelii.disk.compress" "zstdd"]
    ;; `(= "true" …)` — everything else was off
    ["vaelii.disk.tokens" "enabled"]
+   ;; a switch this build reads no value of: the mapped index image is an index
+   ;; representation and is named in the opts map (`{:backend :disk-snapshot}`), so every
+   ;; spelling is refused — `true` as much as `enabled`, since a property that silently
+   ;; did nothing is the failure the refusal exists to close
    ["vaelii.index.snapshot" "enabled"]
-   ;; the two snapshot switches are one pair and must be checked as one: a switch that
-   ;; is read only at its call site refuses inside `recover`, where the operator sees a
-   ;; failed rebuild rather than the typo that caused it
+   ["vaelii.index.snapshot" "true"]
+   ;; a switch that is read only at its call site refuses inside `recover`, where the
+   ;; operator sees a failed rebuild rather than the typo that caused it
    ["vaelii.belief.snapshot" "enabled"]
    ["vaelii.asp.solver" "clingoo"]
    ;; `Long/parseLong` with no catch, in a top-level `def`
@@ -120,6 +124,23 @@
       (let [kb (v/open-kb {:space 88 :recover? false})]
         (is (some? kb))
         (v/clear! kb)))))
+
+(deftest the-image-property-is-refused-with-the-pairing-that-replaces-it
+  ;; The row above covers the throw at two spellings.  What an operator needs out of it
+  ;; is the REMEDY, and this is the one switch where that is the whole answer: there is
+  ;; no value of it that works, so a refusal naming only the value would leave a unit
+  ;; file with nothing to become.  `check!` runs it at every `open-kb`, and
+  ;; `docs/operations.md` carries the row saying so — a refusal naming a switch no
+  ;; document admits to leaves an operator reading the source for it.
+  (with-property "vaelii.index.snapshot" "true"
+    (let [e (is (thrown? clojure.lang.ExceptionInfo (config/check!)))]
+      (is (= {:backend :disk-snapshot} (:remedy (ex-data e)))
+          "the refusal carries the pairing to take instead")
+      (is (re-find #":disk-snapshot" (ex-message e))
+          "and names it in the message, which is all a log line has")))
+  (testing "blank is unset here as everywhere — an exported-but-empty -D is not a value"
+    (with-property "vaelii.index.snapshot" ""
+      (is (nil? (config/index-snapshot?))))))
 
 ;; ---- the other half: every documented spelling still reads ---------------
 
@@ -166,7 +187,11 @@
     (is (= 0.5   (config/disk-compact-dead-ratio)))
     (is (= 300000 (config/disk-compact-min-interval-ms)))
     (is (true?  (config/disk-lock?)))
-    (is (false? (config/index-snapshot?)))))
+    ;; not a default: unset is the only state `vaelii.index.snapshot` has, since the
+    ;; mapped index image is selected by name (`{:backend :disk-snapshot}`) rather than
+    ;; by a property.  Checked here anyway, because `check!` calls it on every open and a
+    ;; reader that threw on the unset case would fail every KB in the process.
+    (is (nil?   (config/index-snapshot?)))))
 
 (def ^:private switched-elsewhere
   "The properties cleared before the defaults below are read, so a `-D` on this box

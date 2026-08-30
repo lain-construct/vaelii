@@ -16,10 +16,23 @@
   than a flake: the claim is about how much work is scoped, not how fast the machine
   is.
 
+  Two instruments, because one of them reaches only one network.  `regions-touched`
+  redefines `relabel-region*`, which is the reference's own fixpoint, and gives the
+  finest reading — one entry per region the operation asked for.  The closing section
+  measures the published `touched` window instead: coarser, but it is on the `Tms`
+  protocol, so the same claim is checked against the network the engine actually ships.
+  That gap is worth closing here rather than in the differential oracle, which compares
+  `snapshot` — labels, not the window — so a dense relabel that widened to the whole
+  graph would answer identically and pass.
+
   Pure — no store, no fixture.  Helpers are duplicated from
   `jtms_blocked_test` rather than shared, so the two files stay independent."
-  (:require [clojure.test :refer [deftest is testing]]
-            [vaelii.impl.jtms :as jtms]))
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            [vaelii.impl.dense-jtms :as dense]
+            [vaelii.impl.jtms :as jtms])
+  (:import [java.io PushbackReader]))
 
 ;; ---- builders (deliberately duplicated — see the ns docstring) ----------
 
@@ -267,3 +280,129 @@
     (is (= 3 (jtms/depth tms 5)) "a shallower derivation lowers the recorded depth")
     (jtms/ensure-node tms 5 9)
     (is (= 3 (jtms/depth tms 5)) "a deeper one does not raise it back")))
+
+;; ---- the same claim at the seam, on both representations ---------------
+;;
+;; Everything above instruments `relabel-region*`, which is the reference network's own
+;; fixpoint — so it says nothing about the network the engine actually ships.  The dense
+;; one writes the whole relabel a second time against bitmaps and primitive-keyed maps,
+;; and the differential oracle compares the two on `snapshot`, which carries labels and
+;; not the window: a dense operation that widened its region back to the whole graph
+;; answers identically and is invisible there.
+;;
+;; `touched` is the instrument that works at the seam — it is on the protocol, both
+;; implementations maintain it, and it is what `preview`, the consequence report and the
+;; change feed read (docs/preview.md, docs/feed.md).  What locality claims about it is
+;; not a constant but a *shape*: the window of an operation on one pair does not grow
+;; when the graph around it does.
+
+(def ^:private networks
+  "Both shipped representations, each with the name a failure should print."
+  [["reference" jtms/create-tms]
+   ["dense"     dense/create-dense-tms]])
+
+(defn- fan-on
+  "`fan-of`'s graph on a caller-supplied network, so one shape runs against both."
+  [make n]
+  (let [tms (make)]
+    (dotimes [i n]
+      (premise tms (* 2 i))
+      (justify tms (+ 1000 i) [(* 2 i)] (inc (* 2 i))))
+    tms))
+
+(defn- window-of
+  "The datums `f` relabelled, read through the protocol rather than through one
+  implementation's internals."
+  [tms f]
+  (jtms/reset-touched! tms)
+  (f)
+  (jtms/touched tms))
+
+(defn- flat-across-sizes
+  "The window size `op` produces at each of `sizes`, as a vector — so a failure prints
+  the shape that grew rather than just that one number was wrong."
+  [make op]
+  (mapv (fn [n] (let [tms (fan-on make n)] (count (window-of tms #(op tms))))) sizes))
+
+(deftest every-representation-scopes-its-window-to-the-region
+  (doseq [[label make] networks]
+    (testing label
+      (testing "defeating one datum publishes a window that does not grow with the graph"
+        (let [ws (flat-across-sizes make #(jtms/defeat % [1]))]
+          (is (apply = ws) (str label ": window sizes " (pr-str ws) " across " (pr-str sizes)))
+          (is (<= (first ws) 2) (str label ": the window is the datum and its closure"))))
+      (testing "reviving publishes a window scoped to what was defeated"
+        (let [ws (mapv (fn [n]
+                         (let [tms (fan-on make n)]
+                           (jtms/defeat tms [1])
+                           (count (window-of tms #(jtms/clear-defeats! tms)))))
+                       sizes)]
+          (is (apply = ws) (str label ": window sizes " (pr-str ws)))
+          (is (<= (first ws) 2) (str label ": revival reaches only the previously defeated"))))
+      (testing "a settle that defeated nothing publishes an empty window"
+        ;; the hottest path through the module — `settle` calls `clear-defeats!` on every
+        ;; assert, and most settles defeat nothing
+        (let [tms (fan-on make 500)]
+          (is (empty? (window-of tms #(jtms/clear-defeats! tms))))))
+      (testing "a new justification publishes a window around its conclusion"
+        (let [ws (flat-across-sizes make #(justify % 77777 [0] 999999))]
+          (is (apply = ws) (str label ": window sizes " (pr-str ws)))
+          (is (<= (first ws) 2) (str label ": a new conclusion is not a graph-wide event"))))
+      (testing "the window is the forward closure, so a chain is reached and nothing else"
+        (let [tms (fan-on make 500)]
+          (justify tms 9001 [1] 100001)
+          (justify tms 9002 [100001] 100002)
+          (let [w (window-of tms #(jtms/defeat tms [1]))]
+            (is (= #{1 100001 100002} (set w))
+                (str label ": the defeated datum and its two descendants, not the other 499 pairs"))))))))
+
+(deftest every-representation-keeps-a-redundant-witness-in-the-window
+  ;; The window's *superset* half, which the scoping tests above cannot see: a second
+  ;; derivation of an already-believed conclusion moves no label, and the conclusion is
+  ;; noted as touched anyway (docs/defenses.md, "The touched window is a superset, not
+  ;; the flip set").  Both halves are needed and both are checked here.
+  ;;
+  ;; It is worth a seam-level test because the failure is backend-specific and shows up
+  ;; far away: `settle/record-clashes!` republishes a standing clash's supporting
+  ;; justifications for the pairs the window holds and carries the report forward for
+  ;; the rest, so a silently-arriving witness is a `contradictions` entry naming fewer
+  ;; reasons than the KB holds — on one backend and not the other.
+  (doseq [[label make] networks]
+    (testing label
+      (let [tms (make)]
+        (jtms/add-premise tms 0 :default)
+        (jtms/ensure-node tms 1 1)
+        (jtms/add-justification tms (jtms/->just 100 'firstRule [0] 1 {} :monotonic))
+        (jtms/add-premise tms 2 :default)
+        (let [w (window-of tms #(jtms/add-justification
+                                 tms (jtms/->just 101 'secondRule [2] 1 {} :monotonic)))]
+          (is (jtms/in? tms 1) (str label ": the conclusion was believed throughout"))
+          (is (contains? (set w) 1)
+              (str label ": the consequence is outside the window, so a stale report is served for it"))
+          (is (contains? (set (jtms/touched-in tms)) 1)
+              (str label ": it reads as newly believed, which it is not")))))))
+
+;; ---- the structural half of the same claim ------------------------------
+
+(deftest neither-representation-names-the-store-protocols
+  ;; Obligation 4 of the `Tms` docstring, and the reason locality's per-boundary-node
+  ;; cost is a claim about every representation rather than about the reference's
+  ;; happens-to-be-free reads: the seam passes the network plus integers and plain
+  ;; values, so no implementation of it can turn a boundary read into a lock and a slot
+  ;; decode, or into a round trip.
+  ;;
+  ;; What is checked is the narrow, exact thing the obligation rests on — that neither
+  ;; namespace names `vaelii.impl.protocols`, where `RecordStore` and `IndexStore` live.
+  ;; It is not "requires nothing storage-shaped": `dense-jtms` takes `IntPostings` from
+  ;; `vaelii.impl.dense-kv`, which is a data structure and not a store.
+  (doseq [ns-sym '[vaelii.impl.jtms vaelii.impl.dense-jtms vaelii.impl.jtms-protocol]]
+    (let [path (-> (name ns-sym)
+                   (str/replace "." "/")
+                   (str/replace "-" "_")
+                   (str ".clj"))
+          form (with-open [r (PushbackReader. (io/reader (io/resource path)))]
+                 (read {:read-cond :allow} r))]
+      (is (= 'ns (first form)) (str path " does not open with an ns form"))
+      (is (not (contains? (set (tree-seq coll? seq form)) 'vaelii.impl.protocols))
+          (str ns-sym " names the store protocols; the network holds no store"
+               " (see the `Tms` docstring, obligation 4)")))))

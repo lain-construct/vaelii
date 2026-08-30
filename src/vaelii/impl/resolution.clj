@@ -1057,6 +1057,44 @@
   [kb f context]
   (tax/genls (:taxonomy kb) f context))
 
+(defn fanned-match
+  "The fan-out itself, shared by every matcher that does one: decompose `sentence` into
+  the functor that fans and the rebuild that puts it back, take that functor's closure
+  from `vantage`, and run `raw` over each member — `raw` being the caller's own
+  as-written retrieval, and `mapcat-fn` its choice of `lazy-mapcat` or `mapcat`.
+
+  **Shared for the reason `sub-predicates` and `super-predicates` are, one level up.**
+  Those two keep the matchers from disagreeing about *which* predicates are in the fan;
+  this keeps them from disagreeing about what to do with the fan once they have it, which
+  is where the drift actually landed — the reference matcher counted the closure and its
+  rete twin rebuilt `#{f}` per call to compare against, the same reading written twice
+  and optimized once.  A matcher joins by passing its own `raw`, so a new one cannot
+  quietly fan a negation the wrong way or skip the singleton short-circuit.
+
+  Three things it decides, once:
+
+  * **A variable or absent functor pins nothing** and fans not at all — one raw match on
+    the sentence as written.
+  * **A negation fans its body's functor upward** (`super-predicates`), the direction a
+    `genl` edge carries through a negation, and rebuilds the `not` around each member.
+  * **A singleton closure is `f` itself**, since both closures are reflexive, so there is
+    nothing to fan and the as-written retrieval is the whole answer.  Counted rather than
+    compared against a freshly built `#{f}`; the same reading `chain/fanning-functor?`
+    takes of the same set."
+  [kb sentence vantage raw mapcat-fn]
+  (let [neg? (sx/negation? sentence)
+        body (if neg? (second sentence) sentence)
+        f    (when (sequential? body) (first body))]
+    (if (and (symbol? f) (not (sx/variable? f)))
+      (let [fan ((if neg? super-predicates sub-predicates) kb f vantage)]
+        (if (= 1 (count fan))
+          (raw sentence)
+          (let [rebuild (if neg?
+                          (fn [f'] (list sx/not-functor (cons f' (rest body))))
+                          (fn [f'] (cons f' (rest body))))]
+            (mapcat-fn (fn [f'] (raw (rebuild f'))) fan))))
+      (raw sentence))))
+
 (defn match-pattern
   "Seq of [handle bindings] for stored sentexes matching `sentence` within
   `context` (default the wildcard ?ctx).  The **functor fans out over its sub-predicate
@@ -1081,21 +1119,9 @@
   ([kb sentence] (match-pattern kb sentence '?ctx))
   ([kb sentence context] (match-pattern kb sentence context context))
   ([kb sentence context vantage]
-   (let [neg?  (sx/negation? sentence)
-         body  (if neg? (second sentence) sentence)
-         f     (when (sequential? body) (first body))
-         rebuild (if neg?
-                   (fn [f'] (list sx/not-functor (cons f' (rest body))))
-                   (fn [f'] (cons f' (rest body))))]
-     (if (and (symbol? f) (not (sx/variable? f)))
-       (let [fan ((if neg? super-predicates sub-predicates) kb f vantage)]
-         ;; Both closures are reflexive, so a singleton *is* `f` and there is nothing to
-         ;; fan — the same reading `chain/fanning-functor?` takes of the same set, and a
-         ;; count rather than a `#{f}` built per call to compare against.
-         (if (= 1 (count fan))
-           (raw-match kb sentence context)                  ; singleton closure: as written
-           (lazy-mapcat (fn [f'] (raw-match kb (rebuild f') context)) fan)))
-       (raw-match kb sentence context)))))
+   (fanned-match kb sentence vantage
+                 (fn [s] (raw-match kb s context))
+                 lazy-mapcat)))
 
 (defn matches-visible*
   "The reference nested fan-out: `|context-up| × |specs|` trie walks.  `matches-visible`

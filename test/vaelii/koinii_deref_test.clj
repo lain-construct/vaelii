@@ -593,3 +593,22 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no sentex at handle"
                               (d/marker a 999999))))
       (finally (tu/clear-kb! a)))))
+
+;; ── the leaf sort builds no hex keys ──────────────────────────────────────
+
+(deftest the-leaf-sort-orders-bytes-without-building-hex-keys
+  ;; `sort-by` runs its keyfn inside the comparator, so `(sort-by hex leaves)` rebuilds
+  ;; the 64-char key — 32 Formatter allocations each — ~2·n·log₂n times on the path
+  ;; `commit-id` folds every believed sentex through.  Equal-width digests order the
+  ;; same way under unsigned byte comparison as under their hex spelling, so the sort
+  ;; needs no hex at all; this pins both halves: no superlinear hex builds, and the
+  ;; order is still exactly hex order.
+  (let [locators (mapv #(str "probe:" %) (range 16))
+        real-hex @#'d/hex
+        calls    (atom 0)]
+    (let [leaves (with-redefs-fn {#'d/hex (fn [b] (swap! calls inc) (real-hex b))}
+                   #(@#'d/sorted-leaves locators))]
+      (is (<= @calls (count locators))
+          "the sort builds at most one key per leaf, never one per comparison")
+      (is (= (sort (map real-hex leaves)) (map real-hex leaves))
+          "and the digests come back in hex order, which is what makes the root a function of the set"))))

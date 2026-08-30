@@ -119,7 +119,9 @@ the whole universe meaning "unknown", `#{}` meaning "impossible". See
 A node is IN if it is a premise or has a valid justification, unless it is
 defeated (forced OUT). Belief is computed from current state, never accumulated,
 so the same knowledge in any order yields the same beliefs. See
-[nmtms.md](nmtms.md).
+[nmtms.md](nmtms.md). What an **agent** believes is a different question with the
+same word: `(believes Alice P)` proves `P` in Alice's own context and says nothing
+about whether the KB holds it — [belief.md](belief.md).
 
 **Brave / cautious** ![asp](../.github/badges/cat-asp.svg): The two readings of
 a tie the solver leaves open. A conclusion is *cautious* when it holds in every
@@ -355,6 +357,14 @@ existing facts. Each full match records a justification. See
 *symbol* values for one first argument derives `(equals V1 V2)`, justified by
 both facts and the declaration. Two non-symbols stay a hard rejection. See
 [equality.md](equality.md).
+
+**`functionalInArg`** ![kb](../.github/badges/cat-kb.svg): `(functionalInArg P n)` —
+`functional` generalized off its fixed argument 2: every argument of `P` except `n`,
+taken together, fixes the filler at `n`. Same merge/refuse rule and same four arrival
+directions; what it adds is a **composite determinant**, as in
+`(functionalInArg namesObject 3)` for "one namespace and one path name one object".
+`(functionalInArg P 2)` on a binary predicate is `(functional P)`. See
+[taxonomy.md](taxonomy.md) and [equality.md](equality.md).
 
 **Functor root** ![backend](../.github/badges/cat-backend.svg): The secondary
 index root `[:functor-root pred]` — every fact by functor, any arity, either polarity —
@@ -842,11 +852,14 @@ arg / disjoint / functional check, a placement-less firing, or a derived
 cycle through negation — recorded rather than thrown. Four groups drop nothing
 and report: the **cross-context** clashes neither writer could see (`:disjoint`,
 `:functional` and `:asymmetric`, each carrying `:visible-from`, and the latter two
-under `:refuse` only); the five that say bounded work did not cover everything —
+under `:refuse` only); the seven that say bounded work did not cover everything —
 `:exposure-truncated`, `:arbitration-truncated` and `:arity-truncated`, all three
-sweeps cut short, and `:constraint-exposure-truncated` and `:arity-report-truncated`,
+sweeps cut short; `:constraint-exposure-truncated` and `:arity-report-truncated`,
 each a pass finding more than it will file — the first naming whichever bound it met, a
-cut walk or the entry cap, the second the cap alone; a retroactive
+cut walk or the entry cap, the second the cap alone; `:partner-sweep-truncated`, a
+vantage the cap kept a pass from consulting at all; and
+`:context-edge-exposure-truncated`, the only one filed eagerly from an assert rather than
+a settle, over merges a `genlCx` edge's cone did not reach; a retroactive
 `:arity` reach beside a `:non-confluent` pair of equations; and the provers' own —
 `:aggregate` for an extent that will not reduce, `:qualitative-inconsistency` and the two
 `:metric-temporal-*` for a network a context cannot satisfy, and `:sign-inconsistency`

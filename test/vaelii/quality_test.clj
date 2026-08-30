@@ -152,6 +152,35 @@
             (str "and the two listed are the content-smallest, which are the two asserted "
                  "*last* — a handle ranking would have shown the other pair"))))))
 
+(tu/deftest-kb the-signature-tie-break-survives-an-ambient-print-length
+  ;; Two rules sharing one signature (same consequent predicate, same antecedent
+  ;; predicate set) are tie-broken on their *printed sentences*.  A bare `pr-str` key
+  ;; honours the caller's `*print-length*` — a REPL's, typically — which elides both
+  ;; sentences to the same `(implies ...)` prefix, collapses the key, and drops the tie
+  ;; back onto handle order, i.e. the order the author happened to write the rules in.
+  ;; The guard is `nm/print-key` (naming.clj says why); this pins that the tie-break
+  ;; wears it.
+  ;;
+  ;; The discriminator: two same-signature rules asserted in reverse content order, a
+  ;; limit of one, and `*print-length*` bound the way a REPL would leave it.  Guarded,
+  ;; the listed rule is the content-smallest; unguarded, it is whichever came first.
+  (tu/with-terms [a_type pShared]
+    ;; content-larger sentence first: `(implies (and (a_type ?x)) (pShared ?x ?x))`
+    ;; sorts *after* `(implies (and (a_type ?x) (a_type ?y)) (pShared ?x ?y))` — at the
+    ;; first divergence the two-antecedent form has a space where this one has `)`.
+    (v/assert-rule kb [(list a_type '?x)] (list pShared '?x '?x) 'CxUniverse)
+    (v/assert-rule kb [(list a_type '?x) (list a_type '?y)]
+                   (list pShared '?x '?y) 'CxUniverse)
+    (let [q     (binding [*print-length* 1]
+                  (:rules (v/kb-quality kb {:limit 1})))
+          shown (into #{} (map :sentence) (:never q))]
+      (is (= 2 (:never-count q)) "both rules are in the count")
+      (is (= #{(list 'implies (list 'and (list a_type '?x) (list a_type '?y))
+                     (list pShared '?x '?y))}
+             shown)
+          (str "and the one listed is the content-smallest, which was asserted *second*"
+               " — a collapsed print key would have listed the first-asserted rule")))))
+
 ;; ---- chain depth over the rule graph -------------------------------------
 
 (tu/deftest-kb chain-depth-is-per-rule-and-counts-the-transitive-cycle-as-one
@@ -686,6 +715,54 @@
     (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
     (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
     (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse)
+    (let [e (first (:pairs (clashes kb)))]
+      (is (= :functional (:kind e)))
+      (is (= 1 (:pair-count (clashes kb)))))))
+
+(tu/deftest-kb the-generalized-functional-mark-is-a-clash-in-waiting-too
+  ;; #56, and the same fixture as the row above with the mark spelled the other way.
+  ;; `(functionalInArg parentOf 2)` says exactly what `(functional parentOf)` says about
+  ;; exactly this slot, so a KB that spells it that way must read as clash-prone rather
+  ;; than clash-free — the detector read `:props` alone and answered for one spelling.
+  (tu/with-terms [parentOf fatherOf motherOf begat bore]
+    (v/assert kb (list 'functionalInArg parentOf 2) 'CxUniverse)
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
+    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse)
+    (let [e (first (:pairs (clashes kb)))]
+      (is (= :functional (:kind e)))
+      (is (= 1 (:pair-count (clashes kb)))))))
+
+(tu/deftest-kb a-generalized-mark-at-another-position-is-no-arity-2-clash
+  ;; The counterpart, and what keeps the widening honest: `(functionalInArg parentOf 3)`
+  ;; constrains a slot a binary conclusion does not have, so pairing two binary
+  ;; conclusions on it would report a constraint neither is subject to.
+  (tu/with-terms [parentOf fatherOf motherOf begat bore]
+    (v/assert kb (list 'functionalInArg parentOf 3) 'CxUniverse)
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
+    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse)
+    (is (zero? (:pair-count (clashes kb)))
+        "position 3 says nothing about two binary conclusions")))
+
+(tu/deftest-kb the-generalized-mark-at-position-1-is-a-clash-in-waiting-too
+  ;; The mirror of the row above, and the half #56 left behind: position **1** is a slot a
+  ;; binary conclusion does have, so `(functionalInArg parentOf 1)` — argument 2
+  ;; determines argument 1 — constrains these two rules exactly as position 2 does, with
+  ;; the subject and the value the other way round.  `checks/functional-clashes` has
+  ;; always convicted the pair; the detector read position 2 alone and called the KB
+  ;; clash-free.
+  ;;
+  ;; Same fixture as the two rows above with the determinant moved: the rules agree on
+  ;; argument 2 and differ on argument 1, which is the clash this spelling names.
+  (tu/with-terms [parentOf fatherOf motherOf begat bore]
+    (v/assert kb (list 'functionalInArg parentOf 1) 'CxUniverse)
+    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+    (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
+    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list bore '?x '?z)] (list motherOf '?z '?x) 'CxUniverse)
     (let [e (first (:pairs (clashes kb)))]
       (is (= :functional (:kind e)))
       (is (= 1 (:pair-count (clashes kb)))))))

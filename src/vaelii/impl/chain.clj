@@ -477,8 +477,10 @@
   because this runs once per placement and once per candidate justification, and a rule
   has two or three antecedents where a cone can hide thousands of handles.  A nil
   predicate is the gate — a KB that hides nothing from `pctx` pays a deref and returns
-  here.  A rule handle among `antes` never spuriously matches: a rule is not an `except`
-  target."
+  here.  The rule handle among `antes` matching is load-bearing, not spurious: a rule
+  is a sentex and an `except` may target it, and a firing rests on its rule as it
+  rests on its facts — this is what sweeps a hidden rule's conclusions
+  (`special/recheck-except` carries the departure-side twin)."
   [kb antes pctx]
   (if-let [hidden? (res/hidden-fn kb pctx)]
     (boolean (some hidden? antes))
@@ -1486,13 +1488,18 @@
               ;; context reads a fact under would depend on whether the spindle was
               ;; written or inferred
               cme  (when new? (special/migrate-under-context-edge kb conseq))
+              ;; ...and the fourth arrival order of the functional/antisymmetric merge, a
+              ;; derived `genlCx` edge making two already-marked facts jointly visible for
+              ;; the first time, exactly as an asserted one does
+              cfn  (when new? (special/equate-under-context-edge kb conseq))
+              cax  (when new? (special/antisym-equate-under-context-edge kb conseq))
               ;; nil when nothing merged, which is every conclusion on a KB that states
               ;; no equality and every re-derivation on one that does — and a fixpoint
               ;; re-derives the same conclusion on every round of every defaults pass, so
               ;; this is the arm that must cost nothing rather than a little
-              mig  (when (or eq fnl fex fed asym axe axd cme)
+              mig  (when (or eq fnl fex fed asym axe axd cme cfn cax)
                      (merge-with into {:new [] :superseded [] :violations []}
-                                 eq fnl fex fed asym axe axd cme))
+                                 eq fnl fex fed asym axe axd cme cfn cax))
               ;; The spellings those merges retired, applied here rather than left to the
               ;; settle that follows.  A supersession *starts* when migration says so and
               ;; reaches the reconcile only as its `extra` (`special/supersession-map`),
@@ -1972,8 +1979,9 @@
       ;; from the placement context, there is no conclusion and no justification —
       ;; nothing to defeat and nothing to arbitrate.  The check is per *placement*,
       ;; because all three are evaluated in the conclusion's context and a firing may
-      ;; place into several.  `all-antes` includes the rule handle, never an `except`
-      ;; target, so it cannot spuriously match the hidden set.
+      ;; place into several.  `all-antes` includes the rule handle, which the hidden
+      ;; set matches on purpose: a hidden rule may not fire into the cone any more
+      ;; than a hidden fact may support a firing there.
       ;; `mapcat`, not `map`: one placement yields the conclusion *and* a copy in each
       ;; context the predicate is lifted into, and every one of them is a new datum the
       ;; agenda has to see.

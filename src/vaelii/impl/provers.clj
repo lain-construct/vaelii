@@ -2123,7 +2123,12 @@
   a rule is a sentex, inherited by the ordinary `genlCx` up-cone like everything
   else.  Nor is a rule the KB no longer believes (`res/rule-believed?`) — the
   consequent index posts on storage, so belief is asked of the record here exactly as
-  forward chaining asks it of a trigger.
+  forward chaining asks it of a trigger.  Nor is one a believed visibility `except`
+  hides from the asking context (`res/hidden-fn`): forward chaining sweeps the
+  conclusions of a hidden rule, and a backward pass that rebuilt them through the
+  same rule would answer from knowledge the context deliberately removed.  The
+  predicate is built once per goal and is nil for the almost-every-KB that hides
+  nothing, so the common path pays one deref.
 
   **In content order**, `[sentence context]` under `nm/compare-form`.  The index answers
   in handle-set order, which is assertion order, and two consumers *truncate* on this
@@ -2142,13 +2147,15 @@
   tie back onto the handle."
   [kb goal context]
   (when (sequential? goal)
-    (->> (res/concluding-rule-handles kb (first goal) context)
-         (map #(p/get-sentex (:records kb) %))
-         (filter rules/backward-sentex?)
-         (filter #(res/rule-believed? kb (:id %)))
-         (filter #(res/rule-visible-from? kb context (:context %)))
-         (nm/sort-by-content-key (juxt :sentence :context))
-         (map #(parse-rule kb % context)))))
+    (let [hidden? (res/hidden-fn kb context)]
+      (->> (res/concluding-rule-handles kb (first goal) context)
+           (map #(p/get-sentex (:records kb) %))
+           (filter rules/backward-sentex?)
+           (filter #(res/rule-believed? kb (:id %)))
+           (filter #(res/rule-visible-from? kb context (:context %)))
+           (remove #(and hidden? (hidden? (:id %))))
+           (nm/sort-by-content-key (juxt :sentence :context))
+           (map #(parse-rule kb % context))))))
 
 ;; ---- the engine ---------------------------------------------------------
 

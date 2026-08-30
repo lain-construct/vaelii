@@ -149,12 +149,12 @@ whose value is a set of handles: the trie leaves `[:trie :handles …]`, the thr
 …]`, and both halves of the exception index `[:exception-index <pred>|:rules]`. The rest
 must *not* be packed: `[:trie :count …]` is an integer, `[:trie :children …]` holds path
 tokens (numbers among them), and `[:term-roster]` and `[:argument-slot …]` hold term and
-predicate *names*. One handle family packs on one backend only: the argument roots'
-four-part key does not fit `dense-roots`' packed long (family | pos | term-id is already
-full), so the columnar roots route the family to their boxed fallback —
-`dense_routing_test` records that exception — while the tiered map backend, whose keys
-stay boxed vectors and whose *values* are the packed postings, tiers it like any other
-handle family.
+predicate *names*. **Every handle family packs**, the argument roots included, and they
+are the one family that has to earn it: `[:argument-root pred pos term]` carries two names
+where every other key carries one, and the packed long has a single term field. The room
+is in `pos` — 24 bits reserved for an argument position, which every other family passes
+0 in — so `dense-roots` interns the `(pred, pos)` scope to a dense id of its own and rides
+those bits. `dense_routing_test` records that no handle family is left in the fallback.
 
 Both dense backends keep a fallback for keys they don't route, which makes a routing
 mistake behaviourally invisible — a misrouted family is stored as an ordinary boxed set,
@@ -219,11 +219,11 @@ and exception indexes, and the inverted term index route into one
 `Long2ObjectOpenHashMap` keyed by a packed `family | pos | term-id`, with the term
 interned through the *same* dictionary the trie uses. Unrecognized keys fall back to a
 plain backend, so it stays a full `KvBackend` and the composition above it is unchanged —
-which here is three families: `[:term-roster]` and `[:argument-slot pos term]`, whose
-members are term and predicate names rather than handles, and `[:argument-root pred pos
-term]`, whose fourth key part the packed long has no room for (family | pos | term-id is
-already full) and which `route` therefore sends to the fallback by name. The columnar
-trie is native, so no `[:trie …]` key reaches this backend at all.
+which here is two families: `[:term-roster]` and `[:argument-slot pos term]`, whose
+members are term and predicate names rather than handles. Both are vocabulary-scaled, so
+nothing fact-scaled is left outside the packed map — the argument roots reach it through
+the interned `(pred, pos)` scope described above. The columnar trie is native, so no
+`[:trie …]` key reaches this backend at all.
 
 `vaelii.impl.tokens` is the `path-token ↔ int` dictionary. It interns a path level
 **as-is** — a symbol, a number, `:false`/`:rule`, `nil`, a `[::subterm k]` arity marker,
@@ -540,65 +540,187 @@ RAM this page measures; that is the trade.
 Every section above prices one structure. This one adds them up, because the question the
 dense backends exist to answer is not *"what does the trie cost"* but **"what does a
 100M-sentex KB hold in heap, and where does it go?"** `lein bench-budget` is the report,
-and it re-runs: three geometric corpus sizes per backend at two justification ratios, one
-row per resident structure, each row carried to the target only on a shape it passes
-twice. What follows is its output at the default size, extrapolated to 100,000,000 facts
-against a 40 GB heap.
+and it re-runs: four geometric corpus sizes per backend at two justification ratios, one
+row per resident structure, each row carried to the target only on a shape it passes on
+every step. Four sizes rather than three — the third size alone left one row's shape
+[unresolved](#what-the-mapped-image-does-and-does-not-take-off-the-heap) and left the
+record store's own residue [unattributed](#the-premise-set-is-the-row-that-was-hiding);
+a fourth sample settles both. What follows is its output at the default size, extrapolated
+to 100,000,000 facts against a 40 GB heap.
 
 `:disk-log`, at j/n 1.1 — the ratio [below](#at-corpus-scale-and-why-it-is-the-default-item-09)
 calls the shape a common-sense KB actually takes:
 
 | Structure | At 100M | Shape |
 |---|---|---|
-| flat KV index (resident, whole map) | **310.30 GB** | linear |
-| dense JTMS | **16.32 GB** | linear |
-| record live-id rosters | **9.47 GB** | linear |
-| record store, rest | 2.00 GB | linear |
-| hot-record cache | 39.7 MB | capped at 65,536 records/kind |
-| naming / match / feed / qcn | 7.3 MB | affine |
+| flat KV index (resident, whole map) | **293.73 GB** | linear |
+| dense JTMS | **16.56 GB** | linear |
+| record premises (boxed set) | **4.12 GB** | linear |
+| hot-record cache | 41.2 MB | capped at 65,536 records/kind |
+| record live-id rosters | tens of KB | refused — too small for four points to resolve |
+| record store, rest | 1.6 KB | flat in the extent |
+| naming / match / feed / qcn | tens of KB | refused — same reason as the rosters |
 | taxonomy `:up`/`:down` | 0.2 MB | flat in the extent |
-| **total** | **338.13 GB** | **8.45× the budget** |
+| **total** | **314.45 GB** | **7.86× the budget** |
 
-At j/n 0.5 the two justification-sensitive rows fall — the JTMS to 10.43 GB and the
-rosters to 7.69 GB — and the total to 326.08 GB. The index does not move with j/n.
+At j/n 0.5 the justification-sensitive rows fall — the JTMS to 11.07 GB, the premise set to
+4.22 GB — and the total to 306.21 GB. The index does not move with j/n.
 
-**The index is the whole problem, and it is worse than its coefficient suggests.** 310 GB
-is 7.6× the entire budget on one row. Nothing that compresses what the map holds closes a
+**The roster row is a bitmap, and reading it beside the premise row is the only honest way
+to read either.** The live-handle sets are `Roaring64Bitmap`s over the strided runs
+`next-id` mints (`vaelii.impl.roster`, [storage.md](storage.md#the-enumerations-and-what-a-roster-costs)),
+which is what put a row that carried **9.47 GB** as a `PersistentHashSet<Long>` under 100
+KB at every corpus size this run tried. Four points cannot resolve a row that small —
+26.3 → 68.0 KB across the run, inside noise — which is a property of the row's new size,
+not a gap in the method. What matters is where the weight this row once carried sits now.
+
+### The premise set is the row that was hiding
+
+`cumulative` attributes shared structure to whichever row it reaches first, and the
+rosters are measured before the rest of the record store — so a hash-set roster's boxed
+`Long`s are the premise set's `PersistentHashSet<Long>` as well, and taking them out of
+the roster row only moves the charge: it does not take them out of the KB. With no row
+of its own that charge lands on one undifferentiated row, where *"record store, rest"*
+reads 4.07 GB against the 2.00 GB it reads when the rosters absorb the boxing.
+`bench-budget` gives the premise set the same row the rosters have: `record-premises`,
+attributed before the leftover fields rather than folded into them.
+
+**The result is that `record store, rest` is now exactly what its name says.** With
+`premises` measured on its own, the leftover — the `DiskRecordStore`'s own fields net of
+every row that has a name — reads **1.6 KB, flat, across all four corpus sizes**. It was
+never a distributed cost across the store's bookkeeping; it was one boxed set the whole
+time, and `record premises` carries it now: **4.12 GB at j/n 1.1**, linear on every one of
+the three steps between the four points, and **4.22 GB at j/n 0.5** — slightly higher,
+because the target is a fixed sentex count and fewer justifications means fewer of those
+sentexes are non-premise rule conclusions, so more of the same 100M are premise-bearing.
+Either way it is the size a boxed `PersistentHashSet<Long>` gives at this cardinality,
+because that is still the representation. `premises` still needs no monitor on its write
+path today ([storage.md](storage.md#tallying--the-questions-that-do-not-need-the-roster)):
+that argument does not change by measuring the set more precisely, only the case for
+converting its representation does.
+
+**The engine-wide saving from the roster conversion is the pair, not the roster row
+alone.** Before: 9.47 GB of boxed rosters plus 4.07 GB of (then-unattributed) premises,
+13.54 GB. After: under 100 KB of bitmap roster plus 4.12 GB of (now-named) boxed premises,
+4.12 GB. The roster's own multiple is real, but reading it alone credits the conversion
+with more than it delivered — the honest saving is what the pair actually gave back,
+**9.4 GB**, and the premise set is what is left to convert to close the rest of it.
+
+**The index is the whole problem, and it is worse than its coefficient suggests.** 294 GB
+is 7.3× the entire budget on one row. Nothing that compresses what the map holds closes a
 gap that size; only taking it off the heap does.
 
-**Everything else fits.** The non-index rows sum to 27.8 GB at j/n 1.1 — inside 40 GB,
-though two thirds of it. So an index that goes fully off-heap is sufficient on its own,
-and the roster and JTMS work is headroom rather than a precondition.
+**Everything else fits, with room.** The non-index rows sum to about 21 GB at j/n 1.1 —
+half the budget. So an index that goes fully off-heap is sufficient on its own, and the
+JTMS work is headroom rather than a precondition.
 
-### What the columnar image does and does not take off the heap
+### What the mapped image does and does not take off the heap
 
-`:disk-columnar` maps its image, and the index row falls from 310.30 GB to **37.89 GB** —
-a total of 65.73 GB, still 1.64× over. The image is not one structure, though, and its
+`:disk-snapshot` maps its image, and the index row falls from 293.73 GB to **6.41 GB** —
+a total of **27.14 GB, 0.68× the budget**. The image is not one structure, though, and its
 sections do not share a shape. `bench-budget` reports each on its own, as a decomposition
 of the index row:
 
 | Section | At 100M | Shape |
 |---|---|---|
-| roots fallback blob ← argument roots | **34.10 GB** | linear |
-| CSR skeleton | 3.37 GB | linear |
+| CSR skeleton | **3.26 GB** | linear |
+| roots routed map | *refused, but bounded — see below* | flat, then a 10.9× step, then flat again |
+| roots fallback blob ← term + slot rosters | 19.0 MB | flat in the extent |
 | token dictionary | 1.3 MB | flat in the extent |
-| roots handle column *(mapped)* | 2.19 GB | linear |
-| CSR leaves *(mapped)* | 1.22 GB | linear |
-| roots key + offset columns *(mapped)* | 0.1 MB | flat in the extent |
+| argument-root scope table | 0.0 MB | flat in the extent |
+| roots handle column *(mapped)* | 2.95 GB | linear |
+| CSR leaves *(mapped)* | 1.19 GB | linear |
+| roots key + offset columns *(mapped)* | 310.1 MB | affine, 0.6 MB + 3 B/fact |
 
-The dictionary and the roots' key columns are vocabulary-bounded and measure flat, which
-is what the image was argued to be. The fallback blob is not: it carries the
-predicate-scoped argument roots, whose four-part key does not pack, and it is read whole
-on open. It is **90% of the image's remaining heap**, and it is the difference between
-this backend being over budget and under it — 65.73 GB with it, 31.63 GB without.
+**The fallback blob is the row an earlier measurement was taken to find, and it is still
+flat.** At `format-version` 1 it carried the predicate-scoped argument roots — `[:argument-root
+pred pos term]` had no packed spelling, so the family rode the resident blob and was read
+whole on open. That row once measured **34.10 GB, linear**, 90% of the image's remaining heap
+and the difference between this backend being over budget and under it. The interned
+`(pred, pos)` scope gave it a packed spelling; the argument roots now ride the mapped
+handle column with every other family, and the blob keeps the term and slot rosters alone.
+No resident section of the image tracks the fact count except the CSR skeleton.
+
+**The routed map's jump is a threshold, not a slope, and the fourth point is what tells
+the two apart.** At 201,096 facts the heap sections summed to 25.9 MB against an index
+row of 26.6 MB; a fixed-baseline affine fit through three points (10.1 MB + 86 B/fact)
+carried the difference anyway, because a row that sits flat for one step and then jumps
+10.9× on the next fits neither "flat" nor "linear" and a two-point affine fit cannot tell
+a one-time threshold from an under-sampled slope. The fourth point resolves it directly:
+the routed map holds at 154.8 KB across the first two sizes, jumps to 1.7 MB at the third,
+and **stays at 1.7 MB at the fourth** — 0% growth on the step that would have shown a
+slope if there were one. That is a representation threshold firing once, not a row that
+tracks the extent. The likeliest candidate, from `dense_roots.clj`'s own account of
+`:routed` — the handful of routed families that still ride the mutable map rather than
+the mapped columns — is one or more of their `IntPostings` promoting from a sorted
+`int[]` to a `RoaringBitmap` past 128 entries (`dense_kv.clj`'s `promote`): a jump in
+per-entry overhead on the entry that crosses it, followed by the bitmap's own compression
+absorbing further growth. That is what the shape is consistent with, not something this
+run measured directly — a `Long2ObjectOpenHashMap` resize is not ruled out by these four
+points alone, and either way the operative fact for the budget is the plateau, not which
+of the two produced it. Refitting the index row's affine coefficient over the widened range drops it from
+86 B/fact to **69 B/fact** (66 B/fact at j/n 0.5) — the 20% the old fit was carrying on
+the routed map's behalf. **The section is still refused a shape of its own — a
+flat/jump/flat step matches none of the three the gate tests for — but it is no longer an
+unattributed 4.6 GB: it is a measured, bounded 1.7 MB, and the affine fit for the row that
+contains it no longer needs to guess.**
+
+The move off the boxed blob is not free on the mapped side, and the two figures are not
+each other's complement. The blob shed 34.10 GB of heap; the mapped columns took on far
+less than that — the roots' key and offset columns went from flat and small to 310.1 MB
+affine, and the handle column to 2.95 GB — because a nippy-thawed posting set on the heap
+and a flat `int` run in a mapped file are not the same bytes. So the packing is worth
+roughly **30 GB** of the backend's total rather than the 34.10 GB the row itself named.
 
 ### What these numbers are not
 
 The corpus holds its vocabulary fixed at every size, so only the extent grows. That is
 what makes a growth ratio mean anything, and it is also why the total is a **floor**: every
-row that measures flat is carried to 100M at the value 8,000 individuals gave it, and a KB
-of 100M facts does not have 8,000 individuals. The two flat sections above are flat for
-exactly that reason. Read the total as the extent's price, not as a KB of that size.
+row that measures flat is carried to 100M at the value 8,000 individuals and 40 types gave
+it, and a KB of 100M facts has neither. The taxonomy row, the token dictionary, the
+fallback blob and the argument-root scope table are all flat for exactly that reason. Read
+the total as the extent's price, not as a KB of that size.
+
+### What a real vocabulary adds, and where
+
+Two of those rows can be bounded rather than left as a caveat, and the answers go opposite
+ways.
+
+**The taxonomy row is small because the closure is not stored**, not because the corpus is
+small. Only the O(V+E) direct adjacency is resident; `genls`/`specs` walk it and memoize
+per node against the relation's `:gen` ([taxonomy.md](taxonomy.md)). So the row scales with
+*edges*, never with the Θ(V²) closure a materialized one would hold. Measured with
+`bench-budget`'s own `kb-structures`, on `:memory` (the row is backend-independent), a
+branching-4 tree over 2,000 individuals and no ground facts:
+
+| Types | Cold | Warm (`genls` + `specs`) | B/type warm | Closure pairs |
+|---|---|---|---|---|
+| 40 | 0.19 MB | 0.21 MB | 5,374 | 261 |
+| 400 | 0.66 MB | 0.69 MB | 1,819 | 2,435 |
+| 4,000 | 5.14 MB | 6.06 MB | 1,590 | 30,270 |
+| 40,000 | **43.11 MB** | **69.18 MB** | 1,813 | 370,964 |
+
+The 40-type reading reproduces the budget's 0.2 MB, which is also the cross-check that
+individuals do not enter this row — the budget corpus has four times as many. The last
+decade of types costs 8.4× cold and 11.4× warm against 10× the types, so the row is linear
+with a mild excess from ancestor-set size tracking depth as log_b V. Depth is the axis
+that could have broken it and does not: 40,000 types at branching 2, 4 and 16 (depths 17,
+10 and 6) measure 44.66 / 43.11 / 42.48 MB cold and 83.90 / 69.18 / 61.50 MB warm — the
+adjacency is flat in shape, and only the memo tracks depth, over 1.4× across a 3× range.
+At ~1,800 B/type a 400,000-type ontology is **~0.7 GB**, 2% of the total. The row stays
+small at any vocabulary a KB actually has.
+
+**The taxonomy's sentexes are not in that row**, which is the other half of the answer. A
+`genl` edge is an ordinary sentex — a record, index postings, a TMS node — so 400,000 of
+them cost 400,000 sentexes of the rows above, 0.4% of a 100M extent, and memberships the
+same. Widening the ontology moves the total twice and both moves are small.
+
+**The fallback blob is the row that does not have this defence.** It holds the term and
+slot rosters, it is vocabulary-scaled rather than closure-bounded, and 8,070 terms is a
+very small vocabulary. It measures flat here only inside the 0.25 tolerance — 11.0 → 13.3
+→ 16.0 MB is 1.20× then 1.20× against facts at 1.68× then 1.73× — so it is *not tracking
+the extent*, which is the finding, but it is not constant either. Sizing it wants a sweep
+that holds the facts fixed and grows the vocabulary, which no bench here runs.
 
 ## Reading these numbers honestly
 

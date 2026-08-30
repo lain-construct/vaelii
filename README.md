@@ -18,12 +18,12 @@ with forward/backward inference and JTMS truth maintenance.
 ## Requirements
 
 - JDK 21+, Leiningen 2.10+ — no external services
-- macOS and Linux; Windows is not supported ([why](docs/storage.md#the-image-vaeliiindexsnapshot-off-by-default))
+- macOS and Linux; Windows is not supported ([why](docs/storage.md#the-image-disk-snapshot))
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.13.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.13.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.14.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.14.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh

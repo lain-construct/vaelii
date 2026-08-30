@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test-matrix.sh — several configurations at once: the eight storage backends
+# scripts/test-matrix.sh — several configurations at once: the nine storage backends
 # and the six sweeps, concurrently, with one JVM each.
 #
 # Minutes where `test-backends.sh` and `test-sweeps.sh` in sequence take an hour.  Same
@@ -13,9 +13,9 @@
 # RUN WHAT THE CHANGE OWES, NOT EVERYTHING.  `--owed` reads the changed files and runs
 # the configurations that could disagree about them, printing the classification as it
 # goes; `scripts/lib/suite-configs.sh` carries the map and the reason each row is what
-# it is.  A bare run is the ROUTINE roster — twelve of the fourteen, the two
+# it is.  A bare run is the ROUTINE roster — thirteen of the fifteen, the two
 # durable-records-with-a-derived-index pairs that are a third copy of one claim sitting
-# out — and `full` is the fourteen, which is what a release runs and what a change to
+# out — and `full` is the fifteen, which is what a release runs and what a change to
 # the record/index seam itself owes.  Every run names what did not run, on the header
 # and again on the verdict.
 #
@@ -46,7 +46,7 @@
 # heartbeat naming how far each running config has got.
 #
 # LONGEST FIRST.  Whoever starts last sets the finish, so the last thing to start has to
-# be the shortest thing there is: the durable four take ~10-12 minutes under a full box
+# be the shortest thing there is: the durable five take ~10-12 minutes under a full box
 # against ~4-5 for the rest, and a 4-minute sweep starting at minute nine outlasts a
 # 12-minute disk run that started at zero.  Order comes from the previous run's measured
 # seconds (`logs/test-matrix/config-timings.tsv`, per checkout), and from a
@@ -84,7 +84,8 @@
 #   ./scripts/test-matrix.sh                  # the routine roster, :default
 #   ./scripts/test-matrix.sh --owed           # only what the changed files owe
 #   ./scripts/test-matrix.sh --owed -n        # ...and print that set without running it
-#   ./scripts/test-matrix.sh full             # all fourteen — a release, or a seam change
+#   ./scripts/test-matrix.sh --owed=<ref>     # ...measuring the change from <ref> instead
+#   ./scripts/test-matrix.sh full             # all fifteen — a release, or a seam change
 #   ./scripts/test-matrix.sh full :all        # ...with the ^:slow half — before a tag
 #   ./scripts/test-matrix.sh backends         # one axis (also: sweeps, routine, full)
 #   ./scripts/test-matrix.sh memory disk-log rete   # only these
@@ -184,6 +185,7 @@ JOBS="${MATRIX_JOBS:-}"
 KEEP=0
 FAIL_FAST=0
 OWED=0
+OWED_BASE=""
 DRY=0
 HEARTBEAT="${MATRIX_HEARTBEAT:-60}"
 WANTED=()
@@ -196,6 +198,17 @@ while [[ $# -gt 0 ]]; do
     --keep) KEEP=1; shift ;;
     --fail-fast) FAIL_FAST=1; shift ;;
     --owed) OWED=1; shift ;;
+    # a ref rather than a bare flag, so it cannot be confused with the positional
+    # configuration names: `--owed main` would read as "--owed, and also run `main`",
+    # which is not a configuration and would abort with a puzzling message
+    --owed=*) OWED=1; OWED_BASE="${1#--owed=}"
+              [[ -n "$OWED_BASE" ]] || { echo "test-matrix: --owed= needs a commit" >&2; exit 2; }
+              # resolved here rather than at the diff, where a bad ref is a silent
+              # empty change set and reads as "this change owes nothing"
+              git rev-parse --verify --quiet "${OWED_BASE}^{commit}" >/dev/null || {
+                echo "test-matrix: --owed=$OWED_BASE is not a commit this repository has" >&2
+                exit 2; }
+              shift ;;
     -n|--dry-run) DRY=1; shift ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
     :all|:slow|:default) SELECTOR="$1"; shift ;;
@@ -224,15 +237,27 @@ done
 # not yet on it, since a matrix is owed by the change and not by whether it is committed
 # yet.
 #
+# `--owed=<ref>` names the baseline instead, and the case for it is the default's blind
+# spot: "not yet upstream" is empty the moment you push, so a change committed and pushed
+# in pieces — which is the cadence this repo asks for — owes nothing by the time anybody
+# asks.  The matrix is still owed; only the question went stale.  `--owed=<ref>` measures
+# from a commit you name, so `--owed=origin/main@{1}` or `--owed=<the commit before your
+# first>` answers what the work owes rather than what is left un-pushed.  Uncommitted and
+# untracked files are still included: the baseline moves, the working tree still counts.
+#
 # The classification is PRINTED, one line per file that owes something, because a floor
 # somebody cannot see is a floor they cannot correct: a file whose row is wrong is
 # visible here and nowhere else.  Files owing nothing are a count, not a column.
 owed_changed_paths() {
   { git diff --name-only HEAD
     git ls-files --others --exclude-standard
-    local up
-    up=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) \
-      && git diff --name-only "$up...HEAD"
+    if [[ -n "$OWED_BASE" ]]; then
+      git diff --name-only "$OWED_BASE...HEAD"
+    else
+      local up
+      up=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) \
+        && git diff --name-only "$up...HEAD"
+    fi
   } 2>/dev/null | sort -u
 }
 
@@ -281,7 +306,7 @@ ROSTER_TOTAL=$(( ${#ALL_BACKENDS[@]} + ${#ALL_SWEEPS[@]} ))
 # LONGEST FIRST, which is what decides the finish.  A slot count under the configuration
 # count means somebody starts in a second wave, and whoever starts last sets the wall
 # clock — so the last thing to start must be the shortest thing there is.  Measured: the
-# durable four take ~10-12 minutes under a full box against ~4-5 for the rest, and a
+# durable five take ~10-12 minutes under a full box against ~4-5 for the rest, and a
 # 4-minute sweep starting at minute nine finishes after the 12-minute disk run that
 # started at zero.  That is the whole difference between 13 minutes and 12.
 #
@@ -965,7 +990,7 @@ skipped=0
 for ((i = 0; i < n; i++)); do [[ "${state[i]}" == skipped ]] && skipped=$((skipped + 1)); done
 if [[ ${#FAILED[@]} -eq 0 && $skipped -eq 0 ]]; then
   # the roster is part of the verdict, not a footnote to it: "all green" over a subset
-  # is a different sentence from "all green" over the fourteen, and this is the line
+  # is a different sentence from "all green" over the fifteen, and this is the line
   # that gets quoted into a commit message
   if [[ ${#SAT_OUT[@]} -gt 0 ]]; then
     echo "${GREEN}${BOLD}all $n of $ROSTER_TOTAL configurations green${OFF}" \

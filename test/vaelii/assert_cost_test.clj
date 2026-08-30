@@ -186,6 +186,27 @@
     (fn [] (dotimes [i n]
              (v/assert kb (list 'acDecl (ind "AcD" i) (ind "AcD" i)) 'CxPerf {})))))
 
+(defn- functional-in-arg-arity-2
+  "A fact of a predicate carrying `(functionalInArg P 2)` — the shape 06ae8613 narrowed
+  from an O(extent) `subtree-facts` sweep to the O(1) shared-determinant read `functional`
+  already gets, by folding it into `settle/partner-contexts`' existing fun/asym/anti case
+  instead of leaving it in the budgeted sweep beside the truly-empty (arity 1) and
+  composite (arity > 2) shapes.
+
+  **What `lein perf` cannot see here.**  b3bfb23b already caps the sweep at
+  `*exposure-instance-budget*`, so a ratio between a small and a large extent reads flat
+  whether an arity-2 assert pays the O(1) determinant read or the capped sweep — both are
+  independent of extent past the cap.  Only the exact operation count tells the two apart:
+  the narrow read costs `plain`'s own reads plus one `:argument-root` shared-determinant
+  probe, where the sweep it replaced cost `subtree-facts` over the predicate's whole
+  extent, batched into far more.  A regression that re-widens the `(not= 2 k)` guard moves
+  this budget off `plain`'s neighborhood by exactly that."
+  []
+  (let [kb (fresh)]
+    (v/assert kb '(functionalInArg acFnArg 2) 'CxPerf {:strength :monotonic})
+    (fn [] (dotimes [i n]
+             (v/assert kb (list 'acFnArg (ind "AcFA" i) (ind "AcFV" i)) 'CxPerf {})))))
+
 (defn- negative
   "A negative fact with no positive twin.  Its own workload because the `:false` node is a
   separate trie subtree and the polarity checks are a separate read path — a constant
@@ -489,6 +510,22 @@
     :reads   {:argument-root 500 :argument-slot 500 :exception-index 200
               :functor-root 1100 :trie-counts 200 :trie-lookup 100}
     :writes  {:levels 400 :terms 400 :roots 400 :roster 103 :slots 101}}
+
+   ;; **Seven `:argument-root` and seven `:argument-slot` reads per assert above `plain`**
+   ;; — the shared-determinant probe on argument 1, its `marks-above?`/mark-reach checks,
+   ;; and the constraint-nogood vocabulary gate, none of which `plain` pays for since it
+   ;; declares no predicate property at all.  What this pins is that it stays a per-assert
+   ;; *constant*: a regression back to the pre-06ae8613 extent sweep would not add a fixed
+   ;; seven per assert, it would add a term proportional to the predicate's own growing
+   ;; extent (`subtree-facts` over up to `n` stored tuples, batched into the sweep's own
+   ;; read family) — which this exact-count gate catches on the very first re-pin attempt,
+   ;; where `lein perf`'s ratio check cannot (see the docstring above).
+   {:name    :functional-in-arg-arity-2
+    :build   functional-in-arg-arity-2
+    :sentexes 100
+    :reads   {:argument-root 1200 :argument-slot 1200 :exception-index 100
+              :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+    :writes  {:levels 500 :terms 400 :roots 400 :roster 200 :slots 200}}
 
    {:name    :compound
     :build   compound

@@ -3,14 +3,14 @@ name: deep
 # The deep run: everything the pull-request gate defers.
 #
 # Named for what it does rather than when it runs, so a change of cadence is not
-# a rename. It runs weekly: eight backends at `:all` is ~115 billed minutes and
-# the five sweeps add ~80 more, so a run is a few billed hours — and a tree that
+# a rename. It runs weekly: nine backends at `:all` is ~130 billed minutes and
+# the six sweeps add ~95 more, so a run is a few billed hours — and a tree that
 # changes a few times a week does not have a fresh answer every day. Running it
 # daily would buy six identical verdicts and turn one real failure into six lines
 # of noise. Wall clock is ~20 minutes either way, since the legs are parallel;
 # what the cadence is protecting is the minutes, not the wait.
 #
-# test.yml runs the `:default` selector on two of the eight backends, because a
+# test.yml runs the `:default` selector on two of the nine backends, because a
 # contributor should not wait an hour for a verdict. That leaves five real gaps,
 # and this workflow is all five of them:
 #
@@ -19,13 +19,14 @@ name: deep
 #     oracles. `lein gate` skips them, test.yml skips them, and a mark that
 #     defers a test is only honest if something eventually runs it. This is that
 #     something.
-#   - **The other six backends.** Seven legal record×index pairs plus the
+#   - **The other seven backends.** Eight legal record×index pairs plus the
 #     overlay decorator, and the suite is expected to be failing-set-identical
-#     across all eight — a backend that answers differently is a bug in the
-#     backend. The pull-request gate exercises two of the eight.
-#   - **The five alternative implementations.** The persistent-map JTMS, the incremental
-#     matcher, the node query engine, its tacticians and the reference retrieval
-#     fan-out. Each is selected by an env var `test_util.clj` reads, each must be
+#     across all nine — a backend that answers differently is a bug in the
+#     backend. The pull-request gate exercises two of the nine.
+#   - **The six alternative implementations.** The persistent-map JTMS, the incremental
+#     matcher, the node query engine, its tacticians, the reference retrieval
+#     fan-out and the planner turned off. Each is selected by an env var
+#     `test_util.clj` reads, each must be
 #     failing-set-identical with the default it replaces, and nothing ran any of
 #     them until the `sweeps` job below — see its own comment.
 #   - **The cross-process tests.** `^:multi-jvm` is opt-in rather than deferred:
@@ -64,7 +65,7 @@ on:
 # it. What it says: **this workflow does work only where Actions minutes are
 # free.** GitHub bills private repositories and does not bill public ones, this
 # file is identical in every repository that holds it, and one run of this
-# workflow is 209 job-minutes against a 2,000-minute monthly allowance — so an
+# workflow is 240 job-minutes against a 2,000-minute monthly allowance — so an
 # unguarded run is most of a month's budget spent re-answering, on a copy
 # nobody reads, what the free copy answers for nothing.
 #
@@ -103,8 +104,8 @@ jobs:
       # "at least one".
       fail-fast: false
       matrix:
-        # The seven legal record×index pairs (`<records>-<index>`), then the
-        # overlay decorator — which is not an eighth pair but the fork over an
+        # The eight legal record×index pairs (`<records>-<index>`), then the
+        # overlay decorator — which is not a ninth pair but the fork over an
         # empty base, the claim that a fork of nothing behaves like the thing it
         # forked. RAM records under a durable index is refused and has no name.
         backend:
@@ -114,6 +115,7 @@ jobs:
           - disk-memory
           - disk-dense
           - disk-columnar
+          - disk-snapshot
           - disk-log
           - overlay
     steps:
@@ -145,11 +147,11 @@ jobs:
           restore-keys: |
             m2-${{ runner.os }}-jdk21-
 
-      # One backend per runner, so the script's own reason for running its eight
+      # One backend per runner, so the script's own reason for running its nine
       # sequentially does not apply: two durable suites collide on the
       # single-writer lock and `VAELII_TEST_SPACE` admits only three
       # non-overlapping blocks, but separate VMs share neither a disk nor a
-      # registry. Eight in parallel is ~20 minutes instead of ~3 hours, and on a
+      # registry. Nine in parallel is ~20 minutes instead of ~3 hours, and on a
       # public repo the minutes are unmetered.
       - name: Suite (${{ matrix.backend }}, :all)
         run: ./scripts/test-backends.sh :all ${{ matrix.backend }}
@@ -165,7 +167,7 @@ jobs:
 
   # The other axis the suite can be run on, and until now the one nothing ran.
   #
-  # `VAELII_TEST_BACKEND` is not the only switch `test_util.clj` reads. Five more
+  # `VAELII_TEST_BACKEND` is not the only switch `test_util.clj` reads. Six more
   # re-run the whole suite through an *alternative implementation* of something
   # the engine otherwise picks for itself, and each is the same claim the backend
   # matrix makes: these must be failing-set-identical, because every one of them
@@ -180,7 +182,7 @@ jobs:
   # `tu/query-engine-override`, and everything about the answer set runs under
   # both. An assertion standing aside says why, every time.
   #
-  # The backends job crosses none of them — it varies storage and leaves all five
+  # The backends job crosses none of them — it varies storage and leaves all six
   # at their defaults — so before this job existed the reference implementations
   # were never run anywhere. That is not a hypothetical gap: running them by hand
   # found two real defects, one of them a genuine engine bug (a clash reported
@@ -188,9 +190,9 @@ jobs:
   # `res/*hierarchical-retrieval*` promises the answer *set* and a caller was
   # reading the first element of it).
   #
-  # On the DEFAULT backend only, and deliberately not crossed with the eight: the
-  # dimensions are independent by construction, so the product buys 40 runs to
-  # re-answer what 5 and 8 already answer separately.
+  # On the DEFAULT backend only, and deliberately not crossed with the nine: the
+  # dimensions are independent by construction, so the product buys 54 runs to
+  # re-answer what 6 and 9 already answer separately.
   sweeps:
     name: ${{ matrix.name }} (:all)
     # this workflow does work only where the minutes are free (see above `jobs:`)
@@ -215,6 +217,8 @@ jobs:
             env: VAELII_QUERY_ENGINE=inference VAELII_QUERY_STRATEGY=breadth-first
           - name: hier-off
             env: VAELII_HIER=0
+          - name: plan-off
+            env: VAELII_PLAN=0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

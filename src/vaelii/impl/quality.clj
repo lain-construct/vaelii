@@ -187,10 +187,16 @@
                  (if (next hs)
                    ;; the context joins the key: one implication stated in two contexts
                    ;; shares sentence and signature, and the residual tie fell to the
-                   ;; handle set's iteration order — ahead of the `take limit` cap
-                   (sort-by (fn [h] (let [rl (rule-line kb h)]
-                                      [(pr-str (:sentence rl)) (str (:context rl))]))
-                            hs)
+                   ;; handle set's iteration order — ahead of the `take limit` cap.
+                   ;; `print-key`, not a bare `pr-str`: an ambient `*print-length*`
+                   ;; elides two long sentences to one prefix and the tie falls back to
+                   ;; handle order (naming.clj says why).  Decorated, so the record
+                   ;; store is read once per rule and not once per comparison.
+                   (nm/sort-by-content-key
+                    (fn [h] (let [rl (rule-line kb h)]
+                              [(nm/print-key (:sentence rl)) (nm/name-key (:context rl))]))
+                    compare
+                    hs)
                    hs)))
        (take limit)
        (into [] (keep #(rule-line kb %)))))
@@ -806,6 +812,71 @@
    (tax/maximal-common-descendant-contexts
     (:taxonomy kb) (into #{} [(:context a) (:context b)]))))
 
+(defn- functional-marks-by-position
+  "`{1 #{pred …} 2 #{pred …}}` — the predicates carrying a functional-family mark on each
+  position of a **binary** tuple, at or above `f`.
+
+  `(functional P)` joins position 2, being `(functionalInArg P 2)` written the arity-2
+  way.  A mark at position 3 or beyond appears in neither: it constrains a slot a binary
+  literal does not have, and pairing two conclusions on a constraint neither is subject
+  to would be a report about nothing.
+
+  Split by position because the pairwise test is not symmetric in the two: the mark names
+  the constrained slot, so position 2 unifies argument 1 and compares argument 2, and
+  position 1 does the mirror.  One read of the table serves both."
+  [tax f context]
+  (let [inarg (tax/functional-in-arg-over tax f context)
+        at    (fn [n] (into #{} (comp (filter #(= n (second %))) (map first)) inarg))]
+    {1 (at 1)
+     2 (into (at 2) (tax/props-over tax :functional f context))}))
+
+(defn- marks-over
+  "The predicates a `kind` mark reaches at or above `f`, as one set — **the one place the
+  clash detector spells a mark's reach**, read by all three of the sites that need it.
+
+  For `:asymmetric` that is `tax/props-over` and nothing more.  For `:functional` it is
+  both spellings and **both positions a binary tuple has**, which is
+  `functional-marks-by-position` unioned.
+
+  A mark names the *constrained* slot and the rest of the tuple is its determinant, so on
+  a binary conclusion position 2 is the familiar reading — subject in argument 1, value in
+  argument 2 — and position 1 is its mirror, the subject in argument 2.  Only position 3
+  and up are genuinely out of reach here, constraining a slot these literals do not have.
+
+  Unioned rather than kept apart because this answers *candidate* questions: which pairs
+  are formed and which groups a view joins.  An over-approximated candidate merely fails
+  `consequent-clash` and yields nothing, where a missing one is never asked at all.  The
+  pairwise test is the caller that has to know which position it is looking at, and it
+  reads the split map directly.
+
+  **Three callers, which is why this is a function and not three expressions.**  The
+  reach is asked at the candidate gate (`marked-groups`, does the KB declare any and which
+  group does a view join), at the lookup (`clash-partners`, which groups does this rule's
+  functor reach) and at the pairwise test (`consequent-clash`, do these two share one).
+  #56 was found and half-fixed twice before that was noticed: widening the pairwise test
+  alone left the gate answering nil, and widening the gate too left the lookup finding no
+  group.  A mark family reaches a pass through every one of its reads or through none."
+  [tax kind f context]
+  (if (= :functional kind)
+    (let [by-pos (functional-marks-by-position tax f context)]
+      (into (get by-pos 1) (get by-pos 2)))
+    (tax/props-over tax kind f context)))
+
+(defn- marks-declared?
+  "Does the KB declare any `kind` mark at all — the O(1) gate `marked-groups` opens on,
+  reading the same two rosters `marks-over` reads.
+
+  The `:functional` arm is `tax/functional-family-declared?` rather than the `or` written
+  out here, because that question — does the taxonomy hold a functional mark of *either*
+  spelling — is asked by every door of the family (`special`'s three `equate-*` lanes as
+  well as this pass), and spelling it per caller is what #52, #54 and #56 each were: one
+  reader of a two-spelling family that had only learned one.  A third spelling joins the
+  roster there and reaches all of them."
+  [tax kind]
+  (if (= :functional kind)
+    (tax/functional-family-declared? tax)
+    (boolean (seq (tax/props tax kind)))))
+
 (defn- consequent-clash
   "How `a`'s consequent and `b`'s would clash if both rules fired — `[kind σ]`, or nil.
   `b`'s variables are renamed apart from `a`'s, so σ is over both.
@@ -821,7 +892,13 @@
     `siblingDisjoint` or `disjointMetatype` declaration separates.
   - **`:functional`** — two conclusions filling one functional slot for one subject with
     values that are not the same term.  The mark is read **up** the predicate hierarchy,
-    so two `fatherOf` conclusions clash against `(functional parentOf)`.
+    so two `fatherOf` conclusions clash against `(functional parentOf)`, and it is read
+    in **both** spellings: `(functionalInArg parentOf 2)` says the same thing about the
+    same slot, so a detector reading only `:props` was blind to a KB that spells it that
+    way (#56).  Read per **position**: the mark names the constrained slot, so a
+    position-2 mark unifies the subjects and compares the values and a position-1 mark
+    mirrors that, and only position 3 and up is out of reach — a slot these two literals
+    do not have.
   - **`:asymmetric`** — one tuple concluded both ways round, under a predicate declared
     `asymmetric` anywhere above either.  A self tuple `(P a a)` is not one: the ontology
     admits it, so a σ identifying the two arguments is no clash."
@@ -844,17 +921,27 @@
                   (tax/disjoint? tax fa fb context))
          (when-let [s (res/unify (second (:body a)) (second (:body b)))]
            [:disjoint s]))
+       (when (and (= 2 (:arity a)) (= 2 (:arity b)))
+         ;; Per position, because the mark names the CONSTRAINED slot and the rest of the
+         ;; tuple is its determinant: a position-2 mark unifies the subjects and compares
+         ;; the values, and a position-1 mark is that read in the mirror.  Reading
+         ;; position 2 alone left `(functionalInArg P 1)` enforced by
+         ;; `checks/functional-clashes` and invisible to this pass.
+         (let [pa (functional-marks-by-position tax fa context)
+               pb (functional-marks-by-position tax fb context)
+               [s1 v1] (nm/args (:body a))
+               [s2 v2] (nm/args (:body b))
+               clash (fn [det-a det-b val-a val-b]
+                       (when-let [s (res/unify det-a det-b)]
+                         (when (not= (res/substitute val-a s) (res/substitute val-b s))
+                           [:functional s])))]
+           (or (when (seq (set/intersection (get pa 2) (get pb 2)))
+                 (clash s1 s2 v1 v2))
+               (when (seq (set/intersection (get pa 1) (get pb 1)))
+                 (clash v1 v2 s1 s2)))))
        (when (and (= 2 (:arity a)) (= 2 (:arity b))
-                  (seq (set/intersection (tax/props-over tax :functional fa context)
-                                         (tax/props-over tax :functional fb context))))
-         (let [[s1 v1] (nm/args (:body a))
-               [s2 v2] (nm/args (:body b))]
-           (when-let [s (res/unify s1 s2)]
-             (when (not= (res/substitute v1 s) (res/substitute v2 s))
-               [:functional s]))))
-       (when (and (= 2 (:arity a)) (= 2 (:arity b))
-                  (seq (set/intersection (tax/props-over tax :asymmetric fa context)
-                                         (tax/props-over tax :asymmetric fb context))))
+                  (seq (set/intersection (marks-over tax :asymmetric fa context)
+                                         (marks-over tax :asymmetric fb context))))
          (let [[x1 y1] (nm/args (:body a))
                [x2 y2] (nm/args (:body b))]
            (when-let [s (res/unify (list x1 y1) (list y2 x2))]
@@ -977,12 +1064,19 @@
 (defn- marked-groups
   "`marked predicate -> the binary-conclusion views under it`, for one property.  nil when
   the KB declares none, which is the gate that keeps the pairing off a KB with nothing to
-  say — one map read."
+  say — one map read.
+
+  **`:functional` reads both spellings, here as well as in `consequent-clash`** (#56).
+  This is the gate that decides which pairs are ever *formed*, so widening only the
+  pairwise test left it answering nil for a KB whose sole mark is `(functionalInArg P 2)`
+  — no candidate pair, and nothing for the widened test to run on.  The reach is
+  `marks-over`, which is where the two spellings and the position-2 filter are
+  stated once; `:asymmetric` has one spelling and keeps the plain read."
   [tax kind views]
-  (when (seq (tax/props tax kind))
+  (when (marks-declared? tax kind)
     (reduce (fn [m v]
               (reduce (fn [m q] (update m q (fnil conj []) v)) m
-                      (tax/props-over tax kind (:functor v))))
+                      (marks-over tax kind (:functor v) nil)))
             {}
             (filter #(and (= :true (:polarity %)) (= 2 (:arity %))) views))))
 
@@ -1027,7 +1121,7 @@
         (for [kind  [:functional :asymmetric]
               :let  [groups (get marked kind)]
               :when groups
-              q     (tax/props-over tax kind f)
+              q     (marks-over tax kind f nil)
               b     (get groups q)]
           b))))))
 

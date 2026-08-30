@@ -258,6 +258,13 @@ the reading rests on**:
 - and, for a fact-relation, the `(transitive R)` `usable-relation?` reads at use; for a
   mirrored reading, the `(symmetric …)` behind the mirror.
 
+That the reasons are members here, where a definitional clash names only the clashing
+sentexes, is the one case
+[the nogood admission criterion](nmtms.md#what-qualifies-as-a-nogood) has to admit
+rather than exclude: defeating a reason dissolves the detection, and that is the
+resolution rather than a bug, because this claim has no sentex of its own for a defeat
+to reach instead.
+
 The same list `support-for` hands a justification, and for the same reason: those
 sentexes are what the claim *is*, so a set that must not hold in full is that set and not
 a pair inside it. The report carries `:kind :inherited` and an `:inherited` map naming the

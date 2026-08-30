@@ -150,11 +150,34 @@ representation is proven to match, **cost shape is part of it** — an oracle te
 compares only answers passes a representation whose answers were never wrong and whose cost
 grew with the KB.
 
+So the guarantee is carried in three pieces, and they are secured three different ways.
+**Equivalence** — a region relabel reaches the same labels a global one would — is
+semantic, and `jtms_dense_oracle_test` holds it by comparing the whole network after every
+step. **Containment** — the flips sit inside the published window and the window inside
+the region — is what says a small region was *asked for*; the oracle checks it on both
+networks after every step, and `jtms_locality_test` measures the published window across
+graph sizes on both, since a widened region answers identically and would pass a
+comparison of labels alone.
+
+**Cost shape** is the third, and it is really two claims. That no work is paid *per
+boundary node* is structural: the `Tms` protocol passes the network plus integers and
+plain values and nothing else, so no implementation of it can turn a boundary read into a
+lock and a slot decode, or into a round trip. That is why the strength cache is resident,
+and it is what makes this a claim about representations rather than about the reference's
+happens-to-be-free reads. What is left is the cost of the in-region work itself, and that
+is where the bitmap-rebuild shape hides — it satisfies equivalence, satisfies containment,
+pays nothing per boundary node, and still grows with the KB. Nothing structural rules it
+out and no unit test reaches the scale that shows it, so it is held by `lein bench-jtms`
+and by review. Which is why it is written into the `Tms` docstring beside the three
+obligations that do have gates: an implementation that is never told about a claim cannot
+be held to it.
+
 ### Two TMS implementations, not one
 
 The network sits behind a `Tms` protocol with a `:reference` and a `:dense` implementation
 rather than one adaptable structure, and two properties are why — both easy to assume and
-both wrong.
+both wrong. (What a *third* one would owe is not restated per implementation: the `Tms`
+docstring lists the four obligations with the gate that holds each.)
 
 A dense network cannot simply replace the reference. `RoaringBitmap` is mutable, and
 `jtms_atomicity_test` pins that a mutation applies all-or-nothing; a mutable bitmap inside
@@ -286,6 +309,33 @@ event says, to save a re-derivation. A **re-enter signal** from `settle-finish` 
 second-settle loop with the bound further from what it bounds. What the shipped shape costs
 is that a KB whose settle un-merges something settles twice; one that does not pays a deref
 of an unbound var.
+
+### A nogood must survive being acted on
+
+A nogood is not merely a set of incompatible sentexes: it is a set the settle may resolve
+by **defeating a member**, which makes admission a stronger question than incompatibility.
+The criterion ([nmtms.md](nmtms.md), *What qualifies as a nogood*) is that a nogood stays
+derivable exactly as long as what it convicts stands.
+
+`arity` is the case that makes it concrete, and the tempting alternative is to file it as a
+nogood and let the class decide — it names a second believed sentex, it ranks like a
+definitional clash, and the machinery is already there. What that buys is a clash decided
+once. `declared-arity` answers from a cache that follows belief, so a defeat aimed at the
+`(arity P n)` declaration removes the conviction's own premise: the offending sentex goes on
+standing, nothing can look at the pair again, and the KB is left holding exactly what the
+check exists to catch — silently, because the report is derived from the pair too. So the
+retroactive half reports instead
+([taxonomy.md](taxonomy.md#what-each-constraint-does-in-each-arrival-order)).
+
+The line is **not** "a member the detection reads through". That wording indicts
+`preserving-nogoods`, which is sound: its members deliberately include the reasons the
+claim was inherited — the general claim, the declaration permitting the move, the relation
+edges the reach travelled. Defeating one of those does dissolve the detection, and there it
+is the answer rather than the bug, because an inherited claim has no sentex of its own for a
+defeat to reach instead of its reasons; withdrawing the reach withdraws the claim, and the
+reason stays defeated so it stays withdrawn. What separates the two is what stands
+afterwards, not what the detection touched. `nogood_admissibility_test` pins the member
+sets of all three shipped sources against the criterion.
 
 ### There is no second axis
 
@@ -524,15 +574,21 @@ input, not the store it is filling, so nothing in the engine asks.
 `sentex-ids`, `justification-ids` and `premise-ids` say a caller may `contains?`, `count`,
 `seq`, `sort` and `=` the answer — the `java.util.Set` contract — rather than that it is an
 `IPersistentSet`. The narrower promise is the point: the shape is what costs at scale. A
-`PersistentHashSet<Long>` retains 48–75 bytes a handle — several gigabytes at 100M
-records, which is the row `lein bench-budget` carries out ([storage.md](storage.md)) —
-held while `recover` walks the premises and the justifications on top of it; the same set
-as a `Roaring64Bitmap` behind a `java.util.Set` retains a fraction of a byte a handle over
-the near-contiguous run `next-id` mints, and answers `contains?` faster than the hash set
-rather than slower. Promising `IPersistentSet` would make that substitution a breaking
-change for every store rather than a choice each one makes. A caller wanting `conj` / `disj` /
-`clojure.set` converts with `(set …)` at the site that wants them, which is the site that
-can afford it.
+`PersistentHashSet<Long>` retains 48–75 bytes a handle — 9.47 GB at 100M records, which is
+what `lein bench-budget` carries that shape to ([storage.md](storage.md)) — held while
+`recover` walks the premises and the justifications on top of it; the same handles as a
+`Roaring64Bitmap` behind a `java.util.Set` measure 33.0 MB over the strided run
+`next-id` mints, and answer
+`contains?` faster than the hash set rather than slower. Promising `IPersistentSet` would
+make that substitution a breaking change for every store rather than a choice each one
+makes. A caller wanting `conj` / `disj` / `clojure.set` converts with `(set …)` at the site
+that wants them, which is the site that can afford it.
+
+The disk store takes the substitution one layer in rather than at the seam: it *holds* the
+bitmap and still *answers* a Clojure set
+([storage.md](storage.md#the-enumerations-and-what-a-roster-costs)). Residency and a
+caller's peak allocation are separate arguments, and keeping them apart is what let the
+first be won without touching the second.
 
 ### A frame naming a class is refused, never resolved
 
@@ -849,7 +905,8 @@ declaration and the pair-shaped one does not.
 
 `string`, `number`, `integer`, `keyword`, `boolean`, `character` and `symbol` are the KB's
 only names for the kinds a literal argument can carry — one per leaf kind, and `arg` and
-`quotedArg` both read the same seven (`checks/literal-type`). The tempting alternative is a
+`quotedArg` both read the same seven, along with the four sign-refined integer types below
+`integer` (`checks/literal-value-types`). The tempting alternative is a
 parallel spelling per declaration, so that what an argument *denotes* and what is *written*
 there never share a name.
 
@@ -858,6 +915,16 @@ predicate you write, so a second set of names restates it; and a declaration nam
 them stores clean and convicts nothing, because `quotedArg` reads a type outside the
 syntactic lattice open-world. A refusal would be a mistake a reader is told about. Silence
 is one nothing reports.
+
+**The sign refinements are the case that shows why the shared reader has to be shared all
+the way down.** They were added denotation-only, on the reasoning that a sign is a fact
+about a value and `quotedArg` asks about syntax. But they live *below* `integer` in the
+lattice, so they are inside `quotedArg`'s domain and the open-world escape above does not
+reach them: the mention check compared a literal's bare kind upward against the declared
+type and convicted every integer written in such a position. Half a vocabulary is worse
+than two, because the half that is missing does not go quiet — it answers wrongly. A
+literal denotes itself, which is the whole reason the kinds are in the `genl` lattice, and
+it is why both readings now go through one reader.
 
 ## Inference and chaining
 

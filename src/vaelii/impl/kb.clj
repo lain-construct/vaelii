@@ -126,6 +126,14 @@
 ;; here so `core/close!` can release the exclusive FileLock the disk backend takes:
 ;; without it a long-running process could not hand a directory to another process, or
 ;; reopen it elsewhere, until the JVM exited.
+;; `snapshot-dir` is that same directory again, and non-nil only on a KB whose index is
+;; the mapped image — the write door's whole gate on the image cadence
+;; (`create-sentex`).  A separate field rather than a test on `dir`, because `dir` is set
+;; for every durable-records KB and the cadence is for one of them: reading `dir` there
+;; put the refresh call, its root-count argument and a `realpath` on the write path of
+;; `:disk-memory`, `:disk-dense`, `:disk-columnar` and `:disk-log` alike, none of which
+;; has an image.  Resolved once at `open-kb`, so nothing on the write path canonicalizes
+;; a path this one already did.
 ;; `unrecovered` is the write side of "this KB's derived state was never built over a
 ;; store that already held records" — `{:no-belief bool :no-index bool :announced? bool}`,
 ;; each key absent until something asks.  Reads over that state answer nothing and can be
@@ -134,7 +142,8 @@
 (defrecord KB [records index tms taxonomy provers solver conflicts program violations
                contradictions recheck refused settle-stats chain-stats opposed excepted
                negations clashes supersessions reports qcn qcn-joined matches closures
-               naming constraints rule-antecedents rule-contexts feed dir unrecovered])
+               naming constraints rule-antecedents rule-contexts feed dir snapshot-dir
+               unrecovered])
 
 ;; ---- storage selection: two independent axes ------------------------------
 ;;
@@ -163,18 +172,27 @@
   residency stays a RAM index's (`vaelii.impl.disk.kv`).  The name says which of those two
   things the disk buys.
 
-  Seven `:memory`/`:disk` pairs, plus the two adapter record axes — `:sqlite` (an
+  `:disk-snapshot` is the columnar index **read back from a mapped image** rather than
+  rebuilt: `:index :snapshot` is `:columnar` plus the promise that an open maps
+  `<dir>/index/` when the image there still describes the records.  It is a named
+  representation and not a guarantee of validity — the stamp is checked on every open and
+  any doubt reindexes — so what the name buys is that the intent is in the opts map, and
+  an open that had to rebuild says so at `:warn` instead of passing for a fast one.
+
+  Eight `:memory`/`:disk` pairs, plus the two adapter record axes — `:sqlite` (an
   embedded-SQLite file) and `:pg` (a Postgres server), each resolved lazily so the engine
   stays JDBC-free.  `:sqlite` and `:pg-memory` take the derived RAM index, rebuilt on
   open; `:pg-disk-log` takes the log index, which lives on the machine running the writer
   rather than in the database (docs/storage.md).  **RAM records with the log index is
-  refused**, so no name spells it (`backend-axes` says why)."
+  refused, and the image pairs with `:disk` records alone**, so no name spells either
+  (`backend-axes` says why)."
   {:memory          {:records :memory :index :memory}
    :memory-dense    {:records :memory :index :dense}
    :memory-columnar {:records :memory :index :columnar}
    :disk-memory     {:records :disk   :index :memory}
    :disk-dense      {:records :disk   :index :dense}
    :disk-columnar   {:records :disk   :index :columnar}
+   :disk-snapshot   {:records :disk   :index :snapshot}
    :disk-log        {:records :disk   :index :disk-log}
    :sqlite          {:records :sqlite :index :memory}
    :pg-memory       {:records :pg     :index :memory}
@@ -184,11 +202,50 @@
    :overlay         {:records :overlay :index :overlay}})
 
 (def ^:private durable-under-log-index
-  "The record axes the `:disk-log` index pairs with.  `:disk` shares its directory and
-  lifecycle; `:pg` is on a server, so a local durable index is the only durable index its
-  records can have — and the files then belong to the host that ran the writer rather
-  than travelling with the KB (docs/storage.md)."
+  "The **durable** record axes — the ones a persisted index half may sit over at all.
+  `:disk` shares its directory and lifecycle; `:pg` is on a server, so a local index file
+  is the only one its records can have, and the files then belong to the host that ran the
+  writer rather than travelling with the KB (docs/storage.md).
+
+  Both durable index axes want durability for the same reason, and only the reason's
+  ending differs.  A `:disk-log` index over records that vanish at JVM exit would be read
+  as truth on the next open.  An image over them is stamped with a fingerprint of those
+  records, so it is *caught* — `:records-differ` — and the cost is a wasted rebuild rather
+  than a wrong answer.  The second is refused anyway: a KB whose every open discards its
+  image has asked for a representation it can never get.
+
+  Durability is necessary and not sufficient for the image, which narrows to `:disk`
+  alone one gate further down (`image-record-axis`)."
   #{:disk :pg})
+
+(def ^:private durable-index-axes
+  "The index axes that need durable records under them, and for each: the durable record
+  axes it actually pairs with, and the sentence saying why it needs one — both spliced
+  into `backend-axes`' refusal so it reads as one argument rather than as a shared message
+  with a name substituted.
+
+  `:snapshot` names `:disk` where `:disk-log` names both, and the narrowing is a *second*
+  requirement rather than a stricter reading of this one: `:pg` records are durable and
+  are refused the image a gate further down, with the argument that is actually theirs
+  (`image-record-axis`)."
+  {:disk-log {:with ":disk or :pg"
+              :why  "persisting the derived half over a store that empties at JVM exit leaves index files describing records that are gone, and the next open answers every query out of them believing nothing is wrong"}
+   :snapshot {:with ":disk"
+              :why  "an image is stamped with a fingerprint of the records it was built from, so over a store that empties at JVM exit every open discards it and reindexes — the representation the name asks for is one this pairing can never hold"}})
+
+(def ^:private image-record-axis
+  "The one record axis the mapped image pairs with.
+
+  Where `:disk-log` asks only for durability, the image asks for a **particular store**:
+  it is stamped with `record-store/slot-fingerprint`, which is the disk record store's own
+  sequential read of its slot file and lives on that namespace rather than on the
+  `RecordStore` protocol.  No other record axis can answer it — an adapter is a separate
+  repository and the protocol offers no method to implement — so an image over one could
+  be neither stamped on the way out nor validated on the way in, and validity is this
+  representation's whole design (`vaelii.impl.disk.index-snapshot`).  `:pg` records take
+  the log index instead, which is derived from the records through the protocols and so
+  needs nothing of the store but its reads."
+  :disk)
 
 (def ^:private reserved-backend-names
   "Names `open-kb` refuses outright, and the pairing to take instead.  Each is a name a
@@ -222,6 +279,11 @@
   whose records are on a server and for which a *local* durable index is the only durable
   index there is.
 
+  **The `:snapshot` index needs the `:disk` record store**, which is more than durability:
+  an image carries a fingerprint of the records it describes, and only that store can
+  compute one (`image-record-axis`).  So `:pg` records take `:pg-disk-log`, and the
+  refusal says so.
+
   **`:disk` names no pairing here and no index axis.**  Both spellings are refused, and
   each refusal names the pairing to take instead rather than resolving to something near
   it (`reserved-backend-names`)."
@@ -245,15 +307,29 @@
                                  {:type :unknown-backend :backend backend})))
         axes {:records (or records (:records pair))
               :index   (or index   (:index pair))}]
-    (when (and (= :disk-log (:index axes)) (not (durable-under-log-index (:records axes))))
-      (throw (ex-info (str "the :disk-log index needs durable records — :disk or :pg — and these are "
+    (when-let [{:keys [with why]} (and (not (durable-under-log-index (:records axes)))
+                                       (durable-index-axes (:index axes)))]
+      (throw (ex-info (str "the " (:index axes) " index needs durable records — " with " — and these are "
                            (pr-str (:records axes)) ".  An index is derived from the records, so "
-                           "persisting it over a store that empties at JVM exit (`:memory`) leaves "
-                           "index files describing records that are gone.  `:sqlite` records already "
-                           "live in a directory, and a durable index beside them is `:disk-log`'s pairing "
-                           "without its shared lifecycle: take :disk-log for that.  Otherwise take the RAM "
-                           "index (`:memory`), rebuilt on open.")
+                           why ".  `:sqlite` records already live in a directory, and a durable index "
+                           "beside them is this pairing without its shared lifecycle: take :disk-log or "
+                           ":disk-snapshot for that.  Otherwise take a derived index (`:memory`, `:dense`, "
+                           "`:columnar`), rebuilt on open.")
                       (assoc axes :type :unknown-backend))))
+    ;; Durable, and still not the store the image needs.  The gate above has already taken
+    ;; every non-durable record axis, so what reaches here is `:pg` — durable, on a server,
+    ;; and with no fingerprint to stamp an image with.
+    (when (and (= :snapshot (:index axes)) (not= image-record-axis (:records axes)))
+      (throw (ex-info (str "the :snapshot index pairs with :disk records and these are "
+                           (pr-str (:records axes)) ".  An image is stamped with a fingerprint "
+                           "only the disk record store computes — a sequential read of its slot "
+                           "file, which belongs to that store rather than to the RecordStore "
+                           "protocol — so an image over these records could be neither stamped "
+                           "when it was written nor checked when it was read, and an image nothing "
+                           "can check is one every open has to discard.  Take :pg-disk-log, whose "
+                           "durable index is derived through the protocols and so asks nothing of "
+                           "the record store but its reads.")
+                      (assoc axes :type :unknown-backend :instead :pg-disk-log))))
     axes))
 
 (defn- sqlite-record-store-ctor
@@ -368,12 +444,18 @@
     space))
 
 (defn- index-store-for
-  "`[index-store durable?]` for the index axis.  Three of the four are **derived-only**
+  "`[index-store durable?]` for the index axis.  Four of the five are **derived-only**
   — the flat `:memory` map, the `:dense` int-postings backend (Phase 1,
-  `vaelii.impl.dense-kv`) and the `:columnar` native trie (Phase 2,
-  `vaelii.impl.columnar`) — and open empty, so a KB pairing one with durable records
-  must `reindex` before it can answer (`open-kb`).  `:disk-log` is the write-ahead-logged
-  index, which opens already populated.
+  `vaelii.impl.dense-kv`), the `:columnar` native trie (Phase 2, `vaelii.impl.columnar`)
+  and `:snapshot`, which is that same trie — and open empty, so a KB pairing one with
+  durable records must `reindex` before it can answer (`open-kb`).  `:disk-log` is the
+  write-ahead-logged index, which opens already populated.
+
+  **`:snapshot` is derived, and that is the whole of the difference between it and
+  `:disk-log`.**  It builds the columnar store and answers `false` here, so `open-kb`
+  takes the rebuild path — and the mapped image is an *attempt* on the way into that
+  path, taken when the stamp holds and skipped when it does not.  Answering `true` would
+  say the store opens populated, which is true only of an image nobody has checked yet.
 
   The flag is returned rather than sniffed from the store type at the call site: what
   makes an index durable is which one was *selected*, and a type test would have to be
@@ -385,9 +467,9 @@
       (case kind
         :memory   [(mem/memory-index-store        {:space space}) false]
         :dense    [(dense/dense-index-store       {:space space}) false]
-        :columnar [(columnar/columnar-index-store {:space space}) false]
+        (:columnar :snapshot) [(columnar/columnar-index-store {:space space}) false]
         (throw (ex-info (str "unknown index backend " (pr-str kind)
-                             " — want :memory, :dense, :columnar, or :disk-log"
+                             " — want :memory, :dense, :columnar, :snapshot, or :disk-log"
                              (when (= :overlay kind)
                                " (an :overlay half cannot itself be an overlay)"))
                         {:type :unknown-backend :index kind}))))))
@@ -820,12 +902,17 @@
   (not (:announced? (first (swap-vals! (:unrecovered kb) assoc :announced? true)))))
 
 (defn- snapshot-mode?
-  "Is this KB the one configuration a mapped index snapshot is for — durable records
-  under the derived columnar index, with the snapshot switched on?  Every other pairing
-  either has no image to write (a RAM record store's index describes records that vanish
-  at JVM exit) or needs none (`:disk-log` persists its index outright)."
-  [rkind ikind]
-  (and (= :disk rkind) (= :columnar ikind) (snapshot/enabled?)))
+  "Is this KB one the mapped index image is for?  `:index :snapshot` is the whole test:
+  the axis names the representation, `backend-axes` has already held it to `:disk` records
+  — the one store that can compute the fingerprint an image is stamped with — and no other
+  pairing has an image to write, since `:disk-log` persists its index outright.
+
+  The platform read still runs, and it throws rather than answering false
+  (`index-snapshot/enabled?`): an operator who named a backend this platform cannot serve
+  has asked for something it will not get, which is the same class of refusal
+  `backend-axes` makes one line up."
+  [_rkind ikind]
+  (and (= :snapshot ikind) (snapshot/enabled?)))
 
 (defn- register-index-snapshot!
   "Arrange for `dir`'s index image to be written when the directory closes.  Registered
@@ -833,6 +920,11 @@
   index is precisely the one worth snapshotting afterwards, and a freshly loaded one has
   no image to have read."
   [dir istore rstore]
+  ;; the cadence clock starts here, saying there is no image yet: `map-index-snapshot!`
+  ;; corrects it when one maps, and a directory that has never held one is left drifting
+  ;; from zero, which is what makes its *first* image happen mid-life rather than at a
+  ;; close it may never reach.
+  (snapshot/note-no-image! dir)
   (disk/register-index-snapshot!
    dir (fn [] (snapshot/save! dir istore #(drs/slot-fingerprint rstore)))))
 
@@ -963,6 +1055,17 @@
           (let [merged (mount/mount-index own-istore (:index base))]
             [merged (pos? (long (p/count-at merged [])))])
           (index-store-for ikind rkind opts))
+        snapshot? (snapshot-mode? rkind ikind)
+        ;; Resolved once, and read twice: the directory `close!` releases, and — on a KB
+        ;; whose index is the image — the one the write door hands the cadence.  The
+        ;; resolution is a `realpath`, so doing it here rather than per call is the whole
+        ;; of what keeps the cadence gate off the other backends' write path.
+        kb-dir (cond
+                 (or (= :disk rkind) (= :disk-log ikind))
+                 (disk/canonical-dir (disk/disk-dir opts))
+
+                 (and (= :overlay rkind) (= :disk ovr))
+                 (disk/canonical-dir (disk/disk-dir ov-opts)))
         ;; by name rather than positionally: seventeen `(atom {})`s in a row is a
         ;; miscount waiting to happen, and a miscount here hands one subsystem another's
         ;; state with nothing to notice it — every field is an atom, so the shapes do not
@@ -981,12 +1084,12 @@
                      ;; `:dir` and takes that directory's exclusive lock on open, and
                      ;; without this `close!` would leave the lock held for the JVM's life
                      ;; over a KB whose records are on a server.
-                     :dir     (cond
-                                (or (= :disk rkind) (= :disk-log ikind))
-                                (disk/canonical-dir (disk/disk-dir opts))
-
-                                (and (= :overlay rkind) (= :disk ovr))
-                                (disk/canonical-dir (disk/disk-dir ov-opts)))
+                     :dir     kb-dir
+                     ;; ...and the same directory again, for the KB whose index is the
+                     ;; mapped image and only that one.  The write door's gate on the
+                     ;; cadence is a nil check on this field, so every other durable
+                     ;; backend pays a field read per assert and nothing else.
+                     :snapshot-dir (when snapshot? kb-dir)
                      :tms     (create-tms tms)
                      :taxonomy (tax/create-taxonomy)
                      :provers  (atom provers/default-provers)
@@ -1110,8 +1213,7 @@
                      ;; below runs (or an import fills it after this open returns), so
                      ;; the belief half is settled by whoever first needs it and the
                      ;; index half by this open — see `write-hazards`
-                     :unrecovered (atom {})})
-        snapshot? (snapshot-mode? rkind ikind)]
+                     :unrecovered (atom {})})]
     ;; Taxonomy owns derived structures; the KB owns whether one recorded supporter
     ;; is believed and visible from a reader after context-scoped exceptions.  Install
     ;; the seam only after the mutually-referential KB exists, and before recovery can
@@ -1311,11 +1413,24 @@
                   (let [t0 (System/nanoTime)
                         {:keys [sentexes rules]} (reindex-fn kb)
                         ms (/ (- (System/nanoTime) t0) 1e6)]
-                    (trove/log! {:level :info :id ::reindexed-on-open
+                    ;; **`:warn` when the backend was named for its image.**  A
+                    ;; `:disk-columnar` KB rebuilding is doing what its name says, and the
+                    ;; line is a measurement.  A `:disk-snapshot` KB rebuilding has just
+                    ;; paid the cost the operator selected that name to avoid, and the
+                    ;; reason is the one thing they can act on — so it is a warning that
+                    ;; names the mismatch class, not an info line they will read after the
+                    ;; hour is gone.
+                    (trove/log! {:level (if snapshot? :warn :info) :id ::reindexed-on-open
                                  :msg (format "rebuilt the derived index from %d records (%d rules) in %.0f ms%s"
                                               (long sentexes) (long rules) ms
-                                              (if snap (str " — no usable index snapshot ("
-                                                            (name (:reason snap)) ")") ""))})))))
+                                              (cond
+                                                (and snapshot? snap)
+                                                (str " — the :snapshot index found no usable image ("
+                                                     (name (:reason snap)) "), so this open paid the"
+                                                     " rebuild the backend is named to skip")
+                                                snap (str " — no usable index snapshot ("
+                                                          (name (:reason snap)) ")")
+                                                :else ""))})))))
             (trove/log! {:level :warn :id ::unrecovered-store
                          :msg (str "the record store (space " space ") already holds sentexes "
                                    "but this KB's TMS and taxonomy are empty"
@@ -2081,6 +2196,13 @@
          h (p/put-sentex (:records kb) s)
          s (assoc s :id h)]
      (p/index-sentex (:index kb) s h)
+     ;; the index image's cadence, on the one thread allowed to write this index
+     ;; (`disk/backend/maybe-refresh-index-snapshot!`).  `:snapshot-dir` is non-nil only
+     ;; on a KB that *has* an image, so every other backend pays one field read: the root
+     ;; count is a profiled index read and the refresh call resolves nothing, so both stay
+     ;; behind the gate rather than being evaluated for a directory with no image in it.
+     (when-let [d (:snapshot-dir kb)]
+       (disk/maybe-refresh-index-snapshot! d (p/count-at (:index kb) [])))
      ;; the add-side seam for an incremental matcher's alpha memories — a no-op
      ;; unless one is engaged (docs/inference.md, "Incremental rule matching")
      (observe/notify-add kb s h)

@@ -247,22 +247,14 @@
   functor over the genl closure instead, the direction a `genl` edge carries through a
   negation, and rebuilds the `not` around each member."
   [kb by-functor sentence context]
-  (let [neg?    (sx/negation? sentence)
-        body    (if neg? (second sentence) sentence)
-        f       (when (sequential? body) (first body))
-        rebuild (if neg?
-                  (fn [f'] (list sx/not-functor (cons f' (rest body))))
-                  (fn [f'] (cons f' (rest body))))]
-    (if (and (symbol? f) (not (sx/variable? f)))
-      ;; the same fan definitions as the reference matcher — `chain` only ever joins
-      ;; at `'?ctx`, so this is the global closure there, but sharing the helpers is
-      ;; what keeps the two matchers incapable of drifting
-      (let [fan ((if neg? res/super-predicates res/sub-predicates) kb f context)]
-        (if (= fan #{f})
-          (raw-match-via-alpha kb by-functor sentence context)
-          (mapcat (fn [f'] (raw-match-via-alpha kb by-functor (rebuild f') context))
-                  fan)))
-      (raw-match-via-alpha kb by-functor sentence context))))
+  ;; the fan itself is the reference matcher's, not a copy of it — `res/fanned-match`
+  ;; decides the decomposition, the direction a negation fans and the singleton
+  ;; short-circuit, and this twin supplies only what is actually its own: the alpha-index
+  ;; retrieval, and an eager `mapcat` where `match-pattern` wants a lazy one.  `chain`
+  ;; only ever joins at `'?ctx`, so the closure here is the global one.
+  (res/fanned-match kb sentence context
+                    (fn [s] (raw-match-via-alpha kb by-functor s context))
+                    mapcat))
 
 (defn rete-match-pattern
   "The matcher `chain/*matcher*` is bound to when the network is engaged.  Signature

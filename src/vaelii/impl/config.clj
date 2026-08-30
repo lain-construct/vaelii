@@ -230,10 +230,47 @@
   (prop-bool "vaelii.disk.lock" true))
 
 (defn index-snapshot?
-  "Is the mapped index image written and read (`vaelii.index.snapshot`, default off)?
-  `index-snapshot/enabled?` is what call sites read — it adds the platform guard."
+  "Refuse `vaelii.index.snapshot`, naming the backend that selects the image instead.
+
+  The image is an index **representation**, and a representation is named in the opts map
+  where a reader of the KB's own configuration can see it: `{:backend :disk-snapshot}`,
+  the one pairing there is.  A process-wide property cannot say that — the same opts map
+  means a mapped index on one machine and an hour of `reindex` on another, with nothing
+  on the KB to tell them apart, which is the failure this namespace's `check!` exists to
+  close.
+
+  Refused rather than read as a default, on the argument `kb/reserved-backend-names`
+  makes for `:disk`: a switch that silently does nothing is discovered by the operator
+  running out of the resource they thought they had bought.
+
+  Read through `raw` rather than a `prop-*` helper because the domain is **empty**: there
+  is no value to parse and no default to fall back to.  The name is still one the build
+  reads, so it is on the pinned configuration surface with every other switch
+  (`config_surface_test`) and carries its own row in docs/operations.md — an operator
+  whose unit file sets it meets a refusal at the open, and a refusal naming a switch no
+  document admits to leaves them reading the source for it."
   []
-  (prop-bool "vaelii.index.snapshot" false))
+  (when-let [v (raw "vaelii.index.snapshot")]
+    (throw (ex-info (str "vaelii.index.snapshot=" v " is not a switch this build reads"
+                         " — the mapped index image is an index representation, selected"
+                         " as {:backend :disk-snapshot}, so the KB's own opts record that"
+                         " it was asked for.  Unset the property and name the backend.")
+                    {:type :unknown-option :property "vaelii.index.snapshot" :value v
+                     :remedy {:backend :disk-snapshot}})))
+  nil)
+
+(defn index-snapshot-drift
+  "How far the live index may drift from its image before the writer refreshes it
+  (`vaelii.index.snapshot-drift`, default 0.5) — a ratio, as
+  `vaelii.disk.compact-dead-ratio` is, and read the same way.
+
+  Drift is measured in **indexed roots**: the count now, against the count the image
+  holds, over the count the image holds.  Roots rather than trie nodes because a node
+  count is a measurement the store has to take and a root count is one it already has —
+  the same lesson `disk/durability.clj` learned when it found the record store scanning
+  every `.idx` to answer a dead ratio on a three-second tick."
+  []
+  (prop-double "vaelii.index.snapshot-drift" 0.5 0 1))
 
 (defn belief-snapshot?
   "Is the belief certificate written on a full recover and read on the next cold open
@@ -374,6 +411,7 @@
   (disk-compact-min-interval-ms)
   (disk-lock?)
   (index-snapshot?)
+  (index-snapshot-drift)
   (belief-snapshot?)
   (arbitrate-constraints?)
   (assertive-arg-types?)

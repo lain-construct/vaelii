@@ -313,14 +313,27 @@ decides at all, rather than every non-symbol being exempt:
 [defenses.md](defenses.md#a-literal-is-typed-by-its-kind-and-the-openness-moves-to-the-declared-type).
 
 **One vocabulary, not two.** `string`, `number`, `integer`, `keyword`, `boolean`,
-`character` and `symbol` are the KB's only names for the kinds a literal argument can
-carry — one per leaf kind, deliberately complete — and both declarations read them: the
-use/mention distinction is carried by *which predicate you write*, not by a second set of
-type names. A string literal denotes itself, so `(arg comment 2 string)` and
-`(quotedArg p n string)` ask two questions of one set — what the argument denotes, and
-what is written there. A parallel domain spelling would buy nothing and cost a trap:
-`quotedArg` reads a type outside the syntactic lattice open-world, so a second spelling
-stores clean and convicts nothing, with no report
+`character` and `symbol` name the EDN kinds a literal argument can carry — one per leaf
+kind, deliberately complete — and both declarations read them. Beside them sit the
+value-refined integer types `positive_integer`, `negative_integer`,
+`non_negative_integer` and `non_positive_integer`, each below `integer` in the `genl`
+lattice; zero satisfies both non-positive and non-negative, so a literal's value can
+answer to two of them at once and `checks/literal-value-types` returns the set rather
+than forcing one artificial leaf.
+
+**Both declarations read the refinements, and for the reason they share the kinds.** A
+sign is as decidable from the `5` written in a position as from what that `5` denotes,
+so `(quotedArg p n positive_integer)` refuses `-5` and admits `5`, exactly as
+`(arg p n positive_integer)` does. Reading the refinements on one side only was tried
+and is the trap this page already warns about one paragraph down, arrived at from the
+other direction: `positive_integer` is *inside* the syntactic lattice, being below
+`integer`, so the open-world escape does not apply to it — the check compared the
+literal's bare kind upward against the declared type, and refused every integer literal
+written in such a position. One reader, both doors. A string literal denotes itself, so
+`(arg comment 2 string)` and `(quotedArg p n string)` ask two questions of one set — what
+the argument denotes, and what is written there. A parallel domain spelling would buy
+nothing and cost a trap: `quotedArg` reads a type outside the syntactic lattice
+open-world, so a second spelling stores clean and convicts nothing, with no report
 ([why one vocabulary](defenses.md#one-vocabulary-not-two)).
 
 `symbol` is the exception, and is **mention-only**. A symbol does not denote itself, so

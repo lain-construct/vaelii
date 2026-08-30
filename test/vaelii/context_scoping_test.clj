@@ -293,6 +293,53 @@
     (testing "and the sibling keeps its own merge"
       (is (v/same-class? kb V1 V2 CxB)))))
 
+(tu/deftest-kb a-functional-equality-is-derived-across-two-genlcx-edges-from-below
+  ;; The literal shape from GitHub issue #43's own repro: two contexts blind to each
+  ;; other, each holding one of two clashing `functional` fillers, and a third context
+  ;; wired under **both** -- not one edge widening a single existing cone (the
+  ;; order-independence suite covers that shape), but two separate edges whose union is
+  ;; what first makes the pair jointly visible.  `special/equate-under-context-edge`'s
+  ;; `readers` binding has to fold the contribution of both edges together: after only
+  ;; one, the joining context still sees exactly one filler, and there is nothing yet to
+  ;; merge.
+  (tu/with-terms [fbP FbTom FbV1 FbV2 CxFbA CxFbB CxFbBelow]
+    (siblings! kb CxFbA CxFbB)
+    (v/assert kb (list 'functional fbP) 'CxUniverse)
+    (v/assert kb (list fbP FbTom FbV1) CxFbA)
+    (v/assert kb (list fbP FbTom FbV2) CxFbB)
+    (testing "blind siblings hold one filler each and merge nothing"
+      (is (not (v/same-class? kb FbV1 FbV2 CxFbA)))
+      (is (not (v/same-class? kb FbV1 FbV2 CxFbB))))
+    (v/assert kb (list 'genlCx CxFbBelow CxFbA) 'CxUniverse)
+    (testing "one edge alone still sees only one of the two fillers"
+      (is (not (v/same-class? kb FbV1 FbV2 CxFbBelow))))
+    (v/assert kb (list 'genlCx CxFbBelow CxFbB) 'CxUniverse)
+    (testing "both edges together complete the clash, and the reader below derives it"
+      (is (v/same-class? kb FbV1 FbV2 CxFbBelow))
+      (let [[lo hi] (sort [FbV1 FbV2])]
+        (is (some? (v/handle-of kb (list 'equals lo hi) CxFbBelow)))))))
+
+(tu/deftest-kb an-unmergeable-genlcx-clash-is-still-only-exposed-not-thrown-or-silent
+  ;; This arm's job stops at the mergeable case (docs/equality.md, `mergeable-values?`) —
+  ;; two *numbers* under a `functional` slot are the hard clash no equality can resolve,
+  ;; and issue #43 leaves what happens there a deliberate open design question, not a
+  ;; bug.  What this pins is only that adding `equate-under-context-edge` did not change
+  ;; that path: a genlCx edge completing an unmergeable clash still neither throws nor
+  ;; does nothing — `settle/expose-constraint-clashes!` still files it in `v/violations`,
+  ;; exactly as it does today off `main` for every other trigger of the same pass.
+  (tu/with-terms [ubP UbTom CxUbA CxUbB CxUbBelow]
+    (siblings! kb CxUbA CxUbB)
+    (v/assert kb (list 'functional ubP) 'CxUniverse)
+    (v/assert kb (list ubP UbTom 1980) CxUbA)
+    (v/assert kb (list ubP UbTom 1990) CxUbB)
+    (v/assert kb (list 'genlCx CxUbBelow CxUbA) 'CxUniverse)
+    (is (empty? (v/violations kb)) "one edge alone still sees only one of the two values")
+    (v/assert kb (list 'genlCx CxUbBelow CxUbB) 'CxUniverse)
+    (testing "the completed clash is reported, not refused and not silent"
+      (is (= [:functional] (mapv :violation (v/violations kb))))
+      (is (empty? (v/contradictions kb)))
+      (is (empty? (v/conflicts kb))))))
+
 ;; ---- equality down a chain: the reader is not the fact's own context ----
 ;;
 ;; The sibling lattice above is the case migration *declines*: nothing sees both the

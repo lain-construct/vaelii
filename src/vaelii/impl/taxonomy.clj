@@ -274,7 +274,7 @@
           :equality (empty-equality)
           :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
           :sibling-disjoint #{} :sib-exception-index {}
-          :props {} :inverse {} :arity {}
+          :props {} :inverse {} :arity {} :functional-in-arg {}
           :cache-support {} :cache-handle-keys {} :cache-dirty #{} :cache-ctxs {}
           ;; A KB installs two read-only callbacks after construction: whether any
           ;; supporter needs exception-aware scoping, and whether one supporter is
@@ -906,7 +906,13 @@
     :sib-exception (index-symmetric t :sib-exception-index a true)  ; a = #{x y}
     :prop     (update-in t [:props a] (fnil conj #{}) b)             ; a = prop-kind, b = pred
     :inverse  (index-symmetric t :inverse a true)                  ; a = #{p q}
-    :arity    (update-in t [:arity a] (fnil conj #{}) b)))                        ; a = pred, b = n
+    :arity    (update-in t [:arity a] (fnil conj #{}) b)                          ; a = pred, b = n
+    ;; `:functional-in-arg` is `:arity`'s shape and not `:prop`'s, because the
+    ;; declaration carries an integer and a `:props` roster is a set of predicates with
+    ;; nowhere to put one.  A predicate may hold several positions at once, so this
+    ;; accumulates rather than replacing — `(functionalInArg P 2)` and
+    ;; `(functionalInArg P 3)` are two constraints, both live.
+    :functional-in-arg (update-in t [:functional-in-arg a] (fnil conj #{}) b)))    ; a = pred, b = n
 
 (defn- cache-uninstall
   "Remove the derived cache entry for support key `k` — the exact inverse of
@@ -926,7 +932,15 @@
     :prop     (update-in t [:props a] (fnil disj #{}) b)
     :inverse  (index-symmetric t :inverse a false)
     :arity    (let [ns' (disj (get-in t [:arity a] #{}) b)]
-                (if (seq ns') (assoc-in t [:arity a] ns') (update t :arity dissoc a)))))
+                (if (seq ns') (assoc-in t [:arity a] ns') (update t :arity dissoc a)))
+    ;; Dropping the last position drops the predicate's whole entry, so
+    ;; `functional-in-arg-over`'s `(filter table)` gate stays exact and an emptied
+    ;; predicate does not linger as a key mapping to `#{}`.
+    :functional-in-arg
+    (let [ns' (disj (get-in t [:functional-in-arg a] #{}) b)]
+      (if (seq ns')
+        (assoc-in t [:functional-in-arg a] ns')
+        (update t :functional-in-arg dissoc a)))))
 
 ;; ---- incremental adjacency maintenance ----------------------------------
 ;; Only the O(V+E) direct adjacency is stored; the closure is answered on demand
@@ -2244,7 +2258,7 @@
          :equality (empty-equality)
          :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
          :sibling-disjoint #{} :sib-exception-index {}
-         :props {} :inverse {} :arity {}
+         :props {} :inverse {} :arity {} :functional-in-arg {}
          :cache-support {} :cache-handle-keys {} :cache-dirty #{} :cache-ctxs {}
          :rewrite-support {} :rewrite-active {})
   ;; The read memo is stamped with each relation's `:gen`, which the fresh
@@ -2633,6 +2647,51 @@
     (when-let [path (reach-support tax rel-key sub super context supporter-class)]
       (reduce (fn [floor [h _]] (strength/min floor (or (supporter-class h) :default)))
               :monotonic path))))
+
+(def ^:dynamic *exposure-instance-budget*
+  "How many candidate instances one bounded cone/closure sweep will enumerate —
+  `vaelii.impl.settle`'s exposure passes (a separating declaration, a metatype
+  membership, a genl edge and a genlCx edge each implicate every instance below their
+  types or in their cone, and on a large corpus that is the extent, not the region) and
+  `vaelii.impl.special/equate-under-context-edge`'s eager merge-deriving twin, which
+  spends it on the same genlCx trigger for the same reason: a small edge can make a
+  large, already-stored extent jointly visible, and the walk that decides whether any
+  of it clashes must not grow with the extent once both sides are past the cap.  A
+  sweep cut short is never silent — each caller files its own notice naming its
+  trigger.  A membership move is exact and unbudgeted; it is O(1) per moved membership,
+  and it is the route ordinary writes take.
+
+  **Where a cut can see arrival order, and why it is left there.**  What orders a sweep
+  is the trigger level — `settle`'s moved region is walked in content order, which is
+  affordable because a region is small.  Below that — the down-closure, the context
+  cone, the posting list of one type or predicate — nothing is sorted, and the reason is
+  the same at every level: the enumerations are lazy so a budgeted consumer realizes
+  only its prefix, and sorting to choose that prefix forces the whole extent, which is
+  the cost the cap was added to refuse.
+
+  That is measured rather than assumed.  Sorting the context cone took
+  `retract-context-cycle-scaling` from 0.08 to 0.28 ms/op at 2048 contexts — a 3.4x
+  growth against a 2x bound — because a context cycle makes the cone the whole graph.
+  The check exists to say a retraction is flat in the graph it is not about, and a sort
+  is exactly what stops it being.
+
+  What the residual is, stated exactly, for `settle`'s own passes.  A cut sweep decides
+  a content-dependent subset of the pairs its trigger implicates, and the rest go
+  **undecided this settle** rather than decided the other way.  Two things carry them:
+  discovery accumulates, so a pair a later settle's region surfaces is remembered in
+  `:clashes` and re-examined every settle after, and the standing whole-KB question
+  takes no budget at all (disjointness only, and it reports rather than arbitrates).  So
+  the order-dependence past the cut is in *when* a pair is arbitrated, not in which way
+  it goes.
+
+  **`equate-under-context-edge`'s residual is the stronger one, and is stated on it
+  directly.**  That cap selects a handle-ordered prefix too, but a merge it fails to
+  reach has no later settle pass revisiting it the way an unmergeable clash does — so
+  past *that* cap the order-dependence is in whether a merge is derived at all, not only
+  in when.  It is bounded the same way and reported the same way (a
+  `:context-edge-exposure-truncated` violation per cut), and below the cap it is exact;
+  what it is not is covered by the sentence above."
+  4096)
 
 ;; ---- genlCx (contexts) ---------------------------------------------------
 
@@ -3586,6 +3645,35 @@
   '{arg :declares-arg-isa, genlArg :declares-arg-genl, quotedArg :declares-quoted-arg,
     interArg :declares-inter-arg-isa})
 
+(def functional-family-marks
+  "The spellings of the **functional** mark, each with its written shape: `:mark` for
+  the one-place `(functional P)`, `:mark-in-arg` for the two-place `(functionalInArg P
+  n)`.  The marked predicate is argument 1 of either, which is what lets a reader that
+  only wants the predicate ignore the shape entirely.
+
+  **One roster because the family lives in two lanes and has twice been joined to only
+  one.**  A functional mark is acted on by the *merge* lane (`special`'s `equate-*`
+  doors, where two fillers of a functional slot are equated) and by the *clash exposure*
+  lane (`settle`'s declaration reach and trigger rosters, where two unmergeable fillers
+  are reported).  Both lanes have to recognize the same spellings, and neither fails
+  loudly when it does not — the merge simply does not happen, or the clash simply is not
+  reported, in the one arrival order that route was the only way into.  Enrolling
+  `functionalInArg` by name in each place is what left #52 (the declaration-last merge
+  door held an exact-functor test) and #54 (the declaration arrived and swept nothing)
+  open at the same time, in different lanes, from the same omission.
+
+  So a new spelling is added here and the lanes follow.  What a lane still owns for
+  itself is what it does with the shape: `settle` also checks the argument *kinds*
+  because its triggers come off a moved region and may be malformed, where `special`'s
+  door is downstream of well-formedness and checks only the arity.
+
+  Not `:props`-keyed, and that is the point of the split from `settle`'s
+  `definitional-marks`: `functional` stores under the `:functional` prop where
+  `functionalInArg` stores `[pred n]` pairs in the `:functional-in-arg` table, so the two
+  have no common storage to be rostered by — only a common family and a common argument
+  1."
+  '{functional :mark, functionalInArg :mark-in-arg})
+
 ;; The supporters behind a flat-cache entry, read back.  A consumer that *justifies*
 ;; something on a declaration needs the declaring sentexes as antecedents, and reading
 ;; them here beats re-querying the store for a sentence the cache was built from.
@@ -3655,6 +3743,98 @@
                 (filterv #(cache-entry-visible? tax [:arity pred %] context) ns')
                 (vec ns'))]
      (when (= 1 (count seen)) (first seen)))))
+
+(defn add-functional-in-arg
+  ([tax pred n handle] (add-functional-in-arg tax pred n handle nil))
+  ([tax pred n handle ctx]
+   (let [k [:functional-in-arg pred n]]
+     (swap! tax supported-add k handle ctx #(cache-install % k)))
+   tax))
+(defn del-functional-in-arg! [tax pred n handle]
+  (let [k [:functional-in-arg pred n]]
+    (swap! tax supported-del k handle #(cache-uninstall % k)))
+  tax)
+
+(defn functional-in-arg-supporters
+  "The **handles** of the sentexes declaring `(functionalInArg pred n)`, as a set.
+
+  The `functionalInArg` twin of `prop-supporters`, and it keys on the *pair*: a merge
+  derived under `(functionalInArg P 3)` rests on the declarations naming position 3, not
+  on every `functionalInArg` declaration `P` happens to carry.  Defeated members
+  included, for the reason `prop-supporters` gives."
+  [tax pred n] (cache-supporters tax [:functional-in-arg pred n]))
+
+(defn functional-in-arg-over
+  "`[pred n]` pairs — `p` and every **super-predicate** of it carrying a
+  `(functionalInArg pred n)` declaration, anywhere or (with `context`) declared from a
+  context the reader can see.  Empty when none does.
+
+  This is `props-over`'s shape and it walks **up** for `props-over`'s reason: the
+  constraint refuses tuples rather than licensing them, so a declaration on a super
+  binds the sub.  `(functionalInArg parentOf 2)` has to convict two `fatherOf` mothers
+  exactly as `(functional parentOf)` does, or the generalization would be weaker than
+  the arity-2 case it generalizes — which the regression half of
+  `functional-in-arg-test` forbids.
+
+  Storage is `arity`'s rather than `:props`': the declaration carries an integer, and a
+  `:props` roster is a set of predicates with nowhere to put one.  `::prop-kind` is
+  therefore **not** extended — `arity` is not in it either, and `special-table-test`
+  holds that roster in sync with `:props` as sets, which a kind derived from `n` would
+  break.
+
+  Unlike `declared-arity` this does **not** collapse to a single `n`.  Two arities for
+  one predicate are a genuine ambiguity about which one it has; two functional positions
+  are two independent constraints, both of which hold, and a KB is free to say
+  `(functionalInArg P 2)` and `(functionalInArg P 3)` of the same predicate.  Visibility
+  is asked per `[pred n]` entry, which is what scopes a declaration to the vantage that
+  can see it without any machinery of its own."
+  ([tax p] (functional-in-arg-over tax p nil))
+  ([tax p context]
+   (let [table (get @tax :functional-in-arg {})]
+     (if (empty? table)
+       #{}
+       (into #{}
+             (comp (filter table)
+                   (mapcat (fn [q]
+                             (for [n     (get table q)
+                                   :when (or (not (scoped-context? context))
+                                             (cache-entry-visible?
+                                              tax [:functional-in-arg q n] context))]
+                               [q n]))))
+             (if (some? context) (genls tax p context) (genls-global tax p)))))))
+
+(defn functional-in-arg-predicates
+  "Every predicate carrying **any** `functionalInArg` mark, at any position, as a set —
+  the twin of `props` for a table keyed `pred -> #{n1 n2 …}` rather than membership
+  alone, and read the same ungated way: one map read, no closure walk.
+
+  `functional-in-arg-over` answers a different question and cannot stand in for this
+  one — it walks *up* from one probe predicate to the marks that reach it, so there is
+  no predicate to start it from when the question is the reverse: which predicates carry
+  the mark at all, with no probe in hand yet.  `special/equate-under-context-edge` is
+  exactly that caller — a `genlCx` edge names two contexts, not a predicate, and needs
+  the whole marked roster to walk each one's stored extent, the same way it already
+  reads `props :functional` for the arity-2 mark."
+  [tax] (set (keys (get @tax :functional-in-arg {}))))
+
+(defn functional-family-declared?
+  "Does the taxonomy carry a functional-family mark of **either** spelling — the global,
+  unscoped gate every merge door of that family opens on, before it reads any extent?
+
+  One predicate rather than the `or` written at each door, because the two spellings
+  store in different places (`props :functional` and the `:functional-in-arg` table) and
+  a door that asks only the first is closed to the generalized mark while reporting
+  itself as free-for-a-KB-that-declares-nothing.  That is not hypothetical: it is what
+  `equate-under-edge` did, so a `genl` edge arriving last under `(functionalInArg P 2)`
+  merged nothing where the same edge under `(functional P)` merged — the arity-2
+  behaviour the generalization is not allowed to move.  See
+  `functional-family-marks` for the spelling roster this is the storage half of.
+
+  Two set-emptiness reads and no walk, the `or` short-circuiting on the commoner
+  spelling, which is what lets it sit in front of every extent sweep."
+  [tax]
+  (boolean (or (seq (props tax :functional))
+               (seq (functional-in-arg-predicates tax)))))
 
 (defn inverses-of
   "**Every** predicate declared inverse to `p`, as a set — anywhere, or (with `context`)

@@ -30,17 +30,19 @@
   * `trie.csr` — the trie's six CSR sections (`fcounts` `foffsets` `fedge-tok`
     `fedge-tgt` `fleaf-off` `fhandles`), each a raw little-endian `int` run behind a
     header naming the counts.
-  * `roots.csr` — the *routed* root families (context/functor roots, the term, rule and
-    exception indexes) as the same CSR shape over `dense-roots`' packed `long` keys:
-    sorted keys, an offset column, one shared handle run.  The argument roots are not
-    among them — their four-part key does not pack, so they ride the fallback blob.
+  * `roots.csr` — **every** root family (context/functor roots, the argument roots, the
+    term, rule and exception indexes) as the same CSR shape over `dense-roots`' packed
+    `long` keys: sorted keys, an offset column, one shared handle run.  Plus the scope
+    table the argument roots decode through — one `(predicate, position)` pair per entry,
+    indexed by the scope id their packed keys carry (`dense-roots`' `argfam-id`).  The
+    table is vocabulary-scaled and rides this file because this file's key column is its
+    only reader: written in one pass, discarded as one unit, so the two cannot drift.
   * `roots-fallback.nippy` — everything the routed families do not claim: the term and
-    slot rosters (names, not handles) **and the predicate-scoped argument roots**, whose
-    four-part key the packed `long` cannot carry (`dense-roots`' `route`).  The rosters
-    are vocabulary-scaled; the argument roots are fact-scaled, so this blob carries
-    primary index truth at fact scale, not reconstructible metadata alone — which is
-    why its entry count and byte length ride the meta and are checked on open like
-    the CSR sections' lengths, and why its load is strict (`read-fallback`).
+    slot rosters, whose members are *names* rather than handles.  Both are
+    vocabulary-scaled.  It is still index truth — the slot roster is what the
+    predicate-agnostic argument reads descend through — so its entry count and byte
+    length ride the meta and are checked on open like the CSR sections' lengths, and its
+    load is strict (`read-fallback`).
   * `tokens.log` — the durable token dictionary the `int` edges cite, in
     `vaelii.impl.disk.tokens`' format (append-only, id = append position, content-keyed,
     first-writer-wins, never reused).  That module is reused rather than a second
@@ -58,14 +60,14 @@
   than the round trip that pathology was made of.  So the load is deliberately asymmetric:
 
   * **resident** — the CSR skeleton (`fcounts` `foffsets` `fedge-tok` `fedge-tgt`), the
-    roots' key and offset columns, the token dictionary, and the fallback blob — which,
-    with the argument roots in it, is itself fact-scaled heap on open.
-  * **mapped** — `fleaf-off` / `fhandles` and the routed roots' handle run.  Each
-    posting is touched only when its own term is queried.  Cold by construction.
+    roots' key and offset columns, the scope table, the token dictionary, and the
+    fallback blob.  Every one of them is path- or vocabulary-scaled.
+  * **mapped** — `fleaf-off` / `fhandles` and the roots' handle run.  Each posting is
+    touched only when its own term is queried.  Cold by construction.
 
-  The argument-root family is the exception to the split: it rides the resident blob,
-  not the mapped run, because its four-part key does not pack (`dense-roots`' `route`).
-  A fact-scaled family resident on open is a real cost of the predicate scoping.
+  **No handle family is an exception to that split.**  The resident half is where the
+  index's *shape* lives and the mapped half is where its mass lives, and the line between
+  them is the line between what the vocabulary sizes and what the facts do.
 
   With `mmap` the OS page cache is the residency policy, which is the point — but only
   because the skeleton stays hot.
@@ -86,7 +88,7 @@
   ## The platform
 
   The commit is an atomic rename over a file this process has mapped, which Windows does
-  not permit, so `vaelii.index.snapshot` is **refused** there (`enabled?`) and an image
+  not permit, so `:index :snapshot` is **refused** there (`enabled?`) and an image
   found on disk is discarded as `:unsupported-platform` rather than read and never
   refreshed.  Nothing else in the durable store is implicated: the logs are appends and
   the slots are positional writes.
@@ -122,7 +124,7 @@
 (def ^:const format-version
   "The snapshot's own layout number, beside `kv/index-layout-version` (which says what the
   *entries* mean).  Bump when a section's shape or order changes."
-  1)
+  2)
 
 (def ^:private ^:const trie-magic  0x56545249)     ; "VTRI"
 (def ^:private ^:const roots-magic 0x56524f54)     ; "VROT"
@@ -159,27 +161,181 @@
   (not (str/starts-with? (str/lower-case (os-name)) "windows")))
 
 (defn enabled?
-  "Is the mapped index snapshot on?  `vaelii.index.snapshot` — the property is the switch,
-  and the *validity* check is not gated on it: a snapshot that exists is either valid or
-  discarded, never trusted because a flag said so.
+  "Can this platform serve a mapped image?  True, or a throw — never false.
 
-  On a platform that cannot publish an image, the property is **refused** rather than
-  read as off: an operator who set a flag and got the default in silence is the failure
-  `config` exists to close, and here the silence would be about durability of a rebuild
-  they think they no longer pay for."
+  Which KBs get an image is `kb/backend-axes`' answer, not this one's: `:index :snapshot`
+  names the representation and `kb/snapshot-mode?` reads the axis.  What is left here is
+  the platform, and it refuses rather than degrades. An operator who named
+  `:disk-snapshot` and silently got `:disk-columnar` would be told nothing about the
+  rebuild they think they no longer pay for, which is the whole of what the name bought."
   []
-  (let [on? (config/index-snapshot?)]
-    (when (and on? (not (publishable-platform?)))
-      (throw (ex-info (str "vaelii.index.snapshot is on and this is " (os-name)
-                           " — the image publishes by renaming a new file over the live"
-                           " one while it is mapped, which Windows does not permit."
-                           "  Unset the property; :disk-columnar rebuilds its index from"
-                           " the records on open.")
-                      {:type :unsupported-platform :property "vaelii.index.snapshot"
-                       :os (os-name)})))
-    on?))
+  (when-not (publishable-platform?)
+    (throw (ex-info (str "the :snapshot index publishes by renaming a new file over the"
+                         " live one while it is mapped, which " (os-name) " does not"
+                         " permit.  Take :disk-columnar, which rebuilds its index from"
+                         " the records on open, or :disk-log, whose index is durable.")
+                    {:type :unsupported-platform :index :snapshot :os (os-name)
+                     :remedy {:index :columnar}})))
+  true)
 
 (defn snapshot-root ^String [dir] (str dir "/index"))
+
+;; ---- the cadence -------------------------------------------------------
+;; The image is written when the directory closes, which is right for what it describes
+;; and thin for a writer that runs for weeks: a process killed outright has no image, and
+;; the next open pays the whole `reindex` the backend was named to skip.  So the writer
+;; refreshes it mid-life, when the live index has drifted far enough from the one on disk.
+;;
+;; **On the writer's thread, and that is not a detail.**  `vaelii.impl.columnar`'s fields
+;; are `^:unsynchronized-mutable` and its docstring says whose job the synchronization is:
+;; *"the caller's, to keep its reads on the writer's thread."*  `save!` compacts the live
+;; trie in place, so a refresh queued onto `disk/durability.clj`'s compaction executor —
+;; where the record store and the KV put theirs, both of them built around a monitor —
+;; would mutate this index from a second thread.  The record store can be compacted by the
+;; daemon; this index can only be written by whoever writes it.
+;;
+;; The cost is a stall: a refresh is a full CSR rewrite, not a delta, so the writer waits
+;; out an image-sized write.  `vaelii.index.snapshot-drift` and the compaction interval
+;; floor are what keep that rare, and `docs/storage.md` states the trade rather than
+;; leaving it to be discovered.
+;;
+;; **The write door is the only path that reaches this**, and that scoping is the thing to
+;; know before diagnosing an image count.  `kb/create-sentex` asks `due?`; nothing else
+;; does.  `reindex/index-one!` posts straight to `p/index-sentex`, and the importer's inline
+;; bulk load goes through that same function — so a store filled by `reindex` or by an
+;; import gets exactly one image, at the close, whatever the drift threshold says, while the
+;; same content arriving through `assert` is measured and can refresh many times over.
+;;
+;; **And a writer that closes cleanly can decline the refresh outright**, with
+;; `vaelii.disk.auto-compact=false` — see `due?`.  A batch that fills a whole KB in one run
+;; wants exactly one image, at the end.  The interval floor is the wrong lever for that (it
+;; only rate-limits, and moves the record store's compaction with it) and so is the drift
+;; ratio, whose `0` is the *most* eager setting rather than the off one.
+
+(defonce ^:private image-state
+  ;; `{canonical-snapshot-root {:roots n :at ms}}` — the indexed-root count the image on
+  ;; disk holds and when it was written or read.  Drift is measured against the first; the
+  ;; second is what the interval floor is applied to.
+  ;;
+  ;; **Keyed canonically**, because the two sides reach it by different spellings of one
+  ;; directory: a save is handed the `:dir` opt as the caller wrote it, and the write door
+  ;; is handed the KB's own `dir`, which the disk backend has already resolved.  On macOS
+  ;; that is `/var/…` against `/private/var/…` — two keys, so the cadence would read a
+  ;; baseline nothing ever wrote and never fire.
+  (atom {}))
+
+(defn- state-key ^String [dir]
+  (let [root (snapshot-root dir)]
+    (try (.getCanonicalPath (File. root)) (catch Throwable _ root))))
+
+(defn- note-image! [dir roots]
+  (swap! image-state assoc (state-key dir) {:roots (long roots) :at (System/currentTimeMillis)})
+  nil)
+
+(defn note-attempt!
+  "Restart `dir`'s interval floor without moving its drift baseline — what a refresh does
+  as it begins.
+
+  The baseline belongs to an image that is actually on disk, so only a completed save
+  moves it (`note-image!`).  The *clock* is a different claim — how recently a refresh was
+  attempted — and it has to advance whether or not one landed: a save that throws, and a
+  save that declines (`:unchanged`, `:empty`), both leave the drift exactly where it was,
+  so a cadence stamped only on success reads due again on the very next write.  That turns
+  a broken directory into an image-sized write per assert.  Stamped here, it retries once
+  a floor, which is the cadence the floor exists to impose.
+
+  A no-op for a directory with no cadence state: `due?` cannot fire without one, so
+  minting a baseline here would be inventing an image nothing wrote."
+  [dir]
+  (let [k (state-key dir)]
+    (swap! image-state
+           (fn [m] (if (contains? m k)
+                     (update m k assoc :at (System/currentTimeMillis))
+                     m))))
+  nil)
+
+(defn note-no-image!
+  "Start `dir`'s cadence clock with **no** image on disk — what an open does before it
+  knows whether one is there.  A `load!` that maps overwrites this with the real count;
+  one that rebuilds leaves it standing, which is the truth: nothing usable is on disk.
+
+  Without this a directory that has never held an image would have no baseline, so
+  `drift` would answer 0.0 forever and a writer that ran for weeks and was killed would
+  reopen onto nothing — which is the failure the cadence exists to close, and the one a
+  fresh directory is most exposed to.
+
+  **It starts a clock and never resets one.**  Every KB constructed over a directory runs
+  this, and they share one index — so a second `open-kb` over a directory whose image is
+  current would otherwise reset the baseline to zero, `drift` would read 1.0 against an
+  image that is exactly right, and the first write past the interval floor would rewrite
+  a whole CSR for nothing.  A close is what drops the state (`forget-image!`), which is
+  the point at which what is on disk stops being knowable from in here."
+  [dir]
+  (let [k (state-key dir)]
+    (swap! image-state
+           (fn [m] (if (contains? m k)
+                     m
+                     (assoc m k {:roots 0 :at (System/currentTimeMillis)})))))
+  nil)
+
+(defn forget-image!
+  "Drop `dir`'s cadence state — what a close does, so a directory reopened in this JVM
+  measures its drift against the image it actually finds rather than against one this
+  process happened to write earlier."
+  [dir]
+  (swap! image-state dissoc (state-key dir))
+  nil)
+
+(defn- drift-of
+  "`drift` over a cadence entry already read out of the state."
+  ^double [{:keys [roots]} roots-now]
+  (cond
+    (nil? roots)         0.0
+    (zero? (long roots)) (if (pos? (long roots-now)) 1.0 0.0)
+    :else (/ (double (Math/abs (- (long roots-now) (long roots)))) (double roots))))
+
+(defn drift
+  "How far `roots-now` has moved from the image at `dir`, as a ratio of the image's own
+  count — or 0.0 when this JVM has neither written nor read one, since there is nothing
+  to have drifted from and a refresh would be writing an image against no baseline."
+  ^double [dir roots-now]
+  (drift-of (get @image-state (state-key dir)) roots-now))
+
+(defn due?
+  "Has `dir`'s image drifted past `vaelii.index.snapshot-drift`, with the compaction
+  interval floor elapsed since the last one?
+
+  The floor is `vaelii.disk.compact-min-interval-ms`, shared with the record store's
+  compaction rather than given a knob of its own: both answer the same question — how
+  often may a background rewrite of a derived structure interrupt this KB — and two knobs
+  would be two answers to it.
+
+  **`vaelii.disk.auto-compact=false` turns the mid-life refresh off**, leaving the image to
+  the close and to the JVM-shutdown hook.  Same knob as the record store's background and
+  opportunistic compaction, on the same argument the shared floor rests on: a refresh *is*
+  an opportunistic compaction of a derived structure — `save!` calls `columnar/compact!` —
+  so an operator who has said not to do those must not still be paying one per drift
+  threshold, on the writer's thread, with nothing saying so.  The caller that wants the
+  switch is the batch that fills a whole KB in one run and closes cleanly: it needs exactly
+  one image, at the end.
+
+  **The drift ratio cannot say that, and `0` is the trap.**  As a *threshold* zero means
+  \"any drift at all\", so it is the most eager setting in the range and rewrites the image
+  on every write past the floor — 400 asserts under `0` and a floor of `0` measured 401
+  images.  It is the pathology the threshold exists to bound, not the off switch.
+
+  **One state read, one `state-key`.**  This is asked per write on a `:disk-snapshot` KB
+  and `state-key` resolves a canonical path, so the switch is read first — an off switch
+  that still paid a `realpath` per write would not be off for the writer that asked for it
+  — and the entry is then read once, with the drift computed off it rather than reaching
+  for the same key again through `drift`."
+  [dir roots-now]
+  (and (config/disk-auto-compact?)
+       (let [{:keys [at] :as st} (get @image-state (state-key dir))]
+         (and (some? at)
+              (>= (- (System/currentTimeMillis) (long at))
+                  (long (config/disk-compact-min-interval-ms)))
+              (>= (drift-of st roots-now) (config/index-snapshot-drift))))))
 
 (defn- meta-path      ^String [root] (str root "/snapshot.meta"))
 (defn- trie-path      ^String [root] (str root "/trie.csr"))
@@ -339,16 +495,28 @@
       (.force ch true))
     {:nodes nodes :edges e :leaves h}))
 
-(defn- write-roots! [^String path {:keys [keys offsets handles]}]
+(defn- write-roots!
+  "The routed families as three columns, and the scope table that decodes the argument
+  roots among them.
+
+  The table rides this file rather than a log beside `tokens.log` because the key column
+  here is its only reader: the two are written in one pass and discarded as one unit, so
+  they cannot drift apart.  `tokens.log` is durable ground truth appended as facts arrive,
+  which is why it can disagree with an image and why `:duplicate-tokens` exists to repair
+  that."
+  [^String path {:keys [keys offsets handles preds positions]}]
   (let [k (alength ^longs keys)
-        h (alength ^ints handles)]
+        h (alength ^ints handles)
+        a (alength ^ints preds)]
     (with-open [ch (open-write path)]
-      (put-header! ch [roots-magic format-version k h])
+      (put-header! ch [roots-magic format-version k h a])
       (put-longs! ch keys)
       (put-ints!  ch offsets (inc (long k)))
       (put-ints!  ch handles h)
+      (put-ints!  ch preds   a)
+      (put-ints!  ch positions a)
       (.force ch true))
-    {:keys k :handles h}))
+    {:keys k :handles h :scopes a}))
 
 (defn save!
   "Write a mapped snapshot of `store` (a columnar `IndexStore`) under `dir/index`, stamped
@@ -394,6 +562,19 @@
       :else
       (let [t0    (System/nanoTime)
             stamp (stamp-fn)
+            ;; **Freezing the live trie under an unconsumed lazy read is safe**, and it is
+            ;; worth saying so, because the write door reaches here mid-life while a caller
+            ;; may be holding one: `core/sentexes-matching` promises a seq that is lazy over
+            ;; live state, and asserting while walking one is the supported pattern
+            ;; `forward-chain` is built on.  What makes it safe is that an index read is
+            ;; eager *per read* — `res/candidate-handles` has realized its handles before
+            ;; `match-one` returns, and `t-lookup` builds its answer with `into #{}` — so no
+            ;; walk is ever part-way through the trie when this runs.  What stays lazy above
+            ;; is the `get-sentex` per handle, which is the record store's, and at a variable
+            ;; context one whole index read per reader (`vantage/fan-distinct`), which lands
+            ;; either side of the freeze and never inside it.  The read primitives dispatch
+            ;; on `frozen?` at call time (`vaelii.impl.columnar`), so the reader after this
+            ;; reads the CSR and answers the same set.
             _     (col/compact! store)
             csr   (col/csr store)
             dict  (:dict store)
@@ -422,7 +603,8 @@
                 ;; array clone, never a buffer read.
                 etgt  (aclone ^ints (:edge-tgt csr))
                 _     (sort-edge-runs! (:offsets csr) etok etgt (:nodes csr))
-                cols  (roots/snapshot-columns rts remap)
+                cols  (merge (roots/snapshot-columns rts remap)
+                             (roots/argfam-table rts remap))
                 tstat (write-trie!  (tmp (trie-path root))
                                     (assoc csr :edge-tok etok :edge-tgt etgt))
                 rstat (write-roots! (tmp (roots-path root)) cols)
@@ -444,12 +626,13 @@
               :records      stamp
               :trie         tstat
               :roots        rstat
-              ;; the blob carries the argument-root postings — primary index truth — so
-              ;; its size is recorded and checked like the CSR sections'
+              ;; the blob carries the slot roster, which the agnostic argument reads
+              ;; descend through, so its size is recorded and checked like the CSR sections'
               :fallback     {:entries (count fents)
                              :bytes   (.length (File. (fallback-path root)))}
               :tokens       (dtok/token-count tl)})
             (vreset! done true)
+            (note-image! dir (p/count-at store []))
             (let [ms (/ (- (System/nanoTime) t0) 1e6)]
               (trove/log! {:level :info :id ::saved
                            :msg (format "wrote the mapped index snapshot at %s in %.0f ms (%d nodes, %d leaf handles, %d root postings)"
@@ -498,7 +681,8 @@
                        (inc (long nodes)) (long leaves)))))
       :entries-truncated
       (< (file-len (roots-path root))
-         (+ 16 (* 8 (long kn)) (* 4 (inc (long kn))) (* 4 (long hn))))
+         (+ 20 (* 8 (long kn)) (* 4 (inc (long kn))) (* 4 (long hn))
+            (* 8 (long (or (:scopes (:roots m)) 0)))))
       :entries-truncated
       ;; the fallback blob is read whole, so its length is checked exactly — a
       ;; missing file (-1) and a meta with no record of it both land here
@@ -538,20 +722,31 @@
           :leaf-off* (map-ints ch o5 (inc n))
           :handles*  (map-ints ch o6 h)})))))
 
-(defn- load-roots! [store ^String path {kn :keys hn :handles}]
+(defn- load-roots!
+  "Map the three routed columns, and read the scope table resident.
+
+  The table is vocabulary-scaled — one entry per `(predicate, position)` pair the corpus
+  exhibits — so it joins the resident half of the split beside the key and offset columns
+  rather than the mapped half.  It is read before the columns are installed: a packed
+  argument key whose scope id decodes to nothing is a key that answers the wrong posting,
+  and the throw belongs before the install rather than at the first read after it."
+  [store ^String path {kn :keys hn :handles an :scopes}]
   (with-open [raf (RandomAccessFile. path "r")]
     (let [ch  (.getChannel raf)
-          ^ints hdr (read-header ch 4)]
+          ^ints hdr (read-header ch 5)]
       (when-not (= roots-magic (aget hdr 0))
         (throw (ex-info (str "the roots file is not a vaelii roots snapshot — its magic number is "
                              (aget hdr 0) ", expected " roots-magic
                              "; the index will be rebuilt from the records, which are untouched")
                         {:type :bad-snapshot :part :roots :path path
                          :magic (aget hdr 0) :expected roots-magic})))
-      (let [k  (long kn) h (long hn)
-            o1 16
+      (let [k  (long kn) h (long hn) a (long (or an 0))
+            o1 20
             o2 (+ o1 (* 8 k))
-            o3 (+ o2 (* 4 (inc k)))]
+            o3 (+ o2 (* 4 (inc k)))
+            o4 (+ o3 (* 4 h))
+            o5 (+ o4 (* 4 a))]
+        (roots/load-argfam! (:roots store) (read-ints ch o4 a) (read-ints ch o5 a) a)
         (roots/install-mapped! (:roots store)
                                (map-longs ch o1 k)          ; resident enough to be read
                                (map-ints  ch o2 (inc k))
@@ -563,9 +758,8 @@
   the durable id the mapped edges cite.  O(dictionary), which this namespace's own header
   is careful to say is **fact-scaled** rather than vocabulary-scaled: a token is often a
   whole compound term, and the term index keys one per record.  Nor is it the only
-  per-entry cost of an open — `read-fallback` thaws the argument-root postings whole and
-  `load-trie!` copies the node and edge skeletons into heap, both named in the header for
-  what they are.
+  per-entry cost of an open — `load-trie!` copies the node and edge skeletons into heap,
+  named in the header for what it is.
 
   The two dictionaries must agree on equality, and this is where a disagreement would
   show.  Both key `tokens/Key`, which defers to `hasheq`/`equiv`, so `2` and `(int 2)`
@@ -624,10 +818,11 @@
       (finally (dtok/close! tl)))))
 
 (defn- read-fallback
-  "The fallback blob, read strictly: it carries the argument-root postings — primary
-  index truth — so a torn thaw or an entry count that disagrees with the meta throws
-  (into `load!`'s catch, which rebuilds) rather than defaulting to an empty value the
-  index would then serve as `#{}` on every argument-root read."
+  "The fallback blob, read strictly: it carries the slot roster, which the
+  predicate-agnostic argument reads descend through, so a torn thaw or an entry count
+  that disagrees with the meta throws (into `load!`'s catch, which rebuilds) rather than
+  defaulting to an empty value the index would then serve as `#{}` on every
+  `sentexes-with-arg`."
   [root m]
   (let [v    (f/read-nippy-file (fallback-path root) ::torn)
         want (long (get-in m [:fallback :entries] -1))]
@@ -636,7 +831,8 @@
                            (if (= ::torn v)
                              "unreadable"
                              (str (count v) " entries where the meta records " want))
-                           " — and it holds the argument roots")
+                           " — and it holds the term and slot rosters, which the"
+                           " predicate-agnostic argument reads descend through")
                       {:type :torn-snapshot :path (fallback-path root)
                        :entries (when-not (= ::torn v) (count v)) :expected want})))
     v))
@@ -669,6 +865,7 @@
             (load-trie!  store (trie-path root)  (:trie m))
             (load-roots! store (roots-path root) (:roots m))
             (roots/load-fallback! (:roots store) (read-fallback root m))
+            (note-image! dir (p/count-at store []))
             (let [ms (/ (- (System/nanoTime) t0) 1e6)]
               (trove/log! {:level :info :id ::mapped
                            :msg (format "mapped the index snapshot at %s in %.0f ms (%d tokens, %d nodes)"

@@ -1031,3 +1031,60 @@
           (let [s3 (drs/open-record-store dir)]
             (try (is (= #{a c} (p/sentex-ids s3)))
                  (finally (drs/close! s3)))))))))
+
+(deftest the-live-roster-answers-beside-a-writer
+  ;; The live-handle set is a `Roaring64Bitmap` mutated in place
+  ;; (`vaelii.impl.roster`'s `LiveRoster`), which is what takes it from 45 bytes a handle
+  ;; to about one bit.  What that costs is a monitor, and this is the claim the monitor
+  ;; has to hold: the store supports readers beside its one writer
+  ;; (`docs/storage.md`, the single-writer contract), and a bitmap read beside a
+  ;; concurrent `addLong` is the one way this representation can answer garbage or throw
+  ;; where the boxed set could not.  Every read is asserted, because they take the lock
+  ;; separately: an enumeration, a tally, and a first handle.
+  ;;
+  ;; The hazard is a measured one rather than a caution.  An unsynchronized
+  ;; `Roaring64Bitmap` under one adder and four readers throws
+  ;; `ArrayIndexOutOfBoundsException` out of `getLongIterator` — in roughly one run in
+  ;; five, and only once the keys are spread across enough 2^32 buckets that the ART trie
+  ;; itself restructures, which is why a contiguous run never shows it and a store whose
+  ;; handles interleave with two other kinds' would.
+  (with-tmp
+    (fn [dir]
+      (let [s      (drs/open-record-store dir)
+            n      2000
+            stop   (atom false)
+            errors (atom [])
+            reader (fn [read!]
+                     (future
+                       (try
+                         (loop [prev 0]
+                           (if @stop
+                             :done
+                             (recur (long (or (read!) prev)))))
+                         (catch Throwable t (swap! errors conj t) :failed))))]
+        (try
+          ;; one handle up front, so `a-sentex-id` has an answer from the first tick
+          (p/put-sentex s {:sentence '(p 0) :context 'C})
+          (let [ids   (reader #(count (p/sentex-ids s)))
+                tally (reader #(cap/count-sentexes s))
+                least (reader #(cap/some-sentex-id s))
+                wrote (doall (for [i (range 1 (inc n))]
+                               (p/put-sentex s {:sentence (list 'p i) :context 'C})))]
+            (reset! stop true)
+            (is (= [:done :done :done] [@ids @tally @least])
+                "three readers ran the whole write through without throwing")
+            (is (empty? @errors) (str "readers saw: " (mapv ex-message @errors)))
+            (testing "and the store is exactly what the writer put in it"
+              (is (= (inc n) (cap/count-sentexes s)))
+              (is (= (set (cons 1 wrote)) (p/sentex-ids s)))))
+          (testing "a first handle is the least live one, and follows a delete of it"
+            (is (= 1 (cap/some-sentex-id s)))
+            (p/delete-sentex! s 1)
+            (is (= 2 (cap/some-sentex-id s)))
+            (is (= n (cap/count-sentexes s)) "and the tally follows the delete too")
+            (p/delete-sentex! s 1)
+            (is (= n (cap/count-sentexes s)) "deleting a dead handle is a no-op")
+            (p/delete-sentex! s :informant)
+            (is (= n (cap/count-sentexes s))
+                "and so is a non-handle, which `contains?` on the set it replaces answered"))
+          (finally (drs/close! s)))))))

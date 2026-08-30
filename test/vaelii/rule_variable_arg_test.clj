@@ -170,12 +170,13 @@
 
 (tu/deftest-kb the-literal-types-are-one-vocabulary-and-symbol-is-mention-only
   (testing "the disjointness on number carries integer with it"
-    ;; `(arg arity 2 integer)`, and integer is below number, which no relation is
+    ;; `(arg arity 2 non_negative_integer)`, and that type is below integer and number,
+    ;; which no relation is
     (let [form '(implies (arity ?p ?n) (genl ?p ?n))
           ps   (v/check kb form 'CxUniverse)]
       (is (= [:arg-variable] (mapv :type ps)))
       (is (= '?n (:variable (first ps))))
-      (is (= '[integer unaryPredicate] (:expected (first ps))))))
+      (is (= '[non_negative_integer unaryPredicate] (:expected (first ps))))))
   (testing "symbol carries no disjointness, a name being how a predicate is written"
     ;; the deliberate absence, and the one that has to be pinned: `(disjoint symbol
     ;; predicate)` would read as a use-level claim and be false of every predicate name,

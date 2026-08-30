@@ -5,13 +5,14 @@
 # Storage is two independent choices (docs/storage.md): the RECORD store, which
 # must survive (`:memory` / `:disk`), and the INDEX, which is derived state
 # `reindex` recomputes from the records (`:memory` / `:dense` / `:columnar` /
-# `:disk-log`).  That is 2 × 4 = 8 pairings, of which SEVEN are legal — RAM records
-# under the durable index is refused, an index outliving its records describing
-# records that are gone — and each of the seven has a `:backend` name spelled
-# `<records>-<index>`, which is what `VAELII_TEST_BACKEND` takes.  Every one of
-# them loads the same shipped text KB (`resources/kb/*.txt`); what differs is
-# only where the sentexes live and how they are indexed.
-# An eighth run, `overlay`, is not an eighth pair but the fork decorator
+# `:snapshot` / `:disk-log`).  That is 2 × 5 = 10 pairings, of which EIGHT are legal —
+# RAM records under the durable index and RAM records under the mapped image are both
+# refused, the first leaving index files that describe records that are gone, the
+# second asking for an image every open discards — and each of the eight has a
+# `:backend` name spelled `<records>-<index>`, which is what `VAELII_TEST_BACKEND`
+# takes.  Every one of them loads the same shipped text KB (`resources/kb/*.txt`);
+# what differs is only where the sentexes live and how they are indexed.
+# A ninth run, `overlay`, is not a ninth pair but the fork decorator
 # (docs/overlay.md) over an empty base.
 #
 # Each run prints the command it is about to run and the log it is writing —
@@ -36,8 +37,8 @@
 #
 # Every line that carries a verdict carries the REVISION it is a verdict about:
 # the header, each backend's summary row, and the log's own first line.  Read per
-# run, not once, and a change between runs is called out where it happens — eight
-# runs are ~35 minutes, and a commit landing in the middle of them moves the
+# run, not once, and a change between runs is called out where it happens — nine
+# runs are ~40 minutes, and a commit landing in the middle of them moves the
 # counts under the runs still to come.
 #
 # The FIRST mark of a run lands ~20s after its command line, and none of that
@@ -67,8 +68,8 @@
 # at `<vaelii.disk.dir>/space-<n>`, and every run below already gets its own
 # `vaelii.disk.dir`, so the single-writer lock is never contended and the
 # six-block `VAELII_TEST_SPACE` limit is about a case this does not create.
-# **`scripts/test-matrix.sh` is the concurrent one** — these eight and the six
-# sweeps at once, ~13 minutes against the ~55 the two scripts take in sequence,
+# **`scripts/test-matrix.sh` is the concurrent one** — these nine and the six
+# sweeps at once, ~13 minutes against the ~60 the two scripts take in sequence,
 # and what to run when a change owes the matrix.  Reach for this script for one
 # axis, one backend, or a wall time that means something.
 #
@@ -76,15 +77,15 @@
 # (project.clj defines them).  `:default` — what a bare run takes — skips the
 # forty-one `^:slow` tests, the exhaustive cross-products and randomized oracles
 # that carry a hundred thousand of the suite's assertions; `:slow` is those alone;
-# `:all` is both.  Eight backends multiply that gap by eight, which is why the
+# `:all` is both.  Nine backends multiply that gap by nine, which is why the
 # fast pass is the default here for the same reason it is in `lein test` — and
 # why the matrix is worth running at `:all` before a storage change lands.  A
 # non-default selector writes `<backend>.<selector>.log`, so a `:slow` pass does
 # not overwrite what a full one left.
 #
 # Usage:
-#   ./scripts/test-backends.sh                       # all eight, :default
-#   ./scripts/test-backends.sh :all                  # all eight, slow tests included
+#   ./scripts/test-backends.sh                       # all nine, :default
+#   ./scripts/test-backends.sh :all                  # all nine, slow tests included
 #   ./scripts/test-backends.sh :slow memory          # the slow tests, one backend
 #   ./scripts/test-backends.sh memory disk-memory    # only these
 #   ./scripts/test-backends.sh --tms dense           # the dense TMS instead
@@ -115,7 +116,7 @@ esac
 
 # The roster, and the environment that selects each: `scripts/lib/suite-configs.sh`,
 # shared with `test-sweeps.sh` and `test-matrix.sh` so a new backend is one edit.
-# `overlay` is an eighth run and not an eighth pair: it is the DECORATOR — a private
+# `overlay` is a ninth run and not a ninth pair: it is the DECORATOR — a private
 # writable fork over a shared read-only base (docs/overlay.md) — with the base left
 # empty, which is the claim that a fork of nothing behaves exactly like the thing it
 # forked.
@@ -180,8 +181,8 @@ RUN_NS_COUNT=$(selected_ns_count "$SELECTOR")
 # ^C stops the run in progress AND the script.  Neither half is automatic.
 #
 # A `lein test` left in the foreground swallows the interrupt and the `for` loop
-# marches on to the next backend, so getting out of an eight-run matrix takes
-# eight interrupts.  So the suite runs in the background and the script `wait`s
+# marches on to the next backend, so getting out of a nine-run matrix takes
+# nine interrupts.  So the suite runs in the background and the script `wait`s
 # on it, which a trap CAN interrupt.
 #
 # Killing it then needs two things bash does not give by default.  `set -m` puts
@@ -273,7 +274,7 @@ for backend in "${BACKENDS[@]}"; do
   [[ -n "$TMS" ]] && envv+=(VAELII_TEST_TMS="$TMS")
 
   # The revision THIS run is about to be taken at, read per run rather than once:
-  # eight runs are ~35 minutes and another agent landing a test in the middle of
+  # nine runs are ~40 minutes and another agent landing a test in the middle of
   # them moves the counts under the runs still to come.  Said out loud when it
   # happens, because the symptom — counts that differ between backends — is the
   # symptom of a run that skipped something, and telling them apart afterwards
@@ -342,7 +343,7 @@ for backend in "${BACKENDS[@]}"; do
     "$mark" "$backend" "${summary:-did not finish}${counts:+, $counts}" "$(hms $elapsed)" "$rev"
 
   # what failed, again, under the run's own summary — the marks above have
-  # scrolled by the time an eight-run matrix ends
+  # scrolled by the time a nine-run matrix ends
   if [[ $code -ne 0 ]]; then
     while read -r ns; do
       [[ -z "$ns" ]] && continue

@@ -278,6 +278,36 @@ constraint naming it dormant. The same precondition governs the entailment readi
 [argtypes.md](argtypes.md), whose "Where it does not mint" table is the full list of cases
 where nothing is derived.
 
+## A `functionalInArg` clash is not reported
+
+Two things stop one, and they are different failures.
+
+**The determinant differs.** `(functionalInArg P n)` says every argument *except* `n`
+fixes the filler at `n`, so two tuples are the same slot only when they agree on all the
+others. `(namesObject NsA PathA ObjOne)` and `(namesObject NsA PathB ObjTwo)` differ at
+argument 2 and are two slots, not one — nothing is owed. Check the determinant before the
+declaration.
+
+**Or the mark is not on the last argument.** The assert door checks every shape
+correctly. What is narrower is *cross-context* discovery: the pass finds a pair's far half
+by reading one argument root, and its candidate gate asks only whether some mark
+constrains the tuple's **final** position. A declaration whose `n` is below the arity —
+`(functionalInArg P 2)` on a ternary predicate — is never asked about, so two mutually
+blind contexts each holding half of such a clash are not brought together.
+
+A mark *on* the last argument is covered, whatever the arity. At arity 1 the determinant
+is empty; above arity 2 it is composite, several positions at once — neither is a single
+argument root, so both reach an extent sweep bounded by
+`tax/*exposure-instance-budget*` rather than a posting read, and past that bound the pass
+files `:partner-sweep-truncated` rather than going quiet. Arity 2 is the one that *is* a
+single root and takes the same narrow path `functional` does.
+
+Same context, or a vantage that already sees both halves when the second arrives, is the
+door's business and is checked.
+
+[taxonomy.md](taxonomy.md) has the shape table; [equality.md](equality.md) has the merge
+rule and the four arrival orders.
+
 ## `prove` returns more solutions than there are answers
 
 `prove` returns **one solution per derivation**, so a goal reachable two ways — a fact
@@ -336,10 +366,10 @@ nothing half-built to close. The other key in `ex-data` says which opt was wrong
 
 | `ex-data` carries | What was wrong |
 |---|---|
-| `:backend` | the `:backend` sugar names nothing in the table — [storage.md](storage.md#backend-selection-two-independent-axes) lists the eleven legal names |
-| `:records` **and** `:index` together | the axes resolved to the `:disk-log` index over records it cannot be derived from — `:memory`, which empties at JVM exit, or `:sqlite`, whose file survives but whose lifecycle the index does not share |
+| `:backend` | the `:backend` sugar names nothing in the table — [storage.md](storage.md#backend-selection-two-independent-axes) lists the twelve legal names |
+| `:records` **and** `:index` together | the axes resolved to a durable index over records it cannot be derived from — the `:disk-log` index over `:memory`, which empties at JVM exit, or over `:sqlite`, whose file survives but whose lifecycle the index does not share; or the `:snapshot` image over anything but `:disk`, whose slot fingerprint is the stamp it is checked against |
 | `:records` alone | the `:records` opt names a kind nothing implements — `:memory`, `:disk`, `:sqlite` or `:pg` |
-| `:index` alone | the `:index` opt names a kind nothing implements — `:memory`, `:dense`, `:columnar` or `:disk-log` |
+| `:index` alone | the `:index` opt names a kind nothing implements — `:memory`, `:dense`, `:columnar`, `:snapshot` or `:disk-log` |
 | `:tms` alone | the `:tms` opt names a kind nothing implements — `:reference` or `:dense` |
 | `:backend` or `:index` **with** `:instead` | a reserved spelling — `:disk`, `:pg-disk`, or `{:index :disk}` — and the pairing to take in its place |
 
@@ -504,8 +534,9 @@ so one vocabulary reads both.
 | `:exception-not-closed` | an `exceptWhen` reads a variable no antecedent binds, or the anonymous wildcard `_`, which binds nothing | [exceptions.md](exceptions.md) |
 | `:export-busy` | an export is already running, and one runs at a time | [catalog.md](catalog.md) |
 | `:frozen-base` | a write reached the overlay's base, which is mounted read-only | [overlay.md](overlay.md) |
-| `:functional` | a second value for a predicate declared `functional` — see [`assert` refused it](#assert-refused-it) | [equality.md](equality.md) |
+| `:functional` | a second value for a predicate declared `functional`, or for the position a `functionalInArg` declaration names — see [`assert` refused it](#assert-refused-it) | [equality.md](equality.md) |
 | `:handle-ceiling` | a handle past the dense TMS's int-keyed ceiling | [density.md](density.md) |
+| `:argument-family-ceiling` | more distinct `(predicate, position)` pairs than the packed root key's 24-bit scope field holds; take `:index :memory` | [indexing.md](indexing.md) |
 | `:incomplete-racer` | a portfolio was handed a strategy with `:first-result?` on, which stops the search rather than steering it | [inference.md](inference.md) |
 | `:inter-arg-type` | an `interArg` constraint convicted one argument because of what another one is | [argtypes.md](argtypes.md) |
 | `:internal-error` | the daemon caught a throwable carrying no `:type` of its own | [operations.md](operations.md) |

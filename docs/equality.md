@@ -366,6 +366,19 @@ alike.
 declaration]`. Everything else — two numbers, two strings, a compound — stays the hard
 contradiction it is, because no merge can make two numbers one thing.
 
+**`(functionalInArg P n)` is the same machinery with the determined position named**
+rather than fixed at argument 2 ([taxonomy.md](taxonomy.md)). Everything in this section
+holds of it unchanged: the same merge/refuse rule, the same four arrival directions, the
+same justification shape. Two differences are worth stating. The clash the checks hand
+back carries the **position** — with the generalized mark a predicate may be constrained
+at more than one position at once, and two slots of one sentex are two different incoming
+fillers — so nothing downstream reads the filler as "argument 2" any more
+(`checks/functional-filler` is the one place that assumption is left). And the merge rests
+on *every* declaration constraining that position, both spellings unioned
+(`checks/functional-declaration-supporters`), so a predicate carrying `(functional P)` and
+`(functionalInArg P 2)` keeps its merge when either one is retracted — the same rule two
+`(functional P)` sentexes in different contexts already follow, applied one level up.
+
 `equals` specifically, not `sameAs`: a functional value need not be an individual —
 a birth year, a measurement — and `sameAs` is individuals-only by OWL. `equals` is
 the only one of the three that always type-checks here.
@@ -386,27 +399,75 @@ subsumption as well, so the `genl` edge handles join the declaration in the ante
 Retracting the edge un-merges, exactly as retracting the declaration does; without them
 two names would stay merged on a declaration that no longer reaches either of them.
 
-**Three directions, because a declaration reaches the facts already stored exactly as it
-reaches the facts that follow, and so does the edge.**
+**Four directions, because a declaration reaches the facts already stored exactly as it
+reaches the facts that follow, and so does either edge that can bring a slot's fillers
+into view.**
 `special/derive-functional-equalities` is a fact meeting the declaration — it runs on
 every asserted fact and on every derived conclusion — `special/equate-existing` is the
 declaration meeting the facts, sweeping the functor roots of `P`'s whole `genl` spec
-subtree when `(functional P)` itself arrives, and `special/equate-under-edge` is the edge
-meeting both, sweeping the arriving `(genl sub super)`'s own subtree. Whether two
-spellings denote one woman is a question about the KB's content, and an answer that
-depended on whether the schema, the edge or the facts were loaded first would be an answer
-about the file. Written the ordinary way — declaration first — the sweep finds an empty
-extent and costs one root read.
+subtree when `(functional P)` itself arrives, `special/equate-under-edge` is the `genl`
+edge meeting both, sweeping the arriving `(genl sub super)`'s own subtree, and
+`special/equate-under-context-edge` is the fourth: a `genlCx` edge meeting both, over the
+*context* cone rather than the predicate one. It has no subtree of its own to sweep — a
+context edge changes no predicate and no fact, only which contexts see one another — so
+what it sweeps is the **cone the edge widens**: every context the readers of `sub` can
+see once the edge integrates, which is the same reachability `migrate-under-context-edge`
+computes for the same trigger. (An earlier draft swept every marked predicate's whole
+extent KB-wide, capped only by the budget; that made an edge between two small unrelated
+contexts pay for a predicate it had nothing to do with.) It keeps the stored facts there
+whose functor a mark could reach, up to `tax/*exposure-instance-budget*` candidates
+(below), and hands each to
+`special/derive-functional-equalities` **at its own storage context**; that function no
+longer answers only for the context it is handed, it now sweeps every reader below that
+context too (`context-down`), which is what reaches the joining context this edge
+connected without this arm computing reachability of its own. Two blind sibling contexts
+each holding one of two clashing fillers derive nothing until *both* of the edges wiring
+some context under both of them have landed — visibility is the union of every edge that
+grants it, not the effect of the latest one alone. Whether two spellings denote one woman
+is a question about the KB's content, and an answer that depended on whether the schema,
+an edge or the facts were loaded first would be an answer about the file. Written the
+ordinary way — declaration first — the sweep finds an empty extent and costs one root
+read.
 
-The three directions ask one question from three sides, so none can drift about what a
+**This one direction is budgeted, unlike the other three.** A `genl` edge's subtree is
+bounded by real vocabulary growth — the edge names the predicate whose subtree is swept —
+where a `genlCx` edge names two *contexts*, and the cone they open can be large even when
+the edge itself is small: a context wired under a genuinely huge store makes all of it
+newly relevant. `equate-under-context-edge` caps its candidates at
+`tax/*exposure-instance-budget*` (shared with `vaelii.impl.settle`'s own exposure passes,
+so one dial governs every cross-context sweep in the KB) and, past it, files a
+`:context-edge-exposure-truncated` violation — never silently. Unlike a cut sweep in
+`settle`, whose residual a later settle's exposure pass re-examines, a merge this cap
+prevents has no second chance: nothing re-triggers on a `genlCx` edge that already
+finished landing, so the pairs past the cut stay unmerged for good, this edge.
+
+**Past that cap, and only past it, order independence is a residual rather than a
+guarantee.** The cone is enumerated in handle order — assertion order — and the budget
+takes a prefix of it, so which merges a cut edge derives depends on when the facts
+arrived. Sorting the cone to content order would remove that and is refused for a
+measured reason: the sort forces the whole extent, which is the cost the cap exists to
+refuse, and a context cycle makes the cone the graph ([taxonomy.md](taxonomy.md) has the
+measurement). So the residual is left, and left **named** — the violation is filed on
+every cut, so no reader has to infer completeness from silence. Below the cap, which is
+every KB that has not put more than `*exposure-instance-budget*` marked facts in one
+cone, the sweep is exact and the invariant holds outright.
+
+The four directions ask one question from four sides, so none can drift about what a
 functional slot licenses: the equality names both facts and the declaration whichever way
-round it was reached, and retracting any of the three un-merges. Re-deriving is
-idempotent — `same-class?` skips a pair the closure already holds and `has-justification?`
-skips an argument it already has — so a slot filled by three values collapses to one class
-rather than to the first pair walked. The sweep reads what is **stored** rather than what
-is believed, for `entail-existing`'s reason: an equality derived off a defeated fact rests
-on that fact and is defeated with it, where skipping it would leave the merge missing when
-the fact revives.
+round it was reached, and retracting any of the direct antecedents un-merges. Re-deriving
+is idempotent — `same-class?` skips a pair the closure already holds and
+`has-justification?` skips an argument it already has — so a slot filled by three values
+collapses to one class rather than to the first pair walked. The sweep reads what is
+**stored** rather than what is believed, for `entail-existing`'s reason: an equality
+derived off a defeated fact rests on that fact and is defeated with it, where skipping it
+would leave the merge missing when the fact revives.
+
+One antecedent the fourth direction's equality does **not** carry: the `genlCx` edge that
+made the pair jointly visible is not among the facts `why` names, so retracting that edge
+later does not by itself un-merge — a limitation the other three directions already share
+whenever a fact or the declaration arrives last under a `genlCx` edge asserted earlier,
+since none of their antecedent-building reaches for a context edge either. Closing it is a
+`genlCx`-aware `edge-support`, not a change owed by any one of the four directions.
 
 ## Storage
 

@@ -24,9 +24,13 @@
   ## The corpus
 
   Vocabulary-fixed, as `bench-residency`'s is: the same individuals, types and predicates
-  at every N, so the only thing that grows is the extent.  **Three sizes**, geometric, so
-  the answer is the growth between them *and* a second growth to check the first against —
-  two points can name a shape but cannot test one.
+  at every N, so the only thing that grows is the extent.  **Four sizes**, geometric, so
+  the answer is the growth between consecutive pairs, checked twice over instead of once —
+  two points can name a shape but cannot test one, and three points test an affine fit at
+  exactly one held-back sample.  A row that jumps between the *last* two of three samples
+  (`docs/density.md`, the routed map's refusal) cannot be told apart from a genuinely
+  linear row three points were too small to show; a fourth sample gives every row's affine
+  fit two held-back points to be tested against instead of one.
 
   The individuals are the knob that decides whether the corpus reaches the size it was
   asked for.  `generate` draws them from a **Zipf** distribution, so at a narrow
@@ -49,11 +53,11 @@
 
   ## The extrapolation
 
-  Stated as a shape, and **gated on both steps**: a row is called linear only when each
-  of the two growths agrees with its own fact ratio, flat only when both are flat, and
-  affine only when a fit through the outer two samples predicts the middle one it was not
-  fitted through.  A row that fits none of the three is reported unextrapolated, naming
-  the growths that disqualified it, rather than multiplied out anyway.  `docs/density.md`
+  Stated as a shape, and **gated on every step**: a row is called linear only when each
+  of the three growths agrees with its own fact ratio, flat only when all three are flat,
+  and affine only when a fit through the outer two samples predicts both middle ones it
+  was not fitted through.  A row that fits none of the three is reported unextrapolated,
+  naming the growths that disqualified it, rather than multiplied out anyway.  `docs/density.md`
   earned the right to interpolate the JTMS by confirming flatness across a 50× range;
   every row here earns it the same way or does without.
 
@@ -66,8 +70,8 @@
   a floor too.  This bench prices the **extent**; it does not price a KB that large.
 
   Run: `lein bench-budget [facts] [step] [individuals] [target-facts] [budget-gb]`
-       (default 60000 facts stepped ×2 twice — 60k/120k/240k — over 8000 individuals,
-       to 100,000,000 against 40 GB)."
+       (default 60000 facts stepped ×2 three times — 60k/120k/240k/480k — over 8000
+       individuals, to 100,000,000 against 40 GB)."
   (:require [clojure.string :as str]
             [vaelii.bench.postings :as postings]
             [vaelii.core :as v]
@@ -252,7 +256,7 @@
 
 (defn- index-sections
   "The index store's resident structures, by section.  Every backend answers the two
-  totals; the columnar one additionally answers the four sections
+  totals; the columnar one additionally answers the sections
   `index_snapshot.clj`'s residency split names, because *which* of them tracks the extent
   is the question the paged-index fork is waiting on.
 
@@ -270,9 +274,10 @@
             rsec     (roots/sections (:roots idx))
             columns  [(:keys rsec) (:offsets rsec)]
             handles  [(:handles rsec)]
-            ;; the routed map is what the roots hold when nothing is mapped; the fallback
-            ;; is what they hold either way, and carries the argument roots
+            ;; the routed map is what the roots hold when nothing is mapped; the scope
+            ;; table and the fallback are what they hold either way
             routed   [(:routed rsec)]
+            argfam   [(:argfam rsec)]
             fallback [(:fallback rsec)]]
         {:whole          (split [idx])
          :dictionary     {:heap dict :mapped 0}
@@ -281,6 +286,7 @@
          :roots-columns  (split columns)
          :roots-handles  (split handles)
          :roots-routed   (update (split routed) :heap #(max 0 (- ^long % dict)))
+         :roots-argfam   (split argfam)
          :roots-fallback (split fallback)}))))
 
 (defn- kind-objs [records k]
@@ -372,8 +378,14 @@
         ;; A field that reaches code rather than data kills the walk (see
         ;; `other-fields`), so a new one is reported as unmeasured instead of taking the
         ;; run down — a bench that dies on the last row has measured nothing.
-        roster-o (map deref (kind-objs records :live-ids))
+        ;; the roster object itself — `vaelii.impl.roster`'s `LiveRoster`, whose retained
+        ;; size is the bitmap it wraps
+        roster-o (kind-objs records :live-ids)
         cache-o  (kind-objs records :cache)
+        ;; `premises` is a `DiskRecordStore` field, not a per-`Kind` one — the derived
+        ;; set of sentex handles with a non-nil `:strength`, one boxed `Long` per premise
+        ;; until it is converted the way `roster-o` already was.
+        premises-o [(:premises records)]
         ;; A field that reaches code rather than data kills the walk (see
         ;; `other-fields`), so a new one is reported as unmeasured instead of taking the
         ;; run down — a bench that dies on the last row has measured nothing.
@@ -387,6 +399,7 @@
                         [:jtms           [(:tms kb)]]
                         [:record-rosters roster-o]
                         [:record-cache   cache-o]
+                        [:record-premises premises-o]
                         [:record-other   [records]]
                         [:other          other-o]
                         [:index          [(:index kb)]]]))))
@@ -490,19 +503,29 @@
 (defn- mb ^double [b] (/ (double b) 1048576.0))
 (defn- gb ^double [b] (/ (double b) 1073741824.0))
 
-(defn- fmt-bytes [b]
-  (if (>= (double b) 1073741824.0) (format "%.2f GB" (gb b)) (format "%.1f MB" (mb b))))
+(defn- fmt-bytes
+  "Bytes at three scales, because the rows now span nine orders of magnitude: the index
+  reads in GB and a compressed roster reads in KB, and a row printed as `0.0 MB` is one a
+  reader cannot check the shape verdict against — the verdict is computed on the raw
+  bytes either way, so the print floor would hide the growth rather than deny it."
+  [b]
+  (let [x (double b)]
+    (cond
+      (>= x 1073741824.0) (format "%.2f GB" (gb x))
+      (>= x 1048576.0)    (format "%.1f MB" (mb x))
+      :else               (format "%.1f KB" (/ x 1024.0)))))
 
 (def ^:private row-order
   "Printed — and **measured** — in this order; see `cumulative` for why the index is
   last."
-  [:taxonomy :jtms :record-rosters :record-cache :record-other :other :index])
+  [:taxonomy :jtms :record-rosters :record-cache :record-premises :record-other :other :index])
 
 (def ^:private row-labels
   {:index          "index store (what paging it would release)"
    :jtms           "jtms (dense)"
    :record-rosters "record rosters"
    :record-cache   "record cache (bounded)"
+   :record-premises "record premises (boxed set)"
    :record-other   "record store, rest"
    :taxonomy       "taxonomy"
    :other          "other (naming, match, feed, qcn)"})
@@ -512,7 +535,7 @@
   by both the per-size table and the per-section verdict, so a section cannot be measured
   and then silently dropped from the report — `:roots-handles` was."
   [:dictionary :csr-skeleton :csr-leaves :roots-columns :roots-handles
-   :roots-routed :roots-fallback])
+   :roots-routed :roots-argfam :roots-fallback])
 
 (def ^:private section-labels
   {:dictionary     "token dictionary"
@@ -521,14 +544,15 @@
    :roots-columns  "roots key + offset columns"
    :roots-handles  "roots handle column"
    :roots-routed   "roots routed map"
-   :roots-fallback "roots fallback blob  <- argument roots"})
+   :roots-argfam   "argument-root scope table"
+   :roots-fallback "roots fallback blob  <- term + slot rosters"})
 
 (def ^:private growth-tolerance
   "How far a structure's growth may sit from the fact ratio and still be called linear.
   Wide, deliberately: the question this gates is *\"does this row track the extent?\"*,
   and a row that grows 1.8× where the facts grew 2× is linear enough to extrapolate and
   say so.  A row that grows 1.2× is not tracking the extent at all, which is the answer
-  rather than a failure.  Applied to **each** step, so a row buys its shape twice."
+  rather than a failure.  Applied to **each** step, so a row buys its shape three times."
   0.25)
 
 (def ^:private capped-rows
@@ -562,42 +586,47 @@
                    cap facts justs)])))
 
 (defn- extrapolate
-  "`[bytes note]` for one row at `target` facts, from three `[facts bytes]` samples, or
-  `[nil why]` when no shape fits.
+  "`[bytes note]` for one row at `target` facts, from N `[facts bytes]` samples (N ≥ 3,
+  ascending), or `[nil why]` when no shape fits.
 
-  Three points rather than two, so the shape is **checked** rather than assumed.  Two
-  samples always name a straight line; they cannot say whether the row is on one.  A row
-  is linear here only when each step's growth matches that step's own fact ratio, flat
-  only when both steps are flat, and affine only when a fit through the outer two samples
-  predicts the middle sample it was not fitted through — the one point held back is what
-  makes the fit a test.
+  More than two points, so the shape is **checked** rather than assumed.  Two samples
+  always name a straight line; they cannot say whether the row is on one.  A row is
+  linear here only when *every* consecutive step's growth matches that step's own fact
+  ratio, flat only when every step is flat, and affine only when a fit through the outer
+  two samples predicts *every* sample in between — each point held back from the fit is
+  what makes it a test, and N-2 of them is a stronger test than one.
 
   Affine is the shape the old two-point gate had no name for and dropped: a fixed
   baseline plus a per-fact part reads as neither flat nor linear, and `record store, rest`
   sat in that gap at 1.65× against facts at 2.75×."
-  [[[f1 y1] [f2 y2] [f3 y3]] target]
-  (let [tol   (double growth-tolerance)
-        near? (fn [a b] (<= (Math/abs (- (double a) (double b))) (* tol (double b))))
-        fr1   (ratio f1 f2) fr2 (ratio f2 f3)
-        gr1   (ratio y1 y2) gr2 (ratio y2 y3)]
+  [pts target]
+  (let [tol     (double growth-tolerance)
+        near?   (fn [a b] (<= (Math/abs (- (double a) (double b))) (* tol (double b))))
+        steps   (partition 2 1 pts)
+        f-rats  (mapv (fn [[[f1 _] [f2 _]]] (ratio f1 f2)) steps)
+        y-rats  (mapv (fn [[[_ y1] [_ y2]]] (ratio y1 y2)) steps)
+        [f1 y1]   (first pts)
+        [flast ylast] (peek pts)]
     (cond
-      (zero? (long y3))
+      (zero? (long ylast))
       [0 "empty"]
 
-      (and (near? gr1 fr1) (near? gr2 fr2))
-      [(long (* (double y3) (ratio f3 target))) "linear, both steps"]
+      (every? true? (map near? y-rats f-rats))
+      [(long (* (double ylast) (ratio flast target))) (format "linear, all %d steps" (count steps))]
 
-      (and (near? gr1 1.0) (near? gr2 1.0))
-      [(long y3) "flat in the extent"]
+      (every? #(near? % 1.0) y-rats)
+      [(long ylast) "flat in the extent"]
 
       :else
-      (let [b    (/ (- (double y3) (double y1)) (max 1.0 (- (double f3) (double f1))))
+      (let [b    (/ (- (double ylast) (double y1)) (max 1.0 (- (double flast) (double f1))))
             a    (- (double y1) (* b (double f1)))
-            at   (+ a (* b (double target)))]
-        (if (and (pos? b) (pos? at) (near? (+ a (* b (double f2))) y2))
+            at   (+ a (* b (double target)))
+            held (subvec pts 1 (dec (count pts)))]
+        (if (and (pos? b) (pos? at) (every? (fn [[f y]] (near? (+ a (* b (double f))) y)) held))
           [(long at) (format "affine, %s + %.0f B/fact" (fmt-bytes (max 0.0 a)) b)]
-          [nil (format "growth %.2fx then %.2fx against facts %.2fx then %.2fx"
-                       gr1 gr2 fr1 fr2)])))))
+          [nil (format "growth %s against facts %s"
+                       (str/join "x then " (map #(format "%.2f" %) y-rats))
+                       (str/join "x then " (map #(format "%.2f" %) f-rats)))])))))
 
 (defn- print-header [{:keys [facts requested nodes justs j-n]} backends]
   ;; requested beside stored, because the Zipf draw behind the corpus dedups and the
@@ -648,7 +677,7 @@
                                    [b (assoc v :heap-rows (heap-rows v)
                                              :mapped-total (reduce + 0 (map (comp :mapped second) (:rows v))))])))
         by-size (mapv (fn [n] (prep (into {} (for [b backends] [b (measure b n individuals j-n)]))))
-                      [facts (* facts step) (* facts step step)])
+                      [facts (* facts step) (* facts step step) (* facts step step step)])
         any     (first backends)]
     (println (format "\n══ the residency budget, %s ══"
                      (str/join " · " (map name backends))))
@@ -689,9 +718,9 @@
                                        ""))))))
         ;; The index row above is one number over an image whose sections do not share a
         ;; shape: the CSR skeleton is path-scaled, the dictionary and the roots' key
-        ;; columns are vocabulary-bounded, and the fallback blob carries the
-        ;; predicate-scoped argument roots whose four-part key does not pack.  Aggregated,
-        ;; a fact-scaled section hides inside a mostly-bounded average — so each one gets
+        ;; columns are vocabulary-bounded, the scope table is bounded by predicates ×
+        ;; arities, and the handle column is where the facts are.  Aggregated, a
+        ;; fact-scaled section hides inside a mostly-bounded average — so each one gets
         ;; its own shape, and *that* is the answer to "is the image fact-independent?"
         ;;
         ;; A DECOMPOSITION of the index row, never an addition to it: these bytes are
@@ -712,10 +741,10 @@
                                (str/join " -> " (map #(format "%9s" (fmt-bytes (second %))) pts))
                                (if ext (str (fmt-bytes ext) "  (" why ")")
                                    (str "NOT EXTRAPOLATED — " why))))))))))
-  (println (str "\n  Read the three sizes across, then the shape.  A row that tracks the\n"
+  (println (str "\n  Read the four sizes across, then the shape.  A row that tracks the\n"
                 "  vocabulary is flat; one that tracks the extent is linear; one with a fixed\n"
                 "  baseline over it is affine; one bounded by config is read off its cap.  Each\n"
-                "  shape is confirmed on both steps, and a row that fits none is refused rather\n"
+                "  shape is confirmed on every step, and a row that fits none is refused rather\n"
                 "  than multiplied out.\n\n"
                 "  The total is a FLOOR even when no row is refused.  The corpus pins the\n"
                 "  vocabulary, so every flat row is carried to the target at the value a small\n"
@@ -724,17 +753,16 @@
 
 (defn -main [& args]
   (let [facts       (Long/parseLong (or (first args) "60000"))
-        ;; the per-step multiple now, applied twice: three sizes, geometric
+        ;; the per-step multiple now, applied three times: four sizes, geometric
         step        (Long/parseLong (or (second args) "2"))
         ;; wide enough that the Zipf draw behind the corpus mostly stops colliding —
         ;; 400 individuals stored 40% of a 240,000-fact request, 8,000 stores 78%
         individuals (Long/parseLong (or (nth args 2 nil) "8000"))
         target      (Long/parseLong (or (nth args 3 nil) "100000000"))
         budget-gb   (Long/parseLong (or (nth args 4 nil) "40"))]
-    (System/setProperty "vaelii.index.snapshot" "true")
     (doseq [j-n [0.5 1.1]]
       (println (format "\n\n════ j/n target %.1f ════" j-n))
-      (run facts step individuals j-n target budget-gb [:disk-log :disk-columnar]))
+      (run facts step individuals j-n target budget-gb [:disk-log :disk-snapshot]))
     (println (str "\n  :pg-disk-log is not measured here: the Postgres records live in the\n"
                   "  com.vaelii/postgres adapter, which the engine does not depend on, so this\n"
                   "  process cannot open one.  Its index and JTMS rows are :disk-log's by\n"

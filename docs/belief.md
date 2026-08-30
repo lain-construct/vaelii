@@ -8,7 +8,10 @@
 - **Not here:** a modal *logic* — no K/T/4/5 schema, and a nested `(believes A (believes B P))`
   projects only where the marker is visible — nothing by default, since an independent
   agent context cannot see the grant (see below); hypothetical worlds → [abduction.md](abduction.md).
-  The de re reading of a belief, and any operator for a *group* of agents.
+  The de re reading of a belief, and any operator for a *group* of agents. Nor the *other*
+  belief this engine has a word for: whether the KB itself holds a stored sentex true is
+  the JTMS label, and it is [nmtms.md](nmtms.md). Nothing here moves it — an agent's
+  beliefs are ordinary facts in the agent's context, believed on the ordinary terms.
 - **Assumes:** context, `genlCx` visibility, the prover registry → [contexts.md](contexts.md),
   [glossary.md](glossary.md); the equality partition → [equality.md](equality.md).
 

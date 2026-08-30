@@ -56,7 +56,7 @@
      :roots (- (postings/retained [(:roots idx)]) dict)}))
 
 (defn- load! [dir facts individuals]
-  (let [kb (v/open-kb {:records :disk :index :columnar :dir dir :recover? false})]
+  (let [kb (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})]
     (v/clear! kb)
     (gen/load-into kb {:facts facts :rules 0 :individuals individuals
                        :types 40 :predicates 30 :chain? false})
@@ -81,7 +81,7 @@
             ;; `:disk-columnar` has held since it shipped
             rebuilt (index-heap kb)]
         (disk/close-dir! dir)                                  ; writes the image
-        (let [[kb2 map-ms] (timed (v/open-kb {:records :disk :index :columnar
+        (let [[kb2 map-ms] (timed (v/open-kb {:records :disk :index :snapshot
                                               :dir dir :recover? :auto}))
               mapped (index-heap kb2)
               files  {:trie     (file-bytes dir "trie.csr")
@@ -93,7 +93,7 @@
           (dorun (v/sentexes-matching kb2 '(?p ?x ?y) 'CxGenerated))
           (disk/close-dir! dir)
           (snap/discard! dir)                                  ; the fallback, on purpose
-          (let [[_ rebuild-ms] (timed (v/open-kb {:records :disk :index :columnar
+          (let [[_ rebuild-ms] (timed (v/open-kb {:records :disk :index :snapshot
                                                   :dir dir :recover? :auto}))]
             {:facts n :terms terms :rebuilt rebuilt :mapped mapped :files files
              :map-ms map-ms :rebuild-ms rebuild-ms})))
@@ -139,7 +139,6 @@
   (let [facts       (Long/parseLong (or (first args) "25000"))
         multiple    (Long/parseLong (or (second args) "4"))
         individuals (Long/parseLong (or (nth args 2 nil) "400"))]
-    (System/setProperty "vaelii.index.snapshot" "true")
     (run facts multiple individuals)
     (shutdown-agents)
     (System/exit 0)))

@@ -5,15 +5,17 @@
   back, for a store big enough that the shape matters.
 
   The three enumerations answer a `java.util.Set` of handles, and every store the engine
-  ships answers a `PersistentHashSet<Long>` because that is what its own state already
-  is.  At the scale a server-backed store exists for, that shape *is* the cost: measured
+  ships answers a `PersistentHashSet<Long>` — the memory store because that is what its own
+  state already is, the disk store by materializing one from the `LiveRoster` below at the
+  call.  At the scale a server-backed store exists for, that shape *is* the cost: measured
   over contiguous handles, a `PersistentHashSet<Long>` retains **48–75 bytes per handle**
   (the hash trie's fill varies with cardinality), so **4.5–7.0 GB at 100M** — and
   `rebuild-tms` holds the sentex roster while it walks the premises and the
   justifications.
 
-  Handles are minted in assertion order (`next-id`), so a roster is a near-contiguous run
-  of longs with holes where records were deleted — the one shape a compressed bitmap is
+  Handles are minted in assertion order (`next-id`) from one counter across the three
+  kinds, so a roster is a strided run of longs — holes where records were deleted, and
+  holes where the other kinds' handles fall.  That is the one shape a compressed bitmap is
   built for.  Over the same handles with a tenth of them punched out, a `Roaring64Bitmap`
   retains **0.13–0.26 bytes per handle**, and less than that on an unbroken run, where
   the whole roster is a few run containers.  It answers `contains?` in *less* time than
@@ -28,7 +30,28 @@
   engine uses.
 
   Immutable once built, so concurrent readers need no coordination — the one property the
-  bitmap has to have here, since a store's readers enumerate while its writer writes."
+  bitmap has to have here, since a store's readers enumerate while its writer writes.
+
+  ## The live roster beside it
+
+  A store that *answers* a roster also *holds* one, and that one is mutated on every put
+  and every delete.  `LiveRoster` is the same bitmap kept in place for that: the disk
+  store's per-kind live-handle set, where the `PersistentHashSet<Long>` it replaces
+  costs 48–75 bytes a handle — **9.47 GB at 100M records** and the second-largest resident
+  row in the engine (`docs/density.md`).
+
+  **It synchronizes nothing, deliberately.**  A `Roaring64Bitmap` is mutable and not
+  thread-safe, so every call here needs a monitor around it — and the monitor is the
+  caller's, because the caller already has one.  The disk store mutates its live set under
+  the owning kind's lock, in the same acquisition as the file write the set is a claim
+  about (`vaelii.impl.disk.record-store`, \"two monitors\"); an internal lock would be a
+  second, weaker one that still could not make the pair atomic.  So: **hold the lock that
+  covers the field, for reads as well as writes.**  A tally and a first handle are reads
+  that a boxed set needs no monitor for and this one does.
+
+  A reader that outlives the call gets `live-snapshot`, an immutable `HandleRoster` over a
+  copy: it costs the *bitmap's* size, not the corpus's, which is why handing one out is
+  affordable where copying the boxed set was the thing to avoid."
   (:import [java.util Collection Iterator Set]
            [org.roaringbitmap.longlong LongIterator Roaring64Bitmap]))
 
@@ -133,3 +156,88 @@
   "Is `x` one of these?  For a caller deciding whether `(set x)` would cost anything."
   [x]
   (instance? HandleRoster x))
+
+;; ---- the live roster ----------------------------------------------------
+;; The mutable half: a store's own live-handle set, not the value it hands out.  Every
+;; function below is unsynchronized and expects the caller's monitor — see the "live
+;; roster beside it" section of the namespace docstring for why that is the discipline
+;; rather than an omission.
+
+(deftype LiveRoster [^Roaring64Bitmap bits])
+
+(defn live-roster
+  "An empty live roster."
+  ^LiveRoster [] (LiveRoster. (Roaring64Bitmap.)))
+
+(defn live-add!
+  "Add handle `id`, which must be an integer a `long` can hold — every caller is putting a
+  handle the store itself minted, where `live-has?` and `live-remove!` take whatever a
+  caller passed.  Returns nil."
+  [^LiveRoster r id]
+  (.addLong ^Roaring64Bitmap (.bits r) (long id))
+  nil)
+
+(defn live-add-all!
+  "Add every handle in `ids` (anything reducible).  Returns nil."
+  [^LiveRoster r ids]
+  (let [b ^Roaring64Bitmap (.bits r)]
+    (reduce (fn [_ id] (.addLong b (long id)) nil) nil ids))
+  nil)
+
+(defn live-remove!
+  "Drop handle `id`, or do nothing when it is not a handle this roster could hold.  A
+  no-op on a member it does not have, like the `disj` it replaces.  Returns nil."
+  [^LiveRoster r id]
+  (when-let [v (long-of id)]
+    (.removeLong ^Roaring64Bitmap (.bits r) (long v)))
+  nil)
+
+(defn live-remove-all!
+  "Drop every handle in `ids`.  Returns nil."
+  [^LiveRoster r ids]
+  (reduce (fn [_ id] (live-remove! r id)) nil ids)
+  nil)
+
+(defn live-has?
+  "Is `id` live?  Answers false — never throws — for anything that is not a handle this
+  roster could hold, which is what `contains?` on the set this replaces answers."
+  [^LiveRoster r id]
+  (boolean (when-let [v (long-of id)]
+             (.contains ^Roaring64Bitmap (.bits r) (long v)))))
+
+(defn live-tally
+  "How many handles are live."
+  ^long [^LiveRoster r]
+  (.getLongCardinality ^Roaring64Bitmap (.bits r)))
+
+(defn live-least
+  "The smallest live handle, or nil when there is none.  A boxed set answers `first` with
+  whichever handle its hash order puts in front; this answers the lowest.  Both satisfy
+  the question the callers ask — *is there one at all* (`vaelii.impl.protocols`,
+  `Tallying`) — and a determinate answer is the better one to give them."
+  [^LiveRoster r]
+  (let [b ^Roaring64Bitmap (.bits r)]
+    (when-not (.isEmpty b) (Long/valueOf (.first b)))))
+
+(defn live-clear!
+  "Empty the roster in place.  Returns nil."
+  [^LiveRoster r]
+  (.clear ^Roaring64Bitmap (.bits r))
+  nil)
+
+(defn live-optimize!
+  "Fold contiguous runs into run containers.  Worth calling once after a bulk build in
+  ascending order — an open's idx scan — and not worth calling per write, since the next
+  insert into a container undoes it.  Returns nil."
+  [^LiveRoster r]
+  (.runOptimize ^Roaring64Bitmap (.bits r))
+  nil)
+
+(defn live-snapshot
+  "An immutable `HandleRoster` over a copy of `r` — what a reader that outlives the
+  caller's monitor gets, and what an iteration that mutates the roster as it walks needs.
+  Costs the bitmap's size rather than the corpus's."
+  [^LiveRoster r]
+  (let [b (doto (Roaring64Bitmap.) (.or ^Roaring64Bitmap (.bits r)))]
+    (.runOptimize b)
+    (HandleRoster. b (.getLongCardinality b))))

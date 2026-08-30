@@ -275,9 +275,11 @@ or that node's cardinality. `kv/ArgColumns` names those four reads
 `arg-agnostic-count`) so a backend holding the family as a counted trie can answer them as
 node reads. It has an `Object` default that rebuilds the vector keys and folds the generic
 set ops, so a backend that implements nothing answers exactly what the flat map answers;
-only the in-memory backend overrides it, and `dense-roots` delegates to that one. The
-`[:argument-slot pos term]` roster is what keeps the predicate-agnostic reads answerable
-under the default without a second copy of every posting.
+only the in-memory backend overrides it. `dense-roots` takes the default, and the default
+is cheap there because its keys are packed longs rather than vectors: a scoped read is one
+lookup with nothing consed. The `[:argument-slot pos term]` roster is what keeps the
+predicate-agnostic reads answerable under the default without a second copy of every
+posting — one predicate in the common case, a handful otherwise.
 
 They are read through `core`: `sentexes-in-context` / `count-in-context`,
 `sentexes-with-functor` / `count-with-functor`, `sentexes-with-arg` /
@@ -654,26 +656,44 @@ so a `:disk-columnar` KB reads its index rather than rebuilding it, and the fact
 postings live in the OS page cache instead of the heap.
 
 The split is the point and it is not symmetric. **Resident**: the skeleton (`fcounts`
-`foffsets` `fedge-tok` `fedge-tgt`), the roots' key *and offset* columns, the token
-dictionary, and `roots-fallback.nippy`. **Mapped**: the leaf handles (`fleaf-off` /
-`fhandles`) and the routed roots' handle run. The lookup walk reads the skeleton at every
-frontier node — the leading-variable fan, measured on a corpus-sized index at tens of
-thousands of lookups for one query — and a page fault there would cost a disk seek
-apiece. The leaves are read once, at a walk's terminus. A write thaws whatever it lands
-on, mapped or frozen alike, so an image is a read-phase structure.
+`foffsets` `fedge-tok` `fedge-tgt`), the roots' key *and offset* columns, the argument
+roots' scope table, the token dictionary, and `roots-fallback.nippy`. **Mapped**: the leaf
+handles (`fleaf-off` / `fhandles`) and the roots' handle run. The lookup walk reads the
+skeleton at every frontier node — the leading-variable fan, measured on a corpus-sized
+index at tens of thousands of lookups for one query — and a page fault there would cost a
+disk seek apiece. The leaves are read once, at a walk's terminus. A write thaws whatever
+it lands on, mapped or frozen alike, so an image is a read-phase structure.
 
-**The fallback blob is on the resident side, and it is fact-scaled.** It carries the term
-and slot rosters, which are vocabulary-scaled, *and* the predicate-scoped argument roots,
-which are not: their four-part key does not fit `dense-roots`' packed `long`, so they
-cannot ride the mapped run and are read strictly onto the heap on open. That is a real
-cost of scoping the argument roots by predicate, and it is why the blob's entry count and
-byte length are stamped and checked like a CSR section's rather than treated as
-reconstructible metadata.
+**Every section on the resident side is path- or vocabulary-scaled, and the facts are all
+on the mapped one.** That is the property the image exists for, and it holds section by
+section rather than on average:
+
+| Resident section | Scales with |
+|---|---|
+| CSR skeleton (`fcounts` `foffsets` `fedge-tok` `fedge-tgt`) | trie paths |
+| roots' key and offset columns | the vocabulary, at the default `*min-indexed-depth*` |
+| argument-root scope table | distinct `(predicate, position)` pairs |
+| token dictionary | the vocabulary, on the same condition |
+| `roots-fallback.nippy` | the term and slot rosters — names, not handles |
+
+The scope table is what lets the argument roots ride the mapped run with every other
+family. Their key carries two names where the rest carry one, so the `(predicate,
+position)` half interns to a dense id of its own and rides the 24 bits `dense-roots`'
+packed `long` reserves for an argument position (`argfam-id`). The table decodes those
+ids, is bounded by predicates × arities rather than by facts, and rides `roots.csr` —
+the file whose key column is its only reader, so the two are written in one pass and
+discarded as one unit.
+
+The blob's entry count and byte length are stamped and checked like a CSR section's all
+the same: the slot roster is what a predicate-agnostic argument read descends through, so
+a blob that thawed short would answer `#{}` at every position rather than fail.
 
 It is a cache of derived state, so validity is the whole design: stamped with the record
 store's slot fingerprint, checked on **every** open, discarded to `reindex` on any doubt.
-Off by default (`vaelii.index.snapshot`), and refused outright on a platform that cannot
-replace a mapped file — the publish is an atomic rename over one (`docs/storage.md`).
+Selected by name — `{:backend :disk-snapshot}`, the one pairing there is, since the stamp
+is the disk record store's own slot fingerprint — and refused outright on a platform that
+cannot replace a mapped file, since the publish is an atomic rename over one
+(`docs/storage.md`).
 
 ## What the structural index does not reach
 

@@ -18,10 +18,16 @@
 
   It stays a full `KvBackend` so the existing composition (an embedded `KvIndexStore`
   over it) is unchanged: only the recognized index families are int-routed; any other key
-  — the argument roots and slot roster (see `route` for why neither packs), the term
-  roster (term *names*, not handles), a scalar, a counter, the contract test's synthetic
-  keys — falls back to a plain in-memory backend (in the columnar store the trie is
-  native, so no `[:trie …]` key ever reaches here).  Single-writer, like every index;
+  — the slot roster and the term roster (whose members are *names*, not handles), a
+  scalar, a counter, the contract test's synthetic keys — falls back to a plain in-memory
+  backend (in the columnar store the trie is native, so no `[:trie …]` key ever reaches
+  here).
+
+  **Every handle family routes**, the predicate-scoped argument roots included: their
+  `(pred, pos)` scope is interned to a dense id of its own (`argfam-id`) and rides the
+  `pos` field, which no other family uses.  So the fallback holds only vocabulary-scaled
+  name sets, and the fact-scaled mass is one packed map — or, under a snapshot, one
+  mapped run.  Single-writer, like every index;
   `kv-members` / `kv-intersect` materialize a fresh Clojure set at the boundary — but
   `kv-intersect` builds it at the size of the *answer*, narrowing through
   `dense/intersect-postings` in whichever representation each posting is in, a mapped run
@@ -50,11 +56,10 @@
 ;; family tags (bits 56-63); pos in bits 32-55; term-id in bits 0-31 (≫ 100M)
 (def ^:private ^:const F-CTX     0)
 (def ^:private ^:const F-PRED    1)
-;; Reserved, never packed: the argument roots carry a predicate the packed long has no
-;; room for, so `route` sends them to the fallback. The number stays claimed so no new
-;; family can take a tag `unpack` already assigns a shape — a snapshot key must decode
-;; exactly one way.
-#_{:clj-kondo/ignore [:unused-private-var]}
+;; The argument roots. `[:argument-root pred pos term]` carries two names where every
+;; other family carries one, and the packed long has one term field — so the `(pred, pos)`
+;; scope is interned to an id of its own and rides `pos`, which no other family uses
+;; (they all pass 0). See `argfam-id`.
 (def ^:private ^:const F-ARG     2)
 (def ^:private ^:const F-TERM    3)
 (def ^:private ^:const F-RULE-A  4)
@@ -64,8 +69,19 @@
 
 (def ^:private roster-key (bit-shift-left (long F-ROSTER) 56))   ; the exception roster, a single posting
 
+;; Each field is masked to its own width, and those widths are the invariant that makes
+;; `unpack` the *exact* inverse of `route` rather than an inverse over the values the
+;; callers happen to pass.  A value one bit past its field would carry into the next one
+;; and the key would decode as another family's — `[:argument-root …]` at a scope id of
+;; 2²⁴ reads back as `[:term-index …]`, and a routed read answers a posting that is not
+;; its own with nothing to signal it.  `argfam-id`'s ceiling is what keeps the scope in
+;; range; the masks make the failure unrepresentable rather than merely unreached.  Three
+;; `bit-and`s are free on a path every routed read and write takes, where a runtime width
+;; assert would not be.
 (defn- packed [family pos id]
-  (bit-or (bit-shift-left (long family) 56) (bit-shift-left (long pos) 32) (long id)))
+  (bit-or (bit-shift-left (bit-and (long family) 0xff) 56)
+          (bit-shift-left (bit-and (long pos) 0xffffff) 32)
+          (bit-and (long id) 0xffffffff)))
 
 (defn- fam-key
   "The packed long for a family key over `term`, or `:absent` when a *read* names a term
@@ -74,20 +90,85 @@
   (let [id (if intern? (tok/intern-token! dict term) (tok/token-id dict term))]
     (if (neg? id) :absent (packed family pos id))))            ; auto-boxes to Long
 
+;; ---- the argument family ------------------------------------------------
+;; `[:argument-root pred pos term]` is the one key with two names in it, and `packed` has
+;; one term field.  The room is in `pos`: 24 bits reserved for an argument position, which
+;; never exceeds an arity, and which every other family passes 0.  So the *pair* is
+;; interned — its own dense id space, in its own dictionary — and rides those 24 bits.
+;;
+;; The pair space is bounded by (distinct predicates × their arities), never by facts, so
+;; a 24-bit field is the right size rather than a lucky one: the audited corpus holds ~86k
+;; predicates against 16.7M pairs.  `argfam-ceiling` asserts that instead of assuming it.
+
+(def ^:private ^:const argfam-bits 24)
+;; a var rather than a `^:const`, so the refusal can be driven in a test by lowering it
+;; instead of by minting 16.7M pairs.  It is read once per pair intern, against the
+;; dictionary's size.
+(def ^:private argfam-ceiling (bit-shift-left 1 argfam-bits))
+
+(defn- argfam-id
+  "The dense id for an argument root's `(pred, pos)` scope: `-1` when a *read* names a
+  pair nothing has interned (so the posting cannot exist), else the id.
+
+  `intern?` allocates, and allocating also interns `pred` into the **term** dictionary.
+  That is not incidental — a snapshot writes this table as durable token ids, so a pair
+  whose predicate the term dictionary never saw would have no id to write.  Every
+  predicate carrying an argument root already has a functor root, so the intern is
+  almost always a lookup; doing it here is what makes \"almost\" unnecessary to reason
+  about.
+
+  **The ceiling is consulted before the pair is minted, and that ordering is the whole
+  of the refusal.**  An id allocated and *then* refused stays in the dictionary, where
+  the read path — which does not intern and so never reaches the ceiling — finds it and
+  packs a scope past 24 bits into a 24-bit field; `argfam-table` would write it into a
+  snapshot too, and `load-argfam!`'s count check restores it happily.  So a caller that
+  swallows the throw turns a refusal into a routed read answering another family's
+  posting.  `token-count` is the id the dictionary hands out next (`vaelii.impl.tokens`:
+  ids count up from 0, first-writer-wins), so asking it first costs one array-size read
+  and mints nothing."
+  ;; not a primitive-hinted fn: five args is one past what Clojure allows one to be.
+  [dict argfam pred pos intern?]
+  (if-not intern?
+    (long (tok/token-id argfam [pred pos]))
+    (if (< (long (tok/token-count argfam)) (long argfam-ceiling))
+      (let [id (long (tok/intern-token! argfam [pred pos]))]
+        (tok/intern-token! dict pred)
+        id)
+      ;; full, which refuses a *new* pair and not a scoped one: every id already handed
+      ;; out is inside the field, so a pair the dictionary holds still answers.
+      (let [id (long (tok/token-id argfam [pred pos]))]
+        (when (neg? id)
+          (throw (ex-info (str "the argument-root scope dictionary is full: "
+                               (inc (long (tok/token-count argfam)))
+                               " distinct (predicate, position) pairs against a ceiling of "
+                               argfam-ceiling ". The pair rides 24 bits of the packed root"
+                               " key, so a KB past this cannot int-route its argument roots"
+                               " — take the reference index (`:index :memory`), whose keys"
+                               " are boxed vectors and have no such ceiling.")
+                          {:type :argument-family-ceiling :pred pred :position pos
+                           :pairs (inc (long (tok/token-count argfam)))
+                           :ceiling argfam-ceiling
+                           :remedy {:index :memory}})))
+        (tok/intern-token! dict pred)
+        id))))
+
 (defn- route
   "Map a structured index key to its packed long (a `Long`), `:absent` (a read of an
   unknown term), or `:fallback` (not an int-routed family — a scalar / counter / unknown)."
-  [dict k intern?]
+  [dict argfam k intern?]
   (if-not (vector? k)
     :fallback
     (case (nth k 0)
       :context-root (fam-key dict F-CTX  0 (nth k 1) intern?)
       :functor-root (fam-key dict F-PRED 0 (nth k 1) intern?)
-      ;; `[:argument-root pred pos term]` carries a predicate the packed long has no
-      ;; room for (family 8 | pos 24 | term 32 is already full), so the argument roots
-      ;; take the generic map path rather than the int-routed one. Same for the
-      ;; `[:argument-slot pos term]` roster, whose members are predicates, not handles.
-      :argument-root :fallback
+      ;; the pair first: it is the half that can be absent without the term being, and a
+      ;; read of an unscoped pair has no posting to find.  The
+      ;; `[:argument-slot pos term]` roster stays in the fallback — its members are
+      ;; predicates, not handles.
+      :argument-root (let [af (argfam-id dict argfam (nth k 1) (nth k 2) intern?)]
+                       (if (neg? af)
+                         :absent
+                         (fam-key dict F-ARG af (nth k 3) intern?)))
       :term-index (fam-key dict F-TERM 0 (nth k 1) intern?)
       :rule-index (case (nth k 1)
                     :antecedent (fam-key dict F-RULE-A 0 (nth k 2) intern?)
@@ -104,21 +185,17 @@
   inverse whatever `route` chooses to send to the fallback — a family routed there
   instead comes back from the fallback's own enumeration, verbatim, and neither path can
   drop an entry."
-  [dict ^long pk]
+  [dict argfam ^long pk]
   (let [family (bit-shift-right pk 56)
         term   (tok/id-token dict (int (bit-and pk 0xffffffff)))]
     (case (int family)
       0 [:context-root term]
       1 [:functor-root term]
-      ;; F-ARG (family 2) is reserved and nothing packs it: the real key is the
-      ;; four-element `[:argument-root pred pos term]`, whose predicate the packed
-      ;; long has no room for (see `route`).  Throwing pins that — reusing the tag
-      ;; means designing a decode, not inheriting one with the wrong shape.
-      2 (throw (ex-info (str "packed key " pk " names family 2 (F-ARG), which is reserved"
-                             " and nothing packs: an argument root is the four-element"
-                             " key [:argument-root pred pos term], whose predicate a"
-                             " packed long has no room for")
-                        {:type :reserved-family :packed pk}))
+      ;; the scope dictionary is consulted on the way back out, which is what makes this
+      ;; the inverse of `route` rather than a partial one: the pair id in `pos` decodes
+      ;; to the two names the four-element key spells.
+      2 (let [[pred pos] (tok/id-token argfam (int (bit-and (bit-shift-right pk 32) 0xffffff)))]
+          [:argument-root pred pos term])
       3 [:term-index term]
       4 [:rule-index :antecedent term]
       5 [:rule-index :consequent term]
@@ -157,23 +234,35 @@
     "Install mapped columns (a `LongBuffer` and two `IntBuffer`s over a snapshot), replacing
     whatever the routed families held.")
   (sections [b]
-    "What this backend **holds**, by section — `{:routed :keys :offsets :handles
+    "What this backend **holds**, by section — `{:routed :keys :offsets :handles :argfam
     :fallback}` — for a residency measurement (`vaelii.bench.budget`).  The objects
     themselves, never a copy: `snapshot-columns` builds fresh heap arrays to write, and
     sizing those would size a temporary rather than what a running KB holds.
 
-    `:routed` is the mutable map the routed families use before a snapshot is installed
-    and after a write thaws one; `:keys` / `:offsets` / `:handles` are the installed
-    columns, which are buffers over the image and belong in a caller's *mapped* total
-    rather than its heap one; `:fallback` is the backend under everything the routed
-    families do not claim, and carries the fact-scaled argument roots
-    (`fallback-entries`).  The split is the caller's to make from the objects — a
-    buffer says whether it is direct — so this reports the shape and judges nothing."))
+    Which section carries the mass is the whole reading, so each says what it scales
+    with:
+
+    - `:routed` — the mutable map the routed families use before a snapshot is installed
+      and after a write thaws one.  **Fact-scaled**: every handle family is in here.
+    - `:keys` / `:offsets` / `:handles` — the installed columns.  The first two are
+      vocabulary-scaled, `:handles` is the fact-scaled mass, and all three are buffers
+      over the image, so they belong in a caller's *mapped* total rather than its heap
+      one.
+    - `:argfam` — the `(pred, pos)` scope dictionary the packed argument keys cite
+      (`argfam-id`).  **Vocabulary-scaled**, bounded by distinct predicates × their
+      arities.
+    - `:fallback` — the backend under everything the routed families do not claim: the
+      term roster and the slot roster, whose members are names rather than handles
+      (`fallback-entries`).  **Vocabulary-scaled**, which is what lets a snapshot write
+      it as one nippy blob.
+
+    The heap/mapped split is the caller's to make from the objects — a buffer says
+    whether it is direct — so this reports the shape and judges nothing."))
 
 (defn- members
   "The set at `k`, from whichever place the routed families live in."
-  [this dict ^Long2ObjectOpenHashMap m fallback k]
-  (let [r (route dict k false)]
+  [this dict argfam ^Long2ObjectOpenHashMap m fallback k]
+  (let [r (route dict argfam k false)]
     (cond
       (instance? Long r) (if (mapped? this)
                            (let [i (-find-key this (long r))]
@@ -187,8 +276,8 @@
   ascending `int[]` (a mapped run), a Clojure set (a fallback family), or `nil` when the
   key holds nothing at all.  `kv-intersect` reads this rather than `members`, so a routed
   family never boxes a handle the narrowing is about to throw away."
-  [this dict ^Long2ObjectOpenHashMap m fallback k]
-  (let [r (route dict k false)]
+  [this dict argfam ^Long2ObjectOpenHashMap m fallback k]
+  (let [r (route dict argfam k false)]
     (cond
       (instance? Long r) (if (mapped? this)
                            (let [i (-find-key this (long r))]
@@ -197,7 +286,7 @@
       (= :fallback r)    (kv/kv-members fallback k)
       :else              nil)))                                  ; :absent
 
-(deftype DenseRoots [dict ^Long2ObjectOpenHashMap m fallback
+(deftype DenseRoots [dict argfam ^Long2ObjectOpenHashMap m fallback
                      ^:unsynchronized-mutable mkeys      ; LongBuffer | nil
                      ^:unsynchronized-mutable moff       ; IntBuffer  | nil
                      ^:unsynchronized-mutable mhandles   ; IntBuffer  | nil
@@ -281,18 +370,39 @@
     nil)
 
   (sections [_]
-    {:routed m :keys mkeys :offsets moff :handles mhandles :fallback fallback})
+    {:routed m :keys mkeys :offsets moff :handles mhandles
+     :argfam argfam :fallback fallback})
 
   kv/KvBackend
-  ;; scalars / counters are never a routed family — only the fallback holds them
+  ;; `kv-get` reads the fallback alone, and that is the contract rather than an omission:
+  ;; a routed family holds a posting, never a scalar, so `kv-get` on one is nil — which is
+  ;; what `dense_routing_test` reads to tell a routed key from a fallback key.  Counters
+  ;; are scalars and route nowhere, so the two increments follow it down.
   (kv-get  [_ k]   (kv/kv-get  fallback k))
-  (kv-put  [_ k v] (kv/kv-put  fallback k v))
-  (kv-delete  [_ k]   (kv/kv-delete  fallback k))
   (kv-increment [_ k]   (kv/kv-increment fallback k))
   (kv-decrement [_ k]   (kv/kv-decrement fallback k))
 
+  ;; A whole-posting put and a delete are the two ops the index's own writes never issue
+  ;; on a root family — `index-sentex` adds and removes members — so only `kv_backend_test`
+  ;; exercises them, and only there does a routed key that took the fallback's answer show
+  ;; up: it would write a boxed entry the routed reads cannot see, and leave the packed
+  ;; posting standing under a key a dump reports as deleted.
+  (kv-put [this k v]
+    (let [r (route dict argfam k true)]                          ; intern ⇒ never :absent
+      (if (instance? Long r)
+        (do (-thaw-roots! this)
+            (.put m (long r) (reduce dense/padd! (dense/int-postings) v)))
+        (kv/kv-put fallback k v)))
+    nil)
+  (kv-delete [this k]
+    (let [r (route dict argfam k false)]
+      (cond
+        (instance? Long r) (do (-thaw-roots! this) (.remove m (long r)))
+        (= :fallback r)    (kv/kv-delete fallback k)))           ; :absent ⇒ nothing to drop
+    nil)
+
   (kv-add-to-set [this k mem]
-    (let [r (route dict k true)]                                 ; intern ⇒ never :absent
+    (let [r (route dict argfam k true)]                                 ; intern ⇒ never :absent
       (if (instance? Long r)
         (let [_  (-thaw-roots! this)                             ; a write leaves the mapped tail
               pk (long r)
@@ -301,7 +411,7 @@
         (kv/kv-add-to-set fallback k mem)))
     nil)
   (kv-remove-from-set [this k mem]
-    (let [r (route dict k false)]
+    (let [r (route dict argfam k false)]
       (cond
         (instance? Long r) (do (-thaw-roots! this)
                                (when-let [p (.get m (long r))]
@@ -309,11 +419,11 @@
                                  (when (zero? (dense/pcard p)) (.remove m (long r)))))
         (= :fallback r)    (kv/kv-remove-from-set fallback k mem)))          ; :absent ⇒ nothing to remove
     nil)
-  (kv-members [this k] (members this dict m fallback k))
+  (kv-members [this k] (members this dict argfam m fallback k))
   ;; the probe routes exactly as `kv-count` does — a term the dictionary never interned
   ;; has no posting, so `:absent` is a false rather than a lookup
   (kv-member? [this k mem]
-    (let [r (route dict k false)]
+    (let [r (route dict argfam k false)]
       (cond
         (instance? Long r) (if (mapped? this)
                              (let [i (-find-key this (long r))]
@@ -337,7 +447,7 @@
         (= :fallback r)    (kv/kv-member? fallback k mem)
         :else              false)))
   (kv-count [this k]
-    (let [r (route dict k false)]
+    (let [r (route dict argfam k false)]
       (cond
         (instance? Long r) (if (mapped? this)
                              (let [i (-find-key this (long r))]
@@ -353,7 +463,7 @@
   (kv-intersect [this ks]
     (if (empty? ks)
       #{}
-      (let [ps (mapv #(posting this dict m fallback %) ks)]
+      (let [ps (mapv #(posting this dict argfam m fallback %) ks)]
         (cond
           (some nil? ps) #{}                                     ; a key holding nothing
           (some set? ps) (reduce set/intersection
@@ -380,15 +490,15 @@
     (concat (if (mapped? this)
               (map (fn [i]
                      (let [pk (.get ^LongBuffer mkeys (int i))]
-                       [(unpack dict pk) (mapped-members this i)]))
+                       [(unpack dict argfam pk) (mapped-members this i)]))
                    (range mn))
-              (map (fn [k] (let [pk (long k)] [(unpack dict pk) (dense/pmembers (.get m pk))]))
+              (map (fn [k] (let [pk (long k)] [(unpack dict argfam pk) (dense/pmembers (.get m pk))]))
                    (iterator-seq (.iterator (.keySet m)))))
             (kv/kv-entries fallback)))
   (kv-load [this entries]
     (-thaw-roots! this)
     (doseq [[k v] entries]
-      (let [r (route dict k true)]                                ; intern ⇒ never :absent
+      (let [r (route dict argfam k true)]                                ; intern ⇒ never :absent
         (if (instance? Long r)
           (.put m (long r) (reduce dense/padd! (dense/int-postings) v))
           (kv/kv-put fallback k v))))
@@ -397,57 +507,104 @@
   (kv-clear! [_]
     (.clear m)
     (set! mkeys nil) (set! moff nil) (set! mhandles nil) (set! mn (int 0))
+    ;; the scope ids are only meaningful against the keys citing them, and every one of
+    ;; those has just gone — a surviving dictionary would hand the next load ids nothing
+    ;; decodes.
+    (tok/clear-tokens! argfam)
     (kv/kv-clear! fallback)
-    nil)
+    nil))
 
-  ;; The predicate-scoped argument-root family is the one handle family this backend does
-  ;; NOT int-route: `[:argument-root pred pos term]` carries a predicate the packed long
-  ;; has no room for, so `route` sends it to the fallback (`unpackable-handle-families`).
-  ;; The fallback is a `MemoryKvBackend`, which holds the family as its counted `::arg`
-  ;; trie and answers `ArgColumns` off it NATIVELY — a scoped leaf and the agnostic union
-  ;; by reference, the agnostic count as a node read, the multi-column probe as an
-  ;; intersection of scoped leaves.  So the aggregate reads delegate straight to it, ints
-  ;; and all, and get the whole collapse.
-  ;;
-  ;; Without these four, `DenseRoots` takes the `Object` default (`vaelii.impl.kv`), which
-  ;; reconstructs the four-part `[:argument-root pred pos term]` VECTOR through `arg-key`
-  ;; and calls the generic `kv-members`/`kv-count`/`kv-intersect` — routed to `:fallback`
-  ;; and re-parsed by the fallback's `arg-root-key?` back into `pos`/`term`/`pred`.  That
-  ;; cons-and-reparse per read, and the union rebuilt over the slot roster rather than read
-  ;; off the maintained node, is exactly the cost the trie exists to remove; delegating
-  ;; here is what carries the memory backend's trie collapse onto the columnar /
-  ;; disk-columnar path, whose argument reads bottom out on this backend.
-  ;;
-  ;; **Both routing states, one path.**  The argument roots are resident in the fallback
-  ;; whether or not a snapshot is mapped: unmapped they are *written* there (`route ⇒
-  ;; :fallback`), and a mapped image loads them there from the resident `roots-fallback.nippy`
-  ;; blob — they ride the resident blob, NOT the mapped run (`disk/index_snapshot.clj`,
-  ;; "The residency split"; `mapped?` and the `m`/`mkeys` columns concern only the
-  ;; int-routed families).  So this needs no mapped/unmapped branch: `mapped?` never moves
-  ;; an argument-root posting out of the fallback's `::arg` trie, and the delegate is the
-  ;; correct native read in either state.  (The fallback's own `ArgColumns` is the `Object`
-  ;; default on any non-memory fallback, so this stays correct even were the fallback
-  ;; swapped — it would only lose the trie collapse, never an answer.)
-  kv/ArgColumns
-  (arg-scoped-members   [_ pred pos term]   (kv/arg-scoped-members   fallback pred pos term))
-  (arg-scoped-intersect [_ pred pos-terms]  (kv/arg-scoped-intersect fallback pred pos-terms))
-  (arg-agnostic-members [_ pos term]        (kv/arg-agnostic-members fallback pos term))
-  (arg-agnostic-count   [_ pos term]        (kv/arg-agnostic-count   fallback pos term)))
+;; ---- the argument columns, and why this backend takes the default ------
+;;
+;; `ArgColumns` (`vaelii.impl.kv`) names the three shapes a settle asks the
+;; argument-root family for: a scoped leaf, the predicate-agnostic union at a
+;; `(pos, term)` node, and that node's cardinality.  The in-memory backend overrides it
+;; with a counted `::arg` trie and answers all three as node reads; every other backend
+;; takes the `Object` default, which spells the keys and folds the generic set ops.
+;;
+;; This backend takes the default, and the two halves of that are worth separating.
+;;
+;; **The scoped reads are packed reads.**  `arg-scoped-members` is one packed-long lookup
+;; and `arg-scoped-intersect` one `kv-intersect` over packed keys — no consed vector, no
+;; `doEquiv`, and the narrowing runs in the postings' own representation, a mapped run
+;; included.  These are the reads `sentexes-with-args` makes for a named functor, which is
+;; the overwhelmingly common query shape.
+;;
+;; **The agnostic reads cost one extra lookup.**  The default reaches them over the
+;; slot roster — `[:argument-slot pos term]` → the predicates present there — and then
+;; unions the scoped postings.  That roster is *one predicate* in the common case (a
+;; term occupies a given position under one predicate; `kv.clj`, `sentexes-with-arg`),
+;; so the union is a single set handed straight back and the cost over a maintained node
+;; union is the roster read itself.  A handful of predicates is a handful of packed
+;; lookups.
+;;
+;; Maintaining an agnostic union here instead would mean a second posting per
+;; `(pos, term)` holding what the scoped postings already hold — the family's whole
+;; fact-scaled mass, stored twice — to save one lookup on a read that is usually a union
+;; of one.  The roster is already maintained and already vocabulary-scaled.  So the
+;; default is the right reading of this representation rather than a gap in it, and the
+;; trie's advantage stays where it is paid for: in RAM, on the memory backend.
 
 (defn dense-roots
   "A key-interning `KvBackend` sharing `dict` (the columnar trie's token dictionary) so a
   term interned by the trie and by a root get the same id."
   [dict]
-  (->DenseRoots dict (Long2ObjectOpenHashMap.) (mem/->MemoryKvBackend (atom {}))
+  (->DenseRoots dict (tok/token-dict) (Long2ObjectOpenHashMap.)
+                (mem/->MemoryKvBackend (atom {}))
                 nil nil nil 0))
 
 (defn fallback-entries
-  "The entries the routed families do **not** claim.  That is the term roster and the
-  slot roster (names, not handles) — but also the predicate-scoped argument roots,
-  which are **fact-scaled**: a posting per `[pred pos term]` triple the stored facts
-  exhibit.  A snapshot writes all of it as one nippy blob rather than a column, and
-  loads it resident, so the arg-root mass sits outside the mapped-run residency split
-  (`disk/index_snapshot.clj`, \"The residency split\")."
+  "The entries the routed families do **not** claim: the term roster and the slot roster,
+  whose members are *names* rather than handles.  Both are **vocabulary-scaled**, which
+  is what lets a snapshot write them as one nippy blob and load them resident without
+  the blob tracking the fact count (`disk/index_snapshot.clj`, \"The residency split\")."
   [^DenseRoots b] (kv/kv-entries (.-fallback b)))
 
 (defn load-fallback! [^DenseRoots b entries] (kv/kv-load (.-fallback b) entries) nil)
+
+;; ---- the scope dictionary, as a snapshot section ------------------------
+;; The packed argument keys cite scope ids, so an image that carries the keys has to
+;; carry the table that decodes them.  It rides `roots.csr` — the file whose key column
+;; is its only reader — rather than a log beside `tokens.log`, and the reason is the
+;; failure each shape can have.  `tokens.log` is durable ground truth: appended as facts
+;; arrive, cited by the mapped trie edges, and able to disagree with an image written at
+;; some other time — which is what `:duplicate-tokens` exists to repair.  This table is
+;; written in the same pass as the column that cites it and discarded with it, so the two
+;; cannot drift apart at all.  A second log would buy nothing and inherit that repair.
+
+(defn argfam-table
+  "The scope dictionary as `{:preds int[] :positions int[]}`, indexed by scope id, with
+  each predicate taken through `remap` into the durable dictionary's id space — the same
+  `int[]` the packed keys' term halves are remapped by.
+
+  A pair's predicate is interned into the term dictionary when the pair is
+  (`argfam-id`), so every id here has a term id to be written as."
+  [^DenseRoots b ^ints remap]
+  (let [af (.-argfam b)
+        n  (long (tok/token-count af))
+        ps (int-array n)
+        qs (int-array n)]
+    (dotimes [i n]
+      (let [[pred pos] (tok/id-token af i)]
+        (aset ps i (int (aget remap (int (tok/token-id (.-dict b) pred)))))
+        (aset qs i (int pos))))
+    {:preds ps :positions qs}))
+
+(defn load-argfam!
+  "Rebuild the scope dictionary from a snapshot's table, ids implied by position — the
+  same first-writer-wins order `vaelii.impl.tokens` allocates in, so an id read out of a
+  packed key names the pair it named when the image was written."
+  [^DenseRoots b ^ints preds ^ints positions n]
+  (let [af   (.-argfam b)
+        dict (.-dict b)]
+    (tok/clear-tokens! af)
+    (dotimes [i (long n)]
+      (tok/intern-token! af [(tok/id-token dict (aget preds i)) (aget positions i)]))
+    (let [loaded (long (tok/token-count af))]
+      (when (not= loaded (long n))
+        (throw (ex-info (str "the argument-root scope dictionary reloaded as " loaded
+                             " entries where the image holds " n
+                             " — the ids the packed keys cite have shifted")
+                        {:type :torn-snapshot :loaded loaded :entries n})))))
+  nil)
+
