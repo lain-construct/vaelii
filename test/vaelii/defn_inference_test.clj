@@ -21,7 +21,7 @@
   Call-counts are observed the honest way: each defn's condition is an `add-evaluatable`
   predicate backed by a counter atom, so the count is a side effect of the real
   admittance walk, not a peek into its internals."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.test :refer [is use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
