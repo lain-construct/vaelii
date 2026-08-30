@@ -57,7 +57,7 @@
                        (list 'and (list isInt '?x) (list below0 '?x)))
               'CxUniverse)
     (is (v/ask? kb (list negnum -212) 'CxUniverse)
-        "-212 is an integer below zero, so the evaluated sufficient condition admits it from the bare literal")
+        "-212 is an integer below zero, so the evaluated sufficient condition admits it from the bare number")
     (is (not (v/ask? kb (list negnum 7) 'CxUniverse))
         "7 is an integer but not below zero")))
 
@@ -190,18 +190,18 @@
       (is (= 0 @(:midb c))      "dmid_b not checked")
       (is (= 0 @(:bottomsuff c)) "the sufficient is skipped once the top necessary fails"))))
 
-;; ---- 4. characterization: pin what asking a defn collection of a literal does TODAY ----
+;; ---- 4. characterization: pin what asking a defn collection of a number does TODAY ----
 
-(tu/deftest-kb pin-baseline-a-computed-sufficient-does-not-admit-a-literal-yet
+(tu/deftest-kb pin-baseline-a-computed-sufficient-does-not-admit-a-number-yet
   ;; The characterization question: what currently happens when you ask (?pred 212)? Pin it
   ;; with a test, with a comment about defns.  This assertion was pinned against the PRE-evaluative baseline
-  ;; (a computed defnSufficient never fired forward, so the literal was not admitted) and
+  ;; (a computed defnSufficient never fired forward, so the number was not admitted) and
   ;; was designed to FLIP once `sufficient-admits-by-evaluating-a-computed-condition` went
   ;; green.  Phase A (query-time evaluative defnSufficient) is exactly that change, so it
   ;; is flipped here in the same commit: 12 is now admitted by EVALUATING `(under 12)`
-  ;; against the queried literal, no stored membership and no forward firing needed.
+  ;; against the queried number, no stored membership and no forward firing needed.
   (tu/with-terms [small under]
     (v/add-evaluatable kb under (fn [n] (< n 100)))
     (v/assert kb (list 'defnSufficient small (list under '?x)) 'CxUniverse)
     (is (v/ask? kb (list small 12) 'CxUniverse)
-        "POST-Phase-A: the computed sufficient condition (under 12) is evaluated at query time and admits literal 12; no forward defn rule fires, no membership is stored.")))
+        "POST-Phase-A: the computed sufficient condition (under 12) is evaluated at query time and admits number 12; no forward defn rule fires, no membership is stored.")))
