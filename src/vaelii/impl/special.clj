@@ -3893,6 +3893,12 @@
             ['defnNecessary        {:wff defn-wff-problems}]
             ['defnSufficient       {:wff defn-wff-problems}]
             ['defnIff              {:wff defn-wff-problems}]
+            ;; the two JustificationRule predicates carry a quoted rule over the member
+            ;; variable `?x`, so they take the same member-variable wff arm — but expand
+            ;; into no rule (the quote is inert), so they are absent from
+            ;; `sx/defn-predicates` and `materialize-defn-rules` never fires them
+            ['defnSufficientJustificationRule {:wff defn-wff-problems}]
+            ['defnNecessaryJustificationRule  {:wff defn-wff-problems}]
             ['different            {:wff wff/different-problems}]
             ['unknown              {:wff wff/naf-problems}]
             ['thereExists          {:wff wff/naf-problems}]

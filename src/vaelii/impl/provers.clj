@@ -947,28 +947,43 @@
 ;; ---- evaluable predicates (computed, not stored) ------------------------
 
 (def evaluable-predicates
-  "Predicates a prover computes from ground numeric arguments rather than looks up.
-  Both are **variable arity** — `(lessThan 1 2 3)` reads as the chain 1 < 2 < 3.
-  `greaterThan` is folded to `lessThan` when *stored* (see `vaelii.impl.sentex`), but a
-  caller may still ask it directly, so both are answered here."
-  '#{lessThan greaterThan})
+  "Predicates a prover computes from its ground arguments rather than looks up.
+  `lessThan` / `greaterThan` are the **variable arity** arithmetic comparisons —
+  `(lessThan 1 2 3)` reads as the chain 1 < 2 < 3; `greaterThan` is folded to `lessThan`
+  when *stored* (see `vaelii.impl.sentex`), but a caller may still ask it directly, so both
+  are answered here.
 
-(defrecord EvaluableProver []                    ; arithmetic comparison
+  `integer` is the **unary** EDN-kind check: `(integer 5)` holds because 5 *is* an integer,
+  no stored fact needed.  It is a built-in for the same reason the comparisons are — the
+  kind is always present — and it is what lets the four sign-refined integer collections in
+  CxCore (`positive_integer` …) be defined by `defnSufficient` / `defnNecessary` conditions
+  built on `(integer ?x)` and resolved **by evaluation** at query time, at zero storage
+  cost, rather than by a forward rule that never fires because the computed condition is
+  never a believed fact (docs/defns.md)."
+  '#{lessThan greaterThan integer})
+
+(defrecord EvaluableProver []                    ; arithmetic comparison + EDN-kind check
   Prover
   (applicable? [_ _ goal _]
     (and (sequential? goal) (contains? evaluable-predicates (first goal))
-         (>= (count (rest goal)) 2)
-         (every? number? (rest goal))))
+         (if (= 'integer (first goal))
+           ;; the unary kind check: one ground argument, of any EDN kind (a non-integer
+           ;; simply yields no solution — which is what makes a failing `(integer ?x)`
+           ;; necessary a sound negative witness for a string / symbol member).
+           (and (= 1 (count (rest goal))) (ground? goal))
+           (and (>= (count (rest goal)) 2)
+                (every? number? (rest goal))))))
   (est-bindings [_ _ _ _] 1)
   (cost         [_ _ _ _] :lookup)
-  ;; Authoritative for a ground comparison: the arithmetic cannot be wrong about two
-  ;; numbers.
+  ;; Authoritative for a ground goal: the arithmetic cannot be wrong about two numbers, nor
+  ;; `integer?` about one term's EDN kind.
   (completeness [_ _ _ _] 100)
   (solve [_ _ goal _]
     (let [args (rest goal)
           ok   (case (first goal)
                  lessThan    (apply < args)
                  greaterThan (apply > args)
+                 integer     (integer? (first args))
                  false)]
       (if ok [{}] []))))
 
