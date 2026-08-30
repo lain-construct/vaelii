@@ -1686,14 +1686,14 @@
 ;; forward rule (completeness 50): a condition that *is* believed is answered identically
 ;; through `FactProver` and deduped, so this only adds the computed case.
 ;;
-;; **Positive membership descends to a spec's sufficient (v2).**  `(Coll a)` is provable
+;; **Positive membership descends to a spec's sufficient.**  `(Coll a)` is provable
 ;; when `Coll`'s own defnSufficient passes OR a **spec**'s does — a spec is more specific,
 ;; below `Coll` on the genl edges (`(genl spec Coll)`), and its members are `Coll`s.  So
 ;; the walk descends the spec cone (`tax/specs`, which is reflexive — it includes `Coll`
 ;; itself, folding the own-sufficient and the spec-sufficient cases into one iteration).
 ;;
 ;; A passing sufficient admits even against a failing OWN necessary — sufficient is
-;; authoritative (v2), the resulting inconsistency documented not arbitrated.  But a failing
+;; authoritative, the resulting inconsistency documented not arbitrated.  But a failing
 ;; necessary of a *strict genl* fast-fails the query (`genl-necessary-fails?`): on a
 ;; consistent KB the broadest disqualifier is checked most-general-first and the walk
 ;; rejects before the sides or the sufficient are ever evaluated.  The negation prover (a
@@ -1719,7 +1719,7 @@
   "Does the defn condition `cond` hold for `member`, evaluated at query time through the
   registry (level-6, no backchaining)?  The member is substituted for `sx/defn-member-var`
   and each conjunct answered by the evaluables, the facts and the closures.  **Two-valued**:
-  a condition that is not derivable is false — there is no third 'unknown' state (v2)."
+  a condition that is not derivable is false — there is no third 'unknown' state."
   [kb cond member context]
   (conjunction-derivable?
    kb (sx/conjuncts (res/substitute cond {sx/defn-member-var member})) {} context))
@@ -1745,9 +1745,9 @@
   failing necessary (the broadest disqualifier), so a consistent KB rejects without
   evaluating the sides or the (possibly expensive) sufficient.
   **Strict** (excludes `coll` itself): a collection's own necessary does not veto its own
-  sufficient — sufficient is authoritative (v2) — and the cone is a set, so a defn reachable
+  sufficient — sufficient is authoritative — and the cone is a set, so a defn reachable
   by two genl paths (a diamond's apex) is checked exactly once.  Sound only on a consistent
-  KB, which is what the card asks for: on an inconsistent one the negation prover records
+  KB: on an inconsistent one the negation prover records
   the ¬member half and this merely declines to admit."
   [kb coll member context]
   (let [tx        (:taxonomy kb)
@@ -1791,7 +1791,7 @@
           [{}])))))
 
 ;; ---- negated defn checks: (not (coll x)) via a FAILING necessary (the converse) --------
-;; The exact converse of the positive walk, with three flips (v2, Pace 2026-08-29):
+;; The exact converse of the positive walk, with three flips:
 ;; member ↔ non-member, sufficient ↔ necessary, and the genl-walk direction — the positive
 ;; walk descends to a spec's *sufficient*, the negative ascends to a genl's *necessary*.
 ;; `(not (Coll x))` is provable iff a defnNecessary fails for `x` — `Coll`'s own or any

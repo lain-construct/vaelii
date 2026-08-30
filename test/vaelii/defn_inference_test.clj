@@ -1,8 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.defn-inference-test
-  "Query-time definitional *inference* — the piece `defns-test` assumed and vaelii did
-  not have.  Two behaviours this suite pins, both TDD-red until the build lands:
+  "Query-time definitional *inference*.  Two behaviours this suite pins, both TDD-red
+  until the build lands:
 
   1. **Evaluative `defnSufficient`.**  A sufficient condition built from *computed*
      predicates (`integer`, `lessThan`, or any `add-evaluatable` check) must admit a
@@ -20,7 +20,7 @@
 
   Call-counts are observed the honest way: each defn's condition is an `add-evaluatable`
   predicate backed by a counter atom, so the count is a side effect of the real
-  admittance walk, not a peek into its internals.  See SCOPE-defn-inference.md."
+  admittance walk, not a peek into its internals."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -61,14 +61,14 @@
     (is (not (v/ask? kb (list negnum 7) 'CxUniverse))
         "7 is an integer but not below zero")))
 
-;; ---- 2. v2 semantics: sufficient is authoritative, necessary is an optimization ----
-;; Pace, 2026-08-29: defns are two-valued; a defnSufficient that passes admits, full stop;
+;; ---- 2. semantics: sufficient is authoritative, necessary is an optimization ----
+;; defns are two-valued; a defnSufficient that passes admits, full stop;
 ;; a defnNecessary is a sound negative witness / fast-fail, never a positive gate.
 
 (tu/deftest-kb sufficient-is-authoritative-a-failing-necessary-does-not-veto
   ;; A passing sufficient admits even when a necessary fails. That makes the KB
   ;; inconsistent — (widget 7) and (not (widget 7)) both become provable — which is FINE:
-  ;; we DOCUMENT it and pin no arbitration. Here we pin only the v2 rule (sufficient
+  ;; we DOCUMENT it and pin no arbitration. Here we pin only the rule (sufficient
   ;; admits); the negative half is exercised in the negation tests below.
   ;; Green after Phase A: the query-time sufficient prover admits without consulting necessaries.
   (tu/with-terms [widget suff nec]
@@ -82,7 +82,7 @@
 ;; ---- 3. positive membership descends to a SPEC's sufficient (down the genl edges) ----
 
 (tu/deftest-kb positive-membership-descends-to-a-specs-sufficient
-  ;; Pace, "specs down the genl edges": (animal 7) is provable because 7 is a dog (dog's
+  ;; Specs down the genl edges: (animal 7) is provable because 7 is a dog (dog's
   ;; sufficient holds) and dog ⊑ animal. The positive walk descends to a spec's sufficient.
   ;; RED until Phase B — Phase A consults only the queried collection's OWN sufficient.
   (tu/with-terms [animal dog dogSuff]
@@ -114,7 +114,7 @@
         "animal's necessary fails and dog ⊑ animal, so ¬(animal 7) ⇒ ¬(dog 7) — negative walk ascends to the genl's necessary")))
 
 (tu/deftest-kb negated-defn-of-non-members-is-provable
-  ;; Pace's concrete slice: (not (positive_integer x)) for a zero / a string / a predicate,
+  ;; A concrete slice: (not (positive_integer x)) for a zero / a string / a predicate,
   ;; each provable by FAILING a necessary conjunct. Self-contained pos_int. RED until Phase B.
   (tu/with-terms [pos_int isInt isPos]
     (v/add-evaluatable kb isInt integer?)
@@ -154,7 +154,7 @@
     {:top ct :mida ca :midb cb :bottomn cbn :bottomsuff cbs}))
 
 (tu/deftest-kb diamond-admitted-checks-no-defn-more-than-once
-  ;; v2: admitting via dbottom's sufficient does NOT require checking necessaries
+  ;; Admitting via dbottom's sufficient does NOT require checking necessaries
   ;; (sufficient authoritative). Whatever necessaries the walk touches, it touches each
   ;; AT MOST once — dtop is reachable by two genl paths and must never be double-checked.
   ;; The admitting sufficient is evaluated exactly once.
@@ -172,7 +172,7 @@
       (is (<= @(:bottomn c) 1) "dbottom's necessary at most once"))))
 
 (tu/deftest-kb diamond-a-failing-topmost-necessary-short-circuits-the-optimization
-  ;; v2 optimization: querying (dbottom 42) where 42 genuinely is NOT a dbottom
+  ;; The optimization: querying (dbottom 42) where 42 genuinely is NOT a dbottom
   ;; (sufficient false — consistent KB) and the topmost necessary (dtop) fails. The
   ;; fast-fail checks the most-general necessary first, sees it fail, and rejects WITHOUT
   ;; evaluating the sides or the (possibly expensive) sufficient — a pure speedup.
@@ -193,8 +193,8 @@
 ;; ---- 4. characterization: pin what asking a defn collection of a literal does TODAY ----
 
 (tu/deftest-kb pin-baseline-a-computed-sufficient-does-not-admit-a-literal-yet
-  ;; Pace: "what currently happens when you ask (?pred 212)? pin it with a test, with a
-  ;; comment about defns."  This assertion was pinned against the PRE-evaluative baseline
+  ;; The characterization question: what currently happens when you ask (?pred 212)? Pin it
+  ;; with a test, with a comment about defns.  This assertion was pinned against the PRE-evaluative baseline
   ;; (a computed defnSufficient never fired forward, so the literal was not admitted) and
   ;; was designed to FLIP once `sufficient-admits-by-evaluating-a-computed-condition` went
   ;; green.  Phase A (query-time evaluative defnSufficient) is exactly that change, so it
