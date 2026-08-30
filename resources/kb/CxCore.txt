@@ -127,26 +127,15 @@
 ;; sufficient condition holds, DefnNecessaryNegationProver proves a non-member whose
 ;; necessary fails.  A defnSufficient and a defnNecessary carry the same condition, so each
 ;; collection is defined both ways (what defnIff said, without the forward rules that never
-;; fire on a computed condition).  The readable implication is kept beside it as inert
-;; documentation, quoted inside a JustificationRule fact the citing prover reads (the Quote
-;; is a mention, never fired): the SUFFICIENT-direction rule justifies a positive proof, the
-;; NECESSARY-direction rule a negation.
+;; fire on a computed condition).
 (defnSufficient positive_integer (and (integer ?x) (greaterThan ?x 0)))
 (defnNecessary  positive_integer (and (integer ?x) (greaterThan ?x 0)))
-(defnSufficientJustificationRule positive_integer (Quote (implies (and (integer ?x) (greaterThan ?x 0)) (positive_integer ?x))))
-(defnNecessaryJustificationRule  positive_integer (Quote (implies (positive_integer ?x) (and (integer ?x) (greaterThan ?x 0)))))
 (defnSufficient negative_integer (and (integer ?x) (lessThan ?x 0)))
 (defnNecessary  negative_integer (and (integer ?x) (lessThan ?x 0)))
-(defnSufficientJustificationRule negative_integer (Quote (implies (and (integer ?x) (lessThan ?x 0)) (negative_integer ?x))))
-(defnNecessaryJustificationRule  negative_integer (Quote (implies (negative_integer ?x) (and (integer ?x) (lessThan ?x 0)))))
 (defnSufficient non_negative_integer (and (integer ?x) (greaterThan ?x -1)))
 (defnNecessary  non_negative_integer (and (integer ?x) (greaterThan ?x -1)))
-(defnSufficientJustificationRule non_negative_integer (Quote (implies (and (integer ?x) (greaterThan ?x -1)) (non_negative_integer ?x))))
-(defnNecessaryJustificationRule  non_negative_integer (Quote (implies (non_negative_integer ?x) (and (integer ?x) (greaterThan ?x -1)))))
 (defnSufficient non_positive_integer (and (integer ?x) (lessThan ?x 1)))
 (defnNecessary  non_positive_integer (and (integer ?x) (lessThan ?x 1)))
-(defnSufficientJustificationRule non_positive_integer (Quote (implies (and (integer ?x) (lessThan ?x 1)) (non_positive_integer ?x))))
-(defnNecessaryJustificationRule  non_positive_integer (Quote (implies (non_positive_integer ?x) (and (integer ?x) (lessThan ?x 1)))))
 (genl keyword thing)
 (genl boolean thing)
 (genl character thing)
@@ -276,26 +265,6 @@
 (binaryPredicate defnIff)
 (genlArg defnIff 1 thing)
 (arg defnIff 2 thing)
-
-(comment defnSufficientJustificationRule
-         "(defnSufficientJustificationRule KIND (Quote RULE)) tells the prover to cite RULE as the justification for proofs of (KIND ARG) for any ARG. RULE must contain the canonical variable ?x for the candidate term, optionally ?arg1..?argN, ?args for a functionally-denoted predicate's args. RULE may not contain any other open variables. A positive proof of membership runs via a passing defnSufficient, so it is the SUFFICIENT-direction rule (implies CONDITION (KIND ?x)) that is quoted and cited here. The quote is a mention — inert, never fired — so this carries the readable rule as documentation beside the evaluated defnSufficient, and draws no conclusion of its own.")
-(binaryPredicate defnSufficientJustificationRule)
-(genlArg defnSufficientJustificationRule 1 thing)
-(arg defnSufficientJustificationRule 2 thing)
-
-(comment defnNecessaryJustificationRule
-         "(defnNecessaryJustificationRule KIND (Quote RULE)) tells the prover to cite RULE as the justification for proofs of (KIND ARG) for any ARG. RULE must contain the canonical variable ?x for the candidate term, optionally ?arg1..?argN, ?args for a functionally-denoted predicate's args. RULE may not contain any other open variables. A negation proof of non-membership runs via a failing defnNecessary, so it is the NECESSARY-direction rule (implies (KIND ?x) CONDITION) that is quoted and cited here. The quote is a mention — inert, never fired — so this carries the readable rule as documentation beside the evaluated defnNecessary, and draws no conclusion of its own.")
-(binaryPredicate defnNecessaryJustificationRule)
-(genlArg defnNecessaryJustificationRule 1 thing)
-(arg defnNecessaryJustificationRule 2 thing)
-
-(comment relatedTerms
-         "(relatedTerms ?term1 ?term2) pairs two vocabulary terms as related — here a defn predicate with the JustificationRule predicate that carries the rule to cite for it: defnSufficient with defnSufficientJustificationRule (positives), defnNecessary with defnNecessaryJustificationRule (negations). A documentation link read by the defn-citation prover; nothing draws an inference from it.")
-(binaryPredicate relatedTerms)
-(arg relatedTerms 1 thing)
-(arg relatedTerms 2 thing)
-(relatedTerms defnSufficient defnSufficientJustificationRule)
-(relatedTerms defnNecessary defnNecessaryJustificationRule)
 
 (comment evaluate
          "(evaluate ?result ?expression) means that ?result is the value of the symbolic ?expression. So (evaluate ?sum (+ 1 2)) binds ?sum to 3. A safe whitelist over +, -, *, /, mod, min, max, abs and expt rather than clojure eval, computed on demand and never stored.")

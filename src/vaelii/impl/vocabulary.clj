@@ -127,9 +127,6 @@
     defnNecessary  {:enforced "special/materialize-defn-rules — expands to the forward rule (implies (Coll ?x) C), member => condition; also evaluated at query time by provers/DefnNecessaryNegationProver"}
     defnSufficient {:enforced "special/materialize-defn-rules — expands to the forward rule (implies C (Coll ?x)), condition => member; also evaluated at query time by provers/DefnSufficientProver"}
     defnIff        {:enforced "special/materialize-defn-rules — both directions, the necessary rule and the sufficient one"}
-    defnSufficientJustificationRule {:enforced "special/entries defn-wff-problems — the member-variable wff arm; carries the quoted sufficient-direction rule cited for a positive proof (relatedTerms defnSufficient …)"}
-    defnNecessaryJustificationRule  {:enforced "special/entries defn-wff-problems — the member-variable wff arm; carries the quoted necessary-direction rule cited for a negation proof (relatedTerms defnNecessary …)"}
-    relatedTerms   {:inert "a documentation link between two vocabulary terms — asserted to pair a defn predicate with its JustificationRule predicate, read by the defn-citation prover; nothing reads it as an inference input"}
 
     ;; ---- placement and lifting --------------------------------------------
     decontextualizedPredicate       {:enforced "special — the CxUniverse lift, retroactive over the extent"}

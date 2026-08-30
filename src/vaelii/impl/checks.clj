@@ -2476,12 +2476,7 @@
                ;; its condition argument, the way a schematic equation carries its schema
                ;; variables — it is stored to retract and belief-follow, and it expands
                ;; into the rules where those variables belong (docs/defns.md)
-               (not (sx/defn-sentence? sentence))
-               ;; a `defn*` JustificationRule fact carries a *quoted* rule written over the
-               ;; same member variable `?x` — a mention held as inert documentation, never
-               ;; fired — so it is exempt for the same reason and stored with its schema
-               ;; intact (docs/defns.md)
-               (not (sx/justification-rule-sentence? sentence)))
+               (not (sx/defn-sentence? sentence)))
       (throw (ex-info (str "not ground: " (pr-str sentence)
                            " contains a variable — a fact must be ground"
                            " (write a universal claim as a rule)")

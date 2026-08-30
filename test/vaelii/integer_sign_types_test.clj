@@ -3,8 +3,7 @@
 (ns vaelii.integer-sign-types-test
   "The four sign-refined integer types and their executable boundaries — defined by a
   `defnSufficient` + `defnNecessary` pair (not `defnIff`) so membership resolves by
-  evaluation at query time, with the readable rule kept as an inert quoted
-  JustificationRule fact (docs/defns.md)."
+  evaluation at query time (docs/defns.md)."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.starter :as starter]
@@ -43,17 +42,6 @@
     (is (nil? (v/handle-of kb (list 'defnIff type condition) 'CxCore))
         (str type " is no longer defined by a single defnIff (the rules never fired on a "
              "computed condition — it is a defnSufficient + defnNecessary pair now)"))))
-
-(tu/deftest-kb sign-refined-integers-carry-their-readable-rule-as-a-quoted-justification
-  (doseq [[type condition] cases]
-    (is (some? (v/handle-of kb (list 'defnSufficientJustificationRule type
-                                     (list 'Quote (list 'implies condition (list type '?x))))
-                            'CxCore))
-        (str type " cites the sufficient-direction rule for a positive proof"))
-    (is (some? (v/handle-of kb (list 'defnNecessaryJustificationRule type
-                                     (list 'Quote (list 'implies (list type '?x) condition)))
-                            'CxCore))
-        (str type " cites the necessary-direction rule for a negation"))))
 
 (tu/deftest-kb sign-refined-integer-definitions-materialize-both-rules
   (doseq [[type condition] cases]

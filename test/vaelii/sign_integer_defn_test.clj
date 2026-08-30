@@ -9,12 +9,7 @@
   `integer` and `greaterThan` / `lessThan`, so membership is decided at query time by
   `DefnSufficientProver` (a passing sufficient admits) and non-membership by
   `DefnNecessaryNegationProver` (a failing necessary disproves) — no stored membership and
-  no forward rule firing, which a computed condition never triggers (docs/defns.md).
-
-  The readable implication each carries is kept as inert documentation, quoted inside a
-  `defnSufficientJustificationRule` / `defnNecessaryJustificationRule` fact for the citing
-  prover — a `Quote`, never fired.  This suite pins that those facts are assertable and
-  read back with their schema intact."
+  no forward rule firing, which a computed condition never triggers (docs/defns.md)."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
@@ -78,44 +73,3 @@
         "Fred is not a positive integer")
     (is (v/ask? kb (list 'not (list 'positive_integer Fred)) 'CxUniverse)
         "Fred fails (integer ?x), so ¬(positive_integer Fred) is provable")))
-
-;; ---- 5. the JustificationRule facts are assertable and readable ----
-
-(tu/deftest-kb justification-rules-are-stored-with-their-schema-intact
-  (testing "the sufficient-direction rule is cited for positives"
-    (let [{r '?r} (tu/sole-answer
-                   (v/ask kb (list 'defnSufficientJustificationRule 'positive_integer '?r)
-                          'CxUniverse)
-                   'defnSufficientJustificationRule)]
-      (is (= r '(Quote (implies (and (integer ?x) (greaterThan ?x 0)) (positive_integer ?x))))
-          "carried as a Quote mention, member variable ?x intact")))
-  (testing "the necessary-direction rule is cited for negations"
-    (let [{r '?r} (tu/sole-answer
-                   (v/ask kb (list 'defnNecessaryJustificationRule 'negative_integer '?r)
-                          'CxUniverse)
-                   'defnNecessaryJustificationRule)]
-      (is (= r '(Quote (implies (negative_integer ?x) (and (integer ?x) (lessThan ?x 0)))))
-          "the necessary direction: member ⇒ condition")))
-  (testing "relatedTerms bridges each defn predicate to its JustificationRule predicate"
-    (is (= '#{{?r defnSufficientJustificationRule}}
-           (set (v/ask kb (list 'relatedTerms 'defnSufficient '?r) 'CxUniverse))))
-    (is (= '#{{?r defnNecessaryJustificationRule}}
-           (set (v/ask kb (list 'relatedTerms 'defnNecessary '?r) 'CxUniverse))))))
-
-;; ---- 6. the quoted rule is INERT — it never fires as a live rule ----
-
-(tu/deftest-kb a-justification-rule-quote-alone-concludes-nothing
-  ;; Only the JustificationRule quote, no defnSufficient.  If the quoted (implies …) fired
-  ;; as a live rule, (tcoll 5) would be derivable; it must not — the Quote is a mention,
-  ;; and a JustificationRule predicate expands into no companion rule.
-  (tu/with-terms [tcoll]
-    (v/assert kb (list 'defnSufficientJustificationRule tcoll
-                       (list 'Quote (list 'implies
-                                          (list 'and (list 'integer '?x) (list 'greaterThan '?x 0))
-                                          (list tcoll '?x))))
-              'CxUniverse)
-    (is (not (v/ask? kb (list tcoll 5) 'CxUniverse))
-        "the quoted rule never fired — with no defnSufficient present, 5 is not admitted")
-    (is (tu/sole-answer (v/ask kb (list 'defnSufficientJustificationRule tcoll '?r) 'CxUniverse)
-                        'defnSufficientJustificationRule)
-        "the JustificationRule fact itself is stored and readable")))

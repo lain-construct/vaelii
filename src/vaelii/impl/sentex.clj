@@ -1798,30 +1798,6 @@
   [sentence]
   (and (sequential? sentence) (contains? defn-predicates (first sentence))))
 
-(def justification-rule-predicates
-  "The two predicates that carry a `defn*`'s **readable** rule as inert documentation, for
-  a prover to cite as the justification of a membership / non-membership proof
-  (docs/defns.md).  `defnSufficientJustificationRule` carries the sufficient-direction rule
-  (cited for a positive proof, which runs via a passing sufficient);
-  `defnNecessaryJustificationRule` the necessary-direction rule (cited for a negation, which
-  runs via a failing necessary).
-
-  Like a `defn*` fact, a JustificationRule fact carries the canonical member variable `?x`
-  — the rule it quotes is written over `?x` — so it is a syntactic family recognized where
-  that schema must be exempted from the ground check.  Unlike a `defn*` fact it materializes
-  **no** companion rule: the quoted rule is a mention (a `Quote`), inert, never fired — it is
-  carried for a reader and for the citing prover, not to draw conclusions."
-  '#{defnSufficientJustificationRule defnNecessaryJustificationRule})
-
-(defn justification-rule-sentence?
-  "Is `sentence` a `defn*` JustificationRule fact — `defnSufficientJustificationRule` or
-  `defnNecessaryJustificationRule`?  Read off the functor, like `defn-sentence?`: it names
-  the family whose quoted rule carries the member variable `?x` and is therefore exempt from
-  the ground check, without being one of the `defn-predicates` that expand into rules."
-  [sentence]
-  (and (sequential? sentence)
-       (contains? justification-rule-predicates (first sentence))))
-
 (defn- defn-condition-antecedents
   "A `defn*` condition read as an antecedent list — a leading `and` flattened, anything
   else the single antecedent — so a conjunctive sufficient condition becomes a
