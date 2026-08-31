@@ -59,5 +59,5 @@
   ;; docs/kbs.md's shipped-KB table quotes this number, and nothing else pins it —
   ;; the figure went stale once already (a 62% shortfall against the doc).  The
   ;; fixture loads CxCore alone, which is exactly the row's claim.
-  (is (= 416 (v/sentex-count kb))
+  (is (= 420 (v/sentex-count kb))
       "the Core vocabulary row of docs/kbs.md quotes this count — update both together"))

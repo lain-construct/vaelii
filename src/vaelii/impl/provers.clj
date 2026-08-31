@@ -947,28 +947,43 @@
 ;; ---- evaluable predicates (computed, not stored) ------------------------
 
 (def evaluable-predicates
-  "Predicates a prover computes from ground numeric arguments rather than looks up.
-  Both are **variable arity** — `(lessThan 1 2 3)` reads as the chain 1 < 2 < 3.
-  `greaterThan` is folded to `lessThan` when *stored* (see `vaelii.impl.sentex`), but a
-  caller may still ask it directly, so both are answered here."
-  '#{lessThan greaterThan})
+  "Predicates a prover computes from its ground arguments rather than looks up.
+  `lessThan` / `greaterThan` are the **variable arity** arithmetic comparisons —
+  `(lessThan 1 2 3)` reads as the chain 1 < 2 < 3; `greaterThan` is folded to `lessThan`
+  when *stored* (see `vaelii.impl.sentex`), but a caller may still ask it directly, so both
+  are answered here.
 
-(defrecord EvaluableProver []                    ; arithmetic comparison
+  `integer` is the **unary** EDN-kind check: `(integer 5)` holds because 5 *is* an integer,
+  no stored fact needed.  It is a built-in for the same reason the comparisons are — the
+  kind is always present — and it is what lets the four sign-refined integer collections in
+  CxCore (`positive_integer` …) be defined by `defnSufficient` / `defnNecessary` conditions
+  built on `(integer ?x)` and resolved **by evaluation** at query time, at zero storage
+  cost, rather than by a forward rule that never fires because the computed condition is
+  never a believed fact (docs/defns.md)."
+  '#{lessThan greaterThan integer})
+
+(defrecord EvaluableProver []                    ; arithmetic comparison + EDN-kind check
   Prover
   (applicable? [_ _ goal _]
     (and (sequential? goal) (contains? evaluable-predicates (first goal))
-         (>= (count (rest goal)) 2)
-         (every? number? (rest goal))))
+         (if (= 'integer (first goal))
+           ;; the unary kind check: one ground argument, of any EDN kind (a non-integer
+           ;; simply yields no solution — which is what makes a failing `(integer ?x)`
+           ;; necessary a sound negative witness for a string / symbol member).
+           (and (= 1 (count (rest goal))) (ground? goal))
+           (and (>= (count (rest goal)) 2)
+                (every? number? (rest goal))))))
   (est-bindings [_ _ _ _] 1)
   (cost         [_ _ _ _] :lookup)
-  ;; Authoritative for a ground comparison: the arithmetic cannot be wrong about two
-  ;; numbers.
+  ;; Authoritative for a ground goal: the arithmetic cannot be wrong about two numbers, nor
+  ;; `integer?` about one term's EDN kind.
   (completeness [_ _ _ _] 100)
   (solve [_ _ goal _]
     (let [args (rest goal)
           ok   (case (first goal)
                  lessThan    (apply < args)
                  greaterThan (apply > args)
+                 integer     (integer? (first args))
                  false)]
       (if ok [{}] []))))
 
@@ -1669,6 +1684,175 @@
     ;; mechanism rather than by two readings that could drift (docs/naf.md).
     (solve-goal-with kb (registry kb) (sx/desugar-forall-literal goal) context)))
 
+;; ---- evaluative defnSufficient: prove membership by evaluating the condition ----
+;; `(defnSufficient Coll C)` says the condition `C` on the member `?x` is enough for
+;; membership.  Its forward materialization (`sentex/defn-companion-rules`) is a rule
+;; `(implies C (Coll ?x))` that fires only when `C` is a *believed* fact — so a `C` built
+;; from **computed** predicates (`integer`, `lessThan`, an `add-evaluatable` check) is
+;; never stored, the rule never fires, and the member is never derived.  This prover
+;; closes that at query time: on `(Coll a)` it finds `Coll`'s visible defnSufficient
+;; conditions, substitutes the queried member `a` for `?x`, and asks whether the condition
+;; holds through the registry — which *evaluates* the computed predicates against `a`.
+;;
+;; Level-6 (`conjunction-derivable?` over the registry, no backchaining), so its reach
+;; matches the forward rule's: a conjunctive condition is joined, and each conjunct is
+;; answered by the evaluables, the facts and the closures — the same evaluator
+;; `unknown` / `thereExists` / `exceptWhen` read.  It **augments** the fact prover and the
+;; forward rule (completeness 50): a condition that *is* believed is answered identically
+;; through `FactProver` and deduped, so this only adds the computed case.
+;;
+;; **Positive membership descends to a spec's sufficient.**  `(Coll a)` is provable
+;; when `Coll`'s own defnSufficient passes OR a **spec**'s does — a spec is more specific,
+;; below `Coll` on the genl edges (`(genl spec Coll)`), and its members are `Coll`s.  So
+;; the walk descends the spec cone (`tax/specs`, which is reflexive — it includes `Coll`
+;; itself, folding the own-sufficient and the spec-sufficient cases into one iteration).
+;;
+;; A passing sufficient admits even against a failing OWN necessary — sufficient is
+;; authoritative, the resulting inconsistency documented not arbitrated.  But a failing
+;; necessary of a *strict genl* fast-fails the query (`genl-necessary-fails?`): on a
+;; consistent KB the broadest disqualifier is checked most-general-first and the walk
+;; rejects before the sides or the sufficient are ever evaluated.  The negation prover (a
+;; failing necessary proves ¬member) is the converse build, below.
+
+(def ^:private ^:dynamic *defn-stack*
+  "The collections a defn prover solve is already inside — the re-entry guard shared by the
+  positive (sufficient-descent) and negative (necessary-ascent) walks, so a self-referential
+  condition — `(defnSufficient Coll (Coll ?x))`, which nothing forbids — cannot recur
+  without end.  Level-6 has no depth guard of its own, so the re-entry is bounded here."
+  #{})
+
+(defn- defn-conditions
+  "The conditions `C` of every visible `(pred coll C)` for the definitional relation
+  `pred` (`defnSufficient` / `defnNecessary`), from `context` — the member still named by
+  `sx/defn-member-var`, which fact canonicalization preserves (only rule canonicalization
+  renames variables).  Lazy, so a `take 1` applicability probe stops at the first."
+  [kb pred coll context]
+  (keep #(get (second %) '?cond)
+        (res/matches-visible kb (list pred coll '?cond) context)))
+
+(defn- condition-holds?
+  "Does the defn condition `cond` hold for `member`, evaluated at query time through the
+  registry (level-6, no backchaining)?  The member is substituted for `sx/defn-member-var`
+  and each conjunct answered by the evaluables, the facts and the closures.  **Two-valued**:
+  a condition that is not derivable is false — there is no third 'unknown' state."
+  [kb cond member context]
+  (conjunction-derivable?
+   kb (sx/conjuncts (res/substitute cond {sx/defn-member-var member})) {} context))
+
+(defn- spec-sufficient-conditions
+  "Every defnSufficient condition in `coll`'s spec cone (reflexive `tax/specs`), lazily —
+  `coll`'s own and every spec's, the descent the positive walk admits on."
+  [kb coll context]
+  (mapcat #(defn-conditions kb 'defnSufficient % context)
+          (tax/specs (:taxonomy kb) coll context)))
+
+(defn- most-general-first
+  "`colls` ordered most-general-first — a linear extension of the genl partial order, so an
+  ancestor is always checked before any of its descendants.  The key is the ancestor count
+  (`tax/genls` is reflexive; a genl's ancestors are a subset of its spec's, so the count
+  ascends down the chain), with a printed-term tie-break for a deterministic order."
+  [tx context colls]
+  (sort-by (fn [c] [(count (tax/genls tx c context)) (nm/print-key c)]) colls))
+
+(defn- genl-necessary-fails?
+  "Does some necessary of a **strict** genl of `coll` fail for `member` — the positive
+  query's fast-fail?  Walks the strict-genl cone most-general-first and stops at the first
+  failing necessary (the broadest disqualifier), so a consistent KB rejects without
+  evaluating the sides or the (possibly expensive) sufficient.
+  **Strict** (excludes `coll` itself): a collection's own necessary does not veto its own
+  sufficient — sufficient is authoritative — and the cone is a set, so a defn reachable
+  by two genl paths (a diamond's apex) is checked exactly once.  Sound only on a consistent
+  KB: on an inconsistent one the negation prover records
+  the ¬member half and this merely declines to admit."
+  [kb coll member context]
+  (let [tx        (:taxonomy kb)
+        ancestors (disj (tax/genls tx coll context) coll)]
+    (boolean
+     (some (fn [g]
+             (some (fn [c] (not (condition-holds? kb c member context)))
+                   (defn-conditions kb 'defnNecessary g context)))
+           (most-general-first tx context ancestors)))))
+
+(defrecord DefnSufficientProver []
+  Prover
+  ;; A ground unary membership goal `(Coll a)` for a `Coll` whose spec cone carries a
+  ;; visible defnSufficient.  Ground because the condition is evaluated against the member:
+  ;; an open `(Coll ?x)` would ask a computed condition to *enumerate* its members, which a
+  ;; sufficient built from `integer` / `lessThan` cannot do (the infinite-extent generator
+  ;; is the punted, theoretically-hard case).
+  (applicable? [_ kb goal context]
+    (and (sequential? goal)
+         (symbol? (first goal))
+         (= 1 (count (rest goal)))
+         (ground? goal)
+         (not (contains? *defn-stack* (first goal)))
+         (boolean (seq (take 1 (spec-sufficient-conditions kb (first goal) context))))))
+  (est-bindings [_ _ _ _] 1)                    ; a ground membership test: it holds or not
+  (cost         [_ _ _ _] :compute)             ; a bounded level-6 subquery, at worst a closure
+  ;; Augments `FactProver` and the forward defn rule rather than replacing them: a
+  ;; believed condition is answered by both and deduped, so the union carries the stored
+  ;; path and adds the computed one.  Not the sole complete method, so it never runs alone.
+  (completeness [_ _ _ _] 50)
+  (solve [_ kb goal context]
+    (let [coll   (first goal)
+          member (second goal)]
+      (binding [*defn-stack* (conj *defn-stack* coll)]
+        ;; Fast-fail FIRST (short-circuit `or`), so a failing genl-necessary rejects
+        ;; without the sufficient ever being evaluated — a pure speedup on a consistent KB.
+        (if (or (genl-necessary-fails? kb coll member context)
+                (not (some (fn [c] (condition-holds? kb c member context))
+                           (spec-sufficient-conditions kb coll context))))
+          []
+          [{}])))))
+
+;; ---- negated defn checks: (not (coll x)) via a FAILING necessary (the converse) --------
+;; The exact converse of the positive walk, with three flips:
+;; member ↔ non-member, sufficient ↔ necessary, and the genl-walk direction — the positive
+;; walk descends to a spec's *sufficient*, the negative ascends to a genl's *necessary*.
+;; `(not (Coll x))` is provable iff a defnNecessary fails for `x` — `Coll`'s own or any
+;; genl's (member ⇒ every necessary up the chain, so a failed one anywhere at-or-above
+;; proves ¬member).  This is NOT closed-world negation-as-failure: it never fires merely
+;; because `(Coll x)` cannot be proved; it fires only on a necessary that positively FAILS
+;; (two-valued — the condition is evaluably false).  A `Coll` with no necessary in its cone
+;; makes this prover inapplicable, so absence of a proof is never mistaken for a disproof.
+
+(defn- cone-necessary-conditions
+  "Every defnNecessary condition in `coll`'s **reflexive** genl cone (`tax/genls`), lazily
+  — `coll`'s own and every genl's.  Reflexive (unlike the positive fast-fail's strict cone)
+  because a collection's own failing necessary is itself a sound negative witness."
+  [kb coll context]
+  (mapcat #(defn-conditions kb 'defnNecessary % context)
+          (tax/genls (:taxonomy kb) coll context)))
+
+(defrecord DefnNecessaryNegationProver []
+  Prover
+  ;; A ground `(not (Coll x))` for a `Coll` whose reflexive genl cone carries a visible
+  ;; defnNecessary.  Ground, for the positive walk's reason: an open `(not (Coll ?x))` is a
+  ;; search over the domain's complement, not a test.
+  (applicable? [_ kb goal context]
+    (and (rules/negative-literal? goal)
+         (empty? (sx/free-vars goal))
+         (let [lit (second goal)]
+           (and (= 1 (count (rest lit)))
+                (ground? lit)
+                (not (contains? *defn-stack* (first lit)))
+                (boolean (seq (take 1 (cone-necessary-conditions kb (first lit) context))))))))
+  (est-bindings [_ _ _ _] 1)                    ; a ground test: ¬member holds or it does not
+  (cost         [_ _ _ _] :compute)             ; a bounded level-6 subquery, at worst a closure
+  ;; Augments a stored `(not (Coll x))` (FactProver) and `ClosedExtentProver` rather than
+  ;; replacing them; the union dedups, so the three agree wherever more than one answers.
+  (completeness [_ _ _ _] 50)
+  (solve [_ kb goal context]
+    (let [lit    (second goal)
+          coll   (first lit)
+          member (second lit)]
+      (binding [*defn-stack* (conj *defn-stack* coll)]
+        ;; ¬member is proved by the first necessary that fails anywhere in the cone.
+        (if (some (fn [c] (not (condition-holds? kb c member context)))
+                  (cone-necessary-conditions kb coll context))
+          [{}]
+          [])))))
+
 ;; ---- aggregation: a reduction over a query's solutions ------------------
 ;; `(agg/count ?n ?v <body>)` and its four siblings are the third member of the
 ;; `unknown` / `thereExists` family, and they are built out of the same three
@@ -2164,6 +2348,7 @@
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
    (->EvaluableProver) (->DifferentProver) (->EvaluateProver) (->QuantityProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
+   (->DefnSufficientProver) (->DefnNecessaryNegationProver)
    (->AggregateProver) (->BeliefProjectionProver)
    ;; FactProver before ArgTypeProver: both are :lookup / completeness 50, so vector
    ;; order breaks the stable-sort tie in the union path (`solve-goal-with`).  A stored

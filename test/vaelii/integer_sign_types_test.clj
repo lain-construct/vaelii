@@ -1,7 +1,9 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.integer-sign-types-test
-  "The four sign-refined integer types and their executable `defnIff` boundaries."
+  "The four sign-refined integer types and their executable boundaries — defined by a
+  `defnSufficient` + `defnNecessary` pair (not `defnIff`) so membership resolves by
+  evaluation at query time (docs/defns.md)."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.starter :as starter]
@@ -31,10 +33,15 @@
   (doseq [[type] cases]
     (is (v/genl? kb type 'integer) (str type " specializes integer"))))
 
-(tu/deftest-kb sign-refined-integers-state-their-boundaries-with-defniff
+(tu/deftest-kb sign-refined-integers-state-their-boundaries-with-defns
   (doseq [[type condition] cases]
-    (is (some? (v/handle-of kb (list 'defnIff type condition) 'CxCore))
-        (str type " has the expected executable definition"))))
+    (is (some? (v/handle-of kb (list 'defnSufficient type condition) 'CxCore))
+        (str type " has the expected sufficient condition"))
+    (is (some? (v/handle-of kb (list 'defnNecessary type condition) 'CxCore))
+        (str type " has the expected necessary condition"))
+    (is (nil? (v/handle-of kb (list 'defnIff type condition) 'CxCore))
+        (str type " is no longer defined by a single defnIff (the rules never fired on a "
+             "computed condition — it is a defnSufficient + defnNecessary pair now)"))))
 
 (tu/deftest-kb sign-refined-integer-definitions-materialize-both-rules
   (doseq [[type condition] cases]

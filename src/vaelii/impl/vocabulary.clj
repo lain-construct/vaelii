@@ -124,8 +124,8 @@
     targetFollowingPredicate {:enforced "taxonomy prop :target-following — the mark core/retract-following-metas! reads to tear down a meta-sentex when the sentex it names by handle is retracted"}
 
     ;; ---- definitional collection relations, expanded into forward rules ----
-    defnNecessary  {:enforced "special/materialize-defn-rules — expands to the forward rule (implies (Coll ?x) C), member => condition"}
-    defnSufficient {:enforced "special/materialize-defn-rules — expands to the forward rule (implies C (Coll ?x)), condition => member"}
+    defnNecessary  {:enforced "special/materialize-defn-rules — expands to the forward rule (implies (Coll ?x) C), member => condition; also evaluated at query time by provers/DefnNecessaryNegationProver"}
+    defnSufficient {:enforced "special/materialize-defn-rules — expands to the forward rule (implies C (Coll ?x)), condition => member; also evaluated at query time by provers/DefnSufficientProver"}
     defnIff        {:enforced "special/materialize-defn-rules — both directions, the necessary rule and the sufficient one"}
 
     ;; ---- placement and lifting --------------------------------------------

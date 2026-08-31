@@ -121,10 +121,21 @@
 (genl negative_integer integer)
 (genl non_negative_integer integer)
 (genl non_positive_integer integer)
-(defnIff positive_integer (and (integer ?x) (greaterThan ?x 0)))
-(defnIff negative_integer (and (integer ?x) (lessThan ?x 0)))
-(defnIff non_negative_integer (and (integer ?x) (greaterThan ?x -1)))
-(defnIff non_positive_integer (and (integer ?x) (lessThan ?x 1)))
+;; The four sign-refined integer collections are defined by DEFNS, not rules, so
+;; membership resolves by EVALUATION at query time (integer / greaterThan / lessThan are
+;; computed, never stored) at zero sentex cost: DefnSufficientProver admits a member whose
+;; sufficient condition holds, DefnNecessaryNegationProver proves a non-member whose
+;; necessary fails.  A defnSufficient and a defnNecessary carry the same condition, so each
+;; collection is defined both ways (what defnIff said, without the forward rules that never
+;; fire on a computed condition).
+(defnSufficient positive_integer (and (integer ?x) (greaterThan ?x 0)))
+(defnNecessary  positive_integer (and (integer ?x) (greaterThan ?x 0)))
+(defnSufficient negative_integer (and (integer ?x) (lessThan ?x 0)))
+(defnNecessary  negative_integer (and (integer ?x) (lessThan ?x 0)))
+(defnSufficient non_negative_integer (and (integer ?x) (greaterThan ?x -1)))
+(defnNecessary  non_negative_integer (and (integer ?x) (greaterThan ?x -1)))
+(defnSufficient non_positive_integer (and (integer ?x) (lessThan ?x 1)))
+(defnNecessary  non_positive_integer (and (integer ?x) (lessThan ?x 1)))
 (genl keyword thing)
 (genl boolean thing)
 (genl character thing)
