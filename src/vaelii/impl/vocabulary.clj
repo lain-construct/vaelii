@@ -172,7 +172,21 @@
 
     ;; ---- declared and read by nothing, on purpose -------------------------
     contradicts {:inert "a report form the engine *writes*: conflicts and contradictions compose it per settle. Nothing reads it as input, and asserting one would put a stale claim under truth maintenance."}
-    typeToInstancePred {:inert "a link, not a rule. Moving a claim between the type and instance levels needs a quantifier reading nothing here fixes, so the pairing is recorded for a reader and inferred from by nobody."}})
+    typeToInstancePred {:inert "a link, not a rule. Moving a claim between the type and instance levels needs a quantifier reading nothing here fixes, so the pairing is recorded for a reader and inferred from by nobody."}
+
+    ;; ---- curation vocabulary: documentation, read like comment ------------
+    ;; Cross-reference a curator writes for a reader.  Read by a browser rendering a term
+    ;; page and by nobody for inference.
+    termsRelated {:inert "a curation grouping of related vocabulary terms (variable arity), for a reader. Nothing infers from it — the grouping is documentation, as comment's prose is."}
+    seeAlso {:inert "a documentation 'see also' cross-reference between two terms; read like comment and by nobody for inference. Directional — (seeAlso a b) does not imply (seeAlso b a); the reverse is a separate assertion."}
+
+    ;; in-KB worked examples: meta-sentexes naming an example sentex by handle.  The
+    ;; targetFollowingPredicate mark is what tears one down with the sentex it names —
+    ;; that mark's enforcement, not an arm keyed on these functors.  Their integrity
+    ;; obligation (provable / provable-as-negation) is a test's, read by no engine path.
+    positiveExample {:inert "a curation meta-sentex naming, by handle, a sentex that is a true example of a term's usage. Nothing reads the annotation for inference; its integrity (the named sentex is provable) is held by curation_test. Belief-following via the targetFollowingPredicate mark, so it does not outlive the example it names."}
+    negativeExample {:inert "the same, for a sentex whose negation is provable — a false example of a term's usage. Read by no check; its integrity is a test's, and it cascades with its target like positiveExample."}
+    borderlineExample {:inert "the same pointing shape, truth-agnostic: it names a sentex neither asserted true nor false, so it carries no provability obligation and no regression reads its target. Documentation only."}})
 
 (defn classify
   "What the engine does with vocabulary term `term`: `{:enforced \"where\"}`,
