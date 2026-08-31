@@ -401,7 +401,7 @@
     (justification-ids [_] #{})
     (get-sentex [_ id]
       (vswap! fetches inc)
-      (sx/->AtomicSentex (list 'synthetic (symbol (str "Ind" id))) 'CxSynthetic
+      (sx/->LiteralSentex (list 'synthetic (symbol (str "Ind" id))) 'CxSynthetic
                          id :true nil))
     (get-provenance [_ _] nil)))
 
