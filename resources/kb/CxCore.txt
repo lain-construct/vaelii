@@ -621,3 +621,65 @@
 
 (comment unaryPredicate      "A predicate of one argument: every type (a snake_case unary predicate) and every one-place property such as flies.")
 (genl unaryPredicate predicate)
+
+;; ---- curation cross-reference --------------------------------------------
+;; Documentation vocabulary beside `comment`: relations a KB curator writes to point a
+;; reader from one term to others.  Read like `comment` — by a browser rendering a term
+;; page, and by nobody for inference — so they are `:inert` in the vocabulary roster.
+;; They earn a place here for the reason `comment` does: the grammar documents itself in
+;; its own representation, and a cross-reference is queried and retracted like any fact.
+
+(comment termsRelated
+         "(termsRelated ?term1 ?term2 …) means that the named terms form a related cluster — a curation grouping among vocabulary terms, so a reader meeting one is pointed at the rest. Variable arity, like lessThan: (termsRelated positiveExample negativeExample borderlineExample) groups the three example predicates as one family. Documentation only — nothing in the engine reads it and it draws no inference, the grouping being for a reader as comment's prose is.")
+(binaryPredicate termsRelated)
+(instanceRelationPredicate termsRelated)
+(arg termsRelated 1 thing)
+(arg termsRelated 2 thing)
+(variableArity termsRelated)
+
+(comment seeAlso
+         "(seeAlso ?term1 ?term2) means that ?term1 and ?term2 are worth reading together — an editorial 'see also' cross-reference between two terms. Directional: (seeAlso a b) points a reader from a to b, and the reverse is a separate assertion, not implied. Documentation only, like comment: nothing in the engine reads it and it draws no inference.")
+(binaryPredicate seeAlso)
+(instanceRelationPredicate seeAlso)
+(arg seeAlso 1 thing)
+(arg seeAlso 2 thing)
+
+;; ---- in-KB worked examples -----------------------------------------------
+;; Meta-sentexes that name an example sentex by handle (sentexHandle), annotating a term
+;; with a true / false / borderline example of its usage — the (sentexHandle H) +
+;; targetFollowingPredicate pointing pattern koinii's reply acts use (kb/koinii/
+;; CxSpeechActs.txt).  Documentation (`:inert`): no engine path reads them.
+;; positiveExample / negativeExample carry an integrity obligation held by a TEST rather
+;; than the engine — the named sentex is provable, or provable as its negation — while
+;; borderlineExample is truth-agnostic and carries none.
+;;
+;; @todo once we have `termMentioned`, enforce `(termMentioned ?term ?sentex)`: that the
+;;   ?term an example annotates is actually mentioned in the ?sentex it names.  A
+;;   cyclistNotes analogue — recorded here for the reader, implemented by nobody yet, and
+;;   NOT to be invented in passing.
+
+(comment positiveExample
+         "(positiveExample ?term (sentexHandle ?sentex)) means that ?sentex is a TRUE example of ?term's usage — a meta-sentex naming ?sentex by handle. Declared targetFollowingPredicate, so retracting the example sentex tears this annotation down with it; and the named sentex must be provable, an obligation curation_test holds over every believed positiveExample. ?term is the term being exemplified; the handle arg is typed `thing` via quotedArg — a quoted mention, with no narrower sentex type yet — the target being any sentex.")
+(binaryPredicate positiveExample)
+(instanceRelationPredicate positiveExample)
+(arg positiveExample 1 thing)
+(quotedArg positiveExample 2 thing)
+(targetFollowingPredicate positiveExample)
+
+(comment negativeExample
+         "(negativeExample ?term (sentexHandle ?sentex)) means that ?sentex is a FALSE example of ?term's usage — a meta-sentex naming ?sentex by handle. Same pointing shape and targetFollowingPredicate mark as positiveExample; the obligation is the mirror, that the named sentex is provable AS ITS NEGATION — the example genuinely does not hold as stated — which curation_test holds. ?term is the term being exemplified; the handle arg is typed `thing` via quotedArg — a quoted mention, no narrower sentex type yet.")
+(binaryPredicate negativeExample)
+(instanceRelationPredicate negativeExample)
+(arg negativeExample 1 thing)
+(quotedArg negativeExample 2 thing)
+(targetFollowingPredicate negativeExample)
+
+(comment borderlineExample
+         "(borderlineExample ?term (sentexHandle ?sentex)) means that ?sentex is a BORDERLINE example of ?term's usage — a meta-sentex naming ?sentex by handle. Truth-agnostic by design: the named sentex is neither asserted true nor false, so it carries no provability obligation and NO regression reads its target. Same pointing shape, quotedArg mark, and targetFollowingPredicate mark as the other two.")
+(binaryPredicate borderlineExample)
+(instanceRelationPredicate borderlineExample)
+(arg borderlineExample 1 thing)
+(quotedArg borderlineExample 2 thing)
+(targetFollowingPredicate borderlineExample)
+
+(termsRelated positiveExample negativeExample borderlineExample)

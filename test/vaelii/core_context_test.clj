@@ -56,8 +56,7 @@
                  (v/assert kb (list 'arity rel 7) 'CxCore)))))
 
 (tu/deftest-kb the-core-vocabulary-is-the-size-docs-kbs-says
-  ;; docs/kbs.md's shipped-KB table quotes this number, and nothing else pins it —
-  ;; the figure went stale once already (a 62% shortfall against the doc).  The
-  ;; fixture loads CxCore alone, which is exactly the row's claim.
-  (is (= 420 (v/sentex-count kb))
+  ;; docs/kbs.md's shipped-KB table quotes this number, and nothing else pins it.
+  ;; The fixture loads CxCore alone, which is exactly the row's claim.
+  (is (= 455 (v/sentex-count kb))
       "the Core vocabulary row of docs/kbs.md quotes this count — update both together"))
