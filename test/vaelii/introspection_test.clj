@@ -215,7 +215,7 @@
 ;; ---- retroactive universal lift -----------------------------------------
 
 (tu/deftest-kb declaring-a-universal-predicate-lifts-facts-already-asserted
-  ;; `(decontextualizedPredicate P)` deduces every `(P ...)` into CxUniverse so it is
+  ;; `(decontextualized_predicate P)` deduces every `(P ...)` into CxUniverse so it is
   ;; visible everywhere.  The forward path — declare, then assert — is what the
   ;; starter does and the only one covered.  The retroactive sweep runs when the
   ;; declaration arrives *after* the facts, and had no test at all: a broken sweep
@@ -227,7 +227,7 @@
     (testing "before the declaration the fact is confined to its own context"
       (is (empty? (v/sentexes-matching kb (list marriedTo Ann Bob) 'CxUniverse))))
 
-    (v/assert kb (list 'decontextualizedPredicate marriedTo) 'CxUniverse)
+    (v/assert kb (list 'decontextualized_predicate marriedTo) 'CxUniverse)
     (testing "declaring it lifts the fact that was already there"
       (is (seq (v/sentexes-matching kb (list marriedTo Ann Bob) 'CxUniverse))))
 

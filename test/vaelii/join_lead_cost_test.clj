@@ -74,15 +74,15 @@
         (doseq [s subs] (v/assert kb (list 'genl s 'jlc_broad) 'CxPerf {:strength :monotonic}))
         (v/assert kb (list (if (pos? width) (subs 0) 'jlc_broad) 'JlcA) 'CxPerf
                   {:strength :monotonic :chain? false})
-        (v/assert-rule kb ['(jlcTrig ?x) '(jlc_broad ?x)] '(jlcConcl ?x) 'CxPerf
+        (v/assert-rule kb ['(jlc_trig ?x) '(jlc_broad ?x)] '(jlc_concl ?x) 'CxPerf
                        {:direction :forward :chain? false})
-        (let [trig (v/assert kb '(jlcTrig JlcA) 'CxPerf {:strength :monotonic :chain? false})]
+        (let [trig (v/assert kb '(jlc_trig JlcA) 'CxPerf {:strength :monotonic :chain? false})]
           (prof/start)
           (tu/with-shipped-config
             (binding [chain/*matcher* (if lead? res/match-pattern reference-matcher)]
               (chain/chain kb [trig] nil)))
           (let [r (:reads (prof/stop))]
-            (is (v/ask? kb '(jlcConcl JlcA) 'CxPerf) "the firing must actually have placed")
+            (is (v/ask? kb '(jlc_concl JlcA) 'CxPerf) "the firing must actually have placed")
             (reduce + 0 (vals r)))))
       (finally (prof/stop) (tu/clear-kb! kb)))))
 

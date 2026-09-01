@@ -96,7 +96,7 @@ after them, so it may be partially ground and its own variables count as binding
 ```clojure
 ;; every pick must be taken — one nogood per ground (pick c), each forbidding that
 ;; head's absence.  `?c` is bound by nothing but this literal, and that is enough.
-(assert kb '(set/hardConstraint (implies (not (pick ?c)) (mustPick ?c))) 'CxUniverse)
+(assert kb '(set/hardConstraint (implies (not (pick ?c)) (must_pick ?c))) 'CxUniverse)
 ```
 
 A negated literal matching *no* head drops its binding rather than constraining

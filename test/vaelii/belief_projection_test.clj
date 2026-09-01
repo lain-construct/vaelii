@@ -6,7 +6,7 @@
 
   The whole capability is one convention (`vaelii.impl.modal`) and one prover
   (`BeliefProjectionProver`) over the context lattice the engine already has, plus a
-  `modalPredicate` grant that says which predicates project.  The contract these tests
+  `modal_predicate` grant that says which predicates project.  The contract these tests
   hold is that two agents may believe contradictory things without the KB being
   inconsistent — the property the lattice was built to give, and the one no
   Datalog / SPARQL / DL rival can field.  See docs/belief.md."
@@ -129,7 +129,7 @@
 
 (tu/deftest-kb a-second-modal-predicate-registered-at-runtime-projects-identically
   ;; before registration, `knows` is an ordinary predicate — not projected
-  (v/assert kb '(binaryPredicate knows) 'CxUniverse)
+  (v/assert kb '(binary_predicate knows) 'CxUniverse)
   (believe! kb 'Alice '(dreamsOf Alice Wonderland))
   (is (not (applies? kb '(knows Alice (dreamsOf Alice Wonderland))
                      "BeliefProjectionProver"))
@@ -195,7 +195,7 @@
 
 (tu/deftest-kb a-modal-grant-is-a-policy-of-the-context-that-holds-it
   (believe! kb 'Alice '(sings Lark))
-  (v/assert kb '(binaryPredicate deems) 'CxPsych)     ; a predicate CxPsych can see
+  (v/assert kb '(binary_predicate deems) 'CxPsych)     ; a predicate CxPsych can see
   (v/register-modal-predicate kb 'deems 'CxPsych)     ; granted modal *only* in CxPsych
   (let [goal '(deems Alice (sings Lark))]
     (testing "asked from the granting context, the projector runs and answers"
@@ -215,12 +215,12 @@
     (is (v/ask? kb '(believes Cara (runs Bolt)) ask-ctx))
     (v/retract! kb (v/handle-of kb '(runs Bolt) (modal/context-of-agent 'Cara)))
     (is (not (v/ask? kb '(believes Cara (runs Bolt)) ask-ctx))))
-  (testing "retracting the modalPredicate grant ends projection for that predicate"
-    (v/assert kb '(binaryPredicate hopes) 'CxUniverse)
+  (testing "retracting the modal_predicate grant ends projection for that predicate"
+    (v/assert kb '(binary_predicate hopes) 'CxUniverse)
     (v/register-modal-predicate kb 'hopes)            ; granted in CxCore
     (believe! kb 'Cara '(wins Race))
     (is (runs? kb '(hopes Cara (wins Race)) "BeliefProjectionProver"))
-    (v/retract! kb (v/handle-of kb '(modalPredicate hopes) 'CxCore))
+    (v/retract! kb (v/handle-of kb '(modal_predicate hopes) 'CxCore))
     (is (not (applies? kb '(hopes Cara (wins Race)) "BeliefProjectionProver")))))
 
 ;; ---- nested belief: only where the marker is visible --------------------
@@ -253,13 +253,13 @@
 ;; ---- the grant survives a rebuild (invariant: a restart changes no answer) ----
 
 (tu/deftest-kb belief-projection-survives-recover
-  ;; The `modalPredicate` grant is a taxonomy prop rebuilt from the stored
-  ;; `(modalPredicate P)` fact — the same shape as genlArg's mark (arggenl_test) — so a
+  ;; The `modal_predicate` grant is a taxonomy prop rebuilt from the stored
+  ;; `(modal_predicate P)` fact — the same shape as genlArg's mark (arggenl_test) — so a
   ;; rebuild must reconstruct the gate, else a recovered KB would stop projecting a belief
   ;; the running one answered: a restart changing an answer.  Covers both the shipped
   ;; `believes` grant and a runtime-registered one.
   (believe! kb 'Alice '(flies Tweety))
-  (v/assert kb '(binaryPredicate knows) 'CxUniverse)
+  (v/assert kb '(binary_predicate knows) 'CxUniverse)
   (v/register-modal-predicate kb 'knows)                  ; a runtime grant, stored in CxCore
   (believe! kb 'Alice '(dreamsOf Alice Wonderland))
   (testing "both the shipped and the runtime grant project before the rebuild"

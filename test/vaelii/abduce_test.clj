@@ -30,7 +30,7 @@
 (defn- grant
   "Declare `pred` assumable.  Nothing is abducible without this."
   [kb pred ctx]
-  (v/assert kb (list 'abduciblePredicate pred) ctx))
+  (v/assert kb (list 'abducible_predicate pred) ctx))
 
 (defn- a-rule
   "`(implies (and <antecedents>) <consequent>)`."

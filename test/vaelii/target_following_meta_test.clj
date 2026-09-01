@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.target-following-meta-test
-  "`targetFollowingPredicate`: a meta-sentex that names a sentex by handle and is torn
+  "`target_following_predicate`: a meta-sentex that names a sentex by handle and is torn
   down when that sentex is retracted — the cascade koinii's reply edges ride, and the
   reason retracting a claim collapses the replies about it, which a message bus cannot do.
 
@@ -26,7 +26,7 @@
 (defn- mark-following!
   "Declare `pred` a target-following meta predicate; return the mark's handle."
   [kb pred]
-  (v/assert kb (list 'targetFollowingPredicate pred) 'CxUniverse))
+  (v/assert kb (list 'target_following_predicate pred) 'CxUniverse))
 
 ;; ---- the declaration marks the property ---------------------------------
 
@@ -62,7 +62,7 @@
 ;; ---- opt-in: an unmarked meta predicate still orphans harmlessly --------
 
 (tu/deftest-kb an-unmarked-meta-predicate-orphans-harmlessly
-  ;; `mentions` is deliberately NOT declared targetFollowingPredicate — this is the
+  ;; `mentions` is deliberately NOT declared target_following_predicate — this is the
   ;; property that keeps `except` / `exceptWhen` behaviour unchanged by construction.
   (let [c (ctx! kb)]
     (let [p  (v/assert kb (list 'trusts 'AgentAtlas 'Oracle) c)

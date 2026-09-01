@@ -414,7 +414,7 @@
   [] (doto (isolated-test-kb) (clear-kb!)))
 
 ;; ---- gensym'd temporary terms (naming-invariant by construction) --------
-;; predicate  camelCase, lowercase-initial   -> tmpP1
+;; predicate  bare lowercase, uncommitted in arity -> tmppred1
 ;; individual CapitalCamelCase                -> Tmp2
 ;; type       lowercase, snake_case only when the base is  -> tmpdog3 / tmp_t3
 ;; context    CapitalCamelCase, Cx prefix    -> CxTmp4
@@ -481,14 +481,22 @@
   since a bare lowercase word satisfies the predicate *and* the type convention and is
   disambiguated by arity rather than by the symbol.  Left bare, the temp is usable
   either way; writing the base with an underscore is how a test says \"a type, and
-  only a type\"."
+  only a type\".
+
+  A `:predicate` temp is **bare lowercase** for the same reason read the other way.
+  The naming rule is a biconditional now — snake_case is arity 1 and camelCase is arity
+  2 and above — so a camelCase temp would commit to being a relation exactly as an
+  underscored one commits to being a kind, and a test that wrote `wabPremise` as a base
+  made neither commitment.  The base's own capitals are folded out (`wabPremise` ⇒
+  `tmpwabpremise17`), which is the one spelling both conventions admit; a test that
+  wants the commitment writes the base with an underscore and takes a `:type` temp."
   [role base]
   (case role
     :type       (let [n (snake base)]
                   (if (str/includes? n "_")
                     (gensym (str "tmp_" n "_"))
                     (gensym (str "tmp" n))))
-    :predicate  (gensym (str "tmp" (cap (alnum base))))
+    :predicate  (gensym (str "tmp" (str/lower-case (alnum base))))
     :individual (gensym (str "Tmp" (cap (alnum base))))
     :context    (symbol (str "Cx" (gensym (str "Tmp" (cap (alnum (str/replace (str base) #"^Cx" "")))))))))
 
@@ -524,7 +532,7 @@
 
 ;; the anonymous forms, kept for callers that don't care about the name
 (defn tmp-ind  ([] (gensym "Tmp"))            ([base] (fresh-term :individual base)))
-(defn tmp-pred ([] (gensym "tmpP"))           ([base] (fresh-term :predicate  base)))
+(defn tmp-pred ([] (gensym "tmppred"))        ([base] (fresh-term :predicate  base)))
 (defn tmp-type ([] (gensym "tmp_t"))          ([base] (fresh-term :type       base)))
 (defn tmp-ctx  ([] (symbol (str "Cx" (gensym "Tmp"))))
   ([base] (fresh-term :context base)))

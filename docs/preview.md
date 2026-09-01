@@ -108,7 +108,7 @@ derivation happened to land first, so the same batch against the same knowledge 
 same reason on any load order.
 
 `:rule` is present only where the informant is a **handle**. Half the engine's informants
-are symbols — `rewriteOf`, `functional`, `decontextualizedPredicate`, `arg` — and
+are symbols — `rewriteOf`, `functional`, `decontextualized_predicate`, `arg` — and
 those name no stored rule, so the key is absent rather than nil.
 
 **`:antecedents` is every sentex the firing rests on, and that is more than the facts.**

@@ -142,7 +142,7 @@
           ;; destination is touched, so nothing is created and nothing needs cleaning up
           nowhere "/vaelii-export-that-is-never-written"]
       (op! :assert [(list 'irreflexive before) 'CxUniverse])
-      (op! :assert [(list 'antiSymmetric atOrAbove) 'CxUniverse])
+      (op! :assert [(list 'anti_symmetric atOrAbove) 'CxUniverse])
       (op! :assert [(list atOrAbove 1 2) 'CxUniverse])
       (doseq [[label ty reply]
               [["a self tuple of an irreflexive predicate" :irreflexive

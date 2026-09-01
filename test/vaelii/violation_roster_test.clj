@@ -17,7 +17,7 @@
 
   Two forms, over `src/` with the strings and comments blanked out first:
 
-  - `{:violation :<kind>` — the literal, and the way a kind is normally introduced.
+  - `{:violation :<kind>` — written out, and the way a kind is normally introduced.
   - `{:violation <anything else>` — a **computed** kind, filed by a site whose keyword is
     an expression: a check's `:type` relabelled into an entry, or a kind handed to a
     shared entry builder several callers file through.  The scan reads the site and
@@ -41,7 +41,7 @@
     a row would misdescribe it.
   - **A row naming a kind nothing files.**  Either the keyword is misspelt, or the
     reporting path it described is gone and the row went with it.
-  - **A row whose `:detail` keys are not the ones the literal builds.**  The row went
+  - **A row whose `:detail` keys are not the ones the written-out entry builds.**  The row went
     stale under an edit to the entry, which is the failure a roster of names alone cannot
     see."
   (:require [clojure.java.io :as io]
@@ -93,7 +93,7 @@
                          (recur (inc i) (if (= c \newline) :code :comment)))))))
     (.toString sb)))
 
-(def literal-form
+(def written-form
   "A kind written where it is filed.  Anchored on the opening brace, so a kind read back
   *out* of an entry — `(= :disjoint (:violation v))` — is not mistaken for a filing."
   #"\{:violation\s+:([a-z][a-z0-9-]*)")
@@ -132,9 +132,9 @@
 
 (defn filings
   "Every filing site in the tree, as
-  `{:literal {kind #{site}} :computed #{site} :entries {kind #{[path offset]}}}`.
+  `{:written {kind #{site}} :computed #{site} :entries {kind #{[path offset]}}}`.
 
-  `:entries` carries the literal sites' offsets, which the `:detail` check reads the
+  `:entries` carries the written-out sites' offsets, which the `:detail` check reads the
   entry map back out of — the offsets hold against the original text because blanking
   substitutes character for character."
   []
@@ -145,19 +145,19 @@
        (as-> acc acc
          (reduce (fn [acc [kw site pos]]
                    (-> acc
-                       (update-in [:literal (keyword kw)] (fnil conj #{}) site)
+                       (update-in [:written (keyword kw)] (fnil conj #{}) site)
                        (update-in [:entries (keyword kw)] (fnil conj #{}) [path pos])))
-                 acc (matches literal-form path code))
+                 acc (matches written-form path code))
          (reduce (fn [acc [_ site _]] (update acc :computed conj site))
                  acc (matches computed-form path code)))))
-   {:literal {} :computed #{} :entries {}}
+   {:written {} :computed #{} :entries {}}
    (sources)))
 
 (defn kinds-at
   "The kinds `rx` finds in group 1 across the blanked sources.
 
   For a computed site that is a shared builder taking its kind as an argument: the site
-  holds no keyword, but every *caller* holds one as a literal, so what `computed-sites`
+  holds no keyword, but every *caller* holds one written out, so what `computed-sites`
   claims about it is checkable rather than merely stated.  Blanked text is what makes
   that safe — the builder is named a dozen times in prose explaining itself, and a scan
   over the raw source would read its own documentation as a caller."
@@ -167,7 +167,7 @@
         (sources)))
 
 (defn entry-keys
-  "The keys the entry literal at `offset` in `path` puts on a reader's map, beyond the
+  "The keys the entry written out at `offset` in `path` puts on a reader's map, beyond the
   shape every entry shares (`:violation` `:sentence` `:context` `:rule`, and the `:run`
   the ledger stamps): its `:detail` keys, plus any it carries at the top level.
 
@@ -230,7 +230,7 @@
    "settle/constraint-exposure-entries"
    {:kinds #{:functional :asymmetric :anti-transitive}
     :why   (str "one arm per declared property, and the entry names the property that "
-                "convicted rather than repeating it as a literal")}
+                "convicted rather than repeating it verbatim")}
 
    "settle/cut-notice"
    {:kinds #{:exposure-truncated :arbitration-truncated}
@@ -250,7 +250,7 @@
   {})
 
 (def ^:private detail-not-scannable
-  "Kinds whose `:detail` keys no reader of the entry literal can see, each with why.  The
+  "Kinds whose `:detail` keys no reader of the written-out entry can see, each with why.  The
   name checks as usual; only the key-for-key comparison stands aside."
   {:aggregate (str "the entry is `(merge {…} detail)` and `detail` is the caller's map, "
                    "so the keys belong to the numeric error rather than to the site")})
@@ -297,9 +297,9 @@
 ;; ---- the pin, both ways -------------------------------------------------
 
 (defn- filed-kinds
-  "Every kind the tree can file: the literals, plus what each computed site relabels."
+  "Every kind the tree can file: the written-out ones, plus what each computed site relabels."
   [scanned]
-  (into (set (keys (:literal scanned))) (mapcat :kinds) (vals computed-sites)))
+  (into (set (keys (:written scanned))) (mapcat :kinds) (vals computed-sites)))
 
 (deftest every-kind-the-code-files-has-a-row-in-the-public-table
   (let [scanned (filings)
@@ -313,7 +313,7 @@
              " each a row — the keyword, what it means, and the `:detail` keys it carries"
              " — or list it in `undocumented-by-design` with the sentence saying why a row"
              " would misdescribe it."
-             (when-let [sites (seq (select-keys (:literal scanned) missing))]
+             (when-let [sites (seq (select-keys (:written scanned) missing))]
                (str " Filed at: " (sort (mapcat val sites)) "."))))))
 
 (deftest every-kind-the-table-names-is-one-the-code-files
@@ -370,7 +370,7 @@
 
 (deftest a-shared-builders-kinds-are-the-ones-its-callers-pass
   ;; The same principle one level in. A site that takes its kind as an argument leaves the
-  ;; keywords at its callers, where they are literals — so for that shape the entry need
+  ;; keywords at its callers, where they are written out — so for that shape the entry need
   ;; not be trusted at all, and `:kinds-at` says how to find them. A caller added with a
   ;; new kind fails here rather than passing unnoticed, which is the failure the trusted
   ;; half of `computed-sites` cannot catch.
@@ -386,13 +386,13 @@
 (deftest every-documented-detail-shape-is-the-one-the-entry-builds
   ;; The citation check's analogue, and the one that catches a row going stale rather than
   ;; missing: a `:detail` key added to an entry is a key a consumer can read and nothing
-  ;; else would notice. Scoped to the kinds filed *only* by a literal — one a computed
+  ;; else would notice. Scoped to the kinds filed *only* written out — one a computed
   ;; site also files carries that site's shape too (`(dissoc p :type :sentence)`, the
   ;; check's own problem map), and no scan of the filing site can see it.
-  (let [{:keys [literal entries]} (filings)
+  (let [{:keys [written entries]} (filings)
         rows     (documented)
         computed (into #{} (mapcat :kinds) (vals computed-sites))]
-    (doseq [[kind sites] (sort-by key literal)
+    (doseq [[kind sites] (sort-by key written)
             :when        (and (not (contains? computed kind))
                               (not (contains? detail-not-scannable kind))
                               (contains? rows kind))]
@@ -410,14 +410,14 @@
   ;; Both halves matter, and the second is the one that decays quietly: were a docstring
   ;; spelling `{:violation :…}` counted as a filing, the reverse direction would pass on
   ;; the documentation alone and catch nothing at all.
-  (testing "a literal in code is a filing"
+  (testing "a keyword written out in code is a filing"
     (is (= #{"x"} (into #{} (map second)
-                        (re-seq literal-form (code-only "(f {:violation :x :detail {}})"))))))
+                        (re-seq written-form (code-only "(f {:violation :x :detail {}})"))))))
   (testing "the same map spelled in a docstring is not"
-    (is (empty? (re-seq literal-form
+    (is (empty? (re-seq written-form
                         (code-only "(defn f \"answers {:violation :x :detail {}}\" [] nil)")))))
   (testing "nor is one in a comment"
-    (is (empty? (re-seq literal-form (code-only ";; files {:violation :x}\n")))))
+    (is (empty? (re-seq written-form (code-only ";; files {:violation :x}\n")))))
   (testing "and a character literal opens no string that swallows the filings below it"
     (is (= #{"x"} (into #{} (map second)
-                        (re-seq literal-form (code-only "(= c \\\") {:violation :x}")))))))
+                        (re-seq written-form (code-only "(= c \\\") {:violation :x}")))))))

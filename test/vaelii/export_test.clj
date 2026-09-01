@@ -208,10 +208,10 @@
                      (set (keep #(when (:strength %) (:id %)) sentexes)))
                   "and a purely-derived datum carries none"))
 
-            (testing "a negative fact is a frame at :truth :false"
+            (testing "a negative fact is a frame at :polarity :negative"
               (let [h (v/handle-of kb (list 'not (list happy Rex)) ctx)]
                 (is (some? h))
-                (is (= :false (:truth (by-id h))))
+                (is (= :negative (:polarity (by-id h))))
                 (is (not (v/in? kb h)) "defeated — stored without being believed")))
 
             (testing "a defeasible rule is a frame with its decomposition and its varmap"
@@ -401,8 +401,8 @@
     (justification-ids [_] #{})
     (get-sentex [_ id]
       (vswap! fetches inc)
-      (sx/->AtomicSentex (list 'synthetic (symbol (str "Ind" id))) 'CxSynthetic
-                         id :true nil))
+      (sx/->LiteralSentex (list 'synthetic (symbol (str "Ind" id))) 'CxSynthetic
+                          id :true nil))
     (get-provenance [_ _] nil)))
 
 (deftest ^:slow the-writer-never-runs-more-than-a-chunk-ahead-of-what-it-has-written

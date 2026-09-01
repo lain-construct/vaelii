@@ -29,7 +29,7 @@
 
 (defn- fixpoint-content
   "The KB's whole derived state, handle-free and sorted: every stored sentex as
-  [sentence context truth strength believed?], every justification with its
+  [sentence context polarity strength believed?], every justification with its
   consequence, informant and antecedents mapped from handles to [sentence context]."
   [kb]
   (let [recs (:records kb)
@@ -39,7 +39,7 @@
      (sort-by pr-str
               (map (fn [id]
                      (let [s (p/get-sentex recs id)]
-                       [(:sentence s) (:context s) (:truth s) (:strength s)
+                       [(:sentence s) (:context s) (:polarity s) (:strength s)
                         (boolean (jtms/in? tms id))]))
                    (p/sentex-ids recs)))
      :justifications

@@ -441,7 +441,7 @@
       (is (= [:not-well-formed] (mapv :type (v/check kb s CxDur))) (pr-str s)))
     (testing "a variable magnitude is a pattern, not a measure — still legal"
       (is (some? (v/assert-rule kb [(list lengthOf '?i (list 'QuantityFn '?n 'Second))]
-                                (list 'quantifiedInterval '?i) CxDur))))))
+                                (list 'quantified_interval '?i) CxDur))))))
 
 (tu/deftest-kb a-total-in-the-right-dimension-but-wrong-base-unit-does-not-check
   ;; A unit that declares its dimension but no `conversionFactor` is its own base, so it

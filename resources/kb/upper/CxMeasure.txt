@@ -1,5 +1,5 @@
 ;; CxMeasure — the theory of measurement: the two measure terms (QuantityFn and
-;; QuantityIntervalFn, unreifiableFunction applications that stay structural so a
+;; QuantityIntervalFn, unreifiable_function applications that stay structural so a
 ;; magnitude and its unit remain readable), the unit table the quantity provers
 ;; normalize against (dimensionOf / conversionFactor), and the five comparisons they
 ;; compute (sameQuantity / quantityLessThan / quantityGreaterThan and the two
@@ -38,7 +38,7 @@
 
 (comment conversionFactor
          "(conversionFactor ?unit ?baseUnit ?factor) means that one ?unit equals ?factor of ?baseUnit. So (conversionFactor Gram Kilogram 0.001) says a gram is a thousandth of a kilogram. Every unit states its factor against its dimension's base unit directly rather than against a neighbouring one, so normalizing a magnitude is a single multiply and never a chain. An ordinary stored fact, read by the quantity provers.")
-(ternaryPredicate conversionFactor)
+(ternary_predicate conversionFactor)
 (arg conversionFactor 1 thing)
 (arg conversionFactor 2 thing)
 (arg conversionFactor 3 thing)
@@ -49,15 +49,15 @@
 
 (comment derivativeOf
          "(derivativeOf ?rate ?quantity) means that ?rate is the rate at which ?quantity changes. So (derivativeOf NetInflow WaterLevel) says the net inflow is how fast the water level rises. What joins a sign to a trend: the trend of a quantity IS the sign of its rate, so the two are one value read at either end of this edge, and the sign prover carries it both ways — a rate whose sign is known gives the trend, and a stated trend pins the rate, which can then be an addend of something else. A rate is a quantity like any other, so the rate of a sum is stated as a sum of the rates rather than read off the sum.")
-(binaryPredicate derivativeOf)
-(instanceRelationPredicate derivativeOf)
+(binary_predicate derivativeOf)
+(instance_relation_predicate derivativeOf)
 (arg derivativeOf 1 thing)
 (arg derivativeOf 2 thing)
 
 (comment dimensionOf
          "(dimensionOf ?unit ?dimension) means that ?unit measures ?dimension. So (dimensionOf Kilogram Mass) says kilograms measure mass. Two measures are comparable only within one dimension, so this is what the quantity provers consult before they normalize anything, and a mismatch comes back not comparable rather than false. An ordinary stored fact.")
-(binaryPredicate dimensionOf)
-(instanceRelationPredicate dimensionOf)
+(binary_predicate dimensionOf)
+(instance_relation_predicate dimensionOf)
 (arg dimensionOf 1 thing)
 (arg dimensionOf 2 thing)
 
@@ -69,8 +69,8 @@
 
 (comment greaterInMagnitudeThan
          "(greaterInMagnitudeThan ?quantity1 ?quantity2) means that ?quantity1 is further from zero than ?quantity2, whichever side of zero each falls on. Between two QUANTITIES, which is what separates it from quantityGreaterThan: that one compares two ground measure terms and is computed from the unit table, where this is a stated claim about quantities nobody has put a figure on — the tap running faster than the drain. It exists for the one ambiguous entry in the sign addition table: a positive and a negative sum to the sign of whichever is larger, and this is what says which. Transitive and asymmetric, a strict order, so a cycle of magnitude claims is a contradiction the KB reports rather than a chain it walks.")
-(binaryPredicate greaterInMagnitudeThan)
-(instanceRelationPredicate greaterInMagnitudeThan)
+(binary_predicate greaterInMagnitudeThan)
+(instance_relation_predicate greaterInMagnitudeThan)
 (arg greaterInMagnitudeThan 1 thing)
 (arg greaterInMagnitudeThan 2 thing)
 (transitive greaterInMagnitudeThan)
@@ -78,8 +78,8 @@
 
 (comment heavierThan
          "(heavierThan ?object1 ?object2) means that ?object1 weighs more than ?object2. Between two particular objects, and derivable rather than only asserted: a rule compares their two weightOf measures with quantityGreaterThan, so it holds whenever both weights are known and ordered. The instance-level counterpart of the type-level largerThan, and a strict order like it — transitive and asymmetric together. Transitivity is what answers a chain nobody weighed: two stated comparisons carry the third, so a KB that knows an elephant outweighs a horse and a horse a dog answers the elephant against the dog with no measure anywhere. Asymmetry makes the mirror of a claim deny it, and the pair entails irreflexivity as a reading without setting the mark: a lone (heavierThan a a) names no second sentex to weigh against and is admitted, exactly as it is for largerThan.")
-(binaryPredicate heavierThan)
-(instanceRelationPredicate heavierThan)
+(binary_predicate heavierThan)
+(instance_relation_predicate heavierThan)
 (arg heavierThan 1 physical_object)
 (arg heavierThan 2 physical_object)
 (transitive heavierThan)
@@ -87,8 +87,8 @@
 
 (comment heightOf
          "(heightOf ?object ?measure) means that ?object stands ?measure tall. A measure of Length, exact as (QuantityFn 2 Meter) or bounded as (QuantityIntervalFn 1 2 Meter). Functional, like weightOf and for the same reason: with no time argument to say when, a second height is a contradiction rather than a second fact.")
-(binaryPredicate heightOf)
-(instanceRelationPredicate heightOf)
+(binary_predicate heightOf)
+(instance_relation_predicate heightOf)
 (arg heightOf 1 physical_object)
 (arg heightOf 2 thing)
 (functional heightOf)
@@ -123,65 +123,65 @@
 
 (comment qualitativeDifference
          "(qualitativeDifference ?a ?b ?q) means that quantity ?q is ?a minus ?b. A declaration about which quantities stand in the relation, not a sentence about numbers — there are no numbers in the sign theory at all — and what the sign prover reads to give ?q a sign from the signs of ?a and ?b. Read as ?a plus the negation of ?b, so it shares the addition table and its one ambiguity, with the cases turned round: two quantities of the SAME sign are the ambiguous difference, and greaterInMagnitudeThan is what resolves it.")
-(ternaryPredicate qualitativeDifference)
+(ternary_predicate qualitativeDifference)
 (arg qualitativeDifference 1 thing)
 (arg qualitativeDifference 2 thing)
 (arg qualitativeDifference 3 thing)
 
 (comment qualitativeProduct
          "(qualitativeProduct ?a ?b ?q) means that quantity ?q is ?a times ?b. The one arithmetic relation that is never ambiguous: anything times nothing is nothing, like signs give a positive and opposite signs a negative, and magnitudes do not come into it — so no greaterInMagnitudeThan is ever read for a product and a product of two known signs is always a known sign.")
-(ternaryPredicate qualitativeProduct)
+(ternary_predicate qualitativeProduct)
 (arg qualitativeProduct 1 thing)
 (arg qualitativeProduct 2 thing)
 (arg qualitativeProduct 3 thing)
 
 (comment qualitativeSum
          "(qualitativeSum ?a ?b ?q) means that quantity ?q is ?a plus ?b. A declaration about which quantities stand in the relation, not a sentence about numbers. The sign prover reads it to give ?q a sign from the signs of ?a and ?b: two positives give a positive and two negatives a negative, a zero is the identity, and a positive with a negative gives the sign of whichever is larger — which is all three values, and so no answer at all, until a greaterInMagnitudeThan says which. Never a guess between the three.")
-(ternaryPredicate qualitativeSum)
+(ternary_predicate qualitativeSum)
 (arg qualitativeSum 1 thing)
 (arg qualitativeSum 2 thing)
 (arg qualitativeSum 3 thing)
 
 (comment QuantityFn
-         "(QuantityFn ?magnitude ?unit) means the measure of ?magnitude ?unit. So (QuantityFn 5 Kilogram) is five kilograms. An unreifiableFunction application, a structural NAT: it stays structural instead of being minted into an opaque constant, so the magnitude and the unit are still readable inside the sentence, and the quantity provers normalize it through the dimensionOf and conversionFactor facts.")
-(unreifiableFunction QuantityFn)
+         "(QuantityFn ?magnitude ?unit) means the measure of ?magnitude ?unit. So (QuantityFn 5 Kilogram) is five kilograms. An unreifiable_function application, a structural NAT: it stays structural instead of being minted into an opaque constant, so the magnitude and the unit are still readable inside the sentence, and the quantity provers normalize it through the dimensionOf and conversionFactor facts.")
+(unreifiable_function QuantityFn)
 
 (comment quantityGreaterThan
          "(quantityGreaterThan ?measure1 ?measure2) means that ?measure1 is greater than ?measure2 once both are normalized to their dimension's base unit. Necessarily greater, so for intervals all of ?measure1 must lie strictly above all of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
-(binaryPredicate quantityGreaterThan)
-(instanceRelationPredicate quantityGreaterThan)
+(binary_predicate quantityGreaterThan)
+(instance_relation_predicate quantityGreaterThan)
 (arg quantityGreaterThan 1 thing)
 (arg quantityGreaterThan 2 thing)
 
 (comment quantityGreaterThanOrEqual
          "(quantityGreaterThanOrEqual ?measure1 ?measure2) means that ?measure1 is at least ?measure2 once both are normalized to their dimension's base unit. Necessarily at least, so for intervals every value of ?measure1 must reach every value of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
-(binaryPredicate quantityGreaterThanOrEqual)
-(instanceRelationPredicate quantityGreaterThanOrEqual)
+(binary_predicate quantityGreaterThanOrEqual)
+(instance_relation_predicate quantityGreaterThanOrEqual)
 (arg quantityGreaterThanOrEqual 1 thing)
 (arg quantityGreaterThanOrEqual 2 thing)
 
 (comment QuantityIntervalFn
-         "(QuantityIntervalFn ?lo ?hi ?unit) means the measure lying somewhere between ?lo and ?hi ?unit. So (QuantityIntervalFn 1 2 Meter) is between one and two metres. An unreifiableFunction application like QuantityFn, and compared under the necessary reading: a claim holds of the interval only when it holds of every value in it.")
-(unreifiableFunction QuantityIntervalFn)
+         "(QuantityIntervalFn ?lo ?hi ?unit) means the measure lying somewhere between ?lo and ?hi ?unit. So (QuantityIntervalFn 1 2 Meter) is between one and two metres. An unreifiable_function application like QuantityFn, and compared under the necessary reading: a claim holds of the interval only when it holds of every value in it.")
+(unreifiable_function QuantityIntervalFn)
 
 (comment quantityLessThan
          "(quantityLessThan ?measure1 ?measure2) means that ?measure1 is less than ?measure2 once both are normalized to their dimension's base unit. Necessarily less, so for intervals all of ?measure1 must lie strictly below all of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
-(binaryPredicate quantityLessThan)
-(instanceRelationPredicate quantityLessThan)
+(binary_predicate quantityLessThan)
+(instance_relation_predicate quantityLessThan)
 (arg quantityLessThan 1 thing)
 (arg quantityLessThan 2 thing)
 
 (comment quantityLessThanOrEqual
          "(quantityLessThanOrEqual ?measure1 ?measure2) means that ?measure1 is at most ?measure2 once both are normalized to their dimension's base unit. Necessarily at most, so for intervals every value of ?measure1 must stay under every value of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
-(binaryPredicate quantityLessThanOrEqual)
-(instanceRelationPredicate quantityLessThanOrEqual)
+(binary_predicate quantityLessThanOrEqual)
+(instance_relation_predicate quantityLessThanOrEqual)
 (arg quantityLessThanOrEqual 1 thing)
 (arg quantityLessThanOrEqual 2 thing)
 
 (comment sameQuantity
          "(sameQuantity ?measure1 ?measure2) means that ?measure1 and ?measure2 are the same quantity once both are normalized to their dimension's base unit. So a thousand grams and one kilogram are the same quantity though they are different terms. Computed by a prover from the dimensionOf and conversionFactor facts, never stored, and never an equality: the equality closure is a partition over symbols and holds no numbers or compounds, so this says two measures agree and not that two names denote one thing.")
-(binaryPredicate sameQuantity)
-(instanceRelationPredicate sameQuantity)
+(binary_predicate sameQuantity)
+(instance_relation_predicate sameQuantity)
 (arg sameQuantity 1 thing)
 (arg sameQuantity 2 thing)
 
@@ -198,8 +198,8 @@
 
 (comment signOf
          "(signOf ?quantity ?sign) means that ?quantity is negative, nil or positive, ?sign being one of SignNegative, SignZero and SignPositive. The coarsest measurement there is, and the one a common-sense KB nearly always has: nobody knows how fast the tap runs, and everybody knows that it runs. Computed by a prover from the stated signs, the three qualitative arithmetic relations, the greaterInMagnitudeThan comparisons and the derivativeOf edges — and a stated one is answered back out of that same reading, so registering the prover never changes what a KB says about what it wrote down. NOT declared functional, though a quantity has one sign: functional merges two symbol arguments through the equality partition, so a KB that had said both positive and negative would have the two sign terms made one instead of the contradiction reported, and the prover reports it as a :sign-inconsistency entry.")
-(binaryPredicate signOf)
-(instanceRelationPredicate signOf)
+(binary_predicate signOf)
+(instance_relation_predicate signOf)
 (arg signOf 1 thing)
 (arg signOf 2 sign_value)
 
@@ -211,8 +211,8 @@
 
 (comment tallerThan
          "(tallerThan ?object1 ?object2) means that ?object1 stands higher than ?object2. Derivable by comparing two heightOf measures, the same shape heavierThan has over weights, and a strict order for the same reasons: transitive, so two stated comparisons answer the third with nothing measured, and asymmetric, so the mirror of a claim denies it.")
-(binaryPredicate tallerThan)
-(instanceRelationPredicate tallerThan)
+(binary_predicate tallerThan)
+(instance_relation_predicate tallerThan)
 (arg tallerThan 1 physical_object)
 (arg tallerThan 2 physical_object)
 (transitive tallerThan)
@@ -224,8 +224,8 @@
 
 (comment trendOf
          "(trendOf ?quantity ?sign) means that ?quantity is falling, steady or rising — the sign of its rate of change. Not a second theory beside signOf: it is signOf read at the other end of a derivativeOf edge, so a rate known positive makes the quantity it is the rate of rising, and a quantity stated rising makes that rate positive. Stated directly where the rate has no name worth giving it.")
-(binaryPredicate trendOf)
-(instanceRelationPredicate trendOf)
+(binary_predicate trendOf)
+(instance_relation_predicate trendOf)
 (arg trendOf 1 thing)
 (arg trendOf 2 sign_value)
 
@@ -235,8 +235,8 @@
 
 (comment weightOf
          "(weightOf ?object ?measure) means that ?object weighs ?measure. A measure of Mass, exact as (QuantityFn 20 Kilogram) or bounded as (QuantityIntervalFn 18 22 Kilogram). Declared functional: one object, one weight, since nothing here says at what time — and two measures are compounds rather than symbols, so a second one is refused outright instead of merging the way two names for one thing would.")
-(binaryPredicate weightOf)
-(instanceRelationPredicate weightOf)
+(binary_predicate weightOf)
+(instance_relation_predicate weightOf)
 (arg weightOf 1 physical_object)
 (arg weightOf 2 thing)
 (functional weightOf)

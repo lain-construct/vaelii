@@ -187,7 +187,7 @@
   (boolean (some #(unknown-inner-holds? kb % bindings pctx) naf-antes)))
 
 (defn closed-extent-antecedents
-  "The rule's negative antecedents a `closedExtentPredicate` grant turns into negation as
+  "The rule's negative antecedents a `closed_extent_predicate` grant turns into negation as
   failure — closed (every variable bound by a generator) and declared closed somewhere.
   The join withholds these and derive time decides them, exactly as it does an `unknown`.
 
@@ -2079,7 +2079,7 @@
             raw       (if free (skolem/skolemize-conclusion kb rule raw0 bindings free) raw0)
             ;; a ground `(Quasiquote T)` in the fired head constructs and reifies its
             ;; mention here — a no-op unless quasiquotation is declared
-            ;; (`quasiquote/any-quasiquote?`, the `(quotingFunction Quasiquote)` gate)
+            ;; (`quasiquote/any-quasiquote?`, the `(quoting_function Quasiquote)` gate)
             raw       (quasiquote/reduce-in-conclusion kb raw)
             ;; a conjunctive skolemized head shares one witness across its conjuncts
             ;; (only a head existential stores a conjunctive consequent — an ordinary
@@ -2124,7 +2124,7 @@
      ;; the negation-as-failure antecedents — `(unknown S)` literals, blocked the same
      ;; way an exception is, per placement context (docs/naf.md)
      :naf (rules/naf-antecedents rsx)
-     ;; ...and the negative antecedents a `closedExtentPredicate` grant reads as NAF —
+     ;; ...and the negative antecedents a `closed_extent_predicate` grant reads as NAF —
      ;; withheld from the join and decided here, for the same reason and by the same
      ;; block/sweep/revive path (docs/naf.md)
      :closed-extent (closed-extent-antecedents kb (rules/antecedents s))

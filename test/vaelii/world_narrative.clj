@@ -76,9 +76,9 @@
     (arg responsibleFor 1 agent) (arg responsibleFor 2 event)])
 
 (def predicate-types
-  '[(binaryPredicate wants)   (binaryPredicate does)        (binaryPredicate brings)
-    (binaryPredicate achieves) (binaryPredicate causes)     (binaryPredicate beforeEvent)
-    (binaryPredicate afterEvent) (binaryPredicate achievesGoal) (binaryPredicate responsibleFor)])
+  '[(binary_predicate wants)   (binary_predicate does)        (binary_predicate brings)
+    (binary_predicate achieves) (binary_predicate causes)     (binary_predicate beforeEvent)
+    (binary_predicate afterEvent) (binary_predicate achievesGoal) (binary_predicate responsibleFor)])
 
 ;; ---- worked story: the Fox and the Crow ---------------------------------
 
@@ -160,8 +160,8 @@
   (assert-all kb 'CxStories predicate-docs)
   (assert-all kb 'CxStories predicate-constraints)
   (assert-all kb 'CxStories predicate-types)
-  (doseq [t '[agent event action mental_state goal]]     ; uphold the unaryPredicate invariant
-    (v/assert kb (list 'unaryPredicate t) 'CxStories))
+  (doseq [t '[agent event action mental_state goal]]     ; uphold the unary_predicate invariant
+    (v/assert kb (list 'unary_predicate t) 'CxStories))
   ;; goal reasoning: wanting a goal + bringing about an event that achieves it ⇒ success
   (v/assert-rule kb '[(wants ?a ?g) (brings ?a ?e) (achieves ?e ?g)]
                  '(achievesGoal ?a ?g) 'CxStories)

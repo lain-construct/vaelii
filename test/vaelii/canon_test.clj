@@ -24,23 +24,23 @@
 (defn- flatten-key [k]
   (filter (complement sequential?) (tree-seq sequential? seq k)))
 
-;; ---- the struct stores truth / antecedent / consequent ------------------
+;; ---- the struct stores polarity / antecedent / consequent ---------------
 
 (tu/deftest-kb connectives-canonicalize-into-the-record
-  (testing "a negation decomposes into truth :false over the positive body"
+  (testing "a negation decomposes into polarity :negative over the positive body"
     (let [s (sx/sentex '(not (flies Tweety)) 'CxA)]
-      (is (= :false (:truth s)))
+      (is (= :negative (:polarity s)))
       (is (= '(flies Tweety) (sx/body s)))
       (is (nil? (:antecedent s)))))
   (testing "double negation is eliminated"
     (let [s (sx/sentex '(not (not (flies Tweety))) 'CxA)]
-      (is (= :true (:truth s)))
+      (is (= :positive (:polarity s)))
       (is (= '(flies Tweety) (:sentence s)))))
   (testing "a rule decomposes into antecedent (a vector) and consequent, canonically named"
     (let [s (sx/sentex '(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z)) 'CxA)]
       (is (= '[(parentOf ?var0 ?var1) (parentOf ?var1 ?var2)] (:antecedent s)))
       (is (= '(grandparentOf ?var0 ?var2) (:consequent s)))
-      (is (= :true (:truth s)))
+      (is (= :positive (:polarity s)))
       (testing "and the varmap gets back to the author's names"
         (is (= '{?var0 ?x ?var1 ?y ?var2 ?z} (:varmap s)))
         (is (= '(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z))
@@ -140,7 +140,7 @@
 (tu/deftest-kb spec-fact-in-spec-context-triggers-a-general-rule
   (let [dog (tu/tmp-type) mammal (tu/tmp-type) animal (tu/tmp-type)
         muffet (tu/tmp-ind) rex (tu/tmp-ind)
-        breathes (tu/tmp-pred) hasFur (tu/tmp-pred)]
+        breathes (tu/tmp-pred) has_fur (tu/tmp-pred)]
     (v/assert kb (list 'genlCx 'CxSpec 'CxGen) 'CxGen)
     (v/assert kb (list 'genl mammal animal) 'CxGen)
     (v/assert kb (list 'genl dog mammal) 'CxGen)
@@ -152,8 +152,8 @@
       (is (= '(CxSpec) (v/contexts-of kb (list breathes muffet)))))
     (testing "it fires regardless of assertion order (rule after fact)"
       (v/assert kb (list dog rex) 'CxSpec)
-      (v/assert-rule kb [(list mammal '?y)] (list hasFur '?y) 'CxGen)
-      (is (seq (v/sentexes-matching kb (list hasFur rex) 'CxSpec))))))
+      (v/assert-rule kb [(list mammal '?y)] (list has_fur '?y) 'CxGen)
+      (is (seq (v/sentexes-matching kb (list has_fur rex) 'CxSpec))))))
 
 (tu/deftest-kb a-join-rule-fires-over-spec-facts-with-a-common-viewpoint
   ;; The requirement's join case: two antecedents, spec-type facts, genl + genlCx.

@@ -220,7 +220,7 @@
       (v/watch kb f)
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/edit! kb {:add [[(list dog Muffet) 'CxUniverse]
-                                      ['(notGround ?x) 'CxUniverse]]})))
+                                      ['(not_ground ?x) 'CxUniverse]]})))
       (is (empty? @seen) "the batch was taken back, so nothing was reported")
       (v/edit! kb {:add [[(list dog Muffet) 'CxUniverse] [(list cat Tom) 'CxUniverse]]})
       (is (= 1 (count @seen)) "one settle, one event — the successful batch's")

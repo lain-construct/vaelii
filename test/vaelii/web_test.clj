@@ -173,7 +173,7 @@
   ;; import would have filled: nothing in this KB's own assert path can produce one
   (let [real acc/sentexes-with-functor
         self {:id -1 :sentence '(disjoint nothing nothing) :context 'CxUniverse
-              :truth :true :strength :monotonic}]
+              :polarity :positive :strength :monotonic}]
     (with-redefs [acc/sentexes-with-functor
                   (fn [target pred & args]
                     (cond-> (apply real target pred args)
@@ -865,7 +865,7 @@
 
 ;; ---- reified terms: the constant is never what a reader sees ------------
 ;;
-;; A ground `(F a…)` under a `reifiableFunction` is stored as an opaque `nat/` constant
+;; A ground `(F a…)` under a `reifiable_function` is stored as an opaque `nat/` constant
 ;; (docs/nat.md).  It is term *identity*, not a name anybody wrote, so no page shows one:
 ;; every rendering is the expression it was minted from, with bold parens and the opening
 ;; one linking to the constant's page.  These drive real minting through `assert` rather
@@ -876,8 +876,8 @@
   returns.  Everything minted is a premise the neutral fixture retracts."
   [kb f]
   (tu/with-terms [FruitFn BestTreeIn AppleTree Orchard1 fruit colorOf CxNat]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse {:chain? false})
-    (v/assert kb (list 'reifiableFunction BestTreeIn) 'CxUniverse {:chain? false})
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse {:chain? false})
+    (v/assert kb (list 'reifiable_function BestTreeIn) 'CxUniverse {:chain? false})
     (v/assert kb (list 'result FruitFn fruit) 'CxUniverse {:chain? false})
     (let [h (v/assert kb (list colorOf (list FruitFn AppleTree) 'Red) CxNat {:chain? false})
           n (v/assert kb (list colorOf (list FruitFn (list BestTreeIn Orchard1)) 'Green)
@@ -1404,11 +1404,11 @@
 ;; ---- continuation: a capped list is walkable, not truncated -------------
 
 (tu/deftest-kb a-capped-group-ends-in-a-sentinel-that-fetches-the-rest
-  (tu/with-terms [manyOf CxMany]
+  (tu/with-terms [many_of CxMany]
     ;; one more than a group renders at a time, so the group is capped and continues
     (doseq [i (range 61)]
-      (v/assert kb (list manyOf (symbol (str "Thing" i))) CxMany {:chain? false}))
-    (let [r (GET "/term" (str "q=" (name manyOf)))]
+      (v/assert kb (list many_of (symbol (str "Thing" i))) CxMany {:chain? false}))
+    (let [r (GET "/term" (str "q=" (name many_of)))]
       (is (= 200 (:status r)))
       (is (re-find #"61 stored" (:body r)))
       (testing "the list ends in a continuation row rather than a dead count"
@@ -1422,14 +1422,14 @@
       (testing "the first page is the cap, and Thing9 (last by context+handle) is not on it"
         (is (= 60 (count (re-seq #"class=\"sx-item\"" (:body r)))))))
     (testing "the sentinel's target answers the tail as bare rows"
-      (let [r (GET "/term/rows" (str "q=" (name manyOf) "&g=0&offset=60"))]
+      (let [r (GET "/term/rows" (str "q=" (name many_of) "&g=0&offset=60"))]
         (is (= 200 (:status r)))
         (is (= 1 (count (re-seq #"class=\"sx-item\"" (:body r)))))
         (is (not (re-find #"<main" (:body r))))
         (testing "and stops — a tail with nothing after it carries no sentinel"
           (is (not (re-find #"class=\"more\"" (:body r)))))))
     (testing "a group index that names no group answers empty, not a 500"
-      (is (= "" (:body (GET "/term/rows" (str "q=" (name manyOf) "&g=99&offset=0"))))))))
+      (is (= "" (:body (GET "/term/rows" (str "q=" (name many_of) "&g=99&offset=0"))))))))
 
 (deftest a-term-with-thousands-of-sentexes-is-walkable-to-the-end
   ;; The term page caps a group at 60 rows and ends it with a continuation sentinel;
@@ -1444,7 +1444,7 @@
   (tu/with-cleared-kb [kb tu/isolated-fresh]
     (let [app  (web/app kb)
           n    2400                                          ; 40 pages of 60
-          pred 'manyOf
+          pred 'many_of
           get* (fn [uri qs] (app (cond-> {:request-method :get :uri uri}
                                    qs (assoc :query-string qs))))
           rows #(count (re-seq #"class=\"sx-item\"" %))

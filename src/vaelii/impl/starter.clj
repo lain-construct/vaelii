@@ -61,7 +61,7 @@
 
   What stays in code here is the *order the layers* load in — loading order is logic,
   the definitional layer must precede the theories that reason over it — and the one
-  computed batch (every type is also a unaryPredicate).  Within a layer, every
+  computed batch (every type is also a unary_predicate).  Within a layer, every
   context file present is loaded (discovered from the classpath), so adding a KB is
   dropping a file in kb/upper/ or kb/middle/, no code change."
   (:require [vaelii.core :as v]
@@ -77,8 +77,8 @@
   (core-context/load-into kb)                                       ; CxCore.txt: the vocabulary head
   (seed/load-layer kb "upper"  (seed/layer-contexts "upper"))  ; every definitional context
   (seed/load-layer kb "middle" (seed/layer-contexts "middle")) ; every theory context
-  ;; every type is a unaryPredicate — computed over the taxonomy, so it stays in code;
+  ;; every type is a unary_predicate — computed over the taxonomy, so it stays in code;
   ;; a predicate classification, placed with the others in CxCore
   (doseq [t (nm/by-print-key (tax/types (:taxonomy kb)))]
-    (v/assert kb (list 'unaryPredicate t) 'CxCore))
+    (v/assert kb (list 'unary_predicate t) 'CxCore))
   kb)

@@ -54,7 +54,7 @@
   (belief-context agent))
 
 (def ^:private grant-ctx
-  "A context that sees the `believes` `modalPredicate` grant (declared in CxCore), so a
+  "A context that sees the `believes` `modal_predicate` grant (declared in CxCore), so a
   modal goal posed from here is recognized by `BeliefProjectionProver`.  CxUniverse sees
   CxCore by construction (`core-context/load-into` wires `(genlCx CxUniverse CxCore)`)."
   'CxUniverse)
@@ -132,7 +132,7 @@
   for reads and derivations — from the agent's beliefs and from anyone reading the
   agent's context — while keeping it stored, so `restore!` can bring it back.  Softer
   than `retracts` (a real teardown): nothing is deleted and no cascade runs (`except` is
-  deliberately not `targetFollowingPredicate`).
+  deliberately not `target_following_predicate`).
 
   **Own statements only, enforced.**  `except` is an index-layer visibility mask, so
   hiding *another* agent's claim would take it out of view where argumentation needs it

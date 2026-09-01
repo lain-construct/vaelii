@@ -546,7 +546,7 @@
   (let [num #(when-let [m (re-matches (re-pattern (str prefix "(\\d+)")) (str %))]
                (parse-long (second m)))]
     (set (for [sx (v/sentexes-matching kb (cons pred (subvec '[?x ?y] 0 arity)) C)
-               :when (= :true (:truth sx))
+               :when (= :positive (:polarity sx))
                :let  [t (mapv num (rest (:sentence sx)))]
                :when (every? some? t)]
            t))))

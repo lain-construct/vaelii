@@ -206,7 +206,7 @@
 
   **What it does not turn off is the readiness discipline**, and that is the line
   between the two decisions `plan-pairs` makes.  A deferred literal placed ahead of
-  what binds its arguments cannot be evaluated at all — `[(bigEnough ?n) (hasScore ?x
+  what binds its arguments cannot be evaluated at all — `[(big_enough ?n) (hasScore ?x
   ?n)]` answers nothing, silently — and the recursive literal placed anywhere but last
   is a rule that may not terminate.  Neither is a cost, so neither is behind this
   switch: it removes the ranking and leaves the order legal."

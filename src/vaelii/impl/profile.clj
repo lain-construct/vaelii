@@ -54,7 +54,7 @@
 
   ## The shape key
 
-  A goal's key is `[functor truth adornment path]`, where the adornment is one character
+  A goal's key is `[functor polarity adornment path]`, where the adornment is one character
   per argument, in position order:
 
       b  a ground atom the roots key      (a symbol: an individual, a type, a context)
@@ -63,8 +63,8 @@
       f  an open atom                     (a variable)
       F  an open compound                 (a compound holding a variable)
 
-  So `(parentOf ?x Tom)` is `[parentOf :true \"fb\" :arg-roots]` and
-  `(mass ?o (QuantityFn ?n Kilogram))` is `[mass :true \"fF\" :structural]`.  `functor` is
+  So `(parentOf ?x Tom)` is `[parentOf :positive \"fb\" :arg-roots]` and
+  `(mass ?o (QuantityFn ?n Kilogram))` is `[mass :positive \"fF\" :structural]`.  `functor` is
   `:open` when the functor is itself a variable, which is the shape that puts every
   argument behind it.  Arity is the adornment's length, so the key carries it too.
 
@@ -142,10 +142,10 @@
   "The tallies so far as plain data, or nil when the instrument is off:
 
       {:elapsed-ms  how long this run has been collecting
-       :goals   {[functor truth adornment path] count}
+       :goals   {[functor polarity adornment path] count}
        :reads   {family count}
        :fan     {first-token {:calls :visits :widest :handles :decades {n count}}}
-       :sift    {[functor truth adornment path] {:calls :returned :unified :matched}}
+       :sift    {[functor polarity adornment path] {:calls :returned :unified :matched}}
        :fetches {kind count}
        :writes  {functor {:asserts :levels :terms :roots :roster :slots}}
        :retracts {functor {:retracts :levels :terms :roots :roster :slots :dead}}}"
@@ -197,14 +197,14 @@
       :else                  \n)))
 
 (defn shape-of
-  "One literal's tally key, `[functor truth adornment path]`.  Public because the oracle
+  "One literal's tally key, `[functor polarity adornment path]`.  Public because the oracle
   asks for a shape directly rather than inferring it from a count."
-  [body truth path]
+  [body polarity path]
   (if (or (not (sequential? body)) (empty? body))
-    [:none truth "" path]
+    [:none polarity "" path]
     (let [f (first body)]
       [(if (and (symbol? f) (sx/variable? f)) :open f)
-       truth
+       polarity
        (apply str (map arg-class (rest body)))
        path])))
 
@@ -212,13 +212,13 @@
   "Tally one `candidate-handles` decision: the pattern sentex it was asked for and the
   access path it chose.  A deref and a `nil?` check when the instrument is off."
   [pat path]
-  (tallying [:goals (shape-of (sx/body pat) (:truth pat) path)] (fnil inc 0)))
+  (tallying [:goals (shape-of (sx/body pat) (:polarity pat) path)] (fnil inc 0)))
 
 (defn record-literal
   "Tally one retrieval decision taken over a bare sentence rather than a pattern sentex —
   the set-algebra matcher's, which is handed the literal and admits only positive ones."
   [sentence path]
-  (tallying [:goals (shape-of sentence :true path)] (fnil inc 0)))
+  (tallying [:goals (shape-of sentence :positive path)] (fnil inc 0)))
 
 ;; ---- the read tally -----------------------------------------------------
 
@@ -279,7 +279,7 @@
   the counts box, which costs nothing off the timing path (this is only reached while
   collecting)."
   [sentence path returned matched unified]
-  (tallying [:sift (shape-of sentence :true path)]
+  (tallying [:sift (shape-of sentence :positive path)]
             bump-sift (long returned) (long matched) (long unified)))
 
 ;; ---- the fan tally ------------------------------------------------------

@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.wff-test
-  "Well-formedness checking of genl, genlCx, disjoint, disjointMetatype, arg."
+  "Well-formedness checking of genl, genlCx, disjoint, disjoint_metatype, arg."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -58,7 +58,7 @@
   ;; function argument types.
   (tu/with-terms [Milli a_unit]
     (v/assert kb (list 'genl a_unit 'thing) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction Milli) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function Milli) 'CxUniverse)
     (is (v/assert kb (list 'arg Milli 1 a_unit) 'CxUniverse))
     (testing "and both constraints may be about it, since they ask different questions"
       (is (v/assert kb (list 'genlArg Milli 1 a_unit) 'CxUniverse)))

@@ -22,8 +22,8 @@ with forward/backward inference and JTMS truth maintenance.
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.14.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.14.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.15.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.15.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh
@@ -68,11 +68,13 @@ CapitalCamelCase.
 
 ## The model
 
-The unit of knowledge is a **sentex**: a sentence — a Clojure s-expression, ground or a
-pattern with `?x` variables — plus the one **context** it holds in.
+The unit of knowledge is a **sentex**: a sentence — a closed Clojure s-expression,
+ground or a rule whose variables are implicitly universal — plus the one **context** it
+holds in. A possibly-open formula is a *pattern*, and reaches the engine as a goal or
+inside a rule, never as a stored fact.
 
 A sentex canonicalizes into one of two records, split so a fact does not carry the
-rule-only slots: an `AtomicSentex` holds `[sentence context id truth strength]`, and a
+rule-only slots: a `LiteralSentex` holds `[sentence context id truth strength]`, and a
 `RuleSentex` adds `[antecedent consequent varmap direction defeasible assumption
 constraint]`. **A rule is a sentex too**, indexed additionally by its antecedent and
 consequent predicates, so it gets a handle, truth maintenance and retraction for free.

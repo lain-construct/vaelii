@@ -883,7 +883,7 @@
     (let [cost (fn [n]
                  (tu/with-cleared-kb [kb tu/isolated-fresh]
                    (merges! kb n)
-                   (let [h (v/assert kb '(eqcPlain EqcTarget) merge-cost-ctx)]
+                   (let [h (v/assert kb '(eqc_plain EqcTarget) merge-cost-ctx)]
                      (counting-rewrites #(v/retract! kb h)))))
           few  (cost 10)
           many (cost 40)]
@@ -950,10 +950,10 @@
     ;; symbol at all.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (merges! kb 20)
-      (v/assert kb '(eqcKnows EqcRoot (eqcDadOf (eqcDadOf EqcRoot))) merge-cost-ctx)
-      (let [orig (v/handle-of kb '(eqcKnows EqcRoot (eqcDadOf (eqcDadOf EqcRoot)))
+      (v/assert kb '(eqcKnows EqcRoot (eqc_dad_of (eqc_dad_of EqcRoot))) merge-cost-ctx)
+      (let [orig (v/handle-of kb '(eqcKnows EqcRoot (eqc_dad_of (eqc_dad_of EqcRoot)))
                               merge-cost-ctx)
-            rule (v/assert kb '(equals (eqcDadOf (eqcDadOf ?x)) (eqcGrandadOf ?x))
+            rule (v/assert kb '(equals (eqc_dad_of (eqc_dad_of ?x)) (eqc_grandad_of ?x))
                            merge-cost-ctx)]
         (is (false? (v/in? kb orig)) "normalized away while the equation stands")
         (v/retract! kb rule)
@@ -961,7 +961,7 @@
             "and believed again once nothing normalizes it")))))
 
 ;; DECISION (regression): the equality relations relate NAMES — their arguments are
-;; mentions, like a quotingFunction's — so a merge must not rewrite a denial OF the merge
+;; mentions, like a quoting_function's — so a merge must not rewrite a denial OF the merge
 ;; into the vacuous `(not (sameAs A A))`.  Without that, a monotonic denial of a default
 ;; merge was silently superseded and the merge stood (docs/equality.md, the flagged case).
 

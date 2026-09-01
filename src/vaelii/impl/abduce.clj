@@ -181,7 +181,7 @@
     enumerates.  A negation has functor `not`, which nothing declares abducible, so the
     grant below excludes it with no rule of its own.
   * **Declared abducible**, read scoped from `context` — the one gate that is a grant
-    rather than a veto, and the reason a KB with no `abduciblePredicate` in it abduces
+    rather than a veto, and the reason a KB with no `abducible_predicate` in it abduces
     nothing at all.
   * **Legally assertible**: the same four checks every minted sentence passes
     (`special/inadmissible`) — naming, the definitional constraints, well-formedness,

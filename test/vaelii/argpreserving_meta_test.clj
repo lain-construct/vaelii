@@ -106,7 +106,7 @@
   ;; constraint, a sub-predicate may carry a signature of its own — a ternary
   ;; specialization of a binary — so its arity is not answered down `genl` as a fact,
   ;; and answering it would in any case need the forward `(arity ?p 2) ⊢
-  ;; (binaryPredicate ?p)` cycle a backward prover cannot fire.  `check`'s
+  ;; (binary_predicate ?p)` cycle a backward prover cannot fire.  `check`'s
   ;; `inherited-arity` still holds a sub-predicate that declares NOTHING of its own to
   ;; its supers at assert time — a refusal, not an answerable `(arity sub n)`.
   (tu/with-terms [mySuper mySub]
@@ -115,4 +115,4 @@
     (testing "the specialization does not inherit the arity as an answerable fact"
       (is (not (v/ask? kb (list 'arity mySub 2) C))))
     (testing "so the derive cycle concludes no predicate type for it either"
-      (is (not (v/ask? kb (list 'binaryPredicate mySub) C))))))
+      (is (not (v/ask? kb (list 'binary_predicate mySub) C))))))

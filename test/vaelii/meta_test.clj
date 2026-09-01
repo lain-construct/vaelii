@@ -7,8 +7,8 @@
     * the context *spindle* — CxCore ⊏ upper ⊏ CxUniverse ⊏ middle ⊏ CxWell;
     * the predicate meta-ontology — predicates classified by arity and by the
       algebraic properties their metadata declares (each mark is itself a
-      binaryPredicate type, so the property is the classification);
-    * decontextualizedPredicate — a fact stated in one context deduced into
+      binary_predicate type, so the property is the classification);
+    * decontextualized_predicate — a fact stated in one context deduced into
       CxUniverse and thereby visible everywhere."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
@@ -31,8 +31,8 @@
     (is (empty? (v/sentexes-matching kb '(genlCx CxWell CxCore) '?ctx)))
     (is (tax/sees? (:taxonomy kb) 'CxWell 'CxCore)))
   (testing "CxCore vocabulary is visible from the collector and the data contexts"
-    (is (v/ask? kb '(binaryPredicate genl) 'CxUniverse))
-    (is (v/ask? kb '(binaryPredicate parentOf) 'CxNaturalWorld)))
+    (is (v/ask? kb '(binary_predicate genl) 'CxUniverse))
+    (is (v/ask? kb '(binary_predicate parentOf) 'CxNaturalWorld)))
   (testing "the upper ontology rides in the upper contexts, not the collector"
     (is (seq   (v/sentexes-matching kb '(genl dog mammal) 'CxOrganism)))
     (is (empty? (v/sentexes-matching kb '(genl dog mammal) 'CxUniverse)))
@@ -40,26 +40,26 @@
 
 (tu/deftest-kb predicates-classified-by-arity
   (testing "unary — every type, and one-place properties"
-    (is (v/isa? kb 'dog 'unaryPredicate))
-    (is (v/isa? kb 'thing 'unaryPredicate))
-    (is (v/isa? kb 'awake 'unaryPredicate)))
+    (is (v/isa? kb 'dog 'unary_predicate))
+    (is (v/isa? kb 'thing 'unary_predicate))
+    (is (v/isa? kb 'awake 'unary_predicate)))
   (testing "binary and ternary"
-    (is (v/isa? kb 'parentOf 'binaryPredicate))
-    (is (v/isa? kb 'genl 'binaryPredicate))
-    (is (v/isa? kb 'arg 'ternaryPredicate)))
+    (is (v/isa? kb 'parentOf 'binary_predicate))
+    (is (v/isa? kb 'genl 'binary_predicate))
+    (is (v/isa? kb 'arg 'ternary_predicate)))
   (testing "everything classified is a predicate, hence a thing"
     (is (v/isa? kb 'parentOf 'predicate))
     (is (v/isa? kb 'dog 'predicate))
     (is (v/isa? kb 'parentOf 'thing)))
   (testing "negatives"
-    (is (not (v/isa? kb 'dog 'binaryPredicate)))
-    (is (not (v/isa? kb 'siblingOf 'unaryPredicate)))))
+    (is (not (v/isa? kb 'dog 'binary_predicate)))
+    (is (not (v/isa? kb 'siblingOf 'unary_predicate)))))
 
 (tu/deftest-kb arity-and-predicate-type-derive-each-other
   ;; (arity P N) and the N-ary predicate-type membership conclude each other, each
   ;; landing where the declaration it was read off lives — the ordinary placement.
   (testing "arity is itself a binary predicate"
-    (is (v/isa? kb 'arity 'binaryPredicate)))
+    (is (v/isa? kb 'arity 'binary_predicate)))
   (testing "an asserted predicate-type concludes the arity, in the declaration's context"
     (is (seq (v/sentexes-matching kb '(arity dog 1) 'CxCore)))        ; a type is unary
     (is (seq (v/sentexes-matching kb '(arity awake 1) 'CxLife)))      ; a one-place property
@@ -70,18 +70,18 @@
             not of the vocabulary head — a private declaration stays private"
     (is (empty? (v/sentexes-matching kb '(arity parentOf 2) 'CxCore)))
     (is (empty? (v/sentexes-matching kb '(arity parentOf 2) 'CxNaturalWorld)))
-    (is (v/isa? kb 'parentOf 'binaryPredicate 'CxNaturalWorld)
+    (is (v/isa? kb 'parentOf 'binary_predicate 'CxNaturalWorld)
         "but a data context below Well still sees it, since it sees CxLife"))
   (testing "an asserted arity concludes the predicate-type, hence a predicate"
     (tu/with-terms [fooPred]
       (v/assert kb (list 'arity fooPred 2) 'CxCore)
-      (is (v/isa? kb fooPred 'binaryPredicate))
+      (is (v/isa? kb fooPred 'binary_predicate))
       (is (v/isa? kb fooPred 'predicate))
-      (is (seq (v/sentexes-matching kb (list 'binaryPredicate fooPred) 'CxCore)))))
+      (is (seq (v/sentexes-matching kb (list 'binary_predicate fooPred) 'CxCore)))))
   (testing "the derived membership is justified by the arity fact and the rule"
     (tu/with-terms [barPred]
       (v/assert kb (list 'arity barPred 3) 'CxCore)
-      (let [h (v/handle-of kb (list 'ternaryPredicate barPred) 'CxCore)
+      (let [h (v/handle-of kb (list 'ternary_predicate barPred) 'CxCore)
             d (first (v/supporting-justifications kb h))]
         (is (some #(= (list 'arity barPred 3) (:sentence (v/sentex kb %)))
                   (:antecedents d)))))))
@@ -94,14 +94,14 @@
     (tu/with-terms [pPred]
       (let [h (v/assert kb (list 'arity pPred 2) 'CxCore)]
         (is (seq (v/sentexes-matching kb (list 'arity pPred 2) 'CxCore)))
-        (is (seq (v/sentexes-matching kb (list 'binaryPredicate pPred) 'CxCore)))
+        (is (seq (v/sentexes-matching kb (list 'binary_predicate pPred) 'CxCore)))
         (testing "retracting the sole premise collapses the whole cycle"
           (v/retract! kb h)
-          (is (empty? (v/sentexes-matching kb (list 'binaryPredicate pPred) 'CxCore)))
+          (is (empty? (v/sentexes-matching kb (list 'binary_predicate pPred) 'CxCore)))
           (is (empty? (v/sentexes-matching kb (list 'arity pPred 2) 'CxCore)))))))
   (testing "asserting the type keeps both the type and the arity believed"
     (tu/with-terms [qPred]
-      (let [h (v/assert kb (list 'unaryPredicate qPred) 'CxCore)]
+      (let [h (v/assert kb (list 'unary_predicate qPred) 'CxCore)]
         (is (seq (v/sentexes-matching kb (list 'arity qPred 1) 'CxCore)))
         (testing "and retracting it collapses the derived arity"
           (v/retract! kb h)
@@ -109,7 +109,7 @@
 
 (tu/deftest-kb algebraic-predicate-types-classify-a-predicate
   ;; (symmetric siblingOf) etc. are the marks the provers read AND, since each mark is a
-  ;; type — (genl symmetric binaryPredicate) in CxCore — the classification itself: the
+  ;; type — (genl symmetric binary_predicate) in CxCore — the classification itself: the
   ;; property IS the membership, with no derived (…Predicate) twin between them.
   (testing "the mark is a membership in the property type"
     (is (v/isa? kb 'siblingOf 'symmetric))
@@ -117,8 +117,8 @@
     (is (v/isa? kb 'ancestorOf 'transitive))
     (is (v/isa? kb 'partOf 'transitive))
     (is (v/isa? kb 'birthYearOf 'functional)))
-  (testing "and inherit binaryPredicate / predicate through genl"
-    (is (v/isa? kb 'siblingOf 'binaryPredicate))
+  (testing "and inherit binary_predicate / predicate through genl"
+    (is (v/isa? kb 'siblingOf 'binary_predicate))
     (is (v/isa? kb 'ancestorOf 'predicate)))
   (testing "the mark is decontextualized, so it is visible wherever CxUniverse is — every
             data context — while staying out of CxCore's own sight above the universe"
@@ -133,6 +133,10 @@
     (is (v/ask? kb '(functional birthYearOf)))
     (is (not (v/ask? kb '(symmetric parentOf)))))
   (testing "and enumerated"
+    ;; the domain relations and siblingDisjointException are the symmetric marks,
+    ;; decontextualized like the other algebraic marks, so they answer the enumeration
+    ;; wherever CxUniverse is seen.  seeAlso is NOT among them — it is a directional
+    ;; cross-reference, not symmetric.
     (is (= '#{siblingOf marriedTo friendOf siblingDisjointException}
            (set (map #(get % '?p) (v/ask kb '(symmetric ?p) '?ctx)))))
     ;; `genl` and `genlCx` are in the enumeration because CxCore asserts (transitive genl)
@@ -160,11 +164,11 @@
     (is (seq   (v/sentexes-matching kb '(genlCx CxUniverse CxOrganism) 'CxUniverse)))
     (is (empty? (v/sentexes-matching kb '(genlCx CxUniverse CxOrganism) 'CxCore))))    ; forced away from CxCore
   (testing "the closure is intact — CxCore vocabulary is still visible from CxUniverse"
-    (is (v/ask? kb '(binaryPredicate genl) 'CxUniverse))))
+    (is (v/ask? kb '(binary_predicate genl) 'CxUniverse))))
 
-;; ---- decontextualizedPredicate: a fact that belongs to the KB, not to one theory --
+;; ---- decontextualized_predicate: a fact that belongs to the KB, not to one theory --
 ;;
-;; `(decontextualizedPredicate P)` deduces every `(P ...)` into CxUniverse, which
+;; `(decontextualized_predicate P)` deduces every `(P ...)` into CxUniverse, which
 ;; every context sees.  CxUniverse and not a named target: the definitional
 ;; checks are context-scoped and run where the fact is stated, so a target the stating
 ;; context cannot see is a place those checks never look — two facts, each admissible
@@ -183,7 +187,7 @@
   (tu/with-terms [rulesOver ridesWith Ann Bob CxAlpha CxBeta]
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxBeta 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'decontextualizedPredicate rulesOver) 'CxUniverse)
+    (v/assert kb (list 'decontextualized_predicate rulesOver) 'CxUniverse)
     (v/assert kb (list rulesOver Ann Bob) CxAlpha)
     (v/assert kb (list ridesWith Ann Bob) CxAlpha)
 
@@ -195,9 +199,9 @@
     (testing "the copy is justified by the placement sentex and the declaration"
       (let [u (v/handle-of kb (list rulesOver Ann Bob) 'CxUniverse)
             d (first (v/supporting-justifications kb u))]
-        (is (= 'decontextualizedPredicate (:informant d)))
+        (is (= 'decontextualized_predicate (:informant d)))
         (is (= 2 (count (:antecedents d))))
-        (is (some #(= (list 'decontextualizedPredicate rulesOver) (:sentence (v/sentex kb %)))
+        (is (some #(= (list 'decontextualized_predicate rulesOver) (:sentence (v/sentex kb %)))
                   (:antecedents d)))))
     (testing "and the declaration reads back as predicate metadata"
       (is (v/has-prop? kb :decontextualized rulesOver))
@@ -212,7 +216,7 @@
   ;; context every data context sees, decontextualizing a predicate nothing declared.
   (testing "the roster is the algebraic marks, the inverse declaration, and genlCx"
     (is (= '#{functional inverse reflexive symmetric asymmetric transitive
-              irreflexive antiSymmetric antiTransitive equivalenceRelation}
+              irreflexive anti_symmetric anti_transitive equivalence_relation}
            (v/props kb :decontextualized)))
     (is (= '#{genlCx} (v/props kb :forced-decontextualized))))
   (testing "so a social fact stays in the theory that states it"
@@ -233,7 +237,7 @@
     (testing "before the declaration the fact is confined to its own context"
       (is (empty? (v/sentexes-matching kb (list rulesOver Ann Bob) 'CxUniverse))))
 
-    (v/assert kb (list 'decontextualizedPredicate rulesOver) 'CxUniverse)
+    (v/assert kb (list 'decontextualized_predicate rulesOver) 'CxUniverse)
     (testing "declaring it lifts the fact that was already there"
       (is (seq (v/sentexes-matching kb (list rulesOver Ann Bob) 'CxUniverse))))
     (testing "and facts asserted afterwards are lifted too"
@@ -243,7 +247,7 @@
 (tu/deftest-kb retracting-the-declaration-withdraws-the-lifted-copies
   (tu/with-terms [rulesOver Ann Bob CxAlpha]
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
-    (let [dh (v/assert kb (list 'decontextualizedPredicate rulesOver) 'CxUniverse)]
+    (let [dh (v/assert kb (list 'decontextualized_predicate rulesOver) 'CxUniverse)]
       (v/assert kb (list rulesOver Ann Bob) CxAlpha)
       (is (seq (v/sentexes-matching kb (list rulesOver Ann Bob) 'CxUniverse)))
 
@@ -266,7 +270,7 @@
 (tu/deftest-kb a-derived-conclusion-is-lifted-like-an-asserted-fact
   (tu/with-terms [bornInFrance speaksFrench Ann CxAlpha]
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'decontextualizedPredicate speaksFrench) 'CxUniverse)
+    (v/assert kb (list 'decontextualized_predicate speaksFrench) 'CxUniverse)
     (v/assert-rule kb [(list bornInFrance '?x)] (list speaksFrench '?x) CxAlpha)
     (v/assert kb (list bornInFrance Ann) CxAlpha)
 
@@ -277,8 +281,8 @@
     (testing "the copy names the declaration that licensed it, so `why` points at what to retract"
       (let [u (v/handle-of kb (list speaksFrench Ann) 'CxUniverse)
             d (first (v/supporting-justifications kb u))]
-        (is (= 'decontextualizedPredicate (:informant d)))
-        (is (some #(= (list 'decontextualizedPredicate speaksFrench)
+        (is (= 'decontextualized_predicate (:informant d)))
+        (is (some #(= (list 'decontextualized_predicate speaksFrench)
                       (:sentence (v/sentex kb %)))
                   (:antecedents d)))))
     (testing "retracting the fact takes the conclusion and its copy with it"
@@ -294,7 +298,7 @@
                            (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
                            (doseq [step order]
                              (case step
-                               :decl (v/assert kb (list 'decontextualizedPredicate speaksFrench)
+                               :decl (v/assert kb (list 'decontextualized_predicate speaksFrench)
                                                'CxUniverse)
                                :rule (v/assert-rule kb [(list bornInFrance '?x)] (list speaksFrench '?x) CxAlpha)
                                :fact (v/assert kb (list bornInFrance Ann) CxAlpha)))
@@ -312,7 +316,7 @@
   ;; loop: re-deriving a sentence already stored adds no handle, so the agenda drains.
   (tu/with-terms [connects A B C D CxAlpha]
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'decontextualizedPredicate connects) 'CxUniverse)
+    (v/assert kb (list 'decontextualized_predicate connects) 'CxUniverse)
     (v/assert-rule kb [(list connects '?x '?y) (list connects '?y '?z)]
                    (list connects '?x '?z) CxAlpha)
     (v/assert kb (list connects A B) CxAlpha)
@@ -330,7 +334,7 @@
   ;; re-evaluated and the conclusion it should block would stand.
   (tu/with-terms [bird flies penguin Opus CxAlpha]
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'decontextualizedPredicate penguin) 'CxUniverse)
+    (v/assert kb (list 'decontextualized_predicate penguin) 'CxUniverse)
     (v/assert kb (list 'exceptWhen (list penguin '?x)
                        (list 'set/defaultRule
                              (list 'implies (list 'and (list bird '?x)) (list flies '?x))))
@@ -352,8 +356,8 @@
   (tu/with-terms [rulesOver Ann Bob CxAlpha CxBeta]
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxBeta 'CxUniverse) 'CxUniverse)
-    (let [d1 (v/assert kb (list 'decontextualizedPredicate rulesOver) CxAlpha)
-          d2 (v/assert kb (list 'decontextualizedPredicate rulesOver) CxBeta)]
+    (let [d1 (v/assert kb (list 'decontextualized_predicate rulesOver) CxAlpha)
+          d2 (v/assert kb (list 'decontextualized_predicate rulesOver) CxBeta)]
       (is (not= d1 d2) "two contexts, two sentexes")
       (v/assert kb (list rulesOver Ann Bob) CxAlpha)
       (let [u (v/handle-of kb (list rulesOver Ann Bob) 'CxUniverse)]
@@ -375,7 +379,7 @@
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxSibling 'CxUniverse) 'CxUniverse)
     (v/assert-rule kb [(list edgeTo '?x '?y)] (list reachesFrom '?y '?x) 'CxUniverse)
-    (v/assert kb (list 'decontextualizedPredicate edgeTo) 'CxUniverse)
+    (v/assert kb (list 'decontextualized_predicate edgeTo) 'CxUniverse)
     (v/assert kb (list edgeTo A B) CxAlpha)
     (testing "the conclusion is placed both where the fact was stated and in the universe"
       (is (= #{CxAlpha 'CxUniverse}
@@ -389,7 +393,7 @@
   ;; Deliberate, and pinned here so changing it has to be a decision.
   (tu/with-terms [flies Tweety Opus CxAlpha]
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'decontextualizedPredicate flies) 'CxUniverse)
+    (v/assert kb (list 'decontextualized_predicate flies) 'CxUniverse)
     (v/assert kb (list flies Tweety) CxAlpha)
     (v/assert kb (list 'not (list flies Opus)) CxAlpha)
     (is (seq (v/sentexes-matching kb (list flies Tweety) 'CxUniverse)) "the positive literal lifts")
@@ -410,8 +414,8 @@
     (v/assert kb (list 'genl dog 'thing) 'CxCore)
     (v/assert kb (list 'genl cat 'thing) 'CxCore)
     (v/assert kb (list 'disjoint dog cat) 'CxCore)
-    (v/assert kb (list 'decontextualizedPredicate dog) 'CxUniverse)
-    (v/assert kb (list 'decontextualizedPredicate cat) 'CxUniverse)
+    (v/assert kb (list 'decontextualized_predicate dog) 'CxUniverse)
+    (v/assert kb (list 'decontextualized_predicate cat) 'CxUniverse)
     (v/clear-violations! kb)
 
     (v/assert kb (list dog Rex) CxOffA)
@@ -432,10 +436,12 @@
   (tu/with-terms [rulesOver Somewhere]
     (testing "an individual is not a predicate"
       (is (= :not-well-formed
-             (:type (try (v/assert kb (list 'decontextualizedPredicate Somewhere) 'CxUniverse)
+             (:type (try (v/assert kb (list 'decontextualized_predicate Somewhere) 'CxUniverse)
                          (catch clojure.lang.ExceptionInfo e (ex-data e)))))))
     (testing "and it takes exactly one argument"
-      (is (= :not-well-formed
-             (:type (try (v/assert kb (list 'decontextualizedPredicate rulesOver 'CxUniverse)
+      ;; :naming, not :not-well-formed — the property is snake_case now, so a second
+      ;; argument is refused by the naming door before `wff` counts them
+      (is (= :naming
+             (:type (try (v/assert kb (list 'decontextualized_predicate rulesOver 'CxUniverse)
                                    'CxUniverse)
                          (catch clojure.lang.ExceptionInfo e (ex-data e)))))))))

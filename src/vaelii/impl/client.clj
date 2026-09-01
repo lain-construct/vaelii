@@ -404,7 +404,7 @@
 
 (defn disjoint-metatypes
   "The declared disjoint metatypes — each a type whose member types are pairwise disjoint
-  by `(disjointMetatype M)`."
+  by `(disjoint_metatype M)`."
   [conn]
   (call conn :disjoint-metatypes []))
 

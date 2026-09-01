@@ -43,7 +43,7 @@
 
 (defn- schedule-kb []
   (doto (tu/fresh) (core-context/load-into) (sa/load-speech-acts)
-        (v/assert '(unreifiableFunction DatetimeFn) 'CxUniverse)))
+        (v/assert '(unreifiable_function DatetimeFn) 'CxUniverse)))
 
 ;; Majority resolution requires the :proof-tier identity policy (R7#1); these tests run
 ;; under it — the channel never authenticates, so it touches nothing but that gate.
@@ -142,10 +142,10 @@
   and the constraints the solver reads."
   [kb ctx]
   (doseq [m '[AgentAda AgentBo AgentCyra]] (v/assert kb (list 'memberOf m 'Team) ctx))
-  (doseq [day [mon tue wed]] (v/assert kb (list 'candidateDay day) ctx))
+  (doseq [day [mon tue wed]] (v/assert kb (list 'candidate_day day) ctx))
   ;; choice: the review may be scheduled on any candidate day
   (v/assert kb (list 'set/assumptionRule
-                     (list 'implies (list 'candidateDay '?d) (list 'meetsOn 'Review '?d))) ctx)
+                     (list 'implies (list 'candidate_day '?d) (list 'meetsOn 'Review '?d))) ctx)
   ;; at most one day
   (v/assert kb '(functional meetsOn) ctx {:strength :monotonic})
   ;; hard: never meet on a day a member is unavailable
@@ -156,10 +156,10 @@
                            (list 'clash '?p '?d))) ctx)
   ;; hard at-least-one: the review must land on SOME candidate day (a negated-choice
   ;; constraint anchored on a positive domain literal, the way the bench recipe anchors it)
-  (v/assert kb '(scheduledMeeting Review) ctx {:strength :monotonic})
+  (v/assert kb '(scheduled_meeting Review) ctx {:strength :monotonic})
   (v/assert kb (list 'set/hardConstraint
                      (list 'implies
-                           (list 'and (list 'scheduledMeeting '?m)
+                           (list 'and (list 'scheduled_meeting '?m)
                                  (list 'not (list 'meetsOn '?m mon))
                                  (list 'not (list 'meetsOn '?m tue))
                                  (list 'not (list 'meetsOn '?m wed)))

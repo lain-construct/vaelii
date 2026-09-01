@@ -75,7 +75,7 @@
   "The choice + functional + hard-adjacency program over `nodes` and `edges` in `ctx`."
   [kb ctx colored nodes edges]
   (doseq [k '[k1 k2 k3]]
-    (v/assert kb (list 'set/assumptionRule (list 'implies (list 'benchNode '?x) (list colored '?x k)))
+    (v/assert kb (list 'set/assumptionRule (list 'implies (list 'bench_node '?x) (list colored '?x k)))
               ctx))
   (v/assert kb (list 'functional colored) ctx {:strength :monotonic})
   (v/assert kb (list 'set/hardConstraint
@@ -84,7 +84,7 @@
                                  (list colored '?x '?k) (list colored '?y '?k))
                            (list 'monochrome '?x '?y)))
             ctx)
-  (doseq [n nodes] (v/assert kb (list 'benchNode n) ctx {:strength :monotonic}))
+  (doseq [n nodes] (v/assert kb (list 'bench_node n) ctx {:strength :monotonic}))
   (doseq [[a b] edges] (v/assert kb (list 'benchEdge a b) ctx {:strength :monotonic})))
 
 (defn- coloring-of
@@ -185,16 +185,16 @@
   at-least-one (a negated-choice constraint), hard no-monochrome-edge."
   [kb ctx colored nodes edges]
   (doseq [k '[k1 k2 k3]]
-    (v/assert kb (list 'set/assumptionRule (list 'implies (list 'benchNode '?x) (list colored '?x k)))
+    (v/assert kb (list 'set/assumptionRule (list 'implies (list 'bench_node '?x) (list colored '?x k)))
               ctx))
   (doseq [[ka kc] '[[k1 k2] [k1 k3] [k2 k3]]]
     (v/assert kb (list 'set/hardConstraint
                        (list 'implies (list 'and (list colored '?x ka) (list colored '?x kc))
-                             (list 'doubleColored '?x)))
+                             (list 'double_colored '?x)))
               ctx))
   (v/assert kb (list 'set/hardConstraint
                      (list 'implies
-                           (list 'and (list 'benchNode '?x)
+                           (list 'and (list 'bench_node '?x)
                                  (list 'not (list colored '?x 'k1))
                                  (list 'not (list colored '?x 'k2))
                                  (list 'not (list colored '?x 'k3)))
@@ -206,7 +206,7 @@
                                  (list colored '?x '?k) (list colored '?y '?k))
                            (list 'monochrome '?x '?y)))
             ctx)
-  (doseq [n nodes] (v/assert kb (list 'benchNode n) ctx {:strength :monotonic}))
+  (doseq [n nodes] (v/assert kb (list 'bench_node n) ctx {:strength :monotonic}))
   (doseq [[a b] edges] (v/assert kb (list 'benchEdge a b) ctx {:strength :monotonic})))
 
 (deftest all-hard-colors-every-node-including-isolated

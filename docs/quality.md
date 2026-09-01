@@ -7,8 +7,8 @@
   and what each one does *not* mean.
 - **Not here:** how a run went (iterations, derived conclusions, dropped ones) →
   [api.md](api.md)'s instrumentation block and [inference.md](inference.md); whether the
-  engine's own grammar is read by anything → `vocabulary-audit`; the naming rules a type
-  name obeys → [naming.md](naming.md).
+  engine's own grammar is read by anything → [predicates.md](predicates.md); the naming
+  rules a type name obeys → [naming.md](naming.md).
 - **Assumes:** sentex, handle, justification, informant, `genl` →
   [glossary.md](glossary.md).
 
@@ -195,7 +195,7 @@ and what an `assert` refuses cannot drift apart: whatever binds a predicate's le
 the door binds it here, and a predicate the KB has bound to no length strands nothing.
 `interArg` names two positions and each is asked, since both are the same mistake.
 
-A **`variableArity`** predicate strands nothing either, however high the position: it reads
+A **`variable_arity`** predicate strands nothing either, however high the position: it reads
 a tuple of any length from its declared arity upward, so a position past that length is one
 its tuples really do reach, and the constraint fires on the tuples long enough to have it.
 `lessThan`, `greaterThan` and `functionCorrespondingPredicate` are the shipped ontology's.
@@ -279,7 +279,7 @@ of them:
 | kind | the clash |
 |---|---|
 | `:negation` | one concludes `S` and the other `(not T)` where `S` entails `T` — `(dog X)` against `(not (animal X))`, and never `(animal X)` against `(not (dog X))` |
-| `:disjoint` | two unary type conclusions about one term whose types a `disjoint`, `siblingDisjoint` or `disjointMetatype` declaration separates ([taxonomy.md](taxonomy.md)) |
+| `:disjoint` | two unary type conclusions about one term whose types a `disjoint`, `sibling_disjoint` or `disjoint_metatype` declaration separates ([taxonomy.md](taxonomy.md)) |
 | `:functional` | two conclusions filling one `functional` slot for one subject with values that are not the same term. Both spellings of the mark count — `(functionalInArg P 2)` says the same thing about the same slot as `(functional P)`, and at position 2 only, this reading being arity-2 |
 | `:asymmetric` | one tuple concluded both ways round under a predicate declared `asymmetric`. A self tuple `(P a a)` is not one — the ontology admits it |
 
@@ -292,7 +292,7 @@ reader, so a spelling reaches the detector through every read or through none.
 "Jointly satisfiable" is **shallow**, and three things rule it out: a literal appearing
 under σ together with its own negation, one term claimed to be of two separated types, and
 one term bound to two arities — `(arity ?p 1)` beside `(arity ?p 2)`, and `(arity ?p 1)`
-beside `(equivalenceRelation ?p)`, which claims 2 by reaching `binaryPredicate` up `genl`.
+beside `(equivalence_relation ?p)`, which claims 2 by reaching `binary_predicate` up `genl`.
 Each of the three is a **declaration read**: **no inference is run and no fact is
 consulted.** This is what the rules say about each other, so a pair here is a clash that
 *could* form rather than one that has — a clash already formed is in
@@ -314,14 +314,14 @@ may have written wrong, so it is listed and flagged. Unreachable is the engine's
 handled is the author's.
 
 The shipped ontology's own case is the **arity cycle**, and it is dropped from both
-directions. `(unaryPredicate ?p) => (arity ?p 1)` beside `(binaryPredicate ?p) =>
+directions. `(unary_predicate ?p) => (arity ?p 1)` beside `(binary_predicate ?p) =>
 (arity ?p 2)` would be a `:functional` clash on the `arity` table, and the antecedents are
 two types CxCore declares `disjoint` ([taxonomy.md](taxonomy.md)), so the pair never enters
-the reading. Read the other way round, `(arity ?p 1) => (unaryPredicate ?p)` beside
-`(arity ?p 2) => (binaryPredicate ?p)` is a `:disjoint` clash on the *conclusions*, and
+the reading. Read the other way round, `(arity ?p 1) => (unary_predicate ?p)` beside
+`(arity ?p 2) => (binary_predicate ?p)` is a `:disjoint` clash on the *conclusions*, and
 what drops it is the third rule-out above: one `?p` bound to two arities. The same rule-out
-drops the pairs against `(equivalenceRelation ?p) => (symmetric ?p)` and its two siblings,
-whose conclusions are `binaryPredicate` specializations and so separated from the unary and
+drops the pairs against `(equivalence_relation ?p) => (symmetric ?p)` and its two siblings,
+whose conclusions are `binary_predicate` specializations and so separated from the unary and
 ternary classes.
 
 **A pair one of the two already states as an exception is reported, marked `:excepted`.**

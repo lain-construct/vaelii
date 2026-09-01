@@ -46,8 +46,8 @@
   plus `DatetimeFn` as the structural (unreifiable) constructor.  Returns the function."
   [kb]
   (let [cxfn (fresh-cxfn)]
-    (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
-    (v/assert kb '(unreifiableFunction DatetimeFn) 'CxUniverse)
+    (v/assert kb (list 'context_denoting_function cxfn) 'CxUniverse)
+    (v/assert kb '(unreifiable_function DatetimeFn) 'CxUniverse)
     (v/assert kb (list 'contextArgSubrelation cxfn 2 'subintervalOf) 'CxUniverse)
     cxfn))
 
@@ -164,7 +164,7 @@
   ;; rule, one teardown, a `cx/` and a `nat/` collected by it.
   (let [cxfn  (declare-dimension! kb)
         dimfn (symbol (str "TmpDim" (swap! ctr inc) "Fn"))]
-    (v/assert kb (list 'reifiableFunction dimfn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function dimfn) 'CxUniverse)
     (let [expr  (list cxfn (list dimfn 'CxMonad) (list 'DatetimeFn "2030"))
           [h k] (context-in kb '(likes Tom Ann) expr)
           inner (second (nat/nat-expression kb k))]
@@ -335,8 +335,8 @@
   (with-tmp-dir
     (fn [dir]
       (let [k (let [kb1 (v/open-kb {:backend :disk-log :dir dir :recover? false})]
-                (v/assert kb1 '(contextDenotingFunction CxTmpDurableFn) 'CxUniverse)
-                (v/assert kb1 '(unreifiableFunction DatetimeFn) 'CxUniverse)
+                (v/assert kb1 '(context_denoting_function CxTmpDurableFn) 'CxUniverse)
+                (v/assert kb1 '(unreifiable_function DatetimeFn) 'CxUniverse)
                 (let [expr  '(CxTmpDurableFn CxMonad (DatetimeFn "2020"))
                       [h k] (context-in kb1 '(likes Tom Ann) expr)]
                   (v/retract! kb1 h)

@@ -61,7 +61,7 @@
   ;; whatever put it there, so a derivation path that skipped the arm separated the pair
   ;; only once a restart had replayed it.
   (tu/with-terms [species dog_t cat_t seedOf]
-    (v/assert kb (list 'disjointMetatype species) 'CxUniverse)
+    (v/assert kb (list 'disjoint_metatype species) 'CxUniverse)
     (v/assert kb (list species dog_t) 'CxUniverse)
     ;; `cat_t` joins the metatype by inference alone — nothing states `(species cat_t)`
     (v/assert kb (list 'implies (list seedOf '?x) (list species '?x)) 'CxUniverse)

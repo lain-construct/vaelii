@@ -212,7 +212,7 @@
 (defn- level-2
   "Exact-sentence match in a single literal context: unification against the stored
   sentence, belief-filtered, with the symmetric mirror probed.  No inheritance of any
-  kind — the context is a literal trie token and a type predicate is not fanned out."
+  kind — the context is an exact trie token and a type predicate is not fanned out."
   [kb goal context]
   (map (fn [[h b s]] (stored-result 2 h b s)) (res/raw-match kb goal context)))
 

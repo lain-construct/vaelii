@@ -3,7 +3,7 @@
 (ns vaelii.arggenl-test
   "`genlArg` — the argument constraint one level up.  Where `arg` asks an argument
   to be an *instance* of a type, `genlArg` asks it to be a *subtype*, which is what a
-  `typeRelationPredicate` wants: its arguments name kinds, not things.
+  `type_relation_predicate` wants: its arguments name kinds, not things.
 
   Plus the checks over the declarations themselves — arity, and the two ways an
   `arg` / `genlArg` can contradict what the KB already says about its predicate.
@@ -60,7 +60,7 @@
     (v/assert kb (list 'genl sub root2) 'CxUniverse)
     (v/assert kb (list 'arg instRel 1 root2) 'CxUniverse)
     ;; a type symbol comes within arg's reach only once it carries a membership of
-    ;; its own reaching `thing` — which is what the starter's (unaryPredicate t) batch
+    ;; its own reaching `thing` — which is what the starter's (unary_predicate t) batch
     ;; does for every type.  Without one the open-world exemption applies and there is
     ;; nothing to convict, so the test states it rather than assuming a loaded KB.
     (let [meta (tu/tmp-type)]
@@ -109,7 +109,7 @@
 
 (tu/deftest-kb a-constraint-on-a-position-the-predicate-lacks-is-refused
   (let [rel (tu/tmp-pred)]
-    (v/assert kb (list 'binaryPredicate rel) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate rel) 'CxUniverse)
     (testing "a declared position is fine"
       (is (v/assert kb (list 'arg rel 2 'thing) 'CxUniverse)))
     (testing "one past the declared arity would never fire, so it is refused"
@@ -148,8 +148,8 @@
 
 (tu/deftest-kb the-constraint-must-agree-with-the-declared-relation-kind
   (let [instRel (tu/tmp-pred) typeRel (tu/tmp-pred)]
-    (v/assert kb (list 'instanceRelationPredicate instRel) 'CxUniverse)
-    (v/assert kb (list 'typeRelationPredicate typeRel) 'CxUniverse)
+    (v/assert kb (list 'instance_relation_predicate instRel) 'CxUniverse)
+    (v/assert kb (list 'type_relation_predicate typeRel) 'CxUniverse)
     (testing "an instance-level relation takes arg"
       (is (v/assert kb (list 'arg instRel 1 'thing) 'CxUniverse))
       (is (= :arg-constraint-kind (ex-type #(v/assert kb (list 'genlArg instRel 2 'thing) 'CxUniverse)))))
@@ -174,7 +174,7 @@
 
 (tu/deftest-kb a-sentence-must-match-its-predicates-declared-arity
   (let [rel (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
-    (v/assert kb (list 'binaryPredicate rel) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate rel) 'CxUniverse)
     (testing "the declared arity stores"
       (is (v/assert kb (list rel a b) 'CxUniverse)))
     (testing "too many arguments, and too few, are both refused"
@@ -189,7 +189,7 @@
   ;; (arity P N) and the N-ary predicate type derive each other, so either alone binds
   (let [byArity (tu/tmp-pred) byType (tu/tmp-pred) a (tu/tmp-ind)]
     (v/assert kb (list 'arity byArity 1) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate byType) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate byType) 'CxUniverse)
     (is (v/assert kb (list byArity a) 'CxUniverse))
     (is (v/assert kb (list byType a) 'CxUniverse))
     (is (= :arity (ex-type #(v/assert kb (list byArity a (tu/tmp-ind)) 'CxUniverse))))
@@ -281,9 +281,9 @@
 (tu/deftest-kb a-variableArity-predicate-is-exempt
   ;; lessThan is declared binary and reads a chain of any length; the declaration says so
   (let [rel (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
-    (v/assert kb (list 'binaryPredicate rel) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate rel) 'CxUniverse)
     (is (= :arity (ex-type #(v/assert kb (list rel a b (tu/tmp-ind)) 'CxUniverse))))
-    (v/assert kb (list 'variableArity rel) 'CxUniverse)
+    (v/assert kb (list 'variable_arity rel) 'CxUniverse)
     (testing "declaring it variable arity releases the check"
       (is (v/assert kb (list rel a b (tu/tmp-ind)) 'CxUniverse)))))
 
@@ -295,11 +295,11 @@
   (tu/with-terms [chainOf a_type b_type A B C Odd]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
     (v/assert kb (list 'genl b_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
     (is (= :arg-position
            (ex-type #(v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse)))
         "binary and nothing else, so there is no third argument to constrain")
-    (v/assert kb (list 'variableArity chainOf) 'CxUniverse)
+    (v/assert kb (list 'variable_arity chainOf) 'CxUniverse)
     (testing "the mark releases the declaration exactly as it releases the tuple"
       (is (v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse))
       (is (v/assert kb (list 'genlArg chainOf 4 'thing) 'CxUniverse)))
@@ -320,12 +320,12 @@
   ;; releases the position.
   (tu/with-terms [chainOf subChainOf a_type A B C]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
     (v/assert kb (list 'genl subChainOf chainOf) 'CxUniverse)
     (is (= :arg-position
            (ex-type #(v/assert kb (list 'arg subChainOf 3 a_type) 'CxUniverse)))
         "subChainOf declares no length, so it takes two arguments through chainOf")
-    (v/assert kb (list 'variableArity subChainOf) 'CxUniverse)
+    (v/assert kb (list 'variable_arity subChainOf) 'CxUniverse)
     (testing "the mark on the sub releases what the super bound it to"
       (is (v/assert kb (list 'arg subChainOf 3 a_type) 'CxUniverse))
       (v/assert kb (list a_type C) 'CxUniverse)
@@ -365,7 +365,7 @@
 
 ;; ---- a literal is typed by what it is ------------------------------------
 ;; `arg` is open-world about a **symbol** — an untyped one violates nothing — and closed
-;; about a **literal**, whose kind `checks/literal-type` reads straight off its syntax.
+;; about a **literal**, whose kind `checks/value-kind` reads straight off its syntax.
 ;; The kinds live in the genl lattice (CxCore) so the comparison is an ordinary one;
 ;; these assert the edges they lean on rather than loading the schema, so what the check
 ;; actually depends on is visible in the test.
@@ -374,7 +374,7 @@
   (let [p (tu/tmp-pred) t (tu/tmp-type)]
     (v/assert kb '(genl string thing) 'CxUniverse)
     (v/assert kb (list 'genl t 'thing) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate p) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate p) 'CxUniverse)
     (v/assert kb (list 'arg p 1 t) 'CxUniverse)
     (testing "a string is not a t, and nobody had to assert a membership to say so"
       (is (= :arg-type (ex-type #(v/assert kb (list p "Bob") 'CxUniverse)))))
@@ -393,9 +393,9 @@
                 (genl keyword thing) (genl boolean thing) (genl character thing)
                 (genl symbol thing)]]
       (v/assert kb e 'CxUniverse))
-    (v/assert kb (list 'unaryPredicate p) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate p) 'CxUniverse)
     (v/assert kb (list 'arg p 1 'string) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction f) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function f) 'CxUniverse)
     (testing "a string is what the position asks for"
       (is (v/assert kb (list p "Bob") 'CxUniverse)))
     (testing "and every other kind is convicted rather than waved through"
@@ -412,7 +412,7 @@
   ;; exempts for the same reason: convicting there would be judging by an absence.
   (let [p (tu/tmp-pred) floating (tu/tmp-type)]
     (v/assert kb '(genl string thing) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate p) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate p) 'CxUniverse)
     (v/assert kb (list 'arg p 1 floating) 'CxUniverse)   ; declared, but under no root
     (is (v/assert kb (list p "Bob") 'CxUniverse)
         "a type outside the hierarchy exempts the literal, as it does a symbol")))
@@ -439,10 +439,10 @@
         wantsDog (tu/tmp-pred) wantsMsr (tu/tmp-pred)]
     (v/assert kb (list 'genl msr 'thing) 'CxUniverse)
     (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction f) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate wantsDog) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function f) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate wantsDog) 'CxUniverse)
     (v/assert kb (list 'arg wantsDog 1 dog) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate wantsMsr) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate wantsMsr) 'CxUniverse)
     (v/assert kb (list 'arg wantsMsr 1 msr) 'CxUniverse)
     (testing "a function declaring no result exempts its applications"
       (is (v/assert kb (list wantsDog (list f 5 'Meter)) 'CxUniverse)))
@@ -461,10 +461,10 @@
   (let [msr (tu/tmp-type) dog (tu/tmp-type) f (tu/tmp-ind) wants (tu/tmp-pred)]
     (v/assert kb (list 'genl msr 'thing) 'CxUniverse)
     (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction f) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function f) 'CxUniverse)
     (v/assert kb (list 'result f msr) 'CxUniverse)
     (v/assert kb (list 'result f dog) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate wants) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate wants) 'CxUniverse)
     (v/assert kb (list 'arg wants 1 dog) 'CxUniverse)
     (is (v/assert kb (list wants (list f 1)) 'CxUniverse))))
 
@@ -474,9 +474,9 @@
   ;; it would be judging by an absence
   (let [dog (tu/tmp-type) floating (tu/tmp-type) f (tu/tmp-ind) wants (tu/tmp-pred)]
     (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction f) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function f) 'CxUniverse)
     (v/assert kb (list 'result f floating) 'CxUniverse)   ; declared, but under no root
-    (v/assert kb (list 'unaryPredicate wants) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate wants) 'CxUniverse)
     (v/assert kb (list 'arg wants 1 dog) 'CxUniverse)
     (is (v/assert kb (list wants (list f 1)) 'CxUniverse))))
 
@@ -489,13 +489,13 @@
         inst (tu/tmp-pred) sub (tu/tmp-pred)]
     (v/assert kb (list 'genl root 'thing) 'CxUniverse)
     (v/assert kb (list 'genl other 'thing) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction isaFn) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction genlFn) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function isaFn) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function genlFn) 'CxUniverse)
     (v/assert kb (list 'result isaFn root) 'CxUniverse)
     (v/assert kb (list 'genlResult genlFn root) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate inst) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate inst) 'CxUniverse)
     (v/assert kb (list 'arg inst 1 other) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate sub) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate sub) 'CxUniverse)
     (v/assert kb (list 'genlArg sub 1 other) 'CxUniverse)
     (testing "the instance demand convicts on result"
       (is (= :arg-type (ex-type #(v/assert kb (list inst (list isaFn 1)) 'CxUniverse))))
@@ -510,9 +510,9 @@
   (let [root (tu/tmp-type) sub' (tu/tmp-type) f (tu/tmp-ind) rel (tu/tmp-pred)]
     (v/assert kb (list 'genl root 'thing) 'CxUniverse)
     (v/assert kb (list 'genl sub' root) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction f) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function f) 'CxUniverse)
     (v/assert kb (list 'genlResult f sub') 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate rel) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate rel) 'CxUniverse)
     (v/assert kb (list 'genlArg rel 1 root) 'CxUniverse)
     (is (v/assert kb (list rel (list f 1)) 'CxUniverse)
         "a declared result below the demanded kind is the demand met")))
@@ -526,7 +526,7 @@
   (let [msr (tu/tmp-type) dog (tu/tmp-type) f (tu/tmp-ind) K (tu/tmp-ind)]
     (v/assert kb (list 'genl msr 'thing) 'CxUniverse)
     (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction f) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function f) 'CxUniverse)
     (v/assert kb (list 'result f msr) 'CxUniverse)
     (v/assert kb (list 'arg 'termOfUnit 2 dog) 'CxUniverse)
     (is (v/assert kb (list 'termOfUnit K (list f 5)) 'CxUniverse))))
@@ -538,8 +538,8 @@
         seen (tu/tmp-ctx) sibling (tu/tmp-ctx)]
     (v/assert kb (list 'genl msr 'thing) 'CxUniverse)
     (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction f) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate wants) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function f) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate wants) 'CxUniverse)
     (v/assert kb (list 'arg wants 1 dog) 'CxUniverse)
     (v/assert kb (list 'genlCx seen 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx sibling 'CxUniverse) 'CxUniverse)
@@ -550,7 +550,7 @@
       (is (v/assert kb (list wants (list f 2)) sibling)))))
 
 (tu/deftest-kb a-reifiable-application-is-convicted-through-the-constant-it-minted
-  ;; the same declaration read at the other end: a `reifiableFunction` application is
+  ;; the same declaration read at the other end: a `reifiable_function` application is
   ;; minted before the checks run, so `(msr K)` is materialized on the constant and the
   ;; ordinary symbol arm convicts it.  Both classes of function, one declaration, one
   ;; verdict — which is the whole of why the check reads `result` rather than inventing
@@ -559,8 +559,8 @@
         x (tu/tmp-ind)]
     (v/assert kb (list 'genl msr 'thing) 'CxUniverse)
     (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
-    (v/assert kb (list 'reifiableFunction f) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function f) 'CxUniverse)
     (v/assert kb (list 'result f msr) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate wants) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate wants) 'CxUniverse)
     (v/assert kb (list 'arg wants 1 dog) 'CxUniverse)
     (is (= :arg-type (ex-type #(v/assert kb (list wants (list f x)) 'CxUniverse))))))

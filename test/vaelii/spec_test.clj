@@ -183,7 +183,7 @@
 
 (deftest a-context-denoting-application-is-a-context-at-the-boundary
   ;; `assert`'s own shape check admits a ground application of a declared
-  ;; `contextDenotingFunction` and reifies it to its `cx/` constant (docs/context-nat.md),
+  ;; `context_denoting_function` and reifies it to its `cx/` constant (docs/context-nat.md),
   ;; and the reads that take a context take the same form.  A `::context` narrower than
   ;; that door refuses under `instrument` a write the engine accepts without it — so an
   ;; instrumented caller could not store into a time-indexed context at all.
@@ -191,8 +191,8 @@
     (tu/with-terms [likes Tom Ann]
       (let [cxfn (symbol (str "CxTmpSpec" (System/nanoTime) "Fn"))
             expr (list cxfn 'CxMonad (list 'DatetimeFn "2000"))]
-        (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
-        (v/assert kb '(unreifiableFunction DatetimeFn) 'CxUniverse)
+        (v/assert kb (list 'context_denoting_function cxfn) 'CxUniverse)
+        (v/assert kb '(unreifiable_function DatetimeFn) 'CxUniverse)
         (instrumented
          (testing "the write door takes the application where it takes a symbol"
            (is (nat-int? (v/assert kb (list likes Tom Ann) expr))))

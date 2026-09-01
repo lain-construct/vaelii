@@ -7,7 +7,7 @@
 ;;
 ;; The three calendar constructors are the exception, and they name intervals rather than
 ;; ordering them: (YearFn 2000), (MonthFn 2000 1) and (DayFn 2000 1 15) denote the year,
-;; the month and the day as stretches of time. Each is an unreifiableFunction, so its
+;; the month and the day as stretches of time. Each is an unreifiable_function, so its
 ;; fields stay readable inside the term, which is what lets a reader see that January 2000
 ;; sits inside 2000 without anybody stating it — the containment a time-keyed CONTEXT is
 ;; ordered by (docs/context-nat.md). InstantFn is the clock beside them: it names a MOMENT
@@ -86,293 +86,293 @@
 
 (comment after
          "(after ?interval1 ?interval2) means that ?interval1 begins strictly after ?interval2 ends. They share no time and do not touch, so some gap separates them. The converse of before.")
-(binaryPredicate after)
-(instanceRelationPredicate after)
+(binary_predicate after)
+(instance_relation_predicate after)
 (arg after 1 temporal_thing)
 (arg after 2 temporal_thing)
 
 (comment before
          "(before ?interval1 ?interval2) means that ?interval1 ends strictly before ?interval2 begins. They share no time and do not touch, so some gap separates them. One of Allen's thirteen base relations, with after as its converse.")
-(binaryPredicate before)
-(instanceRelationPredicate before)
+(binary_predicate before)
+(instance_relation_predicate before)
 (arg before 1 temporal_thing)
 (arg before 2 temporal_thing)
 
 (comment clipped
          "(clipped ?instant1 ?fluent ?instant2) means that some event terminating ?fluent happens strictly between ?instant1 and ?instant2. What breaks inertia: a fluent an event started at ?instant1 still holds at ?instant2 exactly while nothing clipped it in between. Derived by CxChange and never stated — an event and its terminates fact are what a KB says, and the interval this covers is what follows from them. See docs/time.md.")
-(ternaryPredicate clipped)
+(ternary_predicate clipped)
 (arg clipped 1 time_point)
 (arg clipped 2 fluent)
 (arg clipped 3 time_point)
 
 (comment clippedBefore
          "(clippedBefore ?fluent ?instant) means that some event terminating ?fluent happens before ?instant, with no lower bound on when. The half-open reading of clipped, and what an initially-true fluent needs: nothing named the moment such a fluent began, so there is no first instant to bound the interval with. Derived by CxChange and never stated. See docs/time.md.")
-(binaryPredicate clippedBefore)
-(instanceRelationPredicate clippedBefore)
+(binary_predicate clippedBefore)
+(instance_relation_predicate clippedBefore)
 (arg clippedBefore 1 fluent)
 (arg clippedBefore 2 time_point)
 
 (comment contains
          "(contains ?interval1 ?interval2) means that ?interval1 begins strictly before ?interval2 and ends strictly after it. So ?interval2 falls wholly inside ?interval1 with room either side. The converse of during.")
-(binaryPredicate contains)
-(instanceRelationPredicate contains)
+(binary_predicate contains)
+(instance_relation_predicate contains)
 (arg contains 1 temporal_thing)
 (arg contains 2 temporal_thing)
 
 (comment DayFn
-         "(DayFn ?year ?month ?day) means the calendar day, as an interval — so (DayFn 2000 1 15) is the fifteenth of January 2000. An unreifiableFunction application like YearFn and MonthFn: it stays structural, so the three fields are readable inside the term and a reader can see that the day sits inside its month. One field per argument, coarsest first, so the arity is the precision. See docs/context-nat.md.")
-(unreifiableFunction DayFn)
+         "(DayFn ?year ?month ?day) means the calendar day, as an interval — so (DayFn 2000 1 15) is the fifteenth of January 2000. An unreifiable_function application like YearFn and MonthFn: it stays structural, so the three fields are readable inside the term and a reader can see that the day sits inside its month. One field per argument, coarsest first, so the arity is the precision. See docs/context-nat.md.")
+(unreifiable_function DayFn)
 (result DayFn temporal_thing)
 
 (comment during
          "(during ?interval1 ?interval2) means that ?interval1 falls wholly inside ?interval2, beginning strictly after it and ending strictly before it. The converse of contains.")
-(binaryPredicate during)
-(instanceRelationPredicate during)
+(binary_predicate during)
+(instance_relation_predicate during)
 (arg during 1 temporal_thing)
 (arg during 2 temporal_thing)
 
 (comment endOf
          "(endOf ?interval ?instant) means that ?instant is the moment ?interval ends. One of the interval's two bounding instants, the other being its startOf. What joins the interval algebra to the point algebra and to the metric constraints stated over instants: one interval before another is exactly its end instant before the other's start. Stated of an ordinary interval; computed for a calendar term, where it is the first moment of the next term at the same precision — the end of (YearFn 2000) is (InstantFn 2001 1 1 0 0 0). See docs/time.md.")
-(binaryPredicate endOf)
-(instanceRelationPredicate endOf)
+(binary_predicate endOf)
+(instance_relation_predicate endOf)
 (arg endOf 1 temporal_thing)
 (arg endOf 2 time_point)
 
 (comment finishedBy
          "(finishedBy ?interval1 ?interval2) means that ?interval1 and ?interval2 end together, and ?interval1 began first. So ?interval2 is a closing part of ?interval1. The converse of finishes.")
-(binaryPredicate finishedBy)
-(instanceRelationPredicate finishedBy)
+(binary_predicate finishedBy)
+(instance_relation_predicate finishedBy)
 (arg finishedBy 1 temporal_thing)
 (arg finishedBy 2 temporal_thing)
 
 (comment finishes
          "(finishes ?interval1 ?interval2) means that ?interval1 and ?interval2 end together, and ?interval1 began later. So ?interval1 is a closing part of ?interval2. The converse of finishedBy.")
-(binaryPredicate finishes)
-(instanceRelationPredicate finishes)
+(binary_predicate finishes)
+(instance_relation_predicate finishes)
 (arg finishes 1 temporal_thing)
 (arg finishes 2 temporal_thing)
 
 (comment happens
          "(happens ?event ?instant) means that ?event occurs at ?instant. The one thing a narrative states about an event's place in time; whether the event changes anything is initiates and terminates, said separately, so an event nobody has said anything else about still has a time. See docs/time.md.")
-(binaryPredicate happens)
-(instanceRelationPredicate happens)
+(binary_predicate happens)
+(instance_relation_predicate happens)
 (arg happens 1 temporal_thing)
 (arg happens 2 time_point)
 
 (comment hasSubinterval
          "(hasSubinterval ?interval1 ?interval2) means that ?interval2 falls within ?interval1, sharing an end, a start, or neither. Any of contains, startedBy, finishedBy or intervalEqual. The converse of subintervalOf.")
-(binaryPredicate hasSubinterval)
-(instanceRelationPredicate hasSubinterval)
+(binary_predicate hasSubinterval)
+(instance_relation_predicate hasSubinterval)
 (arg hasSubinterval 1 temporal_thing)
 (arg hasSubinterval 2 temporal_thing)
 
 (comment holdsAt
          "(holdsAt ?fluent ?instant) means that ?fluent is the case at ?instant. Derived by CxChange and never stated: it follows from an event that initiated the fluent earlier and nothing having terminated it since, which is inertia — a state persists until something ends it. Backward-only, because a fluent holds at every moment between its start and its end and materializing one fact per moment would store an unbounded extent for a question anybody can ask directly. See docs/time.md.")
-(binaryPredicate holdsAt)
-(instanceRelationPredicate holdsAt)
+(binary_predicate holdsAt)
+(instance_relation_predicate holdsAt)
 (arg holdsAt 1 fluent)
 (arg holdsAt 2 time_point)
 
 (comment initially
          "(initially ?fluent) means that ?fluent is the case before the narrative starts — true at the outset, with no event named as having started it. It gives inertia something to run from where no initiates fact does; a fluent that is neither initially true nor ever initiated holds nowhere. See docs/time.md.")
-(unaryPredicate initially)
+(unary_predicate initially)
 (arg initially 1 fluent)
 
 (comment initiates
          "(initiates ?event ?fluent ?instant) means that ?fluent is the case from ?instant onwards because ?event happened then. Stated of the event and the fluent together, since the same event can start one state and end another — waking starts being awake and ends being asleep. Says nothing on its own about whether the event occurred: that is happens, and both are needed. See docs/time.md.")
-(ternaryPredicate initiates)
+(ternary_predicate initiates)
 (arg initiates 1 temporal_thing)
 (arg initiates 2 fluent)
 (arg initiates 3 time_point)
 
 (comment instantAfter
          "(instantAfter ?instant1 ?instant2) means that ?instant1 falls strictly later in time than ?instant2. A claim about moments rather than about intervals, which is why it is spelled apart from Allen's after. The converse of instantBefore.")
-(binaryPredicate instantAfter)
-(instanceRelationPredicate instantAfter)
+(binary_predicate instantAfter)
+(instance_relation_predicate instantAfter)
 (transitive instantAfter)
 (arg instantAfter 1 time_point)
 (arg instantAfter 2 time_point)
 
 (comment instantBefore
          "(instantBefore ?instant1 ?instant2) means that ?instant1 falls strictly earlier in time than ?instant2. A claim about moments rather than about intervals, which is why it is spelled apart from Allen's before. The converse of instantAfter.")
-(binaryPredicate instantBefore)
-(instanceRelationPredicate instantBefore)
+(binary_predicate instantBefore)
+(instance_relation_predicate instantBefore)
 (transitive instantBefore)
 (arg instantBefore 1 time_point)
 (arg instantBefore 2 time_point)
 
 (comment instantEqual
          "(instantEqual ?instant1 ?instant2) means that ?instant1 and ?instant2 are the same moment. The identity of the point algebra, and a claim about time rather than about the identity of the two terms, so it is not the equality closure's equals.")
-(binaryPredicate instantEqual)
-(instanceRelationPredicate instantEqual)
+(binary_predicate instantEqual)
+(instance_relation_predicate instantEqual)
 (arg instantEqual 1 time_point)
 (arg instantEqual 2 time_point)
 
 (comment InstantFn
-         "(InstantFn ?year ?month ?day ?hour ?minute ?second) means the moment those six calendar fields name, so (InstantFn 2000 1 1 0 0 0) is midnight at the start of 2000. A time_point and not a temporal_thing: YearFn, MonthFn and DayFn name stretches, and this names the moments one of them lies between. Six fields always — its arity is not its precision — so every moment has exactly one spelling, which is what makes the end of one year and the start of the next the same term. An unreifiableFunction application like the calendar constructors, structural so the fields stay readable. What startOf and endOf answer for a calendar term, computed and never stored. See docs/time.md.")
-(unreifiableFunction InstantFn)
+         "(InstantFn ?year ?month ?day ?hour ?minute ?second) means the moment those six calendar fields name, so (InstantFn 2000 1 1 0 0 0) is midnight at the start of 2000. A time_point and not a temporal_thing: YearFn, MonthFn and DayFn name stretches, and this names the moments one of them lies between. Six fields always — its arity is not its precision — so every moment has exactly one spelling, which is what makes the end of one year and the start of the next the same term. An unreifiable_function application like the calendar constructors, structural so the fields stay readable. What startOf and endOf answer for a calendar term, computed and never stored. See docs/time.md.")
+(unreifiable_function InstantFn)
 (result InstantFn time_point)
 
 (comment instantNotAfter
          "(instantNotAfter ?instant1 ?instant2) means that ?instant1 falls at or before ?instant2. Either instantBefore or instantEqual, the ≤ of time. The complement of instantAfter, which over three jointly exhaustive relations is exactly its negation.")
-(binaryPredicate instantNotAfter)
-(instanceRelationPredicate instantNotAfter)
+(binary_predicate instantNotAfter)
+(instance_relation_predicate instantNotAfter)
 (arg instantNotAfter 1 time_point)
 (arg instantNotAfter 2 time_point)
 
 (comment instantNotBefore
          "(instantNotBefore ?instant1 ?instant2) means that ?instant1 falls at or after ?instant2. Either instantAfter or instantEqual, the ≥ of time. The complement of instantBefore, which over three jointly exhaustive relations is exactly its negation.")
-(binaryPredicate instantNotBefore)
-(instanceRelationPredicate instantNotBefore)
+(binary_predicate instantNotBefore)
+(instance_relation_predicate instantNotBefore)
 (arg instantNotBefore 1 time_point)
 (arg instantNotBefore 2 time_point)
 
 (comment instantNotEqual
          "(instantNotEqual ?instant1 ?instant2) means that ?instant1 and ?instant2 are different moments, one before the other. Either instantBefore or instantAfter, and the complement of instantEqual.")
-(binaryPredicate instantNotEqual)
-(instanceRelationPredicate instantNotEqual)
+(binary_predicate instantNotEqual)
+(instance_relation_predicate instantNotEqual)
 (arg instantNotEqual 1 time_point)
 (arg instantNotEqual 2 time_point)
 
 (comment intervalEqual
          "(intervalEqual ?interval1 ?interval2) means that ?interval1 and ?interval2 begin together and end together. The identity of the interval algebra, and a claim about extent in time rather than about the identity of the two terms, so it is not the equality closure's equals.")
-(binaryPredicate intervalEqual)
-(instanceRelationPredicate intervalEqual)
+(binary_predicate intervalEqual)
+(instance_relation_predicate intervalEqual)
 (arg intervalEqual 1 temporal_thing)
 (arg intervalEqual 2 temporal_thing)
 
 (comment length
          "(length ?interval ?measure) means that ?interval lasts ?measure. Exact as (QuantityFn 2 Hour), and bounded as (QuantityIntervalFn 1 2 Hour) when only bounds are known. An interval's one primitive duration and the only quantitative fact stated about it, since totalDuration and overlapDuration are both computed from these. A duration, not a spatial extent.")
-(binaryPredicate length)
-(instanceRelationPredicate length)
+(binary_predicate length)
+(instance_relation_predicate length)
 (arg length 1 temporal_thing)
 (arg length 2 thing)
 
 (comment meets
          "(meets ?interval1 ?interval2) means that ?interval1 ends exactly where ?interval2 begins. No gap and no overlap, which is what separates it from before. The converse of metBy.")
-(binaryPredicate meets)
-(instanceRelationPredicate meets)
+(binary_predicate meets)
+(instance_relation_predicate meets)
 (arg meets 1 temporal_thing)
 (arg meets 2 temporal_thing)
 
 (comment metBy
          "(metBy ?interval1 ?interval2) means that ?interval1 begins exactly where ?interval2 ends. The converse of meets.")
-(binaryPredicate metBy)
-(instanceRelationPredicate metBy)
+(binary_predicate metBy)
+(instance_relation_predicate metBy)
 (arg metBy 1 temporal_thing)
 (arg metBy 2 temporal_thing)
 
 (comment MonthFn
-         "(MonthFn ?year ?month) means the calendar month, as an interval — so (MonthFn 2000 1) is January 2000, and ?month is 1 through 12. An unreifiableFunction application like YearFn and DayFn, structural so the ordering can read its fields: January 2000 is inside 2000, and February is inside neither January nor itself twice over. See docs/context-nat.md.")
-(unreifiableFunction MonthFn)
+         "(MonthFn ?year ?month) means the calendar month, as an interval — so (MonthFn 2000 1) is January 2000, and ?month is 1 through 12. An unreifiable_function application like YearFn and DayFn, structural so the ordering can read its fields: January 2000 is inside 2000, and February is inside neither January nor itself twice over. See docs/context-nat.md.")
+(unreifiable_function MonthFn)
 (result MonthFn temporal_thing)
 
 (comment overlapDuration
          "(overlapDuration ?interval1 ?interval2 ?duration) means that ?duration is how long ?interval1 and ?interval2 overlap. Computed from their lengths and the Allen relations still possible between them: zero when they are temporallyDisjoint, the contained length when one is a subintervalOf the other, and the bounded (QuantityIntervalFn 0 shorter unit) otherwise, so an over-approximation renders as an interval and says as much. Computed by a prover, never stored.")
-(ternaryPredicate overlapDuration)
+(ternary_predicate overlapDuration)
 (arg overlapDuration 1 temporal_thing)
 (arg overlapDuration 2 temporal_thing)
 (arg overlapDuration 3 thing)
 
 (comment overlappedBy
          "(overlappedBy ?interval1 ?interval2) means that ?interval2 begins first, and ?interval1 begins before ?interval2 ends and ends after it. So they share a middle stretch and each has time the other does not. The converse of overlaps.")
-(binaryPredicate overlappedBy)
-(instanceRelationPredicate overlappedBy)
+(binary_predicate overlappedBy)
+(instance_relation_predicate overlappedBy)
 (arg overlappedBy 1 temporal_thing)
 (arg overlappedBy 2 temporal_thing)
 
 (comment overlaps
          "(overlaps ?interval1 ?interval2) means that ?interval1 begins first, and ?interval2 begins before ?interval1 ends and ends after it. So they share a middle stretch and each has time the other does not. The converse of overlappedBy.")
-(binaryPredicate overlaps)
-(instanceRelationPredicate overlaps)
+(binary_predicate overlaps)
+(instance_relation_predicate overlaps)
 (arg overlaps 1 temporal_thing)
 (arg overlaps 2 temporal_thing)
 
 (comment precededBy
          "(precededBy ?interval1 ?interval2) means that ?interval1 begins at or after the moment ?interval2 ends. Either after or metBy. The converse of precedes.")
-(binaryPredicate precededBy)
-(instanceRelationPredicate precededBy)
+(binary_predicate precededBy)
+(instance_relation_predicate precededBy)
 (arg precededBy 1 temporal_thing)
 (arg precededBy 2 temporal_thing)
 
 (comment precedes
          "(precedes ?interval1 ?interval2) means that ?interval1 ends at or before the moment ?interval2 begins. Either before or meets, so it is the ordering that does not care whether the two touch. Derived rather than base, and the converse of precededBy.")
-(binaryPredicate precedes)
-(instanceRelationPredicate precedes)
+(binary_predicate precedes)
+(instance_relation_predicate precedes)
 (arg precedes 1 temporal_thing)
 (arg precedes 2 temporal_thing)
 
 (comment properSubintervalOf
          "(properSubintervalOf ?interval1 ?interval2) means that ?interval1 falls within ?interval2 and is not the whole of it. Any of during, starts or finishes. Irreflexive, unlike subintervalOf.")
-(binaryPredicate properSubintervalOf)
-(instanceRelationPredicate properSubintervalOf)
+(binary_predicate properSubintervalOf)
+(instance_relation_predicate properSubintervalOf)
 (arg properSubintervalOf 1 temporal_thing)
 (arg properSubintervalOf 2 temporal_thing)
 
 (comment sharesTimeWith
          "(sharesTimeWith ?interval1 ?interval2) means that ?interval1 and ?interval2 have some time in common. Any relation but before, after, meets and metBy, so it is the complement of temporallyDisjoint.")
-(binaryPredicate sharesTimeWith)
-(instanceRelationPredicate sharesTimeWith)
+(binary_predicate sharesTimeWith)
+(instance_relation_predicate sharesTimeWith)
 (arg sharesTimeWith 1 temporal_thing)
 (arg sharesTimeWith 2 temporal_thing)
 
 (comment startedBy
          "(startedBy ?interval1 ?interval2) means that ?interval1 and ?interval2 begin together, and ?interval1 ends later. So ?interval2 is an opening part of ?interval1. The converse of starts.")
-(binaryPredicate startedBy)
-(instanceRelationPredicate startedBy)
+(binary_predicate startedBy)
+(instance_relation_predicate startedBy)
 (arg startedBy 1 temporal_thing)
 (arg startedBy 2 temporal_thing)
 
 (comment startOf
          "(startOf ?interval ?instant) means that ?instant is the moment ?interval begins. One of the interval's two bounding instants, the other being its endOf. What joins the interval algebra to the point algebra and to the metric constraints stated over instants. Stated of an ordinary interval; computed for a calendar term, where it is that term's first moment — the start of (YearFn 2000) is (InstantFn 2000 1 1 0 0 0). See docs/time.md.")
-(binaryPredicate startOf)
-(instanceRelationPredicate startOf)
+(binary_predicate startOf)
+(instance_relation_predicate startOf)
 (arg startOf 1 temporal_thing)
 (arg startOf 2 time_point)
 
 (comment starts
          "(starts ?interval1 ?interval2) means that ?interval1 and ?interval2 begin together, and ?interval1 ends earlier. So ?interval1 is an opening part of ?interval2. The converse of startedBy.")
-(binaryPredicate starts)
-(instanceRelationPredicate starts)
+(binary_predicate starts)
+(instance_relation_predicate starts)
 (arg starts 1 temporal_thing)
 (arg starts 2 temporal_thing)
 
 (comment subintervalOf
          "(subintervalOf ?interval1 ?interval2) means that ?interval1 falls within ?interval2, sharing an end, a start, or neither. Any of during, starts, finishes or intervalEqual, so it is derived rather than base. Reflexive: every interval is a subinterval of itself.")
-(binaryPredicate subintervalOf)
-(instanceRelationPredicate subintervalOf)
+(binary_predicate subintervalOf)
+(instance_relation_predicate subintervalOf)
 (arg subintervalOf 1 temporal_thing)
 (arg subintervalOf 2 temporal_thing)
 
 (comment temporalDistance
          "(temporalDistance ?instant1 ?instant2 ?measure) means that ?instant2 falls ?measure later than ?instant1. So a negative measure says ?instant2 comes first. Exact as (QuantityFn N Unit) and bounded as (QuantityIntervalFn Lo Hi Unit). A stated one is an ordinary fact; a prover closes every such constraint visible in a context by all-pairs shortest paths and answers the tightest separation they entail between any two instants, binding the measure when it is open and checking containment when it is ground.")
-(ternaryPredicate temporalDistance)
+(ternary_predicate temporalDistance)
 (arg temporalDistance 1 time_point)
 (arg temporalDistance 2 time_point)
 (arg temporalDistance 3 thing)
 
 (comment temporallyDisjoint
          "(temporallyDisjoint ?interval1 ?interval2) means that ?interval1 and ?interval2 have no time in common. Any of before, after, meets or metBy, so it is the complement of sharesTimeWith.")
-(binaryPredicate temporallyDisjoint)
-(instanceRelationPredicate temporallyDisjoint)
+(binary_predicate temporallyDisjoint)
+(instance_relation_predicate temporallyDisjoint)
 (arg temporallyDisjoint 1 temporal_thing)
 (arg temporallyDisjoint 2 temporal_thing)
 
 (comment terminates
          "(terminates ?event ?fluent ?instant) means that ?fluent stops being the case at ?instant because ?event happened then. The converse half of initiates, and what a later-arriving event uses to withdraw a conclusion inertia had already drawn — retract the event and the conclusion comes back. See docs/time.md.")
-(ternaryPredicate terminates)
+(ternary_predicate terminates)
 (arg terminates 1 temporal_thing)
 (arg terminates 2 fluent)
 (arg terminates 3 time_point)
 
 (comment totalDuration
          "(totalDuration (list ?interval1 ?interval2 …) ?duration) means that ?duration is the sum of the listed intervals' lengths, which must all be of one dimension. Binary rather than ternary: the (list …) of components is one argument, which is also why the signature is read as a description instead of substituted into. Computed by a prover, never stored.")
-(binaryPredicate totalDuration)
-(instanceRelationPredicate totalDuration)
+(binary_predicate totalDuration)
+(instance_relation_predicate totalDuration)
 (arg totalDuration 1 temporal_thing)
 (arg totalDuration 2 thing)
 
 (comment YearFn
-         "(YearFn ?year) means the calendar year, as an interval — so (YearFn 2000) is the whole of 2000. The coarsest of the three calendar constructors (with MonthFn and DayFn beneath it), and an unreifiableFunction application: it stays structural rather than minting a constant, because its one field is what says which years contain which. A calendar term and the reduced-precision ISO string naming the same interval denote the same interval and order against each other. See docs/context-nat.md.")
-(unreifiableFunction YearFn)
+         "(YearFn ?year) means the calendar year, as an interval — so (YearFn 2000) is the whole of 2000. The coarsest of the three calendar constructors (with MonthFn and DayFn beneath it), and an unreifiable_function application: it stays structural rather than minting a constant, because its one field is what says which years contain which. A calendar term and the reduced-precision ISO string naming the same interval denote the same interval and order against each other. See docs/context-nat.md.")
+(unreifiable_function YearFn)
 (result YearFn temporal_thing)

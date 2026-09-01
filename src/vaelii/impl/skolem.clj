@@ -11,7 +11,7 @@
   through the ordinary reify path — `nat/reify-or-mint-nat` dedups it against
   `termOfUnit`, so re-firing on the same binding resolves to the one constant.  A single
   skolem function reified per-argument (rather than a per-rule function name) means one
-  lazy `reifiableFunction` declaration turns the whole mechanism on, and the frontier
+  lazy `reifiable_function` declaration turns the whole mechanism on, and the frontier
   values in the arguments key determinism.
 
   A namespace of its own because it has **two callers on two layers** and belongs to
@@ -38,13 +38,13 @@
   'SkolemFn)
 
 (defn ensure-skolem-function
-  "Declare `SkolemFn` a `reifiableFunction` if it is not already — so skolem NATs reify to
+  "Declare `SkolemFn` a `reifiable_function` if it is not already — so skolem NATs reify to
   `nat/` constants and the NAT orphan-cleanup gate (`nat/any-reifiable-functions?`) is on
   for retraction.  Idempotent, and asserted without chaining or settling since it is pure
   metadata."
   [kb]
   (when-not (nat/reifiable-function? kb skolem-function)
-    (wiring/assert-sentence kb (list 'reifiableFunction skolem-function)
+    (wiring/assert-sentence kb (list 'reifiable_function skolem-function)
                             nat/universal-context
                             {:strength :monotonic :chain? false})))
 

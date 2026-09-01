@@ -17,7 +17,7 @@
   - **Response** (`answers`, `disputes`, `endorses`, `justifies`) — a META-SENTEX on
     the target sentex, naming it by handle `(sentexHandle H)`, asserted in the
     RESPONDER's own context and stamped with the responder as creator.  Each response
-    predicate is declared `targetFollowingPredicate` in `CxSpeechActs`, so retracting a
+    predicate is declared `target_following_predicate` in `CxSpeechActs`, so retracting a
     target sweeps its replies with it (`core/retract-following-metas!`).  Two facts
     force this: the cascade needs BOTH the meta-sentex AND the mark (an unmarked meta
     orphans harmlessly), and first-writer-wins forces each act to be its own object —
@@ -88,7 +88,7 @@
 (defn endorse
   "The `endorses` response act: `agent` stands behind the claim at `target-handle`.  A
   meta-sentex `(endorses agent (sentexHandle target-handle))` in `agent`'s own context,
-  creator `agent`.  targetFollowingPredicate, so it is swept when the target is
+  creator `agent`.  target_following_predicate, so it is swept when the target is
   retracted.  Two endorsers of one claim yield two distinct sentexes with two creators —
   the case a bare re-assert would collapse to one.  Returns the endorsement's handle."
   [kb agent target-handle]
@@ -98,7 +98,7 @@
 (defn answer
   "The `answers` response act: `agent` answers the query at `target-handle` with
   `content`.  A meta-sentex `(answers agent content (sentexHandle target-handle))` in
-  `agent`'s own context, creator `agent`.  targetFollowingPredicate.  The answerer's
+  `agent`'s own context, creator `agent`.  target_following_predicate.  The answerer's
   identity is read off THIS sentex (its context + provenance), not off the query.
   Returns the answer's handle."
   [kb agent content target-handle]
@@ -108,7 +108,7 @@
 (defn justify
   "The `justifies` response act: `agent` offers `ground` as a reason for the claim at
   `target-handle`.  A meta-sentex `(justifies agent ground (sentexHandle target-handle))`
-  in `agent`'s own context, creator `agent`.  targetFollowingPredicate.  Returns the
+  in `agent`'s own context, creator `agent`.  target_following_predicate.  Returns the
   justification's handle."
   [kb agent ground target-handle]
   (v/assert kb (list 'justifies agent ground (v/sentex-handle target-handle))
@@ -120,7 +120,7 @@
 
   1. the REBUTTING claim — the negation of the target's sentence — so the pair surfaces
      in `(v/contradictions kb)` (both sides believed at their defeat class);
-  2. a `disputes` meta-sentex naming the target by handle — targetFollowingPredicate, so
+  2. a `disputes` meta-sentex naming the target by handle — target_following_predicate, so
      retracting the target sweeps the dispute edge.
 
   Represents the challenge only; adjudication is a separate layer.  Returns the dispute
@@ -145,7 +145,7 @@
 
 (defn retract-move
   "The `retracts` move: the engine's `retract!` on `handle`.  It is this very teardown
-  that the targetFollowingPredicate response acts cascade with — retract a target and
+  that the target_following_predicate response acts cascade with — retract a target and
   its answers / endorses / disputes / justifies edges go with it.  Returns retract!'s
   counts."
   [kb handle]
@@ -156,7 +156,7 @@
 (defn not-understood
   "The `notUnderstood` error act: `agent` could not parse the received edge at
   `received-handle`.  A meta-sentex `(notUnderstood agent (sentexHandle received-handle))`
-  in `agent`'s own context, creator `agent`.  Deliberately NOT targetFollowingPredicate:
+  in `agent`'s own context, creator `agent`.  Deliberately NOT target_following_predicate:
   a parse failure is a fact about the exchange and outlives what provoked it.  Returns
   its handle."
   [kb agent received-handle]

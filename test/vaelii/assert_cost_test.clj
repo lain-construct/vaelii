@@ -152,7 +152,7 @@
   "The `membership` workload with eight predicates stacked above it instead of one, and
   the only budget here that is a claim about a **shape** rather than a constant.
 
-  `inherited-arity` asks the `variableArity` release of every super-predicate, and that
+  `inherited-arity` asks the `variable_arity` release of every super-predicate, and that
   question is a membership retrieval the arity table cannot answer.  So the cost of
   asserting one type membership is proportional to how deep in the hierarchy its
   predicate sits — which the `membership` workload one screen up cannot see, because at
@@ -255,7 +255,7 @@
   grows — and the two are the usual complements: the shape there, the constant here."
   []
   (let [kb (fresh)]
-    (v/assert kb '(binaryPredicate acteRoot) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(binary_predicate acteRoot) 'CxPerf {:strength :monotonic})
     (fn [] (dotimes [i n]
              (v/assert kb (list 'genl (ind "acteSub" i) 'acteRoot)
                        'CxPerf {:strength :monotonic})))))
@@ -362,7 +362,7 @@
   delta is what the narrowing bought."
   []
   (let [kb (fresh)]
-    (v/assert kb '(reifiableFunction AcNatFn) 'CxUniverse {:strength :monotonic})
+    (v/assert kb '(reifiable_function AcNatFn) 'CxUniverse {:strength :monotonic})
     (dotimes [i nat-population]
       (v/assert kb (list 'acNatUse (ind "AcNU" i) (list 'AcNatFn (ind "AcNA" i)))
                 'CxPerf {}))
@@ -382,7 +382,7 @@
   wearing a performance win's clothes."
   []
   (let [kb (fresh)]
-    (v/assert kb '(reifiableFunction AcOrphFn) 'CxUniverse {:strength :monotonic})
+    (v/assert kb '(reifiable_function AcOrphFn) 'CxUniverse {:strength :monotonic})
     (let [hs (mapv (fn [i] (v/assert kb (list 'acOrphUse (ind "AcOU" i)
                                               (list 'AcOrphFn (ind "AcOA" i)))
                                      'CxPerf {}))
@@ -465,7 +465,7 @@
    ;; retrieval counted here. It is paid per **super the table says nothing about**, so
    ;; it is proportional to hierarchy depth on a predicate that declares no arity, and
    ;; free on one that declares either spelling: `own-arity` answers first and the walk
-   ;; never runs. Every type in the shipped starter carries `(unaryPredicate t)`, which is
+   ;; never runs. Every type in the shipped starter carries `(unary_predicate t)`, which is
    ;; why this is the workload that shows it and the `declared` one is unmoved.
    {:name    :membership
     :build   membership

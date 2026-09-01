@@ -27,9 +27,9 @@
 
   **Which predicates project is a KB property, not a hard-coded set.**  `believes` is
   one of them, and `knows` / `desires` / `intends` are the same projection under a
-  different predicate; a predicate projects exactly when `(modalPredicate P)` is
+  different predicate; a predicate projects exactly when `(modal_predicate P)` is
   believed where the query is asked — read context-scoped through `has-prop? :modal`,
-  the way `abduciblePredicate` grants abduction.  So the table is open (assert the
+  the way `abducible_predicate` grants abduction.  So the table is open (assert the
   marker to add one) and it is a *policy of a context* rather than a global switch.
 
   This is a **projector, not a modal logic**: no axiom schema (K, T, 4, 5), and no

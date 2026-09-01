@@ -29,12 +29,21 @@
   what a mark implies, and are read by no check because the mark itself is what the
   checks read.
 
+  **Where the answer is written.**  Not here: each term's prose sits on its own entry in
+  `vaelii.impl.predicates`, beside that term's shape, storage kind and facets, and this
+  roster is that field read back.  One entry per term is what stops the answer being a
+  second list keyed by the same functors — the failure the declaration namespace exists
+  to end — and the *class* is read off the `:facets` rather than off which key the prose
+  was written under, so a term the engine demonstrably reads cannot be classified inert
+  by writing different prose beside it.
+
   **What keeps it honest** is `audit`, and two tests over it: a term CxCore comments
   with no roster entry fails, and a roster entry naming a term CxCore no longer
   comments fails.  So the next plausible-looking functor cannot land unimplemented in
-  silence, and a retired one cannot leave a stale claim behind.  The `:enforced` side is
-  cross-checked against `special/entries` as well, which is machine-readable: a functor
-  the table gives an arm to and the roster calls inert is a contradiction, not a matter of
+  silence, and a retired one cannot leave a stale claim behind.  `:contradicted` is the
+  third, and the one that needs no judgement: a functor some data structure in the tree
+  proves has behaviour — the special table's keys, the aggregates, the evaluables, the
+  rule wrappers — and the roster calls inert is a contradiction, not a matter of
   opinion.
 
   **Why the answer does not live in the ontology.**  A `(notEnforced P)` marker was the
@@ -43,7 +52,8 @@
   term's `comment` prose is worse: nothing can check prose without matching strings, so it
   would drift the first time a check was added and the sentence was not.  A roster in code
   drifts too, but a test can see it drift."
-  (:require [vaelii.impl.protocols :as p]
+  (:require [vaelii.impl.predicates :as pr]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.sentex :as sx]
@@ -59,120 +69,26 @@
   CxCore comments.
 
   The `:enforced` prose names a code path, so it is the thing to update when one moves —
-  and `audit` is what notices when a *term* moves without it."
-  '{;; ---- the taxonomy relations, cached rather than chained ----------------
-    genl        {:enforced "taxonomy/add-genl — the cached closure every membership, match and placement reads"}
-    genlCx {:enforced "taxonomy/add-genlCx — the visibility closure a context read walks"}
-    thing       {:enforced "checks — the hierarchy root the open-world floors test against by name"}
-    predicate   {:enforced "generic: the arg target CxCore constrains its own meta-level with"}
-    function    {:enforced "generic: the arg target the function-valued positions of result, genlResult and functionCorrespondingPredicate name"}
+  and `audit` is what notices when a *term* moves without it.  Both live on the term's
+  entry in `vaelii.impl.predicates`; this is that field read back, keyed and shaped the
+  way `classify`, `audit` and `core/interpreted` have always read it.
 
-    ;; ---- the literal types, read by name ----------------------------------
-    ;; One vocabulary for both readings (docs/argtypes.md): `arg` types what an argument
-    ;; denotes and `quotedArg` the term written there. The EDN kinds answer both; the
-    ;; sign-refined integers are value types read only by the denotation path.
-    string      {:enforced "checks/syntactic-roots — the kind quotedArg judges a literal against, matched by name"}
-    number      {:enforced "checks/syntactic-roots — the same, with integer below it"}
-    integer     {:enforced "checks/syntactic-roots — the same"}
-    positive_integer     {:enforced "checks/literal-denotation-types — a positive integer literal satisfies an arg constraint naming it"}
-    negative_integer     {:enforced "checks/literal-denotation-types — a negative integer literal satisfies an arg constraint naming it"}
-    non_negative_integer {:enforced "checks/literal-denotation-types — zero and positive integer literals satisfy an arg constraint naming it"}
-    non_positive_integer {:enforced "checks/literal-denotation-types — zero and negative integer literals satisfy an arg constraint naming it"}
-    keyword     {:enforced "checks/syntactic-roots — the same"}
-    boolean     {:enforced "checks/syntactic-roots — the same"}
-    character   {:enforced "checks/syntactic-roots — the same; a one-letter string is not one"}
-    symbol      {:enforced "checks/syntactic-roots — the same; mention-only, so nothing places it in the domain lattice"}
+  **The class comes from the facets**, not from which key the prose was written under: a
+  term carrying `:cached`, `:convicts`, `:answers` or any other lane is enforced whatever
+  is written beside it, and only a term whose facets say `:inert` — which the `inert`
+  constructor is the sole way to write — is classified inert.
 
-    ;; ---- the definitional constraints -------------------------------------
-    arg      {:enforced "checks/args-problem — refuses on the way in, and entails under *assertive-arg-types?*"}
-    genlArg     {:enforced "checks/genls-problem — the same, one level up"}
-    quotedArg   {:enforced "checks/args-quoted-problem — the mention twin: types the argument as a term by its literal kind"}
-    interArg {:enforced "checks/inter-args-problem — the conditional form, same two paths"}
-    arity       {:enforced "checks/arity-problem at the door, settle/report-arity-reach! over content stored before it"}
-    disjoint    {:enforced "taxonomy/add-disjoint, read by checks/disjoint-problems and arbitrated by settle"}
-    disjointMetatype {:enforced "taxonomy/mark-disjoint-metatype — the clique consulted, never stored"}
-    siblingDisjoint {:enforced "taxonomy/mark-sibling-disjoint — the specialization clique keyed off the genl closure, consulted like disjointMetatype and arbitrated by settle"}
-    siblingDisjointException {:enforced "taxonomy/add-sib-exception — exempts one pair the sibling clique or a disjointMetatype would separate; read globally in disjointness-test, and a retract re-arms through settle's :sib-exc-dirty sweep"}
-    functional  {:enforced "checks/functional-problems, and special/derive-functional-equalities on two symbols; also a binaryPredicate type"}
-    asymmetric  {:enforced "checks/asymmetry-problem — a nogood against the converse; also a binaryPredicate type"}
-    irreflexive {:enforced "checks/irreflexivity-problem — a self tuple (P a a) is refused at the door; also a binaryPredicate type"}
-    antiSymmetric {:enforced "checks/antisymmetry-problems, and special/derive-antisymmetric-equalities merging two symbols a believed converse forces equal; also a binaryPredicate type"}
-    antiTransitive {:enforced "taxonomy prop :anti-transitive — checks/antitransitivity-problems convicts the two-step chain and the direct step together, as the one nogood whose members are three rather than two (settle/decide-nogood reads the whole set); plus its disjointness with transitive — no predicate is both — and a binaryPredicate type"}
-    equivalenceRelation {:enforced "generic forward chaining: the three CxCore rules derive (symmetric P), (transitive P) and (reflexive P), each enforced in turn; also a binaryPredicate type"}
-    variableArity {:enforced "checks/arity-problem — the one exemption from the arity check"}
-    relationKind  {:enforced "generic: a disjointMetatype, so its two members separate each other"}
-    instanceRelationPredicate {:enforced "checks/declaration-problem — an genlArg on one is refused"}
-    typeRelationPredicate     {:enforced "checks/declaration-problem — an arg on one is refused"}
-    unaryPredicate   {:enforced "checks/predicate-type-arities — the membership spelling of an arity; plus its disjointness with the other two classes, so a predicate is at most one of the three"}
-    binaryPredicate  {:enforced "checks/predicate-type-arities — the membership spelling of an arity; plus its disjointness with the other two classes, so a predicate is at most one of the three"}
-    ternaryPredicate {:enforced "checks/predicate-type-arities — the membership spelling of an arity; plus its disjointness with the other two classes, so a predicate is at most one of the three"}
-
-    ;; ---- predicate metadata answered by a prover --------------------------
-    ;; Each is both a *mark* (it maintains its taxonomy prop) and a *type*: `(genl X
-    ;; binaryPredicate)` in CxCore, so `(symmetric friendOf)` classifies friendOf as a
-    ;; binaryPredicate and a KB can be queried for what the mark implies — no separate
-    ;; derived `…Predicate` twin between them.
-    transitive  {:enforced "taxonomy prop :transitive — the generic closure prover; also a binaryPredicate type. (transitive genl) is stored but inert (closure-relations), so genl stays queryable without routing to the generic prover"}
-    symmetric   {:enforced "taxonomy prop :symmetric — canonical argument order, so both spellings are one sentex; also a binaryPredicate type"}
-    reflexive   {:enforced "taxonomy prop :reflexive — the reflexive prover; also a binaryPredicate type"}
-    inverse     {:enforced "taxonomy/add-inverse — the prover that hands the swapped goal back"}
-    transitiveInArg        {:enforced "inherit — the argument reach along a declared transitive relation"}
-    transitiveInArgInverse {:enforced "inherit — the same, read backwards"}
-    abduciblePredicate   {:enforced "taxonomy prop :abducible — the gate on what abduce may hypothesize"}
-    closedExtentPredicate {:enforced "taxonomy prop :closed-extent — ClosedExtentProver answers (not (P …)) from the absence of a positive, and a closed negative rule antecedent under the grant is negation as failure"}
-    modalPredicate       {:enforced "taxonomy prop :modal — the gate BeliefProjectionProver reads to decide which predicates project their sentence into the agent's context"}
-    targetFollowingPredicate {:enforced "taxonomy prop :target-following — the mark core/retract-following-metas! reads to tear down a meta-sentex when the sentex it names by handle is retracted"}
-
-    ;; ---- definitional collection relations, expanded into forward rules ----
-    defnNecessary  {:enforced "special/materialize-defn-rules — expands to the forward rule (implies (Coll ?x) C), member => condition"}
-    defnSufficient {:enforced "special/materialize-defn-rules — expands to the forward rule (implies C (Coll ?x)), condition => member"}
-    defnIff        {:enforced "special/materialize-defn-rules — both directions, the necessary rule and the sufficient one"}
-
-    ;; ---- placement and lifting --------------------------------------------
-    decontextualizedPredicate       {:enforced "special — the CxUniverse lift, retroactive over the extent"}
-    forcedDecontextualizedPredicate {:enforced "special — storage straight into CxUniverse"}
-    ist  {:enforced "assert and rule placement — never stored, it names where the sentence goes"}
-    believes {:enforced "BeliefProjectionProver — (believes a p) is answered by proving p in a's CxAgent<a> context; also a plain binaryPredicate, assertible and stored like any relation, so the projector augments the fact prover rather than replacing it"}
-
-    ;; ---- the connectives and rule wrappers, read by the canonicalizer -----
-    implies {:enforced "sentex canonicalization — becomes the antecedent/consequent slots of a RuleSentex"}
-    and     {:enforced "sentex canonicalization — the antecedent conjunction, never stored alone"}
-    or      {:enforced "rules/expand-antecedent — polycanonicalization, one rule per alternative; never stored, and rules/disjunction-problems refuses every position it could not be expanded out of"}
-    not     {:enforced "sentex canonicalization — the truth slot, and the negation nogoods"}
-    set/forwardRule  {:enforced "sentex/peel-rule-wrapper — sets the rule's direction"}
-    set/backwardRule {:enforced "sentex/peel-rule-wrapper — sets the rule's direction"}
-    set/defaultRule  {:enforced "sentex/peel-rule-wrapper — sets the conferred strength"}
-    set/inertRule    {:enforced "sentex/peel-rule-wrapper — stored, indexed for neither direction"}
-
-    ;; ---- the query operators, answered and never stored -------------------
-    evaluate    {:enforced "the evaluable prover — a whitelist over the arithmetic operators"}
-    lessThan    {:enforced "the comparison prover, plus the chain collapse in a rule body"}
-    greaterThan {:enforced "the comparison prover — canonicalizes to lessThan reversed"}
-    agg/count   {:enforced "the aggregate prover"}
-    agg/sum     {:enforced "the aggregate prover"}
-    agg/avg     {:enforced "the aggregate prover"}
-    agg/min     {:enforced "the aggregate prover"}
-    agg/max     {:enforced "the aggregate prover"}
-
-    ;; ---- reified terms ----------------------------------------------------
-    reifiableFunction   {:enforced "taxonomy prop :reifiable — the gate that turns the nat reify pass on"}
-    unreifiableFunction {:enforced "taxonomy prop :unreifiable — kept structural for a prover to compute"}
-    quotingFunction     {:enforced "taxonomy prop :quoting — its arguments are a mention, held opaque to identity congruence (res/representative-term spelling mode)"}
-    contextDenotingFunction {:enforced "taxonomy prop :context-denoting — a Cx*Fn whose applications reify to a cx/ context constant (docs/context-nat.md)"}
-    contextArgSubrelation   {:enforced "context-nat producer — sibling F-contexts differing at one arg are ordered by the sub-relation on that arg, materializing genlCx"}
-    termOfUnit  {:enforced "nat — the constant-to-expression half of the reified-term map"}
-    rewriteOf   {:enforced "nat for a compound right side, the equality partition for a symbol"}
-    result   {:enforced "nat — materialized as a membership on each minted constant"}
-    genlResult  {:enforced "nat — materialized as a genl edge on each minted constant"}
-    functionCorrespondingPredicate
-    {:enforced "nat — reifies an application to the value the predicate already names, and projects a minted constant back onto it"}
-
-    ;; ---- documentation ----------------------------------------------------
-    comment     {:enforced "gloss, core-context/comment-of, and the browser's term pages — ordinary sentexes, queried like any fact"}
-
-    ;; ---- declared and read by nothing, on purpose -------------------------
-    contradicts {:inert "a report form the engine *writes*: conflicts and contradictions compose it per settle. Nothing reads it as input, and asserting one would put a stale claim under truth maintenance."}
-    typeToInstancePred {:inert "a link, not a rule. Moving a claim between the type and instance levels needs a quantifier reading nothing here fixes, so the pairing is recorded for a reader and inferred from by nobody."}})
+  **The population is still CxCore's**, and stays a question about the ontology rather
+  than about the declaration: an entry carries prose iff CxCore comments the term, so the
+  seven grammar terms it does not comment (`equals`, `sameAs`, `functionalInArg` and the
+  four query operators) are simply not in here.  A term CxCore starts commenting and
+  nobody answers for lands in `audit`'s `:unclassified`, which is the whole mechanism and
+  is untouched by the move."
+  (into {}
+        (keep (fn [[term spec]]
+                (when-let [prose (or (:enforced spec) (:inert spec))]
+                  [term {(if (contains? (:facets spec) :inert) :inert :enforced) prose}])))
+        pr/entries))
 
 (defn classify
   "What the engine does with vocabulary term `term`: `{:enforced \"where\"}`,

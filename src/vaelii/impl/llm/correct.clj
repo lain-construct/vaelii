@@ -93,7 +93,7 @@
   roster, and it holds the connectives only.
 
   The vocabulary head is *not* on it and does not need to be.  `genl` and `disjoint` take
-  types by declaration — they are `typeRelationPredicate`s constrained with `genlArg`,
+  types by declaration — they are `type_relation_predicate`s constrained with `genlArg`,
   which `instance-position?` never reads — and `comment` takes anything, which is what its
   `thing` constraint says.  Each is left alone by the declaration it carries rather than by
   being named here, so there is one place to look when one of them is rewritten in error."

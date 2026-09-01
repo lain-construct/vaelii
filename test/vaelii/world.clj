@@ -54,17 +54,17 @@
 
 (def fluent-functions
   "The fluents the timed narratives below run over, as **reified NATs** — one constant per
-  animal, which is the bounded shape `reifiableFunction` is for (docs/nat.md).  A fluent is
+  animal, which is the bounded shape `reifiable_function` is for (docs/nat.md).  A fluent is
   a term rather than a sentence, so `holdsAt` stays an ordinary binary predicate over two
   terms and nothing has to be held opaque to identity congruence.
 
   In CxWell, the bottom anchor, because two data contexts use them: the cat's afternoon in
   CxNaturalWorld and the hare's nap in CxTortoiseHare, which are siblings and see each
   other not at all."
-  '[(reifiableFunction AsleepFn)  (result AsleepFn fluent)
-    (reifiableFunction AwakeFn)   (result AwakeFn fluent)
-    (reifiableFunction IndoorsFn) (result IndoorsFn fluent)
-    (reifiableFunction AheadOfFn) (result AheadOfFn fluent)])
+  '[(reifiable_function AsleepFn)  (result AsleepFn fluent)
+    (reifiable_function AwakeFn)   (result AwakeFn fluent)
+    (reifiable_function IndoorsFn) (result IndoorsFn fluent)
+    (reifiable_function AheadOfFn) (result AheadOfFn fluent)])
 
 (def timed-day
   "Whiskers' afternoon, as CxChange reads it: four moments, two events, and what each

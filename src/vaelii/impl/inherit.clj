@@ -33,8 +33,8 @@
 
   `genl` relates **types**, so `(largerThan dog cat)` preserved along `genl` reaches
   `golden_retriever` and `maine_coon` and stops there.  It says nothing about Rex and
-  Whiskers, and that is not a gap here to fill: `relationKind` is a `disjointMetatype`
-  over `typeRelationPredicate` and `instanceRelationPredicate`, so one predicate
+  Whiskers, and that is not a gap here to fill: `relation_kind` is a `disjoint_metatype`
+  over `type_relation_predicate` and `instance_relation_predicate`, so one predicate
   symbol relates kinds *or* instances and never both.  A `largerThan` that inherited
   across the line would be a predicate of both kinds at once, which the KB's own
   meta-ontology refuses.

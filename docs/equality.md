@@ -349,8 +349,8 @@ merging performs congruence closure eagerly over all ground content. No congruen
 algorithm is written, because the index already answers the question it would ask.
 
 **One position is exempt: a mention.** A term named as *syntax*, rather than one the
-sentence refers with, does not fold onto its referent's class — a `quotingFunction`'s arguments, and the
-proposition a `modalPredicate` attributes to its agent. `(believes Oedipus (marriedTo
+sentence refers with, does not fold onto its referent's class — a `quoting_function`'s arguments, and the
+proposition a `modal_predicate` attributes to its agent. `(believes Oedipus (marriedTo
 Oedipus Jocasta))` is not rewritten by a `sameAs` the *asker* holds, because an attitude is
 opaque and the asker's identities are not the agent's; the agent's own merges do rewrite
 it, where the projection reads them. A `rewriteOf` **spelling** rename reaches into a
@@ -562,7 +562,7 @@ displaced it.
 
 **Symbolic equational reasoning is built — as oriented term rewriting.** A
 schematic `(equals L R)` whose sides carry variables —
-`(equals (fatherOf (fatherOf ?x)) (grandfatherOf ?x))` — is **oriented by a
+`(equals (fatherOf (fatherOf ?x)) (grandfather_of ?x))` — is **oriented by a
 reduction order** (KBO with unit weights) into a terminating rewrite `L → R`, cached
 in the taxonomy's rewrite-rule set (belief-following like the partition).
 `rewrite-term` normalizes both stored terms and query goals to one normal form, and
@@ -631,7 +631,7 @@ individual merging:
   supersession lands.
 - **Handle-naming metas travel with their target.** A meta names another sentex by
   handle — an `exceptWhen` names the rule it guards, an `except` names the sentex it
-  hides, a `targetFollowingPredicate` reply names the claim it hangs on — all shaped
+  hides, a `target_following_predicate` reply names the claim it hangs on — all shaped
   `(P … (sentexHandle H) …)`. Migrating H to a new handle H′ would strand every one of
   them, so the twin fires *unguarded*, becomes *visible*, or names a claim no longer
   believed. `migrate-handle-metas` re-points each of H's believed metas onto the twin

@@ -50,9 +50,9 @@
       (is (some #(= :composed (:source %)) cs)))))
 
 (tu/deftest-kb a-derived-claim-is-shown-its-situation-and-never-its-rule
-  ;; (warmBlooded Ann) is not judgeable on its own — nobody knows Ann.  With the fact it
+  ;; (warm_blooded Ann) is not judgeable on its own — nobody knows Ann.  With the fact it
   ;; rests on in front of it, it is an ordinary question about people.
-  (let [warm (first (filter #(= '(warmBlooded Ann) (:sentence %)) (derived-claims kb)))]
+  (let [warm (first (filter #(= '(warm_blooded Ann) (:sentence %)) (derived-claims kb)))]
     (is (some? warm))
     (is (= ["Ann is a human"] (:givens warm)))
     (testing "the line reads as a situation and a claim"

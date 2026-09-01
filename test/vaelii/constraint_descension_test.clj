@@ -268,7 +268,7 @@
 
 (tu/deftest-kb an-undeclared-sub-predicate-takes-its-supers-arity
   (tu/with-terms [parentOf fatherOf A B C]
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (is (v/assert kb (list fatherOf A B) 'CxUniverse) "the inherited length stores")
     (is (= :arity (ex-type #(v/assert kb (list fatherOf A B C) 'CxUniverse)))
@@ -282,7 +282,7 @@
         (is (not (re-find #"is declared with" m))
             "the wording credits no declaration fatherOf never had")))
     (testing "and it convicts against that predicate's own declaration"
-      (is (= (v/handle-of kb (list 'binaryPredicate parentOf) 'CxUniverse)
+      (is (= (v/handle-of kb (list 'binary_predicate parentOf) 'CxUniverse)
              (:opposing-handle (first (v/check kb (list fatherOf A B C) 'CxUniverse))))))))
 
 (tu/deftest-kb the-door-and-the-report-word-one-binding-the-same-way
@@ -295,14 +295,14 @@
   (letfn [(door [kb sen] (:message (first (v/check kb sen 'CxUniverse))))]
     (testing "inherited: both say takes … through"
       (tu/with-terms [parentOf fatherOf A B C]
-        (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+        (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
         (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
         (is (re-find (re-pattern (str "takes 2 arguments through " parentOf))
                      (door kb (list fatherOf A B C))))))
     (testing "declared of itself: both say is declared with, and name no via"
       (tu/with-neutral-kb [kb tu/isolated-fresh]
         (tu/with-terms [parentOf A B C]
-          (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+          (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
           (let [m (door kb (list parentOf A B C))]
             (is (re-find #"is declared with 2 arguments" m))
             (is (not (re-find #"through" m))
@@ -351,8 +351,8 @@
     (tu/with-neutral-kb [kb tu/isolated-fresh]
       (tu/with-terms [parentOf fatherOf]
         (let [sentence {:edge            (list 'genl fatherOf parentOf)
-                        :sub-declaration (list 'ternaryPredicate fatherOf)}]
-          (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+                        :sub-declaration (list 'ternary_predicate fatherOf)}]
+          (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
           (doseq [s [:edge :sub-declaration] :when (not= s last-in)]
             (v/assert kb (sentence s) 'CxUniverse))
           (is (= :arity (ex-type #(v/assert kb (sentence last-in) 'CxUniverse)))
@@ -365,7 +365,7 @@
   ;; rather than as an answerable fact — and now a conflicting write cannot land either,
   ;; so `(functional arity)` has one value to be functional about on both counts.
   (tu/with-terms [parentOf fatherOf A B]
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (is (v/assert kb (list fatherOf A B) 'CxUniverse)
         "the inherited length binds the tuple")
@@ -389,11 +389,11 @@
     (tu/with-neutral-kb [kb tu/isolated-fresh]
       (tu/with-terms [parentOf fatherOf A B C]
         (let [step {:edge              #(v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-                    :super-declaration #(v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
-                    :sub-declaration   #(v/assert kb (list 'ternaryPredicate fatherOf) 'CxUniverse)
+                    :super-declaration #(v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
+                    :sub-declaration   #(v/assert kb (list 'ternary_predicate fatherOf) 'CxUniverse)
                     :tuple             #(v/assert kb (list fatherOf A B C) 'CxUniverse)}]
           (doseq [s order] (ex-type (step s)))
-          ;; Read through the door, not off the `arity` table.  A `binaryPredicate`
+          ;; Read through the door, not off the `arity` table.  A `binary_predicate`
           ;; membership is the *other* spelling of a declaration and populates no table
           ;; without CxCore's derivation rules, so `(ask (arity P ?n))` answers `()` here
           ;; in every order — a comparison of two empty seqs, true by arithmetic, under
@@ -435,8 +435,8 @@
       (tu/with-terms [parentOf fatherOf grandOf A B C]
         (let [edge {:f>p #(v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
                     :g>f #(v/assert kb (list 'genl grandOf fatherOf) 'CxUniverse)}]
-          (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
-          (v/assert kb (list 'ternaryPredicate grandOf) 'CxUniverse)
+          (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
+          (v/assert kb (list 'ternary_predicate grandOf) 'CxUniverse)
           (let [types (mapv #(ex-type (edge (first %))) edges)]
             (is (some #{:arity} types)
                 (str "one of the two edges is refused, " (name label)
@@ -451,7 +451,7 @@
 
 (tu/deftest-kb a-membership-spelled-through-a-subtype-declares-the-same-arity
   ;; `checks/membership-arity`'s reason.  `membered-arity` answers off the *closure* of a
-  ;; term's types, so `(genl myBinPred binaryPredicate)` beside `(myBinPred fatherOf)`
+  ;; term's types, so `(genl myBinPred binary_predicate)` beside `(myBinPred fatherOf)`
   ;; makes `fatherOf` binary to every reader of a declaration.  A writer of one that
   ;; matched the three literal functors admitted the disagreeing edge in one arrival order
   ;; and refused it in the other, leaving a KB whose facts the reader then convicts.
@@ -461,8 +461,8 @@
       (tu/with-terms [myBinPred parentOf fatherOf A B C]
         (let [step {:membership #(v/assert kb (list myBinPred fatherOf) 'CxUniverse)
                     :edge       #(v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)}]
-          (v/assert kb (list 'genl myBinPred 'binaryPredicate) 'CxUniverse)
-          (v/assert kb (list 'ternaryPredicate parentOf) 'CxUniverse)
+          (v/assert kb (list 'genl myBinPred 'binary_predicate) 'CxUniverse)
+          (v/assert kb (list 'ternary_predicate parentOf) 'CxUniverse)
           (is (some #{:arity} (mapv #(ex-type (step %)) order))
               (str "the pair is refused whichever of the two arrives last, " (name label)))
           (testing "and what fatherOf admits is what it answers"
@@ -489,29 +489,29 @@
 
 (tu/deftest-kb a-variableArity-super-releases-the-inheritance
   (tu/with-terms [chainOf subChainOf A B C]
-    (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
     (v/assert kb (list 'genl subChainOf chainOf) 'CxUniverse)
     (is (= :arity (ex-type #(v/assert kb (list subChainOf A B C) 'CxUniverse))))
-    (v/assert kb (list 'variableArity chainOf) 'CxUniverse)
+    (v/assert kb (list 'variable_arity chainOf) 'CxUniverse)
     (testing "a relation that reads a chain of any length binds nothing beneath it to one"
       (is (v/assert kb (list subChainOf A B C) 'CxUniverse)))))
 
 (tu/deftest-kb a-variableArity-super-releases-it-without-declaring-a-length-itself
   ;; the case above gives the releasing super an arity of its own, so it is one of the
-  ;; supers that contributed the number being released.  A super marked `variableArity`
+  ;; supers that contributed the number being released.  A super marked `variable_arity`
   ;; and given no length says the same thing about the hierarchy under it, and has to
   ;; release the same way — otherwise it sits above the predicate saying nothing, while a
   ;; sibling's binary declaration refuses the chain it exists to license.
   (tu/with-terms [chainOf otherOf subOf A B C]
     (v/with-deferred-settle kb
-      (v/assert kb (list 'variableArity chainOf) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate otherOf) 'CxUniverse)
+      (v/assert kb (list 'variable_arity chainOf) 'CxUniverse)
+      (v/assert kb (list 'binary_predicate otherOf) 'CxUniverse)
       (v/assert kb (list 'genl subOf chainOf) 'CxUniverse)
       (v/assert kb (list 'genl subOf otherOf) 'CxUniverse))
     (is (v/assert kb (list subOf A B C) 'CxUniverse)
-        "the variableArity super releases what the binary one would have bound")))
+        "the variable_arity super releases what the binary one would have bound")))
 
-(tu/deftest-kb variableArity-on-either-side-releases-the-match-across-the-edge
+(tu/deftest-kb variable_arity-on-either-side-releases-the-match-across-the-edge
   ;; The declared exception to the rule above, and it is one mark rather than two: a
   ;; relation that reads a chain of any length makes no claim about the length of the
   ;; tuples above or below it, so there is nothing for a second declaration to contradict
@@ -521,9 +521,9 @@
     (tu/with-neutral-kb [kb tu/isolated-fresh]
       (tu/with-terms [chainOf subChainOf A B C]
         (let [sentence {:edge            (list 'genl subChainOf chainOf)
-                        :sub-declaration (list 'ternaryPredicate subChainOf)}]
-          (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
-          (v/assert kb (list 'variableArity (if (= marked :sub) subChainOf chainOf))
+                        :sub-declaration (list 'ternary_predicate subChainOf)}]
+          (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
+          (v/assert kb (list 'variable_arity (if (= marked :sub) subChainOf chainOf))
                     'CxUniverse)
           (doseq [s [:edge :sub-declaration] :when (not= s last-in)]
             (v/assert kb (sentence s) 'CxUniverse))
@@ -710,13 +710,13 @@
   ;; positions the predicate it names has.
   ;;
   ;; Two genl-related predicates of different lengths is the one shape the arity rule
-  ;; refuses, so the pair that makes the point is the one it exempts: `variableArity` on
+  ;; refuses, so the pair that makes the point is the one it exempts: `variable_arity` on
   ;; the sub releases the match, and the two lengths stand side by side to be read off
   ;; separately.
   (tu/with-terms [parentOf fatherOf]
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
-    (v/assert kb (list 'variableArity fatherOf) 'CxUniverse)
-    (v/assert kb (list 'ternaryPredicate fatherOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'variable_arity fatherOf) 'CxUniverse)
+    (v/assert kb (list 'ternary_predicate fatherOf) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (is (= :arg-position (ex-type #(v/assert kb (list 'arg parentOf 3 'thing)
                                              'CxUniverse)))
@@ -746,7 +746,7 @@
   ;; edge filed nothing — leaving the fact stored, believed and unmentioned while the
   ;; very next assert of the same shape was refused.
   (tu/with-terms [parentOf fatherOf A B C]
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (v/assert kb (list fatherOf A B C) 'CxUniverse)
     (is (empty? (arity-findings kb)) "nothing binds fatherOf yet, so nothing is wrong")
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
@@ -765,7 +765,7 @@
   (tu/with-terms [parentOf fatherOf A B C]
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (v/assert kb (list fatherOf A B C) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (let [fs (arity-findings kb)]
       (is (= [fatherOf] (keys fs))
           "the finding is about the predicate whose facts are wrong, not the one declared")
@@ -801,7 +801,7 @@
     (tu/with-neutral-kb [kb tu/isolated-fresh]
       (tu/with-terms [parentOf fatherOf A B C]
         (let [step    {:edge        #(v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-                       :declaration #(v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+                       :declaration #(v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
                        :tuple       #(v/assert kb (list fatherOf A B C) 'CxUniverse)}
               refused (atom nil)]
           (doseq [s order]
@@ -818,8 +818,8 @@
   ;; The exemption is read by one `arity-problem`, and the retroactive path asks the same
   ;; one — so widening the trigger must not have opened a route around it.
   (tu/with-terms [chainOf subChainOf A B C]
-    (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
-    (v/assert kb (list 'variableArity chainOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
+    (v/assert kb (list 'variable_arity chainOf) 'CxUniverse)
     (v/assert kb (list subChainOf A B C) 'CxUniverse)
     (v/assert kb (list 'genl subChainOf chainOf) 'CxUniverse)
     (is (empty? (arity-findings kb)))))
@@ -849,7 +849,7 @@
   ;; refuse it; the visibility edge is what makes it wrong.
   (tu/with-terms [CxUp CxDown parentOf A B C]
     (v/assert kb (list 'genlCx CxUp 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate parentOf) CxUp)
+    (v/assert kb (list 'binary_predicate parentOf) CxUp)
     (v/assert kb (list parentOf A B C) CxDown)
     (is (empty? (arity-findings kb)) "CxDown cannot see the declaration yet")
     (v/assert kb (list 'genlCx CxDown CxUp) 'CxUniverse)
@@ -866,7 +866,7 @@
   ;; by nothing in the cone above — only by the fact itself.
   (tu/with-terms [CxUp CxDown parentOf fatherOf A B C]
     (v/assert kb (list 'genlCx CxUp 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate parentOf) CxUp)
+    (v/assert kb (list 'binary_predicate parentOf) CxUp)
     (v/assert kb (list 'genl fatherOf parentOf) CxUp)
     (v/assert kb (list fatherOf A B C) CxDown)
     (is (empty? (arity-findings kb)) "neither the length nor the edge is visible yet")
@@ -881,7 +881,7 @@
   ;; reported one, so a reader meets both halves of the asymmetry in one place.
   (tu/with-terms [CxUp CxDown parentOf A B C]
     (v/assert kb (list 'genlCx CxUp 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate parentOf) CxUp)
+    (v/assert kb (list 'binary_predicate parentOf) CxUp)
     (v/assert kb (list 'genlCx CxDown CxUp) 'CxUniverse)
     (is (= :arity (ex-type #(v/assert kb (list parentOf A B C) CxDown)))
         "the door reads the declaration through the visibility edge")
@@ -898,7 +898,7 @@
       (tu/with-terms [CxUp CxDown parentOf A B C]
         (v/assert kb (list 'genlCx CxUp 'CxUniverse) 'CxUniverse)
         (let [step    {:ctx-edge    #(v/assert kb (list 'genlCx CxDown CxUp) 'CxUniverse)
-                       :declaration #(v/assert kb (list 'binaryPredicate parentOf) CxUp)
+                       :declaration #(v/assert kb (list 'binary_predicate parentOf) CxUp)
                        :tuple       #(v/assert kb (list parentOf A B C) CxDown)}
               refused (atom nil)]
           (doseq [s order]
@@ -917,7 +917,7 @@
   ;; KB and the second is one sentence, which is the shape the shipped ontology writes —
   ;; `(genlCx CxUniverse CxMeasure)` attaches a root context to a vocabulary.
   (tu/with-terms [CxVocab parentOf A B C]
-    (v/assert kb (list 'binaryPredicate parentOf) CxVocab)
+    (v/assert kb (list 'binary_predicate parentOf) CxVocab)
     (v/assert kb (list parentOf A B C) 'CxUniverse)
     (is (empty? (arity-findings kb)) "CxUniverse cannot see the declaration yet")
     (v/assert kb (list 'genlCx 'CxUniverse CxVocab) 'CxUniverse)
@@ -963,7 +963,7 @@
         (v/assert kb (list 'genl aaa parentOf) 'CxUniverse)
         (v/assert kb (list 'genl zzz parentOf) 'CxUniverse)
         ;; the binding arrives last, so one pass sweeps both subtrees
-        (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+        (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
         (is (v/ask? kb (list zzz A B C) 'CxUniverse)
             "the wrong-length fact is stored and believed, as it was before the binding")
         (is (empty? (arity-findings kb))
@@ -999,7 +999,7 @@
       (dotimes [_ 40]
         (v/assert kb (list plainOf (tu/tmp-ind "Subj") (tu/tmp-ind "Obj")) CxDown))
       (doseq [i (range 6)]
-        (v/assert kb (list 'binaryPredicate (tu/tmp-pred (str "vocab" i))) CxVocab))
+        (v/assert kb (list 'binary_predicate (tu/tmp-pred (str "vocab" i))) CxVocab))
       (v/clear-violations! kb)
       (v/assert kb (list 'genlCx CxDown CxVocab) 'CxUniverse)
       (is (empty? (arity-findings kb))
@@ -1031,7 +1031,7 @@
             (v/assert kb (list zzz A B C) 'CxUniverse)
             (v/assert kb (list 'genl aaa parentOf) 'CxUniverse)
             (v/assert kb (list 'genl zzz parentOf) 'CxUniverse)
-            (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+            (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
             (is (or (contains? (arity-findings kb) zzz) (some? (truncation kb)))
                 (str "reported or declared cut, under budget " budget))
             (when (= 4096 budget)
@@ -1050,7 +1050,7 @@
         (doseq [s subs]
           (v/assert kb (list s A B C) 'CxUniverse)
           (v/assert kb (list 'genl s parentOf) 'CxUniverse))
-        (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+        (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
         (let [cut (filter #(= :arity-truncated (:violation %)) (v/violations kb))]
           (is (= 1 (count cut)) "one entry between them, not one each")
           (is (<= (count (get-in (first cut) [:detail :sample])) 3)
@@ -1062,7 +1062,7 @@
   ;; The gate on the entry is the cut, not the finding — so an ordinary retroactive
   ;; report must not start carrying one.
   (tu/with-terms [parentOf fatherOf A B C]
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (v/assert kb (list fatherOf A B C) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (is (contains? (arity-findings kb) fatherOf) "the finding is filed")
@@ -1084,7 +1084,7 @@
         (v/assert kb (list s A B C) 'CxUniverse)
         (v/assert kb (list 'genl s parentOf) 'CxUniverse))
       (v/clear-violations! kb)
-      (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+      (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
       (let [entries (v/violations kb)
             found   (filterv #(= :arity (:violation %)) entries)
             over    (filterv #(= :arity-report-truncated (:violation %)) entries)
@@ -1113,7 +1113,7 @@
         (v/assert kb (list s A B C) 'CxUniverse)
         (v/assert kb (list 'genl s parentOf) 'CxUniverse))
       (v/clear-violations! kb)
-      (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+      (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
       (is (= (set subs) (set (keys (arity-findings kb))))
           "one entry per convicted predicate, while there is room for them")
       (is (empty? (filter #(= :arity-report-truncated (:violation %)) (v/violations kb)))

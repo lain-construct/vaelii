@@ -76,18 +76,18 @@
 (tu/deftest-kb the-preserved-relation-need-not-be-genl
   ;; `(transitiveInArg P n R)` names R.  Here it is an ordinary declared-transitive
   ;; predicate over individuals, with no types in sight.
-  (tu/with-terms [partOf needsMaintenance Car Engine Piston]
+  (tu/with-terms [partOf needs_maintenance Car Engine Piston]
     (v/with-deferred-settle kb
       (v/assert kb (list 'transitive partOf) 'CxUniverse)
       (v/assert kb (list partOf Engine Car) 'CxUniverse)
       (v/assert kb (list partOf Piston Engine) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg needsMaintenance 1 partOf) 'CxUniverse)
-      (v/assert kb (list needsMaintenance Car) 'CxUniverse))
+      (v/assert kb (list 'transitiveInArg needs_maintenance 1 partOf) 'CxUniverse)
+      (v/assert kb (list needs_maintenance Car) 'CxUniverse))
     (testing "one hop and two, through the transitive relation that was named"
-      (is (v/ask? kb (list needsMaintenance Engine) 'CxUniverse))
-      (is (v/ask? kb (list needsMaintenance Piston) 'CxUniverse)))
+      (is (v/ask? kb (list needs_maintenance Engine) 'CxUniverse))
+      (is (v/ask? kb (list needs_maintenance Piston) 'CxUniverse)))
     (testing "and not upward"
-      (is (not (v/ask? kb (list needsMaintenance 'TmpUnrelatedThing) 'CxUniverse))))))
+      (is (not (v/ask? kb (list needs_maintenance 'TmpUnrelatedThing) 'CxUniverse))))))
 
 (tu/deftest-kb the-inverse-form-reads-the-relation-backwards
   ;; So the other direction never needs an inverse predicate declared for its own sake.
@@ -179,19 +179,19 @@
       (is (v/ask? kb (list appliesIn TheDecree CxSide) 'CxUniverse)
           "a branch the denial says nothing about still inherits")))
   (testing "along a declared fact-relation"
-    (tu/with-terms [partOf needsMaintenance Car Engine Piston Wheel]
+    (tu/with-terms [partOf needs_maintenance Car Engine Piston Wheel]
       (v/with-deferred-settle kb
         (v/assert kb (list 'transitive partOf) 'CxUniverse)
         (v/assert kb (list partOf Engine Car) 'CxUniverse)
         (v/assert kb (list partOf Piston Engine) 'CxUniverse)
         (v/assert kb (list partOf Wheel Car) 'CxUniverse)
-        (v/assert kb (list 'transitiveInArg needsMaintenance 1 partOf) 'CxUniverse)
-        (v/assert kb (list needsMaintenance Car) 'CxUniverse))
-      (is (v/ask? kb (list needsMaintenance Piston) 'CxUniverse))
-      (v/assert kb (list 'not (list needsMaintenance Engine)) 'CxUniverse)
-      (is (not (v/ask? kb (list needsMaintenance Piston) 'CxUniverse))
+        (v/assert kb (list 'transitiveInArg needs_maintenance 1 partOf) 'CxUniverse)
+        (v/assert kb (list needs_maintenance Car) 'CxUniverse))
+      (is (v/ask? kb (list needs_maintenance Piston) 'CxUniverse))
+      (v/assert kb (list 'not (list needs_maintenance Engine)) 'CxUniverse)
+      (is (not (v/ask? kb (list needs_maintenance Piston) 'CxUniverse))
           "the denial at the engine stops what only the engine's chain carried")
-      (is (v/ask? kb (list needsMaintenance Wheel) 'CxUniverse)
+      (is (v/ask? kb (list needs_maintenance Wheel) 'CxUniverse)
           "the wheel's chain does not pass the engine"))))
 
 (tu/deftest-kb specificity-under-the-inverse-form-follows-the-travel-direction
@@ -216,17 +216,17 @@
   ;; "A :monotonic claim is never undercut" is stated of the strength, not of the
   ;; relation: along a fact-relation the contrary specific claim leaves a dilemma
   ;; standing rather than silently overriding the fixed background.
-  (tu/with-terms [partOf needsMaintenance Car Engine Piston]
+  (tu/with-terms [partOf needs_maintenance Car Engine Piston]
     (v/with-deferred-settle kb
       (v/assert kb (list 'transitive partOf) 'CxUniverse)
       (v/assert kb (list partOf Engine Car) 'CxUniverse)
       (v/assert kb (list partOf Piston Engine) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg needsMaintenance 1 partOf) 'CxUniverse))
-    (v/assert kb (list needsMaintenance Car) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'not (list needsMaintenance Engine)) 'CxUniverse)
-    (is (= :ambiguous (inherit/verdict kb (list needsMaintenance Piston) 'CxUniverse))
+      (v/assert kb (list 'transitiveInArg needs_maintenance 1 partOf) 'CxUniverse))
+    (v/assert kb (list needs_maintenance Car) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'not (list needs_maintenance Engine)) 'CxUniverse)
+    (is (= :ambiguous (inherit/verdict kb (list needs_maintenance Piston) 'CxUniverse))
         "the monotonic general claim does not yield, so the disagreement is represented")
-    (is (not (v/ask? kb (list needsMaintenance Piston) 'CxUniverse))
+    (is (not (v/ask? kb (list needs_maintenance Piston) 'CxUniverse))
         "and the prover answers neither way")))
 
 (tu/deftest-kb a-negation-blocks-the-walk-whatever-relation-it-travels
@@ -275,7 +275,7 @@
   (tu/with-terms [dog_t cat_t golden_retriever_t chases]
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl golden_retriever_t dog_t) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate chases) 'CxUniverse))
+      (v/assert kb (list 'binary_predicate chases) 'CxUniverse))
     (is (integer? (v/assert kb (list 'transitiveInArg chases 3 'genl) 'CxUniverse))
         "admitted: the structural check does not read the arity")
     (v/assert kb (list chases dog_t cat_t) 'CxUniverse)
@@ -337,7 +337,7 @@
   (tu/with-terms [cursed begat sired A B D]
     (doseq [[what rel] [["untyped" begat] ["typed" sired]]]
       (when (= "typed" what)
-        (v/assert kb (list 'binaryPredicate sired) 'CxUniverse))
+        (v/assert kb (list 'binary_predicate sired) 'CxUniverse))
       (let [e (try (v/assert kb (list 'transitiveInArg cursed 1 rel) 'CxUniverse)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
@@ -409,7 +409,7 @@
   ;; states is not a licence it holds.
   ;;
   ;; The pair lives here rather than in `context_scoping_test` because it cannot be
-  ;; built on a KB carrying CxCore: `transitive` is a `decontextualizedPredicate`
+  ;; built on a KB carrying CxCore: `transitive` is a `decontextualized_predicate`
   ;; there, so every declaration is lifted into CxUniverse and every context sees
   ;; it (that is the *control*, and it is stated over there).  This KB has no such
   ;; declaration, so nothing lifts and the scoped read is observable.
@@ -485,8 +485,8 @@
 (tu/deftest-kb preservation-along-genl-stays-at-the-level-of-kinds
   ;; `genl` relates types, so `(largerThan dog cat)` reaches the subkinds and stops.
   ;; It says nothing about Rex and Whiskers, and that silence is the semantics rather
-  ;; than a gap: `relationKind` is a disjointMetatype over `typeRelationPredicate` and
-  ;; `instanceRelationPredicate`, so one predicate symbol relates kinds *or* instances
+  ;; than a gap: `relation_kind` is a disjoint_metatype over `type_relation_predicate` and
+  ;; `instance_relation_predicate`, so one predicate symbol relates kinds *or* instances
   ;; and never both.  Preservation moves an *argument* along a relation; the predicate
   ;; and the level it relates at are left alone.  Crossing the line links two
   ;; predicates and has a quantifier reading to pin down — `typeToInstancePred`, which
@@ -787,7 +787,7 @@
   ;; withdraws — and it has to be a function of the content rather than of which of the
   ;; three the retrieval happened to enumerate first.
   (doseq [flip [false true]]
-    (tu/with-terms [partOf needsMaintenance Car Engine alphaTransitive betaTransitive]
+    (tu/with-terms [partOf needs_maintenance Car Engine alphaTransitive betaTransitive]
       (let [subs  [(list alphaTransitive partOf) (list betaTransitive partOf)]
             fan   (cons (list 'transitive partOf) subs)
             least (first (sort-by pr-str fan))
@@ -800,14 +800,14 @@
           (v/assert kb (list 'transitive partOf) 'CxUniverse)
           (doseq [s (if flip (reverse subs) subs)] (v/assert kb s 'CxUniverse))
           (v/assert kb (list partOf Engine Car) 'CxUniverse)
-          (v/assert kb (list 'transitiveInArg needsMaintenance 1 partOf) 'CxUniverse)
-          (v/assert kb (list needsMaintenance Car) 'CxUniverse))
-        (is (v/ask? kb (list needsMaintenance Engine) 'CxUniverse)
+          (v/assert kb (list 'transitiveInArg needs_maintenance 1 partOf) 'CxUniverse)
+          (v/assert kb (list needs_maintenance Car) 'CxUniverse))
+        (is (v/ask? kb (list needs_maintenance Engine) 'CxUniverse)
             (str what ": the claim reaches down the part chain"))
         (is (= 3 (count (res/matches-visible kb (list 'transitive partOf) 'CxUniverse)))
             (str what ": the licence query is answered by a fan, or this proves nothing"))
         (let [named (into #{} (map #(:sentence (v/sentex kb %)))
-                          (:handles (inherit/support-for kb (list needsMaintenance Engine)
+                          (:handles (inherit/support-for kb (list needs_maintenance Engine)
                                                          'CxUniverse)))]
           (is (contains? named least) (str what ": the content-least of the fan is named"))
           (is (= 1 (count (filter named fan)))

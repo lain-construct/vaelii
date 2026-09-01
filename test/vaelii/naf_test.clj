@@ -243,18 +243,18 @@
         (is (v/ask? kb (list 'ownerless Zed) 'CxWell))))))
 
 (tu/deftest-kb standalone-there-exists-antecedent-is-a-parent
-  (tu/with-terms [person parentOf aParent Dad Kid Childless]
+  (tu/with-terms [person parentOf a_parent Dad Kid Childless]
     ;; positive existential antecedent: a person with a child is a parent
     (v/assert kb (list 'implies (list 'and (list 'person '?x)
                                       (list 'thereExists '?y (list 'parentOf '?x '?y)))
-                       (list 'aParent '?x))
+                       (list 'a_parent '?x))
               'CxWell)
     (v/assert kb (list 'human Dad) 'CxWell)
     (v/assert kb (list 'person Childless) 'CxWell)
     (v/assert kb (list 'parentOf Dad Kid) 'CxWell)
     (testing "fires for a witnessed existential, not for an unwitnessed one"
-      (is (v/ask? kb (list 'aParent Dad) 'CxWell))
-      (is (not (v/ask? kb (list 'aParent Childless) 'CxWell))))))
+      (is (v/ask? kb (list 'a_parent Dad) 'CxWell))
+      (is (not (v/ask? kb (list 'a_parent Childless) 'CxWell))))))
 
 ;; ---- a conjunctive NAF query --------------------------------------------
 ;; `(unknown (and A B))` is `exceptWhen`'s conjunction inlined per literal: closure
@@ -563,113 +563,113 @@
 
 (tu/deftest-kb a-closed-extent-answers-the-negative-from-the-absence-of-a-positive
   ;; "the months of the year are exactly these twelve"
-  (tu/with-terms [monthOfYear January February Smarch CxCalendar CxSibling]
+  (tu/with-terms [month_of_year January February Smarch CxCalendar CxSibling]
     (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxSibling 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list monthOfYear January) CxCalendar)
-    (v/assert kb (list monthOfYear February) CxCalendar)
+    (v/assert kb (list month_of_year January) CxCalendar)
+    (v/assert kb (list month_of_year February) CxCalendar)
     (testing "without the grant, a month nobody listed is merely unknown"
-      (is (not (v/ask? kb (list 'not (list monthOfYear Smarch)) CxCalendar))))
-    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+      (is (not (v/ask? kb (list 'not (list month_of_year Smarch)) CxCalendar))))
+    (v/assert kb (list 'closed_extent_predicate month_of_year) CxCalendar)
     (testing "under the grant, nothing answering the positive is what answers the negative"
-      (is (v/ask? kb (list 'not (list monthOfYear Smarch)) CxCalendar))
-      (is (not (v/ask? kb (list 'not (list monthOfYear January)) CxCalendar))
+      (is (v/ask? kb (list 'not (list month_of_year Smarch)) CxCalendar))
+      (is (not (v/ask? kb (list 'not (list month_of_year January)) CxCalendar))
           "a member is not refuted by its own extent"))
     (testing "and the grant is scoped: a sibling theory reading the same predicate
               answers as it did before"
-      (is (not (v/ask? kb (list 'not (list monthOfYear Smarch)) CxSibling))))
+      (is (not (v/ask? kb (list 'not (list month_of_year Smarch)) CxSibling))))
     (testing "a member arriving withdraws the negative"
-      (let [h (v/assert kb (list monthOfYear Smarch) CxCalendar)]
-        (is (not (v/ask? kb (list 'not (list monthOfYear Smarch)) CxCalendar)))
+      (let [h (v/assert kb (list month_of_year Smarch) CxCalendar)]
+        (is (not (v/ask? kb (list 'not (list month_of_year Smarch)) CxCalendar)))
         (v/retract! kb h)
-        (is (v/ask? kb (list 'not (list monthOfYear Smarch)) CxCalendar))))))
+        (is (v/ask? kb (list 'not (list month_of_year Smarch)) CxCalendar))))))
 
 (tu/deftest-kb a-closed-extent-rule-antecedent-is-negation-as-failure
-  (tu/with-terms [monthOfYear candidate notAMonth Smarch CxCalendar]
+  (tu/with-terms [month_of_year candidate not_a_month Smarch CxCalendar]
     (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+    (v/assert kb (list 'closed_extent_predicate month_of_year) CxCalendar)
     (v/assert kb (list 'implies (list 'and (list candidate '?m)
-                                      (list 'not (list monthOfYear '?m)))
-                       (list notAMonth '?m))
+                                      (list 'not (list month_of_year '?m)))
+                       (list not_a_month '?m))
               CxCalendar)
     (v/assert kb (list candidate Smarch) CxCalendar)
     (testing "the rule fires on the absence of a member, with nothing negative stored"
-      (is (v/ask? kb (list notAMonth Smarch) CxCalendar))
-      (is (nil? (v/handle-of kb (list 'not (list monthOfYear Smarch)) CxCalendar))
+      (is (v/ask? kb (list not_a_month Smarch) CxCalendar))
+      (is (nil? (v/handle-of kb (list 'not (list month_of_year Smarch)) CxCalendar))
           "and nothing about the negative space was stored to make it fire"))
-    (let [h (v/assert kb (list monthOfYear Smarch) CxCalendar)]
+    (let [h (v/assert kb (list month_of_year Smarch) CxCalendar)]
       (testing "the member arriving withdraws the firing"
-        (is (not (v/ask? kb (list notAMonth Smarch) CxCalendar)))
-        (is (nil? (v/handle-of kb (list notAMonth Smarch) CxCalendar))
+        (is (not (v/ask? kb (list not_a_month Smarch) CxCalendar)))
+        (is (nil? (v/handle-of kb (list not_a_month Smarch) CxCalendar))
             "withdrawn, not merely disbelieved"))
       (v/retract! kb h)
       (testing "and retracting it revives the conclusion"
-        (is (v/ask? kb (list notAMonth Smarch) CxCalendar))))))
+        (is (v/ask? kb (list not_a_month Smarch) CxCalendar))))))
 
 (tu/deftest-kb a-closed-extent-rule-is-order-independent
   ;; The same knowledge in the other order: the member is there before the rule and
   ;; before the grant.
-  (tu/with-terms [monthOfYear candidate notAMonth Smarch CxCalendar]
+  (tu/with-terms [month_of_year candidate not_a_month Smarch CxCalendar]
     (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
     (v/assert kb (list candidate Smarch) CxCalendar)
     (v/assert kb (list 'implies (list 'and (list candidate '?m)
-                                      (list 'not (list monthOfYear '?m)))
-                       (list notAMonth '?m))
+                                      (list 'not (list month_of_year '?m)))
+                       (list not_a_month '?m))
               CxCalendar)
-    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+    (v/assert kb (list 'closed_extent_predicate month_of_year) CxCalendar)
     (testing "the grant arriving after the rule is what makes it fire"
-      (is (v/ask? kb (list notAMonth Smarch) CxCalendar)))
-    (v/assert kb (list monthOfYear Smarch) CxCalendar)
+      (is (v/ask? kb (list not_a_month Smarch) CxCalendar)))
+    (v/assert kb (list month_of_year Smarch) CxCalendar)
     (testing "and a member arriving after that withdraws it, as in the other order"
-      (is (not (v/ask? kb (list notAMonth Smarch) CxCalendar))))))
+      (is (not (v/ask? kb (list not_a_month Smarch) CxCalendar))))))
 
 (tu/deftest-kb a-stored-negative-still-works-under-a-closed-extent
-  (tu/with-terms [monthOfYear candidate notAMonth Smarch CxCalendar]
+  (tu/with-terms [month_of_year candidate not_a_month Smarch CxCalendar]
     (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+    (v/assert kb (list 'closed_extent_predicate month_of_year) CxCalendar)
     (v/assert kb (list 'implies (list 'and (list candidate '?m)
-                                      (list 'not (list monthOfYear '?m)))
-                       (list notAMonth '?m))
+                                      (list 'not (list month_of_year '?m)))
+                       (list not_a_month '?m))
               CxCalendar)
     (v/assert kb (list candidate Smarch) CxCalendar)
-    (v/assert kb (list 'not (list monthOfYear Smarch)) CxCalendar)
-    (is (v/ask? kb (list notAMonth Smarch) CxCalendar)
+    (v/assert kb (list 'not (list month_of_year Smarch)) CxCalendar)
+    (is (v/ask? kb (list not_a_month Smarch) CxCalendar)
         "a stored negative answers the antecedent as it always did")))
 
 (tu/deftest-kb a-closed-extent-cycle-through-negation-is-refused
-  (tu/with-terms [monthOfYear candidate CxCalendar]
+  (tu/with-terms [month_of_year candidate CxCalendar]
     (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+    (v/assert kb (list 'closed_extent_predicate month_of_year) CxCalendar)
     (testing "a rule concluding P whose body reads (not (P …)) under the grant"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
            (v/assert kb (list 'implies (list 'and (list candidate '?m)
-                                             (list 'not (list monthOfYear '?m)))
-                              (list monthOfYear '?m))
+                                             (list 'not (list month_of_year '?m)))
+                              (list month_of_year '?m))
                      CxCalendar))))))
 
 (tu/deftest-kb a-grant-that-would-close-a-cycle-is-refused
   ;; The other arrival order: the rule is stored first, and the grant is what would add
   ;; the negative edge.
-  (tu/with-terms [monthOfYear candidate CxCalendar]
+  (tu/with-terms [month_of_year candidate CxCalendar]
     (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'implies (list 'and (list candidate '?m)
-                                      (list 'not (list monthOfYear '?m)))
-                       (list monthOfYear '?m))
+                                      (list 'not (list month_of_year '?m)))
+                       (list month_of_year '?m))
               CxCalendar)
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo #"not stratified"
-         (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)))))
+         (v/assert kb (list 'closed_extent_predicate month_of_year) CxCalendar)))))
 
 (tu/deftest-kb why-not-says-the-extent-is-closed
-  (tu/with-terms [monthOfYear Smarch CxCalendar]
+  (tu/with-terms [month_of_year Smarch CxCalendar]
     (v/assert kb (list 'genlCx CxCalendar 'CxUniverse) 'CxUniverse)
     (testing "without the grant it is simply not stored"
-      (is (= :not-stored (:reason (v/why-not kb (list monthOfYear Smarch) CxCalendar)))))
-    (v/assert kb (list 'closedExtentPredicate monthOfYear) CxCalendar)
+      (is (= :not-stored (:reason (v/why-not kb (list month_of_year Smarch) CxCalendar)))))
+    (v/assert kb (list 'closed_extent_predicate month_of_year) CxCalendar)
     (testing "under it the KB is not silent — the extent is complete and this is not in it"
       (is (= :closed-extent
-             (:reason (v/why-not kb (list monthOfYear Smarch) CxCalendar)))))))
+             (:reason (v/why-not kb (list month_of_year Smarch) CxCalendar)))))))
 
 ;; ---- forall: sugar for the nested NAF ----------------------------------
 
@@ -688,19 +688,19 @@
     (is (= '#{?x} (sx/free-vars '(forall ?y (implies (childOf ?x ?y) (asleep ?y))))))))
 
 (tu/deftest-kb a-stored-forall-rule-shows-the-nested-form
-  (tu/with-terms [person childOf asleep allKidsAsleep]
+  (tu/with-terms [person childOf asleep all_kids_asleep]
     (let [sugar (list 'implies
                       (list 'and (list person '?x)
                             (list 'forall '?y (list 'implies (list childOf '?x '?y)
                                                     (list asleep '?y))))
-                      (list allKidsAsleep '?x))
+                      (list all_kids_asleep '?x))
           nested (list 'implies
                        (list 'and (list person '?p)
                              (list 'unknown
                                    (list 'thereExists '?k
                                          (list 'and (list childOf '?p '?k)
                                                (list 'unknown (list asleep '?k))))))
-                       (list allKidsAsleep '?p))]
+                       (list all_kids_asleep '?p))]
       (is (= (:sentence (v/canonical-sentex kb sugar 'CxWell))
              (:sentence (v/canonical-sentex kb nested 'CxWell)))
           "the sugar exists at the door and nowhere past it")
@@ -709,26 +709,26 @@
 
 (tu/deftest-kb all-of-bobs-children-are-asleep
   ;; The common-sense reading, in the order the classical one is argued in.
-  (tu/with-terms [person childOf asleep allKidsAsleep Bob Kid1 Kid2 Kid3]
+  (tu/with-terms [person childOf asleep all_kids_asleep Bob Kid1 Kid2 Kid3]
     (v/assert kb (list 'implies
                        (list 'and (list person '?x)
                              (list 'forall '?y (list 'implies (list childOf '?x '?y)
                                                      (list asleep '?y))))
-                       (list allKidsAsleep '?x))
+                       (list all_kids_asleep '?x))
               'CxWell)
     (v/assert kb (list person Bob) 'CxWell)
     (testing "vacuously true - Bob has no children, so nothing is a counterexample"
-      (is (v/ask? kb (list allKidsAsleep Bob) 'CxWell)))
+      (is (v/ask? kb (list all_kids_asleep Bob) 'CxWell)))
     (v/assert kb (list childOf Bob Kid1) 'CxWell)
     (v/assert kb (list asleep Kid1) 'CxWell)
     (v/assert kb (list childOf Bob Kid2) 'CxWell)
     (v/assert kb (list asleep Kid2) 'CxWell)
     (testing "two children, both asleep"
-      (is (v/ask? kb (list allKidsAsleep Bob) 'CxWell)))
+      (is (v/ask? kb (list all_kids_asleep Bob) 'CxWell)))
     (let [h (v/assert kb (list childOf Bob Kid3) 'CxWell)]
       (testing "a third child nobody says is asleep is the counterexample"
-        (is (not (v/ask? kb (list allKidsAsleep Bob) 'CxWell)))
-        (is (nil? (v/handle-of kb (list allKidsAsleep Bob) 'CxWell))
+        (is (not (v/ask? kb (list all_kids_asleep Bob) 'CxWell)))
+        (is (nil? (v/handle-of kb (list all_kids_asleep Bob) 'CxWell))
             "the conclusion is withdrawn, not merely disbelieved"))
       (testing "and the goal form agrees with the rule antecedent"
         (is (not (v/ask? kb (list 'forall '?y (list 'implies (list childOf Bob '?y)
@@ -736,45 +736,45 @@
                          'CxWell))))
       (v/retract! kb h)
       (testing "retracting that child revives the conclusion"
-        (is (v/ask? kb (list allKidsAsleep Bob) 'CxWell))))
+        (is (v/ask? kb (list all_kids_asleep Bob) 'CxWell))))
     (testing "and the third child back, asleep, is not a counterexample"
       (v/assert kb (list childOf Bob Kid3) 'CxWell)
       (v/assert kb (list asleep Kid3) 'CxWell)
-      (is (v/ask? kb (list allKidsAsleep Bob) 'CxWell)))))
+      (is (v/ask? kb (list all_kids_asleep Bob) 'CxWell)))))
 
 (tu/deftest-kb forall-is-order-independent
   ;; The counterexample is already there when the rule arrives.
-  (tu/with-terms [person childOf asleep allKidsAsleep Bob Kid1]
+  (tu/with-terms [person childOf asleep all_kids_asleep Bob Kid1]
     (v/assert kb (list person Bob) 'CxWell)
     (v/assert kb (list childOf Bob Kid1) 'CxWell)
     (v/assert kb (list 'implies
                        (list 'and (list person '?x)
                              (list 'forall '?y (list 'implies (list childOf '?x '?y)
                                                      (list asleep '?y))))
-                       (list allKidsAsleep '?x))
+                       (list all_kids_asleep '?x))
               'CxWell)
-    (is (not (v/ask? kb (list allKidsAsleep Bob) 'CxWell)))
+    (is (not (v/ask? kb (list all_kids_asleep Bob) 'CxWell)))
     (v/assert kb (list asleep Kid1) 'CxWell)
-    (is (v/ask? kb (list allKidsAsleep Bob) 'CxWell)
+    (is (v/ask? kb (list all_kids_asleep Bob) 'CxWell)
         "and the same knowledge in either order settles the same way")))
 
 (tu/deftest-kb a-forall-over-what-the-rule-concludes-is-a-cycle-through-negation
   ;; Both halves of the desugar are negative edges: the body's predicate and the head's.
-  (tu/with-terms [person childOf asleep allKidsAsleep]
+  (tu/with-terms [person childOf asleep all_kids_asleep]
     (v/assert kb (list 'implies
                        (list 'and (list person '?x)
                              (list 'forall '?y (list 'implies (list childOf '?x '?y)
                                                      (list asleep '?y))))
-                       (list allKidsAsleep '?x))
+                       (list all_kids_asleep '?x))
               'CxWell)
     (testing "a rule concluding the forall's head predicate closes the cycle"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb (list 'implies (list allKidsAsleep '?z) (list asleep '?z)) 'CxWell))))
+           (v/assert kb (list 'implies (list all_kids_asleep '?z) (list asleep '?z)) 'CxWell))))
     (testing "and so does one concluding its body predicate"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb (list 'implies (list allKidsAsleep '?z) (list childOf '?z '?z))
+           (v/assert kb (list 'implies (list all_kids_asleep '?z) (list childOf '?z '?z))
                      'CxWell))))))
 
 (tu/deftest-kb a-forall-binder-that-escapes-is-refused

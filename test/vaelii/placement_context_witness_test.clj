@@ -281,7 +281,7 @@
 (tu/deftest-kb an-edge-has-one-supporter-however-many-contexts-state-it
   ;; the `genl` twin has a case for the same edge asserted from two contexts, and this
   ;; relation has no equivalent of it: `genlCx` is a
-  ;; `forcedDecontextualizedPredicate`, so the topology has one canonical home and
+  ;; `forced_decontextualized_predicate`, so the topology has one canonical home and
   ;; stating the edge twice is one sentex.  There is therefore nothing for a witness to
   ;; choose between — the only way a sighting outlives its named edge is a second path.
   (tu/with-terms [bird flies Tweety CxLow CxHigh]

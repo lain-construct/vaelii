@@ -27,7 +27,7 @@
 
 (defn- channel-kb
   "A fresh CxCore KB with the koinii speech-act vocabulary loaded — the deployment's
-  substrate: the reply verbs' `targetFollowingPredicate` marks must be in force for a
+  substrate: the reply verbs' `target_following_predicate` marks must be in force for a
   reply to cascade."
   []
   (doto (tu/fresh) (core-context/load-into) (sa/load-speech-acts)))

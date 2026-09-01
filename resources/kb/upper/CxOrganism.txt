@@ -3,7 +3,7 @@
 ;; down to the individual species used across the fables. Sees CxCore;
 ;; CxUniverse sees it, so any type here is visible from every context.
 ;;
-;; The five vertebrate classes are separated by one `vertebrateClass` metatype rather
+;; The five vertebrate classes are separated by one `vertebrate_class` metatype rather
 ;; than by ten `disjoint` sentences. Nothing is stored for the pairs — the clique is
 ;; consulted — so retracting the metatype releases all ten at once, and retracting one
 ;; membership releases exactly that class's pairs and leaves the rest separated.
@@ -13,7 +13,7 @@
 
 (comment amphibian "A cold-blooded animal that begins life in water and breathes through its skin.")
 (genl amphibian animal)
-(vertebrateClass amphibian)
+(vertebrate_class amphibian)
 
 (comment animal "A living thing that moves and senses; disjoint from plant.")
 (genl animal living_thing)
@@ -31,7 +31,7 @@
 
 (comment bird "An animal with feathers. Flight is a capability of the kind, held by default and denied of penguins, rather than a property of each bird.")
 (genl bird animal)
-(vertebrateClass bird)
+(vertebrate_class bird)
 
 (comment cat "A domesticated feline mammal; disjoint from dog.")
 (genl cat mammal)
@@ -54,7 +54,7 @@
 
 (comment fish "An animal that lives and breathes in water.")
 (genl fish animal)
-(vertebrateClass fish)
+(vertebrate_class fish)
 
 (comment flower "A flowering plant.")
 (genl flower plant)
@@ -89,7 +89,7 @@
 
 (comment mammal "An animal that nurses its young.")
 (genl mammal animal)
-(vertebrateClass mammal)
+(vertebrate_class mammal)
 
 (comment mouse "A small rodent — the weak animal that repays the lion's mercy.")
 (genl mouse mammal)
@@ -114,7 +114,7 @@
 
 (comment reptile "A cold-blooded, scaled animal.")
 (genl reptile animal)
-(vertebrateClass reptile)
+(vertebrate_class reptile)
 
 (comment rose "A thorned flowering shrub.")
 (genl rose flower)
@@ -137,11 +137,11 @@
 (comment tree "A tall, woody perennial plant.")
 (genl tree plant)
 
-(comment vertebrateClass
-         "(vertebrateClass ?type) means that ?type is one of the classes of animal with a backbone. A disjointMetatype, so its members are pairwise disjoint and nothing has to say so pair by pair: five members separate ten pairs, and the separation is inherited by every subtype — which is what makes a penguin and a dog disjoint without a word being written about either.")
-(unaryPredicate vertebrateClass)
-(genlArg vertebrateClass 1 animal)
-(disjointMetatype vertebrateClass)
+(comment vertebrate_class
+         "(vertebrate_class ?type) means that ?type is one of the classes of animal with a backbone. A disjoint_metatype, so its members are pairwise disjoint and nothing has to say so pair by pair: five members separate ten pairs, and the separation is inherited by every subtype — which is what makes a penguin and a dog disjoint without a word being written about either.")
+(unary_predicate vertebrate_class)
+(genlArg vertebrate_class 1 animal)
+(disjoint_metatype vertebrate_class)
 
 (comment wolf "A wild canine predator — the danger the boy falsely cries about.")
 (genl wolf mammal)

@@ -106,7 +106,7 @@
       (v/assert kb (list 'disjoint (node 2 7) (root 3)) CxOracle)
       (v/assert kb (list kind (root 4)) CxOracle)
       (v/assert kb (list kind (root 5)) CxOracle)
-      (v/assert kb (list 'disjointMetatype kind) CxOracle)
+      (v/assert kb (list 'disjoint_metatype kind) CxOracle)
 
       (testing "every type's answer is the scan's, with either argument bound"
         (doseq [t (concat (map root (range trees))
@@ -204,7 +204,7 @@
     (v/assert kb (list species dog) CxMeta)
     (v/assert kb (list species cat) CxMeta)
     (v/assert kb (list species fish) CxMeta)
-    (v/assert kb (list 'disjointMetatype species) CxMeta)
+    (v/assert kb (list 'disjoint_metatype species) CxMeta)
     (testing "the ground goal convicts each pair"
       (is (v/ask? kb (list 'disjoint dog cat) CxMeta))
       (is (v/ask? kb (list 'disjoint dog fish) CxMeta)))
@@ -215,7 +215,7 @@
       (is (= #{[dog cat] [cat dog] [dog fish] [fish dog] [cat fish] [fish cat]}
              (pairs-of kb (list 'disjoint '?a '?b) CxMeta))))
     (testing "unmarking the metatype releases every pair at once"
-      (v/retract! kb (v/handle-of kb (list 'disjointMetatype species) CxMeta))
+      (v/retract! kb (v/handle-of kb (list 'disjoint_metatype species) CxMeta))
       (is (empty? (answers kb (list 'disjoint dog '?t) '?t CxMeta)))
       (is (empty? (pairs-of kb (list 'disjoint '?a '?b) CxMeta))))))
 
@@ -234,7 +234,7 @@
     ;; defeat the membership *before* the declaration: stored, disbelieved
     (let [beaten (v/assert kb (list 'not (list species dog)) CxMeta
                            {:strength :monotonic})]
-      (v/assert kb (list 'disjointMetatype species) CxMeta)
+      (v/assert kb (list 'disjoint_metatype species) CxMeta)
       (testing "while the membership is defeated it separates nothing"
         (is (not (v/ask? kb (list 'disjoint dog cat) CxMeta))))
       (testing "and clearing the defeat revives it, the supporter having been recorded"

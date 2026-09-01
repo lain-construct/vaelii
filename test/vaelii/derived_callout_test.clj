@@ -105,10 +105,10 @@
     (let [kb (v/open-kb {:space 913 :tms tms})]
       (try
         (v/assert kb '(genlCx CxTmsCallout CxUniverse) 'CxUniverse)
-        (v/assert-rule kb ['(tmsCalloutDog ?x)] '(tmsCalloutMortal ?x) 'CxTmsCallout)
+        (v/assert-rule kb ['(tms_callout_dog ?x)] '(tms_callout_mortal ?x) 'CxTmsCallout)
         (let [r (v/edit-with-consequences!
-                 kb {:add [['(tmsCalloutDog TmsCalloutMuffet) 'CxTmsCallout]]})]
-          (is (= ['(tmsCalloutMortal TmsCalloutMuffet)]
+                 kb {:add [['(tms_callout_dog TmsCalloutMuffet) 'CxTmsCallout]]})]
+          (is (= ['(tms_callout_mortal TmsCalloutMuffet)]
                  (sentences (remove :premise? (:believed-added r))))
               (str "under " tms)))
         (finally (v/clear! kb))))))

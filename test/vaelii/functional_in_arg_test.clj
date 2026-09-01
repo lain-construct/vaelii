@@ -498,7 +498,7 @@
 
 (tu/deftest-kb a-212-arity-predicate-is-expressible-and-checked
   ;; Above three there is no metatype to reach for — `checks.clj` is literally
-  ;; `'{unaryPredicate 1 binaryPredicate 2 ternaryPredicate 3}` — so the `arity` table is
+  ;; `'{unary_predicate 1 binary_predicate 2 ternary_predicate 3}` — so the `arity` table is
   ;; the only way to state this, and no ceiling exists anywhere in the wff validation.
   ;; The point is to find an unstated assumption about argument count if one is there,
   ;; not to model anything a KB would really say.

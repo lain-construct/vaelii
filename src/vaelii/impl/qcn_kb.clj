@@ -187,7 +187,7 @@
                  (when (jtms/in? (:tms kb) h)
                    (let [s (p/get-sentex (:records kb) h)
                          b (when s (sx/body s))]
-                     (when (and (= :false (:truth s))
+                     (when (and (= :negative (:polarity s))
                                 (sequential? b) (= 3 (count b)) (= pred (first b))
                                 (or (nil? up) (contains? up (:context s)))
                                 (not (retired? s)))

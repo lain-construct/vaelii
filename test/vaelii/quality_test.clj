@@ -31,9 +31,9 @@
 ;; ---- which rules never fire ----------------------------------------------
 
 (tu/deftest-kb the-four-firing-outcomes-land-in-three-different-categories
-  (tu/with-terms [bird ghost penguin sings hasWings glows flies hasBeak
+  (tu/with-terms [bird ghost penguin sings has_wings glows flies hasBeak
                   Robin Tweety Waddles]
-    (let [fires   (v/assert-rule kb [(list bird '?x)] (list hasWings '?x) 'CxUniverse)
+    (let [fires   (v/assert-rule kb [(list bird '?x)] (list has_wings '?x) 'CxUniverse)
           never   (v/assert-rule kb [(list ghost '?x)] (list glows '?x) 'CxUniverse)
           beaten  (v/assert kb (default-rule [(list penguin '?x)] (list flies '?x))
                             'CxUniverse)
@@ -282,7 +282,7 @@
                         :never-count 1 :all-defeated [] :all-defeated-count 0
                         :fired 2 :firings 9 :truncated? false}
              :extents  {:predicates 4 :with-extent 2 :stored 130 :gini 0.5
-                        :buckets {0 1, 2 1} :heaviest [['manyOf 120] ['fewOf 10]]}
+                        :buckets {0 1, 2 1} :heaviest [['many_of 120] ['fewOf 10]]}
              :chains   {:functors 5 :components 4 :cyclic 1 :largest 2 :rules 3
                         :depths {0 2, 1 1} :at-least {1 0.3333}}
              :taxonomy {:names 6 :edged 5 :root 'root_type :rooted 3 :islands 2}})]
@@ -293,7 +293,7 @@
     (is (str/includes? md "(implies (a ?x) (b ?x))"))
     (is (str/includes? md "Gini 0.5000"))
     (is (str/includes? md "| 10^2 | 1 |"))
-    (is (str/includes? md "`manyOf` — 120"))
+    (is (str/includes? md "`many_of` — 120"))
     (is (str/includes? md "1 cyclic, largest 2"))
     (is (str/includes? md "reach `root_type`"))
     (is (str/includes? md "Edged but not reaching the root: 2"))
@@ -337,7 +337,7 @@
     (is (zero? (:stranded-count (stranded kb)))
         "nothing binds parentOf yet, so the position is a lower bound and not a mistake")
     (v/assert kb (list 'arg parentOf 1 a_type) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (let [d (stranded kb)]
       (is (= 2 (:total d))
           "the two arg declarations — the arity spelling is not an argument constraint")
@@ -357,7 +357,7 @@
   (tu/with-terms [parentOf fatherOf a_type]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
     (v/assert kb (list 'arg fatherOf 3 a_type) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (is (zero? (:stranded-count (stranded kb))) "no edge yet, so fatherOf binds nothing")
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (let [e (first (:stranded (stranded kb)))]
@@ -375,10 +375,10 @@
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
     (v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse)
     (v/assert kb (list 'interArg chainOf 1 a_type 5 a_type) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
     (is (= 2 (:stranded-count (stranded kb)))
         "binary and nothing else, so both declarations reach past the length")
-    (v/assert kb (list 'variableArity chainOf) 'CxUniverse)
+    (v/assert kb (list 'variable_arity chainOf) 'CxUniverse)
     (let [d (stranded kb)]
       (is (= 2 (:total d)) "both are still there to be read")
       (is (zero? (:stranded-count d))
@@ -396,12 +396,12 @@
   (tu/with-terms [chainOf subChainOf a_type]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
     (v/assert kb (list 'arg subChainOf 3 a_type) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate chainOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
     (v/assert kb (list 'genl subChainOf chainOf) 'CxUniverse)
     (let [e (first (:stranded (stranded kb)))]
       (is (= subChainOf (:predicate e)))
       (is (= chainOf (:via e)) "two arguments, taken through the super"))
-    (v/assert kb (list 'variableArity subChainOf) 'CxUniverse)
+    (v/assert kb (list 'variable_arity subChainOf) 'CxUniverse)
     (is (zero? (:stranded-count (stranded kb)))
         "the mark on the sub releases what the super bound it to")))
 
@@ -411,7 +411,7 @@
   (tu/with-terms [eats a_type]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
     (v/assert kb (list 'interArg eats 1 a_type 4 a_type) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate eats) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate eats) 'CxUniverse)
     (is (= 1 (:stranded-count (stranded kb))))
     (is (= 4 (:position (first (:stranded (stranded kb))))))))
 
@@ -421,7 +421,7 @@
   (tu/with-terms [parentOf a_type]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
     (v/assert kb (list 'arg parentOf 3 a_type) 'CxUniverse {:strength :default})
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (is (= 1 (:stranded-count (stranded kb))))
     (v/assert kb (list 'not (list 'arg parentOf 3 a_type)) 'CxUniverse
               {:strength :monotonic})
@@ -433,7 +433,7 @@
     (doseq [i (range 5)
             :let [p (tu/tmp-pred (str "wide" i))]]
       (v/assert kb (list 'arg p 3 a_type) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate p) 'CxUniverse))
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse))
     (let [d (:declarations (v/kb-quality kb {:limit 2}))]
       (is (= 5 (:stranded-count d)))
       (is (= 2 (count (:stranded d))))
@@ -467,7 +467,7 @@
          declaration nobody wrote")
     (is (str/includes? md (str "the fix is to correct the position, to declare the arity"
                                " the author meant,\nor to mark the predicate"
-                               " `variableArity` where its tuples really do reach that\n"
+                               " `variable_arity` where its tuples really do reach that\n"
                                "far."))
         "all three ways out, the third being the one the door itself releases on")
     (testing "a census answer from before this reading existed still renders"
@@ -810,10 +810,10 @@
       (is (= 1 (:pair-count (clashes kb)))
           "the arity table is functional, so no ?p is both 1 and 2 places")
       (testing "and a class membership says the same thing the other way"
-        (v/assert kb (list 'genl equiv_kind 'binaryPredicate) 'CxUniverse)
+        (v/assert kb (list 'genl equiv_kind 'binary_predicate) 'CxUniverse)
         (v/assert-rule kb [(list equiv_kind '?p)] (list twoish '?p) 'CxUniverse)
         (is (= 1 (:pair-count (clashes kb)))
-            "equiv_kind reaches binaryPredicate up genl, so it claims arity 2")))))
+            "equiv_kind reaches binary_predicate up genl, so it claims arity 2")))))
 
 (tu/deftest-kb two-rules-no-context-can-see-together-are-not-a-clash-in-waiting
   ;; A nogood needs a context that sees both halves (docs/nmtms.md).  Asking only whether

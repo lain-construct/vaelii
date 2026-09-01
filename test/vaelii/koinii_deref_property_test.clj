@@ -19,7 +19,7 @@
     function of the assertion, agreeing across two independent seats that reached
     it among different noise, and matching `sha256:<64 hex>`.
   - `locators-are-injective-over-the-sample` — distinct assertions get distinct
-    locators; context, truth polarity and sentence each move the locator.
+    locators; context, polarity and sentence each move the locator.
   - `encoder-is-deterministic-and-print-var-independent` — the canonical encoder
     ignores ambient `*print-*` vars (it is not `pr-str`).
   - `commit-id-is-an-order-independent-function-of-state` — a Merkle root over the
@@ -91,10 +91,13 @@
 
 ;;; ── the pools and the fact generators ────────────────────────────────────
 
-;; camelCase predicates (lowercase initial), CapitalCamelCase individuals,
-;; Cx-prefixed contexts — each satisfies vaelii's naming invariant for its role, so
-;; a generated fact is always assertable.  Small pools on purpose: facts collide.
-(def ^:private predicates '[usesDatabase connects likes serves])
+;; Bare lowercase predicates, CapitalCamelCase individuals, Cx-prefixed contexts —
+;; each satisfies vaelii's naming invariant for its role, so a generated fact is always
+;; assertable.  Bare rather than camelCase because the generator mints unary *and*
+;; binary facts from one pool, and a bare lowercase word is the one spelling legal at
+;; both arities: snake_case is arity 1 and camelCase arity 2+ (docs/naming.md).
+;; Small pools on purpose: facts collide.
+(def ^:private predicates '[hosts connects likes serves])
 (def ^:private individuals '[Alpha Beta Gamma Delta])
 (def ^:private contexts '[CxOne CxTwo CxThree])
 
@@ -202,7 +205,7 @@
                       (and
                        ;; distinct assertions ⇒ distinct locators, no collisions in the sample
                        (= (count pairs) (count (distinct locs)))
-                       ;; context, truth polarity and sentence each change the locator
+                       ;; context, polarity and sentence each change the locator
                        (not= base (d/locate seat f other-c))
                        (not= base (d/locate seat (list 'not f) c))
                        (not= base (d/locate seat other-f c))))))))

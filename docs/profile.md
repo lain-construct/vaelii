@@ -60,7 +60,7 @@ the two would make the constant unreadable.
 
 ## The shape key
 
-A goal is counted under `[functor truth binding-pattern path]`. The binding pattern is
+A goal is counted under `[functor polarity binding-pattern path]`. The binding pattern is
 one character per argument, in position order, and the alphabet is what the **index**
 distinguishes rather than what a reader would:
 
@@ -72,8 +72,8 @@ distinguishes rather than what a reader would:
 | `f` | an open atom (a variable) |
 | `F` | an open compound, one holding a variable |
 
-So `(parentOf ?x Tom)` counts as `[parentOf :true "fb" :arg-roots]`, and
-`(mass ?o (QuantityFn ?n Kilogram))` as `[mass :true "fF" :structural]`. `functor` is
+So `(parentOf ?x Tom)` counts as `[parentOf :positive "fb" :arg-roots]`, and
+`(mass ?o (QuantityFn ?n Kilogram))` as `[mass :positive "fF" :structural]`. `functor` is
 `:open` when the functor is itself a variable, the shape that puts every argument behind
 it. Arity is the pattern's length, so the key carries that too.
 

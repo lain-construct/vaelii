@@ -68,7 +68,7 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (let [p (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) c (tu/tmp-ctx)]
       (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate p) c)
+      (v/assert kb (list 'binary_predicate p) c)
       (v/assert kb (list p a b) c)
       (testing "a whole assert-and-query round trip while off leaves no tally to read"
         (is (seq (v/sentexes-matching kb (list p a '?y))))
@@ -79,7 +79,7 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (let [p (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) c (tu/tmp-ctx)]
       (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate p) c)
+      (v/assert kb (list 'binary_predicate p) c)
       (prof/start)
       (v/assert kb (list p a b) c)
       (is (pos? (count (:writes (prof/snapshot)))))
@@ -120,8 +120,8 @@
           a   (tu/tmp-ind)  b (tu/tmp-ind)
           ctx (tu/tmp-ctx)]
       (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate p) ctx)
-      (v/assert kb (list 'binaryPredicate q) ctx)
+      (v/assert kb (list 'binary_predicate p) ctx)
+      (v/assert kb (list 'binary_predicate q) ctx)
       (v/assert kb (list p a b) ctx)
       (v/assert kb (list 'not (list q a b)) ctx)
 
@@ -158,8 +158,8 @@
           a   (tu/tmp-ind)  u (tu/tmp-ind)
           ctx (tu/tmp-ctx)]
       (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate p) ctx)
-      (v/assert kb (list 'binaryPredicate f) ctx)
+      (v/assert kb (list 'binary_predicate p) ctx)
+      (v/assert kb (list 'binary_predicate f) ctx)
       (v/assert kb (list p a (list f u u)) ctx)
       (testing "on, the structural trie narrows on the compound's interior"
         (let [snap (collected #(doall (res/raw-match kb (list p '?o (list f '?n u)) ctx)))]
@@ -176,7 +176,7 @@
     (tu/with-neutral-kb [kb tu/fresh]
       (let [p   (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) ctx (tu/tmp-ctx)]
         (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
-        (v/assert kb (list 'binaryPredicate p) ctx)
+        (v/assert kb (list 'binary_predicate p) ctx)
         (v/assert kb (list p a b) ctx)
         (let [snap (collected #(doall (res/matches-hierarchical kb (list p a '?y) ctx)))]
           (is (contains? (paths-of snap p) :hier-scoped-roots)))
@@ -208,7 +208,7 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (let [p   (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) ctx (tu/tmp-ctx)]
       (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate p) ctx)
+      (v/assert kb (list 'binary_predicate p) ctx)
       (let [snap (collected #(v/assert kb (list p a b) ctx))
             row  (get (:writes snap) p)
             sx   (first (filter #(= p (some-> (sx/body %) first))
@@ -226,7 +226,7 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (let [p (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) ctx (tu/tmp-ctx)]
       (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate p) ctx)
+      (v/assert kb (list 'binary_predicate p) ctx)
       (let [h    (v/assert kb (list p a b) ctx)
             sx   (p/get-sentex (:records kb) h)
             snap (collected #(v/retract! kb h))
@@ -247,7 +247,7 @@
     (tu/with-neutral-kb [kb tu/fresh]
       (let [p (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) c (tu/tmp-ind) ctx (tu/tmp-ctx)]
         (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
-        (v/assert kb (list 'binaryPredicate p) ctx)
+        (v/assert kb (list 'binary_predicate p) ctx)
         (let [h1     (v/assert kb (list p a b) ctx)
               h2     (v/assert kb (list p a c) ctx)
               ;; `(p a c)` still holds the `[p]` and `[p a]` prefix up, so only the
@@ -267,7 +267,7 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (let [p   (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) ctx (tu/tmp-ctx)]
       (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate p) ctx)
+      (v/assert kb (list 'binary_predicate p) ctx)
       (v/assert kb (list p a b) ctx)
       (let [ix (:index kb)]
         (is (= {:functor-root 1} (:reads (collected #(p/count-with-functor ix p)))))
@@ -293,7 +293,7 @@
           inds (repeatedly 12 tu/tmp-ind)
           shared (tu/tmp-ind)]
       (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate p) ctx)
+      (v/assert kb (list 'binary_predicate p) ctx)
       (doseq [i inds] (v/assert kb (list p i shared) ctx))
       ;; One reading per lookup, and one assertion on it per backend, so every
       ;; configuration runs the same number of assertions: the columnar trie walks

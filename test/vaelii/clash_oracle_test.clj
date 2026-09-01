@@ -101,7 +101,7 @@
   the scoping is exercised, and one declaration of each arbitrable kind.
 
   Deliberately *incomplete*: `(disjoint dog cat)`, `(genl snake animal)` and
-  `(antiTransitive precedes)` are left for the operation stream to assert, since a
+  `(anti_transitive precedes)` are left for the operation stream to assert, since a
   declaration arriving over content already stored is the case the retroactive sweep
   exists for and the case a region-only discovery would miss.
 
@@ -120,7 +120,7 @@
     (v/assert kb '(disjoint animal plant)   (first ctxs) {:strength :monotonic})
     (v/assert kb '(functional ageOf)        (first ctxs) {:strength :monotonic})
     (v/assert kb '(asymmetric parentOf)     (first ctxs) {:strength :monotonic})
-    ;; `precedes` carries no mark here: the stream asserts `(antiTransitive precedes)`
+    ;; `precedes` carries no mark here: the stream asserts `(anti_transitive precedes)`
     ;; over chains already stored, which is the retroactive half of the one kind whose
     ;; nogood has three members rather than two.
     (doseq [from '[pet canine]]
@@ -132,7 +132,7 @@
 (defn- rand-op
   "One write, drawn to hit every route a clash can arrive by: a membership that
   separates against another, a second value for a functional slot, a converse of an
-  asymmetric claim, a step of a chain an `antiTransitive` mark forbids closing, a
+  asymmetric claim, a step of a chain an `anti_transitive` mark forbids closing, a
   retraction that can revive a defeated loser, a premise whose rule *derives* a clashing
   membership (and a second premise giving that conclusion a stronger second route), and —
   the retroactive cases — a separation, a genl edge or the chain mark itself arriving
@@ -155,7 +155,7 @@
       (10 11) [:assert (list (if (even? (.nextInt rng 2)) 'pet 'canine) (ind)) ctx (str8)]
       12      [:retract (list (if (even? (.nextInt rng 2)) 'pet 'canine) (ind)) ctx]
       13      [:assert (list 'precedes (near) (near)) ctx (str8)]
-      14      [:assert '(antiTransitive precedes) (first ctxs) {:strength :monotonic}])))
+      14      [:assert '(anti_transitive precedes) (first ctxs) {:strength :monotonic}])))
 
 (defn- apply-op!
   "Run one op, reporting the refusal rather than propagating it — a refusal is an
@@ -183,7 +183,7 @@
 (defn- snapshot [kb]
   {:believed   (into #{}
                      (comp (keep #(p/get-sentex (:records kb) %))
-                           (map (juxt :sentence :context :truth)))
+                           (map (juxt :sentence :context :polarity)))
                      (jtms/in-datums (:tms kb)))
    :dilemmas   (into #{} (map clash-key) (v/contradictions kb))
    :conflicts  (into #{} (map clash-key) (v/conflicts kb))
@@ -450,7 +450,7 @@
 
 (deftest a-metatype-member-leaving-withdraws-what-it-was-separating
   ;; The one ingredient of a separation that is neither a declaration nor a closure.
-  ;; `(disjointMetatype M)` separates M's members by being **consulted** — no `(disjoint
+  ;; `(disjoint_metatype M)` separates M's members by being **consulted** — no `(disjoint
   ;; a b)` is ever written — so `(M b_t)` leaving stops separating `a_t` from `b_t` while
   ;; the mark is still there, the two closures still read the same, and neither member of
   ;; the standing pair is in the region.  Nothing else in the KB moves, which is exactly
@@ -460,7 +460,7 @@
   ;; sweep, so the two directions do not check the same thing and both are here.
   (let [kb  (tu/fresh)
         exh (tu/isolated-fresh)
-        ops [[:assert '(disjointMetatype clsh_kind_t) 'CxClashBase {:strength :monotonic}]
+        ops [[:assert '(disjoint_metatype clsh_kind_t) 'CxClashBase {:strength :monotonic}]
              [:assert '(clsh_kind_t clsh_a_t) 'CxClashBase {:strength :monotonic}]
              [:assert '(clsh_a_t CI0) 'CxClashBase {}]
              [:assert '(clsh_b_t CI0) 'CxClashBase {}]
@@ -490,9 +490,9 @@
   ;; — and any golden file or UI list over it — read whichever pair was typed first.
   ;; Three independent dilemmas, two assertion orders: the whole vector must agree,
   ;; position by position, when read through content rather than handles.
-  (let [pairs  '[[(clshP CA) (not (clshP CA))]
-                 [(clshQ CB) (not (clshQ CB))]
-                 [(clshR CC) (not (clshR CC))]]
+  (let [pairs  '[[(clsh_p CA) (not (clsh_p CA))]
+                 [(clsh_q CB) (not (clsh_q CB))]
+                 [(clsh_r CC) (not (clsh_r CC))]]
         read!  (fn [sentences]
                  (let [kb (tu/fresh)]
                    (try
@@ -565,8 +565,8 @@
         (reify p/RecordStore
           (get-sentex [_ id]
             (case (long id)
-              1 {:id 1 :sentence 'clshArityless    :truth :true :context 'CxUniverse}
-              2 {:id 2 :sentence '(clshMember CK)  :truth :true :context 'CxUniverse}
+              1 {:id 1 :sentence 'clshArityless    :polarity :positive :context 'CxUniverse}
+              2 {:id 2 :sentence '(clsh_member CK)  :polarity :positive :context 'CxUniverse}
               nil)))
         idx #_{:clj-kondo/ignore [:missing-protocol-method]}
         (reify p/IndexStore
@@ -574,5 +574,5 @@
         fake {:records recs :index idx :tms tms}]
     (jtms/add-premise tms 1 :monotonic)
     (jtms/add-premise tms 2 :monotonic)
-    (is (false? (@#'settle/holds-two-members? fake '{clshMember #{clshMember}} 'CK))
+    (is (false? (@#'settle/holds-two-members? fake '{clsh_member #{clsh_member}} 'CK))
         "the arity-less posting is skipped, and one real membership is not two members")))

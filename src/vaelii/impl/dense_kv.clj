@@ -253,7 +253,7 @@
 (defn- handle-key?
   "Does `k` name a HANDLE set (int postings)?  Handle sets: trie leaves `[:trie :handles …]`, and
   the roots/indexes under `:context-root` `:functor-root` `:argument-root` `:term-index` `:rule-index` `:exception-index`.  The trie
-  child-label set `[:trie :children …]` (tokens, incl. numbers), the counter `[:trie :count …]`
+  child-token set `[:trie :children …]` (tokens, incl. numbers), the counter `[:trie :count …]`
   and the term roster `[:term-roster]` (term *names*) are not — they stay an ordinary set / a Long.
 
   A key this fails to recognize is stored boxed and answers every read identically, so

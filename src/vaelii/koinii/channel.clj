@@ -16,7 +16,7 @@
   - **D1, reply-as-meta-sentex.**  A reply is a META-SENTEX on its target (`speech_acts`'
     `answers` / `disputes` / `endorses` / `justifies`), so it lives ON the target rather
     than merely naming it: retract the target and its replies are torn down with it
-    (`targetFollowingPredicate`), no dangling edges.
+    (`target_following_predicate`), no dangling edges.
   - **D7, the single-writer total order.**  See the docstring on `*writer-order*` below.
 
   **Two deployment shapes, one surface.**  The `Medium` protocol has two
@@ -328,7 +328,7 @@
   it is spelled or wired — `check-channel-parent`, and `id/agent-context-mark`.
 
   Requires the `channel` and `CxSpeechActs` already loaded — the deployment's
-  job — so the `targetFollowingPredicate` marks that make a reply cascade are in force."
+  job — so the `target_following_predicate` marks that make a reply cascade are in force."
   ([medium channel agent-id] (join medium channel agent-id nil))
   ([medium channel agent-id opts]
    ;; the write boundary, enforced at the door rather than trusted to the destination:
@@ -436,7 +436,7 @@
 ;;     wins.  That is what makes an at-least-once feed safe to act on: replay a reply and
 ;;     the KB is unchanged.
 ;;   - **No dangling edges (D7).**  The reply lives ON its target (`(sentexHandle T)`, a
-;;     `targetFollowingPredicate`), so retracting T tears its replies down with it
+;;     `target_following_predicate`), so retracting T tears its replies down with it
 ;;     (docs/storage.md).  A bare assertion that merely NAMED T would outlive it.
 
 (defn answer
@@ -491,7 +491,7 @@
   identity policy, upholds the side with strictly more, leaving a tie honestly OPEN (a
   split house decides nobody).  Anyone may vote and be counted; turning the count into a
   ruling is what needs verified identity.  A ballot is
-  a response act like the rest — `targetFollowingPredicate` in `CxSpeechActs` — so
+  a response act like the rest — `target_following_predicate` in `CxSpeechActs` — so
   retracting the disputed claim withdraws the votes cast on it.  Idempotent by sentence
   identity — one
   ballot per agent per stance; to change a vote, retract the old ballot first.  Returns the

@@ -10,69 +10,69 @@
 
 (comment alive
          "(alive ?living_thing) means that ?living_thing is currently living. True by default of every living thing and blocked for one known to be dead, so a KB never told otherwise takes its organisms to be alive — which is the common-sense reading, and the one every story assumes without saying.")
-(unaryPredicate alive)
+(unary_predicate alive)
 (arg alive 1 living_thing)
 
 (comment ancestorOf
          "(ancestorOf ?ancestor ?descendant) means that ?ancestor is a parent of ?descendant, or a parent of an ancestor of ?descendant. Both arguments are individual animals. Declared transitive, so the chain is walked by the closure prover rather than materialized, and the base link is derived from parentOf by a rule — an ancestorOf fact normally follows from kinship rather than being asserted.")
-(binaryPredicate ancestorOf)
-(instanceRelationPredicate ancestorOf)
+(binary_predicate ancestorOf)
+(instance_relation_predicate ancestorOf)
 (arg ancestorOf 1 animal)
 (arg ancestorOf 2 animal)
 (transitive ancestorOf)
 
 (comment asleep
          "(asleep ?animal) means that ?animal is sleeping. Stated rather than derived, and what blocks the awake default; a rule concludes (not (awake ?x)) from it, so the two cannot both be believed of one animal and neither has to be retracted for the other to be told.")
-(unaryPredicate asleep)
+(unary_predicate asleep)
 (arg asleep 1 animal)
 
 (comment awake
          "(awake ?animal) means that ?animal is awake and able to act. True by default of an animal and blocked for one known to be asleep — the same shape as flight and penguins, on a state that changes rather than a species that does not.")
-(unaryPredicate awake)
+(unary_predicate awake)
 (arg awake 1 animal)
 
 (comment birthYearOf
          "(birthYearOf ?animal ?year) means that ?animal was born in ?year. ?year is a plain number rather than a term, so its arg is thing and constrains nothing — a number carries no type membership to check. Declared functional: a second, different year for one person is a contradiction rather than a second fact, and that is what makes birthYearOf sound enough to derive olderThan from.")
-(binaryPredicate birthYearOf)
-(instanceRelationPredicate birthYearOf)
+(binary_predicate birthYearOf)
+(instance_relation_predicate birthYearOf)
 (arg birthYearOf 1 animal)
 (arg birthYearOf 2 thing)
 (functional birthYearOf)
 
-(comment breathesAir
-         "(breathesAir ?animal) means that ?animal takes its oxygen from the air. True by default of an animal and blocked for a fish. The exception names a whole CLASS rather than one awkward species, so it reaches every kind of fish ever added and needs no upkeep — matching fans the antecedent out over the subtype closure, so the exception does too.")
-(unaryPredicate breathesAir)
-(arg breathesAir 1 animal)
+(comment breathes_air
+         "(breathes_air ?animal) means that ?animal takes its oxygen from the air. True by default of an animal and blocked for a fish. The exception names a whole CLASS rather than one awkward species, so it reaches every kind of fish ever added and needs no upkeep — matching fans the antecedent out over the subtype closure, so the exception does too.")
+(unary_predicate breathes_air)
+(arg breathes_air 1 animal)
 
 (comment childOf
          "(childOf ?child ?parent) means that ?parent is a biological parent of ?child. Declared the inverse of parentOf and never asserted alongside it: (parentOf Ann Tom) answers (childOf Tom Ann) through the inverse prover, and retracting the one withdraws the other.")
-(binaryPredicate childOf)
-(instanceRelationPredicate childOf)
+(binary_predicate childOf)
+(instance_relation_predicate childOf)
 (arg childOf 1 animal)
 (arg childOf 2 animal)
 
 (comment dead
          "(dead ?living_thing) means that ?living_thing has died. Assert it known-true and it both blocks the alive default and defeats what that default licensed. Not the same sentence as (not (alive ?x)): dead says something happened, and a rule derives the negation from it, so the KB ends up holding the positive claim and its consequence rather than only the absence of one.")
-(unaryPredicate dead)
+(unary_predicate dead)
 (arg dead 1 living_thing)
 
 (comment eats
          "(eats ?animal ?food) means that ?animal takes ?food as nourishment. Both arguments are individuals — a particular animal and a particular food — and the fact says nothing about when or how often, there being no time argument to say it with. What a whole kind eats is a different sentence: state it of the kind, and declare (transitiveInArg eats 1 genl) if it should reach that kind's members.")
-(binaryPredicate eats)
-(instanceRelationPredicate eats)
+(binary_predicate eats)
+(instance_relation_predicate eats)
 (arg eats 1 animal)
 (arg eats 2 food)
 
 (comment FatherFn
-         "(FatherFn ?animal) means the father of ?animal. A reifiableFunction, so a ground application denotes an object rather than being computed, and it reifies to an opaque constant before it reaches the index. Corresponding to fatherOf is what keeps it from minting a second name for a father the KB already knows: (FatherFn Muffet) resolves to the father of a believed (fatherOf Muffet F). Where none is known it mints a placeholder and projects that back onto fatherOf, so the placeholder still answers whose father it is, and a father arriving later is equated with it. See docs/nat.md.")
-(reifiableFunction FatherFn)
+         "(FatherFn ?animal) means the father of ?animal. A reifiable_function, so a ground application denotes an object rather than being computed, and it reifies to an opaque constant before it reaches the index. Corresponding to fatherOf is what keeps it from minting a second name for a father the KB already knows: (FatherFn Muffet) resolves to the father of a believed (fatherOf Muffet F). Where none is known it mints a placeholder and projects that back onto fatherOf, so the placeholder still answers whose father it is, and a father arriving later is equated with it. See docs/nat.md.")
+(reifiable_function FatherFn)
 (functionCorrespondingPredicate FatherFn fatherOf)
 (result FatherFn animal)
 
 (comment fatherOf
          "(fatherOf ?child ?father) means that ?father is the biological father of ?child. The child comes FIRST, which is what lets FatherFn read off it — a correspondence puts the value last. Declared functional, one biological father to a child, so a second, different father is not a second fact: the two names merge. A rule concludes parentOf from it and never the other way about, since a parent may be either.")
-(binaryPredicate fatherOf)
-(instanceRelationPredicate fatherOf)
+(binary_predicate fatherOf)
+(instance_relation_predicate fatherOf)
 (arg fatherOf 1 animal)
 (arg fatherOf 2 animal)
 (functional fatherOf)
@@ -83,31 +83,31 @@
 
 (comment grandparentOf
          "(grandparentOf ?grandparent ?grandchild) means that ?grandparent is a parent of a parent of ?grandchild. Derived by a joined rule over two parentOf facts rather than asserted, so it is believed exactly as long as both links are.")
-(binaryPredicate grandparentOf)
-(instanceRelationPredicate grandparentOf)
+(binary_predicate grandparentOf)
+(instance_relation_predicate grandparentOf)
 (arg grandparentOf 1 animal)
 (arg grandparentOf 2 animal)
 
 (comment capabilityType
          "(capabilityType ?kind ?capability) means that a ?kind can do ?capability. The type-level reading of hasCapability: (capabilityType bird flying) says the kind flies, where (hasCapability Tweety flying) says one bird does. Two predicates rather than one because they are two claims — a claim about a kind and a claim about a member — and one symbol read at both levels has to declare one position's argument check for both, which is a choice that convicts whichever half it was not written for. Declared transitiveInArg along genl on the FIRST position, which carries a claim about a kind down to its subkinds: a kind of bird flies with nothing written about it. Declared transitiveInArgInverse along genl on the second, which carries it UP the capability hierarchy: flying is a kind of travelling, so whatever flies travels. Paired with hasCapability, and the pairing moves no claim between the two: going from the kind to its members needs a quantifier reading (every bird, or some bird) that nothing here fixes, so the descent is a rule written where the kinds are. The comment below hasCapability says why that pairing is prose rather than a typeToInstancePred sentex.")
-(binaryPredicate capabilityType)
-(typeRelationPredicate capabilityType)
+(binary_predicate capabilityType)
+(type_relation_predicate capabilityType)
 (genlArg capabilityType 1 animal)
 (genlArg capabilityType 2 capability)
 (transitiveInArg capabilityType 1 genl)
 (transitiveInArgInverse capabilityType 2 genl)
 
 (comment hasCapability
-         "(hasCapability ?animal ?capability) means that ?animal can do ?capability. The instance-level reading: (hasCapability Tweety flying) says this bird flies and says nothing about birds, where the claim about the kind is capabilityType. The descent from the one to the other is a rule written where the kinds are, never an inference from the pairing. Carries no relationKind because it is MIXED — the first position holds one animal and takes arg, the second names a capability KIND and takes genlArg — and the metatype classifies a predicate whose two ends sit at one level, so result and functionCorrespondingPredicate are left unmarked for the same reason. Declared transitiveInArgInverse along genl on the second position, which carries a claim up the capability hierarchy: whatever flies travels.")
-(binaryPredicate hasCapability)
+         "(hasCapability ?animal ?capability) means that ?animal can do ?capability. The instance-level reading: (hasCapability Tweety flying) says this bird flies and says nothing about birds, where the claim about the kind is capabilityType. The descent from the one to the other is a rule written where the kinds are, never an inference from the pairing. Carries no relation_kind because it is MIXED — the first position holds one animal and takes arg, the second names a capability KIND and takes genlArg — and the metatype classifies a predicate whose two ends sit at one level, so result and functionCorrespondingPredicate are left unmarked for the same reason. Declared transitiveInArgInverse along genl on the second position, which carries a claim up the capability hierarchy: whatever flies travels.")
+(binary_predicate hasCapability)
 (arg hasCapability 1 animal)
 (genlArg hasCapability 2 capability)
 (transitiveInArgInverse hasCapability 2 genl)
 
 ;; The pairing is stated in both comments above and NOT as (typeToInstancePred
 ;; capabilityType hasCapability), which the KB refuses: that predicate constrains its
-;; second argument to an instanceRelationPredicate, and hasCapability carries no
-;; relationKind because it is mixed.  So the one link that records a type/instance pair
+;; second argument to an instance_relation_predicate, and hasCapability carries no
+;; relation_kind because it is mixed.  So the one link that records a type/instance pair
 ;; cannot record a pair whose instance half is mixed.  Declaring the mark to satisfy it
 ;; would cost (genlArg hasCapability 2 capability) — an argument check that convicts —
 ;; to gain a link the engine reads nothing from (vocabulary/roster calls it inert), so
@@ -115,58 +115,58 @@
 
 (comment livesIn
          "(livesIn ?animal ?place) means that ?animal makes its home in ?place. Where the animal belongs rather than where it is at this moment, which is what locatedIn says. A default rule carries the one to the other, so an animal that lives somewhere is taken to be there unless something better is known.")
-(binaryPredicate livesIn)
-(instanceRelationPredicate livesIn)
+(binary_predicate livesIn)
+(instance_relation_predicate livesIn)
 (arg livesIn 1 animal)
 (arg livesIn 2 physical_object)
 
 (comment mortal
          "(mortal ?living_thing) means that ?living_thing will die. Asserted as a default of every living thing, so it is defeasible: something known not to die defeats it instead of contradicting the KB.")
-(unaryPredicate mortal)
+(unary_predicate mortal)
 (arg mortal 1 living_thing)
 
 (comment MotherFn
          "(MotherFn ?animal) means the mother of ?animal. The same shape as FatherFn, over motherOf.")
-(reifiableFunction MotherFn)
+(reifiable_function MotherFn)
 (functionCorrespondingPredicate MotherFn motherOf)
 (result MotherFn animal)
 
 (comment motherOf
          "(motherOf ?child ?mother) means that ?mother is the biological mother of ?child. The child comes first, as in fatherOf, and for the same reason. Functional, and a rule concludes parentOf from it.")
-(binaryPredicate motherOf)
-(instanceRelationPredicate motherOf)
+(binary_predicate motherOf)
+(instance_relation_predicate motherOf)
 (arg motherOf 1 animal)
 (arg motherOf 2 animal)
 (functional motherOf)
 
 (comment olderThan
          "(olderThan ?animal1 ?animal2) means that ?animal1 was born before ?animal2. Derivable rather than only asserted — a rule compares the two birthYearOf values with the evaluable lessThan — so it holds whenever both birth years are known and ordered. Declared transitive, the same instance-level strict order heavierThan and tallerThan are: born-before composes, so two stated comparisons carry the third and a chain is answered off the closure with no birth year written down.")
-(binaryPredicate olderThan)
-(instanceRelationPredicate olderThan)
+(binary_predicate olderThan)
+(instance_relation_predicate olderThan)
 (arg olderThan 1 animal)
 (arg olderThan 2 animal)
 (transitive olderThan)
 
 (comment parentOf
          "(parentOf ?parent ?child) means that ?parent is a biological parent of ?child. Both arguments are individual animals, and step- or adoptive parenthood is not this predicate. The primitive of the kinship theory: childOf, siblingOf, grandparentOf and ancestorOf are all read off it rather than asserted beside it.")
-(binaryPredicate parentOf)
-(instanceRelationPredicate parentOf)
+(binary_predicate parentOf)
+(instance_relation_predicate parentOf)
 (arg parentOf 1 animal)
 (arg parentOf 2 animal)
 (inverse parentOf childOf)
 
 (comment preysOn
          "(preysOn ?predator ?prey) means that ?predator hunts and eats ?prey. Between two particular animals; what a whole kind preys on is a claim about kinds and not this predicate. Declared asymmetric, so the mirror of a hunt denies it and a KB told both ways round has a contradiction to report rather than a food chain to walk.")
-(binaryPredicate preysOn)
-(instanceRelationPredicate preysOn)
+(binary_predicate preysOn)
+(instance_relation_predicate preysOn)
 (arg preysOn 1 animal)
 (arg preysOn 2 animal)
 (asymmetric preysOn)
 
 (comment siblingOf
          "(siblingOf ?animal1 ?animal2) means that ?animal1 and ?animal2 share at least one parent. Declared symmetric, so one assertion answers both orders and the two spellings store as one sentex. Half-siblings count — nothing here asks that both parents match.")
-(binaryPredicate siblingOf)
-(instanceRelationPredicate siblingOf)
+(binary_predicate siblingOf)
+(instance_relation_predicate siblingOf)
 (arg siblingOf 1 animal)
 (arg siblingOf 2 animal)
 (symmetric siblingOf)
@@ -175,7 +175,7 @@
          "Getting from one place to another under one's own power. The general capability flying is a kind of; a kind that can travel some other way states that way's capability under it too.")
 (genl travelling capability)
 
-(comment warmBlooded
-         "(warmBlooded ?animal) means that ?animal holds its own body temperature rather than taking the temperature around it. Derived of the mammals and the birds and denied of the three cold-blooded classes, so it is never asserted of any particular animal — which is what makes it a worked example of a claim inherited from a kind rather than stated of a thing.")
-(unaryPredicate warmBlooded)
-(arg warmBlooded 1 animal)
+(comment warm_blooded
+         "(warm_blooded ?animal) means that ?animal holds its own body temperature rather than taking the temperature around it. Derived of the mammals and the birds and denied of the three cold-blooded classes, so it is never asserted of any particular animal — which is what makes it a worked example of a claim inherited from a kind rather than stated of a thing.")
+(unary_predicate warm_blooded)
+(arg warm_blooded 1 animal)

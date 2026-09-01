@@ -2,7 +2,7 @@
 
 - **Covers:** `(believes Agent P)` — answered by proving `P` inside `Agent`'s own
   context rather than in the asker's, so agents may disagree without the KB
-  contradicting itself. `modalPredicate` / `register-modal-predicate` open the same
+  contradicting itself. `modal_predicate` / `register-modal-predicate` open the same
   machinery to `knows`, `desires`, `intends`. The **opacity** of `P`: which party's
   equality merges may rewrite a term inside a belief.
 - **Not here:** a modal *logic* — no K/T/4/5 schema, and a nested `(believes A (believes B P))`
@@ -140,7 +140,7 @@ Three positions stay **transparent**, and each for a reason:
 |---|---|---|
 | the agent — `(believes Oedipus …)` | **yes** | the asker refers with it; merge `Oedipus` and `KingOfThebes` and it is one agent under two names |
 | a non-sentence argument — `(believes A Foo)` | **yes** | it names a term, not a proposition; the projector declines that shape too |
-| an ungranted predicate — `(mutters A (…))` | **yes** | opacity is what the `modalPredicate` marker buys; without it this is an ordinary relation |
+| an ungranted predicate — `(mutters A (…))` | **yes** | opacity is what the `modal_predicate` marker buys; without it this is an ordinary relation |
 
 **The other sentence-holding forms are transparent, and none of them is a quotation.**
 `(ist Ctx S)` routes an assertion into `Ctx` — `S` is asserted, so it is used rather than
@@ -151,7 +151,7 @@ doing the believing, so the reader's merges are the right ones and congruence ap
 An attitude is the case where somebody else is.
 
 A **`rewriteOf` spelling rename does** reach into the quotation, exactly as it reaches into
-a `quotingFunction`'s arguments: it retires a *name*, and both the belief and the question
+a `quoting_function`'s arguments: it retires a *name*, and both the belief and the question
 follow it. A `sameAs` / `equals` identity merge does not. That is the same split
 [equality.md](equality.md) opens with — three relations, one closure, and only one of them
 is about spelling.
@@ -174,13 +174,13 @@ in `CxCore`; `knows`, `desires`, `intends` are the same projection under a diffe
 predicate, and one assertion away:
 
 ```clojure
-(v/register-modal-predicate kb 'knows)   ; grants (modalPredicate knows) in CxCore
+(v/register-modal-predicate kb 'knows)   ; grants (modal_predicate knows) in CxCore
 ;; or scope the grant to one theory:
 (v/register-modal-predicate kb 'knows 'CxPsychology)
 ```
 
-`(modalPredicate P)` is read **scoped from the asking context**, exactly as
-`abduciblePredicate` is — so it is a *policy of the context that grants it*: one theory
+`(modal_predicate P)` is read **scoped from the asking context**, exactly as
+`abducible_predicate` is — so it is a *policy of the context that grants it*: one theory
 may read `knows` modally while another, seeing the same predicate, does not. An
 unregistered predicate is never projected, which is why the table is open but closed by
 default.

@@ -4,7 +4,7 @@
   "Calendar containment — the first time dimension for context NATs
   (docs/context-nat.md), read off two spellings of the same interval.
 
-  A `DatetimeFn` is a **structural** (`unreifiableFunction`) constructor taking a
+  A `DatetimeFn` is a **structural** (`unreifiable_function`) constructor taking a
   reduced-precision ISO 8601 string that denotes an *interval*: `\"2000\"` is the year,
   `\"2000-01\"` its January, `\"2000-01-15\"` a day, `\"2000-01-15T13\"` an hour, and so on
   down through minute and second.  Because the string stays readable inside the context

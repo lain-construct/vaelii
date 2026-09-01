@@ -216,8 +216,8 @@
 
 ;; ---- 8. a taxonomy edge is a re-check trigger ---------------------------
 ;; DECISION (Taxonomy changes re-check everything): "An exception like
-;; `(flightlessBird ?b)` can flip because someone asserted `(genl penguin
-;; flightlessBird)` — no fact with a matching predicate ever arrives."  So the
+;; `(flightless_bird ?b)` can flip because someone asserted `(genl penguin
+;; flightless_bird)` — no fact with a matching predicate ever arrives."  So the
 ;; conclusion must be swept on the *edge*, with the predicate-keyed re-check index
 ;; never firing.
 
@@ -262,7 +262,7 @@
 ;; ---- 10. backward inference and why-not ---------------------------------
 ;; DECISION (Semantics): "under backward chaining the argument is constructed and
 ;; then reported as excepted, so `why-not` can say *'rule R applies via (bird
-;; Opus), but its exception (flightlessBird Opus) holds'* instead of recomputing a
+;; Opus), but its exception (flightless_bird Opus) holds'* instead of recomputing a
 ;; contradiction it never recorded."
 
 (tu/deftest-kb backward-inference-does-not-return-an-excepted-conclusion

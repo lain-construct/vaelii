@@ -240,11 +240,11 @@
 ;; standing in for rules — what the index stores is a handle either way.
 
 (tu/deftest-kb an-exception-is-posted-under-every-predicate-it-mentions
-  (tu/with-terms [flightlessBird adult]
+  (tu/with-terms [flightless_bird adult]
     (let [idx (:index kb) h 4001]
-      (p/index-exception idx h [flightlessBird adult])
+      (p/index-exception idx h [flightless_bird adult])
       (testing "the rule is findable from each predicate its exception mentions"
-        (is (contains? (p/rules-with-exception-on idx flightlessBird) h))
+        (is (contains? (p/rules-with-exception-on idx flightless_bird) h))
         (is (contains? (p/rules-with-exception-on idx adult) h)))
       (testing "and lands in the roster the taxonomy trigger enumerates"
         (is (contains? (p/exception-rules idx) h))))))
@@ -259,11 +259,11 @@
         (is (every? integer? (p/exception-rules idx)))))))
 
 (tu/deftest-kb unindexing-clears-every-predicate-key-and-the-roster
-  (tu/with-terms [flightlessBird adult]
+  (tu/with-terms [flightless_bird adult]
     (let [idx (:index kb) h 4004]
-      (p/index-exception idx h [flightlessBird adult])
-      (p/unindex-exception! idx h [flightlessBird adult])
-      (is (empty? (p/rules-with-exception-on idx flightlessBird)))
+      (p/index-exception idx h [flightless_bird adult])
+      (p/unindex-exception! idx h [flightless_bird adult])
+      (is (empty? (p/rules-with-exception-on idx flightless_bird)))
       (is (empty? (p/rules-with-exception-on idx adult)))
       (is (empty? (p/exception-rules idx))))))
 

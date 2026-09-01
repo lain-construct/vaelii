@@ -24,7 +24,9 @@
     (testing "and embeds the symbol it was named after, so a failure is readable"
       (is (re-find #"dog"      (name dog)))
       (is (re-find #"Muffet"     (name Muffet)))
-      (is (re-find #"ParentOf" (name parentOf)))
+      ;; a predicate temp is bare lowercase — camelCase would commit it to arity 2+
+      ;; exactly as an underscore commits a type temp to arity 1 (`tu/fresh-term`)
+      (is (re-find #"parentof" (name parentOf)))
       (is (re-find #"Story"    (name CxStory))))
     (testing "a type temp named after a bare word stays as ambiguous as the word"
       ;; `dog` satisfies both conventions and is disambiguated by arity, so the temp
@@ -115,8 +117,8 @@
              (nm/literals '(exceptWhen [(penguin ?x) (sick ?x)]
                                        (implies (bird ?x) (flies ?x))))))))
   (testing "an `ist` redirection frames the sentence it directs"
-    (is (= [[:antecedent '(arity ?p 1)] [:consequent '(unaryPredicate ?p)]]
-           (nm/literals '(implies (arity ?p 1) (ist CxCore (unaryPredicate ?p)))))))
+    (is (= [[:antecedent '(arity ?p 1)] [:consequent '(unary_predicate ?p)]]
+           (nm/literals '(implies (arity ?p 1) (ist CxCore (unary_predicate ?p)))))))
   (testing "a negation-as-failure query is framed by `unknown` / `thereExists`"
     (is (= [[:antecedent '(bird ?x)] [:antecedent '(nestOf ?x ?y)] [:consequent '(homeless ?x)]]
            (nm/literals '(implies (and (bird ?x) (unknown (thereExists ?y (nestOf ?x ?y))))
@@ -398,8 +400,8 @@
     (doseq [s ['(isa Muffet 42)
                '(isa 42 Dog)
                '(isa Muffet "Dog")
-               '(isa (theCatOf Tom) Dog)
-               '(isa Muffet (kindOf Dog))]]
+               '(isa (the_cat_of Tom) Dog)
+               '(isa Muffet (kind_of Dog))]]
       (let [a (nm/advice s)]                       ; `is` answers a boolean, not the value
         (is (some? a) (pr-str s))
         (is (string? (:message a)) (pr-str s))
@@ -489,6 +491,7 @@
    :functor        ['(Flies Tweety)                            'CxWell]
    :lexeme-functor ['(lex/fools_gold Muffet)                     'CxWell]
    :functor-arity  ['(lives_in Tweety cold_place)              'CxWell]
+   :functor-unary  ['(warmBlooded Muffet)                       'CxWell]
    :argument       ['(parentOf Baby_Penguin Tom)               'CxWell]
    :ist-context    ['(implies (bird ?x) (ist Muffet (flies ?x))) 'CxWell]
    :dot-marker     ['(parentOf Tom .)                          'CxWell]})

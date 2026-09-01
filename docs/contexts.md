@@ -88,7 +88,7 @@ and a bottom anchor. Data hangs below the bottom.
     do the three calendar constructors `YearFn` / `MonthFn` / `DayFn`, which name an
     interval the calendar already picks out ([context-nat.md](context-nat.md)).
 - **CxUniverse** — the mid *anchor*, left free for **lifting**: universally-true
-  facts collect here (`decontextualizedPredicate` justifications and the forced `genlCx`
+  facts collect here (`decontextualized_predicate` justifications and the forced `genlCx`
   extent). It sees every upper context and is seen by every middle context.
 - **middle** — the *theory* band, between Universe and Well: how the definitional
   things *interrelate*, where several overlapping theories can coexist. One context
@@ -433,7 +433,7 @@ middle two are why this is a refusal rather than an inert shape: a rule that doe
 announces itself, and a guard that passes everything does not.
 
 The reading a rule wants is that `S` be **visible** where it is stated, which is what the
-two mechanisms below this section say — `(decontextualizedPredicate P)` takes every
+two mechanisms below this section say — `(decontextualized_predicate P)` takes every
 `(P ...)` into CxUniverse, which every context sees, and a `genlCx` edge puts
 `Ctx` in the rule's own cone. Under either the premise is written plainly, and it is the
 `genlCx` topology rather than a per-rule annotation that decides what is readable
@@ -448,27 +448,27 @@ so. A rule antecedent is the other case: nobody asked, the rule's own context ma
 `context_scoping_test` pins both halves.
 
 **The predicate meta-ontology** is a worked example. Predicates are reified as
-individuals under `predicate` (itself a `thing`): `unaryPredicate` (types and
-one-place properties), `binaryPredicate`, `ternaryPredicate`, and the algebraic
-subtypes of `binaryPredicate` — `symmetric` / `asymmetric` / `transitive` /
+individuals under `predicate` (itself a `thing`): `unary_predicate` (types and
+one-place properties), `binary_predicate`, `ternary_predicate`, and the algebraic
+subtypes of `binary_predicate` — `symmetric` / `asymmetric` / `transitive` /
 `reflexive` / `functional`. The algebraic marks **are** the classification: each is one
-predicate that maintains its property *and*, through `(genl symmetric binaryPredicate)`,
+predicate that maintains its property *and*, through `(genl symmetric binary_predicate)`,
 is a membership, so a `(symmetric siblingOf)` declaration makes `isa? siblingOf symmetric`
-and `isa? siblingOf binaryPredicate` hold — exactly as `isa? dog unaryPredicate` does for
+and `isa? siblingOf binary_predicate` hold — exactly as `isa? dog unary_predicate` does for
 a type. The two families scope **oppositely**, on purpose: the **arity** memberships are
 derived by CxCore rules that name no context, so they place where the declaration was made
 (a predicate declared binary in one theory is binary *there*, not KB-wide — see "The
-consumers" below), while the algebraic marks are `decontextualizedPredicate`s, lifted into
+consumers" below), while the algebraic marks are `decontextualized_predicate`s, lifted into
 CxUniverse and seen by every data context. A predicate's algebra is a claim about the
 predicate itself and belongs to the whole KB; its arity, read off whatever theory declared
 it, stays with that theory.
 
-## decontextualizedPredicate: a fact that belongs to the KB, not to one theory
+## decontextualized_predicate: a fact that belongs to the KB, not to one theory
 
-`(decontextualizedPredicate P)` takes every `(P ...)` out of the context it was stated
+`(decontextualized_predicate P)` takes every `(P ...)` out of the context it was stated
 in. Each one — asserted, or concluded by a rule — is additionally **deduced into
 CxUniverse**, supported by the placement sentex *and* the
-`(decontextualizedPredicate P)` sentex. Since every context sees CxUniverse,
+`(decontextualized_predicate P)` sentex. Since every context sees CxUniverse,
 the fact becomes visible everywhere, even from a *sibling* context that cannot see
 where it was stated. Retracting or defeating either the original or the declaration
 withdraws the copy through the JTMS, and declaring it retroactively lifts the `(P ...)`
@@ -483,7 +483,7 @@ declaration is ordinary predicate metadata, read back with
 `(has-prop? kb :decontextualized pred)`.
 
 **The mark itself is read globally, not through the asserting fact's cone.** A
-`(decontextualizedPredicate P)` stated *anywhere* lifts every `(P ...)` in the KB,
+`(decontextualized_predicate P)` stated *anywhere* lifts every `(P ...)` in the KB,
 including facts stated in contexts that cannot see the declaration. That is
 deliberate (`special/deduce-lifts` says so at the read): the lift decides the
 *storage* context, and gating it on what could see the declaration would be circular
@@ -566,7 +566,7 @@ Two boundaries, both deliberate:
 
 Every shipped declaration is a claim about a **predicate** rather than about a world.
 `functional`, `functionalInArg`, `inverse`, `reflexive`, `irreflexive`, `symmetric`,
-`antiSymmetric`, `asymmetric`, `transitive`, `antiTransitive` and `equivalenceRelation` carry
+`anti_symmetric`, `asymmetric`, `transitive`, `anti_transitive` and `equivalence_relation` carry
 the mark — so a `(symmetric P)` stated in one theory is the KB's claim about `P` and not
 that theory's — and `genlCx` carries the forced variant below. **No domain relation
 carries either**, and two things hold that line:
@@ -580,22 +580,22 @@ carries either**, and two things hold that line:
   conclude: `CxSocial`'s `(implies (and (marriedTo ?x ?y)) (knows ?x ?y))` would put
   `knows` within reach of every data context without `knows` being declared anything.
 
-`abduciblePredicate` is the near-miss on the other side, and is scoped for the
+`abducible_predicate` is the near-miss on the other side, and is scoped for the
 converse reason: willingness to assume a `(P …)` is a policy of the context that grants
 it rather than a property of `P` ([abduction.md](abduction.md)).
 
-## forcedDecontextualizedPredicate: a canonical home in CxUniverse
+## forced_decontextualized_predicate: a canonical home in CxUniverse
 
-`(forcedDecontextualizedPredicate P)` is the stronger variant. Instead of leaving the
+`(forced_decontextualized_predicate P)` is the stronger variant. Instead of leaving the
 original where it was asserted and deducing a copy, it **forces the storage context
 of every `(P ...)` to CxUniverse** on assert — no separate justification, the fact's
 extent simply lives there. `genlCx` is declared this way (the vocabulary head asserts
-`(forcedDecontextualizedPredicate genlCx)` before any `genlCx` edge), so the whole context
+`(forced_decontextualized_predicate genlCx)` before any `genlCx` edge), so the whole context
 topology has one canonical home rather than being scattered across the contexts each
 edge was asserted in.
 
 Both are wff-checked at assert time, like the other special predicates:
-`decontextualizedPredicate` routes through the same `prop-problems` check as
+`decontextualized_predicate` routes through the same `prop-problems` check as
 `transitive` / `symmetric` / `functional`, since it is a one-argument mark on a
 predicate like they are.
 
@@ -612,7 +612,7 @@ The `genl` closure reads are scoped the same way (docs/taxonomy.md): `genls` /
 `specs` / `genl?` / `disjoint?` take a context, and a read asked from K walks only
 the edges some believed supporter asserts from K's cone.  The **`genlCx`
 closure itself stays global, as a stated exception** — visibility scoped by
-visibility would be circular, `forcedDecontextualizedPredicate` already forces
+visibility would be circular, `forced_decontextualized_predicate` already forces
 every `genlCx` edge universal, and the scoped reads' interning is keyed on
 that closure being context-independent.  A clash no single writer could see —
 admissible where each half was stated, jointly visible from some descendant — is
@@ -707,7 +707,7 @@ just as well when the feature is broken outright.
   rule or the facts, so it does not rest on seeing them. **The ordinary firing pays one
   `=` per ingredient and reads nothing**: a rule and its facts in the placement's own
   context reach it reflexively, and a reflexive reach rests on nothing. `genlCx` is a
-  `forcedDecontextualizedPredicate`, so an edge has exactly one supporter and the
+  `forced_decontextualized_predicate`, so an edge has exactly one supporter and the
   per-edge choice between supporters that `genl` makes does not arise here.
   `placement_context_witness_test` is the standing guard.
 
@@ -727,7 +727,7 @@ just as well when the feature is broken outright.
   makes them matchable at a supertype they did not have, and the semi-naive agenda
   never sees that (the arriving datum is the edge); `special/subsumption-seeds` puts
   the sub's spec subtree back on the agenda — the taxonomy twin of the retroactive
-  `decontextualizedPredicate` lift, and free on the ordinary load order, where a
+  `decontextualized_predicate` lift, and free on the ordinary load order, where a
   hierarchy arrives before the facts under it. **Leaving**, it withdraws what it
   licensed through the ordinary dependency-directed sweep, and
   `special/resubsumption-seeds` puts the same subtree back when the reachability
@@ -824,14 +824,14 @@ just as well when the feature is broken outright.
 
 - **The predicate arity meta-ontology concludes where it was declared.** The arity
   rules in `kb/CxCore.txt` place by the ordinary rule and name no context, so an
-  `(arity myRel 2)` stated in a context concludes `(binaryPredicate myRel)` *there*.
+  `(arity myRel 2)` stated in a context concludes `(binary_predicate myRel)` *there*.
   **Do not name CxCore in them.** Doing so publishes the conclusion: `isa?` would answer
   from a context that cannot see the declaration, while `has-prop?`, asked of the same
   declaration from the same context, answers false. (The *algebraic* marks — `symmetric`,
-  `transitive`, … — go the other way on purpose: they are `decontextualizedPredicate`s,
+  `transitive`, … — go the other way on purpose: they are `decontextualized_predicate`s,
   so a declaration is lifted to CxUniverse and read KB-wide.)
 
 An **`(ist Ctx S)` consequent remains an explicit escape hatch** and is not scoped —
 that is what it is for. A rule author writing one is choosing the target, the same way
-`forcedDecontextualizedPredicate` chooses CxUniverse; the engine holds them to
+`forced_decontextualized_predicate` chooses CxUniverse; the engine holds them to
 the subsumption check above and nothing else.

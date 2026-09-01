@@ -131,7 +131,7 @@ children"* is the first thing anyone asks for:
 (implies (and (person ?x)
               (agg/count ?n ?c (childOf ?x ?c))
               (lessThan 2 ?n))
-         (largeFamily ?x))
+         (large_family ?x))
 ```
 
 This needs one thing that is not obvious. `?n` is bound per **placement context**
@@ -430,7 +430,7 @@ concludes never reaches the store.
 | `checks/check-stratified` | the same predicates as negative edges |
 | `chain` | withhold from the join; bind per placement; the withdrawal arm |
 | `settle` | re-join a queued aggregate rule whether or not anything blocked |
-| `kb/CxCore.txt` | five `(comment …)` + `(ternaryPredicate …)` declarations |
+| `kb/CxCore.txt` | five `(comment …)` + `(ternary_predicate …)` declarations |
 
 ## Where the census is taken
 

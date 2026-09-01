@@ -83,7 +83,7 @@ consistency check: magnitudes only add up once they are in one unit, so two hour
 five metres is refused outright rather than summed into a number that means nothing.
 
 `(list I1 I2 …)` is **one argument**, so `totalDuration` is declared
-`binaryPredicate` — the arity check holds a stored sentence to that, and the goal shape
+`binary_predicate` — the arity check holds a stored sentence to that, and the goal shape
 the prover reads has to agree with it.
 
 Three things yield no answer rather than a wrong one: a component with no stated length

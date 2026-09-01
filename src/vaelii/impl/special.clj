@@ -2,13 +2,13 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.special
   "The special-predicate dispatch table: what each functor the engine interprets
-  *means* to the derived state around the store, stated once, with both halves of
-  every meaning side by side.
+  *does* to the derived state around the store, stated once, with every half of every
+  behaviour side by side.
 
   A special predicate needs behaviour in four places — reflecting a stored sentex
   into the caches, the removal mirror, `recover`'s cache-only replay, and `wff`'s
   per-functor well-formedness check — and the compiler cross-checks none of them, so
-  the enumeration lives once here: `entries` maps each functor to its arms,
+  the arms live once here, in `arms`, keyed by functor:
 
     :integrate    (fn [kb sentex handle])  reflect a newly stored sentex into the caches
     :disintegrate (fn [kb sentex])         the mirror, reference-counted on (:id sentex)
@@ -18,25 +18,39 @@
                                            side effects produced
     :wff          (fn [tax sentence])      structural well-formedness (vaelii.impl.wff
                                            keeps the check fns; the table points at them)
-    :derived?     bool                     the :integrate arm also runs on the
-                                           derivation path (see `integrate-transitive`)
 
   and `check-entries` refuses an asymmetric entry **at namespace load**, so an
   add-side arm without its removal and rebuild halves is a build failure rather
   than a cache that drifts on the first retraction or restart.
 
-  Because the arms are where a special predicate's whole behaviour lives, the
-  machinery those behaviours need lives here too: the exception re-check queue the
-  taxonomy arms post to, the universal-predicate lifting, and the equality
-  migration.  Third layer of the engine stack (kb <- checks <- special <-
-  integrate <- chain <- settle): everything here reads kb and checks, and the
-  store-mutation choke points in `vaelii.impl.integrate` sit directly above."
+  **The enumeration is not here.**  Which functors the engine interprets, in what
+  order, what each one *says* — its sentence shape, the `:props` kind it maintains,
+  whether its arms run on the derivation path — is one entry per term in
+  `vaelii.impl.predicates`, which requires nothing and so can be read by `taxonomy`,
+  `wff` and `provers`, none of which can read this namespace.  That split is what
+  lifts the four-place ceiling above: the arms need functions from four layers and
+  can only ever live at layer three, while what a predicate *says* is needed at every
+  layer there is.  `entries` joins the two, `check-declarations` refuses a
+  disagreement, and `predicates_test` pins the join against the live rosters.
+
+  `structural-integrate` stays outside that framework permanently and no declaration
+  can name its arms: they dispatch on a sentence's *shape* rather than on its functor
+  — a rule, an `exceptWhen` meta, a visibility `except`, and a disjoint metatype's
+  member, whose functor is the metatype and so is data rather than vocabulary.
+
+  What this namespace still owns is everything the arms are and everything they need:
+  all four arm columns, the five walks over them, the exception re-check queue the
+  taxonomy arms post to, the universal-predicate lifting, and the equality migration.
+  Third layer of the engine stack (kb <- checks <- special <- integrate <- chain <-
+  settle): everything here reads kb and checks, and the store-mutation choke points in
+  `vaelii.impl.integrate` sit directly above."
   (:require [clojure.string :as str]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
+            [vaelii.impl.predicates :as pr]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn-kb :as qkb]
@@ -472,7 +486,7 @@
   a rule is `:all`, and `:all` is the arm of `settle/exception-candidates` that skips
   the firing narrowing and re-evaluates every firing the rule ever made — one level-6
   query apiece.  A negated exception conjunct is ordinary common-sense content
-  (`(exceptWhen (not (hasWings ?x)) …)`), so keying it on the functor alone puts the
+  (`(exceptWhen (not (has_wings ?x)) …)`), so keying it on the functor alone puts the
   whole firing history of every such rule in front of the prover on every `genl` edge
   written anywhere, which is a cost proportional to the rule's history rather than to
   the edge.
@@ -758,7 +772,7 @@
         (mark-recheck kb [handle] :all)))))
 
 (defn index-closed-extent-rules
-  "A `(closedExtentPredicate P)` grant arrived or left: post every stored rule with a
+  "A `(closed_extent_predicate P)` grant arrived or left: post every stored rule with a
   **closed** `(not (P …))` antecedent in the re-check index under `P`, and queue it for a
   blanket re-check.
 
@@ -986,7 +1000,7 @@
       region))))
 
 ;; ---- the decontextualized predicate ---------------------------------------
-;; `(decontextualizedPredicate P)` lifts every `(P ...)` out of the context it was
+;; `(decontextualized_predicate P)` lifts every `(P ...)` out of the context it was
 ;; stated in and into CxUniverse, which every context sees — so the fact
 ;; stops being a claim of one theory and becomes a claim of the KB.
 ;;
@@ -1061,12 +1075,12 @@
               (let [depth (inc (max (jtms/depth (:tms kb) src-handle) (jtms/depth (:tms kb) dh)))
                     antes [src-handle dh]]
                 (jtms/ensure-node (:tms kb) h2 depth)
-                (when-not (jtms/has-justification? (:tms kb) 'decontextualizedPredicate antes h2)
+                (when-not (jtms/has-justification? (:tms kb) 'decontextualized_predicate antes h2)
                   (let [jid  (p/next-id (:records kb))
                         ;; The lift adds no defeasibility of its own, so it confers
                         ;; :monotonic and `conferred-class` caps it at the weaker of the
                         ;; source fact and the declaration.
-                        just (jtms/->just jid 'decontextualizedPredicate antes h2 {} :monotonic)]
+                        just (jtms/->just jid 'decontextualized_predicate antes h2 {} :monotonic)]
                     (p/put-justification (:records kb) just)
                     (jtms/add-justification (:tms kb) just)))))
             {:new (if new? [h2] []) :violations []}))))))
@@ -1257,7 +1271,7 @@
   A genuine negation is not argument-checked, so it entails nothing; nor does a rule,
   whose stored sentence is an implication."
   [kb sx dh]
-  (if-not (and (= :true (:truth sx)) (nil? (:antecedent sx)))
+  (if-not (and (= :positive (:polarity sx)) (nil? (:antecedent sx)))
     empty-entailment-result
     (let [sctx (:context sx)]
       (deduce-arg-types kb
@@ -1376,7 +1390,7 @@
     (let [[_ sub] sentence]
       (when (symbol? sub)
         (reduce (fn [acc sx]
-                  (if-not (and (= :true (:truth sx)) (nil? (:antecedent sx)))
+                  (if-not (and (= :positive (:polarity sx)) (nil? (:antecedent sx)))
                     acc
                     (let [sctx (:context sx)]
                       (merge-with into acc
@@ -1472,7 +1486,7 @@
   antecedent could ever have climbed licensed nothing to revive.  A KB whose rules read
   no negation, which is nearly every KB, pays one pass over the roster's keys.
 
-  Negative sentexes only, decided on the record's own `:truth`: a *positive* fact on a
+  Negative sentexes only, decided on the record's own `:polarity`: a *positive* fact on a
   genl of `super` newly matches nothing, since a positive antecedent fans downward and
   the edge moved nothing above `super`."
   [kb sub super]
@@ -1487,7 +1501,7 @@
                        (filter #(jtms/in? tms %))
                        (filter (fn [h]
                                  (when-let [s (p/get-sentex recs h)]
-                                   (= :false (:truth s))))))
+                                   (= :negative (:polarity s))))))
               (tax/genls-global (:taxonomy kb) super))))))
 
 (defn subsumption-seeds
@@ -1544,7 +1558,7 @@
         left (fn [h]
                (when-let [sx (p/get-sentex recs h)]
                  (let [sent (:sentence sx)]
-                   (when (and (= :true (:truth sx))
+                   (when (and (= :positive (:polarity sx))
                               (nil? (:antecedent sx))
                               (= 3 (count sent))
                               (= pred (nm/functor sent)))
@@ -1973,7 +1987,7 @@
   "The handle a **handle-naming meta-sentex** `s` names, or nil for any other sentence.
   Three kinds name a sentex by handle and so must follow it through a merge: an
   `exceptWhen` names the rule it guards, an `except` names the sentex it hides, and any
-  `targetFollowingPredicate` meta (koinii's reply acts) names the claim it hangs on.  A
+  `target_following_predicate` meta (koinii's reply acts) names the claim it hangs on.  A
   target-following meta carries exactly one `(sentexHandle H)` argument, and that is its
   target."
   [kb s]
@@ -2732,7 +2746,7 @@
   **The two descents are a set, not a concatenation.**  They overlap whenever the two
   sides share any of the path up to the mark, which is the ordinary case rather than the
   odd one: two `fatherOf` fillers under `(functional parentOf)` descend the *same* edge,
-  and a `dadOf` filler beside a `fatherOf` one shares the `fatherOf → parentOf` hop.
+  and a `dad_of` filler beside a `fatherOf` one shares the `fatherOf → parentOf` hop.
   Appending them left the shared handles twice over in the record `derive-equality`
   stores, so `core/why`'s `:because`, `why-not`'s `:missing` and `preview`'s
   `:antecedents` each listed one edge two or three times.  Belief never moved — `valid?`
@@ -2892,9 +2906,11 @@
   The 2026-08 `functionalInArg` gap sat exactly here: settle's lane was swept
   thoroughly while an exact-functor test in `equate-existing` quietly excluded
   the generalized declaration, and nothing named the exclusion.  So the spellings
-  are no longer written in each lane — `tax/functional-family-marks` holds them
-  once and both lanes read it, which is what makes a new spelling reach this door
-  and settle's rosters together rather than separately.  What stays here is the
+  are no longer written in each lane: `tax/functional-family-marks` is this door's
+  read of the declaration's `:family`, settle's rosters are that same entry's
+  `:sweeps` and `:shape` read back, and `predicates/check-families` refuses at load
+  a family whose spellings disagree about the sweep — so a new spelling reaches this
+  door and settle's rosters together rather than separately.  What stays here is the
   arity, since this door is downstream of well-formedness and settle's triggers,
   coming off a moved region, are not."
   [sentence]
@@ -2980,7 +2996,7 @@
     (let [[_ sub] sentence]
       (when (symbol? sub)
         (reduce (fn [acc sx]
-                  (if-not (and (= :true (:truth sx)) (nil? (:antecedent sx)))
+                  (if-not (and (= :positive (:polarity sx)) (nil? (:antecedent sx)))
                     acc
                     (merge-with into acc
                                 (derive kb (:sentence sx) (:context sx) (:id sx)))))
@@ -3036,7 +3052,7 @@
   "`derive-antisymmetric-equalities`, scoped to exactly `context` and no reader below
   it — see the public wrapper for why one call becomes several.
 
-  `(antiSymmetric P)` plus a believed converse `(P b a)` for `(P a b)` **derives**
+  `(anti_symmetric P)` plus a believed converse `(P b a)` for `(P a b)` **derives**
   `(equals a b)` and merges — the antisymmetric twin of `derive-functional-equalities`,
   and the same machinery.
 
@@ -3088,7 +3104,7 @@
                                       (sort (tax/prop-supporters tax :anti-symmetric via)))]
                        (reduce (fn [acc a-list]
                                  (merge-with into acc
-                                             (derive-equality kb a b context 'antiSymmetric
+                                             (derive-equality kb a b context 'anti_symmetric
                                                               (into [handle oh] a-list))))
                                acc antes))))
                  {:new [] :superseded [] :violations []}
@@ -3096,7 +3112,7 @@
 
 (defn- anti-symmetric-mark-relevant?
   "The antisymmetric twin of `functional-mark-relevant?`: could `sentence`'s own
-  functor, or something it descends from, carry an `antiSymmetric` mark?  One unscoped
+  functor, or something it descends from, carry an `anti_symmetric` mark?  One unscoped
   `tax/props-over` read — no `functionalInArg` twin exists for this mark, so this is
   the whole of the check."
   [tax sentence]
@@ -3123,19 +3139,19 @@
         (derive-antisymmetric-equalities-in kb sentence context handle)))))
 
 (defn antisym-equate-existing
-  "When an `(antiSymmetric P)` declaration arrives, derive the equalities P's **already
+  "When an `(anti_symmetric P)` declaration arrives, derive the equalities P's **already
   stored** facts license — the twin of `equate-existing`, over the antisymmetric merge.
   Sweeps the whole spec subtree beneath `P` (the mark descends), and hands each stored
   fact back to `derive-antisymmetric-equalities`, so the two arrival directions cannot
   drift about what a converse licenses or what justifies the merge.  nil when `sentence`
   declares nothing antisymmetric."
   [kb sentence]
-  (when (and (= 'antiSymmetric (nm/functor sentence)) (= 1 (nm/arity sentence)))
+  (when (and (= 'anti_symmetric (nm/functor sentence)) (= 1 (nm/arity sentence)))
     (equate-declared-subtree kb (first (nm/args sentence))
                              derive-antisymmetric-equalities)))
 
 (defn antisym-equate-under-edge
-  "When a `(genl sub super)` edge arrives, derive the equalities an `(antiSymmetric …)`
+  "When a `(genl sub super)` edge arrives, derive the equalities an `(anti_symmetric …)`
   mark above `super` now licenses over the `(sub …)` facts already stored — the twin of
   `equate-under-edge`.  Free for a KB declaring nothing antisymmetric, decided before the
   subtree is read.  nil when `sentence` is not a `genl` edge."
@@ -3148,7 +3164,7 @@
   "Every context a `(genlCx sub super)` edge's widened readers can see, once the edge
   has integrated — `context-down(sub)`'s own members' up-cones, unioned.  The exact
   reachability `migrate-under-context-edge` computes for the same trigger (above): a
-  merge's restatement and a functional/antiSymmetric clash are the same kind of event —
+  merge's restatement and a functional/anti_symmetric clash are the same kind of event —
   a fact becoming newly visible to a reader — so the two share the reachability rule.
 
   `context-up(super)` alone would be a strict subset and not enough on its own: `sub`
@@ -3182,7 +3198,7 @@
     (for [c     (filter symbol? contexts)
           h     (reads/as-stored-in-context (:index kb) c)
           :let  [s (p/get-sentex (:records kb) h)]
-          :when (and s (= :true (:truth s)) (nil? (:antecedent s))
+          :when (and s (= :positive (:polarity s)) (nil? (:antecedent s))
                      (sequential? (:sentence s))
                      (marked? tax (:sentence s)))]
       s)))
@@ -3364,7 +3380,7 @@
 
 (defn antisym-equate-under-context-edge
   "When a `(genlCx sub super)` edge arrives, derive the equalities an
-  `(antiSymmetric …)` mark already licenses over facts the widened cone newly makes
+  `(anti_symmetric …)` mark already licenses over facts the widened cone newly makes
   jointly visible — the twin of `equate-under-context-edge`, over the antisymmetric
   merge and `anti-symmetric-mark-relevant?` in place of the functional one.  Same
   shape, same reasoning throughout — see `equate-under-context-edge`, including for why
@@ -3381,7 +3397,7 @@
   "Every **stored** sentex whose functor is `f`, believed or not.
 
   Read by the two passes that sweep what is *already there* — `rebuild-taxonomy`'s
-  replay, and the `disjointMetatype` arm picking up memberships asserted before the
+  replay, and the `disjoint_metatype` arm picking up memberships asserted before the
   declaration — because both are recording supporters rather than deciding belief, and
   a supporter omitted here is one no later reconcile can find.
 
@@ -3406,34 +3422,32 @@
   [kb f]
   (->> (reads/as-stored-with-functor (:index kb) f)
        (keep #(p/get-sentex (:records kb) %))
-       (filter #(and (= :true (:truth %)) (nil? (:antecedent %))))))
+       (filter #(and (= :positive (:polarity %)) (nil? (:antecedent %))))))
 
 ;; ---- the table -----------------------------------------------------------
 
 (defn- prop-entry
-  "The entry for a predicate-metadata mark — `(transitive P)`, `(symmetric P)`, … —
-  which differ only in the `:props` key they maintain.
-
-  `:derived?`, so a mark that arrives by *derivation* installs like an asserted one:
-  a rule concluding `(symmetric P)`, and — the case that actually happens on every
-  KB — the CxUniverse copy a `decontextualizedPredicate` lift makes of one.  The
-  copy carries its own context, which is what a scoped `has-prop?` reads, so without
-  this the mark is recorded only under the context the declaration was stated in while
-  the *sentex* is visible everywhere.  `:rebuild` replays every stored sentex of the
-  functor either way, so the live KB and the recovered one disagreed about the same
-  store — a restart changed the answer.
+  "The arms for a predicate-metadata mark — `(transitive P)`, `(symmetric P)`, … —
+  which differ only in the `:props` key they maintain, and which they now read off
+  `functor`'s declaration (`pr/prop-kind`) rather than take as a parameter.  Reading
+  it is what lets `spec/::prop-kind` be derived from the declarations rather than from
+  this table: a kind exists because a term declares it, not because an arm was written
+  with it.
 
   `skip` is the set of predicates whose property is the engine's own to compute — the
   `closure-relations` genl / genlCx, whose transitivity comes off the cached closures.
   A `(transitive genl)` fact stays stored and queryable, but its prop is **not** marked,
   so `has-prop? :transitive genl` stays false and genl is never handed to the generic
   closure prover.  The skip is applied identically on integrate, disintegrate and
-  rebuild, so the live and recovered stores agree."
-  ([kind] (prop-entry kind nil))
-  ([kind skip]
-   (let [marked? (fn [pred] (not (contains? skip pred)))]
-     {:prop         kind                       ; the roster `has-prop?`'s spec is held to
-      :integrate    (fn [kb sx h] (let [pred (second (:sentence sx))]
+  rebuild, so the live and recovered stores agree.
+
+  Why a mark that arrives by *derivation* must install like an asserted one is the
+  `:derived` facet's argument, and it lives with the facet on `predicates/prop`."
+  ([functor] (prop-entry functor nil))
+  ([functor skip]
+   (let [kind    (pr/prop-kind functor)
+         marked? (fn [pred] (not (contains? skip pred)))]
+     {:integrate    (fn [kb sx h] (let [pred (second (:sentence sx))]
                                     (when (marked? pred)
                                       (tax/mark-prop (:taxonomy kb) kind pred h (:context sx)))))
       :disintegrate (fn [kb sx] (let [pred (second (:sentence sx))]
@@ -3441,8 +3455,7 @@
                                     (tax/unmark-prop! (:taxonomy kb) kind pred (:id sx)))))
       :rebuild      (fn [tax {[_ pred] :sentence id :id ctx :context}]
                       (when (marked? pred) (tax/mark-prop tax kind pred id ctx)))
-      :wff          wff/prop-problems
-      :derived?     true})))
+      :wff          wff/prop-problems})))
 
 (def ^:private equality-entry
   "One entry-shape for all three equality relations: they produce the same class,
@@ -3537,370 +3550,416 @@
   [_tax sentence]
   (sx/defn-condition-problems sentence))
 
-(def entries
-  "The special-predicate dispatch table, as an **ordered** vector of
-  `[functor spec]` pairs — ordered because `rebuild-taxonomy` replays it top to
-  bottom and a rebuild arm may read what an earlier one wrote (metatype membership
-  reads the marks; nothing else is order-sensitive today, and keeping the assert
-  path's traditional order costs nothing).  `table` below is the lookup view.
+(def ^:private arms
+  "What the engine *does* about each functor it interprets, keyed by functor: the
+  integrate / disintegrate / rebuild triple and the structural `:wff` check.
 
-  This vector is *the* functor enumeration: integrate, disintegrate, rebuild and
-  wff all walk it, so a predicate added here is added to all four at once and
-  `check-entries` refuses it half-done."
-  (check-entries
-   (vec
-    (concat
-     [;; the two transitive relations: closure edges, belief-tracked in the
-      ;; taxonomy.  Their arms post the exception re-check *edge* trigger —
-      ;; on the derivation path as well as the assert path (`:derived?`), so a
-      ;; rule-concluded edge re-checks the exceptions too.
-      ['genl {:integrate    (fn [kb sx h]
-                              (let [[_ a b] (:sentence sx)]
-                                (tax/add-genl (:taxonomy kb) a b h (:context sx))
-                                (recheck-genl-edge kb a b)))
+  A **map**, deliberately, where the table it feeds is an ordered vector: the order is
+  the declaration's (`predicates/entries`), because it is a statement about the
+  predicates rather than about the arms, and `rebuild-taxonomy` replays it.  Writing
+  the arms in an order of their own would give the table two orders that had to agree
+  and no way to notice when they stopped.
+
+  What each functor *says* — its sentence shape, the `:props` kind it maintains,
+  whether it runs on the derivation path — is not here; it is one entry in
+  `vaelii.impl.predicates`, which sits below `taxonomy` and `wff` and so can be read
+  by the layers this namespace cannot reach.  `entries` below joins the two and
+  refuses a disagreement."
+  (merge
+   {;; the two transitive relations: closure edges, belief-tracked in the taxonomy.
+    ;; Their arms post the exception re-check *edge* trigger — on the derivation path
+    ;; as well as the assert path, so a rule-concluded edge re-checks the exceptions
+    ;; too.
+    'genl {:integrate    (fn [kb sx h]
+                           (let [[_ a b] (:sentence sx)]
+                             (tax/add-genl (:taxonomy kb) a b h (:context sx))
+                             (recheck-genl-edge kb a b)))
+           :disintegrate (fn [kb sx]
+                           (let [[_ a b] (:sentence sx)]
+                             (tax/del-genl! (:taxonomy kb) a b (:id sx))
+                             (recheck-genl-edge kb a b)))
+           :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
+                           (tax/add-genl tax a b id ctx))
+           :wff          wff/genl-problems}
+    'genlCx {:integrate    (fn [kb sx h]
+                             (let [[_ a b] (:sentence sx)]
+                               (tax/add-genlCx (:taxonomy kb) a b h (:context sx))
+                               ;; visibility moved: re-check the excepted rules whose
+                               ;; firings live in the affected context cone
+                               ;; (`context-down` of the edge's sub) — the context-keyed
+                               ;; twin of recheck-genl-edge — and the `except`-blocked
+                               ;; derivations the same move may have released or newly
+                               ;; blocked
+                               (recheck-genlCx-edge kb a)
+                               (recheck-except-cone kb)))
+             :disintegrate (fn [kb sx]
+                             (let [[_ a b] (:sentence sx)]
+                               (tax/del-genlCx! (:taxonomy kb) a b (:id sx))
+                               (recheck-genlCx-edge kb a)
+                               (recheck-except-cone kb)))
+             :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
+                             (tax/add-genlCx tax a b id ctx))
+             :wff          wff/genlCx-problems}
+    'disjoint {:integrate    (fn [kb sx h]
+                               (let [[_ a b] (:sentence sx)]
+                                 (tax/add-disjoint (:taxonomy kb) a b h (:context sx))))
+               :disintegrate (fn [kb sx]
+                               (let [[_ a b] (:sentence sx)]
+                                 (tax/del-disjoint! (:taxonomy kb) a b (:id sx))))
+               :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
+                               (tax/add-disjoint tax a b id ctx))
+               :wff          wff/disjoint-problems}
+    'disjoint_metatype
+    {:integrate    (fn [kb sx h]
+                     (let [[_ m] (:sentence sx)]
+                       (tax/mark-disjoint-metatype (:taxonomy kb) m h (:context sx))
+                       ;; Members already asserted are *recorded*, not turned into a
+                       ;; clique of `(disjoint a b)` sentexes; `tax/disjoint?` consults
+                       ;; the membership directly.  A member asserted later is picked up
+                       ;; by the structural member arm in `integrate-sentex`.
+                       ;;
+                       ;; **Stored, not believed**, which is the discipline every other
+                       ;; retroactive sweep here follows (`lift-existing`,
+                       ;; `equate-existing`, `entail-existing`) and for a sharper reason:
+                       ;; this one records a *supporter*.  The structural member arm is
+                       ;; belief-blind, so a membership asserted after the declaration is
+                       ;; counted whatever its label — and a belief-filtered sweep here
+                       ;; would skip a defeated membership asserted *before* it, leaving
+                       ;; that handle out of `:cache-handle-keys` entirely.  Clearing the
+                       ;; defeat could then never revive the entry, since
+                       ;; `moved-cache-keys` has no key to find: belief depending on the
+                       ;; order the defeat and the declaration arrived in, and
+                       ;; permanently.  It would also put the live KB and the recovered
+                       ;; one at odds over one store, `rebuild-taxonomy`'s second pass
+                       ;; reading what is stored through this very function.
+                       (doseq [{[_ t] :sentence id :id mctx :context}
+                               (stored-declarations kb m)]
+                         (tax/add-metatype-member (:taxonomy kb) m t id mctx))))
+     :disintegrate (fn [kb sx]
+                     (let [[_ m] (:sentence sx)]
+                       (tax/unmark-disjoint-metatype! (:taxonomy kb) m (:id sx))))
+     ;; marks only: membership is replayed by rebuild-taxonomy's second pass, once every
+     ;; metatype is known — the member functors are the metatypes themselves, which no
+     ;; static table key can name
+     :rebuild      (fn [tax {[_ m] :sentence id :id ctx :context}]
+                     (tax/mark-disjoint-metatype tax m id ctx))
+     :wff          wff/disjoint-metatype-problems}
+    ;; `(sibling_disjoint C)` is the metatype clique keyed off the genl closure: only the
+    ;; mark is stored, and `tax/disjoint?` reads C's specializations off `specs`.  So
+    ;; there is no member sweep to run on integrate — unlike `disjoint_metatype`, nothing
+    ;; was recorded to pick up — and the three arms are the plain mark/unmark, the shape
+    ;; `disjoint` itself has.
+    'sibling_disjoint
+    {:integrate    (fn [kb sx h]
+                     (let [[_ c] (:sentence sx)]
+                       (tax/mark-sibling-disjoint (:taxonomy kb) c h (:context sx))))
+     :disintegrate (fn [kb sx]
+                     (let [[_ c] (:sentence sx)]
+                       (tax/unmark-sibling-disjoint! (:taxonomy kb) c (:id sx))))
+     :rebuild      (fn [tax {[_ c] :sentence id :id ctx :context}]
+                     (tax/mark-sibling-disjoint tax c id ctx))
+     :wff          wff/sibling-disjoint-problems}
+    ;; `(siblingDisjointException x y)` exempts one pair the sibling clique or a
+    ;; `disjoint_metatype` would separate — the plain add/drop `disjoint` has, keyed as
+    ;; the same unordered pair.  Its **retract** is the one thing the generic belief
+    ;; reconcile does not cover: if the exception was present ab initio, the pair it
+    ;; exempted was admitted and never entered the clash set, so its departure has no
+    ;; stored clash to re-derive.  The disintegrate arm posts the pair to
+    ;; `:sib-exc-dirty`, and the settle's re-arm sweep (`settle/clash-candidates` /
+    ;; `exposure-candidates`) drives `two-sided-reach` over it to convict the
+    ;; memberships it now separates.
+    'siblingDisjointException
+    {:integrate    (fn [kb sx h]
+                     (let [[_ a b] (:sentence sx)]
+                       (tax/add-sib-exception (:taxonomy kb) a b h (:context sx))))
+     :disintegrate (fn [kb sx]
+                     (let [[_ a b] (:sentence sx)]
+                       (tax/del-sib-exception! (:taxonomy kb) a b (:id sx))
+                       (when-let [d (:sib-exc-dirty kb)] (swap! d conj #{a b}))))
+     :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
+                     (tax/add-sib-exception tax a b id ctx))
+     :wff          wff/siblingDisjointException-problems}
+    ;; `(arity P n)` is read by the per-assert arity check, so it is cached like the
+    ;; other declarations the engine interprets rather than re-queried per assertion.
+    ;; No `:wff` arm: `wff/arity-problems` does not exist, because the arity of `arity`
+    ;; is what would check it.
+    'arity
+    {:integrate    (fn [kb sx h]
+                     (let [[_ pred n] (:sentence sx)]
+                       (when (and (symbol? pred) (integer? n))
+                         (tax/add-arity (:taxonomy kb) pred n h (:context sx)))))
+     :disintegrate (fn [kb sx]
+                     (let [[_ pred n] (:sentence sx)]
+                       (when (and (symbol? pred) (integer? n))
+                         (tax/del-arity! (:taxonomy kb) pred n (:id sx)))))
+     :rebuild      (fn [tax {[_ pred n] :sentence id :id ctx :context}]
+                     (when (and (symbol? pred) (integer? n))
+                       (tax/add-arity tax pred n id ctx)))}
+    ;; `(functionalInArg P n)` says the other arguments of `P` determine argument `n` —
+    ;; `functional` generalized off its fixed arg-2 slot.  Cached exactly as `arity` is
+    ;; and for the same reason: the definitional checks read it on every assert, and a
+    ;; declaration is not something to re-derive per write.
+    ;;
+    ;; Registered here beside `arity` rather than through `prop-entry`, which cannot
+    ;; carry the integer, and deliberately NOT the way `transitiveInArg` is: that one
+    ;; licenses tuples and is read for the goal's own predicate, this one refuses them
+    ;; and is read up the hierarchy (`tax/functional-in-arg-over`).  The two share a name
+    ;; shape and sit on opposite sides of the prover/checker divide — the same line
+    ;; `props-over`'s docstring draws, and the reason `functional` is absent from the
+    ;; recheck table above.
+    'functionalInArg
+    {:integrate    (fn [kb sx h]
+                     (let [[_ pred n] (:sentence sx)]
+                       (when (and (symbol? pred) (integer? n) (pos? n))
+                         (tax/add-functional-in-arg (:taxonomy kb) pred n h (:context sx)))))
+     :disintegrate (fn [kb sx]
+                     (let [[_ pred n] (:sentence sx)]
+                       (when (and (symbol? pred) (integer? n) (pos? n))
+                         (tax/del-functional-in-arg! (:taxonomy kb) pred n (:id sx)))))
+     :rebuild      (fn [tax {[_ pred n] :sentence id :id ctx :context}]
+                     (when (and (symbol? pred) (integer? n) (pos? n))
+                       (tax/add-functional-in-arg tax pred n id ctx)))
+     :wff          wff/functional-in-arg-problems}
+    'inverse {:integrate    (fn [kb sx h]
+                              (let [[_ p q] (:sentence sx)]
+                                (tax/add-inverse (:taxonomy kb) p q h (:context sx))))
               :disintegrate (fn [kb sx]
-                              (let [[_ a b] (:sentence sx)]
-                                (tax/del-genl! (:taxonomy kb) a b (:id sx))
-                                (recheck-genl-edge kb a b)))
-              :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                              (tax/add-genl tax a b id ctx))
-              :wff          wff/genl-problems
-              :derived?     true}]
-      ['genlCx {:integrate    (fn [kb sx h]
-                                (let [[_ a b] (:sentence sx)]
-                                  (tax/add-genlCx (:taxonomy kb) a b h (:context sx))
-                                  ;; visibility moved: re-check the excepted rules
-                                  ;; whose firings live in the affected context cone
-                                  ;; (`context-down` of the edge's sub) — the
-                                  ;; context-keyed twin of recheck-genl-edge — and
-                                  ;; the `except`-blocked derivations the same move
-                                  ;; may have released or newly blocked
-                                  (recheck-genlCx-edge kb a)
-                                  (recheck-except-cone kb)))
-                :disintegrate (fn [kb sx]
-                                (let [[_ a b] (:sentence sx)]
-                                  (tax/del-genlCx! (:taxonomy kb) a b (:id sx))
-                                  (recheck-genlCx-edge kb a)
-                                  (recheck-except-cone kb)))
-                :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                                (tax/add-genlCx tax a b id ctx))
-                :wff          wff/genlCx-problems
-                :derived?     true}]
-      ;; `:derived?` for the same reason the props carry it: a separation a rule
-      ;; concluded must constrain the moment it is believed, not only after a restart
-      ;; replays it — and its own context is what a scoped `disjoint?` reads
-      ['disjoint {:integrate    (fn [kb sx h]
-                                  (let [[_ a b] (:sentence sx)]
-                                    (tax/add-disjoint (:taxonomy kb) a b h (:context sx))))
-                  :disintegrate (fn [kb sx]
-                                  (let [[_ a b] (:sentence sx)]
-                                    (tax/del-disjoint! (:taxonomy kb) a b (:id sx))))
-                  :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                                  (tax/add-disjoint tax a b id ctx))
-                  :wff          wff/disjoint-problems
-                  :derived?     true}]
-      ['disjointMetatype
-       {:integrate    (fn [kb sx h]
-                        (let [[_ m] (:sentence sx)]
-                          (tax/mark-disjoint-metatype (:taxonomy kb) m h (:context sx))
-                          ;; Members already asserted are *recorded*, not turned
-                          ;; into a clique of `(disjoint a b)` sentexes;
-                          ;; `tax/disjoint?` consults the membership directly.  A
-                          ;; member asserted later is picked up by the structural
-                          ;; member arm in `integrate-sentex`.
-                          ;;
-                          ;; **Stored, not believed**, which is the discipline every
-                          ;; other retroactive sweep here follows (`lift-existing`,
-                          ;; `equate-existing`, `entail-existing`) and for a sharper
-                          ;; reason: this one records a *supporter*.  The structural
-                          ;; member arm is belief-blind, so a membership asserted after
-                          ;; the declaration is counted whatever its label — and a
-                          ;; belief-filtered sweep here would skip a defeated membership
-                          ;; asserted *before* it, leaving that handle out of
-                          ;; `:cache-handle-keys` entirely.  Clearing the defeat could
-                          ;; then never revive the entry, since `moved-cache-keys` has no
-                          ;; key to find: belief depending on the order the defeat and
-                          ;; the declaration arrived in, and permanently.  It would also
-                          ;; put the live KB and the recovered one at odds over one
-                          ;; store, `rebuild-taxonomy`'s second pass reading what is
-                          ;; stored through this very function.
-                          (doseq [{[_ t] :sentence id :id mctx :context}
-                                  (stored-declarations kb m)]
-                            (tax/add-metatype-member (:taxonomy kb) m t id mctx))))
-        :disintegrate (fn [kb sx]
-                        (let [[_ m] (:sentence sx)]
-                          (tax/unmark-disjoint-metatype! (:taxonomy kb) m (:id sx))))
-        ;; marks only: membership is replayed by rebuild-taxonomy's second pass,
-        ;; once every metatype is known — the member functors are the metatypes
-        ;; themselves, which no static table key can name
-        :rebuild      (fn [tax {[_ m] :sentence id :id ctx :context}]
-                        (tax/mark-disjoint-metatype tax m id ctx))
-        :wff          wff/disjointMetatype-problems
-        ;; `:derived?`, for the reason `disjoint` above carries it and one more of its
-        ;; own: `:rebuild` replays every stored declaration, so without this a mark a
-        ;; rule concluded would separate the metatype's members only once a restart had
-        ;; replayed it.  The arm returns nothing the derivation path needs — it marks and
-        ;; records supporters — so the flag is the whole of what it takes to reach.
-        :derived?     true}]
-      ;; `(siblingDisjoint C)` is the metatype clique keyed off the genl closure: only
-      ;; the mark is stored, and `tax/disjoint?` reads C's specializations off `specs`.
-      ;; So there is no member sweep to run on integrate — unlike `disjointMetatype`,
-      ;; nothing was recorded to pick up — and the three arms are the plain mark/unmark,
-      ;; the shape `disjoint` itself has.
-      ['siblingDisjoint
-       {:integrate    (fn [kb sx h]
-                        (let [[_ c] (:sentence sx)]
-                          (tax/mark-sibling-disjoint (:taxonomy kb) c h (:context sx))))
-        :disintegrate (fn [kb sx]
-                        (let [[_ c] (:sentence sx)]
-                          (tax/unmark-sibling-disjoint! (:taxonomy kb) c (:id sx))))
-        :rebuild      (fn [tax {[_ c] :sentence id :id ctx :context}]
-                        (tax/mark-sibling-disjoint tax c id ctx))
-        :wff          wff/siblingDisjoint-problems
-        ;; `:derived?` for the reasons `disjoint` and `disjointMetatype` carry it: a mark
-        ;; a rule concludes must separate the specializations the moment it is believed,
-        ;; its own context is what a scoped `disjoint?` reads, and `:rebuild` replays
-        ;; every stored mark, so a restart must not be what first activates it.
-        :derived?     true}]
-      ;; `(siblingDisjointException x y)` exempts one pair the sibling clique or a
-      ;; `disjointMetatype` would separate — the plain add/drop `disjoint` has, keyed as
-      ;; the same unordered pair.  Its **retract** is the one thing the generic belief
-      ;; reconcile does not cover: if the exception was present ab initio, the pair it
-      ;; exempted was admitted and never entered the clash set, so its departure has no
-      ;; stored clash to re-derive.  The disintegrate arm posts the pair to `:sib-exc-dirty`,
-      ;; and the settle's re-arm sweep (`settle/clash-candidates` / `exposure-candidates`)
-      ;; drives `two-sided-reach` over it to convict the memberships it now separates.
-      ['siblingDisjointException
-       {:integrate    (fn [kb sx h]
-                        (let [[_ a b] (:sentence sx)]
-                          (tax/add-sib-exception (:taxonomy kb) a b h (:context sx))))
-        :disintegrate (fn [kb sx]
-                        (let [[_ a b] (:sentence sx)]
-                          (tax/del-sib-exception! (:taxonomy kb) a b (:id sx))
-                          (when-let [d (:sib-exc-dirty kb)] (swap! d conj #{a b}))))
-        :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                        (tax/add-sib-exception tax a b id ctx))
-        :wff          wff/siblingDisjointException-problems
-        ;; `:derived?` for the reasons the marks above carry it: a rule-concluded exception
-        ;; must spare the pair the moment it is believed, its own context is recorded for a
-        ;; scoped supporter read, and `:rebuild` replays every stored exception.
-        :derived?     true}]]
-     (map (fn [kind] [(symbol (name kind)) (prop-entry kind tax/closure-relations)])
-          [:transitive :symmetric :asymmetric :reflexive :functional :irreflexive])
-     ;; `antiSymmetric` and `antiTransitive` mark the same way but their keyword names
-     ;; would not spell the camelCase functors, so each takes an explicit pair like the
-     ;; two decontextualized marks below.  `(antiSymmetric P)` derives `(equals a b)`
-     ;; from a believed converse (`derive-antisymmetric-equalities`); `(antiTransitive
-     ;; P)` convicts the two-step chain and the direct step together
-     ;; (`checks/antitransitivity-problems`).  The mark is what both of those read, and
-     ;; reading it up the predicate hierarchy (`tax/props-over`) is what makes a
-     ;; `parentOf` mark convict a `fatherOf` chain.
-     [['antiSymmetric  (prop-entry :anti-symmetric tax/closure-relations)]
-      ['antiTransitive (prop-entry :anti-transitive tax/closure-relations)]]
-     [['arity
-       ;; `(arity P n)` is read by the per-assert arity check, so it is cached like the
-       ;; other declarations the engine interprets rather than re-queried per
-       ;; assertion.  `:derived?` for the same reason the prop marks are: a
-       ;; decontextualizedPredicate lift makes a CxUniverse copy carrying its own
-       ;; context, and a scoped read wants that context recorded.
-       {:integrate    (fn [kb sx h]
-                        (let [[_ pred n] (:sentence sx)]
-                          (when (and (symbol? pred) (integer? n))
-                            (tax/add-arity (:taxonomy kb) pred n h (:context sx)))))
-        :disintegrate (fn [kb sx]
-                        (let [[_ pred n] (:sentence sx)]
-                          (when (and (symbol? pred) (integer? n))
-                            (tax/del-arity! (:taxonomy kb) pred n (:id sx)))))
-        :rebuild      (fn [tax {[_ pred n] :sentence id :id ctx :context}]
-                        (when (and (symbol? pred) (integer? n))
-                          (tax/add-arity tax pred n id ctx)))
-        :derived?     true}]
-      ['functionalInArg
-       ;; `(functionalInArg P n)` says the other arguments of `P` determine argument `n`
-       ;; — `functional` generalized off its fixed arg-2 slot.  Cached exactly as `arity`
-       ;; is and for the same reason: the definitional checks read it on every assert,
-       ;; and a declaration is not something to re-derive per write.
-       ;;
-       ;; Registered here beside `arity` rather than through `prop-entry`, which cannot
-       ;; carry the integer, and deliberately NOT the way `transitiveInArg` is: that one
-       ;; licenses tuples and is read for the goal's own predicate, this one refuses them
-       ;; and is read up the hierarchy (`tax/functional-in-arg-over`).  The two share a
-       ;; name shape and sit on opposite sides of the prover/checker divide — the same
-       ;; line `props-over`'s docstring draws, and the reason `functional` is absent from
-       ;; the recheck table below.
-       ;;
-       ;; `:derived?` for `arity`'s reason: a `decontextualizedPredicate` lift makes a
-       ;; CxUniverse copy carrying its own context, and the scoped read wants it recorded.
-       {:integrate    (fn [kb sx h]
-                        (let [[_ pred n] (:sentence sx)]
-                          (when (and (symbol? pred) (integer? n) (pos? n))
-                            (tax/add-functional-in-arg (:taxonomy kb) pred n h (:context sx)))))
-        :disintegrate (fn [kb sx]
-                        (let [[_ pred n] (:sentence sx)]
-                          (when (and (symbol? pred) (integer? n) (pos? n))
-                            (tax/del-functional-in-arg! (:taxonomy kb) pred n (:id sx)))))
-        :rebuild      (fn [tax {[_ pred n] :sentence id :id ctx :context}]
-                        (when (and (symbol? pred) (integer? n) (pos? n))
-                          (tax/add-functional-in-arg tax pred n id ctx)))
-        :wff          wff/functional-in-arg-problems
-        :derived?     true}]
-      ['inverse {:integrate    (fn [kb sx h]
-                                 (let [[_ p q] (:sentence sx)]
-                                   (tax/add-inverse (:taxonomy kb) p q h (:context sx))))
-                 :disintegrate (fn [kb sx]
-                                 (let [[_ p q] (:sentence sx)]
-                                   (tax/del-inverse! (:taxonomy kb) p q (:id sx))))
-                 :rebuild      (fn [tax {[_ p q] :sentence id :id ctx :context}]
-                                 (tax/add-inverse tax p q id ctx))
-                 :wff          wff/inverse-problems
-                 :derived?     true}]
-      ['decontextualizedPredicate
-       ;; the mark plus the retroactive lift; the lift's justifications need no
-       ;; removal arm of their own — each is justified by this sentex, so the
-       ;; ordinary dependency-directed sweep withdraws them when it goes.  The
-       ;; rebuild replays the mark only: the lifted copies are already stored.
-       ;; The integrate arm returns the `{:new :violations}` the equality arms return,
-       ;; so a retroactively lifted copy is a chaining seed like any other new content.
-       ;; NOT `:derived?`, unlike the marks it is built from: its integrate arm runs an
-       ;; O(extent) retroactive lift whose copies are chaining seeds, and the derivation
-       ;; path (`integrate-transitive`) discards an arm's return value — so a derived
-       ;; declaration would lift silently and leave the copies off the agenda.  A rule
-       ;; concluding this declaration is exotic; a half-run lift is not worth having.
-       (-> (prop-entry :decontextualized)
-           (dissoc :derived?)
-           (assoc :integrate (fn [kb sx h]
-                               (let [pred (second (:sentence sx))]
-                                 (tax/mark-prop (:taxonomy kb) :decontextualized pred h (:context sx))
-                                 (lift-existing kb pred h)))))]
-      ['forcedDecontextualizedPredicate (prop-entry :forced-decontextualized)]
-      ;; `(targetFollowingPredicate P)` marks P as forming a **target-following
-      ;; meta-sentex**: a `(P … (sentexHandle H) …)` names sentex H and must not outlive
-      ;; it, so a teardown that removes H removes the meta with it
-      ;; (`core/retract-following-metas!`).  Belief-following and recover-safe like the
-      ;; marks above.  koinii's reply acts (`answers` / `disputes` / `endorses` /
-      ;; `justifies`) declare it, so retracting a claim cascades to the replies about it —
-      ;; the property a message bus cannot give.  The engine's own meta-sentexes
-      ;; (`except` / `exceptWhen`) deliberately do **not** carry it: a rule's exception
-      ;; orphans harmlessly when the rule is retracted (`meta_sentex_test`), is
-      ;; roster-managed at the removal choke point, and that amend-in-place behavior is
-      ;; correct as is — the mark is opt-in precisely to leave it untouched.
-      ['targetFollowingPredicate (prop-entry :target-following)]
-      ;; `(abduciblePredicate P)` is what lets abduction hypothesize a `(P …)` when a
-      ;; proof dead-ends on one (docs/abduction.md).  Deliberately **not**
-      ;; decontextualized, unlike the marks above it: `transitive` / `symmetric` are
-      ;; claims about a predicate that hold wherever it is mentioned, while this is a
-      ;; *policy* of the context that grants it — one theory may be willing to
-      ;; assume `wasWashed` and another, reading the same predicate, may not.  The
-      ;; scoped `has-prop?` arity is what reads it, so the grant reaches exactly the
-      ;; contexts that see the grantor.
-      ['abduciblePredicate (prop-entry :abducible)]
-      ;; `(closedExtentPredicate P)` says P's **believed** extent is complete: where the
-      ;; grant is visible, nothing answering `(P a)` at level 6 is what answers
-      ;; `(not (P a))` (docs/naf.md).  Not decontextualized, and for
-      ;; `abduciblePredicate`'s reason — closing a vocabulary's extent is a *policy* of
-      ;; the theory that closes it, so the scoped `has-prop?` arity reaches exactly the
-      ;; contexts that see the grant, and a sibling theory reading the same predicate
-      ;; answers open-world as before.
-      ['closedExtentPredicate
-       ;; the mark, plus the re-check postings the rules it newly governs need.  A rule
-       ;; asserted before the grant carries no posting for `P`, so nothing on `P` would
-       ;; ever bring its firings back; the arms below close that from both arrival orders,
-       ;; the way `recheck-arg-inferred` closes the same asymmetry for `arg`.
-       (-> (prop-entry :closed-extent)
-           (assoc :integrate
-                  (fn [kb sx h]
-                    (let [pred (second (:sentence sx))]
-                      (tax/mark-prop (:taxonomy kb) :closed-extent pred h (:context sx))
-                      (index-closed-extent-rules kb pred))))
-           (assoc :disintegrate
-                  (fn [kb sx]
-                    (let [pred (second (:sentence sx))]
-                      (tax/unmark-prop! (:taxonomy kb) :closed-extent pred (:id sx))
-                      (index-closed-extent-rules kb pred)))))]
-      ;; `(modalPredicate P)` is what makes `(P agent sentence)` project into the agent's
-      ;; context (docs/belief.md) — `BeliefProjectionProver` reads it.  Not
-      ;; decontextualized, and for `abduciblePredicate`'s reason: which predicates a
-      ;; theory reads modally is a *policy* of the context that grants it, so the scoped
-      ;; `has-prop?` arity reaches exactly the contexts that see the grant.  `believes`
-      ;; ships granted in CxCore; `knows` / `desires` / `intends` are one assertion away.
-      ['modalPredicate (prop-entry :modal)]
-      ;; a NAT function's kind is predicate metadata like the marks above —
-      ;; `(reifiableFunction F)` marks `:reifiable`, `(unreifiableFunction F)`
-      ;; `:unreifiable`, belief-following through the same prop cache.  The reify
-      ;; gate (`vaelii.impl.nat`) reads `:reifiable` in memory, so declaring a
-      ;; function reifiable is what turns the reify pass on.  Their argument is a
-      ;; function name (a `FruitFn`-shaped constant), so `prop-problems` — which
-      ;; refuses an individual — is replaced by `function-decl-problems`.
-      ['reifiableFunction   (assoc (prop-entry :reifiable)   :wff wff/function-decl-problems)]
-      ['unreifiableFunction (assoc (prop-entry :unreifiable) :wff wff/function-decl-problems)]
-      ;; `(quotingFunction F)` marks `:quoting`: F's arguments are a **mention**, held
-      ;; opaque to *identity* congruence — `res/representative-term` rewrites them by
-      ;; spelling (`rewriteOf`) only, never by a `sameAs`/`equals` merge — so a quoted
-      ;; term does not fold onto its referent's class.  Orthogonal to `:reifiable` /
-      ;; `:unreifiable` (it governs argument opacity, not whether the application is
-      ;; minted): `Quote` is reifiable + quoting, `Quasiquote` is unreifiable + quoting.
-      ['quotingFunction     (assoc (prop-entry :quoting)     :wff wff/function-decl-problems)]
-      ;; `(contextDenotingFunction F)` marks `:context-denoting`: a `Cx*Fn` whose ground
-      ;; applications reify to a `cx/` **context** constant (rather than a `nat/` object
-      ;; constant), so `(CxTimeFn CxMonad (DatetimeFn "2000"))` becomes a context a sentex
-      ;; can be stored in and a `genlCx` node (docs/context-nat.md).  A reify-kind like
-      ;; `:reifiable` — the nat gate turns on for it and the mint picks `cx/` by it — with
-      ;; the same `function-decl-problems` wff, its argument being a function name.
-      ['contextDenotingFunction (assoc (prop-entry :context-denoting) :wff wff/function-decl-problems)]
-      ;; `(contextArgSubrelation F pos R)` declares the structural genlCx ordering: two
-      ;; `F`-contexts identical except at argument `pos` are ordered by sub-relation `R`
-      ;; on that arg, so the producer materializes `(genlCx sub super)` when `R` holds
-      ;; (docs/context-nat.md).  Read back through the index per producer run like the
-      ;; correspondence declaration, so the entry is the wff arm alone.
-      ['contextArgSubrelation {:wff wff/context-arg-subrelation-problems}]
-      ;; `(functionCorrespondingPredicate F P N)` is read by the reify (both ways —
-      ;; docs/nat.md), which reaches it through the index rather than a cache: the
-      ;; declaration is consulted once per NAT, where the reify is already probing for
-      ;; a `rewriteOf` target and a dedup, and the *gate* a KB declaring none pays is
-      ;; an O(1) functor count.  So there is nothing to integrate, and the wff arm is
-      ;; the whole entry.
-      ['functionCorrespondingPredicate {:wff wff/correspondence-problems}]]
-     ;; the three equality relations share one entry-shape; sorted so the table
-     ;; is a pure function of the set, not of set iteration order
-     (map (fn [f] [f equality-entry]) (sort kb/equality-predicates))
-     ;; The three argument constraints are consumed at match time — the declarations
-     ;; themselves are read back through `matches-visible` per check, not cached — but
-     ;; **which predicates are the subject of one** is marked, because a constraint binds
-     ;; the tuples of every predicate beneath the one it names and the check therefore
-     ;; asks that question per super-predicate on every assert
-     ;; (`tax/arg-declaration-props`, `res/constraining-predicates`).  The two
-     ;; preservation declarations really are wff-only — read back per query, with the
-     ;; transitivity of the relation they name checked here because `arg`'s open-world
-     ;; reading cannot (docs/inherit.md).  `different` is never stored at all — its wff
-     ;; arm *is* the refusal
-     ;; ...and the query operators, never stored either — their wff arm is the
-     ;; refusal: negation as failure (docs/naf.md) and the five aggregates, which are
-     ;; the same family and take the same arm (docs/aggregate.md)
-     (into [['arg               (assoc (prop-entry (tax/arg-declaration-props 'arg))
-                                       :wff wff/arg-constraint-problems)]
-            ['genlArg              (assoc (prop-entry (tax/arg-declaration-props 'genlArg))
-                                          :wff wff/arg-constraint-problems)]
-            ['quotedArg            (assoc (prop-entry (tax/arg-declaration-props 'quotedArg))
-                                          :wff wff/arg-constraint-problems)]
-            ['interArg          (assoc (prop-entry (tax/arg-declaration-props 'interArg))
-                                       :wff wff/inter-arg-constraint-problems)]
-            ['transitiveInArg        {:wff wff/arg-preserving-problems}]
-            ['transitiveInArgInverse {:wff wff/arg-preserving-problems}]
-            ;; the three definitional collection relations: stored as ordinary facts
-            ;; and expanded into forward rules at assert (docs/defns.md), so the wff arm
-            ;; — the member-variable check — is the whole table entry, exactly as it is
-            ;; for `transitiveInArg`, which is likewise read back rather than integrated
-            ['defnNecessary        {:wff defn-wff-problems}]
-            ['defnSufficient       {:wff defn-wff-problems}]
-            ['defnIff              {:wff defn-wff-problems}]
-            ['different            {:wff wff/different-problems}]
-            ['unknown              {:wff wff/naf-problems}]
-            ['thereExists          {:wff wff/naf-problems}]
-            ;; `forall` is sugar for a nested `unknown` (docs/naf.md) and is desugared
-            ;; at the rule door, so nothing ever stores one either
-            ['forall               {:wff wff/naf-problems}]]
-           (map (fn [f] [f {:wff wff/naf-problems}]))
-           (keys sx/aggregate-functors))))))
+                              (let [[_ p q] (:sentence sx)]
+                                (tax/del-inverse! (:taxonomy kb) p q (:id sx))))
+              :rebuild      (fn [tax {[_ p q] :sentence id :id ctx :context}]
+                              (tax/add-inverse tax p q id ctx))
+              :wff          wff/inverse-problems}
+    ;; the mark plus the retroactive lift; the lift's justifications need no removal arm
+    ;; of their own — each is justified by this sentex, so the ordinary
+    ;; dependency-directed sweep withdraws them when it goes.  The rebuild replays the
+    ;; mark only: the lifted copies are already stored.  The integrate arm returns the
+    ;; `{:new :violations}` the equality arms return, so a retroactively lifted copy is a
+    ;; chaining seed like any other new content.  This is the one mark the declaration
+    ;; withholds `:derived` from, and the reason is stated there.
+    'decontextualized_predicate
+    (assoc (prop-entry 'decontextualized_predicate)
+           :integrate (fn [kb sx h]
+                        (let [pred (second (:sentence sx))]
+                          (tax/mark-prop (:taxonomy kb) :decontextualized pred h (:context sx))
+                          (lift-existing kb pred h))))
+    'forced_decontextualized_predicate (prop-entry 'forced_decontextualized_predicate)
+    ;; `(target_following_predicate P)` marks P as forming a **target-following
+    ;; meta-sentex**: a `(P … (sentexHandle H) …)` names sentex H and must not outlive it,
+    ;; so a teardown that removes H removes the meta with it
+    ;; (`core/retract-following-metas!`).  Belief-following and recover-safe like the
+    ;; marks above.  koinii's reply acts (`answers` / `disputes` / `endorses` /
+    ;; `justifies`) declare it, so retracting a claim cascades to the replies about it —
+    ;; the property a message bus cannot give.  The engine's own meta-sentexes (`except`
+    ;; / `exceptWhen`) deliberately do **not** carry it: a rule's exception orphans
+    ;; harmlessly when the rule is retracted (`meta_sentex_test`), is roster-managed at
+    ;; the removal choke point, and that amend-in-place behavior is correct as is — the
+    ;; mark is opt-in precisely to leave it untouched.
+    'target_following_predicate (prop-entry 'target_following_predicate)
+    ;; `(abducible_predicate P)` is what lets abduction hypothesize a `(P …)` when a proof
+    ;; dead-ends on one (docs/abduction.md).  Deliberately **not** decontextualized,
+    ;; unlike the marks above it: `transitive` / `symmetric` are claims about a predicate
+    ;; that hold wherever it is mentioned, while this is a *policy* of the context that
+    ;; grants it — one theory may be willing to assume `was_washed` and another, reading
+    ;; the same predicate, may not.  The scoped `has-prop?` arity is what reads it, so the
+    ;; grant reaches exactly the contexts that see the grantor.
+    'abducible_predicate (prop-entry 'abducible_predicate)
+    ;; `(closed_extent_predicate P)` says P's **believed** extent is complete: where the
+    ;; grant is visible, nothing answering `(P a)` at level 6 is what answers
+    ;; `(not (P a))` (docs/naf.md).  Not decontextualized, and for `abducible_predicate`'s
+    ;; reason — closing a vocabulary's extent is a *policy* of the theory that closes it,
+    ;; so the scoped `has-prop?` arity reaches exactly the contexts that see the grant,
+    ;; and a sibling theory reading the same predicate answers open-world as before.
+    ;;
+    ;; The arms are the mark plus the re-check postings the rules it newly governs need.
+    ;; A rule asserted before the grant carries no posting for `P`, so nothing on `P`
+    ;; would ever bring its firings back; the arms below close that from both arrival
+    ;; orders, the way `recheck-arg-inferred` closes the same asymmetry for `arg`.
+    'closed_extent_predicate
+    (-> (prop-entry 'closed_extent_predicate)
+        (assoc :integrate
+               (fn [kb sx h]
+                 (let [pred (second (:sentence sx))]
+                   (tax/mark-prop (:taxonomy kb) :closed-extent pred h (:context sx))
+                   (index-closed-extent-rules kb pred))))
+        (assoc :disintegrate
+               (fn [kb sx]
+                 (let [pred (second (:sentence sx))]
+                   (tax/unmark-prop! (:taxonomy kb) :closed-extent pred (:id sx))
+                   (index-closed-extent-rules kb pred)))))
+    ;; `(modal_predicate P)` is what makes `(P agent sentence)` project into the agent's
+    ;; context (docs/belief.md) — `BeliefProjectionProver` reads it.  Not
+    ;; decontextualized, and for `abducible_predicate`'s reason: which predicates a theory
+    ;; reads modally is a *policy* of the context that grants it, so the scoped
+    ;; `has-prop?` arity reaches exactly the contexts that see the grant.  `believes`
+    ;; ships granted in CxCore; `knows` / `desires` / `intends` are one assertion away.
+    'modal_predicate (prop-entry 'modal_predicate)
+    ;; a NAT function's kind is predicate metadata like the marks above —
+    ;; `(reifiable_function F)` marks `:reifiable`, `(unreifiable_function F)`
+    ;; `:unreifiable`, belief-following through the same prop cache.  The reify gate
+    ;; (`vaelii.impl.nat`) reads `:reifiable` in memory, so declaring a function reifiable
+    ;; is what turns the reify pass on.  Their argument is a function name (a
+    ;; `FruitFn`-shaped constant), so `prop-problems` — which refuses an individual — is
+    ;; replaced by `function-decl-problems`.
+    'reifiable_function   (assoc (prop-entry 'reifiable_function)   :wff wff/function-decl-problems)
+    'unreifiable_function (assoc (prop-entry 'unreifiable_function) :wff wff/function-decl-problems)
+    ;; `(quoting_function F)` marks `:quoting`: F's arguments are a **mention**, held
+    ;; opaque to *identity* congruence — `res/representative-term` rewrites them by
+    ;; spelling (`rewriteOf`) only, never by a `sameAs`/`equals` merge — so a quoted term
+    ;; does not fold onto its referent's class.  Orthogonal to `:reifiable` /
+    ;; `:unreifiable` (it governs argument opacity, not whether the application is
+    ;; minted): `Quote` is reifiable + quoting, `Quasiquote` is unreifiable + quoting.
+    'quoting_function     (assoc (prop-entry 'quoting_function)     :wff wff/function-decl-problems)
+    ;; `(context_denoting_function F)` marks `:context-denoting`: a `Cx*Fn` whose ground
+    ;; applications reify to a `cx/` **context** constant (rather than a `nat/` object
+    ;; constant), so `(CxTimeFn CxMonad (DatetimeFn "2000"))` becomes a context a sentex
+    ;; can be stored in and a `genlCx` node (docs/context-nat.md).  A reify-kind like
+    ;; `:reifiable` — the nat gate turns on for it and the mint picks `cx/` by it — with
+    ;; the same `function-decl-problems` wff, its argument being a function name.
+    'context_denoting_function
+    (assoc (prop-entry 'context_denoting_function) :wff wff/function-decl-problems)
+    ;; `(contextArgSubrelation F pos R)` declares the structural genlCx ordering: two
+    ;; `F`-contexts identical except at argument `pos` are ordered by sub-relation `R` on
+    ;; that arg, so the producer materializes `(genlCx sub super)` when `R` holds
+    ;; (docs/context-nat.md).  Read back through the index per producer run like the
+    ;; correspondence declaration, so the entry is the wff arm alone.
+    'contextArgSubrelation {:wff wff/context-arg-subrelation-problems}
+    ;; `(functionCorrespondingPredicate F P N)` is read by the reify (both ways —
+    ;; docs/nat.md), which reaches it through the index rather than a cache: the
+    ;; declaration is consulted once per NAT, where the reify is already probing for a
+    ;; `rewriteOf` target and a dedup, and the *gate* a KB declaring none pays is an O(1)
+    ;; functor count.  So there is nothing to integrate, and the wff arm is the whole
+    ;; entry.
+    'functionCorrespondingPredicate {:wff wff/correspondence-problems}
+    ;; The four argument constraints are consumed at match time — the declarations
+    ;; themselves are read back through `matches-visible` per check, not cached — but
+    ;; **which predicates are the subject of one** is marked, because a constraint binds
+    ;; the tuples of every predicate beneath the one it names and the check therefore asks
+    ;; that question per super-predicate on every assert (`tax/arg-declaration-props`,
+    ;; `res/constraining-predicates`).
+    'arg       (assoc (prop-entry 'arg)       :wff wff/arg-constraint-problems)
+    'genlArg   (assoc (prop-entry 'genlArg)   :wff wff/arg-constraint-problems)
+    'quotedArg (assoc (prop-entry 'quotedArg) :wff wff/arg-constraint-problems)
+    'interArg  (assoc (prop-entry 'interArg)  :wff wff/inter-arg-constraint-problems)
+    ;; The two preservation declarations really are wff-only — read back per query, with
+    ;; the transitivity of the relation they name checked here because `arg`'s open-world
+    ;; reading cannot (docs/inherit.md).
+    'transitiveInArg        {:wff wff/arg-preserving-problems}
+    'transitiveInArgInverse {:wff wff/arg-preserving-problems}
+    ;; the three definitional collection relations: stored as ordinary facts and expanded
+    ;; into forward rules at assert (docs/defns.md), so the wff arm — the member-variable
+    ;; check — is the whole table entry, exactly as it is for `transitiveInArg`, which is
+    ;; likewise read back rather than integrated
+    'defnNecessary  {:wff defn-wff-problems}
+    'defnSufficient {:wff defn-wff-problems}
+    'defnIff        {:wff defn-wff-problems}
+    ;; `different` is never stored at all — its wff arm *is* the refusal
+    'different      {:wff wff/different-problems}
+    ;; ...and the query operators, never stored either, for the same reason: negation as
+    ;; failure (docs/naf.md) and the five aggregates below, which are the same family and
+    ;; take the same arm (docs/aggregate.md).  `forall` is sugar for a nested `unknown`
+    ;; and is desugared at the rule door, so nothing ever stores one either.
+    'unknown        {:wff wff/naf-problems}
+    'thereExists    {:wff wff/naf-problems}
+    'forall         {:wff wff/naf-problems}}
+   ;; the eight predicate-metadata marks, each differing only in the `:props` kind its
+   ;; declaration names.  `anti_symmetric` and `anti_transitive` are in the same list as
+   ;; the six below them now that the kind is read off the declaration rather than
+   ;; case-converted from the functor — the conversion is what used to force them out.
+   ;; `(anti_symmetric P)` derives `(equals a b)` from a believed converse
+   ;; (`derive-antisymmetric-equalities`); `(anti_transitive P)` convicts the two-step
+   ;; chain and the direct step together (`checks/antitransitivity-problems`).  The mark
+   ;; is what both of those read, and reading it up the predicate hierarchy
+   ;; (`tax/props-over`) is what makes a `parentOf` mark convict a `fatherOf` chain.
+   (into {} (map (fn [f] [f (prop-entry f tax/closure-relations)]))
+         '[transitive symmetric asymmetric reflexive functional irreflexive
+           anti_symmetric anti_transitive])
+   ;; the three equality relations share one entry-shape
+   (into {} (map (fn [f] [f equality-entry])) kb/equality-predicates)
+   (into {} (map (fn [f] [f {:wff wff/naf-problems}])) (keys sx/aggregate-functors))))
+
+(defn- declared-half
+  "The half of a table entry `vaelii.impl.predicates` owns: the `:props` kind a mark
+  maintains, and whether the entry's arms run on the derivation path as well as the
+  assert path.
+
+  Both are statements about the *predicate* — a mark that arrives by derivation must
+  install like an asserted one; a kind exists because something declares it — rather
+  than about the functions, which is why they are read off the declaration rather than
+  written beside the arms.  The whole argument for each sits on the facet in
+  `predicates`."
+  [term]
+  (cond-> {}
+    (pr/prop-kind term)         (assoc :prop (pr/prop-kind term))
+    (contains? pr/derived term) (assoc :derived? true)))
+
+(defn check-declarations
+  "Refuse a table whose arms and declarations disagree — the cross-layer half of
+  `check-entries`, which sees only the arms and so can only check that they mirror each
+  other.  Three disagreements are refused, all at namespace load:
+
+  * a functor with arms and no declaration, or a declaration and no arms.  The two are
+    one enumeration now, and a functor in only one of them is a predicate the engine
+    either interprets without saying so or says something about and does nothing with.
+  * a `:cached` declaration whose arms have no cache triple, or the reverse.
+  * a `:checked` declaration whose arms have no `:wff`, or the reverse.
+
+  `check-entries` catches a *missing* arm; neither validator can catch an arm attached
+  to the wrong functor, which is what `special_table_test` and `predicates_test` are
+  for.  Two validators at two layers, each checking what it can see: they are not to be
+  merged.
+
+  One `:type` between them — `:bad-table-entry`, discriminated by `:mismatch` — for the
+  reason `check-entries` already gives itself two shapes under one word: whichever way
+  the table is bad, the caller catching it is the namespace load, and there is nothing
+  a second keyword would let that caller do."
+  [entries]
+  (let [armed      (set (map first entries))
+        unarmed    (vec (sort (remove armed pr/in-special-table)))
+        undeclared (vec (sort (remove pr/in-special-table armed)))]
+    (when (or (seq unarmed) (seq undeclared))
+      (throw (ex-info (str "the special-predicate arms and the declarations in"
+                           " vaelii.impl.predicates enumerate different functors —"
+                           " declared with no arms: " (pr-str unarmed)
+                           "; armed with no declaration: " (pr-str undeclared))
+                      {:type       :bad-table-entry
+                       :mismatch    :enumeration
+                       :unarmed     unarmed
+                       :undeclared  undeclared})))
+    (doseq [[f spec] entries]
+      (let [cached?  (contains? pr/cached f)
+            checked? (contains? pr/checked f)]
+        (when (not= cached? (boolean (:integrate spec)))
+          (throw (ex-info (str "special-predicate " f " is declared "
+                               (if cached? "" "un") "cached but its arms "
+                               (if cached? "have no" "have a") " cache triple")
+                          {:type :bad-table-entry :mismatch :cached :functor f})))
+        (when (not= checked? (boolean (:wff spec)))
+          (throw (ex-info (str "special-predicate " f " is declared "
+                               (if checked? "" "un") "checked but its arms "
+                               (if checked? "have no" "have a") " :wff arm")
+                          {:type :bad-table-entry :mismatch :checked :functor f})))))
+    entries))
+
+(def entries
+  "The special-predicate dispatch table: an **ordered** vector of `[functor spec]`
+  pairs, joined from the arms above and the declarations in `vaelii.impl.predicates`.
+
+  **The order is the declaration's** — `predicates/entries` filtered to the functors
+  this table holds an entry for.  `rebuild-taxonomy` replays it top to bottom and a
+  rebuild arm may read what an earlier one wrote (metatype membership reads the marks;
+  nothing else is order-sensitive today, and keeping the assert path's traditional
+  order costs nothing), so the order is content and belongs with the other content.
+
+  This vector is *the* functor enumeration the four walks use: integrate,
+  disintegrate, rebuild and wff all walk it, so a predicate declared and armed is added
+  to all four at once, `check-entries` refuses it half-armed and `check-declarations`
+  refuses it armed without being declared.  `table` below is the lookup view."
+  (-> (into [] (comp (map first)
+                     (filter pr/in-special-table)
+                     (map (fn [f] [f (merge (declared-half f) (arms f))])))
+            pr/entries)
+      check-entries
+      check-declarations))
 
 (def table
   "`entries` as the lookup map the walks below dispatch through."
@@ -4132,7 +4191,7 @@
   the equality arms are themselves derivation sites: a migrated twin and a
   functional-inferred `equals` are derived sentexes, and hand-rolling this pair at
   those sites is exactly the copy-paste the choke points exist to end.  Callers:
-  forward chaining's `place-conclusion`, the `decontextualizedPredicate` lift, the
+  forward chaining's `place-conclusion`, the `decontextualized_predicate` lift, the
   argument-constraint entailment, and `derive-equality`."
   [kb sentex handle]
   (let [sentence (:sentence sentex)]

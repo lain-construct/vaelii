@@ -1389,7 +1389,7 @@ A sentence is rendered structurally, not as one opaque string:
 
 ### A reified term is never shown as its constant
 
-A ground `(F a…)` under a `reifiableFunction` is stored as an opaque constant in the
+A ground `(F a…)` under a `reifiable_function` is stored as an opaque constant in the
 reserved `nat/` namespace ([nat.md](nat.md)) — that is how a function term gets indexed,
 retracted and truth-maintained like any symbol. A `nat/`-namespaced gensym is not a name
 anybody wrote and says nothing to a reader, so **no page shows one**. Every term goes through

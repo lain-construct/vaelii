@@ -323,7 +323,7 @@
     (with-entailing
       (a-context kb CxWorld)
       (a-type kb t CxWorld)
-      (v/assert kb (list 'binaryPredicate t) CxWorld)
+      (v/assert kb (list 'binary_predicate t) CxWorld)
       (v/assert kb (list 'arg rel 1 t) CxWorld)
       (v/clear-violations! kb)
       (let [h (v/assert kb (list rel Rex Mary) CxWorld)]

@@ -402,11 +402,39 @@ Gathering the three in one file beats leaving each as a `requiring-resolve` at i
 call site. Scattered, a `requiring-resolve` is invisible: nothing counts it, nothing
 stops the next one, and the set of places the layering is broken can only be recovered
 by grepping for it. Gathered, they are an inventory — three entries, each owing the
-reason it cannot be an ordinary require — and `lein lint`'s E8 fails a literal
+reason it cannot be an ordinary require — and `lein lint`'s E8 fails a written-out
 `requiring-resolve` anywhere else under `src/`, excepting the optional dependencies it
-names by target. Only the literal form is a cut: a symbol computed off a keyword-dispatch
+names by target. Only the written-out form is a cut: a symbol computed off a keyword-dispatch
 registry names no edge at read time, so E8 never sees one. A cut with a real fix takes
 the fix; one that lands in the inventory argues for itself in writing first.
+
+### What a term says lives below what the engine does about it
+
+Everything the engine interprets about a functor is two things: what the term *says* —
+its sentence shape, the table it caches into, the lanes that read it — and what the
+engine *does* about it, the integrate / disintegrate / rebuild arms and the
+well-formedness check. They are written in two namespaces, `vaelii.impl.predicates` and
+`vaelii.impl.special`, and joined at load. Keeping them adjacent is the obvious
+alternative and it is not available.
+
+The arms need functions from four layers — `taxonomy` to install a mark, `wff` to check a
+shape, `checks` to convict, `settle` to sweep — so a namespace holding arms sits at the
+**top** of the require order by construction. Put the data there with them and `taxonomy`
+cannot read it, which is precisely the namespace that most needs to know which relations
+it closes. So the data goes to the bottom, requiring nothing but `clojure.*`, and every
+layer above reads it: [predicates.md](predicates.md) lists the seven views that result.
+
+Splitting them buys a check that adjacency cannot give. Two halves written side by side
+agree because whoever wrote them agreed; the agreement is maintained by review, and review
+is what the defects here get past. Written apart and *joined*, the agreement is arithmetic
+over two enumerations, and the join is a function that can refuse: `:cached` with no cache
+triple, `:checked` with no `:wff` arm, a functor armed and never declared. Each is a defect
+neither half can see alone, and each reports nothing at runtime — a mark installed by one
+arm and not removed by another leaks silently rather than throwing.
+
+Where a field seems to want a *function* it holds a keyword naming one, resolved by the
+layer that owns the function. That is the whole cost of the split, and it buys the
+direction of the requires.
 
 ## Storage and the single writer
 
@@ -789,7 +817,7 @@ be somewhere a reader finds it, never that it must be a rule.
 
 ### Recording a disjoint clique beats asserting it
 
-`(disjointMetatype Metatype)` records that a metatype's members are pairwise disjoint
+`(disjoint_metatype Metatype)` records that a metatype's members are pairwise disjoint
 rather than asserting the pairs as `(disjoint …)` sentexes (see
 [taxonomy.md](taxonomy.md)).
 
@@ -864,13 +892,13 @@ the one path that never needs it.
 
 Defends [argtypes.md](argtypes.md).
 
-### A literal is typed by its kind, and the openness moves to the declared type
+### A value is typed by its kind, and the openness moves to the declared type
 
-A type membership cannot be *asserted* of a literal — there is no `(dog "Bob")` to store —
+A type membership cannot be *asserted* of a value — there is no `(dog "Bob")` to store —
 and the tempting conclusion is to exempt every non-symbol from the argument constraints,
 since nothing could ever satisfy them. That reads a missing assertion as an unanswerable
-question. It is answerable: a literal's EDN kind is knowable from the literal itself
-(`checks/literal-type`), and those kinds sit in the `genl` lattice precisely so the
+question. It is answerable: a value's EDN kind is knowable from the value itself
+(`checks/value-kind`), and those kinds sit in the `genl` lattice precisely so the
 comparison can be made. A string is a `string`, a `string` is not a `dog`, and a
 declaration that admits `(P "Bob")` constrains only the half of the position somebody
 happened to spell with a name.
@@ -879,7 +907,7 @@ The openness does not disappear, it moves — to the **declared type**. A `t` th
 cannot place the kind against exempts, which is the imported-constraint case; a **symbol**
 stays open-world, violating nothing until it holds a membership. That is what keeps the
 check from turning an incomplete ontology into a wall of refusals: what is unknown is the
-declaration's reach, not the literal's kind.
+declaration's reach, not the value's kind.
 
 A **compound** is the one leaf shape no *kind* answers for, and it is answered from the
 other side. What `(QuantityFn 5 Meter)` denotes is its function's business, so no syntactic
@@ -904,9 +932,9 @@ declaration and the pair-shaped one does not.
 ### One vocabulary, not two
 
 `string`, `number`, `integer`, `keyword`, `boolean`, `character` and `symbol` are the KB's
-only names for the kinds a literal argument can carry — one per leaf kind, and `arg` and
+only names for the kinds a value can carry — one per leaf kind, and `arg` and
 `quotedArg` both read the same seven, along with the four sign-refined integer types below
-`integer` (`checks/literal-value-types`). The tempting alternative is a
+`integer` (`checks/value-kinds`). The tempting alternative is a
 parallel spelling per declaration, so that what an argument *denotes* and what is *written*
 there never share a name.
 
@@ -920,10 +948,10 @@ is one nothing reports.
 the way down.** They were added denotation-only, on the reasoning that a sign is a fact
 about a value and `quotedArg` asks about syntax. But they live *below* `integer` in the
 lattice, so they are inside `quotedArg`'s domain and the open-world escape above does not
-reach them: the mention check compared a literal's bare kind upward against the declared
+reach them: the mention check compared a value's bare kind upward against the declared
 type and convicted every integer written in such a position. Half a vocabulary is worse
 than two, because the half that is missing does not go quiet — it answers wrongly. A
-literal denotes itself, which is the whole reason the kinds are in the `genl` lattice, and
+value denotes itself, which is the whole reason the kinds are in the `genl` lattice, and
 it is why both readings now go through one reader.
 
 ## Inference and chaining
@@ -1060,7 +1088,7 @@ The exception belongs on the rule it excepts instead, naming the rule directly r
 than leaving the connection to be rediscovered:
 
 ```clojure
-(exceptWhen (flightlessBird ?b)
+(exceptWhen (flightless_bird ?b)
   (set/defaultRule (implies (bird ?b) (hasAbility ?b flying))))
 ```
 
@@ -1071,7 +1099,7 @@ ground binding under which it would hold, store the ground exception as an unbel
 node and list its handle in the justification's `out` set. That implementation is
 wrong twice over.
 
-It would store the negative space. `(exceptWhen (flightlessBird ?b) ...)` over ten
+It would store the negative space. `(exceptWhen (flightless_bird ?b) ...)` over ten
 thousand birds would materialize a probe for every bird that *is not* flightless,
 which is nearly all of them — the store would grow with the exceptions that do not
 apply, rather than with the exceptions that hold.

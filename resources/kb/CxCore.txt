@@ -5,7 +5,7 @@
 ;;
 ;; The test for belonging here is **grammar, not subject matter**: a term earns a place
 ;; only if it is vocabulary several upper-spindle members state their content *in*.
-;; binaryPredicate, arg, genl and unreifiableFunction are grammar — every domain
+;; binary_predicate, arg, genl and unreifiable_function are grammar — every domain
 ;; declares its relations, constraints, types and functions with them. dimensionOf and
 ;; partOfRegion are not: they are *about* something (measurement, space), so they live
 ;; in the one upper context that owns that subject (kb/upper/CxMeasure.txt,
@@ -17,49 +17,49 @@
 ;; it finds, but a KB assembled from CxCore plus the layers it wants carries only
 ;; the subjects it reasons about, and nothing here has to change to add or drop one.
 
-(comment abduciblePredicate
-         "(abduciblePredicate ?predicate) means that a (?predicate …) sentence may be hypothesized. When a backward proof dead-ends on one, abduce may assume it rather than fail. A grant, and the only thing that makes a predicate abducible: an undeclared one is never assumed, since an abducer that will hypothesize anything explains everything and is worth nothing. Read from the asking context's genlCx up-cone rather than universally, so it is a policy of the context that gives it — one theory may be willing to assume what another, reading the same vocabulary, will not.")
-(unaryPredicate abduciblePredicate)
-(arg abduciblePredicate 1 predicate)
+(comment abducible_predicate
+         "(abducible_predicate ?predicate) means that a (?predicate …) sentence may be hypothesized. When a backward proof dead-ends on one, abduce may assume it rather than fail. A grant, and the only thing that makes a predicate abducible: an undeclared one is never assumed, since an abducer that will hypothesize anything explains everything and is worth nothing. Read from the asking context's genlCx up-cone rather than universally, so it is a policy of the context that gives it — one theory may be willing to assume what another, reading the same vocabulary, will not.")
+(unary_predicate abducible_predicate)
+(arg abducible_predicate 1 predicate)
 
-(comment closedExtentPredicate
-         "(closedExtentPredicate ?predicate) means that ?predicate's believed extent is complete: everything that holds of it is already derivable, so nothing answering (?predicate …) is what answers (not (?predicate …)). A grant, and the only thing that closes an extent — an undeclared predicate stays open-world, where an argument nobody has typed cannot violate a constraint and a fact nobody has stated is not thereby false. Read from the asking context's genlCx up-cone rather than universally, so it is a policy of the theory that closes the extent: one may state the twelve months and read a thirteenth as refuted, while a sibling reading the same predicate answers only what it was told. Belief-following: a defeated or retracted member leaves the extent, and a closed (not (?predicate …)) rule antecedent is negation as failure, withdrawn when a member arrives.")
-(unaryPredicate closedExtentPredicate)
-(arg closedExtentPredicate 1 predicate)
+(comment closed_extent_predicate
+         "(closed_extent_predicate ?predicate) means that ?predicate's believed extent is complete: everything that holds of it is already derivable, so nothing answering (?predicate …) is what answers (not (?predicate …)). A grant, and the only thing that closes an extent — an undeclared predicate stays open-world, where an argument nobody has typed cannot violate a constraint and a fact nobody has stated is not thereby false. Read from the asking context's genlCx up-cone rather than universally, so it is a policy of the theory that closes the extent: one may state the twelve months and read a thirteenth as refuted, while a sibling reading the same predicate answers only what it was told. Belief-following: a defeated or retracted member leaves the extent, and a closed (not (?predicate …)) rule antecedent is negation as failure, withdrawn when a member arrives.")
+(unary_predicate closed_extent_predicate)
+(arg closed_extent_predicate 1 predicate)
 
 (comment agg/avg
          "(agg/avg ?mean ?value ?body) means that ?mean is the mean of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, an average over nothing being a division by zero however it is dressed up. A query operator, never stored.")
-(ternaryPredicate agg/avg)
+(ternary_predicate agg/avg)
 
 (comment agg/count
          "(agg/count ?count ?value ?body) means that ?count is how many distinct ?value satisfy ?body. Distinct by the equality closure, so two names for one thing count once, and 0 over an empty ?body. ?value is projected out and ?count is the only binding produced, so in a rule body the aggregate runs once per grouping the generators bind and yields one ?count each — which is where GROUP BY comes from, with no GROUP BY construct to design. A query operator answered by a prover, never stored: a count is a function of what is believed now, and storing one would put a computed value under truth maintenance with no way to invalidate it.")
-(ternaryPredicate agg/count)
+(ternary_predicate agg/count)
 
 (comment agg/max
          "(agg/max ?max ?value ?body) means that ?max is the greatest of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, a maximum of nothing being a claim about a group with no members. A query operator, never stored.")
-(ternaryPredicate agg/max)
+(ternary_predicate agg/max)
 
 (comment agg/min
          "(agg/min ?min ?value ?body) means that ?min is the least of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, a minimum of nothing being a claim about a group with no members. A query operator, never stored.")
-(ternaryPredicate agg/min)
+(ternary_predicate agg/min)
 
 (comment agg/sum
          "(agg/sum ?sum ?value ?body) means that ?sum is the total of the distinct numeric ?value satisfying ?body. Measures of one dimension work too: they are normalized, added in base units and rendered back, so a mixed-dimension extent is refused rather than quietly added. 0 over an empty ?body, that being the identity of the reduction. A query operator, never stored.")
-(ternaryPredicate agg/sum)
+(ternary_predicate agg/sum)
 
 (comment and
          "(and ?antecedent1 ?antecedent2 …) means the conjunction of the antecedents inside an implies rule. A syntactic connective rather than a predicate: it is never asserted on its own, and a rule with a single antecedent needs no and at all.")
 
 (comment genlArg
-         "(genlArg ?predicate ?position ?type) means that argument ?position of ?predicate must be a subtype of ?type. The arg constraint one level up, for a typeRelationPredicate whose arguments name kinds rather than instances: (genlArg partType 1 physical_object) says the argument names a kind of physical object, where (arg partOf 1 physical_object) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it.")
-(ternaryPredicate genlArg)
+         "(genlArg ?predicate ?position ?type) means that argument ?position of ?predicate must be a subtype of ?type. The arg constraint one level up, for a type_relation_predicate whose arguments name kinds rather than instances: (genlArg partType 1 physical_object) says the argument names a kind of physical object, where (arg partOf 1 physical_object) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it.")
+(ternary_predicate genlArg)
 (arg genlArg 1 predicate)
 (arg genlArg 2 positive_integer)
 (genlArg genlArg 3 thing)
 
 (comment arg
          "(arg ?predicate ?position ?type) means that argument ?position of ?predicate must be of ?type. Checked through genl transitivity whenever a sentex is asserted, and open-world: an argument whose type is unknown cannot violate it, so this narrows what can be said without demanding that everything be typed.")
-(ternaryPredicate arg)
+(ternary_predicate arg)
 (arg arg 1 predicate)
 (arg arg 2 positive_integer)
 (genlArg arg 3 thing)
@@ -72,21 +72,22 @@
 ;; stays a plain fact (a sub-predicate may carry its own signature).
 
 (comment quotedArg
-         "(quotedArg ?predicate ?position ?type) means that argument ?position of ?predicate, taken AS A TERM — the syntactic object written in that position, not what it denotes — must be of ?type. The mention twin of arg: (arg nameOfGuy 1 agent) types what the first argument names, (quotedArg nameOfGuy 1 string) types the argument itself, the literal sitting there. Its ?type is a syntactic type — string, number (with integer below it), symbol — and the argument is classified by its EDN kind, then checked through genl like arg. Closed about a literal whose kind is decidable: (nameOfGuy 5) violates (quotedArg nameOfGuy 1 string), 5 being a number and not a string. It does not read the referent's type, which is arg's business.")
-(ternaryPredicate quotedArg)
+         "(quotedArg ?predicate ?position ?type) means that argument ?position of ?predicate, taken AS A TERM — the syntactic object written in that position, not what it denotes — must be of ?type. The mention twin of arg: (arg name_of_guy 1 agent) types what the first argument names, (quotedArg name_of_guy 1 string) types the argument itself, the value sitting there. Its ?type is a syntactic type — string, number (with integer below it), symbol — and the argument is classified by its EDN kind, then checked through genl like arg. Closed about a value whose kind is decidable: (name_of_guy 5) violates (quotedArg name_of_guy 1 string), 5 being a number and not a string. It does not read the referent's type, which is arg's business.")
+(ternary_predicate quotedArg)
 (arg quotedArg 1 predicate)
 (arg quotedArg 2 positive_integer)
 (genlArg quotedArg 3 thing)
 
-;; The literal types — the EDN kinds a literal argument can carry, placed in the genl
-;; lattice so (quotedArg p n number) admits an integer and a bare type reaches thing.  A
-;; quoted argument is classified by kind (checks/literal-type), not by any stored
+;; The value kinds — the EDN kinds an argument written as a value can carry, placed in
+;; the genl lattice so (quotedArg p n number) admits an integer and a bare type reaches
+;; thing.  A
+;; quoted argument is classified by kind (checks/value-kind), not by any stored
 ;; membership, so these need only their place in the hierarchy.
 ;;
-;; These are the KB's ONLY names for the kinds a literal argument can carry, and there is
+;; These are the KB's ONLY names for the kinds a value can carry, and there is
 ;; deliberately no parallel domain vocabulary beside them.  The use/mention distinction is
 ;; carried by the DECLARATION — arg types what an argument denotes, quotedArg types the
-;; term written there — and not by a second set of type names: a string literal denotes
+;; term written there — and not by a second set of type names: a string value denotes
 ;; itself, so both questions are asked of one set, and (arg comment 2 string) and
 ;; (quotedArg p n string) name the same type for the same reason.  A second spelling buys
 ;; nothing and costs a trap, quotedArg reading a type outside this lattice open-world
@@ -97,13 +98,13 @@
 ;; symbol and denotes a predicate.  So symbol gets no domain placement and no
 ;; disjointness below; a use-level claim about it would be false of every predicate name.
 ;; One name per leaf kind a sentence can carry, and the set is complete on purpose.  A
-;; literal is typed by what it IS rather than by what somebody asserted, so a kind with no
+;; value is typed by what it IS rather than by what somebody asserted, so a kind with no
 ;; name here is one the argument checks cannot place and must wave through — which is a
 ;; hole in a declaration rather than a policy.  A COMPOUND is the one exception and gets
 ;; no name here: what (QuantityFn 5 Meter) denotes is its function's business, so the
 ;; argument checks read it off result / genlResult instead and no kind would be the
 ;; right answer.
-(comment string  "A run of text. The EDN string kind, and what a text-valued argument position holds — either as the literal written there (quotedArg) or as what the term written there denotes (arg).")
+(comment string  "A run of text. The EDN string kind, and what a text-valued argument position holds — either as the value written there (quotedArg) or as what the term written there denotes (arg).")
 (comment number  "A number, with integer below it. The EDN numeric kinds.")
 (comment integer "A whole number.")
 (comment positive_integer "A whole number greater than zero.")
@@ -111,7 +112,7 @@
 (comment non_negative_integer "A whole number greater than or equal to zero.")
 (comment non_positive_integer "A whole number less than or equal to zero.")
 (comment keyword "An EDN keyword, :like_this. A term that names itself and carries no denotation the KB reasons about.")
-(comment boolean "True or false, written as the literal.")
+(comment boolean "True or false, written out.")
 (comment character "A single character, written \\a. Not a one-letter string: the two are separate EDN kinds and neither is below the other.")
 (comment symbol  "A name — the term written in an argument position, whatever that term denotes. Mention-only: see the note above its declaration.")
 (genl string thing)
@@ -121,29 +122,85 @@
 (genl negative_integer integer)
 (genl non_negative_integer integer)
 (genl non_positive_integer integer)
-(defnIff positive_integer (and (integer ?x) (greaterThan ?x 0)))
-(defnIff negative_integer (and (integer ?x) (lessThan ?x 0)))
-(defnIff non_negative_integer (and (integer ?x) (greaterThan ?x -1)))
-(defnIff non_positive_integer (and (integer ?x) (lessThan ?x 1)))
+;; The four sign-refined integer collections are defined by DEFNS, not rules, so
+;; membership resolves by EVALUATION at query time (integer / greaterThan / lessThan are
+;; computed, never stored) at zero sentex cost: DefnSufficientProver admits a member whose
+;; sufficient condition holds, DefnNecessaryNegationProver proves a non-member whose
+;; necessary fails.  A defnSufficient and a defnNecessary carry the same condition, so each
+;; collection is defined both ways (what defnIff said, without the forward rules that never
+;; fire on a computed condition).
+(defnSufficient positive_integer (and (integer ?x) (greaterThan ?x 0)))
+(defnNecessary  positive_integer (and (integer ?x) (greaterThan ?x 0)))
+(defnSufficient negative_integer (and (integer ?x) (lessThan ?x 0)))
+(defnNecessary  negative_integer (and (integer ?x) (lessThan ?x 0)))
+(defnSufficient non_negative_integer (and (integer ?x) (greaterThan ?x -1)))
+(defnNecessary  non_negative_integer (and (integer ?x) (greaterThan ?x -1)))
+(defnSufficient non_positive_integer (and (integer ?x) (lessThan ?x 1)))
+(defnNecessary  non_positive_integer (and (integer ?x) (lessThan ?x 1)))
 (genl keyword thing)
 (genl boolean thing)
 (genl character thing)
 (genl symbol thing)
 
+;; The expression kinds — what a sentence is BUILT OUT OF, named as collections so a
+;; declaration can type an argument by the SHAPE of the expression written there rather
+;; than by what it denotes.  The value kinds above name a leaf; these name a compound.
+;;
+;; The ladder is the standard one, and the docs are held to it (docs/naming.md's reserved
+;; words).  An ATOMIC_FORMULA is a predicate applied to terms.  An ATOMIC_SENTENCE is a
+;; closed atomic_formula.  A LITERAL is an atomic_formula or its negation.  A FORMULA is
+;; an atomic_formula, a logical operator applied to formulas, or a quantifier binding
+;; variables in one.  A SENTENCE is a closed formula — which is what every stored sentex
+;; holds, since checks/check-ground refuses an open non-rule sentence and a rule's
+;; variables are implicitly universal.
+;;
+;; A RELATION_APPLICATION is the shape an atomic_formula and a non_atomic_term share: a
+;; relation applied to arguments.  Which of the two it is depends on whether the relation
+;; is a predicate or a function, and the two specializations below say so.  They are
+;; disjoint and the pair is not declared covering — the KB has no vocabulary for stating
+;; exhaustive coverage, only sibling_disjoint and disjoint, neither of which says it.
+;;
+;; DOCUMENTARY: nothing in the engine reads these.  An argument declaration over one
+;; stores and convicts nothing, because a compound argument has no knowable kind —
+;; checks/value-kind answers nil for a compound by design (docs/argtypes.md), and no
+;; reader classifies a compound by its shape.  So (quotedArg P n relation_application)
+;; is inert, and so is the arg form.  The vocabulary is here because it should be one
+;; vocabulary when a shape classifier does exist; the classifier itself does not.
+(comment relation_application "A relation applied to zero or more arguments — the shape (R a1 a2 ...) has, whatever R is. Specializes into atomic_formula when R is a predicate and non_atomic_term when R is a function, and the two are disjoint.")
+(comment denotational_term "An expression that DENOTES an entity: a symbol, a value, a variable, or a non-atomic term. The logic sense of 'term', spelled in full because plain 'term' is the vocabulary sense — a name the term index is keyed by.")
+(comment atomic_formula "A predicate applied to terms — (dog Muffet), (parentOf ?x Tom). Open or closed alike: the definition says nothing about variables.")
+(comment atomic_sentence "A closed atomic_formula — one with no free variables. What a stored LiteralSentex holds in its sentence slot.")
+(comment literal "An atomic_formula or its negation. What a LiteralSentex holds, with the record's polarity slot saying which of the two it is. A rule's antecedent is a vector of literals.")
+(comment formula "An atomic_formula; a logical operator applied to formulas; or a quantifier binding variables in a formula. Open when it has free variables, closed when it does not.")
+(comment sentence "A closed formula. Every stored sentex holds one — checks/check-ground refuses an open non-rule sentence, and a rule's variables are implicitly universal. A possibly-open goal is a pattern, not a sentence.")
+(comment non_atomic_term "A function applied to terms — (MotherFn Muffet). The NAT of docs/nat.md, named here as a collection so a declaration can say an argument is one.")
+(genl relation_application thing)
+(genl denotational_term thing)
+(genl formula thing)
+(genl atomic_formula relation_application)
+(genl non_atomic_term relation_application)
+(genl non_atomic_term denotational_term)
+(genl literal formula)
+(genl atomic_formula literal)
+(genl sentence formula)
+(genl atomic_sentence atomic_formula)
+(genl atomic_sentence sentence)
+(disjoint atomic_formula non_atomic_term)
+
 (comment interArg
          "(interArg ?predicate ?position1 ?type1 ?position2 ?type2) means that whenever argument ?position1 of ?predicate is a ?type1, argument ?position2 must be a ?type2. The conditional argument constraint, and it says what arg cannot: (interArg eats 1 carnivore 2 meat) types the second argument only for the eaters that are carnivores, where (arg eats 2 meat) would demand meat of every eater. Open-world in both directions, and they point opposite ways — silence about the trigger argument's type leaves the constraint dormant rather than firing it, while silence about the target argument's is what convicts. Checked through genl transitivity from the writing context, like arg, and it entails the same way under assertive argument types.")
 (arity interArg 5)
-(instanceRelationPredicate interArg)
+(instance_relation_predicate interArg)
 (arg interArg 1 predicate)
 (arg interArg 2 positive_integer)
-(arg interArg 3 unaryPredicate)
+(arg interArg 3 unary_predicate)
 (arg interArg 4 positive_integer)
-(arg interArg 5 unaryPredicate)
+(arg interArg 5 unary_predicate)
 
 (comment arity
-         "(arity ?predicate ?n) means that ?predicate takes ?n arguments. One for a unaryPredicate, two for a binaryPredicate, three for a ternaryPredicate. The arity and the predicate-type membership derive each other, so asserting either keeps the whole cycle believed, and retracting the one that was actually asserted collapses it. The three classifications are pairwise disjoint, so a predicate is at most one of them and a second classification is refused where it is written rather than surfacing later as two values in this table.")
-(binaryPredicate arity)
-(instanceRelationPredicate arity)
+         "(arity ?predicate ?n) means that ?predicate takes ?n arguments. One for a unary_predicate, two for a binary_predicate, three for a ternary_predicate. The arity and the predicate-type membership derive each other, so asserting either keeps the whole cycle believed, and retracting the one that was actually asserted collapses it. The three classifications are pairwise disjoint, so a predicate is at most one of them and a second classification is refused where it is written rather than surfacing later as two values in this table.")
+(binary_predicate arity)
+(instance_relation_predicate arity)
 (functional arity)
 (arg arity 1 predicate)
 (arg arity 2 non_negative_integer)
@@ -157,14 +214,14 @@
 ;; same context — answered false.  One KB cannot say both.
 
 ;; arity concludes the predicate type
-(implies (and (arity ?p 1)) (unaryPredicate ?p))
-(implies (and (arity ?p 2)) (binaryPredicate ?p))
-(implies (and (arity ?p 3)) (ternaryPredicate ?p))
+(implies (and (arity ?p 1)) (unary_predicate ?p))
+(implies (and (arity ?p 2)) (binary_predicate ?p))
+(implies (and (arity ?p 3)) (ternary_predicate ?p))
 
 ;; the predicate type concludes the arity
-(implies (and (unaryPredicate ?p))   (arity ?p 1))
-(implies (and (binaryPredicate ?p))  (arity ?p 2))
-(implies (and (ternaryPredicate ?p)) (arity ?p 3))
+(implies (and (unary_predicate ?p))   (arity ?p 1))
+(implies (and (binary_predicate ?p))  (arity ?p 2))
+(implies (and (ternary_predicate ?p)) (arity ?p 3))
 
 ;; and the three classifications separate each other: a predicate takes ONE number of
 ;; arguments, so a second classification is a contradiction rather than a second fact, and
@@ -173,59 +230,59 @@
 ;; for one ?p, and (functional arity) would then be convicting a clash that the two
 ;; declarations had already made.
 ;;
-;; Pairwise, and NOT a (siblingDisjoint predicate) mark: predicate's specializations are
+;; Pairwise, and NOT a (sibling_disjoint predicate) mark: predicate's specializations are
 ;; every classification of a relation there is, and a predicate is rightly several of
-;; those at once — arity itself is a binaryPredicate and an instanceRelationPredicate, and
+;; those at once — arity itself is a binary_predicate and an instance_relation_predicate, and
 ;; the mark would refuse the pair.  The separation claimed here is among the three arity
 ;; classes alone, which is three pairs and says exactly that.  It closes under genl like
 ;; any disjointness, so functional / symmetric / transitive and the rest — every one of
-;; them a kind of binaryPredicate — are separated from the unary and ternary classes with
+;; them a kind of binary_predicate — are separated from the unary and ternary classes with
 ;; their parent, which is the claim their genl edge already makes.
-(disjoint unaryPredicate binaryPredicate)
-(disjoint unaryPredicate ternaryPredicate)
-(disjoint binaryPredicate ternaryPredicate)
+(disjoint unary_predicate binary_predicate)
+(disjoint unary_predicate ternary_predicate)
+(disjoint binary_predicate ternary_predicate)
 
 (comment believes
-         "(believes ?agent ?sentence) means that ?agent holds ?sentence true in its own context — answered by proving ?sentence in ?agent's context (CxAgent<agent>) rather than in the asker's, so two agents may believe contradictory things without the KB being inconsistent. A modalPredicate: the projection is what BeliefProjectionProver does, and the marker is what turns it on (docs/belief.md). An ordinary relation for the rest — assertible and storable like any fact, so an asserted (believes a p) is answerable as a stored fact too; the projector augments, it does not shadow.")
-(binaryPredicate believes)
-(instanceRelationPredicate believes)
+         "(believes ?agent ?sentence) means that ?agent holds ?sentence true in its own context — answered by proving ?sentence in ?agent's context (CxAgent<agent>) rather than in the asker's, so two agents may believe contradictory things without the KB being inconsistent. A modal_predicate: the projection is what BeliefProjectionProver does, and the marker is what turns it on (docs/belief.md). An ordinary relation for the rest — assertible and storable like any fact, so an asserted (believes a p) is answerable as a stored fact too; the projector augments, it does not shadow.")
+(binary_predicate believes)
+(instance_relation_predicate believes)
 (arg believes 1 thing)
 (arg believes 2 thing)
-(modalPredicate believes)
+(modal_predicate believes)
 
-(comment binaryPredicate     "A predicate of two arguments — a relation such as parentOf.")
-(genl binaryPredicate predicate)
+(comment binary_predicate     "A predicate of two arguments — a relation such as parentOf.")
+(genl binary_predicate predicate)
 
 (comment comment
          "(comment ?term ?text) means that ?text documents ?term. Ordinary sentexes, so the KB documents itself in its own representation and a comment is queried, retracted and justified like anything else. Written as a signature and a definition, as this one is, so that first clause doubles as the template an English gloss of any (?term …) sentence is composed from; everything after it is prose for a reader and no machine reads it.")
-(binaryPredicate comment)
-(instanceRelationPredicate comment)
+(binary_predicate comment)
+(instance_relation_predicate comment)
 (arg comment 1 thing)
 (arg comment 2 string)
 
 (comment contradicts
          "(contradicts ?sentence (not ?sentence)) means that the two sides are a contradiction among known-true beliefs that could not be resolved. The report form (conflicts kb) returns, so it is the result of a solve rather than a fact anyone asserts.")
-(binaryPredicate contradicts)
-(instanceRelationPredicate contradicts)
+(binary_predicate contradicts)
+(instance_relation_predicate contradicts)
 (arg contradicts 1 thing)
 (arg contradicts 2 thing)
 
-(comment decontextualizedPredicate
-         "(decontextualizedPredicate ?predicate) means that every (?predicate …) sentence, asserted or concluded by a rule, is also deduced into CxUniverse. Every context sees CxUniverse, so the fact stops being a claim of one theory and becomes a claim of the KB. The copy is supported by the placement sentex and this declaration together, so retracting either withdraws it. Conceptually the inert rule (implies (?pred . ?args) (ist CxUniverse (?pred . ?args))), implemented in code because it has to run wherever content is stored and not only where it is asserted.")
-(unaryPredicate decontextualizedPredicate)
-(arg decontextualizedPredicate 1 predicate)
+(comment decontextualized_predicate
+         "(decontextualized_predicate ?predicate) means that every (?predicate …) sentence, asserted or concluded by a rule, is also deduced into CxUniverse. Every context sees CxUniverse, so the fact stops being a claim of one theory and becomes a claim of the KB. The copy is supported by the placement sentex and this declaration together, so retracting either withdraws it. Conceptually the inert rule (implies (?pred . ?args) (ist CxUniverse (?pred . ?args))), implemented in code because it has to run wherever content is stored and not only where it is asserted.")
+(unary_predicate decontextualized_predicate)
+(arg decontextualized_predicate 1 predicate)
 
 (comment disjoint
          "(disjoint ?type1 ?type2) means that the two types have no common instance. Inherited by subtypes through genl, so declaring it of dog and cat separates every breed from every breed. A hard constraint: a membership that violates it is refused where it is written, and one that only becomes visible from some descendant context is reported by exposed-clashes rather than thrown at whoever wrote the second half.")
-(binaryPredicate disjoint)
-(typeRelationPredicate disjoint)
+(binary_predicate disjoint)
+(type_relation_predicate disjoint)
 (genlArg disjoint 1 thing)
 (genlArg disjoint 2 thing)
 
-(comment disjointMetatype
-         "(disjointMetatype ?metatype) means that every pair of ?metatype's member types is disjoint. The clique is consulted rather than stored, so it costs nothing quadratic and retraction reaches all of it: dropping ?metatype releases every pair at once, and dropping one member releases exactly that member's pairs.")
-(unaryPredicate disjointMetatype)
-(arg disjointMetatype 1 thing)
+(comment disjoint_metatype
+         "(disjoint_metatype ?metatype) means that every pair of ?metatype's member types is disjoint. The clique is consulted rather than stored, so it costs nothing quadratic and retraction reaches all of it: dropping ?metatype releases every pair at once, and dropping one member releases exactly that member's pairs.")
+(unary_predicate disjoint_metatype)
+(arg disjoint_metatype 1 thing)
 
 ;; ---- definitional collection relations -----------------------------------
 ;; Three relations tie a collection's membership to a defining condition on the member
@@ -234,57 +291,57 @@
 ;; is a sentence carrying ?x, which is why arg 2 is typed as a thing (a compound term is
 ;; typed by what its function is declared to yield, and nothing declared fails to reach
 ;; thing) and arg 1 with genlArg (the collection names a kind, like disjoint's).
-;; Neither relationKind: they relate a kind to a sentence, so they are honestly mixed and
+;; Neither relation_kind: they relate a kind to a sentence, so they are honestly mixed and
 ;; left unmarked, as result is.
 
 (comment defnNecessary
          "(defnNecessary ?collection ?condition) means that every instance of ?collection satisfies ?condition — a necessary condition on membership, written over the member ?x. Expands to the forward rule (implies (?collection ?x) ?condition), so an instance's membership entails the condition of it. Open-world: it says what members must satisfy, never that satisfying it makes a member (that is defnSufficient), and never that a non-member fails it.")
-(binaryPredicate defnNecessary)
+(binary_predicate defnNecessary)
 (genlArg defnNecessary 1 thing)
 (arg defnNecessary 2 thing)
 
 (comment defnSufficient
          "(defnSufficient ?collection ?condition) means that anything satisfying ?condition is an instance of ?collection — a sufficient condition for membership, written over the member ?x. Expands to the forward rule (implies ?condition (?collection ?x)), so a thing meeting the condition is concluded a member. Open-world: it says what makes a member, never that a member must satisfy it (that is defnNecessary), and it draws no non-membership from the condition failing.")
-(binaryPredicate defnSufficient)
+(binary_predicate defnSufficient)
 (genlArg defnSufficient 1 thing)
 (arg defnSufficient 2 thing)
 
 (comment defnIff
          "(defnIff ?collection ?condition) means that ?condition is both necessary and sufficient for membership in ?collection — an instance satisfies it exactly when it is a member, written over the member ?x. Expands to both forward rules defnNecessary and defnSufficient state, and nothing more: it does not close the collection's complement, so a thing whose condition is merely unknown is neither concluded a member nor concluded a non-member (docs/defns.md).")
-(binaryPredicate defnIff)
+(binary_predicate defnIff)
 (genlArg defnIff 1 thing)
 (arg defnIff 2 thing)
 
 (comment evaluate
          "(evaluate ?result ?expression) means that ?result is the value of the symbolic ?expression. So (evaluate ?sum (+ 1 2)) binds ?sum to 3. A safe whitelist over +, -, *, /, mod, min, max, abs and expt rather than clojure eval, computed on demand and never stored.")
-(binaryPredicate evaluate)
-(instanceRelationPredicate evaluate)
+(binary_predicate evaluate)
+(instance_relation_predicate evaluate)
 (arg evaluate 1 thing)
 (arg evaluate 2 thing)
 
-(comment forcedDecontextualizedPredicate
-         "(forcedDecontextualizedPredicate ?predicate) means that every (?predicate …) sentence is stored directly in CxUniverse by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlCx, so the context topology has one canonical home instead of a copy per context.")
-(unaryPredicate forcedDecontextualizedPredicate)
-(arg forcedDecontextualizedPredicate 1 predicate)
+(comment forced_decontextualized_predicate
+         "(forced_decontextualized_predicate ?predicate) means that every (?predicate …) sentence is stored directly in CxUniverse by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlCx, so the context topology has one canonical home instead of a copy per context.")
+(unary_predicate forced_decontextualized_predicate)
+(arg forced_decontextualized_predicate 1 predicate)
 
 (comment functional
-         "(functional ?predicate) means that ?predicate maps its first argument to at most one value. A second, different value is not a second fact: two symbols derive (equals V1 V2) and merge, so retracting either fact or the declaration un-merges them, while two non-symbols such as 1980 and 1990 are refused outright, no merge being able to make two numbers one thing. Declared of birthYearOf, for instance. Also a type: (functional P) classifies P as a binaryPredicate, so a KB can be queried for the predicates carrying the property.")
-(unaryPredicate functional)
+         "(functional ?predicate) means that ?predicate maps its first argument to at most one value. A second, different value is not a second fact: two symbols derive (equals V1 V2) and merge, so retracting either fact or the declaration un-merges them, while two non-symbols such as 1980 and 1990 are refused outright, no merge being able to make two numbers one thing. Declared of birthYearOf, for instance. Also a type: (functional P) classifies P as a binary_predicate, so a KB can be queried for the predicates carrying the property.")
+(unary_predicate functional)
 (arg functional 1 predicate)
-(decontextualizedPredicate functional)
-(genl functional binaryPredicate)
+(decontextualized_predicate functional)
+(genl functional binary_predicate)
 
 (comment functionCorrespondingPredicate
-         "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. ?position is 1-based over ?predicate's arguments and may be omitted, which puts the value last — the shape nearly every correspondence has. Read only for a reifiableFunction, an undeclared function having no application to reify. See docs/nat.md.")
-(binaryPredicate functionCorrespondingPredicate)
-(variableArity functionCorrespondingPredicate)
+         "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. ?position is 1-based over ?predicate's arguments and may be omitted, which puts the value last — the shape nearly every correspondence has. Read only for a reifiable_function, an undeclared function having no application to reify. See docs/nat.md.")
+(binary_predicate functionCorrespondingPredicate)
+(variable_arity functionCorrespondingPredicate)
 (arg functionCorrespondingPredicate 1 function)
 (arg functionCorrespondingPredicate 2 predicate)
 
 (comment genl
          "(genl ?subtype ?supertype) means that every ?subtype is a ?supertype. Transitive, and cached as a closure rather than run as a rule, since transitivity is the lifeblood of common sense and far too hot to chain. The hierarchy it builds is rooted at thing. Types are unary predicates, so membership is written (dog Muffet) and never (isa Muffet Dog).")
-(binaryPredicate genl)
-(typeRelationPredicate genl)
+(binary_predicate genl)
+(type_relation_predicate genl)
 (genlArg genl 1 thing)
 ;; Argument 2 is left undeclared, and it is the one position deliberately left so.
 ;; (genlArg genl 2 thing) reads "the supertype is a subtype of thing", which the root
@@ -292,130 +349,130 @@
 ;; not-well-formed. Under the assertive reading the declaration would therefore entail
 ;; a conclusion the KB drops, once per genl edge naming thing. A constraint the root
 ;; fails is the wrong constraint, not a missing one. The position is not thereby
-;; unconstrained: genl is a typeRelationPredicate, which says of every one of its
+;; unconstrained: genl is a type_relation_predicate, which says of every one of its
 ;; positions what genlArg says of one, and the rule-variable check reads it that way.
 
-(comment reifiableFunction
-         "(reifiableFunction ?function) means that ?function denotes an object. A ground application of it is a non-atomic term, and reifies to an opaque nat/-namespaced constant before it reaches the index, so it autoindexes like an atomic symbol while every page still renders it as the expression it was minted from. Declare it when the applications are BOUNDED — one value per argument tuple, over a domain that does not run away: (FatherFn Muffet) is one constant per animal, and an AdultFn one per individual. That is the criterion the two marks are chosen by, reification storing a constant per distinct application and keeping it. Also a type: (reifiableFunction F) classifies F as a function, so a KB can be queried for the functions it holds. See docs/nat.md.")
-(unaryPredicate reifiableFunction)
-(arg reifiableFunction 1 function)
-(genl reifiableFunction function)
+(comment reifiable_function
+         "(reifiable_function ?function) means that ?function denotes an object. A ground application of it is a non-atomic term, and reifies to an opaque nat/-namespaced constant before it reaches the index, so it autoindexes like an atomic symbol while every page still renders it as the expression it was minted from. Declare it when the applications are BOUNDED — one value per argument tuple, over a domain that does not run away: (FatherFn Muffet) is one constant per animal, and an AdultFn one per individual. That is the criterion the two marks are chosen by, reification storing a constant per distinct application and keeping it. Also a type: (reifiable_function F) classifies F as a function, so a KB can be queried for the functions it holds. See docs/nat.md.")
+(unary_predicate reifiable_function)
+(arg reifiable_function 1 function)
+(genl reifiable_function function)
 
-(comment unreifiableFunction
-         "(unreifiableFunction ?function) means that ?function is evaluated rather than denoting an object. Its application stays structural and is computed by a prover instead of being minted into a constant, so (QuantityFn 5 Meter) keeps its magnitude and its unit readable inside the sentence. The mark to reach for whenever the applications are UNBOUNDED, which is the other half of reifiableFunction's criterion: (QuantityFn 5 Meter), (QuantityFn 5.001 Meter) and every magnitude between them run over the reals, and a minted constant apiece is a store nothing bounds. A measure function is the standing example, and is never reifiable however atomic its value reads. Also a type: (unreifiableFunction F) classifies F as a function. See docs/nat.md.")
-(unaryPredicate unreifiableFunction)
-(arg unreifiableFunction 1 function)
-(genl unreifiableFunction function)
+(comment unreifiable_function
+         "(unreifiable_function ?function) means that ?function is evaluated rather than denoting an object. Its application stays structural and is computed by a prover instead of being minted into a constant, so (QuantityFn 5 Meter) keeps its magnitude and its unit readable inside the sentence. The mark to reach for whenever the applications are UNBOUNDED, which is the other half of reifiable_function's criterion: (QuantityFn 5 Meter), (QuantityFn 5.001 Meter) and every magnitude between them run over the reals, and a minted constant apiece is a store nothing bounds. A measure function is the standing example, and is never reifiable however atomic its value reads. Also a type: (unreifiable_function F) classifies F as a function. See docs/nat.md.")
+(unary_predicate unreifiable_function)
+(arg unreifiable_function 1 function)
+(genl unreifiable_function function)
 
-(comment quotingFunction
-         "(quotingFunction ?function) means that ?function's arguments are a mention — a term named as syntax rather than used. They are held opaque to identity congruence: an equality merge rewrites them by a rewriteOf spelling rename only, never by a sameAs or equals coreference, so a quoted term does not fold onto its referent's class. Orthogonal to reifiableFunction/unreifiableFunction, which decide whether the application is minted: Quote is reifiable and quoting, Quasiquote is unreifiable and quoting. Declared before use, like reifiableFunction: opacity is applied when a mention is reified and again in the equality congruence, each gated on the mark being present then. So mark ?function quoting before the mentions it governs are asserted and before any identity merge over their referents: a reify or merge processed while the mark is absent — before it is declared, or after it is retracted — is not held opaque and folds the mention onto its referent's class. See docs/nat.md.")
-(unaryPredicate quotingFunction)
-(arg quotingFunction 1 function)
-(genl quotingFunction function)
+(comment quoting_function
+         "(quoting_function ?function) means that ?function's arguments are a mention — a term named as syntax rather than used. They are held opaque to identity congruence: an equality merge rewrites them by a rewriteOf spelling rename only, never by a sameAs or equals coreference, so a quoted term does not fold onto its referent's class. Orthogonal to reifiable_function/unreifiable_function, which decide whether the application is minted: Quote is reifiable and quoting, Quasiquote is unreifiable and quoting. Declared before use, like reifiable_function: opacity is applied when a mention is reified and again in the equality congruence, each gated on the mark being present then. So mark ?function quoting before the mentions it governs are asserted and before any identity merge over their referents: a reify or merge processed while the mark is absent — before it is declared, or after it is retracted — is not held opaque and folds the mention onto its referent's class. See docs/nat.md.")
+(unary_predicate quoting_function)
+(arg quoting_function 1 function)
+(genl quoting_function function)
 
-(comment contextDenotingFunction
-         "(contextDenotingFunction ?function) means that ?function denotes a context. A ground application of it — a Cx*Fn like (CxTimeFn CxMonad (DatetimeFn \"2000\")) — reifies to an opaque cx/-namespaced constant that classifies as a context, so a sentex can be stored in it and it can be a genlCx node, while its structural (unreifiable) argument stays readable inside the termOfUnit map. Reification decides term identity, so it is read context-independently and belief-following, like reifiableFunction. See docs/context-nat.md.")
-(unaryPredicate contextDenotingFunction)
-(arg contextDenotingFunction 1 function)
-(genl contextDenotingFunction function)
+(comment context_denoting_function
+         "(context_denoting_function ?function) means that ?function denotes a context. A ground application of it — a Cx*Fn like (CxTimeFn CxMonad (DatetimeFn \"2000\")) — reifies to an opaque cx/-namespaced constant that classifies as a context, so a sentex can be stored in it and it can be a genlCx node, while its structural (unreifiable) argument stays readable inside the termOfUnit map. Reification decides term identity, so it is read context-independently and belief-following, like reifiable_function. See docs/context-nat.md.")
+(unary_predicate context_denoting_function)
+(arg context_denoting_function 1 function)
+(genl context_denoting_function function)
 
 (comment contextArgSubrelation
          "(contextArgSubrelation ?function ?position ?subrelation) means that two contexts denoted by ?function and identical except at argument ?position are ordered by ?subrelation on that argument: the context whose argument is ?subrelation-below the other's is a spec (sub)context of it, and the producer materializes the genlCx edge. So (contextArgSubrelation CxTimeFn 2 subintervalOf) makes (CxTimeFn CxMonad (DatetimeFn \"2000-01\")) a subcontext of (CxTimeFn CxMonad (DatetimeFn \"2000\")) because January 2000 is a subinterval of 2000 — with nobody asserting that genlCx edge. ?position is 1-based over ?function's arguments. See docs/context-nat.md.")
-(ternaryPredicate contextArgSubrelation)
+(ternary_predicate contextArgSubrelation)
 (arg contextArgSubrelation 1 function)
 (arg contextArgSubrelation 2 positive_integer)
 (arg contextArgSubrelation 3 predicate)
 
 (comment termOfUnit
-         "(termOfUnit ?constant ?expression) means that the reified ?constant denotes the term expression ?expression. The constant-to-expression half of the reified-term map, expression-to-constant being the inverted term index. A quoting predicate: ?expression is a literal payload, not itself reified or type-checked as a term.")
-(binaryPredicate termOfUnit)
-(instanceRelationPredicate termOfUnit)
+         "(termOfUnit ?constant ?expression) means that the reified ?constant denotes the term expression ?expression. The constant-to-expression half of the reified-term map, expression-to-constant being the inverted term index. A quoting predicate: ?expression is a verbatim payload, not itself reified or type-checked as a term.")
+(binary_predicate termOfUnit)
+(instance_relation_predicate termOfUnit)
 (arg termOfUnit 1 thing)
 (arg termOfUnit 2 thing)
 
 (comment rewriteOf
          "(rewriteOf ?term ?expression) means that the term expression ?expression reifies to the existing ?term rather than to a fresh constant. A quoting predicate in that reading. With a plain symbol in the second position it is instead the equality relation retiring that symbol in favour of the first: the retired spelling stays stored but stops being believed and stops matching, every sentex naming it gains a rewritten twin, and retracting the rewriteOf gives the original back.")
-(binaryPredicate rewriteOf)
+(binary_predicate rewriteOf)
 (arg rewriteOf 1 thing)
 (arg rewriteOf 2 thing)
 
 (comment result
          "(result ?function ?type) means that the output of ?function is an instance of ?type. Read for both kinds of function, and where the type is held is what the reifiability mark decides: a REIFIABLE function's application is minted, so the membership is materialized as (?type K) on the freshly minted constant K — a real sentex with a justification, rather than a rule that would have to run at read time — and an UNREIFIABLE one has no constant to hang it on, so its applications are typed from this declaration at check time instead. One declaration, one verdict, whichever kind of function wrote it. Named for what it says rather than for the check that reads it, as arg is: the instance reading, with genlResult one level up.")
-(binaryPredicate result)
+(binary_predicate result)
 (arg result 1 function)
 (genlArg result 2 thing)
 
 (comment genlResult
          "(genlResult ?function ?type) means that the output of ?function is a subtype of ?type. The subtype reading of result, the way genlArg is arg's: materialized as (genl K ?type) on each freshly minted constant K for a reifiable function, and read at check time for an unreifiable one whose applications never mint.")
-(binaryPredicate genlResult)
+(binary_predicate genlResult)
 (arg genlResult 1 function)
 (genlArg genlResult 2 thing)
 
 (comment genlCx
          "(genlCx ?subcontext ?supercontext) means that ?subcontext inherits from and sees everything asserted in ?supercontext. Transitive, and what places every derived conclusion: a firing lands in the most general contexts that see the rule, the facts and the taxonomy edges it used. Stored in CxUniverse by force, so the topology has one canonical home. A cycle is admitted, mutual visibility being a claim an ontology may fairly make.")
-(binaryPredicate genlCx)
-(instanceRelationPredicate genlCx)
+(binary_predicate genlCx)
+(instance_relation_predicate genlCx)
 (arg genlCx 1 context)
 (arg genlCx 2 context)
-(forcedDecontextualizedPredicate genlCx)
+(forced_decontextualized_predicate genlCx)
 
 ;; `(genlCx CxUniverse CxCore)` belongs to this vocabulary and is NOT
 ;; written here: `core-context/load-into` asserts it before reading the file, because a
-;; `decontextualizedPredicate` lift needs the two contexts comparable *while* the file
+;; `decontextualized_predicate` lift needs the two contexts comparable *while* the file
 ;; is still being read.  See the docstring there.
 
 (comment greaterThan
          "(greaterThan ?number1 ?number2 …) means that the numbers descend. Variable arity, so (greaterThan 3 2 1) reads as the chain 3 > 2 > 1. Evaluable: computed on demand from ground numbers, never stored. Canonicalizes to lessThan with the arguments reversed, so only the < direction is ever stored and a greaterThan goal is still answerable.")
-(binaryPredicate greaterThan)
-(instanceRelationPredicate greaterThan)
+(binary_predicate greaterThan)
+(instance_relation_predicate greaterThan)
 (arg greaterThan 1 thing)
 (arg greaterThan 2 thing)
-(variableArity greaterThan)
+(variable_arity greaterThan)
 
 (comment implies
          "(implies (and ?antecedent …) ?consequent) means the rule concluding ?consequent from those antecedents. A rule is a sentex like any other, so it gets a handle, truth maintenance and retraction for free, and it is indexed by its antecedent and its consequent predicates alike. Used forward and backward unless a set/*Rule wrapper narrows it. Range-restricted: every variable in the consequent must appear in an antecedent.")
-(binaryPredicate implies)
+(binary_predicate implies)
 (arg implies 1 thing)
 (arg implies 2 thing)
 
-(comment instanceRelationPredicate
-         "(instanceRelationPredicate ?predicate) means that ?predicate relates individuals rather than kinds. So (?predicate x y) is a ground fact between two specific things. The default classification for an extracted binary predicate, and one half of the relationKind metatype.")
-(unaryPredicate instanceRelationPredicate)
-(arg instanceRelationPredicate 1 predicate)
-(genl instanceRelationPredicate predicate)
+(comment instance_relation_predicate
+         "(instance_relation_predicate ?predicate) means that ?predicate relates individuals rather than kinds. So (?predicate x y) is a ground fact between two specific things. The default classification for an extracted binary predicate, and one half of the relation_kind metatype.")
+(unary_predicate instance_relation_predicate)
+(arg instance_relation_predicate 1 predicate)
+(genl instance_relation_predicate predicate)
 
 (comment inverse
          "(inverse ?predicate1 ?predicate2) means that ?predicate1 and ?predicate2 are inverse relations, so (?predicate1 a b) holds exactly when (?predicate2 b a) does. Declared of parentOf and childOf, for instance. Answered by a prover that hands the swapped goal back to the engine rather than matching raw facts, so an inverse composes with its partner's transitivity.")
-(binaryPredicate inverse)
-(instanceRelationPredicate inverse)
+(binary_predicate inverse)
+(instance_relation_predicate inverse)
 (arg inverse 1 predicate)
 (arg inverse 2 predicate)
-(decontextualizedPredicate inverse)
+(decontextualized_predicate inverse)
 
 (comment ist
          "(ist ?context ?sentence) means that ?sentence holds in ?context. Never stored as a sentex of its own: given to assert it finds or creates ?sentence in ?context and returns that handle, and used as a rule's consequent it directs the conclusion into the named context instead of the computed placement. The wrapped sentence is a term, so one sentence is findable from another through the term index.")
-(binaryPredicate ist)
-(instanceRelationPredicate ist)
+(binary_predicate ist)
+(instance_relation_predicate ist)
 (arg ist 1 context)
 (arg ist 2 thing)
 
 (comment lessThan
          "(lessThan ?number1 ?number2 …) means that the numbers ascend. Variable arity, so (lessThan 1 2 3) reads as the chain 1 < 2 < 3. Evaluable: computed on demand from ground arguments, never stored and never forward-chained. Chained comparisons in a rule collapse into one literal, so (lessThan ?a ?b) beside (lessThan ?b ?c) becomes (lessThan ?a ?b ?c).")
-(binaryPredicate lessThan)
-(instanceRelationPredicate lessThan)
+(binary_predicate lessThan)
+(instance_relation_predicate lessThan)
 (arg lessThan 1 thing)
 (arg lessThan 2 thing)
-(variableArity lessThan)
+(variable_arity lessThan)
 
-(comment modalPredicate
-         "(modalPredicate ?predicate) means that (?predicate ?agent ?sentence) is a belief-style projection: it holds when ?sentence holds in ?agent's context. A grant, and the only thing that turns projection on — an undeclared predicate is never projected, so the table is open (assert the marker to add knows / desires / intends) and closed by default to everything but what a context grants. Read scoped from the asking context, like abduciblePredicate: which predicates a theory reads modally is a policy of the context that declares it, not a global switch. believes ships granted here.")
-(unaryPredicate modalPredicate)
-(arg modalPredicate 1 predicate)
-(genl modalPredicate predicate)
+(comment modal_predicate
+         "(modal_predicate ?predicate) means that (?predicate ?agent ?sentence) is a belief-style projection: it holds when ?sentence holds in ?agent's context. A grant, and the only thing that turns projection on — an undeclared predicate is never projected, so the table is open (assert the marker to add knows / desires / intends) and closed by default to everything but what a context grants. Read scoped from the asking context, like abducible_predicate: which predicates a theory reads modally is a policy of the context that declares it, not a global switch. believes ships granted here.")
+(unary_predicate modal_predicate)
+(arg modal_predicate 1 predicate)
+(genl modal_predicate predicate)
 
 (comment not
          "(not ?sentence) means the negation of ?sentence, a first-class sentex. Believing a sentence and its negation at once is a soft contradiction resolved at settle time rather than a hard error: the weaker belief is defeated, and a defeasible tie is left standing as a represented dilemma. See docs/nmtms.md.")
-(unaryPredicate not)
+(unary_predicate not)
 
 (comment or
          "(or ?disjunct1 ?disjunct2 …) means the disjunction of the disjuncts inside an implies rule's antecedent. A syntactic connective rather than a predicate: it is never asserted on its own, and it never reaches a stored sentence — the rule is polycanonicalized into one rule per alternative, exactly as a conjunctive consequent is split into one rule per conjunct. A disjunctive conclusion is a choice rather than a derivation, and is written with set/assumptionRule instead. See docs/canonicalization.md.")
@@ -426,7 +483,7 @@
 (comment predicate           "The type of all predicates — the relations and types used in sentences. A predicate is a thing.")
 (genl predicate thing)
 ;; What function's comment states in prose, as a fact the engine reads: the two are
-;; separate kinds of thing. Every type is a unaryPredicate and so a predicate, which is
+;; separate kinds of thing. Every type is a unary_predicate and so a predicate, which is
 ;; what gives the separation its reach — a rule variable standing in a function-valued
 ;; position and a type-level one at once is refused at the door rather than stored and
 ;; convicted one conclusion at a time. (implies (result ?f ?t) (genl ?f ?t)) is the
@@ -434,26 +491,26 @@
 (disjoint function predicate)
 
 (comment reflexive
-         "(reflexive ?predicate) means that ?predicate is reflexive, so (?predicate a a) holds for every a in its domain. Answered by a generic prover rather than materialized, the reflexive pairs of a large domain being a great many facts nobody wrote. Also a type: (reflexive P) classifies P as a binaryPredicate.")
-(unaryPredicate reflexive)
+         "(reflexive ?predicate) means that ?predicate is reflexive, so (?predicate a a) holds for every a in its domain. Answered by a generic prover rather than materialized, the reflexive pairs of a large domain being a great many facts nobody wrote. Also a type: (reflexive P) classifies P as a binary_predicate.")
+(unary_predicate reflexive)
 (arg reflexive 1 predicate)
-(decontextualizedPredicate reflexive)
-(genl reflexive binaryPredicate)
+(decontextualized_predicate reflexive)
+(genl reflexive binary_predicate)
 
 (comment irreflexive
-         "(irreflexive ?predicate) means that ?predicate never holds of a thing and itself, so (?predicate a a) is contradictory and refused at the door. The strict counterpart of reflexive, and stronger than asymmetric — asymmetry needs a believed opposing claim to convict and so admits the lone self tuple, where irreflexivity refuses it outright. A declaration arriving after a self tuple was stored is the arity case, not the asymmetric one: the tuple stands and the late mark reports rather than defeats, since a lone tuple names no second sentex to form a nogood with (docs/nmtms.md). Also a type: (irreflexive P) classifies P as a binaryPredicate. Declared of a strict order such as largerThan, for instance.")
-(unaryPredicate irreflexive)
+         "(irreflexive ?predicate) means that ?predicate never holds of a thing and itself, so (?predicate a a) is contradictory and refused at the door. The strict counterpart of reflexive, and stronger than asymmetric — asymmetry needs a believed opposing claim to convict and so admits the lone self tuple, where irreflexivity refuses it outright. A declaration arriving after a self tuple was stored is the arity case, not the asymmetric one: the tuple stands and the late mark reports rather than defeats, since a lone tuple names no second sentex to form a nogood with (docs/nmtms.md). Also a type: (irreflexive P) classifies P as a binary_predicate. Declared of a strict order such as largerThan, for instance.")
+(unary_predicate irreflexive)
 (arg irreflexive 1 predicate)
-(decontextualizedPredicate irreflexive)
-(genl irreflexive binaryPredicate)
+(decontextualized_predicate irreflexive)
+(genl irreflexive binary_predicate)
 
-(comment relationKind
-         "(relationKind ?predicate) means that ?predicate is one of the two relation kinds. The disjointMetatype grouping instanceRelationPredicate and typeRelationPredicate, so a binary predicate is at most one of the two: it either relates individuals or relates kinds, and letting the readings mix is how a claim about kinds quietly becomes a claim about their members. At most, not exactly — a few predicates are honestly neither, and are left unmarked rather than forced: implies is a connective and relates no things at all, rewriteOf takes either role so long as its two sides agree with each other, result and genlResult relate a function to a type and so are mixed, and functionCorrespondingPredicate relates a function to a predicate. Marking one of those would make the metatype say something false, which costs more than the gap.")
-(unaryPredicate relationKind)
-(genlArg relationKind 1 predicate)
-(disjointMetatype relationKind)
-(relationKind instanceRelationPredicate)
-(relationKind typeRelationPredicate)
+(comment relation_kind
+         "(relation_kind ?predicate) means that ?predicate is one of the two relation kinds. The disjoint_metatype grouping instance_relation_predicate and type_relation_predicate, so a binary predicate is at most one of the two: it either relates individuals or relates kinds, and letting the readings mix is how a claim about kinds quietly becomes a claim about their members. At most, not exactly — a few predicates are honestly neither, and are left unmarked rather than forced: implies is a connective and relates no things at all, rewriteOf takes either role so long as its two sides agree with each other, result and genlResult relate a function to a type and so are mixed, and functionCorrespondingPredicate relates a function to a predicate. Marking one of those would make the metatype say something false, which costs more than the gap.")
+(unary_predicate relation_kind)
+(genlArg relation_kind 1 predicate)
+(disjoint_metatype relation_kind)
+(relation_kind instance_relation_predicate)
+(relation_kind type_relation_predicate)
 
 (comment set/backwardRule
          "(set/backwardRule ?rule) means that ?rule is asserted backward-only. Used in backward proof and indexed by its consequent predicate, never forward-chained. A virtual wrapper interpreted on assert, never stored as a fact of its own.")
@@ -468,71 +525,71 @@
          "(set/inertRule ?rule) means that ?rule is asserted inert. Stored and documented but never used for inference in either direction, which is how a rule stating something the engine implements in code gets written down where a reader will find it. A virtual wrapper interpreted on assert.")
 (set/inertRule (implies (?pred . ?args) (ist CxUniverse (?pred . ?args))))
 
-(comment siblingDisjoint
-         "(siblingDisjoint ?collection) means that any two specializations of ?collection — the types below it under genl — share no instance, unless one is itself a genl of the other. The clique is consulted rather than stored, exactly as disjointMetatype's is: no (disjoint …) sentex per pair, dropping the mark releases every pair at once, and a specialization arriving as a later genl edge is separated the moment it is believed. The genl-relatedness exception is what keeps a specialization disjoint from its siblings without being separated from its own supertypes, which are specializations of ?collection too; it is read over the whole KB, the way (disjoint a b) refuses a genl-related pair. Whether those specializations cover ?collection is a separate claim this one does not make.")
-(unaryPredicate siblingDisjoint)
-(genlArg siblingDisjoint 1 thing)
+(comment sibling_disjoint
+         "(sibling_disjoint ?collection) means that any two specializations of ?collection — the types below it under genl — share no instance, unless one is itself a genl of the other. The clique is consulted rather than stored, exactly as disjoint_metatype's is: no (disjoint …) sentex per pair, dropping the mark releases every pair at once, and a specialization arriving as a later genl edge is separated the moment it is believed. The genl-relatedness exception is what keeps a specialization disjoint from its siblings without being separated from its own supertypes, which are specializations of ?collection too; it is read over the whole KB, the way (disjoint a b) refuses a genl-related pair. Whether those specializations cover ?collection is a separate claim this one does not make.")
+(unary_predicate sibling_disjoint)
+(genlArg sibling_disjoint 1 thing)
 
 (comment siblingDisjointException
-         "(siblingDisjointException ?type1 ?type2) means that the one pair ?type1, ?type2 is permitted to overlap even though a siblingDisjoint mark (or a disjointMetatype) would otherwise force it disjoint. It exempts only that pair: each type stays disjoint from the parent's other specializations, and the exemption does not leak to subtypes, since each read tests the exact pair drawn from the two genl closures. Read over the whole KB, not the reader's context cone, because an exception removes a clash and a scoped one would let a more specific reader see fewer clashes than the KB holds. A Braille reading, both a Reading and a TouchPerception, is the shape of it.")
-(binaryPredicate siblingDisjointException)
+         "(siblingDisjointException ?type1 ?type2) means that the one pair ?type1, ?type2 is permitted to overlap even though a sibling_disjoint mark (or a disjoint_metatype) would otherwise force it disjoint. It exempts only that pair: each type stays disjoint from the parent's other specializations, and the exemption does not leak to subtypes, since each read tests the exact pair drawn from the two genl closures. Read over the whole KB, not the reader's context cone, because an exception removes a clash and a scoped one would let a more specific reader see fewer clashes than the KB holds. A Braille reading, both a Reading and a TouchPerception, is the shape of it.")
+(binary_predicate siblingDisjointException)
 (symmetric siblingDisjointException)
-(typeRelationPredicate siblingDisjointException)
+(type_relation_predicate siblingDisjointException)
 (genlArg siblingDisjointException 1 thing)
 (genlArg siblingDisjointException 2 thing)
 
 (comment symmetric
-         "(symmetric ?predicate) means that ?predicate is symmetric. Whenever (?predicate a b) holds so does (?predicate b a), and the two spellings of a ground fact store as one sentex, since the arguments of a symmetric predicate are sorted into canonical order. Declared of siblingOf and marriedTo, for instance. Also a type: (symmetric P) classifies P as a binaryPredicate.")
-(unaryPredicate symmetric)
+         "(symmetric ?predicate) means that ?predicate is symmetric. Whenever (?predicate a b) holds so does (?predicate b a), and the two spellings of a ground fact store as one sentex, since the arguments of a symmetric predicate are sorted into canonical order. Declared of siblingOf and marriedTo, for instance. Also a type: (symmetric P) classifies P as a binary_predicate.")
+(unary_predicate symmetric)
 (arg symmetric 1 predicate)
-(decontextualizedPredicate symmetric)
-(genl symmetric binaryPredicate)
+(decontextualized_predicate symmetric)
+(genl symmetric binary_predicate)
 
 (comment asymmetric
-         "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory, and a strict order such as largerThan is the usual case. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it. The conviction needs a believed opposing claim, so a self tuple (?predicate a a) is admitted rather than refused. Also a type: (asymmetric P) classifies P as a binaryPredicate.")
-(unaryPredicate asymmetric)
+         "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory, and a strict order such as largerThan is the usual case. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it. The conviction needs a believed opposing claim, so a self tuple (?predicate a a) is admitted rather than refused. Also a type: (asymmetric P) classifies P as a binary_predicate.")
+(unary_predicate asymmetric)
 (arg asymmetric 1 predicate)
-(decontextualizedPredicate asymmetric)
-(genl asymmetric binaryPredicate)
+(decontextualized_predicate asymmetric)
+(genl asymmetric binary_predicate)
 
-(comment antiSymmetric
-         "(antiSymmetric ?predicate) means that ?predicate holding both ways forces its two arguments to be one thing. Believing (?predicate a b) and (?predicate b a) derives (equals a b) and merges, mirroring how a functional predicate reconciles two symbol values — the merge is justified by both facts and the declaration, so retracting any one un-merges them. Two non-symbols such as 1980 and 1990, which no merge can make one thing, are refused instead of merged. A self tuple (?predicate a a) is admitted: its converse is itself and (equals a a) is trivial. Also a type: (antiSymmetric P) classifies P as a binaryPredicate. Declared of a partial order such as atOrAbove, for instance.")
-(unaryPredicate antiSymmetric)
-(arg antiSymmetric 1 predicate)
-(decontextualizedPredicate antiSymmetric)
-(genl antiSymmetric binaryPredicate)
+(comment anti_symmetric
+         "(anti_symmetric ?predicate) means that ?predicate holding both ways forces its two arguments to be one thing. Believing (?predicate a b) and (?predicate b a) derives (equals a b) and merges, mirroring how a functional predicate reconciles two symbol values — the merge is justified by both facts and the declaration, so retracting any one un-merges them. Two non-symbols such as 1980 and 1990, which no merge can make one thing, are refused instead of merged. A self tuple (?predicate a a) is admitted: its converse is itself and (equals a a) is trivial. Also a type: (anti_symmetric P) classifies P as a binary_predicate. Declared of a partial order such as atOrAbove, for instance.")
+(unary_predicate anti_symmetric)
+(arg anti_symmetric 1 predicate)
+(decontextualized_predicate anti_symmetric)
+(genl anti_symmetric binary_predicate)
 
 (comment transitiveInArg
          "(transitiveInArg ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and their reaches union. ?relation must be genl, genlCx, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
-(ternaryPredicate transitiveInArg)
+(ternary_predicate transitiveInArg)
 (arg transitiveInArg 1 predicate)
 (arg transitiveInArg 2 positive_integer)
 (arg transitiveInArg 3 predicate)
 
 (comment transitiveInArgInverse
          "(transitiveInArgInverse ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along ?relation read backwards. A stored (?predicate … W …) licenses the claim about A whenever (?relation W A) holds, so with genl this is upward inheritance. It exists so that direction never requires declaring an inverse predicate with no other use. Same restriction on ?relation.")
-(ternaryPredicate transitiveInArgInverse)
+(ternary_predicate transitiveInArgInverse)
 (arg transitiveInArgInverse 1 predicate)
 (arg transitiveInArgInverse 2 positive_integer)
 (arg transitiveInArgInverse 3 predicate)
 
-(comment ternaryPredicate    "A predicate of three arguments, such as arg.")
-(genl ternaryPredicate predicate)
+(comment ternary_predicate    "A predicate of three arguments, such as arg.")
+(genl ternary_predicate predicate)
 
-(comment targetFollowingPredicate
-         "(targetFollowingPredicate ?predicate) means a (?predicate … (sentexHandle H) …) sentence is a meta-sentex that names sentex H and must not outlive it: retracting H retracts the meta with it (core/retract-following-metas!). Opt-in and belief-following — the engine's own except / exceptWhen deliberately do not carry it, so their orphan-on-retraction behavior is unchanged. koinii's reply acts declare it, so retracting a claim cascades to the replies about it, which a message bus cannot do.")
-(unaryPredicate targetFollowingPredicate)
-(arg targetFollowingPredicate 1 predicate)
+(comment target_following_predicate
+         "(target_following_predicate ?predicate) means a (?predicate … (sentexHandle H) …) sentence is a meta-sentex that names sentex H and must not outlive it: retracting H retracts the meta with it (core/retract-following-metas!). Opt-in and belief-following — the engine's own except / exceptWhen deliberately do not carry it, so their orphan-on-retraction behavior is unchanged. koinii's reply acts declare it, so retracting a claim cascades to the replies about it, which a message bus cannot do.")
+(unary_predicate target_following_predicate)
+(arg target_following_predicate 1 predicate)
 
 (comment thing
          "The root type: every type genls up to thing, so every typed individual is a thing.")
 
 (comment transitive
-         "(transitive ?predicate) means that ?predicate is transitive, so (?predicate a b) and (?predicate b c) imply (?predicate a c). Answered by a generic closure prover rather than materialized, since writing the closure out is quadratic in the extent and nobody asserted it. Declared of ancestorOf and partOf, for instance. Also a type: (transitive P) classifies P as a binaryPredicate, so a KB can be queried for the transitive predicates.")
-(unaryPredicate transitive)
+         "(transitive ?predicate) means that ?predicate is transitive, so (?predicate a b) and (?predicate b c) imply (?predicate a c). Answered by a generic closure prover rather than materialized, since writing the closure out is quadratic in the extent and nobody asserted it. Declared of ancestorOf and partOf, for instance. Also a type: (transitive P) classifies P as a binary_predicate, so a KB can be queried for the transitive predicates.")
+(unary_predicate transitive)
 (arg transitive 1 predicate)
-(decontextualizedPredicate transitive)
-(genl transitive binaryPredicate)
+(decontextualized_predicate transitive)
+(genl transitive binary_predicate)
 ;; genl and genlCx ARE transitive — but the engine answers them from its cached genl/genlCx
 ;; closures rather than the generic closure prover, which is an implementation choice and
 ;; not a difference in what they mean.  Saying so is what lets them be named as the relation
@@ -544,7 +601,7 @@
 ;; which explicitly excludes the two it cannot beat — is never handed them.  `(transitive genl)`
 ;; is thus a queryable classification, not a routing.
 ;;
-;; Stated HERE, below `(genl transitive binaryPredicate)`, and not up in the `genl` block: a
+;; Stated HERE, below `(genl transitive binary_predicate)`, and not up in the `genl` block: a
 ;; fact asserted before the edge that makes its predicate a subtype does not retroactively fire
 ;; the rules keyed on the supertype, so `(transitive genl)` written earlier would leave the arity
 ;; rule's firing latent — believed all the same, by the other justification, but produced on
@@ -552,25 +609,25 @@
 (transitive genl)
 (transitive genlCx)
 
-(comment antiTransitive
-         "(antiTransitive ?predicate) means that a two-step chain forbids the direct step, the dual of transitive: believing (?predicate a b) and (?predicate b c) makes (?predicate a c) contradictory. The three are one nogood — a set that must not hold in full — rather than a pair, so the engine weighs them together the way it weighs any contradiction (docs/nmtms.md): a chain that is known true refuses the direct step at the door, a chain with one defeasible step has that step defeated instead, and three equal defaults are a dilemma the engine reports and declines to decide. The mark is read up the predicate hierarchy, so (antiTransitive parentOf) convicts a fatherOf chain. It does not imply irreflexive: a self tuple (P a a) is its own whole chain, names no second sentex to weigh, and is admitted exactly as an asymmetric predicate's is. Its disjointness with transitive holds too: no predicate is declared both. Also a type: (antiTransitive P) classifies P as a binaryPredicate. Declared of a relation such as parentOf (a grandparent is not a parent), for instance.")
-(unaryPredicate antiTransitive)
-(arg antiTransitive 1 predicate)
-(decontextualizedPredicate antiTransitive)
-(genl antiTransitive binaryPredicate)
+(comment anti_transitive
+         "(anti_transitive ?predicate) means that a two-step chain forbids the direct step, the dual of transitive: believing (?predicate a b) and (?predicate b c) makes (?predicate a c) contradictory. The three are one nogood — a set that must not hold in full — rather than a pair, so the engine weighs them together the way it weighs any contradiction (docs/nmtms.md): a chain that is known true refuses the direct step at the door, a chain with one defeasible step has that step defeated instead, and three equal defaults are a dilemma the engine reports and declines to decide. The mark is read up the predicate hierarchy, so (anti_transitive parentOf) convicts a fatherOf chain. It does not imply irreflexive: a self tuple (P a a) is its own whole chain, names no second sentex to weigh, and is admitted exactly as an asymmetric predicate's is. Its disjointness with transitive holds too: no predicate is declared both. Also a type: (anti_transitive P) classifies P as a binary_predicate. Declared of a relation such as parentOf (a grandparent is not a parent), for instance.")
+(unary_predicate anti_transitive)
+(arg anti_transitive 1 predicate)
+(decontextualized_predicate anti_transitive)
+(genl anti_transitive binary_predicate)
 
-(comment equivalenceRelation
-         "(equivalenceRelation ?predicate) means that ?predicate is reflexive, symmetric and transitive at once — an equivalence. Declared once, it stands in for the three: forward rules derive (symmetric ?p), (transitive ?p) and (reflexive ?p), each a real mark the engine enforces in turn — the symmetric canonical-order fold, the transitive closure prover, the reflexive prover. A subsumption edge such as (genl equivalenceRelation symmetric) would classify P as symmetric for a query but would not set the :symmetric property the engine reads to enforce, since a genl-inherited membership is not a stored (symmetric P) sentex and never reaches the mark ingestion; the rule materializes that sentex, which both classifies and enforces, so the rules are the minimal correct expression and the subsumption edges would be redundant with them. Also a type: (equivalenceRelation P) classifies P as a binaryPredicate. Declared of a relation such as sameAgeAs, for instance.")
-(unaryPredicate equivalenceRelation)
-(arg equivalenceRelation 1 predicate)
-(decontextualizedPredicate equivalenceRelation)
-(genl equivalenceRelation binaryPredicate)
+(comment equivalence_relation
+         "(equivalence_relation ?predicate) means that ?predicate is reflexive, symmetric and transitive at once — an equivalence. Declared once, it stands in for the three: forward rules derive (symmetric ?p), (transitive ?p) and (reflexive ?p), each a real mark the engine enforces in turn — the symmetric canonical-order fold, the transitive closure prover, the reflexive prover. A subsumption edge such as (genl equivalence_relation symmetric) would classify P as symmetric for a query but would not set the :symmetric property the engine reads to enforce, since a genl-inherited membership is not a stored (symmetric P) sentex and never reaches the mark ingestion; the rule materializes that sentex, which both classifies and enforces, so the rules are the minimal correct expression and the subsumption edges would be redundant with them. Also a type: (equivalence_relation P) classifies P as a binary_predicate. Declared of a relation such as sameAgeAs, for instance.")
+(unary_predicate equivalence_relation)
+(arg equivalence_relation 1 predicate)
+(decontextualized_predicate equivalence_relation)
+(genl equivalence_relation binary_predicate)
 
 ;; the three marks an equivalence stands in for, derived so each is a real property the
 ;; engine enforces exactly as a directly written one is
-(implies (and (equivalenceRelation ?p)) (symmetric ?p))
-(implies (and (equivalenceRelation ?p)) (transitive ?p))
-(implies (and (equivalenceRelation ?p)) (reflexive ?p))
+(implies (and (equivalence_relation ?p)) (symmetric ?p))
+(implies (and (equivalence_relation ?p)) (transitive ?p))
+(implies (and (equivalence_relation ?p)) (reflexive ?p))
 
 ;; ---- the lattice among the relation properties ---------------------------
 ;; genl and disjoint relate the property predicates directly now that each mark carries
@@ -580,33 +637,95 @@
 ;; :irreflexive / :anti-symmetric property, which only a stored mark sets (so an asymmetric
 ;; predicate still admits its self tuple).
 (genl asymmetric irreflexive)
-(genl asymmetric antiSymmetric)
+(genl asymmetric anti_symmetric)
 
 ;; and the incompatible pairs: no predicate is both symmetric and asymmetric, both
 ;; reflexive and irreflexive, or both transitive and antitransitive.  (disjoint symmetric
-;; antiSymmetric) is deliberately NOT asserted — equals itself is both symmetric and
+;; anti_symmetric) is deliberately NOT asserted — equals itself is both symmetric and
 ;; antisymmetric, so they are not disjoint (docs/equality.md).
 (disjoint symmetric asymmetric)
 (disjoint reflexive irreflexive)
-(disjoint transitive antiTransitive)
+(disjoint transitive anti_transitive)
 
-(comment typeRelationPredicate
-         "(typeRelationPredicate ?predicate) means that ?predicate relates types rather than individuals. So (?predicate T1 T2) is a claim between two categories, and such a ground fact is replaced by one of the relation-pattern meta-predicates to pin down which quantifier reading is meant. The other half of the relationKind metatype.")
-(unaryPredicate typeRelationPredicate)
-(arg typeRelationPredicate 1 predicate)
-(genl typeRelationPredicate predicate)
+(comment type_relation_predicate
+         "(type_relation_predicate ?predicate) means that ?predicate relates types rather than individuals. So (?predicate T1 T2) is a claim between two categories, and such a ground fact is replaced by one of the relation-pattern meta-predicates to pin down which quantifier reading is meant. The other half of the relation_kind metatype.")
+(unary_predicate type_relation_predicate)
+(arg type_relation_predicate 1 predicate)
+(genl type_relation_predicate predicate)
 
 (comment typeToInstancePred
          "(typeToInstancePred ?typePredicate ?instancePredicate) means that ?typePredicate and ?instancePredicate are the type-level and instance-level readings of one underlying relation. Declared of partType and partOf, for instance. A link rather than a rule: moving a claim from one level to the other needs a quantifier reading that nothing here fixes.")
-(binaryPredicate typeToInstancePred)
-(instanceRelationPredicate typeToInstancePred)
-(arg typeToInstancePred 1 typeRelationPredicate)
-(arg typeToInstancePred 2 instanceRelationPredicate)
+(binary_predicate typeToInstancePred)
+(instance_relation_predicate typeToInstancePred)
+(arg typeToInstancePred 1 type_relation_predicate)
+(arg typeToInstancePred 2 instance_relation_predicate)
 
-(comment variableArity
-         "(variableArity ?predicate) means that ?predicate takes any number of arguments from its declared arity upward. The arity check does not hold it to one number, while its (arity ?predicate N) and N-ary predicate type still state the shape it reads as: lessThan is binary, and (lessThan 1 2 3) is the chain 1 < 2 < 3.")
-(unaryPredicate variableArity)
-(arg variableArity 1 predicate)
+(comment variable_arity
+         "(variable_arity ?predicate) means that ?predicate takes any number of arguments from its declared arity upward. The arity check does not hold it to one number, while its (arity ?predicate N) and N-ary predicate type still state the shape it reads as: lessThan is binary, and (lessThan 1 2 3) is the chain 1 < 2 < 3.")
+(unary_predicate variable_arity)
+(arg variable_arity 1 predicate)
 
-(comment unaryPredicate      "A predicate of one argument: every type (a snake_case unary predicate) and every one-place property such as flies.")
-(genl unaryPredicate predicate)
+(comment unary_predicate      "A predicate of one argument: every type (a snake_case unary predicate) and every one-place property such as flies.")
+(genl unary_predicate predicate)
+
+;; ---- curation cross-reference --------------------------------------------
+;; Documentation vocabulary beside `comment`: relations a KB curator writes to point a
+;; reader from one term to others.  Read like `comment` — by a browser rendering a term
+;; page, and by nobody for inference — so they are `:inert` in the vocabulary roster.
+;; They earn a place here for the reason `comment` does: the grammar documents itself in
+;; its own representation, and a cross-reference is queried and retracted like any fact.
+
+(comment termsRelated
+         "(termsRelated ?term1 ?term2 …) means that the named terms form a related cluster — a curation grouping among vocabulary terms, so a reader meeting one is pointed at the rest. Variable arity, like lessThan: (termsRelated positiveExample negativeExample borderlineExample) groups the three example predicates as one family. Documentation only — nothing in the engine reads it and it draws no inference, the grouping being for a reader as comment's prose is.")
+(binary_predicate termsRelated)
+(instance_relation_predicate termsRelated)
+(arg termsRelated 1 thing)
+(arg termsRelated 2 thing)
+(variable_arity termsRelated)
+
+(comment seeAlso
+         "(seeAlso ?term1 ?term2) means that ?term1 and ?term2 are worth reading together — an editorial 'see also' cross-reference between two terms. Directional: (seeAlso a b) points a reader from a to b, and the reverse is a separate assertion, not implied. Documentation only, like comment: nothing in the engine reads it and it draws no inference.")
+(binary_predicate seeAlso)
+(instance_relation_predicate seeAlso)
+(arg seeAlso 1 thing)
+(arg seeAlso 2 thing)
+
+;; ---- in-KB worked examples -----------------------------------------------
+;; Meta-sentexes that name an example sentex by handle (sentexHandle), annotating a term
+;; with a true / false / borderline example of its usage — the (sentexHandle H) +
+;; target_following_predicate pointing pattern koinii's reply acts use (kb/koinii/
+;; CxSpeechActs.txt).  Documentation (`:inert`): no engine path reads them.
+;; positiveExample / negativeExample carry an integrity obligation held by a TEST rather
+;; than the engine — the named sentex is provable, or provable as its negation — while
+;; borderlineExample is truth-agnostic and carries none.
+;;
+;; @todo once we have `termMentioned`, enforce `(termMentioned ?term ?sentex)`: that the
+;;   ?term an example annotates is actually mentioned in the ?sentex it names.  A
+;;   cyclistNotes analogue — recorded here for the reader, implemented by nobody yet, and
+;;   NOT to be invented in passing.
+
+(comment positiveExample
+         "(positiveExample ?term (sentexHandle ?sentex)) means that ?sentex is a TRUE example of ?term's usage — a meta-sentex naming ?sentex by handle. Declared target_following_predicate, so retracting the example sentex tears this annotation down with it; and the named sentex must be provable, an obligation curation_test holds over every believed positiveExample. ?term is the term being exemplified; the handle arg is typed `thing` via quotedArg — a quoted mention, with no narrower sentex type yet — the target being any sentex.")
+(binary_predicate positiveExample)
+(instance_relation_predicate positiveExample)
+(arg positiveExample 1 thing)
+(quotedArg positiveExample 2 thing)
+(target_following_predicate positiveExample)
+
+(comment negativeExample
+         "(negativeExample ?term (sentexHandle ?sentex)) means that ?sentex is a FALSE example of ?term's usage — a meta-sentex naming ?sentex by handle. Same pointing shape and target_following_predicate mark as positiveExample; the obligation is the mirror, that the named sentex is provable AS ITS NEGATION — the example genuinely does not hold as stated — which curation_test holds. ?term is the term being exemplified; the handle arg is typed `thing` via quotedArg — a quoted mention, no narrower sentex type yet.")
+(binary_predicate negativeExample)
+(instance_relation_predicate negativeExample)
+(arg negativeExample 1 thing)
+(quotedArg negativeExample 2 thing)
+(target_following_predicate negativeExample)
+
+(comment borderlineExample
+         "(borderlineExample ?term (sentexHandle ?sentex)) means that ?sentex is a BORDERLINE example of ?term's usage — a meta-sentex naming ?sentex by handle. Truth-agnostic by design: the named sentex is neither asserted true nor false, so it carries no provability obligation and NO regression reads its target. Same pointing shape, quotedArg mark, and target_following_predicate mark as the other two.")
+(binary_predicate borderlineExample)
+(instance_relation_predicate borderlineExample)
+(arg borderlineExample 1 thing)
+(quotedArg borderlineExample 2 thing)
+(target_following_predicate borderlineExample)
+
+(termsRelated positiveExample negativeExample borderlineExample)

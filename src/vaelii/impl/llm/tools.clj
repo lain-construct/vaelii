@@ -123,7 +123,7 @@
   "Per-parameter guidance, keyed by the `vaelii.core` parameter name.  Anything not
   listed falls back to the generic EDN-form description."
   '{sentence "A sentence as an EDN s-expression: \"(dog Muffet)\", \"(parentOf ?x Tom)\"."
-    goal     "A goal sentence, or a vector of them for a conjunctive query: \"[(parentOf ?x ?y) (dog ?y)]\"."
+    goal     "A goal formula, or a vector of them for a conjunctive query: \"[(parentOf ?x ?y) (dog ?y)]\"."
     context  "A context name: \"CxWell\". Use \"?ctx\" to mean any context."
     ctx      "A context name: \"CxWell\"."
     term     "A single term (predicate, individual, type, or context name): \"Muffet\"."

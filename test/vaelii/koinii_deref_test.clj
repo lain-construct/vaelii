@@ -91,11 +91,11 @@
           (testing "and `locate` computes it without the fact being at any particular handle"
             (is (= (d/locator-of a ha) (d/locate a atlas-fact 'CxAtlas)))
             (is (= (d/locator-of b hb) (d/locate b atlas-fact 'CxAtlas))))
-          (testing "context, truth polarity and sentence each change the locator"
+          (testing "context, polarity and sentence each change the locator"
             (is (not= (d/locate a atlas-fact 'CxAtlas)
                       (d/locate a atlas-fact 'CxBoreas)) "context is part of identity")
             (is (not= (d/locate a atlas-fact 'CxAtlas)
-                      (d/locate a (list 'not atlas-fact) 'CxAtlas)) "truth polarity is")
+                      (d/locate a (list 'not atlas-fact) 'CxAtlas)) "polarity is")
             (is (not= (d/locate a atlas-fact 'CxAtlas)
                       (d/locate a boreas-fact 'CxAtlas)) "and the sentence is")))
         (is (re-matches #"sha256:[0-9a-f]{64}" (d/locator-of a ha)) "a self-describing sha256 locator"))
@@ -195,7 +195,7 @@
                   (is (:resolved? r) (str label " resolved"))
                   (is (= atlas-fact (:sentence r)) "to the byte-identical canonical sentence")
                   (is (= 'CxAtlas (:context r)))
-                  (is (= :true (:truth r)))
+                  (is (= :positive (:polarity r)))
                   (testing "and the same provenance — who asserted it, recovered after the pull"
                     (is (= 'AgentAtlas (:seat r)))
                     (is (= 'AgentAtlas (:creator (:provenance r)))))
@@ -381,7 +381,7 @@
       (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
 
 ;;; ── a NEGATIVE fact round-trips (a `:false` sentex keeps its `not`) ────
-;;; Regression: a stored `(not S)` keeps the `not` in its `:sentence` with `:truth :false`
+;;; Regression: a stored `(not S)` keeps the `not` in its `:sentence` with `:polarity :negative`
 ;;; (docs/storage.md).  A marker must carry that field UNCHANGED — an earlier `assertable`
 ;;; re-wrapped it, double-negating the sentence into a positive one that resolved to
 ;;; nothing, and it failed as `:not-received` — indistinguishable from "not pulled yet".
@@ -393,9 +393,9 @@
     (rm-rf! dump)
     (try
       (let [nh (v/assert source '(not (happy Rex)) 'CxAtlas {:creator 'AgentAtlas})]
-        (testing "the store keeps the `not` in :sentence, with :truth :false"
+        (testing "the store keeps the `not` in :sentence, with :polarity :negative"
           (is (= '(not (happy Rex)) (:sentence (v/sentex source nh))))
-          (is (= :false (:truth (v/sentex source nh)))))
+          (is (= :negative (:polarity (v/sentex source nh)))))
         (d/publish! source dump)
         (d/pull! seat dump)
         (let [mk (d/marker source nh)]
@@ -404,7 +404,7 @@
           (testing "and it dereferences on the seat that pulled it — not a false :not-received"
             (let [r (d/dereference seat mk)]
               (is (:resolved? r) "the negative fact resolves across seats")
-              (is (= :false (:truth r)))
+              (is (= :negative (:polarity r)))
               (is (= '(not (happy Rex)) (:sentence r)))
               (is (= 'AgentAtlas (:seat r)))))))
       (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))

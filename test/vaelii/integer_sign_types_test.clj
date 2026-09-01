@@ -1,7 +1,9 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.integer-sign-types-test
-  "The four sign-refined integer types and their executable `defnIff` boundaries."
+  "The four sign-refined integer types and their executable boundaries — defined by a
+  `defnSufficient` + `defnNecessary` pair (not `defnIff`) so membership resolves by
+  evaluation at query time (docs/defns.md)."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.starter :as starter]
@@ -31,10 +33,15 @@
   (doseq [[type] cases]
     (is (v/genl? kb type 'integer) (str type " specializes integer"))))
 
-(tu/deftest-kb sign-refined-integers-state-their-boundaries-with-defniff
+(tu/deftest-kb sign-refined-integers-state-their-boundaries-with-defns
   (doseq [[type condition] cases]
-    (is (some? (v/handle-of kb (list 'defnIff type condition) 'CxCore))
-        (str type " has the expected executable definition"))))
+    (is (some? (v/handle-of kb (list 'defnSufficient type condition) 'CxCore))
+        (str type " has the expected sufficient condition"))
+    (is (some? (v/handle-of kb (list 'defnNecessary type condition) 'CxCore))
+        (str type " has the expected necessary condition"))
+    (is (nil? (v/handle-of kb (list 'defnIff type condition) 'CxCore))
+        (str type " is no longer defined by a single defnIff (the rules never fired on a "
+             "computed condition — it is a defnSufficient + defnNecessary pair now)"))))
 
 (tu/deftest-kb sign-refined-integer-definitions-materialize-both-rules
   (doseq [[type condition] cases]
@@ -53,7 +60,7 @@
              [takesNegative 'negative_integer -1 0]
              [takesNonNegative 'non_negative_integer 0 -1]
              [takesNonPositive 'non_positive_integer 0 1]]]
-      (v/assert kb (list 'unaryPredicate pred) 'CxUniverse)
+      (v/assert kb (list 'unary_predicate pred) 'CxUniverse)
       (v/assert kb (list 'arg pred 1 type) 'CxUniverse)
       (is (integer? (v/assert kb (list pred accepted) 'CxUniverse))
           (str type " accepts a member literal"))
@@ -84,8 +91,8 @@
 ;; `quotedArg`'s domain too, `checks/syntactic-type?` admitting any type below a
 ;; syntactic root.  Judged by EDN kind alone the comparison ran the wrong way round —
 ;; asking whether `integer` is below `positive_integer` — so the check refused every
-;; integer literal written in such a position (#55).  A literal denotes itself, which is
-;; why the two readings share `checks/literal-value-types` and agree here.
+;; integer written in such a position (#55).  A value denotes itself, which is
+;; why the two readings share `checks/value-kinds` and agree here.
 
 (tu/deftest-kb sign-refined-integers-work-as-quoted-argument-types
   (tu/with-terms [tagPositive tagNegative tagNonNegative tagNonPositive]
@@ -94,7 +101,7 @@
              [tagNegative 'negative_integer -1 0]
              [tagNonNegative 'non_negative_integer 0 -1]
              [tagNonPositive 'non_positive_integer 0 1]]]
-      (v/assert kb (list 'unaryPredicate pred) 'CxUniverse)
+      (v/assert kb (list 'unary_predicate pred) 'CxUniverse)
       (v/assert kb (list 'quotedArg pred 1 type) 'CxUniverse)
       (is (integer? (v/assert kb (list pred accepted) 'CxUniverse))
           (str type " admits a member literal written in the position"))
@@ -106,14 +113,14 @@
   ;; The regression half: widening the comparison to the value types must not make the
   ;; check admit what it always refused, and must not disturb the non-integer kinds.
   (tu/with-terms [needsString needsInteger]
-    (v/assert kb (list 'unaryPredicate needsString) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate needsString) 'CxUniverse)
     (v/assert kb (list 'quotedArg needsString 1 'string) 'CxUniverse)
     (is (integer? (v/assert kb (list needsString "Bob") 'CxUniverse))
         "a string satisfies string")
     (is (thrown? clojure.lang.ExceptionInfo
                  (v/assert kb (list needsString 5) 'CxUniverse))
         "5 is a number, not a string")
-    (v/assert kb (list 'unaryPredicate needsInteger) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate needsInteger) 'CxUniverse)
     (v/assert kb (list 'quotedArg needsInteger 1 'integer) 'CxUniverse)
     (is (integer? (v/assert kb (list needsInteger -7) 'CxUniverse))
         "an unrefined integer position still takes either sign")))
@@ -122,7 +129,7 @@
   ;; "it is a integer" says nothing useful about -5 refused a positive_integer, so the
   ;; message names what the value actually is when the refinement is what failed.
   (tu/with-terms [tagPositive]
-    (v/assert kb (list 'unaryPredicate tagPositive) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate tagPositive) 'CxUniverse)
     (v/assert kb (list 'quotedArg tagPositive 1 'positive_integer) 'CxUniverse)
     (let [m (try (v/assert kb (list tagPositive -5) 'CxUniverse) nil
                  (catch clojure.lang.ExceptionInfo e (ex-message e)))]

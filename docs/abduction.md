@@ -11,18 +11,18 @@ question — *what would have to be true for it to be provable?* — and mints t
 a **hypothesis**.
 
 ```clojure
-(v/assert kb '(abduciblePredicate wasWashed) 'CxLaundry)
-(v/assert kb '(implies (and (wasWashed ?x)) (clean ?x)) 'CxLaundry)
+(v/assert kb '(abducible_predicate was_washed) 'CxLaundry)
+(v/assert kb '(implies (and (was_washed ?x)) (clean ?x)) 'CxLaundry)
 
 (v/abduce kb '(clean Shirt) 'CxLaundry)
 ;; {:solutions   [{} {}]
-;;  :hypotheses  [{:sentence (wasWashed Shirt) :context CxAbduction3a9d… :handle nil}]
+;;  :hypotheses  [{:sentence (was_washed Shirt) :context CxAbduction3a9d… :handle nil}]
 ;;  :refused     []
 ;;  :context     CxAbduction3a9d…
 ;;  :status      :complete}
 ```
 
-The goal is answerable — **given** `(wasWashed Shirt)`, which nobody said.  The two travel
+The goal is answerable — **given** `(was_washed Shirt)`, which nobody said.  The two travel
 together, and there is no arity that returns the solutions alone.
 
 `:solutions` are `prove`'s, unprojected, so they carry the rule's canonical variables —
@@ -103,17 +103,17 @@ ratio of matches to dead ends it is not there at all.
 `abduce/abducible?`, cheapest first:
 
 1. **A ground positive literal.**  An open hypothesis is a skolemization question
-   (docs/skolem.md) and not this one, so `(wasWashed ?x)` refuses rather than inventing a
+   (docs/skolem.md) and not this one, so `(was_washed ?x)` refuses rather than inventing a
    name.  A negation has functor `not`, which nothing grants, so negative hypotheses are
    excluded with no rule of their own.
-2. **Declared abducible.**  `(abduciblePredicate P)` is what makes a `(P …)` assumable and
+2. **Declared abducible.**  `(abducible_predicate P)` is what makes a `(P …)` assumable and
    the *only* thing that does.  It is a predicate property like `transitive` / `symmetric`
    — cached in the taxonomy, belief-following, retractable — with one deliberate
    difference: it is **not** decontextualized.  Those are claims about a predicate that
    hold wherever it is mentioned; this is a **policy** of the context that grants it,
    so it is read from the asking context's `genlCx` up-cone and one theory may be
    willing to assume a predicate that another, reading the same vocabulary, will not.
-   The shipped schema grants exactly one: `CxBiology` declares `(abduciblePredicate
+   The shipped schema grants exactly one: `CxBiology` declares `(abducible_predicate
    asleep)`, so *why is this animal not awake* is answerable and *why does it not fly*
    comes back with `(bird …)` named as the dead end it refused to assume.
 3. **Legally assertible.**  The same four checks every minted sentence passes
@@ -219,7 +219,7 @@ context holding them.
 ## Scope
 
 **In:** `core/abduce` / `core/abduce-discard!`, the context lifecycle, the dead-end
-observer, the gate, `abduciblePredicate`, provenance, the caps, the irredundancy check.
+observer, the gate, `abducible_predicate`, provenance, the caps, the irredundancy check.
 
 **Out:**
 

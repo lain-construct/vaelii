@@ -146,10 +146,10 @@
 
 (deftest find-terms-filters-the-roster
   (tu/with-neutral-kb [kb tu/fresh]
-    ;; the generated names share the prefix `tmpParent` and differ at the next
+    ;; the generated names share the prefix `tmpparent` and differ at the next
     ;; character, so the sorted answer is [parentOf parentTo] whatever the gensym
     (tu/with-terms [parentOf parentTo Ann CxPrefix]
-      (let [pre  (subs (str parentOf) 0 9)              ; "tmpParent"
+      (let [pre  (subs (str parentOf) 0 9)              ; "tmpparent"
             both [parentOf parentTo]]
         (v/assert kb (list parentOf Ann Ann) CxPrefix)
         (v/assert kb (list parentTo Ann Ann) CxPrefix)
@@ -163,12 +163,12 @@
         (testing "substring matches inside the name, where a prefix does not"
           (is (= [] (v/find-terms kb "Parent")))
           (is (= both (v/find-terms kb "Parent" {:match :substring})))
-          (is (= [] (v/find-terms kb "parent" {:match :substring :case-sensitive? true}))))
+          (is (= [] (v/find-terms kb "PARENT" {:match :substring :case-sensitive? true}))))
         (testing "regex is `re-find`, so the pattern says where it anchors"
           (is (= both (v/find-terms kb (str "^" pre) {:match :regex})))
-          (is (= [parentOf] (v/find-terms kb (str "^" pre "Of") {:match :regex})))
+          (is (= [parentOf] (v/find-terms kb (str "^" pre "of") {:match :regex})))
           (is (= both (v/find-terms kb "(?i)PARENT" {:match :regex})))
-          (is (= [parentOf] (v/find-terms kb (re-pattern (str pre "Of")) {:match :regex}))
+          (is (= [parentOf] (v/find-terms kb (re-pattern (str pre "of")) {:match :regex}))
               "a compiled pattern is taken as-is (in-process)"))
         (testing ":limit keeps a stable prefix of the sorted answer"
           (is (= [parentOf] (v/find-terms kb pre {:limit 1})))

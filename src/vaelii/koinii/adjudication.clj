@@ -96,7 +96,7 @@
 (defn- opened-at
   "When dispute `id` arose: the latest `:created` stamp among its clashing sides (the clash
   exists once the last of them is asserted — two for a rebuttal, three for an
-  `antiTransitive` chain).  0 if no side carries a stamp — an un-stamped dispute is
+  `anti_transitive` chain).  0 if no side carries a stamp — an un-stamped dispute is
   treated as old, so the sweep surfaces it rather than hiding it."
   [kb id]
   (reduce max 0 (keep #(:created (v/provenance kb %)) id)))

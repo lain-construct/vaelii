@@ -60,7 +60,7 @@
 ;; ---- a declaration's own position check reads the inherited arity -------
 ;;
 ;; `constraint-descension-test`'s `a-declarations-own-checks-read-its-own-predicates-
-;; arity` holds the near half: a sub-predicate carrying `(ternaryPredicate fatherOf)` may
+;; arity` holds the near half: a sub-predicate carrying `(ternary_predicate fatherOf)` may
 ;; declare its own third position however binary its supers are.  The far half is a
 ;; sub-predicate carrying **nothing** — where `own-arity` answers nil and
 ;; `declared-arity` falls through to the hierarchy — and reading `own-arity` there admits
@@ -68,7 +68,7 @@
 
 (tu/deftest-kb an-inherited-arity-refuses-a-position-the-sub-predicate-never-declared
   (tu/with-terms [parentOf fatherOf]
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (testing "the position the inherited length does not have is refused"
       (is (= :arg-position

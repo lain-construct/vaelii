@@ -14,13 +14,13 @@ A rule normally concludes a fact. A **generator** concludes a *rule*, and its fi
 stores that rule:
 
 ```clojure
-(implies (and (planVerb ?outcome) (outcomeEmotion ?outcome ?emotion))
+(implies (and (plan_verb ?outcome) (outcomeEmotion ?outcome ?emotion))
          (set/defaultRule
            (implies (and (planOf ?a ?p) (?outcome ?a ?p))
                     (feels ?a ?emotion))))
 ```
 
-Given `(planVerb succeededAt)` and `(outcomeEmotion succeededAt Joy)`, the firing
+Given `(plan_verb succeededAt)` and `(outcomeEmotion succeededAt Joy)`, the firing
 stores one ordinary rule:
 
 ```clojure

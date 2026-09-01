@@ -80,7 +80,7 @@
   "`{individual -> #{predicate …}}` over a set of sentences: every **one-place claim** made
   of each individual.
 
-  Its kind, and also what it did — `(criesWolf BoyA)` counts alongside `(person BoyA)`.
+  Its kind, and also what it did — `(cries_wolf BoyA)` counts alongside `(person BoyA)`.
   That is deliberate.  A fable's characters are as much identified by what happens to them
   as by their type, and the type is exactly what a reader is most likely to get differently
   (`boy` where the modeller wrote `person`); an alignment on kind alone would then fail on

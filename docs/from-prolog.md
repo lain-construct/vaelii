@@ -49,8 +49,10 @@ variable and `foo` is an atom. Here:
 These are not style. `assert` reads a symbol's role off its spelling and **refuses** a
 sentence that breaks one, with `ex-info` carrying `:type :naming`. A snake_case functor
 names a type and a type is one-place, so `(lives_in ?x cold_place)` is refused — write
-`livesIn`. A bare lowercase word like `dog` satisfies both the predicate and the type
-convention, and arity decides which. → [naming.md](naming.md)
+`livesIn`. The rule is a biconditional, so it refuses the other direction too: a
+camelCase functor is a relation, and `(warmBlooded Muffet)` is refused — write
+`warm_blooded`. A bare lowercase word like `dog` satisfies both the predicate and the
+type convention, and arity decides which. → [naming.md](naming.md)
 
 Two more refusals in the same family. A non-ground fact is refused: `(mortal ?x)` asserts
 nothing, and a universal is a rule, which is where variables belong. And every literal is
@@ -122,7 +124,7 @@ double negation Prolog implements it as — `(unknown (thereExists ?y (and B (un
 the stored rule shows the nested form.
 
 `(not S)` is a different thing again: a stored negative sentex with its own handle, which
-is neither failure nor absence. Under a `(closedExtentPredicate P)` grant it is *also* a
+is neither failure nor absence. Under a `(closed_extent_predicate P)` grant it is *also* a
 closed-world question — a ground `(not (P a))` holds while nothing answers `(P a)`, and a
 closed `(not (P ?x))` rule antecedent under the grant is negation as failure. That is the
 one place `not` and `\+` converge here, and it is opt-in per predicate and per context.

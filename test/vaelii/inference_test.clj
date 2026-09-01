@@ -65,8 +65,8 @@
 (tu/deftest-kb depth-bounds-the-rewrites-a-literal-may-take
   (tu/with-terms [base CxDepth]
     (tu/with-terms [DepthInd]
-      (chain-of-rules! kb base DepthInd "tmpDepthP" 2 CxDepth)
-      (let [goal (list 'tmpDepthP0 DepthInd)]
+      (chain-of-rules! kb base DepthInd "tmp_depth_p" 2 CxDepth)
+      (let [goal (list 'tmp_depth_p0 DepthInd)]
         (is (empty? (answers kb [goal] CxDepth 2)) "3 rewrites are needed")
         (is (= #{{}} (answers kb [goal] CxDepth 3)))
         (is (= #{{}} (answers kb [goal] CxDepth 5)) "a larger bound finds the same")))))
@@ -78,9 +78,9 @@
   ;; does not have to pay for it.
   (tu/with-terms [base CxPerLit]
     (tu/with-terms [PerLitInd]
-      (chain-of-rules! kb base PerLitInd "tmpShallow" 0 CxPerLit)   ; 1 rewrite
-      (chain-of-rules! kb base PerLitInd "tmpDeeper" 2 CxPerLit)    ; 3 rewrites
-      (let [conj-goal [(list 'tmpShallow0 PerLitInd) (list 'tmpDeeper0 PerLitInd)]]
+      (chain-of-rules! kb base PerLitInd "tmp_shallow" 0 CxPerLit)   ; 1 rewrite
+      (chain-of-rules! kb base PerLitInd "tmp_deeper" 2 CxPerLit)    ; 3 rewrites
+      (let [conj-goal [(list 'tmp_shallow0 PerLitInd) (list 'tmp_deeper0 PerLitInd)]]
         (is (empty? (answers kb conj-goal CxPerLit 2)))
         (is (= #{{}} (answers kb conj-goal CxPerLit 3))
             "3 is what the deeper conjunct needs; the shallow one must not have spent it")))))
@@ -88,8 +88,8 @@
 (tu/deftest-kb two-copies-of-one-sentence-keep-independent-counters
   (tu/with-terms [base CxDup]
     (tu/with-terms [DupInd]
-      (chain-of-rules! kb base DupInd "tmpDup" 1 CxDup)       ; 2 rewrites each
-      (let [g (list 'tmpDup0 DupInd)]
+      (chain-of-rules! kb base DupInd "tmp_dup" 1 CxDup)       ; 2 rewrites each
+      (let [g (list 'tmp_dup0 DupInd)]
         (is (empty? (answers kb [g g] CxDup 1)))
         (is (= #{{}} (answers kb [g g] CxDup 2))
             "the first copy's rewrites must not be charged to the second")))))

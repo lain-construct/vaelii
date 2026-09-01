@@ -9,7 +9,7 @@
   `context-up`, the type hierarchy from `types` / `genls`, the predicate
   documentation from the `(comment <term> \"…\")` sentexes the vocabulary documents
   itself with (`vaelii.impl.core-context/comment-of`), the argument types from the stored
-  `arg` sentexes, the disjointness from `disjoint` / `disjointMetatype`, and the
+  `arg` sentexes, the disjointness from `disjoint` / `disjoint_metatype`, and the
   algebraic metadata from `props`.  The naming invariants are the one static section,
   because they are mechanical rules rather than content.
 

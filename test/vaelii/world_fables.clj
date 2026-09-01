@@ -49,29 +49,29 @@
     (comment overconfident      "(overconfident ?animal) means that ?animal was sure of winning and grew careless.")
     (comment napped             "(napped ?animal) means that ?animal stopped to sleep midway.")
     (comment wins               "(wins ?animal1 ?animal2) means that ?animal1 beats ?animal2. The derived moral of the Tortoise and the Hare.")
-    (comment preparedForWinter  "(preparedForWinter ?animal) means that ?animal laid in provisions during the good season.")
-    (comment idledInSummer      "(idledInSummer ?animal) means that ?animal played instead of preparing.")
-    (comment survivesWinter     "(survivesWinter ?animal) means that ?animal comes through the hard season. Derived from having prepared.")
-    (comment suffersInWinter    "(suffersInWinter ?animal) means that ?animal goes hungry in the hard season. Derived from having idled.")
+    (comment prepared_for_winter  "(prepared_for_winter ?animal) means that ?animal laid in provisions during the good season.")
+    (comment idled_in_summer      "(idled_in_summer ?animal) means that ?animal played instead of preparing.")
+    (comment survives_winter     "(survives_winter ?animal) means that ?animal comes through the hard season. Derived from having prepared.")
+    (comment suffers_in_winter    "(suffers_in_winter ?animal) means that ?animal goes hungry in the hard season. Derived from having idled.")
     (comment betterPreparedThan "(betterPreparedThan ?animal1 ?animal2) means that ?animal1 fared better than ?animal2 by preparing. The derived moral of the Ant and the Grasshopper.")
-    (comment liedBefore         "(liedBefore ?person) means that ?person has raised a false alarm in the past.")
+    (comment lied_before         "(lied_before ?person) means that ?person has raised a false alarm in the past.")
     (comment liar               "Someone who has raised a false alarm — a person whose word is no longer trusted.")
-    (comment criesWolf          "(criesWolf ?person) means that ?person raises the alarm that a wolf is coming.")
+    (comment cries_wolf          "(cries_wolf ?person) means that ?person raises the alarm that a wolf is coming.")
     (comment approaches         "(approaches ?predator ?victim) means that ?predator is closing in on ?victim.")
     (comment believed           "(believed ?person) means that ?person's alarm is trusted. A default, defeated for a known liar.")
-    (comment inDanger           "(inDanger ?person) means that ?person faces a real threat.")])
+    (comment in_danger           "(in_danger ?person) means that ?person faces a real threat.")])
 
 (def predicate-types
   "Arity memberships for the narrative predicates, upholding the KB's self-classifying
   invariant (every predicate is a unary/binary/… predicate)."
-  '[(binaryPredicate spared)  (binaryPredicate freed)  (binaryPredicate repaidKindness)
-    (binaryPredicate raced)   (binaryPredicate wins)   (binaryPredicate betterPreparedThan)
-    (binaryPredicate approaches)
-    (unaryPredicate trapped)  (unaryPredicate persevered) (unaryPredicate overconfident)
-    (unaryPredicate napped)   (unaryPredicate preparedForWinter) (unaryPredicate idledInSummer)
-    (unaryPredicate survivesWinter) (unaryPredicate suffersInWinter) (unaryPredicate liedBefore)
-    (unaryPredicate criesWolf) (unaryPredicate believed) (unaryPredicate inDanger)
-    (unaryPredicate liar)])
+  '[(binary_predicate spared)  (binary_predicate freed)  (binary_predicate repaidKindness)
+    (binary_predicate raced)   (binary_predicate wins)   (binary_predicate betterPreparedThan)
+    (binary_predicate approaches)
+    (unary_predicate trapped)  (unary_predicate persevered) (unary_predicate overconfident)
+    (unary_predicate napped)   (unary_predicate prepared_for_winter) (unary_predicate idled_in_summer)
+    (unary_predicate survives_winter) (unary_predicate suffers_in_winter) (unary_predicate lied_before)
+    (unary_predicate cries_wolf) (unary_predicate believed) (unary_predicate in_danger)
+    (unary_predicate liar)])
 
 (def morals
   "The human-readable moral of each fable, attached to its context."
@@ -95,7 +95,7 @@
 
   What it *does* share with the formal version is vocabulary, and that is worth stating
   plainly: the narrative predicates were named after the English words the fable uses
-  (`spared`, `napped`, `preparedForWinter`), so resolving a word to a term is easier here
+  (`spared`, `napped`, `prepared_for_winter`), so resolving a word to a term is easier here
   than it would be on arbitrary prose.  The score is a floor on the formalism, not a claim
   about English."
   {'CxLionMouse
@@ -156,12 +156,12 @@
 (defn- ant-and-grasshopper [kb]
   (assert-all kb 'CxAntGrasshopper
               '[(ant AntA) (grasshopper GrasshopperA)
-                (preparedForWinter AntA)
-                (idledInSummer GrasshopperA)])
+                (prepared_for_winter AntA)
+                (idled_in_summer GrasshopperA)])
   ;; preparing carries you through; idling does not; the one who prepared fares better
-  (v/assert-rule kb '[(preparedForWinter ?x)] '(survivesWinter ?x)  'CxAntGrasshopper)
-  (v/assert-rule kb '[(idledInSummer ?x)]     '(suffersInWinter ?x) 'CxAntGrasshopper)
-  (v/assert-rule kb '[(survivesWinter ?a) (suffersInWinter ?b)]     ; derived facts joined
+  (v/assert-rule kb '[(prepared_for_winter ?x)] '(survives_winter ?x)  'CxAntGrasshopper)
+  (v/assert-rule kb '[(idled_in_summer ?x)]     '(suffers_in_winter ?x) 'CxAntGrasshopper)
+  (v/assert-rule kb '[(survives_winter ?a) (suffers_in_winter ?b)]     ; derived facts joined
                  '(betterPreparedThan ?a ?b) 'CxAntGrasshopper))
 
 (defn- boy-who-cried-wolf [kb]
@@ -172,11 +172,11 @@
   (v/assert kb '(genl liar person) 'CxCriedWolf)
   (assert-all kb 'CxCriedWolf
               '[(person BoyA) (wolf WolfA)
-                (liedBefore BoyA)                     ; he has raised false alarms
-                (criesWolf BoyA)                      ; now he cries wolf again
+                (lied_before BoyA)                     ; he has raised false alarms
+                (cries_wolf BoyA)                      ; now he cries wolf again
                 (approaches WolfA BoyA)])             ; and this time the wolf is real
   ;; having raised a false alarm is what makes him one
-  (v/assert-rule kb '[(liedBefore ?x)] '(liar ?x) 'CxCriedWolf)
+  (v/assert-rule kb '[(lied_before ?x)] '(liar ?x) 'CxCriedWolf)
   ;; a cry is believed by default — **except** from a liar.  The exception rides on
   ;; the rule (`exceptWhen`), so for a liar the rule concludes nothing at all.
   ;;
@@ -186,15 +186,15 @@
   ;; fired — which is exactly the dependency stratification would order.  See
   ;; docs/exceptions.md, Status, for what measuring this actually showed.
   (v/assert kb '(exceptWhen (liar ?x)
-                            (set/defaultRule (implies (and (criesWolf ?x)) (believed ?x))))
+                            (set/defaultRule (implies (and (cries_wolf ?x)) (believed ?x))))
             'CxCriedWolf)
   ;; … and the positive claim that a liar's cry is not believed stands on its own,
   ;; queryable, rather than existing only to defeat the rule above
-  (v/assert-rule kb '[(liar ?x) (criesWolf ?x)] '(not (believed ?x)) 'CxCriedWolf)
+  (v/assert-rule kb '[(liar ?x) (cries_wolf ?x)] '(not (believed ?x)) 'CxCriedWolf)
   ;; the danger is real all the same: an approaching predator + the cry ⇒ real danger
   ;; (a joined rule with a constant character, WolfA, in an antecedent)
-  (v/assert-rule kb '[(approaches WolfA ?victim) (criesWolf ?victim)]
-                 '(inDanger ?victim) 'CxCriedWolf))
+  (v/assert-rule kb '[(approaches WolfA ?victim) (cries_wolf ?victim)]
+                 '(in_danger ?victim) 'CxCriedWolf))
 
 (defn load-into
   "Load the story contexts into `kb` (which must already have the starter

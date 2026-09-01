@@ -21,6 +21,7 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
+            [vaelii.impl.predicates :as pr]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.reads :as reads]
@@ -535,7 +536,7 @@
   contradiction to arbitrate in the first place.
 
   **Read over the whole member set, not over two.**  A nogood is a set that must not
-  hold in full, and `antiTransitive` forms one over three sentexes — the two chain steps
+  hold in full, and `anti_transitive` forms one over three sentexes — the two chain steps
   and the direct step (`checks/antitransitivity-problems`).  Any one of them being
   disbelieved satisfies it, so the decision is the same one the pair takes, asked of the
   minimum: a **unique** weakest member is the one whose defeat costs least and it is
@@ -1550,7 +1551,7 @@
   [kb]
   (comp (keep #(p/get-sentex (:records kb) %))
         (filter #(jtms/in? (:tms kb) (:id %)))
-        (filter #(= :true (:truth %)))))
+        (filter #(= :positive (:polarity %)))))
 
 (defn- believed-in-cone
   "The believed, positive sentexes stored across `contexts` — the shape every cone sweep
@@ -1566,7 +1567,7 @@
   (for [c     (filter symbol? contexts)
         s     (keep #(p/get-sentex (:records kb) %)
                     (reads/as-stored-in-context (:index kb) c))
-        :when (and (jtms/in? (:tms kb) (:id s)) (= :true (:truth s)))]
+        :when (and (jtms/in? (:tms kb) (:id s)) (= :positive (:polarity s)))]
     s))
 
 (defn- believed-at-arg
@@ -1840,7 +1841,7 @@
           s     (keep #(p/get-sentex (:records kb) %)
                       (reads/as-stored-with-functor (:index kb) t'))
           :when (and (jtms/in? (:tms kb) (:id s))
-                     (= :true (:truth s))
+                     (= :positive (:polarity s))
                      (= 1 (count (rest (:sentence s))))
                      (symbol? (second (:sentence s))))]
       (second (:sentence s)))))
@@ -1911,7 +1912,7 @@
              (let [sen (:sentence s)]
                (and (sequential? sen) (= 2 (count sen))
                     (contains? closure (first sen))
-                    (= :true (:truth s))
+                    (= :positive (:polarity s))
                     (jtms/in? (:tms kb) (:id s))))))
          (reads/as-stored-with-arg (:index kb) 1 term))))
 
@@ -1929,7 +1930,7 @@
                           ;; `sequential?` before `count`, as every other reader of an
                           ;; argument-root posting here does it: a sentence that is not a
                           ;; sequence has no arity to compare and `count` throws on it
-                          (if (and (sequential? sen) (= 2 (count sen)) (= :true (:truth s))
+                          (if (and (sequential? sen) (= 2 (count sen)) (= :positive (:polarity s))
                                    (jtms/in? (:tms kb) (:id s)))
                             (let [seen' (into seen (owner (first sen)))]
                               (if (> (count seen') 1) (reduced seen') seen'))
@@ -2007,13 +2008,13 @@
     against the other's closure.  Work is `min` of the two extents where the union
     rule paid their sum, and every survivor is a term that genuinely holds one of
     each.
-  * `(disjointMetatype M)` — the members are pairwise disjoint, so a candidate is a
+  * `(disjoint_metatype M)` — the members are pairwise disjoint, so a candidate is a
     term below **two distinct members**.  Every member's extent still has to be
     enumerated (the clash may be between any two of them), but only the
     double-holders come out.
-  * `(siblingDisjoint C)` — C's specializations are pairwise disjoint unless one is a
+  * `(sibling_disjoint C)` — C's specializations are pairwise disjoint unless one is a
     genl of the other, so a candidate is a term below **two distinct** specializations
-    of C.  Enumerated below C and kept as `disjointMetatype`'s double-holders are; the
+    of C.  Enumerated below C and kept as `disjoint_metatype`'s double-holders are; the
     genl-relatedness exception is left to the conviction, which re-reads `disjoint?`.
   * `(M T)`, a new member of a disjoint metatype — the terms below `T` that also hold
     one of `M`'s *other* members.
@@ -2029,7 +2030,7 @@
       disjoint
       (let [[_ a b] sen] (two-sided-reach kb [a] [b] #{a b}))
 
-      disjointMetatype
+      disjoint_metatype
       (let [[_ mt]  sen
             members (tax/metatype-members tax mt)
             owner   (member-owners tax members)]
@@ -2037,8 +2038,8 @@
          :keep?     #(holds-two-members? kb owner %)
          :roots     (set members)})
 
-      siblingDisjoint
-      ;; the derived-member twin of the `disjointMetatype` arm: the "members" are C's
+      sibling_disjoint
+      ;; the derived-member twin of the `disjoint_metatype` arm: the "members" are C's
       ;; proper specializations, read off the genl closure rather than a recorded set,
       ;; and the double-holder gate is the same over-approximation — a genl-related pair
       ;; it lets through is dropped by the conviction's own `disjoint?`.
@@ -2103,42 +2104,50 @@
 ;; has to reach them, or the answer would depend on whether the separation was written
 ;; first.  Those sweeps draw on the same instance budget the exposure pass uses, and
 ;; behind the same O(1) gate — the five set-emptiness reads `constraint-nogoods` names.
+;;
+;; The rosters below are **three questions about a declaration**, and are separate
+;; because the answers are separate: which taxonomy prop key a mark stores under
+;; (`definitional-marks`, from `:arbitrable` and `:storage`), what its arrival puts back
+;; in question (`clash-declaration-kinds`, from `:sweeps`), and what arity it is written
+;; at (`trigger-functor-kind`, from `:shape`).  All three are answered on the term's own
+;; entry in `predicates`, and are read back here rather than restated: a functor that
+;; answers one and not another is #54, where the generalized functional mark was enforced
+;; at the door and swept nothing behind it.  Everything else here is derived from these.
 
 (def ^:private definitional-marks
   "The tuple marks every clash-detection pass in this namespace treats as
   definitional, as `[symbol keyword]` pairs — the **one** place naming the trio, so
   every reader below asks this roster instead of restating it.
 
+  Read off the declarations rather than written: a definitional mark is one whose
+  violation names *further believed sentexes* — which is `:arbitrable`, the facet settle
+  arbitrates on — and which stores under a `tax/props` keyword, which is what supplies the
+  second spelling.  Both halves are needed and neither alone is the roster: `disjoint` is
+  arbitrable and is no predicate mark, and `functionalInArg` is arbitrable and has no prop
+  keyword to be paired with.
+
   Two spellings coexist and neither can be dropped: a *declaration* arrives under the
   sentence-level functor (`(functional P)`, camelCase, matching predicate naming), and
   a *stored* mark or a `checks/arbitrable-violations` `:type` is keyed by the
   taxonomy's prop keyword (kebab-case — `tax/props`, `tax/props-over`).  Deriving one
-  spelling from the other by case-conversion alone would get `antiTransitive` wrong
-  (`:anti-transitive`, not `:antitransitive`), which is why this is a table of pairs
-  and not a `->kebab-case` function over one list.
+  spelling from the other by case conversion alone would get `anti_transitive` wrong
+  (`:anti-transitive`, not `:antitransitive`), which is why the declaration *states* the
+  keyword and this reads it back rather than computing it.
 
-  **`functionalInArg` does not belong here**, and adding it would be the same mistake
-  #45 filed: it is a distinct declaration (`(functionalInArg P n)`, a different functor
-  and a different shape) rather than another spelling of `functional`.  A caller that
-  needs both reads `tax/functional-in-arg-predicates` beside whatever it reads this
-  roster's `:functional` entry for — `clash-marked-below` and `tuple-marks?` both do.
+  A caller that needs `functionalInArg` beside these reads
+  `tax/functional-in-arg-predicates` — `clash-marked-below` and `tuple-marks?` both do.
+  Why the generalized mark is out of this roster and in the two below, and what reading
+  the three as one costs, is on `predicates/sweep-kinds`.
 
-  **Staying out of this roster is not staying out of the pass**, and reading it as
-  though it were is what #54 filed.  Two rosters below are about a functor's *reach*
-  and its *written shape* rather than about which prop key it stores under, and
-  `functionalInArg` is enrolled in both by name: `clash-declaration-kinds`, so a
-  declaration arriving after the facts sweeps the subtree it now marks, and
-  `trigger-functor-kind`, so the same declaration is recognized at its own arity.
-  Derive a *reach* from this pairing table and the generalized mark silently loses the
-  one arrival order — declaration-last over an unmergeable pair — that `functional`
-  itself handles."
-  [['functional     :functional]
-   ['asymmetric     :asymmetric]
-   ['antiTransitive :anti-transitive]])
+  Order is `entries`' order and is read by nobody: the one ordered consumer is
+  `clash-vocabulary`'s fingerprint, which compares against itself."
+  (pr/prop-marks :arbitrable))
 
 (def ^:private definitional-mark-symbols
   "`definitional-marks`' declaration-functor spelling, as a set — what a sentence's own
-  functor is compared against."
+  functor is compared against, and what `clash-declaration-kinds` is held to at load: a
+  mark this roster pairs and that roster does not sweep is a declaration enforced at the
+  door and unswept behind it, which is #54 arriving at a fourth spelling."
   (into #{} (map first) definitional-marks))
 
 (def ^:private definitional-mark-keywords
@@ -2149,8 +2158,9 @@
 (def ^:private clash-declaration-kinds
   "Which reach `declaration-reach` runs for a declaration, as one map from the kind to
   the functors that have it — **the shape of the split is part of the roster**.  A
-  functor is a clash declaration by carrying a kind here, so enrolling one and leaving
-  `declaration-reach` with no arm for it is not a state this can be in.
+  functor is a clash declaration by carrying a `:sweeps` kind on its own declaration, so
+  enrolling one and leaving `declaration-reach` with no arm for it is not a state this
+  can be in: the grouping refuses at load a kind the `case` below has no arm for.
 
   `:type-separating` implicates the memberships of the terms the declaration separates;
   `:predicate-marked` implicates the facts beneath the predicate a descending mark now
@@ -2158,22 +2168,40 @@
   ancestors *and* a mark standing on the super descends into a subtree that never held
   one.
 
-  **`functionalInArg` is `:predicate-marked` alongside `definitional-mark-symbols`, and
-  arrives here from `tax/functional-family-marks` rather than by name.**  It is not in
-  `definitional-marks`, which pairs a functor with the prop key it stores under and which
-  the generalized mark has none of (it stores `[pred n]` pairs in a table of its own).
-  What this roster asks is different — what a declaration puts back in question — and the
-  answer for both spellings is identical, the facts of the subtree beneath the predicate
-  they name.  `declaration-implicates`' `:predicate-marked` arm reads that predicate as
-  `(second sen)`, which is argument 1 of either shape, so the arm needs nothing of its
-  own.  Left out, the mark enforced at the door and went unswept behind it: a
-  `(functionalInArg P n)` arriving after two unmergeable fillers convicted nothing,
-  where `(functional P)` in the same order convicts (#54).  Reading the family roster is
-  what keeps a third spelling from repeating that in whichever lane it is not spelled
-  into."
-  {:type-separating  '#{disjoint disjointMetatype siblingDisjoint genlCx}
-   :predicate-marked (into definitional-mark-symbols (keys tax/functional-family-marks))
-   :both             '#{genl}})
+  **Grouped from the declarations, which is the half of #54 that was structural.**  This
+  was `(into definitional-mark-symbols (keys tax/functional-family-marks))` — a union of
+  two derived rosters, correct only for as long as somebody remembered to write it, and
+  the memory is what failed.  `functionalInArg` arrives now because its own entry says
+  `:predicate-marked`, beside the `:mark-in-arg` shape `trigger-functor-kind` reads, and a
+  spelling that answers one and not the other cannot load.  What this roster asks is not
+  what `definitional-marks` asks — this one is about what a declaration puts back in
+  question, and the answer for both functional spellings is identical, the facts of the
+  subtree beneath the predicate they name.  `declaration-implicates`' `:predicate-marked`
+  arm reads that predicate as `(second sen)`, which is argument 1 of either shape, so the
+  arm needs nothing of its own."
+  (let [by-kind (reduce (fn [m [f kind]] (update m kind (fnil conj #{}) f))
+                        {} (pr/sweeps))]
+    (when-not (= (set (keys by-kind)) pr/sweep-kinds)
+      (throw (ex-info (str "the clash-declaration kinds and the reaches do not match: "
+                           (pr-str (set (keys by-kind))) " against the declared "
+                           (pr-str pr/sweep-kinds)
+                           " — every kind a declaration carries needs an arm in"
+                           " declaration-reach, and a kind with no declaration reaches"
+                           " nothing")
+                      {:type :bad-table-entry :mismatch :reach
+                       :grouped  (set (keys by-kind))
+                       :declared pr/sweep-kinds})))
+    (when-not (set/subset? definitional-mark-symbols (:predicate-marked by-kind))
+      (throw (ex-info (str "a definitional mark does not sweep what it convicts: "
+                           (pr-str (set/difference definitional-mark-symbols
+                                                   (:predicate-marked by-kind)))
+                           " pairs a prop keyword in definitional-marks and carries no"
+                           " :predicate-marked sweep, so it would convict at the door and"
+                           " reach nothing stored before it")
+                      {:type :bad-table-entry :mismatch :reach
+                       :missing (set/difference definitional-mark-symbols
+                                                (:predicate-marked by-kind))})))
+    by-kind))
 
 (def ^:private clash-declaration-functors
   "Sentence functors whose arrival implicates content already stored.  A membership or
@@ -2293,7 +2321,7 @@
   nil)
 
 (defn- marks-above?
-  "Is any `definitional-marks` mark (`functional`, `asymmetric` or `antiTransitive`) at
+  "Is any `definitional-marks` mark (`functional`, `asymmetric` or `anti_transitive`) at
   or above predicate `f`?
 
   The only thing any pass asks about a mark, and the reason the answer is a set membership
@@ -2321,7 +2349,7 @@
   (when (symbol? pred)
     (for [s     (keep #(p/get-sentex (:records kb) %)
                       (reads/as-stored-with-functor (:index kb) pred))
-          :when (and (jtms/in? (:tms kb) (:id s)) (= :true (:truth s)))]
+          :when (and (jtms/in? (:tms kb) (:id s)) (= :positive (:polarity s)))]
       s)))
 
 (defn- predicate-subtree
@@ -2372,7 +2400,7 @@
   them reaches and the other does not would be reported as *visible* by one mechanism
   and *decided* by the other depending on which route ran.
 
-  `definitional-marks` (`functional`, `asymmetric` and `antiTransitive`) have no type
+  `definitional-marks` (`functional`, `asymmetric` and `anti_transitive`) have no type
   reach and a **predicate** reach rather than none: the mark descends (`marks-above?`,
   which is how the checks read it), so what the declaration implicates is the facts of
   the whole spec subtree beneath the predicate it names (`subtree-facts`).  Reading the
@@ -2490,7 +2518,7 @@
   budget admits: `[{:roots #{x y} :terms [term …]} …]`.  These are the memberships a
   retract of an *ab-initio* exception re-arms — the pair never entered the clash set, so
   `clash-nogoods`' carry-forward cannot reach them, and this drives `two-sided-reach` off
-  the departed pair the way `declaration-reach`'s `siblingDisjoint` arm does off a live
+  the departed pair the way `declaration-reach`'s `sibling_disjoint` arm does off a live
   one.
 
   Content-ordered by the pair's sorted members, so which pairs a budgeted sweep reaches
@@ -2627,7 +2655,7 @@
   `*incremental-clashes*` false substitutes for the region."
   [kb]
   (into [] (comp (keep #(p/get-sentex (:records kb) %))
-                 (filter #(= :true (:truth %))))
+                 (filter #(= :positive (:polarity %))))
         (jtms/in-datums (:tms kb))))
 
 (defn- clash-vocabulary
@@ -2662,7 +2690,7 @@
 
   The values are **values**, so an unchanged separation set compares equal and a settle that
   moved none of them abandons nothing.  The membership map is here rather than only the
-  metatype roster because a metatype separates by being *consulted*: `(disjointMetatype
+  metatype roster because a metatype separates by being *consulted*: `(disjoint_metatype
   M)` stays marked while `(M b_t)` leaves, and the pair `(a_t X)` / `(b_t X)` that mark
   was separating stops being separated with nothing else moving at all — no declaration
   written, no closure touched, and neither member in the region.  A member *arriving* is
@@ -2798,7 +2826,7 @@
     through to the third shape instead of being answered `false` here on a test this
     shape does not mean to make about it.
   * a **binary fact** whose predicate is declared `functional`, `asymmetric` or
-    `antiTransitive`, all three O(1) property reads (`marks-above?`).
+    `anti_transitive`, all three O(1) property reads (`marks-above?`).
   * a fact of **any other arity** whose predicate carries a `functionalInArg` mark on
     its **last** argument (`marked-at-final-arg?`) — the unary case already reads as the
     first shape when its one argument is a symbol, so this arm is what a numeric filler
@@ -2852,14 +2880,14 @@
   "The contexts holding a believed sentex that could be the **far half** of a clash with
   `s` — its term's other memberships for a separation, the other fillers of the slot for
   a `functional` predicate, the converse for an `asymmetric` one, a chain step for an
-  `antiTransitive` one.
+  `anti_transitive` one.
 
   Read off the argument roots (`believed-at-arg`), which is one posting per term and
   position and the same rule `exposed-clashes-for-term` selects the pairs it probes with.
   For a binary fact the postings are narrowed to the predicates the marks above it reach:
   a functional partner shares argument 1, an asymmetric one holds it in argument 2, and a
   chain step meets it at **either** end — `(P z a)` and `(P b c)` are both steps beside
-  `(P a b)` — so an `antiTransitive` mark reads both roots where the other two read one
+  `(P a b)` — so an `anti_transitive` mark reads both roots where the other two read one
   each.
 
   Over-approximating on purpose, exactly as `could-clash?` is: a context named here that
@@ -2947,7 +2975,7 @@
                     ;; grows with the KB (`perf`'s `constraint-exposure-shared-arg`).  A
                     ;; predicate carrying several properties reads each one's postings.
                     ;;
-                    ;; `antiTransitive` is the one that reads **all four**, and it has to: a
+                    ;; `anti_transitive` is the one that reads **all four**, and it has to: a
                     ;; two-step chain meets `(P a b)` at either end and from either side —
                     ;; `(P a m)`, `(P m b)`, `(P b c)`, `(P z a)` are all steps beside it, and
                     ;; so is the closing tuple of a chain this one is a step of.  So the
@@ -3276,7 +3304,7 @@
 
 (defn- separations?
   "Does the KB separate any two types at all?  Disjointness is spelled three ways —
-  `disjoint`, a disjoint metatype's members, and a `siblingDisjoint` parent's
+  `disjoint`, a disjoint metatype's members, and a `sibling_disjoint` parent's
   specializations — so a KB declaring none takes all three reads, the `or`
   short-circuiting only on a hit.  Three set-emptiness reads and no walk, which is what
   lets every disjointness pass sit behind it."
@@ -3398,7 +3426,7 @@
               (let [sen (:sentence s)
                     f   (nm/functor sen)]
                 (cond
-                  ;; A declaration first, and `disjointMetatype` is why the order matters:
+                  ;; A declaration first, and `disjoint_metatype` is why the order matters:
                   ;; it is a *unary* sentence whose argument is a symbol, so the membership
                   ;; arm below would otherwise claim it and file the metatype itself as a
                   ;; term holding a type — leaving an arriving metatype declaration with no
@@ -3576,32 +3604,33 @@
 
 (def ^:private trigger-functor-kind
   "Functor → which arity check `constraint-exposure-candidates`' `trigger?` runs, or
-  nil — the two visibility-edge functors, `tax/functional-family-marks`, and
-  `definitional-mark-symbols` merged once, at load time, into the single map a functor
-  is looked up in.  A `case` cannot take `definitional-mark-symbols` as one of its own
-  dispatch values (its test constants must be literal), so the roster is folded in here
-  instead, ahead of the call, which keeps the same one-hash-lookup-per-functor cost
-  `trigger?` was written for.
+  nil — the two cached closures and every predicate-marking declaration, merged once at
+  load time into the single map a functor is looked up in.  A `case` cannot take a set as
+  one of its own dispatch values (its test constants must be literal), so the roster is
+  folded in here instead, ahead of the call, which keeps the same
+  one-hash-lookup-per-functor cost `trigger?` was written for.
 
-  **Three shapes, not two, because `functionalInArg` is written at arity 2.**  A
-  `:mark` is `(functional P)` — one symbol; a `:mark-in-arg` is `(functionalInArg P n)`
-  — a symbol and a position, which the `:mark` test rejects on its argument count
-  alone.  Both spellings and both shapes come from `tax/functional-family-marks`, the
-  one roster `special`'s merge door reads as well, so a family joined there reaches this
-  lane and that one together rather than whichever it was spelled into.  This is
-  otherwise a roster of *written shapes* and so is not derivable from
-  `clash-declaration-kinds`, which groups by reach and holds three type-separating
-  functors that are no trigger of this pass at all.  What the two must agree on is
-  narrower — every mark of the functional family carries a kind *there* and a shape
-  *here* — and that is what `exposure_test`'s
-  `every-functional-family-mark-is-in-both-of-settles-rosters` pins, so a fourth
-  spelling cannot pass by being wired into one roster alone.
-  The sweep past this gate reads the marked predicate as argument 1 of the trigger
-  (`[x y]`, then `subtree-facts` of `x`), which is the same position in both mark
-  shapes, so the widened roster needs no arm of its own there either."
-  (into (into '{genl :edge genlCx :edge} tax/functional-family-marks)
-        (map #(vector % :mark))
-        definitional-mark-symbols))
+  **The population is two reads and a reason.**  A trigger of this pass is either an edge
+  that brings binary facts into a cone a mark already stands over — the `:edge` storage
+  kind, which is `genl` and `genlCx` and nothing else — or a mark that now stands over a
+  subtree, which is `:predicate-marked`.  That is why this is not `clash-declaration-kinds`
+  read a second time: that roster groups by reach and holds three type-separating functors
+  which are no trigger of this pass at all.
+
+  **Three shapes, not two, because `functionalInArg` is written at arity 2.**  A `:mark`
+  is `(functional P)` — one symbol; a `:mark-in-arg` is `(functionalInArg P n)` — a symbol
+  and a position, which the `:mark` test rejects on its argument count alone.  The shape
+  is `predicates/mark-shape`, read off the declared argument list, so a spelling cannot be
+  recognized at an arity its own arguments contradict, and `predicates/check-families`
+  refuses at load a family spelling that carries a sweep and no shape to be recognized by
+  — or that sweeps where its siblings do not, which is what keeps this lane and
+  `special`'s merge door reading the same spellings now that neither reads the other's
+  roster.  The sweep past this gate reads the marked predicate as argument 1 of the trigger
+  (`[x y]`, then `subtree-facts` of `x`), which is the same position in both mark shapes,
+  so the widened roster needs no arm of its own there either."
+  (into (into {} (map #(vector % :edge)) (keys (pr/by-storage :edge)))
+        (map (juxt identity pr/mark-shape))
+        (pr/by-sweep :predicate-marked)))
 
 (defn- constraint-exposure-candidates
   "The believed binary facts whose predicate one of the three tuple marks reaches — in
@@ -3637,7 +3666,7 @@
   depend on the order a region or a cone came back in.
 
   **And the mark itself, which is the third trigger and the same reach as the second.**
-  `(functional P)`, `(asymmetric P)`, `(antiTransitive P)` or `(functionalInArg P n)`
+  `(functional P)`, `(asymmetric P)`, `(anti_transitive P)` or `(functionalInArg P n)`
   arriving after the facts it
   convicts moves nothing but the mark, so both halves of every pair beneath `P` sit
   outside the region — the declaration's own arrival order deciding whether the KB says
@@ -3758,7 +3787,7 @@
   That keying is what lets a candidate reached from two triggers, or held by the region
   and reached as well, file one entry rather than one per route.
 
-  A chain convicted by `antiTransitive` files **one** entry naming three halves, not
+  A chain convicted by `anti_transitive` files **one** entry naming three halves, not
   three pairwise ones: the members cannot all hold, and no two of them are the clash."
   [kb candidates stale arbitrated]
   (let [tms (:tms kb)
@@ -3988,7 +4017,7 @@
   the subtree the report below has to sweep.
 
   Three spellings, because `checks/declared-arity` reads three things.  Two **declare** a
-  length: `(arity P n)`, and the predicate-type membership `(binaryPredicate P)` that says
+  length: `(arity P n)`, and the predicate-type membership `(binary_predicate P)` that says
   the same thing.  The third **inherits** one: `(genl sub super)` binds `sub` to whatever
   length `super` was declared with (`checks/inherited-arity`), so an edge is the third
   ingredient of a wrong-arity finding exactly as it is the third ingredient of an
@@ -4012,7 +4041,7 @@
                       (= 'arity f) (when (= 2 (count as)) (first as))
                       (= 'genl f)  (when (= 2 (count as)) (first as))
                       ;; through the closure, `checks/membership-arity`'s reason: a
-                      ;; membership spelled with a `genl` of `binaryPredicate` declares a
+                      ;; membership spelled with a `genl` of `binary_predicate` declares a
                       ;; length the door reads, so a trigger matching the three literal
                       ;; functors would leave the facts it convicts unreported
                       (= 1 (count as)) (when (checks/membership-arity kb f context)
@@ -4087,7 +4116,7 @@
 
   **Each membership's sub-collections with it**, since `checks/membership-arity` reads the
   spelling through the `genl` closure: a KB writing `(myBinPred fatherOf)` under `(genl
-  myBinPred binaryPredicate)` declares arities this gate would otherwise count none of, and
+  myBinPred binary_predicate)` declares arities this gate would otherwise count none of, and
   a gate that reads narrower than the trigger it guards turns the whole report off.  The
   closure is cached and read off three fixed roots, so the gate stays a handful of
   cardinalities rather than a walk."

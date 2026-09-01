@@ -142,14 +142,14 @@
     (is (= 2 (count (:arg-declarations (v/describe kb 'parentOf '?ctx)))))))
 
 (tu/deftest-kb a-grant-is-a-policy-of-the-context-that-gives-it
-  ;; `modalPredicate` and `abduciblePredicate` are grants read up the genlCx cone, so a
+  ;; `modal_predicate` and `abducible_predicate` are grants read up the genlCx cone, so a
   ;; predicate granted in one theory is not granted in a sibling.  Net-neutral: the
   ;; grant is asserted on a temporary in a temporary context and retracted with it.
   (tu/with-terms [thinks CxGrantA CxGrantB]
     (v/assert kb (list 'genlCx CxGrantA 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxGrantB 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate thinks) 'CxUniverse)
-    (v/assert kb (list 'modalPredicate thinks) CxGrantA)
+    (v/assert kb (list 'binary_predicate thinks) 'CxUniverse)
+    (v/assert kb (list 'modal_predicate thinks) CxGrantA)
     (is (true?  (:modal? (v/describe kb thinks CxGrantA))))
     (is (false? (:modal? (v/describe kb thinks CxGrantB))))))
 

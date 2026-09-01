@@ -57,7 +57,7 @@ and the predicates it appears under with a count each; about a context, its two 
 cones and how many sentexes hold in it.
 
 **The context argument is not decoration.**  An `arg` declaration, an
-`abduciblePredicate` grant and a `comment` are each a policy of the context that states
+`abducible_predicate` grant and a `comment` are each a policy of the context that states
 them, so `describe` reads them up that context's `genlCx` cone: `(describe kb 'parentOf
 'CxCore)` reports no declaration at all, because `CxCore` sits *above* the one that binds
 `parentOf`, and a reader there is genuinely unconstrained.  If a declaration you expected
@@ -183,8 +183,8 @@ unrecovered store above, and `(v/recover kb)` to rebuild belief from the records
 ## Both `P` and `not P` are believed
 
 Not a bug, and the most surprising thing here on a first read. At `:default` strength a
-contradiction **coexists**: `(v/query? kb '(likesCake Tom) ctx)` and the same question of
-`(not (likesCake Tom))` both answer true, and neither side is defeated, because a default
+contradiction **coexists**: `(v/query? kb '(likes_cake Tom) ctx)` and the same question of
+`(not (likes_cake Tom))` both answer true, and neither side is defeated, because a default
 is defeasible at the edges and the KB does not guess which of two defaults to drop.
 
 Confirm with `(v/contradictions kb)`, which lists the coexisting pairs, and
@@ -192,7 +192,7 @@ Confirm with `(v/contradictions kb)`, which lists the coexisting pairs, and
 know is true is known:
 
 ```clojure
-(v/assert kb '(likesCake Tom) 'CxSome {:strength :monotonic})
+(v/assert kb '(likes_cake Tom) 'CxSome {:strength :monotonic})
 ```
 
 Assert known-true content with `:monotonic`; the default is `:default`, which is right for
@@ -494,9 +494,9 @@ so one vocabulary reads both.
 | `:type` | What happened | Where |
 |---|---|---|
 | `:already-loaded` | the catalog already holds a KB under this source's key — unload it first | [catalog.md](catalog.md) |
-| `:anti-symmetric` | a sentence and its converse both hold of a predicate declared `antiSymmetric`, which would force an `equals` no merge can make hold | [taxonomy.md](taxonomy.md) |
-| `:anti-transitive` | two steps of a predicate declared `antiTransitive` are stored, so the direct step between their ends cannot also hold | [taxonomy.md](taxonomy.md) |
-| `:arg-constraint-kind` | `genlArg` on a predicate declared `instanceRelationPredicate`, or `arg` on a `typeRelationPredicate` | [argtypes.md](argtypes.md) |
+| `:anti-symmetric` | a sentence and its converse both hold of a predicate declared `anti_symmetric`, which would force an `equals` no merge can make hold | [taxonomy.md](taxonomy.md) |
+| `:anti-transitive` | two steps of a predicate declared `anti_transitive` are stored, so the direct step between their ends cannot also hold | [taxonomy.md](taxonomy.md) |
+| `:arg-constraint-kind` | `genlArg` on a predicate declared `instance_relation_predicate`, or `arg` on a `type_relation_predicate` | [argtypes.md](argtypes.md) |
 | `:arg-genl` | a `genlArg` constraint convicted the sentence — see [An `arg` constraint never convicts](#an-arg-constraint-never-convicts) | [argtypes.md](argtypes.md) |
 | `:arg-position` | an argument constraint names a position the predicate's declared arity does not have | [argtypes.md](argtypes.md) |
 | `:arg-type` | an `arg` constraint convicted the sentence — see [`assert` refused it](#assert-refused-it) | [argtypes.md](argtypes.md) |
@@ -515,7 +515,7 @@ so one vocabulary reads both.
 | `:bad-registrant` | a durability registrant's key, value or `:phase` is not one the close sequence reads | [storage.md](storage.md) |
 | `:bad-reply` | the daemon's reply does not read as EDN, or is not a map | [operations.md](operations.md) |
 | `:bad-snapshot` | an index snapshot file's magic number is not this engine's — the index rebuilds from the records, which are untouched | [storage.md](storage.md) |
-| `:bad-table-entry` | the special-predicate table holds an entry with a partial cache triple, or with no arm at all | [caches.md](caches.md) |
+| `:bad-table-entry` | a declaration is half-written, refused at namespace load: the special-predicate table holds an entry with a partial cache triple or no arm at all, or its arms disagree with what `vaelii.impl.predicates` declares about the functor, or a mark family's spellings disagree about what they sweep, or a sweep names a reach `settle` has no arm for (`:mismatch` says which) | [predicates.md](predicates.md) |
 | `:base-is-overlay` | a fork's own half and its base name one store, so the fork would write its own base | [overlay.md](overlay.md) |
 | `:body-too-large` | a request body over `VAELII_MAX_BODY_BYTES` | [operations.md](operations.md) |
 | `:budget-exhausted` | a bounded `ask` / `ask?` / `prove` / `provable?` hit its `:max-ms` before the search ran dry, so what it held was a prefix rather than an answer | [anytime.md](anytime.md) |

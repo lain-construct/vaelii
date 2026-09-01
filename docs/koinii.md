@@ -13,7 +13,7 @@
   [exceptions.md](exceptions.md); content-address canonicalization →
   [canonicalization.md](canonicalization.md).
 - **Assumes:** sentex, context, `genlCx`, provenance / `:creator`, meta-sentex,
-  `targetFollowingPredicate`, the change feed → [glossary.md](glossary.md),
+  `target_following_predicate`, the change feed → [glossary.md](glossary.md),
   [contexts.md](contexts.md), [storage.md](storage.md), [feed.md](feed.md).
 
 Koinii is the layer where more than one agent works over one knowledge base — a *shared,
@@ -181,7 +181,7 @@ whether a move stands on its own or answers another:
 
 Two independent facts force the response shape, and together they are decision D1:
 
-- **The cascade.** Each response predicate is declared `targetFollowingPredicate` in
+- **The cascade.** Each response predicate is declared `target_following_predicate` in
   `CxSpeechActs`, so retracting a target sweeps its replies with it
   (`retract-following-metas!`). A bare assertion that merely *named* the target would outlive
   it as a dangling edge; a meta-sentex on the target does not. (The cascade needs *both* the
@@ -395,7 +395,7 @@ Five ideas, each grounded on a primitive that ships:
 
 - **The locator is content-addressed.** A handle is a number one store minted and does not
   travel; a locator is a self-describing `"sha256:"` digest over a sentex's **canonical
-  identity** — its context, truth polarity, and canonicalized sentence
+  identity** — its context, polarity, and canonicalized sentence
   ([canonicalization.md](canonicalization.md)). Two seats holding the same assertion compute
   the *same* locator, because `import!` re-canonicalizes every record through the reading
   build's own constructor. The digest input is an explicit type-tagged byte encoding, not
@@ -450,7 +450,7 @@ adding one, or to keep an honest limit over a convenient fiction.
 
 | | Decision | Why |
 |---|---|---|
-| **D1** | A reply is a meta-sentex on its target | The `targetFollowingPredicate` cascade tears replies down with the target; first-writer-wins forces each act to be its own creator-stamped object. |
+| **D1** | A reply is a meta-sentex on its target | The `target_following_predicate` cascade tears replies down with the target; first-writer-wins forces each act to be its own creator-stamped object. |
 | **D3** | Trust is a mutable number, not a fixed rank | An operator tier at bootstrap, overwritten by earned reputation; `functional`, so an update retracts-then-asserts rather than accumulating. |
 | **D4** | Identity strength is conditional on policy | Cooperative (trusted by convention) for notify-only; proof-tier (a verified credential, fail-closed) required once trust-resolve is on. |
 | **D5** | Moves are knowledge, not messages | A speech act is a sentex — queryable, retractable, auditable — so the conversation lives in the graph, not the client. |

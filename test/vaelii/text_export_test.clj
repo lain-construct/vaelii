@@ -64,7 +64,7 @@
   context, and — for a rule — the four mode fields that ride the record rather than the
   sentence.
 
-  A `forcedDecontextualizedPredicate` sentence keys on no context at all.  The engine
+  A `forced_decontextualized_predicate` sentence keys on no context at all.  The engine
   stores every one of them in `CxUniverse` by force, so the context is not part of what
   such a sentence says; the one exception is the bootstrap `(genlCx CxUniverse CxCore)`,
   which `core-context` asserts *before* the file that decontextualizes `genlCx` is read
@@ -143,7 +143,7 @@
   (v/assert kb (list 'not (list happy Rex)) ctx)
   ;; a reified NAT in argument position: the function is declared, so the application
   ;; mints a constant and stores its termOfUnit map — all premises, all text
-  (v/assert kb (list 'reifiableFunction 'QuantityFn) 'CxUniverse)
+  (v/assert kb (list 'reifiable_function 'QuantityFn) 'CxUniverse)
   (v/assert kb (list heightOf Nest1 (list 'QuantityFn 5 'Meter)) ctx))
 
 ;;; ── the round trip ────────────────────────────────────────────────────

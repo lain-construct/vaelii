@@ -9,8 +9,8 @@
   A *context* names the situation / assumption frame it is asserted within.
 
   The structural connectives `not`, `implies`, and `and` are **canonicalized into
-  the record** rather than left as data: a sentex carries a `truth` (`:true` /
-  `:false`, with double negation eliminated), and — for a rule — a decomposed
+  the record** rather than left as data: a sentex carries a `polarity` (`:positive` /
+  `:negative`, with double negation eliminated), and — for a rule — a decomposed
   `antecedent` (vector of patterns) and `consequent`.  So the connectives never
   reach the inverted **term index** (their heads are stripped, even nested inside a
   rule — see `content-forms`), and the positional **trie key** drops the
@@ -42,42 +42,45 @@
 
   `:sentence` holds the canonical, readable form for display and matching.
 
-  A sentex is one of two records — `AtomicSentex` (an atomic sentence: a fact, a metadata
-  declaration, a query pattern) or `RuleSentex` (an implication) — so an atomic sentex does
-  not carry the rule-only slots (there are 100M+ of them), and each still round-trips
-  through nippy with its type intact."
+  A sentex is one of two records — `LiteralSentex` (a literal: a signed predicate
+  application — a fact or its negation, a metadata declaration, a query pattern) or
+  `RuleSentex` (an implication) — so a literal sentex does not carry the rule-only slots
+  (there are 100M+ of them), and each still round-trips through nippy with its type intact."
   (:refer-clojure :exclude [name])
   (:require [vaelii.impl.caches :as caches])
   (:import [java.util.concurrent ConcurrentHashMap]))
 
-;; Two records, split so an atomic sentex does not carry the seven rule-only slots
+;; Two records, split so a literal sentex does not carry the seven rule-only slots
 ;; (facts are the 100M+ case).  Both share the scalar core:
 ;;   sentence    the canonical, readable form — `(not S)` for a negative literal,
 ;;               `(implies (and …) …)` for a rule; display and matching read it
 ;;   context     the context symbol it holds in
 ;;   id          the integer handle, nil until the record store assigns one
-;;   truth       :true | :false        (a `(not S)` becomes S at :false)
+;;   polarity    :positive | :negative   (a `(not S)` becomes S at :negative)
 ;;
-;;               **Literal polarity, and not belief.**  `:true` says the sentence
+;;               **Which literal it is, and not belief.**  `:positive` says the sentence
 ;;               asserts rather than denies; whether the KB *holds* it is `jtms/in?`,
-;;               which reads a handle and never this slot.  A sentex at `:false` that
-;;               the JTMS believes is a believed negative fact, and one at `:true` that
-;;               it does not is a defeated positive — the two axes are independent, and
-;;               reading this one as belief is the mistake the name invites.
+;;               which reads a handle and never this slot.  A sentex at `:negative` that
+;;               the JTMS believes is a believed negative fact, and one at `:positive`
+;;               that it does not is a defeated positive — the two axes are independent.
+;;               It is deliberately not spelled `truth`: in a system whose headline is
+;;               truth *maintenance*, a false-looking value in this slot reads as "not
+;;               believed" and means the opposite — a believed denial.
 ;;
-;;               The key is a **durable and wire name**, which is why it is this one:
-;;               a dump frame is `(into {} record)` (`io/export`), the daemon projects
-;;               every record the same way (`serve/wire-safe`), and `core/sentexes-matching`
-;;               documents the map keys as the stable contract.  Renaming the field
-;;               renames the key in all three.
+;;               The key is a **wire name**: the daemon projects every record as its
+;;               field map (`serve/wire-safe`) and `core/sentexes-matching` documents
+;;               the map keys as the stable contract, so renaming the field renames the
+;;               key in both.  A dump frame carries it too (`io/export`), but `import`
+;;               re-derives the polarity from the sentence's own `not` and never reads
+;;               this key, so a dump written either side of the rename loads correctly.
 ;;   strength    :monotonic | :default | nil    (the assumption strength when the
 ;;               sentex is asserted as a premise; nil for a purely-derived one)
 ;;
-;; An `AtomicSentex` is an atomic sentence — a fact, a metadata declaration, or a query
-;; pattern: one signed predicate application, ground or holding variables.  It adds
+;; A `LiteralSentex` is a literal — a fact or its negation, a metadata declaration, or a
+;; query pattern: one signed predicate application, ground or holding variables.  It adds
 ;; nothing to the core, and reading any rule-only key off it returns nil, so
-;; `(some? (:antecedent sx))` is the atomic-vs-rule discriminant everywhere.
-(defrecord AtomicSentex [sentence context id truth strength])
+;; `(some? (:antecedent sx))` is the literal-vs-rule discriminant everywhere.
+(defrecord LiteralSentex [sentence context id polarity strength])
 ;;
 ;; A `RuleSentex` is an implication.  Beyond the core it carries the decomposition the
 ;; connectives and `set/*` wrappers canonicalize into:
@@ -109,7 +112,7 @@
 ;; and asserting or retracting an exception amends the rule in place.  The engine reads
 ;; a rule's exceptions from those meta-sentexes (`provers/rule-exceptions`), never off
 ;; the record.
-(defrecord RuleSentex [sentence context id truth antecedent consequent strength varmap
+(defrecord RuleSentex [sentence context id polarity antecedent consequent strength varmap
                        direction defeasible assumption constraint])
 
 (def ^:dynamic *symbol-pool-limit*
@@ -616,13 +619,13 @@
   (and (sequential? form) (= rule-functor (first form)) (= 3 (count form))))
 
 (defn- peel-not
-  "Strip leading `not` wrappers, returning [truth body] with double negation
-  eliminated: an even number of nots ⇒ :true, an odd number ⇒ :false."
+  "Strip leading `not` wrappers, returning [polarity body] with double negation
+  eliminated: an even number of nots ⇒ :positive, an odd number ⇒ :negative."
   [form]
   (loop [f form, positive true]
     (if (negation? f)
       (recur (second f) (not positive))
-      [(if positive :true :false) f])))
+      [(if positive :positive :negative) f])))
 
 (defn rule-antecedents
   "The antecedent patterns of a rule form (unwrapping a leading `and`; a single
@@ -743,7 +746,7 @@
   `unknown` is here for the same operational reason: `(unknown S)` is **negation as
   failure** — it holds exactly while `S` is *not* derivable — so it consumes the
   bindings its argument's free variables need and produces none.  Reaching it before
-  those bindings exist would test an open sentence, which is meaningless, so like
+  those bindings exist would test an open formula, which is meaningless, so like
   `different` it is pinned after the generators that bind it (docs/naf.md).  Its
   argument's *quantified* variables (a nested `thereExists`) are **not** among the
   ones that must be bound — that is the whole point of the quantifier — so the pinning
@@ -1092,7 +1095,7 @@
     a positive literal that produces bindings, which a standalone `thereExists` becomes
     once desugared, but which `unknown` and the evaluables never are.  `unknown`
     produces no bindings and consumes them, so reaching one before its inputs exist
-    tests an open sentence and silently yields nothing; forbidding it makes the
+    tests an open formula and silently yields nothing; forbidding it makes the
     mistake a legible error instead.
   * **Every quantifier is local.**  A `thereExists` bound variable appears *nowhere*
     in the rule outside its own `thereExists` literal, so it cannot leak into the
@@ -1464,8 +1467,8 @@
   `[:not not]` (`rules/antecedent-key`), and — since a stored fact canonicalizes that
   key away to `(foo ?x)` — nothing ever triggers the rule, which is then silently inert."
   [form]
-  (let [[truth body] (peel-not form)]
-    (if (= truth :false) (list 'not body) body)))
+  (let [[polarity body] (peel-not form)]
+    (if (= polarity :negative) (list 'not body) body)))
 
 (defn- normalize-literal [form symmetric?]
   (-> form elim-double-not fold-comparison sort-naf-conjuncts (sort-symmetric-args symmetric?)))
@@ -1851,7 +1854,7 @@
   (let [[dir def? _exc assum con inner0] (peel-rule-wrapper sentence)
         ctx              (intern-sym context)
         inner            (canon inner0)
-        [truth body]     (peel-not inner)
+        [polarity body]  (peel-not inner)
         rule?            (implies? body)]
     (if rule?
       (let [body       (desugar-forall-rule body)     ; forall is nested NAF, at the door
@@ -1875,17 +1878,17 @@
               [antes conseq varmap]
               (canonicalize-rule antes1 conseq0 symmetric?)
               sent (rule-sentence antes conseq)]
-          (->RuleSentex (if (= truth :false) (list not-functor sent) sent)
-                        ctx nil truth antes conseq nil varmap
+          (->RuleSentex (if (= polarity :negative) (list not-functor sent) sent)
+                        ctx nil polarity antes conseq nil varmap
                         (or dir :both)                        ; a bare implies works both ways
                         def? assum con)))
       (let [b      (normalize-literal body symmetric?)
-            stored (if (= truth :false) (list not-functor b) b)]
+            stored (if (= polarity :negative) (list not-functor b) b)]
         ;; a wrapper on a non-rule is meaningless; it is stripped and ignored
-        (->AtomicSentex stored ctx nil truth nil)))))
+        (->LiteralSentex stored ctx nil polarity nil)))))
 
 (defn sentex
-  "Construct a sentex — an `AtomicSentex` or a `RuleSentex` — canonicalizing the structural
+  "Construct a sentex — a `LiteralSentex` or a `RuleSentex` — canonicalizing the structural
   connectives into the record and the sentence into canonical form (see the namespace
   docstring).  Context defaults to 'default; id defaults to nil until the record store
   assigns a handle.
@@ -1896,22 +1899,22 @@
   ([sentence] (sentex sentence 'default))
   ([sentence context] (sentex sentence context nil))
   ([sentence context {:keys [symmetric?] :or {symmetric? (constantly false)}}]
-   ;; A `(exceptWhen <query> (sentexHandle H))` meta-sentex is stored **verbatim** as an
-   ;; Atomic — `peel-rule-wrapper` would otherwise strip the exceptWhen and drop the
+   ;; A `(exceptWhen <query> (sentexHandle H))` meta-sentex is stored **verbatim** as a
+   ;; Literal — `peel-rule-wrapper` would otherwise strip the exceptWhen and drop the
    ;; query, since it cannot tell the stored meta form from the surface wrapper.  This is
    ;; the one point that can: the wrapper's second argument is a rule, the meta's is a
    ;; handle.  Its query holds the rule's canonical variables, so it is a non-ground
-   ;; Atomic — exempt from the ground-fact check by the assert layer.
+   ;; Literal — exempt from the ground-fact check by the assert layer.
    (if (exceptWhen-meta? sentence)
-     (->AtomicSentex (canon sentence) (intern-sym context) nil :true nil)
+     (->LiteralSentex (canon sentence) (intern-sym context) nil :positive nil)
      (constructed-sentex sentence context symmetric?))))
 
 (defn body
   "The positive atomic form a sentex asserts (a fact's sentence without its `not`);
   nil for a rule."
-  [{:keys [sentence truth antecedent]}]
+  [{:keys [sentence polarity antecedent]}]
   (when-not (some? antecedent)
-    (if (= truth :false) (second sentence) sentence)))
+    (if (= polarity :negative) (second sentence) sentence)))
 
 (defn positive-body
   "The double-negation-eliminated positive body of a sentence, or nil when the
@@ -1920,8 +1923,8 @@
   not a folded sibling (`greaterThan` ⇒ `lessThan`) or sorted symmetric arguments,
   or an `arg` would be enforced against the wrong position."
   [sentence]
-  (let [[truth body] (peel-not (canon sentence))]
-    (when (= :true truth) body)))
+  (let [[polarity body] (peel-not (canon sentence))]
+    (when (= :positive polarity) body)))
 
 (defn underlying-body
   "The body a sentence's `not` wrappers enclose, **whatever its polarity** — `S` for
@@ -1953,14 +1956,14 @@
   and a guard that passes everything is not.
 
   What such an author wants is for S to be **visible** where the rule is, and there are
-  two ways to say that: `(decontextualizedPredicate P)` takes every `(P ...)` into
+  two ways to say that: `(decontextualized_predicate P)` takes every `(P ...)` into
   CxUniverse, which every context sees, and a `genlCx` edge puts Ctx in the
   rule's own cone.  Under either the literal is written plainly, and belief no longer
   turns on a frame the matcher cannot honor."
   [role]
   (str "ist places a conclusion and reads nothing: an (ist Ctx S) "
        (clojure.core/name role) " matches no stored sentex, so it decides the rule"
-       " without ever consulting Ctx — make S visible with (decontextualizedPredicate P)"
+       " without ever consulting Ctx — make S visible with (decontextualized_predicate P)"
        " or a genlCx edge, and write S plainly"))
 
 (defn connective-problems
@@ -2220,7 +2223,7 @@
   `:assumption` (a choice rule) and `:constraint` (a contradiction rule) are **constant
   slots**, present (as nil) on every rule, so a choice / constraint rule and its bare
   twin get distinct keys and every rule keys at one depth — a ragged level would let a
-  wildcard context slot descend into it and read child labels as handles.  An
+  wildcard context slot descend into it and read child tokens as handles.  An
   `exceptWhen` exception is *not* keyed here: it is
   a separate meta-sentex, so a rule and its excepted twin are the same sentex (asserting
   the exception amends the rule in place).
@@ -2239,11 +2242,13 @@
   narrow on, so a trie lookup of an open negative finds nothing rather than finding
   less.  `res/candidate-handles` is what honours it, routing an open negative to the
   secondary roots — which span both polarities — instead of here."
-  [{:keys [sentence truth antecedent assumption constraint]}]
+  [{:keys [sentence polarity antecedent assumption constraint]}]
   (let [a (alpha-rename sentence)]
     (cond
       (some? antecedent) [:rule (vec (rule-antecedents a)) (rule-consequent a) assumption constraint]
-      (= truth :false)   [:false (second a)]
+      ;; `:false` here is the index's own path token, not the record's polarity
+      ;; value: the token alphabet is machine vocabulary and the layout is on disk.
+      (= polarity :negative) [:false (second a)]
       (sequential? a)    (vec (key-stream a))
       :else              [a])))
 
@@ -2271,7 +2276,7 @@
   `not` / `and` / `implies` (a `(not X)` unwraps to X; a conjunction/implication
   flattens to its parts) so they are never term-indexed — even when nested inside a
   rule.  A connective symbol in *argument* position (e.g. `(comment not \"…\")`,
-  `(unaryPredicate not)`) is data, not a connective, and is left intact."
+  `(unary_predicate not)`) is data, not a connective, and is left intact."
   [form]
   (if (and (sequential? form) (seq form))
     (case (first form)

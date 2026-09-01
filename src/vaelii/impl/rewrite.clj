@@ -5,11 +5,11 @@
   equality, the gap docs/equality.md leaves open.
 
   A schematic equation `(equals L R)` with variables — `(equals (fatherOf (fatherOf
-  ?x)) (grandfatherOf ?x))` — is not a merge of two symbols (that is the partition,
+  ?x)) (grandfather_of ?x))` — is not a merge of two symbols (that is the partition,
   docs/equality.md) nor a ground reifiable-NAT compound (that reifies to symbols,
   docs/nat.md).  It is a **rewrite rule over a schema**: oriented into a terminating
-  reduction `L → R`, it lets a term be normalized so that a stored `(parentChain
-  (fatherOf (fatherOf Tom)))` and a query `(parentChain (grandfatherOf Tom))` meet at
+  reduction `L → R`, it lets a term be normalized so that a stored `(parent_chain
+  (fatherOf (fatherOf Tom)))` and a query `(parent_chain (grandfather_of Tom))` meet at
   one normal form.
 
   ## Orientation and termination
@@ -62,7 +62,7 @@
 
 (defn term-size
   "The KBO unit weight of `term`: the count of symbol / variable / number leaves,
-  functors included.  `(fatherOf (fatherOf ?x))` is 3, `(grandfatherOf ?x)` is 2."
+  functors included.  `(fatherOf (fatherOf ?x))` is 3, `(grandfather_of ?x)` is 2."
   [term]
   (if (sequential? term) (reduce + 0 (map term-size term)) 1))
 

@@ -284,7 +284,7 @@
               ;; Ungated, unlike the cost refinements below: `*arg-root-retrieval*` false is
               ;; meant to give the trie as a *reference*, and for this shape the trie has no
               ;; answer to be a reference for.
-              (and (= :false (:truth pat)) (not (sx/ground-term? body)))
+              (and (= :negative (:polarity pat)) (not (sx/ground-term? body)))
               (if (or pred (seq ground)) :negative-roots :negative-fan)
 
               ;; A ground argument sitting **after** a variable, which the trie can reach
@@ -298,7 +298,7 @@
               ;; The trie key linearizes the compound, so `p/lookup` narrows on its interior;
               ;; off, the functor extent is the correct fallback superset.  A variable functor
               ;; roots nothing, so it always takes the trie.
-              (and (= :true (:truth pat)) (some sequential? args))
+              (and (= :positive (:polarity pat)) (some sequential? args))
               (if (or *structural-index* (nil? pred)) :structural :functor-extent)
 
               ;; trie: left-prefix, test, or number-only
@@ -661,7 +661,7 @@
 
 (defn- representative-term-plain
   "The ordinary congruence walk — every non-variable symbol to its class representative,
-  recursively.  The path every KB with no `quotingFunction` takes.  An equality relation's
+  recursively.  The path every KB with no `quoting_function` takes.  An equality relation's
   arguments are a mention: rewritten by spelling only, never folded onto a `sameAs`
   referent (`equality-mention-heads`)."
   [kb visible? term]
@@ -674,7 +674,7 @@
     :else              term))
 
 (defn- attitude-application?
-  "Is `term` `(P agent proposition)` for a declared `modalPredicate` `P` — the shape
+  "Is `term` `(P agent proposition)` for a declared `modal_predicate` `P` — the shape
   `BeliefProjectionProver` projects?  Its **third** argument is what the agent holds true,
   and the shape test is the prover's own: arity 2, over a sentence-shaped proposition.  A
   `(believes A Foo)` naming a bare term is not one — that argument refers rather than
@@ -685,7 +685,7 @@
        (sequential? (nth term 2))))
 
 (defn- any-mention-position?
-  "Does `term` contain a quoted position at all — a `quotingFunction` application, or an
+  "Does `term` contain a quoted position at all — a `quoting_function` application, or an
   attitude?  The gate that keeps the flat reads flat: a KB granting `believes` has marks,
   but almost every sentence in it quotes nothing, and this answers that with a structural
   walk and two set lookups per compound head."
@@ -697,8 +697,8 @@
          (some #(any-mention-position? marks %) term)))))
 
 (defn- representative-term-mention
-  "The mention-aware walk.  Inside a **quoted position** — a `quotingFunction`'s arguments,
-  or the proposition a `modalPredicate` attributes to its agent — symbols are rewritten by
+  "The mention-aware walk.  Inside a **quoted position** — a `quoting_function`'s arguments,
+  or the proposition a `modal_predicate` attributes to its agent — symbols are rewritten by
   spelling (`rewriteOf`) only, so a quoted term does not fold onto a `sameAs` / `equals`
   referent.  `spelling?` turns on there and stays on all the way down: the whole quoted
   expression is syntax.
@@ -750,7 +750,7 @@
   **Mention opacity.** Two declarations make a position a *mention* — a term named as
   syntax, rewritten by *spelling* (`rewriteOf`) only and never by a `sameAs` / `equals`
   identity merge, so a quoted term does not fold onto its referent's class.  A
-  `quotingFunction` (`Quote`, `Quasiquote`) quotes its arguments; a `modalPredicate`
+  `quoting_function` (`Quote`, `Quasiquote`) quotes its arguments; a `modal_predicate`
   (`believes`, and whatever else is granted) quotes the **proposition** it attributes,
   because an attitude is opaque: from *Oedipus believes he married Jocasta* and *Jocasta is
   his mother* it does not follow that he believes he married his mother, and the asker's
@@ -790,7 +790,7 @@
 
 (defn- displacements-mention
   "Mention-aware collector, the traversal `representative-term-mention` rewrites by: inside
-  a quoted position — a `quotingFunction`'s arguments, or a `modalPredicate`'s proposition —
+  a quoted position — a `quoting_function`'s arguments, or a `modal_predicate`'s proposition —
   a symbol moves by *spelling* (`rewriteOf`) only, so a quoted term whose referent merged
   under a `sameAs` is **not** recorded displaced.  The `why-not` map then names only the
   terms the rewrite actually moved."
@@ -828,7 +828,7 @@
   "The `{old-term representative}` rewrites `sentence` undergoes under `visible?`, computed
   the way `representative-term` actually rewrites it — so a quoted mention held opaque to a
   `sameAs` is not reported displaced by `why-not`.  Gated on `tax/mention-marks`: a KB declaring
-  no `quotingFunction` and no `modalPredicate` takes the flat walk unchanged."
+  no `quoting_function` and no `modal_predicate` takes the flat walk unchanged."
   [kb visible? sentence]
   (if-let [marks (tax/mention-marks (:taxonomy kb))]
     (displacements-mention kb visible? marks sentence false {})
@@ -982,7 +982,7 @@
                   (let [stored (p/get-sentex recs h)]
                     ;; an exceptWhen meta-sentex is internal bookkeeping (a rule's
                     ;; exception), not a domain fact, and it is the one *non-ground*
-                    ;; stored Atomic — so it is skipped here, keeping the trie and
+                    ;; stored Literal — so it is skipped here, keeping the trie and
                     ;; argument-root retrieval paths in agreement and ordinary queries
                     ;; clear of it.  A rule's exceptions are read through
                     ;; `provers/rule-exceptions`.
@@ -991,7 +991,7 @@
                                ;; not bind ?p to `not` against a stored negation (the
                                ;; wildcard trie lookup can surface a `[:false ..]` key, but
                                ;; the truths differ).
-                               (= (:truth pat) (:truth stored)))
+                               (= (:polarity pat) (:polarity stored)))
                       (when-let [b (unify (:context pat) (:context stored)
                                           (unify (:sentence pat) (:sentence stored)))]
                         [h b stored])))))
@@ -1454,7 +1454,7 @@
             ;; predicate-hierarchy filter (the sub-predicate closure) and the
             ;; context-hierarchy filter (the genlCx up-closure), in memory.  An
             ;; exceptWhen meta-sentex is internal bookkeeping and skipped, as in
-            ;; `match-one` (the one non-ground stored Atomic).  Both branches below
+            ;; `match-one` (the one non-ground stored Literal).  Both branches below
             ;; admit a candidate exactly here, and differ only in how many answers one
             ;; admitted record may yield.
             blind? (belief-blind?)
@@ -1472,7 +1472,7 @@
                     (let [pat (pat-for (some-> (sx/body stored) first)
                                        (if up? (:context stored) '?ctx)
                                        rev?)]
-                      (when (= (:truth pat) (:truth stored))
+                      (when (= (:polarity pat) (:polarity stored))
                         (unify (:context pat) (:context stored)
                                (unify (:sentence pat) (:sentence stored))))))
             out
@@ -1792,7 +1792,7 @@
   `[handle a b]` triples with no sentex at index 2, so it filters with this directly.
 
   **A sentence that quotes takes the mention-aware read instead.**  Inside a quoted
-  position — a `quotingFunction`'s arguments, or the proposition an attitude attributes to
+  position — a `quoting_function`'s arguments, or the proposition an attitude attributes to
   its agent — a symbol is retired by a *spelling* rename and not by a `sameAs` / `equals`
   identity merge, which makes the flat per-symbol shortcut unsound there and would retire a
   belief nobody renamed.  Whether the sentence quotes at all is asked first

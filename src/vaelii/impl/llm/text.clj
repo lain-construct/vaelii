@@ -110,8 +110,11 @@
   "The symbols a run of words could be a KB term spelled as.
 
   The KB reads a term's role off its spelling, so a phrase has one candidate per
-  convention: *prepared for winter* could be the predicate `preparedForWinter` or the type
-  `prepared_for_winter`, and one word could be `lion`, `Lion` or its singular.  Generating
+  convention: *prepared for winter* could be the relation `preparedForWinter` or the unary
+  `prepared_for_winter`, and one word could be `lion`, `Lion` or its singular.  The two are
+  no longer interchangeable — a camelCase functor is arity 2+ and a snake_case one arity 1
+  (docs/naming.md) — which is exactly why both are generated: the phrase alone does not say
+  which the KB holds.  Generating
   the spellings and asking the KB which exist is the whole of resolution — the alternative,
   inverting the KB's vocabulary into the words each term is written with, is the one read
   here that would grow with the knowledge base.
@@ -178,7 +181,7 @@
 
 (defn resolve-in
   "The resolutions in `segs` against an already-computed `known` map, as
-  `[{:surface \"prepared for winter\" :term preparedForWinter :segment 0 :span [12 31]} …]`.
+  `[{:surface \"prepared for winter\" :term prepared_for_winter :segment 0 :span [12 31]} …]`.
 
   Longest run first and **non-overlapping**: *prepared for winter* wins over *winter*, so a
   compound predicate is not shredded into the words its name is made of.  Within one length
@@ -220,7 +223,7 @@
 
 (defn declared-in
   "Every predicate declared **in `context`'s cone**, as `[[predicate arity] …]` — its
-  `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` memberships, read at that
+  `unary_predicate` / `binary_predicate` / `ternary_predicate` memberships, read at that
   context so the answer is what a sentex filed there would be allowed to use.
 
   Scoped where `vaelii.impl.llm.inventory/declared-arities` is not, and that is the

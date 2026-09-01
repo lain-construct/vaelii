@@ -53,7 +53,7 @@
 
 (defn- sx-content [kb id]
   (when-let [s (p/get-sentex (:records kb) id)]
-    [(:sentence s) (:context s) (:truth s)]))
+    [(:sentence s) (:context s) (:polarity s)]))
 
 (defn- derived-content
   "The conclusions the rule drew, as sentences — the half both oracles compare."

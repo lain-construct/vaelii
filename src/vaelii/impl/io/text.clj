@@ -297,7 +297,7 @@
     not the bare rule; a rule known-true under a `:default` exception gets its own line
     as well, since the wrapper would state the weaker class and `mark-premise` resolves
     to the stronger of the two.
-  * anything else naming a handle — an `(except H)`, a `targetFollowingPredicate` meta,
+  * anything else naming a handle — an `(except H)`, a `target_following_predicate` meta,
     an exceptWhen meta on a rule the KB *derived* — is **skipped and counted**
     (`names-a-handle?` for the two ways a sentence spells one).  There
     is no spelling for it: the handle is a fact about this store, and a wrapper around a

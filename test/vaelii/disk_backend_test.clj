@@ -385,7 +385,7 @@
   (letfn [(build! [dir]
             (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
               (dotimes [i 20]
-                (v/assert kb (list 'tmpShortP (symbol (str "TmpShort" i))) 'CxUniverse))
+                (v/assert kb (list 'tmp_short_p (symbol (str "TmpShort" i))) 'CxUniverse))
               (v/close! kb)))
           (lop! [dir n]
             (let [f (RandomAccessFile. (str dir "/index/kv.log") "rw")]
@@ -394,8 +394,8 @@
           (reopened-finds-all? [dir]
             (let [kb2 (v/open-kb {:backend :disk-log :dir dir :recover? :auto})]
               (try
-                (and (= 20 (count (v/sentexes-matching kb2 '(tmpShortP ?x) 'CxUniverse)))
-                     (every? #(v/handle-of kb2 (list 'tmpShortP (symbol (str "TmpShort" %)))
+                (and (= 20 (count (v/sentexes-matching kb2 '(tmp_short_p ?x) 'CxUniverse)))
+                     (every? #(v/handle-of kb2 (list 'tmp_short_p (symbol (str "TmpShort" %)))
                                            'CxUniverse)
                              (range 20)))
                 (finally (v/close! kb2)))))]

@@ -86,6 +86,7 @@
             [vaelii.impl.caches :as caches]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
+            [vaelii.impl.predicates :as pr]
             [vaelii.impl.strength :as strength]))
 
 (defn- term-key
@@ -408,7 +409,7 @@
 ;; iff some believed supporter asserts it from a context in K's genlCx
 ;; up-cone (`:edge-ctxs`), the same filter `matches-visible` applies to facts.
 ;; The genlCx closure itself is never filtered: visibility scoped by
-;; visibility would be circular, and `forcedDecontextualizedPredicate` already
+;; visibility would be circular, and `forced_decontextualized_predicate` already
 ;; forces every genlCx edge universal.
 ;;
 ;; The filter is keyed on `vis = up(K) ∩ ctxs`, where `ctxs` is the relation's
@@ -900,7 +901,7 @@
     ;; read off the genl closure (`separation-frame`), never materialized, exactly
     ;; as the metatype clique reads its members.
     :sib-disjoint (update t :sibling-disjoint conj a)              ; a = c
-    ;; `:sib-exception` exempts one pair the sibling clique (or a `disjointMetatype`)
+    ;; `:sib-exception` exempts one pair the sibling clique (or a `disjoint_metatype`)
     ;; would otherwise separate; stored as adjacency exactly as `:disjoint-index` is, so
     ;; the read is one map lookup behind the `genl-related?` guard it sits beside.
     :sib-exception (index-symmetric t :sib-exception-index a true)  ; a = #{x y}
@@ -1956,7 +1957,7 @@
   "`term`'s representative considering only `rewriteOf` (spelling) edges — a `sameAs` /
   `equals` identity merge is **not** followed.  This is the mention read: a quoted term
   tracks a *spelling* rename of its symbol but not a *coreference* merge of its referent,
-  so `res/representative-term` uses it inside a `quotingFunction`'s arguments.
+  so `res/representative-term` uses it inside a `quoting_function`'s arguments.
 
   The rewriteOf edges form their own sub-partition; the answer is the representative of
   `term`'s rewriteOf-connected component, elected by the same rule `class-rep` uses — a
@@ -2972,8 +2973,8 @@
 
 ;; ---- sibling-disjointness exceptions -------------------------------------
 ;;
-;; `(siblingDisjointException x y)` exempts the one pair `x`,`y` that a `siblingDisjoint`
-;; mark (or a `disjointMetatype`) would otherwise force disjoint, without disturbing
+;; `(siblingDisjointException x y)` exempts the one pair `x`,`y` that a `sibling_disjoint`
+;; mark (or a `disjoint_metatype`) would otherwise force disjoint, without disturbing
 ;; either type's disjointness from the parent's *other* specializations.  Keyed as an
 ;; unordered pair exactly like `disjoint`, belief-following through the same
 ;; `cache-install` / `cache-uninstall` refcount, and read by `exempt?` inside
@@ -3059,7 +3060,7 @@
   `:cache-support` entry for the mark is there while any supporter is.  This is the
   gate the member arms read (`special/structural-integrate` and its disintegrate
   mirror), and it is storage rather than belief by the same discipline the
-  `disjointMetatype` integrate sweep follows: a membership is a *supporter*, recorded
+  `disjoint_metatype` integrate sweep follows: a membership is a *supporter*, recorded
   whatever the mark's label, so that belief can follow it through
   `refresh-cache-support`.  Gated on the believed set instead, a member asserted while
   the mark is defeated would never be recorded and reviving the mark would not
@@ -3076,7 +3077,7 @@
   (into #{} (keep (fn [k] (when (and (vector? k) (= :metatype (first k))) (second k))))
         (keys (:cache-support @tax))))
 
-;; A metatype's members are **recorded, not materialized**.  `(disjointMetatype M)`
+;; A metatype's members are **recorded, not materialized**.  `(disjoint_metatype M)`
 ;; makes every pair of M's members disjoint.  Materializing that clique would mean
 ;; n(n-1)/2 real `(disjoint a b)` sentexes: quadratic in the member count and stored
 ;; as independent premises with no justification linking them back to M, so retracting
@@ -3102,7 +3103,7 @@
 
 ;; ---- sibling disjointness ------------------------------------------------
 ;;
-;; `(siblingDisjoint C)` marks `C` so that any two of its **specializations** — the
+;; `(sibling_disjoint C)` marks `C` so that any two of its **specializations** — the
 ;; types below `C` under genl — share no instance, *unless one is itself a genl of
 ;; the other*.  It is the metatype clique keyed off the genl closure rather than a
 ;; recorded membership set: the mark alone is stored, and the pairs it separates are
@@ -3287,7 +3288,7 @@
   "The types a **visible declaration** separates `a` from: every `y` such that some
   supertype of `a` is declared `(disjoint x y)` with `x` ≠ `y`, shares a disjoint
   metatype with `y`, or stands beside `y` as a proper specialization of one
-  `(siblingDisjoint C)` parent — the same three arms `disjointness-test` tests, with the
+  `(sibling_disjoint C)` parent — the same three arms `disjointness-test` tests, with the
   same global genl-relatedness and exemption guards on the latter two.
 
   This is the enumeration `disjointness-test` is the membership test of, and the two
@@ -3387,17 +3388,17 @@
   "Are types a and b provably disjoint?  True when some supertype of a and some
   *different* supertype of b are separated — by a declared `(disjoint x y)`, by both
   being members of one disjoint metatype, or by both being non-genl-related proper
-  specializations of one `(siblingDisjoint C)` parent.  Every way, disjointness is
+  specializations of one `(sibling_disjoint C)` parent.  Every way, disjointness is
   inherited downward through genl (subtypes of disjoint types are disjoint), which
   is what the walk over both up-closures buys.
 
   The sibling arm is the metatype arm keyed off the genl closure rather than a
-  recorded membership set: `(siblingDisjoint C)` separates C's specializations by
+  recorded membership set: `(sibling_disjoint C)` separates C's specializations by
   being consulted, and its one added guard skips a separator pair `x`,`y` when one is
   a genl of the other — read **globally**, so the separation stays monotone on the
   reader's visibility exactly as the two arms above are.
 
-  The metatype arm is why no clique is stored: `(disjointMetatype M)` separates
+  The metatype arm is why no clique is stored: `(disjoint_metatype M)` separates
   M's members by being *consulted*, not by materializing a `(disjoint a b)` per
   pair.  Only metatypes still marked are consulted, so unmarking one releases every
   pair it separated in a single step.  Being consulted is also what makes the arm
@@ -3543,15 +3544,15 @@
 (defn props "The set of predicates carrying property `kind`." [tax kind] (get-in @tax [:props kind] #{}))
 
 (defn quoting-function?
-  "Is `head` declared a `quotingFunction`?  Its arguments are a **mention**, held opaque
+  "Is `head` declared a `quoting_function`?  Its arguments are a **mention**, held opaque
   to identity congruence (`res/representative-term` spelling mode)."
   [tax head]
   (and (symbol? head) (has-prop? tax :quoting head)))
 
 (defn any-quoting-functions?
-  "Cheap gate: does the KB declare any `quotingFunction`?  An in-memory taxonomy-prop read,
+  "Cheap gate: does the KB declare any `quoting_function`?  An in-memory taxonomy-prop read,
   mirroring `nat/any-reifiable-functions?`.  `mention-marks` is the one the congruence walk
-  takes, since a `modalPredicate` opens a mention position too."
+  takes, since a `modal_predicate` opens a mention position too."
   [tax]
   (boolean (seq (props tax :quoting))))
 
@@ -3563,7 +3564,7 @@
   full-representative walk with no per-node check, and the sets are read once per walk
   rather than a taxonomy deref per compound node.
 
-  A `quotingFunction` quotes its arguments (`Quote`, `Quasiquote`).  A `modalPredicate`
+  A `quoting_function` quotes its arguments (`Quote`, `Quasiquote`).  A `modal_predicate`
   quotes the **proposition** it attributes to its agent: an attitude is opaque, so the
   merges the asker believes may not rewrite a term inside what somebody else holds true
   (docs/belief.md).  Both are opaque to *identity* congruence and both follow a `rewriteOf`
@@ -3624,8 +3625,12 @@
   genl to the generic closure prover, never sets `has-prop? :transitive genl`, and the
   taxonomy answers genl-transitivity from its own cache as it always has.
   `provers/transitive-predicates` and `inherit/virtual-relations` are both this set, and
-  `special`'s mark ingestion reads it as the skip-set."
-  '#{genl genlCx})
+  `special`'s mark ingestion reads it as the skip-set.
+
+  Read off the declarations rather than written: `:edge` is the storage kind for a
+  relation the engine closes itself, so being in this set and being cached as a closure
+  are one fact rather than two lists that have to agree."
+  (set (keys (pr/by-storage :edge))))
 
 (def arg-declaration-props
   "Per argument-constraint kind, the `:props` roster its **subject** is marked under —
@@ -3641,9 +3646,14 @@
 
   The roster is the **global** one, so a filter built on it is a superset of what any
   context can see; the scoped retrieval it gates is what decides which declarations
-  actually speak for a reader."
-  '{arg :declares-arg-isa, genlArg :declares-arg-genl, quotedArg :declares-quoted-arg,
-    interArg :declares-inter-arg-isa})
+  actually speak for a reader.
+
+  Read off the declarations: the family is `predicates/:argument-constraint` and the
+  keyword is each spelling's own `:prop` storage target, so a fifth constraint is
+  declared once and arrives here."
+  (into (sorted-map)
+        (map (juxt identity pr/prop-kind))
+        (pr/family :argument-constraint)))
 
 (def functional-family-marks
   "The spellings of the **functional** mark, each with its written shape: `:mark` for
@@ -3652,27 +3662,19 @@
   only wants the predicate ignore the shape entirely.
 
   **One roster because the family lives in two lanes and has twice been joined to only
-  one.**  A functional mark is acted on by the *merge* lane (`special`'s `equate-*`
-  doors, where two fillers of a functional slot are equated) and by the *clash exposure*
-  lane (`settle`'s declaration reach and trigger rosters, where two unmergeable fillers
-  are reported).  Both lanes have to recognize the same spellings, and neither fails
-  loudly when it does not — the merge simply does not happen, or the clash simply is not
-  reported, in the one arrival order that route was the only way into.  Enrolling
-  `functionalInArg` by name in each place is what left #52 (the declaration-last merge
-  door held an exact-functor test) and #54 (the declaration arrived and swept nothing)
-  open at the same time, in different lanes, from the same omission.
+  one** — the argument, with #52 and #54, is on `predicates/mark-families`, which is
+  where a third spelling is now added and where this reads it back from.
 
-  So a new spelling is added here and the lanes follow.  What a lane still owns for
-  itself is what it does with the shape: `settle` also checks the argument *kinds*
-  because its triggers come off a moved region and may be malformed, where `special`'s
-  door is downstream of well-formedness and checks only the arity.
+  What a lane still owns for itself is what it does with the shape: `settle` also checks
+  the argument *kinds* because its triggers come off a moved region and may be malformed,
+  where `special`'s door is downstream of well-formedness and checks only the arity.
 
   Not `:props`-keyed, and that is the point of the split from `settle`'s
   `definitional-marks`: `functional` stores under the `:functional` prop where
   `functionalInArg` stores `[pred n]` pairs in the `:functional-in-arg` table, so the two
   have no common storage to be rostered by — only a common family and a common argument
   1."
-  '{functional :mark, functionalInArg :mark-in-arg})
+  (pr/by-family :functional))
 
 ;; The supporters behind a flat-cache entry, read back.  A consumer that *justifies*
 ;; something on a declaration needs the declaring sentexes as antecedents, and reading
@@ -3778,9 +3780,8 @@
 
   Storage is `arity`'s rather than `:props`': the declaration carries an integer, and a
   `:props` roster is a set of predicates with nowhere to put one.  `::prop-kind` is
-  therefore **not** extended — `arity` is not in it either, and `special-table-test`
-  holds that roster in sync with `:props` as sets, which a kind derived from `n` would
-  break.
+  therefore **not** extended — `arity` is not in it either, and the spec is the `:prop`
+  storage targets read off the declarations, which a kind derived from `n` has none of.
 
   Unlike `declared-arity` this does **not** collapse to a single `n`.  Two arities for
   one predicate are a genuine ambiguity about which one it has; two functional positions

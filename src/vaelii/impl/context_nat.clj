@@ -243,7 +243,7 @@
   Idempotent (`materialize-edge` adds no duplicate justification) and **local**: scoped to
   the declared context functions, each reconciled only over its own contexts — bounded by
   the context-NAT population, never the whole graph.  Behind the **free** in-memory
-  `contextDenotingFunction` gate first — a KB with no `cx/` context to order pays neither
+  `context_denoting_function` gate first — a KB with no `cx/` context to order pays neither
   the `any-context-subrelations?` functor-count index read nor anything else, so the retract
   hot path is untouched on every KB that declares no context function
   (`assert_cost_test`)."

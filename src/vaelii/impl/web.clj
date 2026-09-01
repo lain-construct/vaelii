@@ -8,7 +8,7 @@
     /find?q=<pattern> the terms whose name matches, from the index's term roster
     /term?q=<term>    every sentex containing the term, grouped by the index root that
                       reaches it (functor / argument-position / context / term-index)
-    /sentex/:id       a sentex (atomic or rule): its belief state (IN, or the why-not
+    /sentex/:id       a sentex (literal or rule): its belief state (IN, or the why-not
                       reason — superseded / defeated / unsupported), supports, dependents
     /justification/:id    a justification: its supports (arguments) and dependent sentex
     /levels?q=<goal>  the lookup-to-query stack: what each of the 8 levels answers
@@ -552,7 +552,7 @@
 
 (defn- disjoint-pairs
   "The disjointness pairs to display: the believed `(disjoint a b)` sentexes, plus the
-  pairs a `disjointMetatype` induces.
+  pairs a `disjoint_metatype` induces.
 
   The induced ones are computed rather than read, because a metatype separates its
   members by being *consulted* rather than by materializing a clique of real
@@ -561,7 +561,7 @@
   the diagonal out — a stated `(disjoint A A)` is content and is shown."
   [kb]
   (let [declared (into #{} (keep (fn [s] (let [[_ a b] (:sentence s)]
-                                           (when (and a b (= :true (:truth s)))
+                                           (when (and a b (= :positive (:polarity s)))
                                              (disjoint-pair a b)))))
                        ;; the functor root rather than `(disjoint ?a ?b)`: a pattern with
                        ;; no ground argument gives the trie nothing to narrow on and fans
@@ -599,7 +599,7 @@
 
 ;; ---- reified terms ------------------------------------------------------
 ;;
-;; A ground `(F a…)` under a `reifiableFunction` is stored as an opaque constant in the
+;; A ground `(F a…)` under a `reifiable_function` is stored as an opaque constant in the
 ;; reserved `nat/` namespace (docs/nat.md), which is how a function term is indexed and
 ;; retracted like any symbol.  `nat/g4711` is not a name anybody wrote and says nothing
 ;; to a reader, so **no page ever shows one**: every place a term is rendered goes
@@ -719,7 +719,7 @@
   [view s]
   (let [h         (:id s)
         rule?     (some? (:antecedent s))
-        neg?      (= :false (:truth s))
+        neg?      (= :negative (:polarity s))
         asserted? (some? (:strength s))
         in?       (believed? view h)
         dir       (:direction s)
@@ -2151,7 +2151,7 @@
     (prime-belief! view (map :id page))
     (list
      (for [s     page
-           :when (and (= :true (:truth s)) (believed? view (:id s)))
+           :when (and (= :positive (:polarity s)) (believed? view (:id s)))
            :let  [[_ term text] (:sentence s)]]
        ;; name prominent, first-sentence gloss muted; the whole comment hovers as a
        ;; title and is on the term's own page — the front page stays scannable
@@ -2838,7 +2838,7 @@
   (for [{:keys [pos sentexes]} groups
         :when (and pos (<= pos 2))
         s     (flank-scan sentexes)
-        :when (and (nil? (:antecedent s)) (= :true (:truth s)) (believed? view (:id s)))
+        :when (and (nil? (:antecedent s)) (= :positive (:polarity s)) (believed? view (:id s)))
         :let  [sent (:sentence s)]
         :when (and (sequential? sent) (= 3 (count sent)))
         :let  [[p a b] sent

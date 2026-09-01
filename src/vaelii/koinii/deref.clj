@@ -32,7 +32,7 @@
   - **The locator is content-addressed, not handle-addressed.**  A handle is a number
     one store minted and does not travel; a locator is a **self-describing** digest — the
     literal `\"sha256:\"` followed by 64 lowercase hex chars — over a sentex's **canonical
-    identity** (its context, truth polarity, and canonicalized sentence,
+    identity** (its context, polarity, and canonicalized sentence,
     `docs/canonicalization.md`).  Three best-practice commitments live in that one string:
       * **SHA-256, not SHA-1.**  A locator is a tamper-detection boundary — `dereference`
         rehashes the *resolved* form and compares — and SHA-1 has practical chosen-prefix
@@ -257,13 +257,13 @@
 ;; ---- the locator: a content hash of a sentex's canonical identity --------
 
 (defn- identity-of
-  "A sentex's canonical **identity** as a value: its context, truth polarity, and
+  "A sentex's canonical **identity** as a value: its context, polarity, and
   canonicalized sentence — everything the store keys a sentex on EXCEPT the per-store
   handle.  The three fields come off the constructor already canonical (canonical
   variables, sorted symmetric arguments, folded comparisons), so digesting them is
   digesting the same form on every seat."
   [sx]
-  [(:context sx) (:truth sx) (:sentence sx)])
+  [(:context sx) (:polarity sx) (:sentence sx)])
 
 (defn locator-of
   "The locator of the stored sentex at `handle` — `\"sha256:\"` + hex SHA-256 of its
@@ -394,7 +394,7 @@
   commit id' is this.
 
   Scope is every BELIEVED sentex — premises AND anything forward-derived — read as CONTENT
-  (context/truth/sentence, not provenance).  A stored-but-defeated sentex is **not** a leaf:
+  (context/polarity/sentence, not provenance).  A stored-but-defeated sentex is **not** a leaf:
   belief is what a seat holds, so a default this seat defeated and one it never heard of
   are the same knowledge and hash alike.  So it fingerprints the materialized *belief*, not
   the store: two seats agree exactly when their believed sets match, which the pull flow
@@ -533,7 +533,7 @@
     {:locator  (locator-of kb handle)
      ;; the stored `:sentence` IS the asserted form for BOTH polarities — a `:false`
      ;; sentex keeps its `(not …)` in `:sentence` (docs/storage.md; verified), with
-     ;; `:truth` a separate flag — so `handle-of` finds it by this field unchanged.  The
+     ;; `:polarity` a separate flag — so `handle-of` finds it by this field unchanged.  The
      ;; field travels raw: it is not re-wrapped in `not`, which would double-negate a
      ;; negative fact into a positive one that resolves to nothing (`:not-received`).
      :sentence (:sentence sx)
@@ -619,7 +619,7 @@
   model, and where the marker's untrustedness is enforced.  Returns, on success:
 
       {:resolved? true  :handle h  :locator <sha256:hex>  :sentence S  :context C
-       :truth t  :seat <asserter>  :provenance <map>}
+       :polarity t  :seat <asserter>  :provenance <map>}
 
   and on failure `{:resolved? false :reason … :locator <sha256:hex>}`:
 
@@ -679,7 +679,7 @@
            :locator    (locator-of kb h)
            :sentence   (:sentence sx)
            :context    (:context sx)
-           :truth      (:truth sx)
+           :polarity      (:polarity sx)
            :seat       (:creator prov)
            :provenance prov})))))
 
@@ -752,7 +752,7 @@
           :locator    locator
           :sentence   (:sentence sx)
           :context    (:context sx)
-          :truth      (:truth sx)
+          :polarity      (:polarity sx)
           :seat       (:creator prov)
           :provenance prov})
        {:resolved? false :reason :not-received :locator locator}))))

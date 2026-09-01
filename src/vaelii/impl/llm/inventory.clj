@@ -85,7 +85,7 @@
   "Is `term` reachable from one of the index's O(1) secondary roots — used as a fact's
   functor, or standing in one of the first three argument positions?  The cheap half of
   `known-term?`: a predicate that is *declared* and never used still sits at argument 1
-  of its own `(arg P …)` / `(arity P …)` / `(binaryPredicate P)` sentexes, and a type
+  of its own `(arg P …)` / `(arity P …)` / `(binary_predicate P)` sentexes, and a type
   sits at either end of a `genl` edge, so this answers yes for almost everything the KB
   knows without touching the term roster."
   [kb term]
@@ -165,11 +165,11 @@
 (def predicate-type-arities
   "The predicate meta-ontology's arity declarations: the type a predicate is a member of,
   and the arity that membership states."
-  {'unaryPredicate 1 'binaryPredicate 2 'ternaryPredicate 3})
+  {'unary_predicate 1 'binary_predicate 2 'ternary_predicate 3})
 
 (defn declared-arities
   "`{predicate -> arity}` for every predicate the KB **declares** — its `(arity P N)`
-  sentexes and its `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` memberships,
+  sentexes and its `unary_predicate` / `binary_predicate` / `ternary_predicate` memberships,
   which derive each other, so either spelling is enough.
 
   **Arity is never inferred from `arg`.**  `arg` constrains an argument to a *type*
@@ -237,7 +237,7 @@
       (cond
         (or (> (count (v/genls kb term)) 1) (> (count (v/specs kb term)) 1)) :type
         (seq (v/sentexes-matching kb (list 'arg term '?n '?t) '?ctx)) :predicate
-        (seq (v/sentexes-matching kb (list 'unaryPredicate term) '?ctx)) :type
+        (seq (v/sentexes-matching kb (list 'unary_predicate term) '?ctx)) :type
         :else :predicate))))
 
 (defn seed-types
@@ -432,7 +432,7 @@
   is structural and is left out of the domain block unless the page is about that band.
 
   **The source is the KB's declarations, not its facts.**  Types come from `vaelii.core/types`
-  and relations from the `unaryPredicate` / `binaryPredicate` / `ternaryPredicate`
+  and relations from the `unary_predicate` / `binary_predicate` / `ternary_predicate`
   memberships, because a schema-only KB has no facts: enumerating functors that actually
   appear in fact position on the shipped schema yields 20 names, every one of them an engine
   meta-predicate and not one of them a domain relation.  `arg` then supplies argument

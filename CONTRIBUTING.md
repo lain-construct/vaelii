@@ -336,7 +336,7 @@ pins the shipped set, so the change is visible rather than quiet, and a changelo
 that says what moved.
 
 The engine *code* that reads the ontology is surface as usual, and the distinction is
-sharp enough to apply without argument: changing what `decontextualizedPredicate` **means**
+sharp enough to apply without argument: changing what `decontextualized_predicate` **means**
 is class 1, and changing **which terms carry it** is not. The first is a contract every
 KB is written against; the second is one KB's content.
 

@@ -40,6 +40,7 @@
   a public that grows an option map, or arrives with one, fails that test until it
   is either specced here or named there."
   (:require [clojure.spec.alpha :as s]
+            [vaelii.impl.predicates :as pr]
             [vaelii.impl.strength :as strength]))
 
 ;; ---- building blocks ----------------------------------------------------
@@ -49,12 +50,12 @@
 ;; paths default to — or a **context-denoting application** `(CxTimeFn CxMonad (DatetimeFn
 ;; "2000"))`, which the doors reify to its `cx/` constant before anything downstream reads
 ;; it (docs/context-nat.md).  The spec admits the *shape*; whether the head is a declared
-;; `contextDenotingFunction` and the application ground is the door's own `:shape` check,
+;; `context_denoting_function` and the application ground is the door's own `:shape` check,
 ;; which needs the KB.  Narrower than the door, instrumentation would refuse a write into a
 ;; context the engine accepts.
 (s/def ::context (s/or :name symbol? :context-nat seq?))
 (s/def ::sentence some?)                   ; a sentence (a list) — never nil
-(s/def ::goal (s/or :one seq?              ; a single goal sentence …
+(s/def ::goal (s/or :one seq?              ; a single goal formula …
                     :conjunction           ; … or a vector of them (a conjunctive query)
                     (s/coll-of seq? :kind vector?)))
 (s/def ::handle nat-int?)                  ; the integer id a stored sentex is referenced by
@@ -68,7 +69,7 @@
 ;; `::id` stay the real thing for returns and record fields.
 (s/def ::handle-arg (s/nilable ::handle))
 (s/def ::term some?)                       ; any indexable term (symbol, number, compound)
-(s/def ::truth #{:true :false})            ; a literal's polarity
+(s/def ::polarity #{:positive :negative})     ; which literal it is
 (s/def ::prover some?)                     ; a vaelii.impl.provers/Prover
 (s/def ::solver some?)                     ; a vaelii.impl.solve/Solver
 
@@ -110,31 +111,32 @@
 
 ;; ---- predicate-metadata property kinds (has-prop? / props) --------------
 
-;; Every kind the special table marks, and `special-table-test` holds the two together:
-;; a kind the engine records and this set omits is a legal `has-prop?` call that
-;; instrumentation refuses.  `:reifiable` / `:unreifiable` / `:quoting` / `:context-denoting`
-;; are a *function*'s kind rather than a predicate's, which `::term` admits either way; the
-;; four `:declares-*` say that a predicate is the **subject** of an argument constraint
-;; rather than that it carries a property, which is what lets the descension ask whose
-;; declarations bind a tuple without an index probe per super-predicate
-;; (`taxonomy/arg-declaration-props`).
-(s/def ::prop-kind #{:transitive :symmetric :asymmetric :reflexive :functional
-                     :irreflexive :anti-symmetric :anti-transitive
-                     :decontextualized :forced-decontextualized :target-following
-                     :abducible :closed-extent
-                     :reifiable :unreifiable :quoting :context-denoting :modal
-                     :declares-arg-isa :declares-arg-genl :declares-quoted-arg
-                     :declares-inter-arg-isa})
+;; **Generated**, not written: the kinds are the `:prop` storage targets the declarations
+;; name, so a kind the engine records and this set omits — a legal `has-prop?` call that
+;; instrumentation refuses — is now unrepresentable rather than tested for.  What the
+;; twenty-two values *are* is pinned by `special-table-test/frozen-table`, which states
+;; each functor's kind in a table written out that nothing derives.
+;;
+;; `:reifiable` / `:unreifiable` / `:quoting` / `:context-denoting` are a *function*'s kind
+;; rather than a predicate's, which `::term` admits either way; the four `:declares-*` say
+;; that a predicate is the **subject** of an argument constraint rather than that it
+;; carries a property, which is what lets the descension ask whose declarations bind a
+;; tuple without an index probe per super-predicate (`taxonomy/arg-declaration-props`).
+;;
+;; A set is a predicate and a generator both, so `s/valid?`, `s/explain` and `s/gen` are
+;; what they were.  `s/form` is not: it reads back as the call rather than as the set, so a
+;; caller wanting the kinds asks `predicates/prop-kinds` for them.
+(s/def ::prop-kind (pr/prop-kinds))
 
 ;; ---- the sentex-map return contract -------------------------------------
 ;; `query` / `sentex` / the extent readers return sentex records, which are maps.
 ;; The *stable* contract is the map shape below — `:id`, `:sentence`, `:context`
 ;; are always present; a rule adds `:antecedent` / `:consequent` / `:direction`.
 ;; Treat the result as a map: callers should key into it, never depend on the
-;; concrete `vaelii.impl.sentex/AtomicSentex` / `RuleSentex` record class, which is an internal
+;; concrete `vaelii.impl.sentex/LiteralSentex` / `RuleSentex` record class, which is an internal
 ;; detail free to change.
 (s/def ::sentex-map (s/keys :req-un [::id ::sentence ::context]
-                            :opt-un [::truth ::strength]))
+                            :opt-un [::polarity ::strength]))
 (s/def ::sentex-seq (s/coll-of ::sentex-map))
 
 ;; ---- construction -------------------------------------------------------

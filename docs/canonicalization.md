@@ -135,7 +135,7 @@ of known-true content cannot retire it ([nmtms.md](nmtms.md)).
 
 ## Polycanonicalization: one rule written, several stored
 
-The connectives above canonicalize **into** the record — `not` becomes a truth value,
+The connectives above canonicalize **into** the record — `not` becomes a polarity,
 `implies` and `and` become the antecedent vector and the consequent, a `set/*Rule`
 wrapper becomes a field. Two of them cannot, because what they say is not about one
 rule: a rule that concludes a **conjunction** makes two claims, and a rule whose
@@ -268,4 +268,4 @@ twin somebody writes out by hand.
 ## See also
 
 - [docs/indexing.md](indexing.md) — how the canonical form reaches the trie key.
-- [docs/storage.md](storage.md) — the `AtomicSentex` / `RuleSentex` record shapes.
+- [docs/storage.md](storage.md) — the `LiteralSentex` / `RuleSentex` record shapes.

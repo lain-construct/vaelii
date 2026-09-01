@@ -143,7 +143,7 @@ goal whose truth is a function of something the region does not hold is refused
 Reach for those with `query` on a plain listener: the event says belief moved, and the
 query says what it is now.
 
-A **negated** goal needs no special handling — a `:truth :false` sentex stores the `not`
+A **negated** goal needs no special handling — a `:polarity :negative` sentex stores the `not`
 in its sentence, so `(not (dog ?x))` and `(dog ?x)` separate on the ordinary unification,
 and a positive watch does not fire for a believed negation.
 

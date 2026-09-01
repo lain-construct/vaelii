@@ -667,7 +667,7 @@
 
 (defn reified-term?
   "Is `term` a **reified non-atomic term** — the opaque constant a ground `(F a…)`
-  under a `reifiableFunction` was minted as (docs/nat.md)?  A pure test on the
+  under a `reifiable_function` was minted as (docs/nat.md)?  A pure test on the
   symbol's reserved namespace, so a display layer can ask it of every term it renders
   and pay a read only where the answer is true.
 
@@ -754,7 +754,7 @@
   by the corresponding sentex, e.g. `(symmetric siblingOf)`.
 
   A predicate carries all but the last two: `:reifiable` / `:unreifiable` are a
-  *function*'s kind, declared by `(reifiableFunction F)`, and read by the reify pass
+  *function*'s kind, declared by `(reifiable_function F)`, and read by the reify pass
   (`vaelii.impl.nat`).
 
   Argument-position *preservation* is not here: `(transitiveInArg P n R)` is per
@@ -778,7 +778,7 @@
 
 (defn disjoint-metatypes
   "The declared disjoint metatypes — each a type whose member types are pairwise
-  disjoint by `(disjointMetatype M)`.  The clique is *consulted*, not materialized: no
+  disjoint by `(disjoint_metatype M)`.  The clique is *consulted*, not materialized: no
   `(disjoint a b)` pair is stored, so to render the induced pairs, take
   `metatype-members` of each and pair them yourself."
   [kb] (tax/disjoint-metatypes (:taxonomy kb)))
@@ -1512,7 +1512,7 @@
                    ;; is written and before the taxonomy is touched, so a refusal leaves
                    ;; nothing behind.
                    (checks/check-edge-stratified kb sentence context)
-                   ;; ...and the third thing that can: a `closedExtentPredicate` grant
+                   ;; ...and the third thing that can: a `closed_extent_predicate` grant
                    ;; arriving underneath rules that read the predicate negatively, which
                    ;; is what turns those reads into negation as failure (docs/naf.md)
                    (checks/check-closed-extent-stratified kb sentence context)
@@ -1556,7 +1556,7 @@
               ;; stored sub-predicate facts under a `functional` mark above them
               fdn  (special/equate-under-edge kb sentence)
               ;; ...and the antisymmetric merge, in the same three arrival orders: a fact
-              ;; meeting its converse under an `(antiSymmetric P)` mark, the declaration
+              ;; meeting its converse under an `(anti_symmetric P)` mark, the declaration
               ;; meeting the facts, and the `genl` edge bringing them under a mark above
               asym (special/derive-antisymmetric-equalities kb sentence context h)
               axe  (special/antisym-equate-existing kb sentence)
@@ -1705,7 +1705,7 @@
 (declare retract! edit!)
 
 (defn- prepare-goal-for-read
-  "Bring a `prove` / `query` goal (a sentence, or a vector of them = a conjunction)
+  "Bring a `prove` / `query` goal (a formula, or a vector of them = a conjunction)
   into the form the stored content is in, so a lookup can meet it: **reify** ground
   NATs to their existing constants, then **rewrite** terms to their equality-class
   representatives and schematic normal forms (`kb/rewrite-goal`).
@@ -1719,8 +1719,8 @@
   rule expansion generates need no further rewriting — the same reliance `ask` makes.
   `rewrite-goal` exempts
   `different`, whose arguments must stay un-rewritten to read class membership, and the
-  congruence walk under it exempts a **mention** — a `quotingFunction`'s arguments, and the
-  proposition a `modalPredicate` attributes to its agent, which is normalized against the
+  congruence walk under it exempts a **mention** — a `quoting_function`'s arguments, and the
+  proposition a `modal_predicate` attributes to its agent, which is normalized against the
   *agent's* partition where the projection reads it rather than against the asker's
   (docs/belief.md).  Both exemptions hold on the stored side too, so the goal and the
   sentex still meet at one form.
@@ -1750,7 +1750,7 @@
   (docs/context-nat.md).
 
   The compound is admitted only when reification *would yield a symbol*: its head is a
-  **declared** `contextDenotingFunction` and the application is ground
+  **declared** `context_denoting_function` and the application is ground
   (`nat/context-denoting-ground-nat?`).  This is a shape invariant — a stored sentex's
   context is always a symbol — so it must not depend on the naming policy: an undeclared
   `(CxBogusFn …)` or a non-ground `(CxTimeFn CxMonad ?x)` never reifies, would store a raw
@@ -2048,11 +2048,11 @@
    ;; before `expand-consequent`, WFF, and the constraint checks — so the compound
    ;; never reaches the index and the minted constant's materialized types are in
    ;; place for the checks below (docs/nat.md).  Gated, so a KB with no
-   ;; reifiableFunction is unaffected.
+   ;; reifiable_function is unaffected.
    (let [;; A context-denoting NAT `(CxTimeFn …)` in the context slot reifies to its `cx/`
          ;; constant here — the context-slot twin of the sentence reify below, since the
          ;; context argument is not on the sentence walk (docs/context-nat.md).  A no-op
-         ;; unless the KB declares a contextDenotingFunction and this is a ground one.
+         ;; unless the KB declares a context_denoting_function and this is a ground one.
          context  (nat/maybe-reify-context kb context)
          sentence (apply-direction-opt sentence opts)
          ;; `(exceptWhen (set/monotonic <query>) <rule>)` states the **exception's** own
@@ -2150,7 +2150,7 @@
            ;; `contextArgSubrelation` declaration, may entail new genlCx edges between
            ;; sibling NAT contexts — materialize them, justified so they belief-follow
            ;; (docs/context-nat.md).  Inside the reifiable gate (a free in-memory read):
-           ;; a `contextDenotingFunction` is a reify-kind, so any KB with a context NAT to
+           ;; a `context_denoting_function` is a reify-kind, so any KB with a context NAT to
            ;; order already passes it, and one without any reifiable function has no cx/
            ;; context and nothing to reconcile — so the `any-context-subrelations?` index
            ;; read the producer gates on is never paid by a KB that reifies nothing.
@@ -2314,9 +2314,9 @@
     :disjoint              a type membership the taxonomy separates
     :functional            a second, irreconcilable value for a functional slot
     :asymmetric            the converse of a claim a declared-asymmetric relation made
-    :anti-transitive       the two-step chain an antiTransitive relation forbids closing
+    :anti-transitive       the two-step chain an anti_transitive relation forbids closing
     :irreflexive           a self tuple (P a a) of a relation declared irreflexive
-    :anti-symmetric        both directions of an antiSymmetric relation, over two
+    :anti-symmetric        both directions of an anti_symmetric relation, over two
                            arguments no equality could merge
 
   plus `:unrecovered-kb`, which is about neither the request nor the knowledge but the
@@ -2840,7 +2840,7 @@
 ;; closed-world readers run the registry from inside a relabel loop.
 ;;
 ;; Result shapes differ by family: `sentexes-matching` and the extent/term readers return
-;; **sentex maps** (`{:id :sentence :context :truth ...}`); `query` / `ask` / `prove`
+;; **sentex maps** (`{:id :sentence :context :polarity ...}`); `query` / `ask` / `prove`
 ;; return **binding maps** (`{?x val ...}`); `lookup` returns
 ;; **level-result maps** (`{:level :handle :sentence :context :bindings}`).
 
@@ -3074,7 +3074,7 @@
   found, and the three query contexts name a way of reading — and all of those are symbols,
   so one `symbol?` covers them and the fast path pays a type test.  What is left is the
   compound, admitted only when it reifies: a ground application of a declared
-  `contextDenotingFunction`, exactly as `context-shape-problem` admits one for a write.
+  `context_denoting_function`, exactly as `context-shape-problem` admits one for a write.
 
   Unrefused it answered **empty**.  `(CxTimeFn ?t)` is not ground so it names no context,
   `(CxBogusFn Q)` is not declared so it names none either, and a read at something that
@@ -3152,9 +3152,9 @@
   `sentex`/`find-sentexes` for raw introspection.
 
   Returns a seq of **sentex maps**.  The stable contract is the map keys — `:id`
-  (the handle), `:sentence`, `:context`, `:truth`, and for a rule `:antecedent` /
+  (the handle), `:sentence`, `:context`, `:polarity`, and for a rule `:antecedent` /
   `:consequent` / `:direction` — so key into the result.  The concrete record type
-  (`vaelii.impl.sentex/AtomicSentex` / `RuleSentex`) is an internal detail: do not `instance?`-
+  (`vaelii.impl.sentex/LiteralSentex` / `RuleSentex`) is an internal detail: do not `instance?`-
   test it or rely on it, only its keys.
 
   **The seq is lazy, over live state.**  Matches are fetched as it is walked, which is
@@ -3227,7 +3227,7 @@
   "The `(sentexHandle <id>)` term that **names** the sentex stored at handle `n`.  A
   meta-sentex predicates about another sentex by carrying this term in an argument —
   `(exceptWhen <query> (sentexHandle H))` names the rule it qualifies, and a target-
-  following predicate (`targetFollowingPredicate`) names the claim its reply hangs on —
+  following predicate (`target_following_predicate`) names the claim its reply hangs on —
   so retracting the named sentex can cascade to the meta.  The inverse is `handle-id`."
   [n]
   (sx/sentex-handle n))
@@ -3311,7 +3311,7 @@
 
 (defn context-of-agent
   "The canonical context for `agent` — `Alice` ↦ `CxAgentAlice`.  The engine
-  projects an agent's modal beliefs into this context (`modalPredicate`, docs/belief.md);
+  projects an agent's modal beliefs into this context (`modal_predicate`, docs/belief.md);
   a coordination layer can reuse it as the agent's write boundary — everything the agent
   asserts lands in its own context, lifted under a shared one by `genlCx`.  The forward
   half of a bijection; the inverse is `agent-of-context`, and the two round-trip."
@@ -3957,7 +3957,7 @@
   is usually answered *twice* over — once as the fact that firing stored in the scratch
   context, once by the rule expanded over the hypothesis.
 
-  **A predicate is hypothesized only if it was granted.**  `(abduciblePredicate P)`
+  **A predicate is hypothesized only if it was granted.**  `(abducible_predicate P)`
   is what makes a `(P …)` assumable, read from the asking context's `genlCx`
   up-cone; nothing else is, ever.  A hypothesis must also be **ground**, must pass every
   check an assertion passes, and must not contradict anything believed where it lands.
@@ -3985,7 +3985,7 @@
    (check-bound-opts! opts #{:max-hypotheses :max-depth :keep?} "abduce")
    ;; the same conjunction `prove` takes, so the same reading of a vector
    (check-shape! (conjunction-goal-problem goal))
-   ;; `:not-ground`, the type an open sentence already refuses under: the hypotheses
+   ;; `:not-ground`, the type an open formula already refuses under: the hypotheses
    ;; have to be stored somewhere, and `?ctx` — which every other query fn reads as
    ;; "any context" — names none.
    (when-not (and (symbol? context) (not (sx/variable? context)))
@@ -4146,7 +4146,7 @@
 (defn register-modal-predicate
   "Grant `pred` belief-style projection: after this, `(pred agent sentence)` is answered
   by proving `sentence` in `agent`'s context, exactly as `believes` is (see
-  docs/belief.md).  A thin convenience over asserting the `(modalPredicate pred)` marker
+  docs/belief.md).  A thin convenience over asserting the `(modal_predicate pred)` marker
   — the grant is an ordinary belief, so it follows retraction and, read scoped, is a
   *policy of the context* that holds it: with no `context` it is granted in `CxCore`
   where the default `believes` grant lives, so every ordinary query context sees it;
@@ -4156,7 +4156,7 @@
   `retract!` of that marker takes the grant back, so there is nothing here the KB cannot
   undo (the `!` roster is in docs/api.md)."
   ([kb pred] (register-modal-predicate kb pred 'CxCore))
-  ([kb pred context] (assert kb (list 'modalPredicate pred) context) kb))
+  ([kb pred context] (assert kb (list 'modal_predicate pred) context) kb))
 
 ;; ---- the optional reasoners ---------------------------------------------
 ;; Ten reasoners ship without being registered, and until one is, its vocabulary is
@@ -4603,7 +4603,7 @@
   the pair means and what belief does about it: `docs/inherit.md`.
 
   **Two members is the common case, not the contract.**  A rebuttal and the pairwise
-  constraints name two sides; an `antiTransitive` chain names **three** — the two steps
+  constraints name two sides; an `anti_transitive` chain names **three** — the two steps
   and the direct step, which cannot all hold (docs/nmtms.md) — so a reader that
   destructures `:handles` as a pair is reading a coincidence.
 
@@ -4743,13 +4743,13 @@
   | `:arg-type` / `:arg-genl` | an argument fails a declared constraint — `arg`'s type, or `genlArg`'s subtype floor | `:arg` `:expected` `:position` `:message` |
   | `:inter-arg-type` | an `interArg` conditional constraint whose trigger argument holds and whose target argument does not | `:arg` `:expected` `:position` `:trigger` `:trigger-type` `:trigger-position` `:message` |
   | `:arg-position` | a *declaration* constrains an argument the predicate's declared length does not have | `:predicate` `:position` `:arity` `:via` `:message` |
-  | `:arg-constraint-kind` | a declaration disagrees with the predicate's `relationKind` — `genlArg` on an instance relation, `arg` on a type relation | `:predicate` `:message` |
+  | `:arg-constraint-kind` | a declaration disagrees with the predicate's `relation_kind` — `genlArg` on an instance relation, `arg` on a type relation | `:predicate` `:message` |
   | `:arity` | a conclusion whose length disagrees with the arity the predicate declares or inherits | the check's problem map |
   | `:disjoint` | a membership putting a term in two types declared disjoint | the check's problem map |
   | `:functional` / `:asymmetric` | a second filler for a functional slot, or both directions of an asymmetric predicate | the check's problem map |
-  | `:anti-transitive` | the direct step beside a two-step chain of an `antiTransitive` predicate — the one kind naming **two** other sentexes (`:opposing-handles`), so the nogood `settle` weighs is a triple | the check's problem map |
+  | `:anti-transitive` | the direct step beside a two-step chain of an `anti_transitive` predicate — the one kind naming **two** other sentexes (`:opposing-handles`), so the nogood `settle` weighs is a triple | the check's problem map |
   | `:irreflexive` | a self tuple `(P a a)` of a predicate declared `irreflexive` — a lone tuple with no pair to weigh, so it refuses rather than arbitrates | the check's problem map |
-  | `:anti-symmetric` | both directions of an `antiSymmetric` predicate whose two arguments no equality could merge (two numbers, a compound) — the mergeable case derives `(equals a b)` instead | the check's problem map |
+  | `:anti-symmetric` | both directions of an `anti_symmetric` predicate whose two arguments no equality could merge (two numbers, a compound) — the mergeable case derives `(equals a b)` instead | the check's problem map |
   | `:not-stratified` | a derived `genl` / `genlCx` edge would put a cycle through negation in the rule set, or a minted generator would feed one | `:cycle` `:message` |
   | `:not-well-formed` | a minted sentence a special predicate's own structure check refuses | `:problems` `:message` |
   | `:naming` | a minted sentence breaking a naming invariant — the spellings in docs/naming.md | `:message` |
@@ -4797,7 +4797,7 @@
   | `:arity-truncated` | the retroactive arity reach was cut short — it sweeps the whole spec subtree a binding descends to and the cone a `genlCx` edge opens, and past the budget the predicates it never reached, and the ones it never got as far as looking *for*, hold facts neither refused nor named | `:predicates` `:sample` `:edges` `:edge-sample` `:budget` `:message` |
   | `:arity-report-truncated` | the arity reach files at most **8** entries for a pass, the content-first 8 of the predicates it convicted, so one binding over a wide subtree cannot evict every other violation from the ledger | `:predicates` `:filed` `:facts` `:sample` `:message` |
   | `:constraint-exposure-truncated` | one cross-context constraint pass found **more clashing pairs than it will file** — a functional slot filled from N contexts one vantage sees is N−1 pairs off a single arriving fact, against a ledger keeping the newest 1000 — or left a `genlCx` edge unswept | `:pairs` `:filed` `:cap` `:unswept` `:sample` `:budget` `:message` |
-  | `:context-edge-exposure-truncated` | a `genlCx` edge's own **merge**-deriving sweep — the mergeable twin of `:constraint-exposure-truncated`, over `functional` / `functionalInArg` / `antiSymmetric` — was cut short, so pairs beyond the budget go **unmerged for this edge** | `:context` `:mark` `:budget` `:message` |
+  | `:context-edge-exposure-truncated` | a `genlCx` edge's own **merge**-deriving sweep — the mergeable twin of `:constraint-exposure-truncated`, over `functional` / `functionalInArg` / `anti_symmetric` — was cut short, so pairs beyond the budget go **unmerged for this edge** | `:context` `:mark` `:budget` `:message` |
   | `:partner-sweep-truncated` | the **partner discovery** behind a cross-context constraint report was cut short — a `functionalInArg` mark whose declared position is the whole tuple leaves no single argument root to narrow by, so finding a pair's far half is an extent sweep — and past the budget a vantage that sees a clashing pair is never asked | `:sweeps` `:budget` `:message` |
 
   The first three are sweeps cut short.  `:arity-report-truncated` is not one: everything
@@ -5073,7 +5073,7 @@
   "Sweep a reified NAT orphaned by a teardown — its termOfUnit map and materialized types
   would dangle a raw `nat/` symbol (docs/nat.md), and an emptied `cx/` context would be
   a place nothing can reach and nothing is in (docs/context-nat.md).  Gated on the KB
-  declaring a reifiable function at all — `contextDenotingFunction` is one — and
+  declaring a reifiable function at all — `context_denoting_function` is one — and
   suppressed while already removing orphans.
 
   Two arms, and which one a caller takes turns on whether it can name the region the
@@ -5103,7 +5103,7 @@
 
 (defn- target-following-meta?
   "Is `sx` a **target-following meta-sentex** — a sentex whose predicate is declared
-  `targetFollowingPredicate`?  Such a sentex names another sentex by handle and must not
+  `target_following_predicate`?  Such a sentex names another sentex by handle and must not
   outlive it, so a teardown that removes the named target removes it too."
   [kb sx]
   (let [s (:sentence sx)]
@@ -5129,7 +5129,7 @@
   `collect-orphaned-nats!` reads — so it is complete without every removal path reporting
   to it.
 
-  A no-op unless the KB declares a `targetFollowingPredicate`: the sink is bound only
+  A no-op unless the KB declares a `target_following_predicate`: the sink is bound only
   then (or when a reifiable function needs it), and an empty roster short-circuits.  The
   engine's own meta-sentexes (`except` / `exceptWhen`) do not carry the mark, so their
   orphan-on-retraction behavior (`meta_sentex_test`) is untouched."
@@ -5153,7 +5153,7 @@
   cascades' own.
 
   Gated on the two things that read one — a reifiable function (the orphan sweep) and a
-  `targetFollowingPredicate` (the meta cascade).  With neither declared both sweeps are
+  `target_following_predicate` (the meta cascade).  With neither declared both sweeps are
   no-ops, and recording a cascade for nothing to read is pure retention, so the gate
   answers nil and the choke point collects nothing."
   [kb]
@@ -5164,7 +5164,7 @@
   "The three sweeps a teardown owes once its settle has run, in the order both write doors
   run them:
 
-  * the **meta cascade** — a `targetFollowingPredicate` sentex must not outlive the
+  * the **meta cascade** — a `target_following_predicate` sentex must not outlive the
     sentex it names, and what left the store is what `sink` recorded;
   * the **orphan sweep** — a reified constant no live use references any more, whose
     `termOfUnit` map would otherwise dangle a raw `nat/` symbol;
@@ -5534,9 +5534,9 @@
 
 (defn sentex
   "The sentex for a handle as a **map**, or nil.  Same shape contract as `sentexes-matching`'s
-  elements: `:id` (the handle), `:sentence`, `:context`, `:truth`, and for a rule
+  elements: `:id` (the handle), `:sentence`, `:context`, `:polarity`, and for a rule
   `:antecedent` / `:consequent` / `:direction` / `:defeasible`.  Key into it; the
-  concrete `vaelii.impl.sentex/AtomicSentex` / `RuleSentex` record class is internal and not
+  concrete `vaelii.impl.sentex/LiteralSentex` / `RuleSentex` record class is internal and not
   part of the contract.  nil (`handle-of` of an absent sentence) answers nil; a
   non-handle (a vector of handles included) is refused (`:bad-handle`)."
   [kb handle]
@@ -5548,7 +5548,7 @@
   counterpart of `sentex`.  It is built through the store's own constructor, so a symmetric
   predicate's arguments are sorted against this KB's taxonomy, comparisons are folded, and
   variables are renamed to canonical form: the exact form `assert` would key on.  Same map
-  shape and contract as `sentex` (`:sentence` / `:context` / `:truth`; key into it, the
+  shape and contract as `sentex` (`:sentence` / `:context` / `:polarity`; key into it, the
   record class is internal), but with no `:id`, since nothing was written.
 
   For turning a sentence into its content identity — a stable key or content-address that
@@ -5774,7 +5774,7 @@
   [:transitive :symmetric :asymmetric :reflexive :functional])
 
 (defn- granted?
-  "Is a one-place grant — `(modalPredicate P)` and anything shaped like it — visible from
+  "Is a one-place grant — `(modal_predicate P)` and anything shaped like it — visible from
   `context`?  A grant is a stored sentex rather than a cached property, so it is read
   where it is stated and follows retraction like any other (docs/belief.md)."
   [kb marker term context]
@@ -5926,7 +5926,7 @@
   the two (`described-role`).
 
   **Everything declaration-shaped is read from `context`'s `genlCx` up-cone**, never from
-  the whole KB: an `arg` declaration, a `modalPredicate` grant and a `comment` are each a
+  the whole KB: an `arg` declaration, a `modal_predicate` grant and a `comment` are each a
   policy of the context that states them, so `describe` at `CxWell` and at `CxCore` are
   two different — and both correct — answers.  The taxonomy closures are scoped the same
   way.  `?ctx`, the default, reads every context, which is the whole-KB view the browser
@@ -5976,7 +5976,7 @@
               :extent-count      (count-with-functor kb term)
               :closed-extent?    (has-prop? kb :closed-extent term context)
               :abducible?        (has-prop? kb :abducible term context)
-              :modal?            (granted? kb 'modalPredicate term context)
+              :modal?            (granted? kb 'modal_predicate term context)
               :decontextualized? (has-prop? kb :decontextualized term context))
 
        :type
@@ -6413,7 +6413,7 @@
   | `:defeated` | the JTMS is forcing it OUT — contradiction resolution ruled against it | `:contradicted-by` |
   | `:unsupported` | not a premise, and every supporting justification has an antecedent that is OUT | `:support` with `:missing` |
   | `:excepted` | *(sentence arity only)* a rule applied and its `exceptWhen` query held, so it concluded nothing | `:rule` `:exception` `:via` |
-  | `:closed-extent` | *(sentence arity only)* nothing stored or derived says so, **and** `(closedExtentPredicate P)` is visible here — so the KB is not silent about it, it says the extent is complete and this is not in it | — |
+  | `:closed-extent` | *(sentence arity only)* nothing stored or derived says so, **and** `(closed_extent_predicate P)` is visible here — so the KB is not silent about it, it says the extent is complete and this is not in it | — |
 
   A believed handle yields `{:believed? true}` and no `:reason`.  An empty `:support`
   under `:unsupported` means it never had a justification at all.  A nil handle is

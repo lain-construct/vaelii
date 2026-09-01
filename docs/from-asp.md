@@ -97,7 +97,7 @@ models: a program with several is refused rather than resolved.
 The conjunction under a quantifier is **joined**, so a grounder's shared variable
 transfers directly, and `forall` is sugar for the nested case. What does not transfer is
 the grounder's own reading of a domain: a closed extent is declared per predicate
-(`(closedExtentPredicate P)`), scoped to the context that declares it, rather than being
+(`(closed_extent_predicate P)`), scoped to the context that declares it, rather than being
 what the Herbrand base happens to contain. → [naf.md](naf.md)
 
 ## Choices, constraints and the solve
@@ -106,8 +106,8 @@ The three wrappers, all assert-time and all canonicalized into the rule record:
 
 ```clojure
 (v/assert kb '(set/assumptionRule (implies (candidate ?x) (chosen ?x)))     ctx)
-(v/assert kb '(set/hardConstraint (implies (and (chosen ?x) (barred ?x)) (bannedChoice ?x))) ctx)
-(v/assert kb '(set/softConstraint (implies (and (chosen ?x) (costly ?x)) (dearChoice ?x)))   ctx)
+(v/assert kb '(set/hardConstraint (implies (and (chosen ?x) (barred ?x)) (banned_choice ?x))) ctx)
+(v/assert kb '(set/softConstraint (implies (and (chosen ?x) (costly ?x)) (dear_choice ?x)))   ctx)
 ```
 
 A constraint's head is a **contradiction marker** rather than a truth, and it is a real

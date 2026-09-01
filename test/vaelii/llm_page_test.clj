@@ -46,13 +46,13 @@
     (v/assert kb (list 'genl bird animal) ctx)
     (v/assert kb (list 'genl peng bird) ctx)
     (v/assert kb (list 'comment peng "A flightless bird.") ctx)
-    (v/assert kb (list 'binaryPredicate eats) ctx)
+    (v/assert kb (list 'binary_predicate eats) ctx)
     (v/assert kb (list 'arg eats 1 animal) ctx)
     (v/assert kb (list 'arg eats 2 food) ctx)
-    (v/assert kb (list 'unaryPredicate flies) ctx)
+    (v/assert kb (list 'unary_predicate flies) ctx)
     (v/assert kb (list 'arg flies 1 animal) ctx)
     ;; declared binary, but arg constrains only argument 1 — the arity trap
-    (v/assert kb (list 'binaryPredicate likes) ctx)
+    (v/assert kb (list 'binary_predicate likes) ctx)
     (v/assert kb (list 'arg likes 1 animal) ctx)
     {:animal animal :bird bird :penguin peng :food food
      :eats eats :flies flies :likes likes :ctx ctx
@@ -110,10 +110,10 @@
     (testing "the type-level structural predicates are offered"
       (is (= '[genl disjoint comment arg] (vec structural))))
     (testing "and the rest of the head's vocabulary is not — a penguin page has no use for it"
-      (is (not-any? domain '#{genlCx lessThan evaluate rewriteOf forcedDecontextualizedPredicate}))
+      (is (not-any? domain '#{genlCx lessThan evaluate rewriteOf forced_decontextualized_predicate}))
       (is (not-any? (set structural) '#{genlCx lessThan evaluate})))
     (testing "nor are the head's own types offered as type names"
-      (is (not-any? (set (map :type (:types i))) '#{predicate unaryPredicate binaryPredicate})))))
+      (is (not-any? (set (map :type (:types i))) '#{predicate unary_predicate binary_predicate})))))
 
 (tu/deftest-kb a-lowercase-word-is-typed-by-the-kb-not-by-its-spelling
   (let [{:keys [penguin eats flies]} (world kb)]
@@ -176,7 +176,7 @@
   (let [{:keys [animal bird ctx]} (world kb)]
     (tu/with-terms [chases CxOther]
       (v/assert kb (list 'genlCx CxOther 'CxCore) 'CxUniverse)
-      (v/assert kb (list 'binaryPredicate chases) ctx)
+      (v/assert kb (list 'binary_predicate chases) ctx)
       (v/assert kb (list 'arg chases 1 animal) ctx)
       (v/assert kb (list 'arg chases 1 bird) CxOther)
       (v/assert kb (list 'arg chases 2 animal) ctx)

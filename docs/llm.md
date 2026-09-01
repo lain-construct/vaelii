@@ -237,10 +237,12 @@ never join a rule or match another sentence; `(livesIn ?x Antarctica)` is the sa
 vocabulary the engine can reason with. Swapping models does not fix it — the strongest
 model produces the *most* of it, because it produces the most output.
 
-**Naming catches only the n-ary case.** `(lives_in ?x cold_place)` is a snake_case functor
-at arity 2 and is rejected. `(has_black_and_white_feathers ?x)` is *unary*, which makes it
-a legal type name under the naming invariants, so it is accepted — correctly, and
-permanently. Groundness, well-formedness, arg, disjointness and functionality have
+**Naming catches only the misspelled case.** `(lives_in ?x cold_place)` is a snake_case
+functor at arity 2 and is rejected, and `(livesInAntarctica ?x)` is camelCase at arity 1
+and is rejected too — the arity biconditional catches a name spelled at the wrong arity,
+in either direction. `(has_black_and_white_feathers ?x)` is snake_case *and* unary, so it
+breaks nothing, and is accepted — correctly, and permanently. A model that learns the
+spelling rule writes fragmenting predicates that are perfectly well-formed. Groundness, well-formedness, arg, disjointness and functionality have
 nothing to say about it either. A three-line fragmentation case scores 3/3 admissible and
 3/3 applied.
 
@@ -270,7 +272,7 @@ Two things about where it comes from, both measured and both counter-intuitive:
   meta-predicate (`genl`, `arg`, `comment`, `disjoint`, …) and not one a domain relation.
   The schema is schema-only: `bird`, `parentOf` and `flies` appear only as *arguments* of
   declarations and inside rules. So types come from `types` and relations from the
-  `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` memberships, which covers 142
+  `unary_predicate` / `binary_predicate` / `ternary_predicate` memberships, which covers 142
   domain relations — and `arg` then supplies argument *types* for 119 of the 120 a page
   renders.
 - **Arity is never inferred from `arg`.** `arg` constrains an argument to a *type* and
@@ -594,9 +596,9 @@ unaltered.
 
 It is measurably weaker at **coining content about vocabulary the selection does not
 contain**. Asked to record that Ann is a veterinarian who treats Muffet, it produced
-`(veterinarian Ann)` and `(professional Ann)` correctly but wrote `(treatsAnn Muffet)` —
+`(veterinarian Ann)` and `(professional Ann)` correctly but wrote `(treats_ann Muffet)` —
 folding a binary predicate's first argument into its name. That entry is *well-formed*:
-`treatsAnn` is a legal predicate name and the result is a legal unary fact, so the critic
+`treats_ann` is a legal predicate name and the result is a legal unary fact, so the critic
 has no grounds to reject it and a reviewer is the only thing that catches it. The
 vocabulary card cannot help, either, because `treats` was not in the selection and so
 was not on it. Without the worked example the same request comes back as English prose,
@@ -689,7 +691,7 @@ is the whole of what is stored about the term or a sample of it.
 model cannot get wrong, and a shorter line every time. Without `:context`, the default is
 the context most of the term's own sentexes are in, ties broken by name; the vocabulary
 head is never chosen, because a term carries derived bookkeeping there (`(arity penguin 1)`,
-`(unaryPredicate penguin)`) that can outnumber its definitions. The choice comes back as
+`(unary_predicate penguin)`) that can outnumber its definitions. The choice comes back as
 `:context`, since where knowledge lands is a decision a reviewer must see.
 
 **Decoding is constrained, and that is the contract here.** `page/output-schema` is sent as

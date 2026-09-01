@@ -37,9 +37,9 @@ be preserved along `partOf` just as readily:
 ```clojure
 (transitive partOf)
 (partOf Engine Car)  (partOf Piston Engine)
-(transitiveInArg needsMaintenance 1 partOf)
-(needsMaintenance Car)
-;; => (needsMaintenance Piston)   two hops, no types involved
+(transitiveInArg needs_maintenance 1 partOf)
+(needs_maintenance Car)
+;; => (needs_maintenance Piston)   two hops, no types involved
 ```
 
 The inverse form exists so the other direction never requires declaring an inverse
@@ -150,8 +150,8 @@ each vantage, and answered there by walking nothing.
 
 `genl` relates types, so a claim preserved along it reaches subkinds and stops. It says
 nothing about Rex and Whiskers, and that silence is the semantics rather than a gap.
-`relationKind` is a `disjointMetatype` over `typeRelationPredicate` and
-`instanceRelationPredicate` — one predicate symbol relates kinds *or* instances, never
+`relation_kind` is a `disjoint_metatype` over `type_relation_predicate` and
+`instance_relation_predicate` — one predicate symbol relates kinds *or* instances, never
 both — so a `largerThan` that inherited across the line would be a predicate of both
 kinds at once, which the meta-ontology refuses.
 
@@ -164,11 +164,11 @@ engine infers nothing from it, because the quantifier reading is exactly the thi
 nothing here fixes.
 
 **It cannot state a pair whose instance half is mixed**, and the shipped ontology holds
-one. `(arg typeToInstancePred 2 instanceRelationPredicate)` requires the second
+one. `(arg typeToInstancePred 2 instance_relation_predicate)` requires the second
 argument to be marked, and a marked predicate takes one argument-check family for *every*
 position — `arg` throughout for an instance relation, `genlArg` throughout for a type
 one. A predicate relating one individual to a *kind* satisfies neither and is left
-unmarked, which `relationKind`'s own comment says of `result` and
+unmarked, which `relation_kind`'s own comment says of `result` and
 `functionCorrespondingPredicate`. `hasCapability` is the third: one animal, one capability
 kind. So `capabilityType`/`hasCapability` are named as a pair in their comments and not by
 the predicate that exists to name pairs — declaring the mark to satisfy it would trade an

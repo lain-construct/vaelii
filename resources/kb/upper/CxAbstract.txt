@@ -58,7 +58,7 @@
 ;; CxCore's literal types, placed in this lattice.  Text and a number have no mass and no
 ;; location, and neither of them is a relation.  Saying the second is what lets a rule be
 ;; refused for feeding a text-valued argument into a position that holds a type: every
-;; type is a unaryPredicate, so the type position asks for a predicate, and one variable
+;; type is a unary_predicate, so the type position asks for a predicate, and one variable
 ;; cannot be both at once.  The disjointness on number carries integer with it.
 ;;
 ;; symbol gets neither edge, and CxCore's note on it says why: a name is exactly how a
@@ -78,9 +78,9 @@
 (genl language intangible)
 
 (comment largerThan
-         "(largerThan ?kind1 ?kind2) means that a ?kind1 is bigger than a ?kind2. A claim about two KINDS rather than about two things — a typeRelationPredicate — so (largerThan dog cat) says dogs are bigger than cats and says nothing whatever about any particular dog. Transitive and asymmetric, so a cycle of size claims is a contradiction the KB reports rather than a chain it walks. Declared transitiveInArg on both positions along genl, which is what carries a claim down to subkinds: a kind of dog is larger than a kind of cat. That distribution is itself a claim about largerThan, which is why it is declared rather than assumed — the same inheritance is false of a chihuahua and a maine coon, and nothing in a sentence says which case it is in.")
-(binaryPredicate largerThan)
-(typeRelationPredicate largerThan)
+         "(largerThan ?kind1 ?kind2) means that a ?kind1 is bigger than a ?kind2. A claim about two KINDS rather than about two things — a type_relation_predicate — so (largerThan dog cat) says dogs are bigger than cats and says nothing whatever about any particular dog. Transitive and asymmetric, so a cycle of size claims is a contradiction the KB reports rather than a chain it walks. Declared transitiveInArg on both positions along genl, which is what carries a claim down to subkinds: a kind of dog is larger than a kind of cat. That distribution is itself a claim about largerThan, which is why it is declared rather than assumed — the same inheritance is false of a chihuahua and a maine coon, and nothing in a sentence says which case it is in.")
+(binary_predicate largerThan)
+(type_relation_predicate largerThan)
 (genlArg largerThan 1 physical_object)
 (genlArg largerThan 2 physical_object)
 (transitive largerThan)
@@ -103,8 +103,8 @@
 
 (comment locatedIn
          "(locatedIn ?object ?place) means that ?object sits within ?place. Declared transitive, so a chain of containments is walked by the closure prover rather than materialized, and a joined rule carries location down parthood — a part is located wherever its whole is. Both arguments are physical objects: a region is CxSpace's business, and partOfRegion is the relation to reach for there.")
-(binaryPredicate locatedIn)
-(instanceRelationPredicate locatedIn)
+(binary_predicate locatedIn)
+(instance_relation_predicate locatedIn)
 (arg locatedIn 1 physical_object)
 (arg locatedIn 2 physical_object)
 (transitive locatedIn)
@@ -114,8 +114,8 @@
 
 (comment madeOf
          "(madeOf ?object ?substance) means that ?object is made of ?substance. About one particular object and the stuff it is made of, so it is instance-level; what a whole kind is made of is a claim about that kind. Partial rather than exhaustive — a thing may be made of several substances, and saying it is made of one does not deny the others.")
-(binaryPredicate madeOf)
-(instanceRelationPredicate madeOf)
+(binary_predicate madeOf)
+(instance_relation_predicate madeOf)
 (arg madeOf 1 physical_object)
 (arg madeOf 2 substance)
 
@@ -127,16 +127,16 @@
 
 (comment partOf
          "(partOf ?part ?whole) means that ?part is a component of ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
-(binaryPredicate partOf)
-(instanceRelationPredicate partOf)
+(binary_predicate partOf)
+(instance_relation_predicate partOf)
 (arg partOf 1 physical_object)
 (arg partOf 2 physical_object)
 (transitive partOf)
 
 (comment partType
          "(partType ?wholeKind ?partKind) means that a ?wholeKind has a ?partKind among its parts. The type-level reading of partOf: (partType bird wing) says birds have wings, where (partOf LeftWing Pingu) says one thing is part of another. Declared transitiveInArg along genl on the FIRST position only, and the asymmetry is the claim: a kind of bird has whatever parts birds have, so penguins have wings without a word being written about penguins, while the second position preserves nothing — birds having wings says nothing about which kinds of wing they have. Linked to partOf by typeToInstancePred, which records that the two are readings of one relation and deliberately moves no claim between them: going from the kinds to their members needs a quantifier reading (every bird has SOME wing) that nothing here fixes, and guessing it is how a claim about kinds quietly becomes a false claim about individuals.")
-(binaryPredicate partType)
-(typeRelationPredicate partType)
+(binary_predicate partType)
+(type_relation_predicate partType)
 (genlArg partType 1 physical_object)
 (genlArg partType 2 physical_object)
 (transitiveInArg partType 1 genl)

@@ -1541,7 +1541,7 @@
   argument root.  Scoped to memberships visible from `context` (default: any context).
 
   `x` is any term, not only an individual: a predicate carries the meta-ontology's
-  types (`binaryPredicate`, `instanceRelationPredicate`, …) the same way `Muffet`
+  types (`binary_predicate`, `instance_relation_predicate`, …) the same way `Muffet`
   carries `dog`.
 
   The same three filters `matches-visible` applies, since this *is* the retrieval
@@ -1642,7 +1642,7 @@
   The definitional checks ask about a handful of terms — the sentence's arguments, and
   its predicate — but ask about each several times over: the arity arm reads the
   predicate's memberships for three spellings of the declaration and again for
-  `variableArity`, `arg` reads an argument's twice per constraint on its position,
+  `variable_arity`, `arg` reads an argument's twice per constraint on its position,
   and for a unary sentence the disjointness arm wants the very memberships `arg`
   just read.  Each is a posting read plus a record fetch and a belief test per entry,
   and none of it can change underneath one `assert`."
@@ -1786,7 +1786,7 @@
   so its leaf can still hold sentexes of the same *shape* naming other variables (two
   `exceptWhen` exceptions on one rule differing in which rule variable they name, a
   `defn*` condition with its variables transposed); for those the stored sentence decides,
-  one record read per sentex at that leaf.  Only a non-ground Atomic pays it: a rule's key
+  one record read per sentex at that leaf.  Only a non-ground Literal pays it: a rule's key
   is its canonical form whole — α-renamed literals, never a bare variable token — so the
   trie answers it exactly."
   [kb built handles]
@@ -2296,7 +2296,7 @@
 
   **The informant enters as its content, never as its handle.**  A rule informant
   contributes the rule's sentence and context; a symbol informant (`rewriteOf`,
-  `functional`, `decontextualizedPredicate`) contributes the symbol.  Its handle would
+  `functional`, `decontextualized_predicate`) contributes the symbol.  Its handle would
   be assertion order wearing a key's clothes — and it would decide the whole
   comparison, since two justifications for one conclusion usually differ in their rule
   before they differ in anything else.
@@ -2366,8 +2366,8 @@
   "`term` (a sentence or a term) rewritten to its **normal form**: first every symbol
   replaced by its class representative (ground congruence, `res/representative-term`), then its
   argument terms normalized under any schematic rewrite rules (the oriented equational
-  rewriting of docs/equality.md — `(equals (fatherOf (fatherOf ?x)) (grandfatherOf
-  ?x))` reduces `fatherOf∘fatherOf` to `grandfatherOf`).
+  rewriting of docs/equality.md — `(equals (fatherOf (fatherOf ?x)) (grandfather_of
+  ?x))` reduces `fatherOf∘fatherOf` to `grandfather_of`).
 
   Both halves are belief-following and both are gated: a KB with no merges pays a
   representative lookup per symbol, and one with no schematic equations skips
@@ -2403,10 +2403,10 @@
 (defn displaced-terms*
   "The `{old-term representative}` rewrites a sentence undergoes, given the visibility
   predicate already built — empty when nothing in it has merged.  Mention-aware: a term
-  quoted inside a `quotingFunction` is recorded displaced only by a spelling rename, never
+  quoted inside a `quoting_function` is recorded displaced only by a spelling rename, never
   by a `sameAs` merge of its referent, matching what `rewrite-term*` actually rewrites (so
   `why-not` does not over-report a held-opaque mention).  Delegates to `res/displaced-terms-in`,
-  which is the flat walk when no `quotingFunction` is declared."
+  which is the flat walk when no `quoting_function` is declared."
   [kb sentence visible?]
   (res/displaced-terms-in kb visible? sentence))
 
@@ -2439,7 +2439,7 @@
   the exemption is explicit here rather than resting on the rewrite happening to be a
   no-op.
 
-  **A `modalPredicate`'s proposition is exempt too**, and by the same kind of reason: it
+  **A `modal_predicate`'s proposition is exempt too**, and by the same kind of reason: it
   is what the *agent* holds true, so the asker's merges must not rewrite it.  That one is
   not spelled here — it is congruence opacity, held inside `res/representative-term` so
   the stored belief and the question move together (docs/belief.md).

@@ -282,7 +282,7 @@
   (let [kb (fresh-kb)]
     (build-hierarchy! kb depth branching)
     (when rule?
-      (v/assert-rule kb ['(hr_t0 ?x) '(hrRel ?x ?y) '(hrTag ?y)] '(hrOut ?x ?y)
+      (v/assert-rule kb ['(hr_t0 ?x) '(hrRel ?x ?y) '(hr_tag ?y)] '(hrOut ?x ?y)
                      est-ctx {:direction (if (= :backward rule?) :backward :forward)}))
     kb))
 
@@ -298,7 +298,7 @@
                 est-ctx opts)
       (v/assert kb (list 'hrRel (symbol (str "HrI" i)) (symbol (str "HrJ" i)))
                 est-ctx opts)
-      (v/assert kb (list 'hrTag (symbol (str "HrJ" i))) est-ctx opts))))
+      (v/assert kb (list 'hr_tag (symbol (str "HrJ" i))) est-ctx opts))))
 
 (defn- est-arm [{:keys [depth branching samples facts reps]}]
   (println "\n── est-matches over a unary antecedent ───────────────────────────────────────")
@@ -318,7 +318,7 @@
           specs  (count (tax/specs (:taxonomy kb) (type-name 0) est-ctx))
           est-ns (per-call #(plan/est-matches kb '(hr_t0 ?x) #{} {:context est-ctx})
                            samples)
-          ord-ns (per-call #(plan/order kb ['(hr_t0 ?x) '(hrRel ?x ?y) '(hrTag ?y)]
+          ord-ns (per-call #(plan/order kb ['(hr_t0 ?x) '(hrRel ?x ?y) '(hr_tag ?y)]
                                         est-ctx {})
                            (max 200 (quot (long samples) 10)))
           [ns drv] (best-of reps #(est-kb d branching true)

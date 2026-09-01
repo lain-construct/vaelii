@@ -42,6 +42,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 | write for this engine when I already think in another one | [arriving.md](arriving.md) | [from-cyc.md](from-cyc.md), [from-asp.md](from-asp.md), [from-prolog.md](from-prolog.md), [from-production-rules.md](from-production-rules.md) |
 | turn English into sentexes | [reading.md](reading.md) | [llm.md](llm.md) |
 | find the code behind a subsystem | [namespaces.md](namespaces.md) | [dependencies.md](dependencies.md) |
+| add a predicate the engine itself reads | [predicates.md](predicates.md) | [namespaces.md](namespaces.md), [naming.md](naming.md) |
 | understand what a query costs | [indexing.md](indexing.md) | [density.md](density.md), [anytime.md](anytime.md) |
 | find out what shape of question my KB is asked | [profile.md](profile.md) | [indexing.md](indexing.md) |
 | know what a change cost the index, per assert | [profile.md](profile.md) | [indexing.md](indexing.md) |
@@ -73,6 +74,7 @@ rather than a compatibility claim.
 ## Core model & storage
 
 - [namespaces.md](namespaces.md) — the file map: what lives in each namespace under `src/`.
+- [predicates.md](predicates.md) — the engine's own grammar as one declaration per term: the nine fields and five closed vocabularies an interpreted predicate is written from, the arms it is joined to, the rosters that derive from it rather than repeat it, the nine refusals that fire at namespace load, and the sequence for adding one.
 - [canonicalization.md](canonicalization.md) — the canonical form: how sentences and rules identical up to variable names, literal order, symmetric arguments or comparison direction dedup to one handle, and how a conjunctive consequent or a disjunctive antecedent unfolds into several.
 - [naming.md](naming.md) — the KB naming invariants (predicates, individuals, types, contexts).
 - [storage.md](storage.md) — record + index stores, the protocols, nippy serialization, the single-writer contract.
@@ -80,10 +82,10 @@ rather than a compatibility claim.
 - [density.md](density.md) — the dense backends behind those protocols: tiered int postings, the columnar int-token trie, int-keyed roots, and the record-side codec — what each is measured to buy, and what the measurements refuted.
 - [overlay.md](overlay.md) — forks: a private writable overlay over a shared read-only base, so any number of forks in one JVM share one frozen KB while each keeps its own divergent copy.
 - [contexts.md](contexts.md) — contexts, the `genlCx` spindle (head / mantle / collector), `ist` reification, justification placement.
-- [taxonomy.md](taxonomy.md) — the `genl` type hierarchy, `isa?`, `disjoint` / `disjointMetatype`.
+- [taxonomy.md](taxonomy.md) — the `genl` type hierarchy, `isa?`, `disjoint` / `disjoint_metatype`.
 - [inherit.md](inherit.md) — argument-position preservation: `(transitiveInArg P n R)` / `(transitiveInArgInverse P n R)`, whether a claim about two kinds reaches their subkinds, the specificity that lets a stated claim undercut an inherited default, the `(asymmetric P)` that lets a strict one conflict instead, and how a forward rule fires on an inherited claim by naming what the claim was read from.
 - [argtypes.md](argtypes.md) — `arg` / `genlArg` read as **entailments** as well as constraints: the type an argument declaration says a term has, minted as a derived justified sentex, both arrival directions, and why only a locally-written declaration entails. Off by default.
-- [defns.md](defns.md) — `defnNecessary` / `defnSufficient` / `defnIff`: tying a collection's membership to a defining condition on the member `?x`, expanded into ordinary forward rules justified by the `defn*` fact so retraction and belief follow it, and the open-world boundary that draws no non-membership from the condition's absence.
+- [defns.md](defns.md) — `defnNecessary` / `defnSufficient` / `defnIff`: tying a collection's membership to a defining condition on the member `?x`, expanded into ordinary forward rules justified by the `defn*` fact so retraction and belief follow it, the two registry provers that evaluate a condition at query time, and the open-world boundary that draws no non-membership from the condition's absence.
 
 ## Inference & belief
 
@@ -95,7 +97,7 @@ rather than a compatibility claim.
 - [exceptions.md](exceptions.md) — `exceptWhen`: how a rule states its own exception, and why the exception is never stored.
 - [naf.md](naf.md) — negation as failure: `unknown` / `thereExists`, evaluated at level 6, storing nothing (and why the JTMS `out` slot stays reserved).
 - [aggregate.md](aggregate.md) — aggregation as a query operator: the five reductions over a query's solutions, where GROUP BY comes from, and how a firing that rests on a count is maintained.
-- [belief.md](belief.md) — modal belief projection: `(believes Agent P)` answered by proving `P` in the agent's own context, `modalPredicate` / `register-modal-predicate` to open the same machinery to `knows` / `desires` / `intends`, why contradictory agents coexist without a contradiction, and the opacity of the proposition — whose merges may rewrite a term inside a belief.
+- [belief.md](belief.md) — modal belief projection: `(believes Agent P)` answered by proving `P` in the agent's own context, `modal_predicate` / `register-modal-predicate` to open the same machinery to `knows` / `desires` / `intends`, why contradictory agents coexist without a contradiction, and the opacity of the proposition — whose merges may rewrite a term inside a belief.
 - [nmtms.md](nmtms.md) — the non-monotonic TMS: assumption strengths, soft prioritized contradictions, the solver seam.
 - [defenses.md](defenses.md) — the design defenses: why a non-obvious decision across the engine is shaped the way it is and why the tempting alternative is worse, collected out of the subsystem docs so each states the mechanism and links the argument.
 - [preview.md](preview.md) — `preview`: the belief a batch would add and take away, read off and then rolled back at the same handles.

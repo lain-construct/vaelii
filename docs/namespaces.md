@@ -57,8 +57,9 @@ src/vaelii/impl/
                     sentex-sink, mark-premises, prefetcher + hinting — each the capability when the
                     store has it, else the loop it replaces
   reads.clj         the two named doors onto the index: `as-stored-*` (the index store, and each says what a stored-but-disbelieved answer is for) beside `believed-*` (the KB, filtered by `jtms/in?`); the cardinalities, the vocabulary roster and the watched-rule roster carry one door each and say why there is no second.  Every raw `protocols` index read outside the implementers comes through here, and `lein lint`'s E16 is what keeps that true ([nmtms.md](nmtms.md#belief-filtering-is-a-namespace-boundary))
+  predicates.clj    what is *said* about each term of the engine's own grammar, in one place — shape, storage kind, the closed facet vocabulary naming which lanes read it, the mark family a spelling belongs to, and what a late-arriving declaration sweeps. Requires nothing but `clojure.*` and so sits below everything, which is the whole design: the arms need functions from four layers, so a namespace holding data *and* arms could only sit at the top, where `taxonomy` and `wff` could not read it. The functor-keyed rosters above are projections of this: `taxonomy`'s three (`closure-relations`, `arg-declaration-props`, `functional-family-marks`), `settle`'s eight clash and trigger rosters, `spec/::prop-kind` and `vocabulary/roster` are field reads of it, and `predicates_test` reconstructs the ones that have not moved yet. A roster that has moved states its value as a literal in the test instead, since reconstructing a derived var proves the wiring and nothing about what it holds. `check-families` refuses at load a family whose spellings disagree about the lane they sweep in, or one that sweeps at an arity it declares no shape for. The fields, the vocabularies they are written from and the sequence for adding a term are [predicates.md](predicates.md). `special/entries` is the join of these declarations with `special`'s arms — the order, each `:props` kind and each derivation-path flag come from here, so `special_table_test` freezes their values in a literal that nothing derives
   naming.clj        naming-invariant predicates + functor/args/arity
-  sentex.clj        Atomic / Rule records (connectives → truth/antecedent/consequent), split so a fact drops the rule-only slots; canonical vars + varmap, literal order, symmetric args, comparison folding/chains; canon (+ symbol interning); α-renamed path; index-terms
+  sentex.clj        Literal / Rule records (connectives → polarity/antecedent/consequent), split so a fact drops the rule-only slots; canonical vars + varmap, literal order, symmetric args, comparison folding/chains; canon (+ symbol interning); α-renamed path; index-terms
   rules.clj         rule-as-sentex helpers (implies form, predicates, range check, exception closure, the two polycanonicalization expands — conjunctive consequent and disjunctive antecedent, with the width cap and the per-alternative range check ([canonicalization.md](canonicalization.md)) — the generator's hole split and its nesting — [generators.md](generators.md))
   taxonomy.clj      cached genl / genlCx closures, each read twice over — `genls` / `specs` / `genl?` / `context-up` walk the edges a context sees, and `genls-global` / `specs-global` / `genl?-global` / `context-up-global` walk every active edge, spelled out because on an unrestricted KB the two return the same object (E17 rosters the global callers); the equality partition (representative / equiv-class / deprecated?); maximal-common-descendant-contexts
   strength.clj      assumption strengths + defeat-class lattice (monotonic>default)
@@ -129,7 +130,7 @@ src/vaelii/impl/
   asp/label.clj     brave/cautious classification (forced vs arbitrary); labeling contexts
   core_context.clj  CxCore: the vocabulary head (loads kb/CxCore.txt), documented via comment sentexes; read back with comment-of
   seed.clj          the shipped ontology's classpath side: read-sentences / load-context / layer-contexts (discovery of kb/*.txt); the format itself, reader and writer both, is io/text.clj
-  starter.clj       schema-only common-sense KB: loads every kb/ context on start (Core, then upper, then middle), then the type→unaryPredicate batch
+  starter.clj       schema-only common-sense KB: loads every kb/ context on start (Core, then upper, then middle), then the type→unary_predicate batch
   imperative.clj    the do/ imperative dispatch (do/labeling|label|classify): the one non-fact/non-rule shape `assert` takes, routed to asp.* labeling by lazy resolve
   io/generate.clj   synthesize a KB from numbers (types/individuals/rules, a fwd/backward mix, a seed): deterministic, stratified, Zipf-skewed — the shape a measurement needs
   io/frames.clj     the chunked nippy framing under both the dump and the snapshot: `[int32 length][compressed chunk]`, each chunk an independent window so the writer holds one chunk and the reader thaws one — constant memory both ways.  The one home for it, so the dump writer, the dump reader and the sink share a copy instead of three.  An independent window means an encoder per chunk, so `:xz` takes an LZMA2 dictionary sized to a chunk (`xz-dict-bytes`) rather than the preset's, for the same bytes at a quarter of the working set
@@ -171,7 +172,7 @@ resources/
 
 ## Not glossed above
 
-The map covers 111 of the 151 namespaces under `src/`. The other 40 are listed here by
+The map covers 112 of the 152 namespaces under `src/`. The other 40 are listed here by
 name rather than left out, and the two lists together are every one of them — `lein
 lint`'s **E18** fails on a file in neither and on a count that disagrees with them, so
 the number above stays a measurement. Named here: the engine's write path (`integrate`,
@@ -210,8 +211,13 @@ Every edge in the engine is a static `require`, and the compiler checks all of t
 run one way:
 
 ```
-kb <- checks <- special <- integrate <- chain <- settle <- vaelii.core
+predicates <- kb <- checks <- special <- integrate <- chain <- settle <- vaelii.core
 ```
+
+`predicates` is at the bottom because it requires nothing: it is what each term of the
+engine's own grammar *says*, and the layers that need that answer — `taxonomy`, `wff`,
+`checks`, `provers` — are all below the layer that holds the arms acting on it.
+`special/entries` joins the two and refuses a disagreement at namespace load.
 
 Exactly two calls run the other way, and a third is a layering inversion rather than a
 recursion. All three live in `impl/wiring.clj` rather than at the call site that needs

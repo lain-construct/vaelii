@@ -190,7 +190,7 @@
 (tu/deftest-kb an-inherited-claim-stops-at-an-invisible-edge
   (tu/with-terms [biggerThan8 retriever_t dog8_t cat8_t CxA CxB]
     (siblings! kb CxA CxB)
-    (v/assert kb (list 'binaryPredicate biggerThan8) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate biggerThan8) 'CxUniverse)
     (v/assert kb (list 'transitiveInArg biggerThan8 1 'genl) 'CxUniverse)
     (v/assert kb (list 'genl retriever_t dog8_t) CxA)
     (v/assert kb (list biggerThan8 dog8_t cat8_t) CxB)
@@ -200,7 +200,7 @@
 (tu/deftest-kb an-inherited-claim-travels-a-visible-edge
   (tu/with-terms [biggerThan9 retriever_t dog9_t cat9_t CxA CxB]
     (siblings! kb CxA CxB)
-    (v/assert kb (list 'binaryPredicate biggerThan9) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate biggerThan9) 'CxUniverse)
     (v/assert kb (list 'transitiveInArg biggerThan9 1 'genl) 'CxUniverse)
     (v/assert kb (list 'genl retriever_t dog9_t) 'CxUniverse)
     (v/assert kb (list biggerThan9 dog9_t cat9_t) CxB)
@@ -215,7 +215,7 @@
 ;; one that does not.
 
 (tu/deftest-kb predicate-metadata-is-a-licence-the-whole-kb-holds
-  ;; `transitive` is a `decontextualizedPredicate`, so A's declaration is *lifted* into
+  ;; `transitive` is a `decontextualized_predicate`, so A's declaration is *lifted* into
   ;; CxUniverse and B sees it — predicate metadata is a claim about the vocabulary
   ;; rather than a claim of a context, and the lift is what says so.  So B may walk
   ;; the relation, and what licensed it is the lift, not a peek into a sibling.
@@ -448,14 +448,14 @@
 (tu/deftest-kb a-metadata-declaration-concludes-where-it-was-made
   (tu/with-terms [palOf13 CxA CxB]
     (siblings! kb CxA CxB)
-    (v/assert kb (list 'binaryPredicate palOf13) CxA)
+    (v/assert kb (list 'binary_predicate palOf13) CxA)
     (v/assert kb (list 'symmetric palOf13) CxA)
     (testing "the mark's own sentex is the declaring context's — its decontextualized
               copy lands in CxUniverse, below CxCore's sight"
       (is (seq (v/sentexes-matching kb (list 'symmetric palOf13) CxA)))
       (is (empty? (v/sentexes-matching kb (list 'symmetric palOf13) 'CxCore))))
     (testing "the two ways of asking give one answer, from either vantage — the mark is
-              both the property and the (binaryPredicate) type membership"
+              both the property and the (binary_predicate) type membership"
       (is (= (v/has-prop? kb :symmetric palOf13 CxA)
              (v/isa? kb palOf13 'symmetric CxA)))
       (is (= (v/has-prop? kb :symmetric palOf13 CxB)
@@ -520,7 +520,7 @@
 
 (tu/deftest-kb the-genlCx-closure-is-global-on-purpose
   ;; visibility scoped by visibility is circular, and every genlCx edge is forced
-  ;; into CxUniverse anyway (`forcedDecontextualizedPredicate`)
+  ;; into CxUniverse anyway (`forced_decontextualized_predicate`)
   (tu/with-terms [CxA CxB]
     (siblings! kb CxA CxB)
     (is (= ['CxUniverse] (vec (v/contexts-of kb (list 'genlCx CxA 'CxUniverse))))
@@ -532,7 +532,7 @@
   ;; would all break at once
   (tu/with-terms [palOf16 Bob Ann CxA CxB]
     (siblings! kb CxA CxB)
-    (v/assert kb (list 'binaryPredicate palOf16) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate palOf16) 'CxUniverse)
     (v/assert kb (list 'symmetric palOf16) CxA)
     (v/assert kb (list palOf16 Bob Ann) CxB)
     (is (seq (v/sentexes-matching kb (list palOf16 Ann Bob) CxB))

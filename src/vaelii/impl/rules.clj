@@ -357,7 +357,7 @@
   (aggregate-predicates-of (:sentence sentex)))
 
 ;; ---- a closed extent: `(not (P …))` read as negation as failure ----------
-;; `(closedExtentPredicate P)` is a context-scoped grant that P's **believed** extent is
+;; `(closed_extent_predicate P)` is a context-scoped grant that P's **believed** extent is
 ;; complete, so nothing being stored about `(P a)` is enough to conclude `(not (P a))`
 ;; (docs/naf.md).  In a rule body that turns a *closed* negative antecedent into a NAF
 ;; literal: withheld from the join, decided at derive time, and maintained on the same

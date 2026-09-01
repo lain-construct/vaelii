@@ -13,7 +13,7 @@
 `vaelii.impl.disk.*`.
 
 These exist because of a gap between the engine's *seams* and its data structures at
-corpus scale. The seams carry a large KB — the `AtomicSentex`/`RuleSentex` split, symbol interning,
+corpus scale. The seams carry a large KB — the `LiteralSentex`/`RuleSentex` split, symbol interning,
 an index derived from the records and rebuildable by `reindex` — while the default
 structures are persistent Clojure collections holding boxed values, which measure
 ~1,973 B/fact of index (591.9 MB over 300k real facts, measured below). Each backend
@@ -227,7 +227,7 @@ the interned `(pred, pos)` scope described above. The columnar trie is native, s
 
 `vaelii.impl.tokens` is the `path-token ↔ int` dictionary. It interns a path level
 **as-is** — a symbol, a number, `:false`/`:rule`, `nil`, a `[::subterm k]` arity marker,
-or a whole literal list — because re-canonicalizing would turn a marker vector into a
+or a whole list verbatim — because re-canonicalizing would turn a marker vector into a
 list and break `sentex/subterm-mark?`. Content-keyed and first-writer-wins, so ids are
 stable; the id *value* depends on encounter order, which nothing above it reads, so a
 rebuild that interns in a different order yields an equal index.
@@ -237,7 +237,7 @@ map it replaces keys its trie on a `PersistentHashMap`, where `(= 2 (int 2))` is
 path carrying an `Integer` reaches a node stored under a `Long`; a `java.util.HashMap` keyed
 on the token says false, and the node is simply not found — one fewer answer, no error. The
 two boxings meet in ordinary use, since `agg/count` concludes with an `Integer` and the same
-sentence asked as a question carries a `Long`, and a whole literal list is a token too, so
+sentence asked as a question carries a `Long`, and a whole list verbatim is a token too, so
 the disagreement nests. A `Key` wrapper defers to `hasheq`/`equiv`, the same two the flat map
 uses.
 

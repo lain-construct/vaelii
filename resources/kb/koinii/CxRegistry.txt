@@ -19,8 +19,8 @@
 
 (comment displayNameOf
          "(displayNameOf ?agent ?name) means that ?name is the human-readable label for ?agent. Declared functional: one display name to an agent, so a second, different label is not a second fact but a correction (retract the old, assert the new). The stable id is what everything else keys on; the display name is for a reader.")
-(binaryPredicate displayNameOf)
-(instanceRelationPredicate displayNameOf)
+(binary_predicate displayNameOf)
+(instance_relation_predicate displayNameOf)
 (arg displayNameOf 1 agent)
 (arg displayNameOf 2 string)
 (functional displayNameOf)
@@ -42,8 +42,8 @@
 
 (comment trustLevel
          "(trustLevel ?agent ?value) means that ?agent is trusted to degree ?value — a mutable NUMBER, an operator-assigned tier at bootstrap and whatever a deployment re-rates it to thereafter (koinii D3). ?value is a plain number, so its arg is thing and constrains nothing, as birthYearOf's year is. Declared functional: one trust value to an agent at a time, so a re-rating retracts the old and asserts the new (set-trust!) rather than storing two. The value must support the sycophancy constraint — an endorsement is a trust signal only across DISTINCT principals, same-model endorsements worth one signal between them. Nothing in the engine computes this number and no resolution policy reads it; here it is only stored and overwritten.")
-(binaryPredicate trustLevel)
-(instanceRelationPredicate trustLevel)
+(binary_predicate trustLevel)
+(instance_relation_predicate trustLevel)
 (arg trustLevel 1 agent)
 (arg trustLevel 2 thing)
 (functional trustLevel)

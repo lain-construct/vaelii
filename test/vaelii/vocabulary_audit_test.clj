@@ -18,7 +18,6 @@
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.settle :as settle]
-            [vaelii.impl.special :as special]
             [vaelii.impl.vocabulary :as vocab]
             [vaelii.test-util :as tu]))
 
@@ -47,16 +46,12 @@
               'CxCore)
     (is (= [maxCardinality] (:unclassified (v/vocabulary-audit kb))))))
 
-(tu/deftest-kb the-special-predicate-table-and-the-roster-agree
-  ;; The one cross-check that needs no judgement: the table is a data structure, and an
-  ;; entry in it is proof that the functor has behaviour.
-  (let [a        (v/vocabulary-audit kb)
-        enforced (into #{} (map first) (:enforced a))
-        inert    (into #{} (map first) (:inert a))]
-    (doseq [[f _] special/entries
-            :when (or (contains? enforced f) (contains? inert f))]
-      (is (contains? enforced f)
-          (str f " has a special-predicate table arm, so it is not inert")))))
+;; `the-special-predicate-table-and-the-roster-agree` stood here and is gone.  It walked
+;; `special/entries` asserting no functor with an arm was classified inert — which is
+;; `audit`'s `:contradicted` restated, and the test above already asserts that empty.  The
+;; half of it that was about two hand-written lists agreeing went with the roster: the
+;; prose now sits on the term's own declaration and the class is read off that entry's
+;; facets, so there is no second list for the table to disagree with.
 
 (tu/deftest-kb the-two-new-constraints-are-on-the-enforced-side
   ;; Ties the implementations in `constraint-vocabulary-test` to the roster, so removing
@@ -77,7 +72,7 @@
 
 ;; The same question one layer in: not "does anybody read this declaration" but "does
 ;; every declaration the settle enrols get read the same way twice".  #45 is what these
-;; two are about — `functional`, `asymmetric` and `antiTransitive` were spelled out at
+;; two are about — `functional`, `asymmetric` and `anti_transitive` were spelled out at
 ;; four executable sites of `settle.clj` in three spellings, so `functionalInArg` landed
 ;; in none of them and a sweep naming it everywhere changed nothing.  A mark the roster
 ;; holds and a pass does not read is the failure this namespace exists for, wearing a

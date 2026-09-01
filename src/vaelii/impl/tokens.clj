@@ -6,7 +6,7 @@
 
   The columnar trie (`vaelii.impl.columnar`) labels its edges with `int` tokens rather
   than boxed structured values, so it needs a stable `token → int` map and an `int →
-  token` inverse to decode a node's child labels back for `children`.  A *token* is
+  token` inverse to decode a node's child tokens back for `children`.  A *token* is
   whatever a trie path level can be (`sentex/path`): a symbol (predicate / individual /
   type / context), a number, a keyword (`:false` / `:rule`), `nil` (a rule's assumption
   / constraint slot), a `[::subterm k]` arity marker, or a whole literal list (a

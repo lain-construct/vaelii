@@ -250,17 +250,17 @@
       (tu/clear-kb! kb))))
 
 (deftest a-default-feeding-a-bare-rule-is-order-independent
-  ;; The downstream conclusion (canTravel) must track the defeat of its antecedent
+  ;; The downstream conclusion (can_travel) must track the defeat of its antecedent
   ;; whichever order the pieces arrive in.
   (let [ops [#(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'CxUniverse)
-             #(v/assert-rule % '[(flies ?x)] '(canTravel ?x) 'CxUniverse)
+             #(v/assert-rule % '[(flies ?x)] '(can_travel ?x) 'CxUniverse)
              #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'CxUniverse)
              #(v/assert % '(genl penguin bird) 'CxUniverse)
              ;; known-true, so the exception concludes :monotonic and defeats the default
              #(v/assert % '(penguin Tweety) 'CxUniverse {:strength :monotonic})]
         observe (fn [kb]
                   {:flies (boolean (seq (v/sentexes-matching kb '(flies Tweety) 'CxUniverse)))
-                   :travels (boolean (seq (v/sentexes-matching kb '(canTravel Tweety) 'CxUniverse)))})
+                   :travels (boolean (seq (v/sentexes-matching kb '(can_travel Tweety) 'CxUniverse)))})
         result (one-outcome! "default feeding a bare rule" ops observe)]
     (testing "a defeated antecedent withdraws the conclusion built on it"
       (is (false? (:flies result)))
@@ -509,7 +509,7 @@
         ;; the sort key is each side's sentence, so the predicate name is what orders
         ;; one report against another — named so that content order and any arrival
         ;; order are different questions
-        preds   '[ordGamma ordAlpha ordBeta]
+        preds   '[ord_gamma ord_alpha ord_beta]
         reading (fn [reports]
                   (mapv #(-> % :sides first :sentence pr-str) reports))]
     (testing "contradictions — three represented dilemmas at :default"
@@ -708,12 +708,12 @@
     (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-late-anti-transitive-mark-is-accounted-for-in-every-ordering
-  ;; The third mark, and the one whose clash is a **triple**: `antiTransitive` convicts
+  ;; The third mark, and the one whose clash is a **triple**: `anti_transitive` convicts
   ;; the two chain steps and the direct step together, so the entry names three halves
   ;; and no two of them are the pair.  4 sentences, 24 orderings.
   (let [{:keys [invariant readings]}
-        (constraint-outcome! "late antiTransitive mark" :monotonic
-                             ['(antiTransitive parOfx) '(parOfx Aa Bb)
+        (constraint-outcome! "late anti_transitive mark" :monotonic
+                             ['(anti_transitive parOfx) '(parOfx Aa Bb)
                               '(parOfx Bb Cc) '(parOfx Aa Cc)]
                              '(parOfx ?x ?y))]
     (testing "the chain is answered exactly once, whichever of the four arrived last"
@@ -918,7 +918,7 @@
   (let [edge    #(v/assert % '(genl cfdog_t cfmammal_t) 'CxUniverse)
         drop-it #(v/retract! % (v/handle-of % '(genl cfdog_t cfmammal_t) 'CxUniverse))
         member  #(v/assert % '(cfdog_t CfRex) 'CxUniverse)
-        rule    #(v/assert % '(implies (cfmammal_t ?x) (cfBreathes ?x)) 'CxUniverse)
+        rule    #(v/assert % '(implies (cfmammal_t ?x) (cf_breathes ?x)) 'CxUniverse)
         observe (fn [kb]
                   {:records (whole-reading kb)
                    :genl    (v/genl? kb 'cfdog_t 'cfmammal_t)
@@ -930,7 +930,7 @@
     (testing "the edge is load-bearing, so the comparison is not vacuous"
       (is (true? (:genl once)))
       (is (contains? (:specs once) 'cfdog_t) "the closure fans the subtype in")
-      (is (contains? (set (map :sentence (:records once))) '(cfBreathes CfRex))
+      (is (contains? (set (map :sentence (:records once))) '(cf_breathes CfRex))
           "and a rule stated over the supertype reaches the member through it"))
     (is (= once round)
         "an edge retracted and re-asserted leaves what a single assert would have"))
@@ -948,13 +948,13 @@
   ;; retractions are not the only thing moving: a rule arriving after the fact it would
   ;; have fired on has to catch up, and a rule arriving after both retractions has nothing
   ;; to fire on at all.  All of them end in the same place or none of this holds.
-  (let [rule-p #(v/assert-rule % '[(cfP ?x)] '(cfQ ?x) 'CxUniverse {:direction :forward})
-        rule-r #(v/assert-rule % '[(cfR ?x)] '(cfQ ?x) 'CxUniverse {:direction :forward})
-        add-p  #(v/assert % '(cfP CfSubj) 'CxUniverse)
-        drop-p #(v/retract! % (v/handle-of % '(cfP CfSubj) 'CxUniverse))
-        add-r  #(v/assert % '(cfR CfSubj) 'CxUniverse)
-        drop-r #(v/retract! % (v/handle-of % '(cfR CfSubj) 'CxUniverse))
-        holds? #(boolean (seq (v/sentexes-matching % '(cfQ CfSubj) 'CxUniverse)))]
+  (let [rule-p #(v/assert-rule % '[(cf_p ?x)] '(cf_q ?x) 'CxUniverse {:direction :forward})
+        rule-r #(v/assert-rule % '[(cf_r ?x)] '(cf_q ?x) 'CxUniverse {:direction :forward})
+        add-p  #(v/assert % '(cf_p CfSubj) 'CxUniverse)
+        drop-p #(v/retract! % (v/handle-of % '(cf_p CfSubj) 'CxUniverse))
+        add-r  #(v/assert % '(cf_r CfSubj) 'CxUniverse)
+        drop-r #(v/retract! % (v/handle-of % '(cf_r CfSubj) 'CxUniverse))
+        holds? #(boolean (seq (v/sentexes-matching % '(cf_q CfSubj) 'CxUniverse)))]
     (testing "a withdrawal leaves the conclusion standing on the other witness"
       (doseq [[first-drop second-drop] [[drop-p drop-r] [drop-r drop-p]]]
         (let [kb (tu/fresh)]
@@ -1010,14 +1010,14 @@
   ;; stored rule can see — and the arriving datum is again the edge, so firing the rules
   ;; keyed on `genlCx` is not the same thing as re-joining the rules the edge just
   ;; gave a wider view.  Without `special/visibility-seeds` these four sentences derive
-  ;; `(vSeenP VA)` in the 17 orders that put the edge before the rule or the fact, and
+  ;; `(v_seen_p VA)` in the 17 orders that put the edge before the rule or the fact, and
   ;; nothing in the other 7.
   (let [ops [#(v/assert % '(genlCx CxVMid CxUniverse) 'CxUniverse)
              #(v/assert % '(genlCx CxVLow CxVMid) 'CxUniverse)
-             #(v/assert % '(vFactP VA) 'CxVMid)
-             #(v/assert % '(implies (vFactP ?x) (vSeenP ?x)) 'CxVLow)]
+             #(v/assert % '(v_fact_p VA) 'CxVMid)
+             #(v/assert % '(implies (v_fact_p ?x) (v_seen_p ?x)) 'CxVLow)]
         observe (fn [kb]
-                  {:derived (boolean (seq (v/sentexes-matching kb '(vSeenP VA) 'CxVLow)))})]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(v_seen_p VA) 'CxVLow)))})]
     (is (= {:derived true} (one-outcome! "visibility firing" ops observe))
         "a rule fires off what its context can see, whenever it was told it could"))
   (tu/clear-kb! (tu/test-kb)))
@@ -1034,9 +1034,9 @@
              #(v/assert % '(genlCx CxSLow CxSMid) 'CxUniverse)
              #(v/assert % '(genl vs_terrier_t vs_dog_t) 'CxSMid {:strength :monotonic})
              #(v/assert % '(vs_terrier_t SRex) 'CxSMid {:strength :monotonic})
-             #(v/assert % '(implies (vs_dog_t ?x) (vsSeenP ?x)) 'CxSLow)]
+             #(v/assert % '(implies (vs_dog_t ?x) (vs_seen_p ?x)) 'CxSLow)]
         observe (fn [kb]
-                  {:derived (boolean (seq (v/sentexes-matching kb '(vsSeenP SRex) 'CxSLow)))})]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(vs_seen_p SRex) 'CxSLow)))})]
     (is (= {:derived true} (one-outcome! "subsumed visibility firing" ops observe ordering-sample))
         "a rule fires off a subtype of what its antecedent names, in any arrival order"))
   (tu/clear-kb! (tu/test-kb)))
@@ -1044,16 +1044,16 @@
 (deftest a-negated-antecedent-firing-across-a-context-edge-is-order-independent
   ;; The negated-antecedent twin of the visibility case, and the same gap on the other
   ;; branch: `special/visibility-seeds` looked a negated antecedent's roster key
-  ;; `[:not vNegP]` up in the functor-root index, which nothing is written under, so a
+  ;; `[:not v_neg_p]` up in the functor-root index, which nothing is written under, so a
   ;; genlCx edge arriving after the negative fact never re-joined the rule.  These four
-  ;; sentences must derive `(vNegSeenP VA)` in every arrival order, not only the ones
+  ;; sentences must derive `(v_neg_seen_p VA)` in every arrival order, not only the ones
   ;; that put the edge before the rule and the fact.
   (let [ops [#(v/assert % '(genlCx CxVNMid CxUniverse) 'CxUniverse)
              #(v/assert % '(genlCx CxVNLow CxVNMid) 'CxUniverse)
-             #(v/assert % '(not (vNegP VA)) 'CxVNMid {:strength :monotonic})
-             #(v/assert % '(implies (not (vNegP ?x)) (vNegSeenP ?x)) 'CxVNLow)]
+             #(v/assert % '(not (v_neg_p VA)) 'CxVNMid {:strength :monotonic})
+             #(v/assert % '(implies (not (v_neg_p ?x)) (v_neg_seen_p ?x)) 'CxVNLow)]
         observe (fn [kb]
-                  {:derived (boolean (seq (v/sentexes-matching kb '(vNegSeenP VA) 'CxVNLow)))})]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(v_neg_seen_p VA) 'CxVNLow)))})]
     (is (= {:derived true} (one-outcome! "negated visibility firing" ops observe))
         "a rule with a negated antecedent fires off what its context can see, in any order"))
   (tu/clear-kb! (tu/test-kb)))
@@ -1065,10 +1065,10 @@
   ;; the conclusion there.  Seeding is by fact, so it has to reach both cones.
   (let [ops [#(v/assert % '(genlCx CxXMid CxUniverse) 'CxUniverse)
              #(v/assert % '(genlCx CxXLow CxXMid) 'CxUniverse)
-             #(v/assert % '(xFactP XB) 'CxXLow)
-             #(v/assert % '(implies (xFactP ?x) (xSeenP ?x)) 'CxXMid)]
+             #(v/assert % '(x_fact_p XB) 'CxXLow)
+             #(v/assert % '(implies (x_fact_p ?x) (x_seen_p ?x)) 'CxXMid)]
         observe (fn [kb]
-                  {:derived (boolean (seq (v/sentexes-matching kb '(xSeenP XB) 'CxXLow)))})]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(x_seen_p XB) 'CxXLow)))})]
     (is (= {:derived true} (one-outcome! "inherited-rule firing" ops observe))
         "a rule above is inherited into a context wired under it, whenever that happened"))
   (tu/clear-kb! (tu/test-kb)))
@@ -1096,7 +1096,7 @@
   ;; An equality applies where it is **visible**, so which sentexes it restates is as
   ;; much a question about the genlCx cone as about the closure — and the arriving datum
   ;; is again the edge.  `(equals MTom MThomas)` in `CxMUp` cannot displace
-  ;; `(mFactP MTom)` in `CxMLow` until `(genlCx CxMLow CxMUp)` says `CxMLow` can see it —
+  ;; `(m_fact_p MTom)` in `CxMLow` until `(genlCx CxMLow CxMUp)` says `CxMLow` can see it —
   ;; so without `special/migrate-under-context-edge` the two orderings that wire the
   ;; contexts last keep the spelling `CxMLow` stored the fact in, while every read from
   ;; `CxMLow` asks after the representative: believed, and answering no query under
@@ -1104,10 +1104,10 @@
   ;; only ever dropped or restated and this one was never written.
   (let [ops [#(v/assert % '(genlCx CxMLow CxMUp) 'CxUniverse {:strength :monotonic})
              #(v/assert % '(equals MTom MThomas) 'CxMUp {:strength :monotonic})
-             #(v/assert % '(mFactP MTom) 'CxMLow {:strength :monotonic})]]
-    (is (= {:answered '#{(mFactP MThomas)} :asked [true true] :equiv '#{MTom MThomas}}
+             #(v/assert % '(m_fact_p MTom) 'CxMLow {:strength :monotonic})]]
+    (is (= {:answered '#{(m_fact_p MThomas)} :asked [true true] :equiv '#{MTom MThomas}}
            (one-outcome! "a merge above a context edge" ops
-                         (merged-spelling-observe 'mFactP 'MTom 'MThomas 'CxMLow)))
+                         (merged-spelling-observe 'm_fact_p 'MTom 'MThomas 'CxMLow)))
         "the reader that newly sees the merge reads the fact under the name it elected"))
   (tu/clear-kb! (tu/test-kb)))
 
@@ -1119,13 +1119,13 @@
   ;; owes a restatement of its own.
   (let [ops [#(v/assert % '(genlCx CxNLow CxNUp) 'CxUniverse {:strength :monotonic})
              #(v/assert % '(equals NTom NThomas) 'CxNLow {:strength :monotonic})
-             #(v/assert % '(nFactP NTom) 'CxNUp {:strength :monotonic})]
+             #(v/assert % '(n_fact_p NTom) 'CxNUp {:strength :monotonic})]
         observe (fn [kb]
-                  (assoc ((merged-spelling-observe 'nFactP 'NTom 'NThomas 'CxNLow) kb)
+                  (assoc ((merged-spelling-observe 'n_fact_p 'NTom 'NThomas 'CxNLow) kb)
                          :above (set (map :sentence
-                                          (v/sentexes-matching kb '(nFactP ?x) 'CxNUp)))))]
-    (is (= {:answered '#{(nFactP NThomas)} :asked [true true] :equiv '#{NTom NThomas}
-            :above '#{(nFactP NTom)}}
+                                          (v/sentexes-matching kb '(n_fact_p ?x) 'CxNUp)))))]
+    (is (= {:answered '#{(n_fact_p NThomas)} :asked [true true] :equiv '#{NTom NThomas}
+            :above '#{(n_fact_p NTom)}}
            (one-outcome! "a merge below a context edge" ops observe))
         "the reader below restates the fact for itself and leaves the original where it lives"))
   (tu/clear-kb! (tu/test-kb)))
@@ -1134,7 +1134,7 @@
 ;;
 ;; The two tests above cover an `equals` that is already stored becoming newly visible.
 ;; These cover the sharper gap `special/equate-under-context-edge` closes: no `equals`
-;; exists anywhere until the widened cone makes two `functional` (or `antiSymmetric`)
+;; exists anywhere until the widened cone makes two `functional` (or `anti_symmetric`)
 ;; fillers jointly visible for the first time — the mark, the two fillers and the
 ;; `genlCx` edge are the fourth arrival order of one merge, matching the three
 ;; `derive-functional-equalities` / `equate-existing` / `equate-under-edge` already own.
@@ -1193,7 +1193,7 @@
   ;; scoping as the functional test above and for the identical reason: the converse in
   ;; the wider context (`CxAuUp`) arriving dead last hits the same pre-existing
   ;; fact-arrival gap, unrelated to this arm's own trigger.
-  (let [mark     #(v/assert % '(antiSymmetric auP) 'CxAuUp)
+  (let [mark     #(v/assert % '(anti_symmetric auP) 'CxAuUp)
         conv-up  #(v/assert % '(auP AuAlice AuBob) 'CxAuUp)
         conv-low #(v/assert % '(auP AuBob AuAlice) 'CxAuLow)
         edge     #(v/assert % '(genlCx CxAuLow CxAuUp) 'CxUniverse {:strength :monotonic})
@@ -1255,20 +1255,20 @@
   ;; splits here is a sentence the KB believes and retrieval never returns, which an
   ;; answer-set reading alone calls agreement.
   (let [ops [#(v/assert % '(equals RTom RThomas) 'CxROne {:strength :monotonic})
-             #(v/assert % (default-rule '[(rMammalP ?x)] '(rFurP ?x)) 'CxROne)
-             #(v/assert % '(rMammalP RTom) 'CxROne {:strength :monotonic})]
+             #(v/assert % (default-rule '[(r_mammal_p ?x)] '(r_fur_p ?x)) 'CxROne)
+             #(v/assert % '(r_mammal_p RTom) 'CxROne {:strength :monotonic})]
         observe (fn [kb]
-                  {:answered (set (map :sentence (v/sentexes-matching kb '(rFurP ?x) 'CxROne)))
-                   :asked    [(v/ask? kb '(rFurP RTom) 'CxROne)
-                              (v/ask? kb '(rFurP RThomas) 'CxROne)]
+                  {:answered (set (map :sentence (v/sentexes-matching kb '(r_fur_p ?x) 'CxROne)))
+                   :asked    [(v/ask? kb '(r_fur_p RTom) 'CxROne)
+                              (v/ask? kb '(r_fur_p RThomas) 'CxROne)]
                    :believed (into #{}
                                    (comp (filter #(v/in? kb %))
                                          (keep #(some-> (v/sentex kb %) :sentence))
-                                         (filter #(contains? '#{rMammalP rFurP} (first %))))
+                                         (filter #(contains? '#{r_mammal_p r_fur_p} (first %))))
                                    (tu/sentex-ids kb))})]
-    (is (= {:answered '#{(rFurP RThomas)}
+    (is (= {:answered '#{(r_fur_p RThomas)}
             :asked    [true true]
-            :believed '#{(rMammalP RThomas) (rFurP RThomas)}}
+            :believed '#{(r_mammal_p RThomas) (r_fur_p RThomas)}}
            (one-outcome! "a rule over a merged term" ops observe))
         "the rule fires at the elected spelling only, whenever the merge arrived"))
   (tu/clear-kb! (tu/test-kb)))
@@ -1278,13 +1278,13 @@
 ;; of the 120 orderings they walk.
 (def ^:private derived-edge-ops
   [#(v/assert % '(genlCx CxWMid CxUniverse) 'CxUniverse)
-   #(v/assert % '(wFactP WA) 'CxWMid)
-   #(v/assert % '(implies (wFactP ?x) (wSeenP ?x)) 'CxWLow)
+   #(v/assert % '(w_fact_p WA) 'CxWMid)
+   #(v/assert % '(implies (w_fact_p ?x) (w_seen_p ?x)) 'CxWLow)
    #(v/assert % '(wWireP CxWLow CxWMid) 'CxUniverse)
    #(v/assert % '(implies (wWireP ?a ?b) (genlCx ?a ?b)) 'CxUniverse)])
 
 (defn- derived-edge-observe [kb]
-  {:derived (boolean (seq (v/sentexes-matching kb '(wSeenP WA) 'CxWLow)))})
+  {:derived (boolean (seq (v/sentexes-matching kb '(w_seen_p WA) 'CxWLow)))})
 
 (deftest ^:slow a-derived-context-edge-seeds-like-an-asserted-one
   ;; and a rule concluding the edge reaches the same belief an assert does, or the
@@ -1330,7 +1330,7 @@
   ;; never surface as a contradiction under any ordering.  5 assertions, 120 orderings.
   (let [alice (v/context-of-agent 'Alice)
         bob   (v/context-of-agent 'Bob)
-        ops [#(v/assert % '(modalPredicate believes) 'CxUniverse)  ; the grant
+        ops [#(v/assert % '(modal_predicate believes) 'CxUniverse)  ; the grant
              #(v/assert % '(flies Tweety) alice)                   ; Alice believes it
              #(v/assert % '(not (flies Tweety)) bob)               ; Bob believes the opposite
              #(v/assert % '(genl finch7 bird7) alice)              ; a taxonomy edge in Alice's ctx
@@ -1504,18 +1504,18 @@
   ;; aside from it.
   (doseq [engine [:dfs :inference]]
     (binding [v/*query-engine* engine]
-      (let [ops     [#(v/assert-rule % '[(pSrcA ?x)] '(pReach ?x) 'CxUniverse
+      (let [ops     [#(v/assert-rule % '[(p_src_a ?x)] '(p_reach ?x) 'CxUniverse
                                      {:direction :backward})
-                     #(v/assert-rule % '[(pSrcB ?x)] '(pReach ?x) 'CxUniverse
+                     #(v/assert-rule % '[(p_src_b ?x)] '(p_reach ?x) 'CxUniverse
                                      {:direction :backward})
-                     #(v/assert-rule % '[(pSrcC ?x)] '(pReach ?x) 'CxUniverse
+                     #(v/assert-rule % '[(p_src_c ?x)] '(p_reach ?x) 'CxUniverse
                                      {:direction :backward})
-                     #(v/assert % '(pSrcA PrA) 'CxUniverse)
-                     #(v/assert % '(pSrcB PrB) 'CxUniverse)
-                     #(v/assert % '(pSrcC PrC) 'CxUniverse)]
+                     #(v/assert % '(p_src_a PrA) 'CxUniverse)
+                     #(v/assert % '(p_src_b PrB) 'CxUniverse)
+                     #(v/assert % '(p_src_c PrC) 'CxUniverse)]
             reached (fn [kb budget]
                       (into #{} (map #(get % '?x))
-                            (:results (v/prove-within kb '(pReach ?x) 'CxUniverse budget))))
+                            (:results (v/prove-within kb '(p_reach ?x) 'CxUniverse budget))))
             observe (fn [kb]
                       {:capped (reached kb {:max-results 1 :max-depth 3})
                        :whole  (reached kb {:max-depth 3})})

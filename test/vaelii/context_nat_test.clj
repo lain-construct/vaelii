@@ -3,7 +3,7 @@
 (ns vaelii.context-nat-test
   "Reified-NAT contexts and structural genlCx — docs/context-nat.md.
 
-  A `contextDenotingFunction` `Cx*Fn` reifies its ground applications to an opaque `cx/`
+  A `context_denoting_function` `Cx*Fn` reifies its ground applications to an opaque `cx/`
   context constant, so `(CxTimeFn CxMonad (DatetimeFn \"2000\"))` is a context a sentex can
   be stored in and a `genlCx` node — while its unreifiable argument stays structural in the
   `termOfUnit` map, readable to the producer.  `(contextArgSubrelation F pos R)` then orders
@@ -31,8 +31,8 @@
   context-function symbol."
   [kb]
   (let [cxfn (fresh-cxfn "Time")]
-    (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
-    (v/assert kb '(unreifiableFunction DatetimeFn) 'CxUniverse)
+    (v/assert kb (list 'context_denoting_function cxfn) 'CxUniverse)
+    (v/assert kb '(unreifiable_function DatetimeFn) 'CxUniverse)
     cxfn))
 
 ;; ---- Layer 1: a Cx*Fn application reifies to a cx/ context ---------------
@@ -69,7 +69,7 @@
 
 (tu/deftest-kb an-object-nat-is-still-not-a-context
   (tu/with-terms [FruitFn AppleTree]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (second (:sentence (v/sentex kb h)))]
       (is (nat/reified-nat-symbol? k) "it is a reified constant")
@@ -258,7 +258,7 @@
   (tu/with-terms [CxAlias Slot likes Tom Ann]
     (let [cxfn (fresh-cxfn "Alias")
           app  (list cxfn Slot)]
-      (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
+      (v/assert kb (list 'context_denoting_function cxfn) 'CxUniverse)
       (v/assert kb (list 'genlCx CxAlias 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'rewriteOf CxAlias app) 'CxUniverse)
       (let [h (v/assert kb (list likes Tom Ann) app)]
@@ -302,9 +302,9 @@
   Returns the context-function symbol."
   [kb]
   (let [cxfn (fresh-cxfn "Cal")]
-    (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
+    (v/assert kb (list 'context_denoting_function cxfn) 'CxUniverse)
     (doseq [f '[YearFn MonthFn DayFn]]
-      (v/assert kb (list 'unreifiableFunction f) 'CxUniverse))
+      (v/assert kb (list 'unreifiable_function f) 'CxUniverse))
     (v/assert kb (list 'contextArgSubrelation cxfn 2 'subintervalOf) 'CxUniverse)
     cxfn))
 
@@ -332,15 +332,15 @@
   (let [cxfn (declare-calendar-dimension! kb)
         feb  (list cxfn 'CxMonad '(MonthFn 2000 2))
         mar  (list cxfn 'CxMonad '(MonthFn 2000 3))]
-    (v/assert kb '(implies (and (blooms ?x)) (springHasCome ?x)) mar)
+    (v/assert kb '(implies (and (blooms ?x)) (spring_has_come ?x)) mar)
     (v/assert kb '(blooms Snowdrop) feb)
     (v/assert kb '(blooms Crocus) mar)
     (testing "the rule fires for its own month"
-      (is (v/ask? kb '(springHasCome Crocus) mar)))
+      (is (v/ask? kb '(spring_has_come Crocus) mar)))
     (testing "and reaches neither the month beside it nor back up into the year"
-      (is (not (v/ask? kb '(springHasCome Snowdrop) feb)))
-      (is (not (v/ask? kb '(springHasCome Snowdrop) mar)))
-      (is (not (v/ask? kb '(springHasCome Crocus)
+      (is (not (v/ask? kb '(spring_has_come Snowdrop) feb)))
+      (is (not (v/ask? kb '(spring_has_come Snowdrop) mar)))
+      (is (not (v/ask? kb '(spring_has_come Crocus)
                        (list cxfn 'CxMonad '(YearFn 2000))))))))
 
 (tu/deftest-kb the-same-month-written-twice-is-one-context
@@ -359,9 +359,9 @@
   (let [cxfn  (fresh-cxfn "Cal")
         year  (list cxfn 'CxMonad '(YearFn 2000))
         march (list cxfn 'CxMonad '(MonthFn 2000 3))]
-    (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
+    (v/assert kb (list 'context_denoting_function cxfn) 'CxUniverse)
     (doseq [f '[YearFn MonthFn]]
-      (v/assert kb (list 'unreifiableFunction f) 'CxUniverse))
+      (v/assert kb (list 'unreifiable_function f) 'CxUniverse))
     (v/assert kb '(holiday NewYear) year)
     (v/assert kb '(weather Rainy) march)
     (testing "no ordering declared yet, so the two contexts are unrelated"
@@ -375,7 +375,7 @@
   ;; The comparator reads both spellings to one field vector, so a KB told the year one
   ;; way and the month the other still orders them.
   (let [cxfn (declare-calendar-dimension! kb)]
-    (v/assert kb '(unreifiableFunction DatetimeFn) 'CxUniverse)
+    (v/assert kb '(unreifiable_function DatetimeFn) 'CxUniverse)
     (let [year  (list cxfn 'CxMonad '(YearFn 2000))
           march (list cxfn 'CxMonad '(DatetimeFn "2000-03"))]
       (v/assert kb '(holiday NewYear) year)
@@ -396,8 +396,8 @@
         mterm (list 'DatetimeFn "2000-01")
         year  (list cxfn 'CxMonad yterm)
         month (list cxfn 'CxMonad mterm)]
-    (v/assert kb (list 'contextDenotingFunction cxfn) 'CxUniverse)
-    (v/assert kb '(unreifiableFunction DatetimeFn) 'CxUniverse)
+    (v/assert kb (list 'context_denoting_function cxfn) 'CxUniverse)
+    (v/assert kb '(unreifiable_function DatetimeFn) 'CxUniverse)
     (v/assert kb (list 'contextArgSubrelation cxfn 2 'subFooOf) 'CxUniverse)
     (v/assert kb '(holiday NewYear) year)
     (v/assert kb '(weather Cold) month)

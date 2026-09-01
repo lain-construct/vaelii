@@ -28,7 +28,7 @@
 
 (tu/deftest-kb round-trip-stores-an-opaque-constant
   (tu/with-terms [FruitFn AppleTree fruit]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
@@ -52,7 +52,7 @@
 
 (tu/deftest-kb the-same-nat-yields-the-same-constant
   (tu/with-terms [FruitFn AppleTree]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (let [h1 (v/assert kb (list 'color (list FruitFn AppleTree) 'Red)   'CxUniverse)
           h2 (v/assert kb (list 'taste (list FruitFn AppleTree) 'Sweet) 'CxUniverse)]
       (is (= (k-of kb h1) (k-of kb h2)))
@@ -68,7 +68,7 @@
   ;; second spelling has to resolve to what the first stored either way round.
   (doseq [vector-first? [false true]]
     (tu/with-terms [MotherFn Ann Tom likes]
-      (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+      (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
       (let [E         (list MotherFn Ann)
             spellings [(list likes Tom E) (list likes Tom [MotherFn Ann])]
             [a b]     (if vector-first? (reverse spellings) spellings)
@@ -85,8 +85,8 @@
 
 (tu/deftest-kb a-nested-nat-reifies-inner-then-outer
   (tu/with-terms [FruitFn BestTreeIn Orchard1]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
-    (v/assert kb (list 'reifiableFunction BestTreeIn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function BestTreeIn) 'CxUniverse)
     (let [h        (v/assert kb (list 'color (list FruitFn (list BestTreeIn Orchard1)) 'Green)
                              'CxUniverse)
           inner-k  (nat/dedup-constant kb (list BestTreeIn Orchard1))
@@ -104,7 +104,7 @@
 
 (tu/deftest-kb rename-rewrites-the-expression-keeping-the-constant-stable
   (tu/with-terms [FruitFn AppleTree MalusTree]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
       (v/assert kb (list 'rewriteOf MalusTree AppleTree) 'CxUniverse)   ; rename AppleTree -> MalusTree
@@ -120,7 +120,7 @@
 
 (tu/deftest-kb rename-collision-merges-the-two-constants
   (tu/with-terms [FruitFn AppleTree MalusTree]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (let [ha (v/assert kb (list 'color (list FruitFn AppleTree) 'Red)   'CxUniverse)
           hm (v/assert kb (list 'taste (list FruitFn MalusTree) 'Sweet) 'CxUniverse)]
       (is (not= (k-of kb ha) (k-of kb hm)))
@@ -141,7 +141,7 @@
   ;; read inherits it.  So both orders, and one answer.
   (doseq [smallest-first? [true false]]
     (tu/with-terms [FruitFn AppleTree]
-      (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+      (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
       (let [E     (list FruitFn AppleTree)
             ks    (vec (sort [(nat/fresh-constant) (nat/fresh-constant)]))
             what  (str "the " (if smallest-first? "smallest" "largest") " asserted first")]
@@ -172,8 +172,8 @@
   ;; function and once to the other's, since that is what makes the two verdicts differ.
   (doseq [type-of-least? [true false]]
     (tu/with-terms [FruitFn SeedFn AppleTree fruit seed]
-      (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
-      (v/assert kb (list 'reifiableFunction SeedFn) 'CxUniverse)
+      (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
+      (v/assert kb (list 'reifiable_function SeedFn) 'CxUniverse)
       (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
       (v/assert kb (list 'result SeedFn seed) 'CxUniverse)
       (let [Es      (nm/sort-by-content-key identity
@@ -213,7 +213,7 @@
 
 (tu/deftest-kb removing-the-last-use-collects-the-orphaned-reified-nat
   (tu/with-terms [FruitFn AppleTree fruit]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
@@ -232,7 +232,7 @@
 
 (tu/deftest-kb a-users-unary-claim-about-a-reified-nat-is-a-use-not-bookkeeping
   (tu/with-terms [FruitFn AppleTree prime noted Author]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (let [h  (v/assert kb (list noted Author (list FruitFn AppleTree)) 'CxUniverse)
           k  (nth (:sentence (v/sentex kb h)) 2)
           hu (v/assert kb (list prime (list FruitFn AppleTree)) 'CxUniverse)]
@@ -263,7 +263,7 @@
   ;; claim sits in the store exactly where a relabel can give it back.  Which is what
   ;; happens two lines later.
   (tu/with-terms [FruitFn AppleTree fruit_t stone_t color]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (v/assert kb (list 'result FruitFn fruit_t) 'CxUniverse)
     (let [h (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
@@ -296,7 +296,7 @@
   ;; a labeling's materialized truth value — is never a premise, so it has no TMS node to
   ;; be IN or OUT.  It still names the constant, and it is still in the store.
   (tu/with-terms [FruitFn AppleTree noted Author color]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (let [h (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)
           i (v/assert-inert kb (list noted Author k) 'CxUniverse)]
@@ -315,7 +315,7 @@
 
 (tu/deftest-kb the-declaration-is-what-separates-a-materialized-type-from-a-claim
   (tu/with-terms [FruitFn AppleTree fruit ripe color]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (let [h  (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k  (k-of kb h)
@@ -343,7 +343,7 @@
   ;; The order the term index yields decides whether it happens, so the two tests above
   ;; witness it only in some retrieval orders; this one pins the property instead.
   (tu/with-terms [FruitFn AppleTree fruit color]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (let [h  (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k  (k-of kb h)
@@ -362,8 +362,8 @@
 
 (tu/deftest-kb collecting-an-orphan-cascades-to-the-nat-nested-in-its-expression
   (tu/with-terms [FruitFn BestTreeIn Orchard1]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
-    (v/assert kb (list 'reifiableFunction BestTreeIn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function BestTreeIn) 'CxUniverse)
     (let [h       (v/assert kb (list 'color (list FruitFn (list BestTreeIn Orchard1)) 'Green)
                             'CxUniverse)
           outer-k (k-of kb h)
@@ -388,7 +388,7 @@
 
 (tu/deftest-kb a-nat-whose-use-the-settle-swept-is-collected-too
   (tu/with-terms [FruitFn AppleTree fruity brightAs weather overcast Sunny Sun]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     ;; `fruity` is the function's declared result type, so the sentence that mints the
     ;; constant is the constant's own materialized type — one sentex, and bookkeeping.
     ;; The exception is about the weather rather than about the fruit, so the rule's
@@ -418,7 +418,7 @@
 
 (tu/deftest-kb an-unreifiable-nat-stays-structural
   (tu/with-terms [QuantityFn Obj]
-    (v/assert kb (list 'unreifiableFunction QuantityFn) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function QuantityFn) 'CxUniverse)
     (let [nut (list QuantityFn 5 'Kilogram)
           h   (v/assert kb (list 'mass Obj nut) 'CxUniverse)]
       (testing "the compound is stored structurally, not minted"
@@ -433,7 +433,7 @@
   (tu/with-terms [FruitFn AppleTree]
     (testing "the gate is off and a plain compound is stored verbatim"
       (is (false? (nat/any-reifiable-functions? kb)))
-      ;; a compound argument with no reifiableFunction declared is left structural
+      ;; a compound argument with no reifiable_function declared is left structural
       (let [h (v/assert kb (list 'grows (list FruitFn AppleTree) 'Spring) 'CxUniverse)]
         (is (= (list 'grows (list FruitFn AppleTree) 'Spring) (:sentence (v/sentex kb h))))))))
 
@@ -448,7 +448,7 @@
 
 (tu/deftest-kb every-read-path-reifies-the-nat-in-its-goal
   (tu/with-terms [CapitalOfFn France isCapital Yes]
-    (v/assert kb (list 'reifiableFunction CapitalOfFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function CapitalOfFn) 'CxUniverse)
     (let [h (v/assert kb (list isCapital (list CapitalOfFn France) Yes) 'CxUniverse)]
       (testing "the store holds a constant, so a goal spelled as the NAT must be reified"
         (is (nat/reified-nat-symbol? (second (:sentence (v/sentex kb h)))))))
@@ -474,7 +474,7 @@
   ;; (docs/exceptions.md, the open-world reading), so the rule fires unguarded and
   ;; nothing says so.  One evaluator, so all three chainers or none.
   (tu/with-terms [CapitalOfFn France isCapital Yes bird flies Tweety]
-    (v/assert kb (list 'reifiableFunction CapitalOfFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function CapitalOfFn) 'CxUniverse)
     (v/assert kb (list bird Tweety) 'CxUniverse)
     (v/assert kb (list isCapital (list CapitalOfFn France) Yes) 'CxUniverse)
     (v/assert kb (list 'exceptWhen [(list isCapital (list CapitalOfFn France) Yes)]
@@ -496,7 +496,7 @@
 
 (tu/deftest-kb result-genl-materializes-a-subtype-edge
   (tu/with-terms [SubtypeFn Base super]
-    (v/assert kb (list 'reifiableFunction SubtypeFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function SubtypeFn) 'CxUniverse)
     (v/assert kb (list 'genl super 'thing) 'CxUniverse)
     (v/assert kb (list 'genlResult SubtypeFn super) 'CxUniverse)
     (let [h (v/assert kb (list 'studies 'Alice (list SubtypeFn Base)) 'CxUniverse)
@@ -507,7 +507,7 @@
 
 (tu/deftest-kb rewriteof-reifies-a-nat-to-an-existing-real-term
   (tu/with-terms [CapitalFn France Paris]
-    (v/assert kb (list 'reifiableFunction CapitalFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function CapitalFn) 'CxUniverse)
     ;; (CapitalFn France) should reify to the real Paris, not a fresh constant
     (v/assert kb (list 'rewriteOf Paris (list CapitalFn France)) 'CxUniverse)
     (let [h (v/assert kb (list 'locatedIn (list CapitalFn France) 'Europe) 'CxUniverse)]
@@ -522,7 +522,7 @@
   ;; Maria)` according to arrival order — divergent stored state, inherited by every
   ;; later read.  Two declarations are a disagreement, not a tie to break.
   (tu/with-terms [MotherFn Muffet Mary Maria]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'rewriteOf Mary (list MotherFn Muffet)) 'CxUniverse)
     (v/assert kb (list 'rewriteOf Maria (list MotherFn Muffet)) 'CxUniverse)
     (let [h      (v/assert kb (list 'likes 'Tom (list MotherFn Muffet)) 'CxUniverse)
@@ -540,7 +540,7 @@
   ;; `recover` rebuilds the taxonomy + JTMS in place from the store (it adds no
   ;; sentex), so the fixture's net-neutral teardown still restores the baseline.
   (tu/with-terms [FruitFn AppleTree fruit]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (let [h (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)
           k (k-of kb h)]
@@ -565,7 +565,7 @@
 
 (tu/deftest-kb a-corresponding-fact-names-the-term-an-application-reifies-to
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
     (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)]
@@ -578,7 +578,7 @@
 
 (tu/deftest-kb an-application-with-no-value-mints-a-constant-that-answers-the-predicate
   (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
@@ -591,7 +591,7 @@
   ;; the order-independence case.  The fact and the application say the same thing, so
   ;; whichever lands second must not leave the KB with two values for one application.
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
@@ -609,7 +609,7 @@
   ;; Cyc's own example: (StreetCornerFn XING DIRECTION) = LOT exactly when
   ;; (streetCornerOf LOT XING DIRECTION), so the value is argument 1 and not the last.
   (tu/with-terms [StreetCornerFn streetCornerOf Xing1 North Lot7 ownedBy Alice]
-    (v/assert kb (list 'reifiableFunction StreetCornerFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function StreetCornerFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate StreetCornerFn streetCornerOf 1)
               'CxUniverse)
     (v/assert kb (list streetCornerOf Lot7 Xing1 North) 'CxUniverse)
@@ -618,7 +618,7 @@
 
 (tu/deftest-kb a-declaration-arriving-last-reconciles-what-was-already-minted
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat/reified-nat-symbol? k))
@@ -633,7 +633,7 @@
 
 (tu/deftest-kb a-declaration-arriving-last-projects-a-placeholder-that-has-no-value
   (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (empty? (v/ask kb (list motherOf Muffet '?m) '?ctx)))
@@ -646,7 +646,7 @@
   ;; between them would have to key on a handle, which is the one thing belief may never
   ;; do — so neither is read, and the application mints as if none were declared.
   (tu/with-terms [MotherFn motherOf parentOf Muffet Mary Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn parentOf) 'CxUniverse)
     (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
@@ -660,7 +660,7 @@
 
 (tu/deftest-kb retracting-the-declaration-stops-the-application-resolving
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor sees]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (let [d (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)]
       (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
       (is (= Mary (nat/correspondence-value kb (list MotherFn Muffet))))
@@ -672,15 +672,22 @@
 
 (tu/deftest-kb an-ill-formed-correspondence-is-refused
   (tu/with-terms [MotherFn motherOf Mary]
-    (doseq [[what s] [["one argument"      (list 'functionCorrespondingPredicate MotherFn)]
-                      ["four arguments"    (list 'functionCorrespondingPredicate MotherFn motherOf 2 2)]
-                      ["an individual"     (list 'functionCorrespondingPredicate MotherFn Mary)]
-                      ["a position that is not a positive integer"
-                       (list 'functionCorrespondingPredicate MotherFn motherOf 'first)]]]
+    ;; the arity-1 row is caught by the NAMING door, which runs upstream of `wff`: a
+    ;; camelCase functor at arity 1 is a unary predicate wearing a relation's spelling,
+    ;; and `problems` names that before `wff` gets to count the arguments
+    (doseq [[what expected s]
+            [["one argument"      :naming
+              (list 'functionCorrespondingPredicate MotherFn)]
+             ["four arguments"    :not-well-formed
+              (list 'functionCorrespondingPredicate MotherFn motherOf 2 2)]
+             ["an individual"     :not-well-formed
+              (list 'functionCorrespondingPredicate MotherFn Mary)]
+             ["a position that is not a positive integer" :not-well-formed
+              (list 'functionCorrespondingPredicate MotherFn motherOf 'first)]]]
       (let [e (try (v/assert kb s 'CxUniverse) nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) what)
-        (is (= :not-well-formed (:type (ex-data e))) what)))))
+        (is (= expected (:type (ex-data e))) what)))))
 
 (tu/deftest-kb a-correspondence-survives-recover
   ;; the declaration is read through the index rather than a taxonomy cache, so a
@@ -688,7 +695,7 @@
   ;; recovered KB that stopped resolving applications would be a restart changing an
   ;; answer.
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
     (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
     (v/recover kb)
@@ -701,7 +708,7 @@
   ;; type — a constant whose only remaining sentex is its own projection has no live
   ;; use, and treating one as a use would make every placeholder immortal.
   (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
-    (v/assert kb (list 'reifiableFunction MotherFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]

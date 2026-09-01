@@ -5,7 +5,7 @@
 
   The wff dispatch (the `:wff` column of `vaelii.impl.special`'s table, walked by
   `special/wff-problems`) routes each special predicate to its checker.  `genl` and
-  `arg` are covered; `genlCx`'s cycle branch, `disjointMetatype`, the six
+  `arg` are covered; `genlCx`'s cycle branch, `disjoint_metatype`, the six
   predicate properties routed through `prop-problems`, and `inverse` are not — so a
   predicate whose entry loses its `:wff` arm falls through to `[]` and is accepted
   unchecked, with nothing to notice.
@@ -19,7 +19,8 @@
   regresses into throwing for a *different* reason.  `stratification_test` names
   that risk in its own docstring; this holds the rest of the error paths to the same
   bar."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
@@ -72,29 +73,34 @@
 
 ;; ---- the checkers with no tests at all ----------------------------------
 
-(tu/deftest-kb disjointMetatype-must-mark-a-metatype-not-an-individual
-  (tu/with-terms [Muffet animalSpecies]
+(tu/deftest-kb disjoint_metatype-must-mark-a-metatype-not-an-individual
+  (tu/with-terms [Muffet animal_species]
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'disjointMetatype Muffet) 'CxUniverse)))
+           (ex-type #(v/assert kb (list 'disjoint_metatype Muffet) 'CxUniverse)))
         "an individual is not a metatype")
     (testing "and it takes exactly one argument"
-      (is (= :not-well-formed
-             (ex-type #(v/assert kb (list 'disjointMetatype animalSpecies 'Extra) 'CxUniverse)))))))
+      ;; :naming — disjoint_metatype is snake_case, so a second argument is refused at
+      ;; the naming door, upstream of the `wff` arity check
+      (is (= :naming
+             (ex-type #(v/assert kb (list 'disjoint_metatype animal_species 'Extra) 'CxUniverse)))))))
 
 (tu/deftest-kb the-predicate-properties-reject-an-individual-argument
   ;; All six route through `prop-problems`.  A predicate dropped from that `case`
   ;; list would fall through to `[]` and accept anything — this is what notices.
   (tu/with-terms [Muffet]
     (doseq [prop '[transitive symmetric reflexive functional
-                   decontextualizedPredicate forcedDecontextualizedPredicate]]
+                   decontextualized_predicate forced_decontextualized_predicate]]
       (is (= :not-well-formed (ex-type #(v/assert kb (list prop Muffet) 'CxUniverse)))
           (str prop " must reject an individual")))))
 
 (tu/deftest-kb the-predicate-properties-take-exactly-one-argument
+  ;; Which door refuses it is the spelling's to say.  A snake_case property is a unary
+  ;; predicate by its name, so a second argument is a NAMING violation and never reaches
+  ;; `prop-problems`; a bare lowercase one claims no arity and is caught by `wff`.
   (tu/with-terms [partOf otherPred]
     (doseq [prop '[transitive symmetric reflexive functional
-                   decontextualizedPredicate forcedDecontextualizedPredicate]]
-      (is (= :not-well-formed
+                   decontextualized_predicate forced_decontextualized_predicate]]
+      (is (= (if (str/includes? (name prop) "_") :naming :not-well-formed)
              (ex-type #(v/assert kb (list prop partOf otherPred) 'CxUniverse)))
           (str prop " takes one argument")))))
 

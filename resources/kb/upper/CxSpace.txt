@@ -59,350 +59,350 @@
 
 (comment atSomeDistanceFrom
          "(atSomeDistanceFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are some distance apart. Any class of the distance chain but the zero one, so it is the complement of coLocatedWith and holds of nothing and itself.")
-(binaryPredicate atSomeDistanceFrom)
-(instanceRelationPredicate atSomeDistanceFrom)
+(binary_predicate atSomeDistanceFrom)
+(instance_relation_predicate atSomeDistanceFrom)
 (arg atSomeDistanceFrom 1 spatial_thing)
 (arg atSomeDistanceFrom 2 spatial_thing)
 
 (comment behind
          "(behind ?object ?reference) means that ?object lies directly behind ?reference. To the rear on the front-back axis and level on the left-right one, in the frame of reference the context is. The converse of inFrontOf.")
-(binaryPredicate behind)
-(instanceRelationPredicate behind)
+(binary_predicate behind)
+(instance_relation_predicate behind)
 (arg behind 1 spatial_thing)
 (arg behind 2 spatial_thing)
 
 (comment behindLeftOf
          "(behindLeftOf ?object ?reference) means that ?object lies behind ?reference and to its left. Both axes at once. The converse of frontRightOf.")
-(binaryPredicate behindLeftOf)
-(instanceRelationPredicate behindLeftOf)
+(binary_predicate behindLeftOf)
+(instance_relation_predicate behindLeftOf)
 (arg behindLeftOf 1 spatial_thing)
 (arg behindLeftOf 2 spatial_thing)
 
 (comment behindRightOf
          "(behindRightOf ?object ?reference) means that ?object lies behind ?reference and to its right. Both axes at once. The converse of frontLeftOf.")
-(binaryPredicate behindRightOf)
-(instanceRelationPredicate behindRightOf)
+(binary_predicate behindRightOf)
+(instance_relation_predicate behindRightOf)
 (arg behindRightOf 1 spatial_thing)
 (arg behindRightOf 2 spatial_thing)
 
 (comment beyondFarDistanceFrom
          "(beyondFarDistanceFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are at least far apart. Far or very far: the upper end of the distance chain.")
-(binaryPredicate beyondFarDistanceFrom)
-(instanceRelationPredicate beyondFarDistanceFrom)
+(binary_predicate beyondFarDistanceFrom)
+(instance_relation_predicate beyondFarDistanceFrom)
 (arg beyondFarDistanceFrom 1 spatial_thing)
 (arg beyondFarDistanceFrom 2 spatial_thing)
 
 (comment closeTo
          "(closeTo ?thing1 ?thing2) means that ?thing1 and ?thing2 are close together. The third class of the distance chain, one step further out than veryCloseTo and one step in from nearTo.")
-(binaryPredicate closeTo)
-(instanceRelationPredicate closeTo)
+(binary_predicate closeTo)
+(instance_relation_predicate closeTo)
 (arg closeTo 1 spatial_thing)
 (arg closeTo 2 spatial_thing)
 
 (comment coLocatedWith
          "(coLocatedWith ?thing1 ?thing2) means that ?thing1 and ?thing2 are no distance apart at all. The zero class of the distance chain and the identity of its algebra. A claim about how far apart two things are, so it is neither the compass's sameLocationAs nor the equality closure's sameAs: two co-located things are still two things.")
-(binaryPredicate coLocatedWith)
-(instanceRelationPredicate coLocatedWith)
+(binary_predicate coLocatedWith)
+(instance_relation_predicate coLocatedWith)
 (arg coLocatedWith 1 spatial_thing)
 (arg coLocatedWith 2 spatial_thing)
 
 (comment eastOf
          "(eastOf ?place1 ?place2) means that ?place1 lies due east of ?place2. East on the east-west axis and level on the north-south one. The converse of westOf.")
-(binaryPredicate eastOf)
-(instanceRelationPredicate eastOf)
+(binary_predicate eastOf)
+(instance_relation_predicate eastOf)
 (arg eastOf 1 spatial_thing)
 (arg eastOf 2 spatial_thing)
 
 (comment eastwardOf
          "(eastwardOf ?place1 ?place2) means that ?place1 lies somewhere east of ?place2. East, northeast or southeast: it constrains the east-west axis alone and leaves the north-south one open.")
-(binaryPredicate eastwardOf)
-(instanceRelationPredicate eastwardOf)
+(binary_predicate eastwardOf)
+(instance_relation_predicate eastwardOf)
 (arg eastwardOf 1 spatial_thing)
 (arg eastwardOf 2 spatial_thing)
 
 (comment externallyConnected
          "(externallyConnected ?region1 ?region2) means that ?region1 and ?region2 touch but share no interior. RCC-8's EC, a base relation and its own converse. What two countries either side of a border stand in.")
-(binaryPredicate externallyConnected)
-(instanceRelationPredicate externallyConnected)
+(binary_predicate externallyConnected)
+(instance_relation_predicate externallyConnected)
 (arg externallyConnected 1 spatial_thing)
 (arg externallyConnected 2 spatial_thing)
 
 (comment farFrom
          "(farFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are far apart. The sixth class of the distance chain, one step in from veryFarFrom.")
-(binaryPredicate farFrom)
-(instanceRelationPredicate farFrom)
+(binary_predicate farFrom)
+(instance_relation_predicate farFrom)
 (arg farFrom 1 spatial_thing)
 (arg farFrom 2 spatial_thing)
 
 (comment frontLeftOf
          "(frontLeftOf ?object ?reference) means that ?object lies in front of ?reference and to its left. Both axes at once, so it is the strongest thing a single relative-direction fact can say. The converse of behindRightOf.")
-(binaryPredicate frontLeftOf)
-(instanceRelationPredicate frontLeftOf)
+(binary_predicate frontLeftOf)
+(instance_relation_predicate frontLeftOf)
 (arg frontLeftOf 1 spatial_thing)
 (arg frontLeftOf 2 spatial_thing)
 
 (comment frontRightOf
          "(frontRightOf ?object ?reference) means that ?object lies in front of ?reference and to its right. Both axes at once. The converse of behindLeftOf.")
-(binaryPredicate frontRightOf)
-(instanceRelationPredicate frontRightOf)
+(binary_predicate frontRightOf)
+(instance_relation_predicate frontRightOf)
 (arg frontRightOf 1 spatial_thing)
 (arg frontRightOf 2 spatial_thing)
 
 (comment frontwardOf
          "(frontwardOf ?object ?reference) means that ?object lies somewhere in front of ?reference. In front, front-left or front-right: it constrains the front-back axis alone and leaves the left-right one open.")
-(binaryPredicate frontwardOf)
-(instanceRelationPredicate frontwardOf)
+(binary_predicate frontwardOf)
+(instance_relation_predicate frontwardOf)
 (arg frontwardOf 1 spatial_thing)
 (arg frontwardOf 2 spatial_thing)
 
 (comment hasRegionPart
          "(hasRegionPart ?region1 ?region2) means that ?region2 is part of ?region1. RCC-8's Pi, the converse of partOfRegion, denoting TPPi, NTPPi or EQ. Derived, so asserting it says only that one contains the other and not how.")
-(binaryPredicate hasRegionPart)
-(instanceRelationPredicate hasRegionPart)
+(binary_predicate hasRegionPart)
+(instance_relation_predicate hasRegionPart)
 (arg hasRegionPart 1 spatial_thing)
 (arg hasRegionPart 2 spatial_thing)
 
 (comment inFrontOf
          "(inFrontOf ?object ?reference) means that ?object lies directly in front of ?reference. Forward on the front-back axis and level on the left-right one, in the frame of reference the context is. The converse of behind.")
-(binaryPredicate inFrontOf)
-(instanceRelationPredicate inFrontOf)
+(binary_predicate inFrontOf)
+(instance_relation_predicate inFrontOf)
 (arg inFrontOf 1 spatial_thing)
 (arg inFrontOf 2 spatial_thing)
 
 (comment leftOf
          "(leftOf ?object ?reference) means that ?object lies directly to the left of ?reference. Left on the left-right axis and level on the front-back one, as seen from the frame of reference the context is: a relative direction is read from a viewpoint, and here the context is that viewpoint. The converse of rightOf.")
-(binaryPredicate leftOf)
-(instanceRelationPredicate leftOf)
+(binary_predicate leftOf)
+(instance_relation_predicate leftOf)
 (arg leftOf 1 spatial_thing)
 (arg leftOf 2 spatial_thing)
 
 (comment leftwardOf
          "(leftwardOf ?object ?reference) means that ?object lies somewhere to the left of ?reference. Left, front-left or behind-left: it constrains the left-right axis alone and leaves the front-back one open.")
-(binaryPredicate leftwardOf)
-(instanceRelationPredicate leftwardOf)
+(binary_predicate leftwardOf)
+(instance_relation_predicate leftwardOf)
 (arg leftwardOf 1 spatial_thing)
 (arg leftwardOf 2 spatial_thing)
 
 (comment moderatelyFarFrom
          "(moderatelyFarFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are moderately far apart. The middle of the distance chain, between nearTo and farFrom.")
-(binaryPredicate moderatelyFarFrom)
-(instanceRelationPredicate moderatelyFarFrom)
+(binary_predicate moderatelyFarFrom)
+(instance_relation_predicate moderatelyFarFrom)
 (arg moderatelyFarFrom 1 spatial_thing)
 (arg moderatelyFarFrom 2 spatial_thing)
 
 (comment nearTo
          "(nearTo ?thing1 ?thing2) means that ?thing1 and ?thing2 are near each other. The fourth class of the distance chain, one step further out than closeTo.")
-(binaryPredicate nearTo)
-(instanceRelationPredicate nearTo)
+(binary_predicate nearTo)
+(instance_relation_predicate nearTo)
 (arg nearTo 1 spatial_thing)
 (arg nearTo 2 spatial_thing)
 
 (comment nonTangentialProperPart
          "(nonTangentialProperPart ?region1 ?region2) means that ?region1 lies strictly inside ?region2, touching no part of its boundary. RCC-8's NTPP, a base relation, with nonTangentialProperPartInverse as its converse.")
-(binaryPredicate nonTangentialProperPart)
-(instanceRelationPredicate nonTangentialProperPart)
+(binary_predicate nonTangentialProperPart)
+(instance_relation_predicate nonTangentialProperPart)
 (arg nonTangentialProperPart 1 spatial_thing)
 (arg nonTangentialProperPart 2 spatial_thing)
 
 (comment nonTangentialProperPartInverse
          "(nonTangentialProperPartInverse ?region1 ?region2) means that ?region2 lies strictly inside ?region1, touching no part of its boundary. RCC-8's NTPPi, the converse of nonTangentialProperPart.")
-(binaryPredicate nonTangentialProperPartInverse)
-(instanceRelationPredicate nonTangentialProperPartInverse)
+(binary_predicate nonTangentialProperPartInverse)
+(instance_relation_predicate nonTangentialProperPartInverse)
 (arg nonTangentialProperPartInverse 1 spatial_thing)
 (arg nonTangentialProperPartInverse 2 spatial_thing)
 
 (comment northeastOf
          "(northeastOf ?place1 ?place2) means that ?place1 lies north and east of ?place2. Both axes at once, so it is the strongest thing a single direction fact can say. The converse of southwestOf.")
-(binaryPredicate northeastOf)
-(instanceRelationPredicate northeastOf)
+(binary_predicate northeastOf)
+(instance_relation_predicate northeastOf)
 (arg northeastOf 1 spatial_thing)
 (arg northeastOf 2 spatial_thing)
 
 (comment northOf
          "(northOf ?place1 ?place2) means that ?place1 lies due north of ?place2. North on the north-south axis and level on the east-west one, so it is one of the nine base directions rather than a disjunction of them. The converse of southOf.")
-(binaryPredicate northOf)
-(instanceRelationPredicate northOf)
+(binary_predicate northOf)
+(instance_relation_predicate northOf)
 (arg northOf 1 spatial_thing)
 (arg northOf 2 spatial_thing)
 
 (comment northwardOf
          "(northwardOf ?place1 ?place2) means that ?place1 lies somewhere north of ?place2. North, northeast or northwest: it constrains the north-south axis alone and leaves the east-west one open. Derived, so it is entailed by any of the three and asserts none of them.")
-(binaryPredicate northwardOf)
-(instanceRelationPredicate northwardOf)
+(binary_predicate northwardOf)
+(instance_relation_predicate northwardOf)
 (arg northwardOf 1 spatial_thing)
 (arg northwardOf 2 spatial_thing)
 
 (comment northwestOf
          "(northwestOf ?place1 ?place2) means that ?place1 lies north and west of ?place2. Both axes at once. The converse of southeastOf.")
-(binaryPredicate northwestOf)
-(instanceRelationPredicate northwestOf)
+(binary_predicate northwestOf)
+(instance_relation_predicate northwestOf)
 (arg northwestOf 1 spatial_thing)
 (arg northwestOf 2 spatial_thing)
 
 (comment partiallyOverlapping
          "(partiallyOverlapping ?region1 ?region2) means that ?region1 and ?region2 share a part, and each also has a part outside the other. RCC-8's PO, a base relation and its own converse.")
-(binaryPredicate partiallyOverlapping)
-(instanceRelationPredicate partiallyOverlapping)
+(binary_predicate partiallyOverlapping)
+(instance_relation_predicate partiallyOverlapping)
 (arg partiallyOverlapping 1 spatial_thing)
 (arg partiallyOverlapping 2 spatial_thing)
 
 (comment partOfRegion
          "(partOfRegion ?region1 ?region2) means that ?region1 is part of ?region2. RCC-8's P, which denotes TPP, NTPP or EQ, so a region is part of itself. A derived relation: it is entailed by any of those three and asserts none of them in particular.")
-(binaryPredicate partOfRegion)
-(instanceRelationPredicate partOfRegion)
+(binary_predicate partOfRegion)
+(instance_relation_predicate partOfRegion)
 (arg partOfRegion 1 spatial_thing)
 (arg partOfRegion 2 spatial_thing)
 
 (comment properPartOfRegion
          "(properPartOfRegion ?region1 ?region2) means that ?region1 is part of ?region2 and not the whole of it. RCC-8's PP, denoting TPP or NTPP. Irreflexive, unlike partOfRegion.")
-(binaryPredicate properPartOfRegion)
-(instanceRelationPredicate properPartOfRegion)
+(binary_predicate properPartOfRegion)
+(instance_relation_predicate properPartOfRegion)
 (arg properPartOfRegion 1 spatial_thing)
 (arg properPartOfRegion 2 spatial_thing)
 
 (comment rearwardOf
          "(rearwardOf ?object ?reference) means that ?object lies somewhere behind ?reference. Behind, behind-left or behind-right: it constrains the front-back axis alone and leaves the left-right one open.")
-(binaryPredicate rearwardOf)
-(instanceRelationPredicate rearwardOf)
+(binary_predicate rearwardOf)
+(instance_relation_predicate rearwardOf)
 (arg rearwardOf 1 spatial_thing)
 (arg rearwardOf 2 spatial_thing)
 
 (comment regionConnectedTo
          "(regionConnectedTo ?region1 ?region2) means that ?region1 and ?region2 are connected. Anything but disconnected, so it is RCC-8's C, the primitive the eight base relations are defined from, and the weakest claim that says anything at all.")
-(binaryPredicate regionConnectedTo)
-(instanceRelationPredicate regionConnectedTo)
+(binary_predicate regionConnectedTo)
+(instance_relation_predicate regionConnectedTo)
 (arg regionConnectedTo 1 spatial_thing)
 (arg regionConnectedTo 2 spatial_thing)
 
 (comment regionDiscreteFrom
          "(regionDiscreteFrom ?region1 ?region2) means that ?region1 and ?region2 share no part. Disconnected or externally connected, so it is RCC-8's DR, and the complement of regionOverlaps.")
-(binaryPredicate regionDiscreteFrom)
-(instanceRelationPredicate regionDiscreteFrom)
+(binary_predicate regionDiscreteFrom)
+(instance_relation_predicate regionDiscreteFrom)
 (arg regionDiscreteFrom 1 spatial_thing)
 (arg regionDiscreteFrom 2 spatial_thing)
 
 (comment regionOverlaps
          "(regionOverlaps ?region1 ?region2) means that ?region1 and ?region2 share a part. Anything but disconnected or merely touching, so it is RCC-8's O, and the complement of regionDiscreteFrom.")
-(binaryPredicate regionOverlaps)
-(instanceRelationPredicate regionOverlaps)
+(binary_predicate regionOverlaps)
+(instance_relation_predicate regionOverlaps)
 (arg regionOverlaps 1 spatial_thing)
 (arg regionOverlaps 2 spatial_thing)
 
 (comment rightOf
          "(rightOf ?object ?reference) means that ?object lies directly to the right of ?reference. Right on the left-right axis and level on the front-back one, in the frame of reference the context is. The converse of leftOf.")
-(binaryPredicate rightOf)
-(instanceRelationPredicate rightOf)
+(binary_predicate rightOf)
+(instance_relation_predicate rightOf)
 (arg rightOf 1 spatial_thing)
 (arg rightOf 2 spatial_thing)
 
 (comment rightwardOf
          "(rightwardOf ?object ?reference) means that ?object lies somewhere to the right of ?reference. Right, front-right or behind-right: it constrains the left-right axis alone and leaves the front-back one open.")
-(binaryPredicate rightwardOf)
-(instanceRelationPredicate rightwardOf)
+(binary_predicate rightwardOf)
+(instance_relation_predicate rightwardOf)
 (arg rightwardOf 1 spatial_thing)
 (arg rightwardOf 2 spatial_thing)
 
 (comment sameLocationAs
          "(sameLocationAs ?place1 ?place2) means that ?place1 and ?place2 coincide. Level on both compass axes, and the identity of the direction algebra. A claim about position rather than about the identity of the two terms, so it is not the equality closure's sameAs.")
-(binaryPredicate sameLocationAs)
-(instanceRelationPredicate sameLocationAs)
+(binary_predicate sameLocationAs)
+(instance_relation_predicate sameLocationAs)
 (arg sameLocationAs 1 spatial_thing)
 (arg sameLocationAs 2 spatial_thing)
 
 (comment sameRelativePositionAs
          "(sameRelativePositionAs ?object ?reference) means that ?object and ?reference stand in the same place in the frame the context is. Level on both of that frame's axes, and the identity of the relative-direction algebra. A claim about a frame's own axes, so it is neither the compass's sameLocationAs nor the equality closure's sameAs.")
-(binaryPredicate sameRelativePositionAs)
-(instanceRelationPredicate sameRelativePositionAs)
+(binary_predicate sameRelativePositionAs)
+(instance_relation_predicate sameRelativePositionAs)
 (arg sameRelativePositionAs 1 spatial_thing)
 (arg sameRelativePositionAs 2 spatial_thing)
 
 (comment southeastOf
          "(southeastOf ?place1 ?place2) means that ?place1 lies south and east of ?place2. Both axes at once. The converse of northwestOf.")
-(binaryPredicate southeastOf)
-(instanceRelationPredicate southeastOf)
+(binary_predicate southeastOf)
+(instance_relation_predicate southeastOf)
 (arg southeastOf 1 spatial_thing)
 (arg southeastOf 2 spatial_thing)
 
 (comment southOf
          "(southOf ?place1 ?place2) means that ?place1 lies due south of ?place2. South on the north-south axis and level on the east-west one. The converse of northOf.")
-(binaryPredicate southOf)
-(instanceRelationPredicate southOf)
+(binary_predicate southOf)
+(instance_relation_predicate southOf)
 (arg southOf 1 spatial_thing)
 (arg southOf 2 spatial_thing)
 
 (comment southwardOf
          "(southwardOf ?place1 ?place2) means that ?place1 lies somewhere south of ?place2. South, southeast or southwest: it constrains the north-south axis alone and leaves the east-west one open.")
-(binaryPredicate southwardOf)
-(instanceRelationPredicate southwardOf)
+(binary_predicate southwardOf)
+(instance_relation_predicate southwardOf)
 (arg southwardOf 1 spatial_thing)
 (arg southwardOf 2 spatial_thing)
 
 (comment southwestOf
          "(southwestOf ?place1 ?place2) means that ?place1 lies south and west of ?place2. Both axes at once. The converse of northeastOf.")
-(binaryPredicate southwestOf)
-(instanceRelationPredicate southwestOf)
+(binary_predicate southwestOf)
+(instance_relation_predicate southwestOf)
 (arg southwestOf 1 spatial_thing)
 (arg southwestOf 2 spatial_thing)
 
 (comment spatiallyDisconnected
          "(spatiallyDisconnected ?region1 ?region2) means that ?region1 and ?region2 share no point at all. RCC-8's DC, a base relation, its own converse, and the weakest thing two regions can stand in.")
-(binaryPredicate spatiallyDisconnected)
-(instanceRelationPredicate spatiallyDisconnected)
+(binary_predicate spatiallyDisconnected)
+(instance_relation_predicate spatiallyDisconnected)
 (arg spatiallyDisconnected 1 spatial_thing)
 (arg spatiallyDisconnected 2 spatial_thing)
 
 (comment spatiallyEqual
          "(spatiallyEqual ?region1 ?region2) means that ?region1 and ?region2 occupy exactly the same extent. RCC-8's EQ, and the identity of the algebra. A claim about extent rather than about the identity of the two terms, so it is not the equality closure's sameAs: two coextensive regions are still two regions.")
-(binaryPredicate spatiallyEqual)
-(instanceRelationPredicate spatiallyEqual)
+(binary_predicate spatiallyEqual)
+(instance_relation_predicate spatiallyEqual)
 (arg spatiallyEqual 1 spatial_thing)
 (arg spatiallyEqual 2 spatial_thing)
 
 (comment tangentialProperPart
          "(tangentialProperPart ?region1 ?region2) means that ?region1 lies inside ?region2 and touches its boundary. RCC-8's TPP, a base relation, with tangentialProperPartInverse as its converse.")
-(binaryPredicate tangentialProperPart)
-(instanceRelationPredicate tangentialProperPart)
+(binary_predicate tangentialProperPart)
+(instance_relation_predicate tangentialProperPart)
 (arg tangentialProperPart 1 spatial_thing)
 (arg tangentialProperPart 2 spatial_thing)
 
 (comment tangentialProperPartInverse
          "(tangentialProperPartInverse ?region1 ?region2) means that ?region2 lies inside ?region1 and touches its boundary. RCC-8's TPPi, the converse of tangentialProperPart.")
-(binaryPredicate tangentialProperPartInverse)
-(instanceRelationPredicate tangentialProperPartInverse)
+(binary_predicate tangentialProperPartInverse)
+(instance_relation_predicate tangentialProperPartInverse)
 (arg tangentialProperPartInverse 1 spatial_thing)
 (arg tangentialProperPartInverse 2 spatial_thing)
 
 (comment veryCloseTo
          "(veryCloseTo ?thing1 ?thing2) means that ?thing1 and ?thing2 are very close together. The nearest class of the distance chain above zero. The seven classes tile the whole range without overlapping, so exactly one of them holds of any pair.")
-(binaryPredicate veryCloseTo)
-(instanceRelationPredicate veryCloseTo)
+(binary_predicate veryCloseTo)
+(instance_relation_predicate veryCloseTo)
 (arg veryCloseTo 1 spatial_thing)
 (arg veryCloseTo 2 spatial_thing)
 
 (comment veryFarFrom
          "(veryFarFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are very far apart. The last class of the distance chain, unbounded above.")
-(binaryPredicate veryFarFrom)
-(instanceRelationPredicate veryFarFrom)
+(binary_predicate veryFarFrom)
+(instance_relation_predicate veryFarFrom)
 (arg veryFarFrom 1 spatial_thing)
 (arg veryFarFrom 2 spatial_thing)
 
 (comment westOf
          "(westOf ?place1 ?place2) means that ?place1 lies due west of ?place2. West on the east-west axis and level on the north-south one. The converse of eastOf.")
-(binaryPredicate westOf)
-(instanceRelationPredicate westOf)
+(binary_predicate westOf)
+(instance_relation_predicate westOf)
 (arg westOf 1 spatial_thing)
 (arg westOf 2 spatial_thing)
 
 (comment westwardOf
          "(westwardOf ?place1 ?place2) means that ?place1 lies somewhere west of ?place2. West, northwest or southwest: it constrains the east-west axis alone and leaves the north-south one open.")
-(binaryPredicate westwardOf)
-(instanceRelationPredicate westwardOf)
+(binary_predicate westwardOf)
+(instance_relation_predicate westwardOf)
 (arg westwardOf 1 spatial_thing)
 (arg westwardOf 2 spatial_thing)
 
 (comment withinNearDistanceOf
          "(withinNearDistanceOf ?thing1 ?thing2) means that ?thing1 and ?thing2 are no further apart than near. Co-located, very close, close or near: the lower end of the distance chain.")
-(binaryPredicate withinNearDistanceOf)
-(instanceRelationPredicate withinNearDistanceOf)
+(binary_predicate withinNearDistanceOf)
+(instance_relation_predicate withinNearDistanceOf)
 (arg withinNearDistanceOf 1 spatial_thing)
 (arg withinNearDistanceOf 2 spatial_thing)

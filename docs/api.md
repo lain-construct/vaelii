@@ -176,7 +176,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; hypotheses minted as :default premises in a scratch
                                                ; context -> {:solutions :hypotheses :refused
                                                ; :context :status}.  Torn down before it returns
-                                               ; unless {:keep? true}; only (abduciblePredicate P)
+                                               ; unless {:keep? true}; only (abducible_predicate P)
                                                ; makes a predicate assumable (docs/abduction.md)
 (abduce-discard! kb result)                     ; discard a kept abduction's context and everything in it
 (query-plan kb goal context)                    ; a sentence -> applicable provers: est-bindings + cost
@@ -208,7 +208,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; `(pred agent sentence)` is answered by proving
                                                ; `sentence` in the agent's context, as `believes`
                                                ; is.  A convenience over asserting
-                                               ; `(modalPredicate pred)`, so the grant follows
+                                               ; `(modal_predicate pred)`, so the grant follows
                                                ; retraction and is scoped by the context holding
                                                ; it — `CxCore` by default (docs/belief.md) -> kb
 (add-reasoner kb :allen :rcc8)                 ; register shipped ones by name -> kb
@@ -281,7 +281,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; — the matcher's own three filters:
                                                ; believed, visible, not `except`-hidden
 (disjoint? kb type-a type-b [context])         ; provable disjointness (scoped with a context)
-(disjoint-metatypes kb) / (metatype-members kb m) ; the declared `disjointMetatype` cliques and one
+(disjoint-metatypes kb) / (metatype-members kb m) ; the declared `disjoint_metatype` cliques and one
                                                ; clique's members — consulted, never materialized,
                                                ; so no `(disjoint a b)` pair is stored to read back
 ;; the taxonomy, read (thin delegations to vaelii.impl.taxonomy — reads only, since
@@ -394,7 +394,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; storing it — same map shape as `sentex`, no
                                                 ; `:id`; a stable content key / address
 ;; the meta-sentex handle term: `(sentexHandle H)` names a stored sentex so a meta can
-;; predicate about it — `except` / `exceptWhen` and a `targetFollowingPredicate` reply
+;; predicate about it — `except` / `exceptWhen` and a `target_following_predicate` reply
 (sentex-handle n)                               ; the (sentexHandle n) term naming handle n
 (sentex-handle? form) / (handle-id form)        ; is it one? / the id it names, or nil
 (provenance kb handle)                          ; the per-handle bookkeeping map, or nil
@@ -422,7 +422,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; / :unsupported (+ the missing antecedents) / :not-stored
 (why-not kb sentence context)                   ; the same four, plus the two only this arity
                                                 ; can reach: :excepted (+ the exceptWhen that blocks
-                                                ; it) and :closed-extent (a closedExtentPredicate
+                                                ; it) and :closed-extent (a closed_extent_predicate
                                                 ; grant says the extent is complete and this is not
                                                 ; in it) — neither is ever stored, so
                                                 ; there is no handle to pass.  A stored sentence
@@ -527,9 +527,9 @@ their bindings, so there is no per-literal context to honor; ask the whole conju
 `Ctx`.  There is no `ist` on a rule's antecedent side (docs/contexts.md).
 
 A **sentex map** has the stable keys `:id` (the handle), `:sentence`, `:context`,
-`:truth`, and for a rule `:antecedent` / `:consequent` / `:direction` / `:defeasible`.
+`:polarity`, and for a rule `:antecedent` / `:consequent` / `:direction` / `:defeasible`.
 Key into it.
-The concrete record class behind it (`vaelii.impl.sentex/AtomicSentex` / `RuleSentex`) is an
+The concrete record class behind it (`vaelii.impl.sentex/LiteralSentex` / `RuleSentex`) is an
 `impl` detail and not part of the contract — never `instance?`-test it.
 
 **The sentex-map readers are lazy, over live state.**  `sentexes-matching` and the three
@@ -569,7 +569,7 @@ admitted, and needs the sentences that *did* land to stay landed.  Rolling a bul
 back would also cost an audit entry per premise mark, on the one path whose whole reason
 for existing is that it is the fast one.  The depth potential is repaired on the way out
 even so, since nothing else would ever repair it and every later reachability read would
-pay for that.  **Where a batch must be all-or-nothing, use `edit!`** — the atomic door,
+pay for that.  **Where a batch must be all-or-nothing, use `edit!`** — the all-or-nothing door,
 and the one with a `:remove` half.
 
 **`bulk-assert-facts!`** is `assert-many` with the machinery a *trusted* corpus does not
@@ -643,7 +643,7 @@ and `{:cone C}` to `C` plus every context it sees.
 **Premises only, and no handles.** A derived sentex is what the engine concluded, so
 writing it would store as a premise what the KB believes as a conclusion; chaining puts it
 back at load. A premise that names a sentex *by handle* — an `(except H)`, a
-`targetFollowingPredicate` meta — has no text form at all and is counted in `:skipped`:
+`target_following_predicate` meta — has no text form at all and is counted in `:skipped`:
 the number is a fact about this store. For those, and for handle identity in general, the
 door is `export!`.
 
@@ -764,7 +764,7 @@ context — so what comes back is shaped like what the term *is*.  The browser's
 renders exactly this and computes none of it a second time ([web.md](web.md)).
 
 Two properties are worth stating on their own.  **It is scoped**, and that is not a
-detail: an `arg` declaration, an `abduciblePredicate` grant and a `comment` are each a
+detail: an `arg` declaration, an `abducible_predicate` grant and a `comment` are each a
 policy of the context that states them, so `describe` reads them from the asking context's
 `genlCx` up-cone and two vantages give two different, both-correct answers.  A read that
 answered from the whole KB would report a declaration to a reader for whom it does not
@@ -974,9 +974,9 @@ Assert known-true facts with `{:strength :monotonic}`; the default is `:default`
 `opts` on assert: `{:chain? false}` skips forward chaining, `{:max-depth n}`
 bounds it. `vaelii.impl.core-context/load-into` asserts the CxCore vocabulary — every special
 predicate the engine interprets (types/contexts, arg/genlArg/interArg,
-disjoint/disjointMetatype,
+disjoint/disjoint_metatype,
 implies + the `set/*Rule` wrappers, the transitive/symmetric/reflexive/functional/
-inverse/decontextualizedPredicate metadata, `not`, `contradicts`, `ist`, and the
+inverse/decontextualized_predicate metadata, `not`, `contradicts`, `ist`, and the
 predicate meta-ontology (`predicate` ⊃ unary/binary/ternary + the algebraic
 subtypes)), each documented by a `(comment <term> "...")` sentex so the KB
 documents itself in its own representation (`core-context/comment-of` reads them back),
@@ -989,7 +989,7 @@ never run code). Every sentence about a term is grouped **term-centrically** (bl
 natural sort order), and every context file is **discovered on the classpath and loaded
 on kb start** (`seed/layer-contexts`), so adding a KB is dropping a `Cx<Name>.txt`
 file — no code change. What stays in `starter.clj` is the *order the layers* load in
-and the one computed batch (every type is a `unaryPredicate`, placed in CxCore).
+and the one computed batch (every type is a `unary_predicate`, placed in CxCore).
 The context topology is a **five-layer spindle**, most general (top) to most specific
 (bottom): **CxCore** (the vocabulary head, every context sees it) → the **upper**
 definitional band (`resources/kb/upper/`: `CxAbstract` = the abstract type skeleton, body
@@ -1015,8 +1015,8 @@ changes) and the rules with **connected conjunctive antecedents** (antecedents s
 a variable so they join — grandparentOf, part-location, owns-parts).
 
 **A binary predicate says which level it relates at, unless its two ends disagree.**
-`relationKind` is a `disjointMetatype` over `instanceRelationPredicate` and
-`typeRelationPredicate`: `parentOf`, `northOf` and `madeOf` relate individuals; `genl`,
+`relation_kind` is a `disjoint_metatype` over `instance_relation_predicate` and
+`type_relation_predicate`: `parentOf`, `northOf` and `madeOf` relate individuals; `genl`,
 `disjoint`, `largerThan`, `partType`, `capabilityType` and `siblingDisjointException`
 relate kinds. *At most* one, not
 exactly one — the unmarked are those whose two ends sit at different levels, or at no
@@ -1025,8 +1025,8 @@ sides agree; `result` and `genlResult` relate a function to a type;
 `functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
 relates one animal to a capability kind). The mark is not decoration: it decides which
 argument-check family the predicate may use, one for **every** position, which is why a
-mixed predicate cannot carry one — `arg` on a `typeRelationPredicate` and `genlArg` on
-an `instanceRelationPredicate` are both refused `:arg-constraint-kind`. The distinction is
+mixed predicate cannot carry one — `arg` on a `type_relation_predicate` and `genlArg` on
+an `instance_relation_predicate` are both refused `:arg-constraint-kind`. The distinction is
 what `typeToInstancePred` is stated over, and it is the difference between `(largerThan
 dog cat)` — dogs are bigger than cats — and a claim about two particular animals.
 

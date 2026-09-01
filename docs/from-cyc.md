@@ -32,7 +32,8 @@ third column is the one to read.
 The four spellings, because `assert` enforces them (→ [naming.md](naming.md)):
 `parentOf` is a predicate, `Fido` an individual, `physical_object` a type, `CxCore` a
 context. A bare lowercase word like `dog` is both a predicate and a type name, and arity
-decides which; an underscore commits the name to arity 1.
+decides which; a multi-word name commits itself — an underscore to arity 1, an interior
+capital to arity 2 and above.
 
 ## What a Cyclist's habits do here
 
@@ -46,7 +47,7 @@ the constraint's own type does not subsume is enough on its own.
 There is one open-world escape and it is deliberate: a **symbol** the `genl` hierarchy
 places nowhere *the asserting context can see* cannot contradict anything, so it passes.
 `(parentOf Zork Mary)` stores when nothing is known about `Zork`. A **literal** is not in
-that escape: its EDN kind is knowable from the literal itself and those kinds sit in the
+that escape: its EDN kind is knowable from the value itself and those kinds sit in the
 same `genl` lattice, so `(parentOf 212 Mary)` is refused `:arg-type` — 212 is a `number`,
 and `number` does not reach `animal` ([argtypes.md](argtypes.md)).
 
@@ -75,16 +76,16 @@ be decided → [solving.md](solving.md).
 |---|---|---|
 | `negationPreds`, unary | `(disjoint P Q)` | native, because collections *are* predicates; closed under `genl` |
 | `negationPreds`, binary and up | a pair of implication rules | no declarative form — see below |
-| `disjoint` | `disjoint` | same reading, and `(disjointMetatype M)` makes every member pairwise disjoint without writing the pairs |
-| `SiblingDisjointCollectionType` | `siblingDisjoint` | a mark on the collection; its `genl`-specializations are pairwise disjoint unless one genls the other, the clique keyed off the genl closure rather than written |
-| `siblingDisjointExceptions` (plural) | `siblingDisjointException` (**singular**, house style) | exempts one pair the sibling mark or a `disjointMetatype` would force disjoint; read over the whole KB (no scoped variant, unlike Cyc's per-Mt exceptions), pair-local, and it does not leak to subtypes |
+| `disjoint` | `disjoint` | same reading, and `(disjoint_metatype M)` makes every member pairwise disjoint without writing the pairs |
+| `SiblingDisjointCollectionType` | `sibling_disjoint` | a mark on the collection; its `genl`-specializations are pairwise disjoint unless one genls the other, the clique keyed off the genl closure rather than written |
+| `siblingDisjointExceptions` (plural) | `siblingDisjointException` (**singular**, house style) | exempts one pair the sibling mark or a `disjoint_metatype` would force disjoint; read over the whole KB (no scoped variant, unlike Cyc's per-Mt exceptions), pair-local, and it does not leak to subtypes |
 | `SymmetricBinaryPredicate` | `(symmetric P)` | |
 | `AsymmetricBinaryPredicate` | `(asymmetric P)` | convicts a claim whose **converse** is believed; it does not make `P` irreflexive, and `(P a a)` is admitted |
 | `genlInverse` | a forward rule | `(inverse P Q)` exists but is the stronger biconditional |
 | `unk` | `unknown` | negation as failure, ground-only, evaluated at level 6 and storing nothing. A conjunctive argument is joined, so its conjuncts may share a quantifier's variable, and `forall` is sugar for the nested case → [naf.md](naf.md) |
 | — | `(contradictions kb)` | no Cyc equivalent: the pairs that coexist, ordered by content |
 | `assertedMoreSpecifically` | — | no equivalent. Specificity is behavioral: a stated specific claim undercuts an inherited general one, so nothing is derived to arbitrate → [inherit.md](inherit.md) |
-| `completeExtentEnumerable` | `(closedExtentPredicate P)` | a **counterpart**, not a translation. Both say a predicate's extent is complete, and three things differ: it is **belief-following** (a defeated or retracted member leaves the extent) rather than a claim about what is stored; it is **context-scoped**, read from the asking context's `genlCx` up-cone, so one theory may close what a sibling reading the same predicate leaves open; and the extent it closes is what level 6 derives, so a member reachable only by backward chaining is not in it. Closure stays choosable per goal as well, by `unknown` / `thereExists` / `forall` → [naf.md](naf.md) |
+| `completeExtentEnumerable` | `(closed_extent_predicate P)` | a **counterpart**, not a translation. Both say a predicate's extent is complete, and three things differ: it is **belief-following** (a defeated or retracted member leaves the extent) rather than a claim about what is stored; it is **context-scoped**, read from the asking context's `genlCx` up-cone, so one theory may close what a sibling reading the same predicate leaves open; and the extent it closes is what level 6 derives, so a member reachable only by backward chaining is not in it. Closure stays choosable per goal as well, by `unknown` / `thereExists` / `forall` → [naf.md](naf.md) |
 | `notAssertible` | — | no equivalent |
 
 Binary mutual exclusion is written as the two rules, and `(not S)` is a stored sentex
@@ -241,7 +242,7 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - Defeasible defaults with exceptions → [exceptions.md](exceptions.md)
 - The relation-property marks, enforced rather than recorded: `symmetric`, `asymmetric`,
   `transitive`, `reflexive`, `functional`, `functionalInArg`, `inverse`, `irreflexive`,
-  `antiSymmetric`, `antiTransitive`, `equivalenceRelation`, `arity` and `variableArity`
+  `anti_symmetric`, `anti_transitive`, `equivalence_relation`, `arity` and `variable_arity`
   → [taxonomy.md](taxonomy.md). `functionalInArg` is the one with no Cyc counterpart to
   map from: it names the *determined* argument rather than fixing it at 2, so a
   composite determinant — `(namespace, path) → object` — is sayable in one declaration

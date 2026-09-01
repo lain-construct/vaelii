@@ -47,13 +47,13 @@
 
    {:id "disjoint-metatype" :group "Taxonomy"
     :title "Ten separations from one declaration"
-    :shows "Nobody wrote that a penguin is not a dog. One disjointMetatype separates the
+    :shows "Nobody wrote that a penguin is not a dog. One disjoint_metatype separates the
             five vertebrate classes pairwise, and genl carries each separation down to
             every subtype. The pairs are consulted, never stored: retract the metatype
             and all ten go at once."
-    :rests-on [['(disjointMetatype vertebrateClass) 'CxOrganism]
-               ['(vertebrateClass bird) 'CxOrganism]
-               ['(vertebrateClass mammal) 'CxOrganism]]
+    :rests-on [['(disjoint_metatype vertebrate_class) 'CxOrganism]
+               ['(vertebrate_class bird) 'CxOrganism]
+               ['(vertebrate_class mammal) 'CxOrganism]]
     :goal '(disjoint penguin dog) :context 'CxWell :expect :yes}
 
    {:id "arg-preserving" :group "Taxonomy"
@@ -80,12 +80,12 @@
    {:id "metadata-to-type" :group "Predicates about predicates"
     :title "Declaring a property concludes a type"
     :shows "(symmetric friendOf) is metadata the engine reads. Because `symmetric` is
-            itself a kind of binaryPredicate — (genl symmetric binaryPredicate) in CxCore
-            — the same assertion classifies friendOf as a binaryPredicate, with no derived
+            itself a kind of binary_predicate — (genl symmetric binary_predicate) in CxCore
+            — the same assertion classifies friendOf as a binary_predicate, with no derived
             twin between the mark and the type."
     :rests-on [['(symmetric friendOf) 'CxSociety]
-               ['(genl symmetric binaryPredicate) 'CxCore]]
-    :goal '(binaryPredicate friendOf) :context 'CxWell :expect :yes}
+               ['(genl symmetric binary_predicate) 'CxCore]]
+    :goal '(binary_predicate friendOf) :context 'CxWell :expect :yes}
 
    {:id "arity-cycle" :group "Predicates about predicates"
     :title "Two rules that derive each other"
@@ -93,19 +93,19 @@
             asserting either keeps the whole cycle believed. Positive recursion is
             ordinary — it is a cycle through negation that the stratification check
             refuses."
-    :rests-on [['(binaryPredicate largerThan) 'CxAbstract]
-               ['(implies (and (binaryPredicate ?p)) (arity ?p 2)) 'CxCore]]
+    :rests-on [['(binary_predicate largerThan) 'CxAbstract]
+               ['(implies (and (binary_predicate ?p)) (arity ?p 2)) 'CxCore]]
     :goal '(arity largerThan 2) :context 'CxWell :expect :yes}
 
    {:id "type-level" :group "Predicates about predicates"
     :title "A relation between kinds, marked as one"
     :shows "largerThan relates kinds and parentOf relates individuals, and the KB says
-            which is which. relationKind is a disjointMetatype over the two, so a
+            which is which. relation_kind is a disjoint_metatype over the two, so a
             predicate is at most one of them — asking whether largerThan relates
             individuals is answered no, not merely left unanswered."
-    :rests-on [['(typeRelationPredicate largerThan) 'CxAbstract]
-               ['(disjointMetatype relationKind) 'CxCore]]
-    :goal '(instanceRelationPredicate largerThan) :context 'CxWell :expect :no}
+    :rests-on [['(type_relation_predicate largerThan) 'CxAbstract]
+               ['(disjoint_metatype relation_kind) 'CxCore]]
+    :goal '(instance_relation_predicate largerThan) :context 'CxWell :expect :no}
 
    {:id "part-type" :group "Predicates about predicates"
     :title "Preserved on one position and not the other"
@@ -153,19 +153,19 @@
             the subtype closure — so it reaches every kind of fish the ontology will
             ever hold, with no upkeep."
     :rests-on [['(exceptWhen (fish ?x)
-                             (set/defaultRule (implies (and (animal ?x)) (breathesAir ?x))))
+                             (set/defaultRule (implies (and (animal ?x)) (breathes_air ?x))))
                 'CxBiology]]
     :premises '[(fish NemoEx)]
-    :goal '(breathesAir NemoEx) :expect :no}
+    :goal '(breathes_air NemoEx) :expect :no}
 
    {:id "cold-blooded" :group "Defaults and exceptions"
     :title "A property read off the class"
     :shows "Nothing is stored about Shelly's blood. Warm-bloodedness follows from the
             vertebrate class, the five classes are pairwise disjoint, so exactly one of
             the five rules fires and the KB cannot hold both halves."
-    :rests-on [['(implies (and (reptile ?x)) (not (warmBlooded ?x))) 'CxBiology]]
+    :rests-on [['(implies (and (reptile ?x)) (not (warm_blooded ?x))) 'CxBiology]]
     :premises '[(tortoise ShellyEx)]
-    :goal '(not (warmBlooded ShellyEx)) :expect :yes}
+    :goal '(not (warm_blooded ShellyEx)) :expect :yes}
 
    ;; ---- joins ---------------------------------------------------------
    {:id "grandparent" :group "Rules that join"

@@ -52,7 +52,7 @@
   yields the same id however the engine happened to order the sides — the key the driver
   attaches lifecycle state to.
 
-  Two handles for a rebuttal and three for an `antiTransitive` chain: a nogood is a *set*
+  Two handles for a rebuttal and three for an `anti_transitive` chain: a nogood is a *set*
   and the engine reports it whole (docs/nmtms.md), so this reads `:handles` rather than
   destructuring it as a pair."
   [entry]
@@ -74,7 +74,7 @@
   of the clash and not of argument order.  `id` is a `dispute-id` or any handle seq.
 
   **As many handles as the clash has**, never the first two.  A nogood is a *set* and
-  `antiTransitive` forms one over three sentexes (docs/nmtms.md), so `disputes-in` hands
+  `anti_transitive` forms one over three sentexes (docs/nmtms.md), so `disputes-in` hands
   back three-handle entries — and a term keyed on a pair would name two different
   three-member disputes identically whenever they shared their two lowest handles, and
   name a three-member one the same as the pair over those two.  The marks this term keys

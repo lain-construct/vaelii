@@ -4,8 +4,8 @@
   "`(quotedArg pred n type)` — the mention twin of `arg` (docs/argtypes.md).  Where `arg`
   types what an argument *denotes*, `quotedArg` types the argument *as a term*: its EDN
   kind (string, number with integer below it, symbol) checked through genl against a
-  syntactic type.  `(quotedArg nameOfGuy 1 string)` refuses `(nameOfGuy 5)` — 5 is a
-  number, not a string — and admits `(nameOfGuy \"Bob\")`."
+  syntactic type.  `(quotedArg name_of_guy 1 string)` refuses `(name_of_guy 5)` — 5 is a
+  number, not a string — and admits `(name_of_guy \"Bob\")`."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
@@ -21,20 +21,20 @@
   (:type (first (v/check kb sentence 'CxUniverse))))
 
 (tu/deftest-kb quotedarg-types-an-argument-by-its-literal-kind
-  (tu/with-terms [nameOfGuy]
-    (v/assert kb (list 'unaryPredicate nameOfGuy) 'CxUniverse)
-    (v/assert kb (list 'quotedArg nameOfGuy 1 'string) 'CxUniverse)
-    (testing "a string literal satisfies it — and stores"
-      (is (nil? (refusal kb (list nameOfGuy "Bob"))))
-      (is (some? (v/assert kb (list nameOfGuy "Bob") 'CxUniverse))))
+  (tu/with-terms [name_of_guy]
+    (v/assert kb (list 'unary_predicate name_of_guy) 'CxUniverse)
+    (v/assert kb (list 'quotedArg name_of_guy 1 'string) 'CxUniverse)
+    (testing "a string value satisfies it — and stores"
+      (is (nil? (refusal kb (list name_of_guy "Bob"))))
+      (is (some? (v/assert kb (list name_of_guy "Bob") 'CxUniverse))))
     (testing "a number does not — 5 is not a string as a term"
-      (is (= :quoted-arg-type (refusal kb (list nameOfGuy 5)))))
+      (is (= :quoted-arg-type (refusal kb (list name_of_guy 5)))))
     (testing "nor does a symbol — a name is not a string, whatever it denotes"
-      (is (= :quoted-arg-type (refusal kb (list nameOfGuy 'Muffet)))))))
+      (is (= :quoted-arg-type (refusal kb (list name_of_guy 'Muffet)))))))
 
 (tu/deftest-kb quotedarg-follows-genl-among-the-syntactic-types
   (tu/with-terms [countOf]
-    (v/assert kb (list 'unaryPredicate countOf) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate countOf) 'CxUniverse)
     (v/assert kb (list 'quotedArg countOf 1 'number) 'CxUniverse)
     (testing "an integer is a number, so (quotedArg countOf 1 number) admits it"
       (is (nil? (refusal kb (list countOf 5)))))
@@ -48,9 +48,9 @@
   ;; its syntax — so no syntactic kind would be the right answer and the check stays
   ;; silent, the same open-world floor `arg` gives an argument outside the hierarchy.
   (tu/with-terms [holds MsrFn]
-    (v/assert kb (list 'unaryPredicate holds) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate holds) 'CxUniverse)
     (v/assert kb (list 'quotedArg holds 1 'string) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction MsrFn) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function MsrFn) 'CxUniverse)
     (is (nil? (refusal kb (list holds (list MsrFn 5))))
         "a compound is exempt, not convicted")
     (testing "while a kind that does have a name is decided rather than waved through"
@@ -61,11 +61,11 @@
   ;; `arg` (referent) and `quotedArg` (term) are separate checks on one position: the same
   ;; sentence can satisfy one and violate the other.
   (tu/with-terms [tagOf label]
-    (v/assert kb (list 'unaryPredicate tagOf) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate tagOf) 'CxUniverse)
     (v/assert kb (list 'genl label 'thing) 'CxUniverse)
     (v/assert kb (list 'arg tagOf 1 'label) 'CxUniverse)          ; the REFERENT must be a label
     (v/assert kb (list 'quotedArg tagOf 1 'string) 'CxUniverse)   ; the TERM must be a string
-    (testing "a string literal passes quotedArg but is outside the label hierarchy — arg exempts it open-world"
+    (testing "a string value passes quotedArg but is outside the label hierarchy — arg exempts it open-world"
       (is (nil? (refusal kb (list tagOf "x")))))))
 
 (tu/deftest-kb quotedarg-is-open-world-about-a-non-syntactic-declared-type
@@ -73,7 +73,7 @@
   ;; Cyc quoted-type that did not map to string/number/symbol) leaves the constraint
   ;; open-world — the check never convicts a literal against a type it cannot judge.
   (tu/with-terms [speaks agent]
-    (v/assert kb (list 'unaryPredicate speaks) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate speaks) 'CxUniverse)
     (v/assert kb (list 'genl agent 'thing) 'CxUniverse)
     (v/assert kb (list 'quotedArg speaks 1 'agent) 'CxUniverse)   ; agent is not a syntactic type
     (is (nil? (refusal kb (list speaks "Bob")))
@@ -84,18 +84,18 @@
 (tu/deftest-kb one-name-serves-both-readings
   ;; `string` is the KB's only name for text and both declarations read it (docs/
   ;; argtypes.md): `arg` asks what the argument denotes, `quotedArg` what is written
-  ;; there.  A string literal denotes itself and so satisfies both; a symbol satisfies
+  ;; there.  A string value denotes itself and so satisfies both; a symbol satisfies
   ;; the first open-world — it may yet name text — and fails the second, which is the
   ;; whole of the difference the two words used to carry between them.
   (tu/with-terms [textOf Muffet SomeDoc]
-    (v/assert kb (list 'binaryPredicate textOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate textOf) 'CxUniverse)
     (v/assert kb (list 'arg textOf 2 'string) 'CxUniverse)
     (testing "arg exempts a symbol: nothing says what it denotes"
       (is (nil? (refusal kb (list textOf Muffet SomeDoc)))))
     (v/assert kb (list 'quotedArg textOf 2 'string) 'CxUniverse)
     (testing "quotedArg convicts the same sentence — a symbol is not the literal"
       (is (= :quoted-arg-type (refusal kb (list textOf Muffet SomeDoc)))))
-    (testing "and a string literal satisfies both at once"
+    (testing "and a string value satisfies both at once"
       (is (nil? (refusal kb (list textOf Muffet "some text")))))))
 
 (tu/deftest-kb arg-and-quotedarg-can-type-one-symbol-in-both-registers
@@ -103,8 +103,8 @@
   ;; `arg` checks the denotation; `quotedArg` checks the written term.  Neither reading
   ;; should erase or contaminate the other.
   (tu/with-terms [testPred parentOf]
-    (v/assert kb (list 'unaryPredicate testPred) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate testPred) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (v/assert kb (list 'genl 'symbol 'intangible) 'CxUniverse)
     (v/assert kb (list 'arg testPred 1 'predicate) 'CxUniverse)
     (v/assert kb (list 'quotedArg testPred 1 'symbol) 'CxUniverse)
@@ -118,14 +118,14 @@
   ;; mention and remains WFF.  This pins the boundary without conflating it with the
   ;; preceding predicate's simultaneous arg/quotedArg declarations.
   (tu/with-terms [quotedTestPred parentOf Quote PredicateQuote]
-    (v/assert kb (list 'unaryPredicate quotedTestPred) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate parentOf) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate quotedTestPred) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
     (v/assert kb (list 'arg quotedTestPred 1 'symbol) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction Quote) 'CxUniverse)
-    (v/assert kb (list 'quotingFunction Quote) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function Quote) 'CxUniverse)
+    (v/assert kb (list 'quoting_function Quote) 'CxUniverse)
     (v/assert kb (list 'result Quote 'symbol) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction PredicateQuote) 'CxUniverse)
-    (v/assert kb (list 'quotingFunction PredicateQuote) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function PredicateQuote) 'CxUniverse)
+    (v/assert kb (list 'quoting_function PredicateQuote) 'CxUniverse)
     (v/assert kb (list 'result PredicateQuote 'predicate) 'CxUniverse)
     (is (= :arg-type (refusal kb (list quotedTestPred parentOf)))
         "using parentOf denotes a predicate, not a symbol")

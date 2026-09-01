@@ -4,7 +4,7 @@
   reasoning subsystem, and how an outside model judges the derived answers.
 - **Not here:** reading English into the KB → [reading.md](reading.md); the LLM
   edit-proposal pipeline the oracle sits beside → [llm.md](llm.md).
-- **Assumes:** context, defeasible, `abduciblePredicate` → [glossary.md](glossary.md).
+- **Assumes:** context, defeasible, `abducible_predicate` → [glossary.md](glossary.md).
 
 Two test namespaces ask this knowledge base the questions it exists to answer, one per
 reasoning subsystem, and a third instrument puts its answers to an outside reader.
@@ -117,7 +117,7 @@ the test-world's, because a fluent is contingent: `(AsleepFn Whiskers)` is one a
 state, and `CxWell` is where the cast declares its reifiable functions so the natural world
 and the fables can both use them.
 
-**One abducible grant.** `CxBiology` declares `(abduciblePredicate asleep)` and
+**One abducible grant.** `CxBiology` declares `(abducible_predicate asleep)` and
 nothing else, which is what makes *why is this dog not awake* answerable and *why does it
 not fly* refused with the dead end named. A grant is a policy the context states, and
 the whole value of abduction here is what is **not** granted.

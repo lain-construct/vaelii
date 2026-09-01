@@ -68,7 +68,7 @@
   (tu/with-terms [chases CxOne CxTwo]
     (v/assert kb (list 'genlCx CxOne 'CxCore) 'CxUniverse)
     (v/assert kb (list 'genlCx CxTwo 'CxCore) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate chases) CxOne)
+    (v/assert kb (list 'binary_predicate chases) CxOne)
     (v/assert kb (list 'arg chases 1 'thing) CxOne)
     (v/assert kb (list 'arg chases 1 'animal) CxTwo)
     (v/assert kb (list 'arg chases 2 'animal) CxOne)

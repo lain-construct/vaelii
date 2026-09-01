@@ -3,7 +3,7 @@
 (ns vaelii.koinii-speech-acts-test
   "Koinii speech-acts: the moves agents make, as sentexes in the KB — a
   query is a node, a reply is a META-SENTEX on it, and the response predicates carry
-  `targetFollowingPredicate` so retracting a target cascades to its replies.  One
+  `target_following_predicate` so retracting a target cascades to its replies.  One
   deftest per 'How to verify' bullet: a round-trip conversation recoverable as data,
   endorsement surviving first-writer-wins, a dispute surfacing in `contradictions`, and
   — the load-bearing check — the cascade, modeled on `target_following_meta_test`."
@@ -86,7 +86,7 @@
           (is (= 2 (count sides)))
           (is (every? :context sides) "each side names its :context")
           (is (every? :defeat-class sides) "and its :defeat-class"))))
-    (testing "the dispute edge is Boreas's targetFollowingPredicate meta on P"
+    (testing "the dispute edge is Boreas's target_following_predicate meta on P"
       (is (= 'CxBoreas (:context (v/sentex kb dh))))
       (is (= 'AgentBoreas (:creator (v/provenance kb dh))))
       (is (v/has-prop? kb :target-following 'disputes)))
@@ -107,7 +107,7 @@
       (is (= 'AgentBoreas (:creator (v/provenance kb jh))))
       (is (= (list 'justifies 'AgentBoreas 'ReleaseNotesSayPg14 (sx/sentex-handle ph))
              (:sentence (v/sentex kb jh)))))
-    (testing "justifies is targetFollowingPredicate, so retracting the claim sweeps the reason"
+    (testing "justifies is target_following_predicate, so retracting the claim sweeps the reason"
       (is (v/has-prop? kb :target-following 'justifies))
       (sa/retract-move kb ph)
       (is (nil? (v/sentex kb ph)) "the claim is gone")
@@ -120,7 +120,7 @@
     (sa/speaker-context kb 'CxDeploy a))
   (testing "koinii's four response predicates carry the mark; the error acts do not"
     (doseq [p '[answers disputes endorses justifies]]
-      (is (v/has-prop? kb :target-following p) (str p " is targetFollowingPredicate")))
+      (is (v/has-prop? kb :target-following p) (str p " is target_following_predicate")))
     (is (not (v/has-prop? kb :target-following 'notUnderstood))
         "error acts are deliberately unmarked")
     (is (not (v/has-prop? kb :target-following 'refuse))))
@@ -161,7 +161,7 @@
 
 (tu/deftest-kb ballots-cascade-with-the-claim-they-were-cast-on
   ;; `votesFor` / `votesAgainst` are response acts like `endorses`, so they carry the same
-  ;; family — `targetFollowingPredicate` above all.  Undeclared, a ballot outlives the
+  ;; family — `target_following_predicate` above all.  Undeclared, a ballot outlives the
   ;; claim it was cast on: the disputed claim is retracted and the count stands over
   ;; nothing, which is exactly what the mark exists to prevent.
   (let [ctxs (into {} (for [a '[AgentAtlas AgentBoreas AgentCiel]]

@@ -1,5 +1,192 @@
 # Changelog
 
+## 0.15.0 — 2026-09-01 — "definitions that compute, and two renames"
+
+- **A unary predicate is snake_case, and `assert` now enforces it in both directions.**
+  The spelling rule was a one-way implication — snake_case committed a functor to arity
+  1, while camelCase said nothing about arity — so the same shelf of the shipped
+  ontology held `asymmetric` beside `antiSymmetric`, and thirteen kinds
+  (`unaryPredicate`, `equivalenceRelation`, `reifiableFunction`, …) wore a relation's
+  spelling. A one-place predicate is not a relation: its extension is a *set* rather
+  than a set of tuples, and a set is what `genl` orders, which is why the taxonomy
+  exists and why its closure is cached instead of derived. The rule is now a
+  biconditional — snake_case ⇔ arity 1 — with a new problem class `:functor-unary` and a
+  rejection naming the snake_case spelling to write instead. A bare lowercase word
+  (`dog`, `alive`) still satisfies both conventions and is caught by neither: the marker
+  lives on a name's interior, so a one-word name has nowhere to carry it and never needs
+  one. `sentexHandle` is the single exemption (`nm/unary-spelling-exempt`) — it names a
+  stored sentex by id and states nothing, so there is no relation to spell either way.
+  *Class:* **Breaking** for any KB, corpus or caller holding a camelCase unary
+  predicate. *Migration:* rename every camelCase functor used at arity 1 to snake_case —
+  `warmBlooded` → `warm_blooded`, `unaryPredicate` → `unary_predicate`,
+  `abduciblePredicate` → `abducible_predicate`. `nm/snake-case` is the conversion the
+  rejection message applies, and every shipped context, test-world file and doc here has
+  been rewritten. A corpus that cannot be rewritten opens under `{:naming :warn}` or
+  `{:naming :off}`; the bulk import path never consulted the door, and its `nm/tally`
+  summary now counts `functor-unary` beside the rest.
+  [docs/naming.md](docs/naming.md)
+
+  *Breaks:* every camelCase unary predicate spelling — `unaryPredicate`,
+  `reifiableFunction`, `abduciblePredicate`, `closedExtentPredicate`,
+  `disjointMetatype`, `siblingDisjoint`, `warmBlooded`
+
+- **The sentex polarity slot is `:polarity`, not `:truth`.** A literal is an atomic
+  formula and a polarity, and the slot holding the polarity was named for the thing it
+  is not: in a system whose headline is truth *maintenance*, `:truth :false` reads as
+  "not believed" and means the opposite — a believed denial, which the JTMS may well
+  hold IN. The slot is `:polarity` with `:positive` / `:negative`, the words the
+  codebase already used in twenty-three places and in `sentex/positive-body`. Belief is
+  still IN/OUT and still answered by `believed?`; nothing about what is believed has
+  changed. The index's path token for a negative body stays `:false` — that alphabet is
+  the trie's own machine vocabulary and its layout is on disk, so no `reindex` is owed.
+  *Class:* **Breaking** for any reader of a sentex map. *Migration:* `(:truth sx)` →
+  `(:polarity sx)`, `(= :true …)` → `(= :positive …)`, `(= :false …)` → `(= :negative
+  …)`. On-disk record stores are unaffected — the durable frame is positional behind a
+  numeric tag and never held the keyword — and an export dump written either side of
+  this loads correctly, since `import` re-derives the polarity from the sentence's own
+  `not` and never reads the key.
+  [docs/storage.md](docs/storage.md)
+
+  *Breaks:* `:truth`
+
+- **A definitional membership question is answered at query time, not only by a forward
+  rule.** `(defnSufficient Coll C)` materializes as `(implies C (Coll ?x))`, and that rule
+  fires only when `C` is a **believed** fact — so a condition built from *computed*
+  predicates (`integer`, `lessThan`, an `add-evaluatable` check) was never stored, the
+  rule never fired, and the member was never derived: `(positive_integer 7)` did not
+  follow from `(defnSufficient positive_integer (and (integer ?x) (greaterThan ?x 0)))`,
+  which is CxCore's own worked example. Two provers close that. `DefnSufficientProver`
+  substitutes the queried member into the collection's visible sufficient conditions and
+  asks the registry, which *evaluates* the computed conjuncts — level 6, so its reach
+  matches the forward rule's rather than exceeding it — and it descends the **spec** cone,
+  a spec's sufficient admitting to the collection above it since a spec's members are
+  members. A failing `defnNecessary` on a strict `genl` fast-fails first, the broadest
+  disqualifier checked most-general-first, so a rejected query never evaluates the sides
+  or the sufficient, and a defn reachable by two paths in a diamond is evaluated exactly
+  once. `DefnNecessaryNegationProver` is the converse build.
+  *Class:* **Additive** — no signature moves, nothing is stored differently, and `ask` and
+  `prove` answer questions that previously came back unknown.
+
+  **One thing to know, because it is a boundary and not a feature:** the negation prover
+  concludes `(not (Coll a))` from a failing necessary, so a `defnNecessary` is a
+  disqualifier as well as an obligation. Membership stays open-world in the direction that
+  matters — condition-*absence* still concludes nothing, and a thing the condition is
+  silent about is neither a member nor a non-member — but a necessary that is positively
+  *violated* is now a negative answer rather than silence. It is a query-time answer only:
+  nothing is asserted, so a KB that states `(Coll a)` against a failing necessary is not
+  rewritten, it merely answers both halves and says so.
+  *Migration:* none, unless a KB leaned on a violated necessary staying silent.
+  [docs/defns.md](docs/defns.md)
+
+- **The `AtomicSentex` record is `LiteralSentex`.** The record holds one signed
+  predicate application — an atomic formula together with the polarity saying which of
+  the two literals it is — and by the standard convention that is a **literal**, not an
+  atom. The tempting pair was `FactSentex` / `RuleSentex`, and it is wrong for a reason
+  the record's own definition gives: it holds a fact, a metadata declaration *or* a
+  query pattern, and only the first of those is a fact. `literal` is the one word
+  covering all three, because it names the sentence's shape rather than its role — and
+  shape is what the split is about, the discriminant being `(some? (:antecedent sx))`.
+  *Class:* **Additive**: the class name reaches no public surface, no golden names a
+  record class, and the durable frame is tagged with a number rather than a class name,
+  so nothing on disk moves and no store needs rewriting. The tag constant moved with it,
+  `atomic-tag` to `literal-tag`. *Migration:* none, unless a caller referenced
+  `vaelii.impl.sentex.AtomicSentex` directly, which is an impl namespace.
+  [docs/storage.md](docs/storage.md)
+
+- **One word, one stratum: the docs get a vocabulary rule, and a gate that reads it.**
+  Three senses of "literal" were in the tree at once — the formula sense (an atomic
+  formula or its negation, ~1,100 uses), an EDN scalar, and plain English "verbatim" —
+  and `checks.clj`, `CxCore.txt` and `defenses.md` each carried more than one of them,
+  one of those in a section heading another page anchor-links to. "Frame" named both a
+  connective form and a durable serialization unit, 16 uses against 54. The cause was
+  narrower than the symptom: the glossary held 141 entries and defined **none** of the
+  primitives its own entries are built out of — no literal, term, atom, formula, ground,
+  polarity, variable, pattern, frame, constraint, value — so nothing ever pinned the
+  first sense of anything.
+
+  Twenty-three entries close that, and the formula stratum now runs on the standard
+  ladder: an **atomic formula** is a predicate applied to terms, an **atomic sentence**
+  is a closed one, a **literal** is an atomic formula or its negation, a **formula** is
+  built recursively, a **sentence** is a closed formula. `Sentence` stops saying "ground
+  or a pattern with `?x` variables" and says what the engine already enforces —
+  `checks/check-ground` refuses an open non-rule sentence, and a rule's variables are
+  implicitly universal — so a possibly-open goal is a **pattern**, and the docstrings
+  that called one a sentence say formula. The squatters moved to the words already in
+  the same files: the scalar sense is a **value** and its **kind** (`quotedArg` has
+  always said "classified by its EDN kind"), so `checks/literal-type` is `value-kind`
+  and `literal-value-types` is `value-kinds`; the verbatim sense is **verbatim** or
+  **written out**; `naming.md`'s frames are **wrappers**, which is what the rest of the
+  tree already calls `set/*Rule` and `exceptWhen`, leaving `frame` to storage alone.
+  Riding along: `edit!` is the all-or-nothing door rather than the atomic one, the
+  trie's child labels are child **tokens**, and `arg` / `quotedArg` state an
+  argument-type **declaration**, which drops "constraint" from three senses to two.
+
+  `docs/naming.md` gains the **reserved-words table**. The lexical rules there are about
+  a symbol; this is about a word — one word, one stratum, one field, and where that is
+  impossible the glossary carries every sense as its own badged entry. A qualified
+  compound is a different word and stays: stack frame, binding frame, keyword literal.
+  `lint-glossary`'s new **check 6** reads the table and fails a glossary that does not
+  carry one entry per declared sense. What it cannot see is a third sense arriving in
+  prose; that stays a reviewer's job, and the table is where the question gets asked.
+  *Class:* **Additive** — two renamed readers are private, and everything else is prose.
+  *Migration:* none.
+  [docs/naming.md](docs/naming.md#reserved-words)
+
+- **CxCore names the expression kinds.** Above the
+  value kinds — `string`, `number`, `integer` and the rest, which name a *leaf* — sit
+  eight collections naming a *compound*: `relation_application`, `denotational_term`,
+  `atomic_formula`, `atomic_sentence`, `literal`, `formula`, `sentence` and
+  `non_atomic_term`. They exist so a declaration can type an argument by the **shape** of
+  the expression written there rather than by what it denotes.
+  `relation_application` is what an atomic formula and a non-atomic term share,
+  specializing into the two, which are disjoint — and deliberately not declared
+  covering, the KB having no vocabulary that states exhaustive coverage. The
+  `LiteralSentex` record is the machine-stratum representation of a member of `literal`,
+  and the glossary carries that correspondence once, in words.
+
+  **Nothing reads them.** A compound argument has no knowable kind — `checks/value-kind`
+  answers nil for one by design — and no reader classifies a compound by its shape, so
+  `(quotedArg P n relation_application)` stores, believes, browses and convicts nothing,
+  and so does the `arg` form. `vocabulary/roster` says so per term, which is what
+  `vocabulary-audit` exists to force. The vocabulary is here so that it is one
+  vocabulary when a shape classifier exists; the classifier does not.
+  *Class:* **Additive**, with one thing to know: this claims eight generic names in
+  CxCore, so a KB already using `sentence`, `formula` or `literal` as its own collection
+  now shares ours and inherits the `genl` edges and the disjointness above.
+  *Migration:* none to write, but the shipped-KB count moved and this release is where
+  a reader should learn the real figure. CxCore ships **475** sentexes against **416** at
+  0.14.0 — +20 for the expression kinds here, +35 for the curation vocabulary below, +4
+  with the definitional provers. `docs/kbs.md`'s row now reads `~475` like its
+  neighbours, and `core_context_test` asserts a band rather than an equality: an exact
+  pin failed on every deliberate change to the vocabulary and caught nothing a deliberate
+  change did not, `vocabulary-audit` being what actually guards CxCore by failing a term
+  nobody classified. A count is kept only for what a count can catch — a load going wrong
+  in bulk.
+  [docs/glossary.md](docs/glossary.md)
+
+- **CxCore gains a curation vocabulary: `seeAlso`, `termsRelated` and the example
+  predicates.** Documentation vocabulary beside `comment`, earning its place for the same
+  reason `comment` does — the grammar documents itself in its own representation, so a
+  cross-reference is queried and retracted like any other fact. `(seeAlso a b)` points a
+  reader from one term to another and is **directional**: the reverse is a separate
+  assertion, not an implied one. `(termsRelated t1 t2 …)` is variable-arity and groups a
+  cluster. `positiveExample` / `negativeExample` / `borderlineExample` name an example
+  sentex *by handle*, reusing the `(sentexHandle H)` + `targetFollowingPredicate` pointing
+  pattern that koinii's speech acts already use, with the handle argument typed
+  `(quotedArg <pred> 2 thing)`.
+
+  All of it is `:inert` in the vocabulary roster — a browser rendering a term page reads
+  it and no inference path does. The obligation `positiveExample` and `negativeExample`
+  carry is held by a **test** rather than by the engine: a generative sweep proves every
+  *believed* example target holds as stated, with negated and excepted targets excluded,
+  since `(except P)` is not `(not P)`. That sweep sits under a `kb-has-integrity` umbrella
+  staking the namespace for further checks.
+  *Class:* **Additive**, and inert: nothing derives from these and no existing query
+  changes. It does claim the names in CxCore, so a KB already using `seeAlso` or
+  `termsRelated` as its own predicate now shares ours.
+  *Migration:* none.
+  [docs/predicates.md](docs/predicates.md)
+
 ## 0.14.0 — 2026-08-29 — "the index image as a backend, and the heap it stops paying"
 
 - **The mapped index image is a backend, not a property: `:disk-snapshot`.** `:index

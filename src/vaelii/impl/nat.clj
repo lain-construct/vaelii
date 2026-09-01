@@ -7,12 +7,12 @@
   `(FruitFn AppleTree)`, `(CapitalOf France)`.  A function splits by declaration
   into two kinds:
 
-    (reifiableFunction F)    object-denoting.  A ground `(F a…)` is a **reified NAT**: it
+    (reifiable_function F)    object-denoting.  A ground `(F a…)` is a **reified NAT**: it
                              reifies to an opaque `nat/`-namespaced constant `K`
                              *before* it reaches the index, so the reified NAT autoindexes
                              exactly like a hand-minted symbol — no trie-key change,
                              no term-index change.
-    (unreifiableFunction F)  evaluated/interpreted.  The NAT is a **structural NAT** and stays
+    (unreifiable_function F)  evaluated/interpreted.  The NAT is a **structural NAT** and stays
                              *structural* — `(QuantityFn 5 Meter)` keeps its magnitude
                              and unit readable for a downstream prover; it is never
                              minted.
@@ -49,13 +49,13 @@
 
 (def nat-namespace
   "Reserved namespace for **object**-denoting reified-NAT constants — a
-  `(reifiableFunction F)` application `(F a…)` mints one.  The cheap detector the
+  `(reifiable_function F)` application `(F a…)` mints one.  The cheap detector the
   display and mutation layers key on."
   "nat")
 
 (def context-namespace
   "Reserved namespace for **context**-denoting reified-NAT constants — a
-  `(contextDenotingFunction F)` application `(F a…)` mints one (docs/context-nat.md).
+  `(context_denoting_function F)` application `(F a…)` mints one (docs/context-nat.md).
   A `Cx*Fn` reifies to a `cx/` constant that classifies as a *context* (so it can be a
   sentex's context slot and a `genlCx` node), while its structural argument stays
   readable in the `termOfUnit` map.  Distinct from `nat/` because role-reading is
@@ -70,7 +70,7 @@
   #{"nat" "cx"})
 
 (def universal-context
-  "Where every NAT bookkeeping fact lives — `(reifiableFunction F)`, `(termOfUnit K
+  "Where every NAT bookkeeping fact lives — `(reifiable_function F)`, `(termOfUnit K
   E)`, `(result F T)`, and a minted reified NAT's materialized types — so it is visible
   from every context, matching the other universal vocabulary."
   'CxUniverse)
@@ -123,14 +123,14 @@
 
 ;; ---- the reifiable gate --------------------------------------------------
 ;; A function's kind is predicate metadata, cached in the taxonomy like
-;; transitive/symmetric/functional: `(reifiableFunction F)` marks the `:reifiable`
-;; prop, `(unreifiableFunction F)` the `:unreifiable` one (both belief-following,
+;; transitive/symmetric/functional: `(reifiable_function F)` marks the `:reifiable`
+;; prop, `(unreifiable_function F)` the `:unreifiable` one (both belief-following,
 ;; via `vaelii.impl.special`'s prop-entry).  So the per-sentence gate is a free
 ;; in-memory set read — no index probe, no mtime cache to keep coherent.
 
 (defn any-reifiable-functions?
-  "Cheap gate: does the KB declare any function that reifies — a `reifiableFunction`
-  (object, mints `nat/`) or a `contextDenotingFunction` (context, mints `cx/`)?  False ⇒
+  "Cheap gate: does the KB declare any function that reifies — a `reifiable_function`
+  (object, mints `nat/`) or a `context_denoting_function` (context, mints `cx/`)?  False ⇒
   no sentence can contain a reifiable NAT, so the reify pass and the rename/remove NAT
   steps short-circuit to a no-op.  Two in-memory taxonomy-prop reads."
   [kb]
@@ -139,7 +139,7 @@
                  (seq (tax/props tx :context-denoting))))))
 
 (defn any-context-denoting-functions?
-  "Cheap gate: does the KB declare any `contextDenotingFunction`?  A free in-memory
+  "Cheap gate: does the KB declare any `context_denoting_function`?  A free in-memory
   taxonomy-prop read — the context half of `any-reifiable-functions?`.  False ⇒ the KB has
   no `cx/` context to order, so the structural-genlCx producer's revival re-run is a no-op
   without even paying the `any-context-subrelations?` functor-count index read."
@@ -147,7 +147,7 @@
   (boolean (seq (tax/props (:taxonomy kb) :context-denoting))))
 
 (defn context-denoting-function?
-  "True iff `(contextDenotingFunction head)` is believed — head reifies to a `cx/`
+  "True iff `(context_denoting_function head)` is believed — head reifies to a `cx/`
   context constant rather than a `nat/` object constant (docs/context-nat.md).  Read off
   the taxonomy metadata like `reifiable-function?`, so it is context-independent and
   belief-following."
@@ -157,8 +157,8 @@
        (tax/has-prop? (:taxonomy kb) :context-denoting head)))
 
 (defn reifiable-function?
-  "True iff `head` reifies its ground applications — either `(reifiableFunction head)`
-  (object → `nat/`) or `(contextDenotingFunction head)` (context → `cx/`).  Read straight
+  "True iff `head` reifies its ground applications — either `(reifiable_function head)`
+  (object → `nat/`) or `(context_denoting_function head)` (context → `cx/`).  Read straight
   off the taxonomy metadata, so it is context-independent — deliberately, since reification
   decides *term identity*, which cannot vary by reader — and belief-following: a defeated
   or retracted declaration stops the function reifying."
@@ -174,7 +174,7 @@
   (not-any? sx/variable? (tree-seq sequential? seq form)))
 
 (defn reifiable-ground-nat?
-  "True iff `form` is a ground `(F …)` whose head F is an **object** reifiableFunction — a
+  "True iff `form` is a ground `(F …)` whose head F is an **object** reifiable_function — a
   NAT the sentence/argument reify walk may mint to a `nat/` constant.  Ground because an
   open NAT (`(F ?x)`) would need an enumerating prover to mint anything, so it is left
   alone.  `sequential?`, not `seq?`: reification runs before `canon`, so a vector-spelled
@@ -188,7 +188,7 @@
   on the sentence walk would make one `cx/` constant both a context and an untyped object
   relatum — `(happenedDuring E (CxTimeFn CxMonad (DatetimeFn \"2000\")))`'s arg 2 aliasing
   the very context `(likes …)` is stored in — so in a sentence it stays a structural
-  compound, exactly as an `unreifiableFunction` NAT does (docs/context-nat.md)."
+  compound, exactly as an `unreifiable_function` NAT does (docs/context-nat.md)."
   [kb form]
   (and (sequential? form)
        (seq form)
@@ -334,7 +334,7 @@
 ;; application, so `reconcile-correspondence!` equates them and the migration folds the
 ;; constant away.  Declaring the correspondence *last* is reconciled the same way.
 ;;
-;; A correspondence bites only on a `reifiableFunction`: an undeclared function's
+;; A correspondence bites only on a `reifiable_function`: an undeclared function's
 ;; application is left a raw compound the reify pass never visits.
 
 (def correspondence-predicate
@@ -487,7 +487,7 @@
   else a minted `termOfUnit` constant) — or the `no-match` sentinel when it was never
   minted.  Never mints.
 
-  A **`quotingFunction`'s argument is a mention**, held opaque here exactly as the write
+  A **`quoting_function`'s argument is a mention**, held opaque here exactly as the write
   leaf `reify-or-mint-nat` holds it: `(Quote (FruitFn Apple))` was minted against the
   literal payload, so a query must resolve against that literal too — reifying the inner
   NAT here would probe for `(Quote <constant>)`, which was never stored, and the fact
@@ -504,7 +504,7 @@
   "Reify every reifiable ground NAT subterm of a QUERY `sentence` to its existing
   constant (dedup, never mint) so the query matches the stored atomic form.  A
   never-minted NAT resolves to `no-match`, so an unknown-NAT query matches nothing.
-  Cheap no-op when the KB declares no `reifiableFunction`."
+  Cheap no-op when the KB declares no `reifiable_function`."
   [kb sentence]
   (if (any-reifiable-functions? kb)
     (reify-in kb sentence reify-nat-for-read)
@@ -785,7 +785,7 @@
 ;; A ground reifiable NAT is replaced by its opaque constant *before* WFF and the
 ;; constraint checks, so the compound never reaches the index and the minted constant
 ;; carries the materialized result types those checks read (docs/nat.md).  Stores
-;; through `wiring/assert-sentence`, so a KB with no reifiableFunction pays nothing (the
+;; through `wiring/assert-sentence`, so a KB with no reifiable_function pays nothing (the
 ;; callers gate on `any-reifiable-functions?`).
 
 ;; Forward reference, not a cycle in this file: `reify-or-mint-nat` calls `mint-nat!`,
@@ -807,7 +807,7 @@
   exist the two answers agree — and until the merge lands, resolving to the name a
   reader wrote beats resolving to an opaque one.
 
-  A **`quotingFunction`'s argument is a mention** — the term named as syntax — so its
+  A **`quoting_function`'s argument is a mention** — the term named as syntax — so its
   nested NATs are **not** reified: `(Quote (FruitFn Apple))` mints against the literal
   `(FruitFn Apple)`, not against that NAT's own constant, or two quoted syntaxes whose
   payloads' referents merged would collapse to one mention.  The whole quoted expression
@@ -869,7 +869,7 @@
 
 (defn maybe-reify-nats
   "Replace every ground reifiable NAT subterm of `sentence` with its reified constant,
-  minting as needed.  A cheap no-op when the KB declares no `reifiableFunction`."
+  minting as needed.  A cheap no-op when the KB declares no `reifiable_function`."
   ([kb sentence] (maybe-reify-nats kb sentence true))
   ([kb sentence chain?]
    (if (any-reifiable-functions? kb)
@@ -877,7 +877,7 @@
      sentence)))
 
 (defn context-denoting-ground-nat?
-  "True iff `form` is a ground application whose head is a `contextDenotingFunction` — a
+  "True iff `form` is a ground application whose head is a `context_denoting_function` — a
   context NAT the context slot may reify to a `cx/` constant."
   [kb form]
   (and (sequential? form) (seq form)

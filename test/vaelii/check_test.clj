@@ -373,7 +373,7 @@
       ;; the mirror: sequentially the declaration binds the fact after it and the arity
       ;; check refuses; as it stands nothing is declared and open world admits it
       (tu/with-terms [pOf Thing CxThe]
-        (let [ps (v/check-edit kb {:add [[(list 'binaryPredicate pOf) CxThe]
+        (let [ps (v/check-edit kb {:add [[(list 'binary_predicate pOf) CxThe]
                                          [(list pOf Thing) CxThe]]})]
           (is (= [] ps)
               "the declaration in the same batch was read as though it had landed"))))
@@ -502,7 +502,7 @@
         (testing "the message names the two ways to make S visible instead"
           (let [msg (:message (first (v/check kb (list 'implies ante (list barks '?x))
                                               'CxUniverse)))]
-            (is (re-find #"decontextualizedPredicate" msg))
+            (is (re-find #"decontextualized_predicate" msg))
             (is (re-find #"genlCx" msg))))
         (testing "an ist consequent is untouched — it is the placement escape hatch"
           (is (= [] (v/check kb (list 'implies (list dog '?x) (list 'ist CxIst (list barks '?x)))

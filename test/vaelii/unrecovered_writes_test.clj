@@ -225,7 +225,7 @@
   (with-tmp-dir
     (fn [dir]
       (let [seed (v/open-kb {:backend :disk-log :dir dir :space 31 :recover? :auto})]
-        (v/assert seed '(binaryPredicate zsrc) 'CxUniverse)
+        (v/assert seed '(binary_predicate zsrc) 'CxUniverse)
         (v/assert seed (list 'set/forwardRule (list 'implies '(zsrc ?x ?y) '(zdst ?x ?y)))
                   'CxUniverse {:strength :monotonic})
         (v/assert seed '(zsrc Aa Bb) 'CxUniverse)

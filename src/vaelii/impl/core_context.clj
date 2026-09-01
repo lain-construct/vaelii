@@ -27,7 +27,7 @@
 
   The one sentence asserted **before** the file is the topology edge
   `(genlCx CxUniverse CxCore)`, and it is here rather than in the file
-  because of *when* it has to hold.  A `decontextualizedPredicate` declaration lifts
+  because of *when* it has to hold.  A `decontextualized_predicate` declaration lifts
   the facts already present into CxUniverse, and a rule stated in CxCore
   fires on the copy — so the two contexts must already be comparable, or that firing
   has no placement and the conclusion is lost.  The file is read term-centrically in

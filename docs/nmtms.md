@@ -470,7 +470,7 @@ assert / retract / `forward-chain` / `recover`:
    measurement). What it is an instance of is *What qualifies as a nogood*, below.
 3. Resolve each nogood from its members' **defeat-classes** (`decide-nogood`), read over
    the whole member set rather than over two — a nogood is a set that must not hold in
-   full, and `antiTransitive` forms one over three sentexes:
+   full, and `anti_transitive` forms one over three sentexes:
    - **a unique weakest member** → defeat it. No solver. (Monotonic beats default.)
    - **a minimum shared by several, and defeasible** → a **dilemma**. Every member stays
      believed at `:default` and the set is reported by `contradictions`. Nothing is
@@ -651,7 +651,7 @@ throughout refuses the direct step, and a chain with one defeasible step is arbi
 where that step, being the unique weakest member, is what the arbitration defeats.
 
 A self tuple `(P a a)` of an `irreflexive` `P`, and a converse no equality could
-reconcile under an `antiSymmetric` `P`, are the last row: neither names a second believed
+reconcile under an `anti_symmetric` `P`, are the last row: neither names a second believed
 sentex to weigh, so neither is arbitrable and both refuse under every policy. A late
 `(irreflexive P)` over a stored self tuple is therefore the `arity` case rather than the
 `asymmetric` one — the tuple stands and the mark reports, since a lone-tuple conviction
@@ -685,7 +685,7 @@ argument does not convict either of them — it *merges* them, which is an infer
 than a refusal, so `special/equate-existing` runs it under both policies exactly as
 `derive-functional-equalities` runs the same inference on the arriving fact
 ([equality.md](equality.md)). What `:refuse` and `:arbitrate` decide is whether a writer
-is told no, and nobody is being told no here. `antiSymmetric` is the same shape: a
+is told no, and nobody is being told no here. `anti_symmetric` is the same shape: a
 believed converse `(P b a)` beside `(P a b)` forces `(equals a b)` and merges rather than
 refuses, `special/derive-antisymmetric-equalities` and `antisym-equate-existing` reaching
 it from the fact side and the declaration side under either policy.
@@ -695,9 +695,9 @@ else to be and nothing to stand behind: the decontextualization lift's copy, the
 equality migration's twin, and the gate on what `abduce` may assume
 (`checks/constraint-violation`).
 
-### A nogood is a set, and `antiTransitive` is where that stops being academic
+### A nogood is a set, and `anti_transitive` is where that stops being academic
 
-`(antiTransitive P)` says a two-step chain forbids the direct step: `(P a b) ∧ (P b c) ⇒
+`(anti_transitive P)` says a two-step chain forbids the direct step: `(P a b) ∧ (P b c) ⇒
 ¬(P a c)`. The three cannot all hold, and **no two of them are the clash** — so the
 conviction is one nogood with three members rather than three pairs, and the machinery
 reads it as the set it is:
@@ -719,13 +719,13 @@ reads it as the set it is:
   destructuring `:handles` as a pair is reading a coincidence.
 
 The mark is read **up** the predicate hierarchy like every other constraint mark, so
-`(antiTransitive parentOf)` convicts a chain spelled in `fatherOf`; the steps are probed
+`(anti_transitive parentOf)` convicts a chain spelled in `fatherOf`; the steps are probed
 at the marked predicate, so a chain written half at each spelling is one chain. Two
 things it deliberately does not do: a step reachable **only** by argument preservation is
 not enumerated (that reading is one-sided — see below — and a triple only one of whose
 members convicts is one the discovery finds by arrival order), and a self tuple `(P a a)`
 — its own whole chain, naming no second sentex — is admitted, exactly as an `asymmetric`
-predicate's is. `antiTransitive` does not imply `irreflexive`; the KB that wants the self
+predicate's is. `anti_transitive` does not imply `irreflexive`; the KB that wants the self
 tuple refused declares the mark that refuses it.
 
 Its disjointness with `transitive` holds beside all that: no predicate is declared both
@@ -1024,7 +1024,7 @@ gated on a mark actually being above it, since `genl` is the commonest edge in a
 ontology and one under nothing marked must cost a property read and no more.
 
 **And the mark's own sentence is a trigger, for the same reason.** A late `(functional
-P)`, `(asymmetric P)` or `(antiTransitive P)` moves nothing but the mark, so both halves
+P)`, `(asymmetric P)` or `(anti_transitive P)` moves nothing but the mark, so both halves
 of every pair beneath `P` sit outside the region — the declaration's arrival order
 deciding whether the KB says anything at all. What it implicates is what a `genl` edge
 carrying the same mark down implicates, the spec subtree's facts, so the two share an
@@ -1101,7 +1101,7 @@ at rather than a question nobody asked.
 `clash_oracle_test` excludes this shape and says so — no `transitiveInArg` declaration is
 made there — and covers the visibility one.
 
-`antiTransitive` stops at the same line rather than crossing it: its chain steps are the
+`anti_transitive` stops at the same line rather than crossing it: its chain steps are the
 ones `matches-visible` finds over the marked predicate's spec closure, and a step that
 exists **only** because preservation reaches it is not enumerated. Reading it would buy a
 third one-sided shape — this time inside a nogood whose members have to convict each
@@ -1173,7 +1173,8 @@ shared one rather than one member of each. See [asp.md](asp.md).
 ```
 
 `assert` also refuses a **non-ground** fact. `(mortal ?x)` asserts nothing — it is an
-open sentence, and stored as a believed premise it matches any goal under `unify`,
+open formula rather than a sentence, and stored as a believed premise it matches any
+goal under `unify`,
 behaving as a universal nobody licensed. Universals are written as rules, where
 `rules/check-range-restricted` governs the variables. Rule-ness is decided from the
 canonicalized record's `:antecedent`, so `implies`, a `set/*Rule` wrapper, and a

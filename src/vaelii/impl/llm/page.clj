@@ -129,7 +129,7 @@
   A modal context is the honest default — a page about `penguin` whose sentexes sit in
   `CxOrganism` is a page about `CxOrganism` — and ties break on the context name so
   the choice cannot depend on arrival order.  The **vocabulary head is never chosen**: a term
-  carries derived bookkeeping there (`(arity penguin 1)`, `(unaryPredicate penguin)`) which can
+  carries derived bookkeeping there (`(arity penguin 1)`, `(unary_predicate penguin)`) which can
   outnumber its definitional sentexes, and new domain knowledge does not belong in the
   context that defines the vocabulary.  Reported back by
   `vaelii.impl.llm.session/propose-page`, because which context knowledge lands in is a

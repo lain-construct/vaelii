@@ -94,7 +94,7 @@
 ;; ---- forced decontextualized predicate (genlCx) -------------------------
 
 (deftest a-forced-genlcx-from-a-plain-context-lands-in-the-universe
-  ;; genlCx is a forcedDecontextualizedPredicate: asserting one in an ordinary
+  ;; genlCx is a forced_decontextualized_predicate: asserting one in an ordinary
   ;; context forces its storage to CxUniverse, yet the cached closure still
   ;; sees the edge (and its transitive consequences); retraction removes it.
   (tu/with-neutral-kb [kb core-context-kb]
@@ -124,19 +124,19 @@
   (tu/with-cleared-kb [kb1 core-context-kb]
     (let [alpha (tu/tmp-ctx) pred (tu/tmp-pred) ann (tu/tmp-ind) bob (tu/tmp-ind)]
       (v/assert kb1 (list 'genlCx alpha 'CxUniverse) 'CxUniverse)
-      (v/assert kb1 (list 'decontextualizedPredicate pred) 'CxUniverse)
+      (v/assert kb1 (list 'decontextualized_predicate pred) 'CxUniverse)
       (v/assert kb1 (list pred ann) alpha)
       (is (seq (v/sentexes-matching kb1 (list pred ann) 'CxUniverse)) "lifted before the restart")
 
       (let [kb2 (tu/test-kb)]                        ; same stores, empty in-memory state
         (v/recover kb2)
         (testing "the declaration is believed again and the mark is back"
-          (is (v/ask? kb2 (list 'decontextualizedPredicate pred)))
+          (is (v/ask? kb2 (list 'decontextualized_predicate pred)))
           (is (v/has-prop? kb2 :decontextualized pred)))
         (testing "the copy made before the restart is still there, still justified"
           (let [u (v/handle-of kb2 (list pred ann) 'CxUniverse)]
             (is (v/in? kb2 u))
-            (is (= 'decontextualizedPredicate
+            (is (= 'decontextualized_predicate
                    (:informant (first (v/supporting-justifications kb2 u)))))))
         (testing "and a fact asserted after recovery is lifted like any other"
           (v/assert kb2 (list pred bob) alpha)
@@ -144,14 +144,14 @@
 
 (deftest forcing-a-decontextualized-predicate-survives-recover
   ;; recover must re-mark the :forced-decontextualized taxonomy property from the durable
-  ;; (forcedDecontextualizedPredicate genlCx) sentex, so forcing still applies to a genlCx
+  ;; (forced_decontextualized_predicate genlCx) sentex, so forcing still applies to a genlCx
   ;; asserted only after recovery.
   (tu/with-cleared-kb [_kb1 core-context-kb]                    ; kb1 writes the durable stores
     (let [kb2   (tu/test-kb)                         ; same dbs, empty in-memory state
           alpha (tu/tmp-ctx) beta (tu/tmp-ctx)]
       (v/recover kb2)
       (testing "the forcing declaration itself is believed again"
-        (is (v/ask? kb2 '(forcedDecontextualizedPredicate genlCx))))
+        (is (v/ask? kb2 '(forced_decontextualized_predicate genlCx))))
       (testing "a genlCx asserted post-recovery is still forced into CxUniverse"
         (v/assert kb2 (list 'genlCx alpha beta) 'CxSocialWorld)
         (is (seq    (v/sentexes-matching kb2 (list 'genlCx alpha beta) 'CxUniverse)))
@@ -202,7 +202,7 @@
       (v/assert kb (list dog muffet) 'CxCore)
       (v/forward-chain kb)
       (is (empty? (v/sentexes-matching kb (list dog muffet) 'CxUniverse)))
-      (is (empty? (v/sentexes-matching kb '(forcedDecontextualizedPredicate genlCx) 'CxUniverse))))))
+      (is (empty? (v/sentexes-matching kb '(forced_decontextualized_predicate genlCx) 'CxUniverse))))))
 
 (deftest evaluate-is-error-safe
   (tu/with-neutral-kb [kb tu/fresh]
@@ -228,13 +228,13 @@
 
 (deftest a-mark-is-both-a-queryable-fact-and-a-binaryPredicate-membership
   ;; The merged mark is a stored fact (answerable by ask) and, through
-  ;; (genl symmetric binaryPredicate), a type membership — one predicate doing both jobs,
+  ;; (genl symmetric binary_predicate), a type membership — one predicate doing both jobs,
   ;; with no derived (…Predicate) twin between them.
   (tu/with-neutral-kb [kb core-context-kb]
     (let [fooRel (tu/tmp-pred)]
       (v/assert kb (list 'symmetric fooRel) 'CxCore)
       (is (v/ask? kb (list 'symmetric fooRel)))
-      (is (v/isa? kb fooRel 'binaryPredicate)))))
+      (is (v/isa? kb fooRel 'binary_predicate)))))
 
 (deftest a-bare-dot-argument-is-rejected
   (tu/with-neutral-kb [kb core-context-kb]
@@ -246,12 +246,12 @@
 (deftest a-core-context-kb-is-just-the-vocabulary-head
   ;; The spindle's bands (the upper definitional contexts, the middle theories) are
   ;; the starter's, not the vocabulary head's.  A CxCore-only KB has CxCore and its
-  ;; vocabulary — including the forcedDecontextualizedPredicate declaration — but no
+  ;; vocabulary — including the forced_decontextualized_predicate declaration — but no
   ;; genlCx topology at all.
   (tu/with-neutral-kb [kb core-context-kb]
     (testing "CxCore vocabulary is present, including the forcing declaration"
-      (is (seq (v/sentexes-matching kb '(binaryPredicate genl) 'CxCore)))
-      (is (seq (v/sentexes-matching kb '(forcedDecontextualizedPredicate genlCx) 'CxCore))))
+      (is (seq (v/sentexes-matching kb '(binary_predicate genl) 'CxCore)))
+      (is (seq (v/sentexes-matching kb '(forced_decontextualized_predicate genlCx) 'CxCore))))
     (testing "but no spindle bands — those come with the starter"
       (is (empty? (v/sentexes-matching kb '(genlCx CxOrganism CxCore) '?ctx)))
       (is (not (tax/sees? (:taxonomy kb) 'CxWell 'CxCore))))))

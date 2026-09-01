@@ -5,7 +5,7 @@
 
   Every cache is **reference-counted** and **belief-tracked** now: `genl` /
   `genlCx` / equality keep a per-claim `:support` map, and `disjoint`,
-  `disjointMetatype` + members, the predicate properties, and `inverse` share the
+  `disjoint_metatype` + members, the predicate properties, and `inverse` share the
   `:cache-support` count.  An entry survives losing one of several supporters and
   follows defeat.  Belief-tracking is covered in `taxonomy_belief_test`; this file
   covers the *retract* half — the teardown wired through `core/disintegrate-sentex!`.
@@ -69,27 +69,27 @@
   ;; A metatype separates its members by being *consulted*, not by materializing a
   ;; clique of `(disjoint a b)` sentexes.  So retraction reaches all of it at once:
   ;; there is no independent premise left behind to outlive the declaration.
-  (tu/with-terms [animalSpecies dog cat fish]
-    (v/assert kb (list animalSpecies dog) 'CxUniverse)
-    (v/assert kb (list animalSpecies cat) 'CxUniverse)
-    (let [h (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)]
+  (tu/with-terms [animal_species dog cat fish]
+    (v/assert kb (list animal_species dog) 'CxUniverse)
+    (v/assert kb (list animal_species cat) 'CxUniverse)
+    (let [h (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)]
       (is (v/disjoint? kb dog cat) "members of a disjoint metatype are pairwise disjoint")
       (v/retract! kb h)
       (testing "retracting the metatype releases the pairs it separated"
         (is (not (v/disjoint? kb dog cat))))
       (testing "and it no longer separates a member added afterwards"
-        (v/assert kb (list animalSpecies fish) 'CxUniverse)
+        (v/assert kb (list animal_species fish) 'CxUniverse)
         (is (not (v/disjoint? kb dog fish)))))))
 
 (tu/deftest-kb retracting-one-member-releases-only-that-members-pairs
   ;; The finer-grained half, which a materialized clique could not express at all:
   ;; a member leaving the metatype stops being disjoint from the rest, while the
   ;; remaining members stay disjoint from each other.
-  (tu/with-terms [animalSpecies dog cat fish]
-    (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
-    (v/assert kb (list animalSpecies dog) 'CxUniverse)
-    (let [hc (v/assert kb (list animalSpecies cat) 'CxUniverse)]
-      (v/assert kb (list animalSpecies fish) 'CxUniverse)
+  (tu/with-terms [animal_species dog cat fish]
+    (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)
+    (v/assert kb (list animal_species dog) 'CxUniverse)
+    (let [hc (v/assert kb (list animal_species cat) 'CxUniverse)]
+      (v/assert kb (list animal_species fish) 'CxUniverse)
       (is (v/disjoint? kb dog cat))
       (is (v/disjoint? kb dog fish))
       (v/retract! kb hc)
@@ -102,11 +102,11 @@
 (tu/deftest-kb a-metatype-separates-members-without-storing-a-clique
   ;; Asserting the clique would mean n(n-1)/2 stored `(disjoint a b)` sentexes for n
   ;; members.  The only sentexes are the ones the author wrote.
-  (tu/with-terms [animalSpecies dog cat fish bird]
-    (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
+  (tu/with-terms [animal_species dog cat fish bird]
+    (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)
     (let [before (count (tu/sentex-ids kb))]
       (doseq [t [dog cat fish bird]]
-        (v/assert kb (list animalSpecies t) 'CxUniverse))
+        (v/assert kb (list animal_species t) 'CxUniverse))
       (testing "four members are pairwise disjoint"
         (is (v/disjoint? kb dog cat))
         (is (v/disjoint? kb fish bird))

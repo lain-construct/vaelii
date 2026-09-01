@@ -83,7 +83,7 @@
 
 (deftest the-arity-door-and-its-report-word-one-binding-the-same-way
   (tu/with-terms [parentOf fatherOf A B C]
-    (let [declaration (list 'binaryPredicate parentOf)
+    (let [declaration (list 'binary_predicate parentOf)
           edge        (list 'genl fatherOf parentOf)]
       (doseq [{:keys [binding pred via fact ingredients]}
               [{:binding     "declared of the predicate itself"
@@ -149,14 +149,14 @@
             :ground  (ground dog_t cat_t)
             :closing (list 'disjoint dog_t cat_t)
             :facts   [[(list dog_t Rex) 'CxUniverse] [(list cat_t Rex) 'CxUniverse]]}
-           {:trigger 'disjointMetatype
+           {:trigger 'disjoint_metatype
             :ground  (concat (ground meta_t alpha_t beta_t)
                              [(list meta_t alpha_t) (list meta_t beta_t)])
-            :closing (list 'disjointMetatype meta_t)
+            :closing (list 'disjoint_metatype meta_t)
             :facts   [[(list alpha_t Rex) 'CxUniverse] [(list beta_t Rex) 'CxUniverse]]}
            {:trigger "a term joining a disjoint metatype"
             :ground  (concat (ground meta_t alpha_t beta_t)
-                             [(list 'disjointMetatype meta_t) (list meta_t alpha_t)])
+                             [(list 'disjoint_metatype meta_t) (list meta_t alpha_t)])
             :closing (list meta_t beta_t)
             :facts   [[(list alpha_t Rex) 'CxUniverse] [(list beta_t Rex) 'CxUniverse]]}
            {:trigger 'genl
@@ -385,7 +385,7 @@
     (tu/with-cleared-kb [kb tu/fresh]
       (doseq [s [(list 'genl a_type 'thing)
                  (list 'arg fatherOf 3 a_type)
-                 (list 'binaryPredicate parentOf)
+                 (list 'binary_predicate parentOf)
                  (list 'genl fatherOf parentOf)]]
         (v/assert kb s 'CxUniverse))
       (is (empty? (v/violations kb)) "the settle files nothing")
@@ -441,14 +441,14 @@
           "the plural agrees with the number, in one place rather than three")
       (testing "the door"
         (is (str/includes?
-             (:message (door (writing (list 'binaryPredicate parentOf)
+             (:message (door (writing (list 'binary_predicate parentOf)
                                       (list 'genl fatherOf parentOf))
                              (list fatherOf A B C) 'CxUniverse))
              inherited)))
       (testing "the retroactive report"
         (is (str/includes?
              (:message (first (reported (writing (list fatherOf A B C)
-                                                 (list 'binaryPredicate parentOf)
+                                                 (list 'binary_predicate parentOf)
                                                  (list 'genl fatherOf parentOf))
                                         :arity)))
              inherited)))
@@ -456,7 +456,7 @@
         (tu/with-cleared-kb [kb tu/fresh]
           (doseq [s [(list 'genl a_type 'thing)
                      (list 'arg fatherOf 3 a_type)
-                     (list 'binaryPredicate parentOf)
+                     (list 'binary_predicate parentOf)
                      (list 'genl fatherOf parentOf)]]
             (v/assert kb s 'CxUniverse))
           (is (str/includes? (v/quality-report (v/kb-quality kb)) inherited)))))))

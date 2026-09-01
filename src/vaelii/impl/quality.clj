@@ -415,7 +415,7 @@
 ;; *binding's* arrival order decide what the KB holds.  It simply stops meaning anything,
 ;; while the door refuses the identical sentence one line later.
 ;;
-;; A `variableArity` predicate is the case where the length is not the last word, and the
+;; A `variable_arity` predicate is the case where the length is not the last word, and the
 ;; door's arm releases it: such a predicate reads a tuple of any length from its declared
 ;; arity upward, so a position past that length is one its tuples really do reach.  Nothing
 ;; of its is listed here, however high the position, because nothing of its is stranded.
@@ -469,7 +469,7 @@
                      (comp (mapcat #(reads/as-stored-with-functor (:index kb) %))
                            (distinct)
                            (keep #(p/get-sentex (:records kb) %))
-                           (filter #(= :true (:truth %)))
+                           (filter #(= :positive (:polarity %)))
                            (filter #(jtms/in? (:tms kb) (:id %))))
                      declaration-functors)]
     (progress! {:phase :declarations :done 0 :total (count stored)})
@@ -579,7 +579,7 @@
      :antecedent (vec (:antecedent sx))
      :consequent conseq
      :body       body
-     :polarity   (if neg? :false :true)
+     :polarity   (if neg? :negative :positive)
      :functor    (nm/functor body)
      :arity      (nm/arity body)
      :direction  (:direction sx)
@@ -601,7 +601,7 @@
       (if (= i total)
         (persistent! out)
         (let [sx (p/get-sentex (:records kb) (nth hs i))
-              v  (when (and sx (some? (:antecedent sx)) (= :true (:truth sx)))
+              v  (when (and sx (some? (:antecedent sx)) (= :positive (:polarity sx)))
                    (rule-view sx))]
           (when (and (pos? i) (zero? (mod i progress-every)))
             (progress! {:phase :subsumption :done i :total total}))
@@ -740,7 +740,7 @@
   an edge invisible there cannot make one rule cover another."
   [kb index r2]
   (let [tax   (:taxonomy kb)
-        reach (if (= :false (:polarity r2))
+        reach (if (= :negative (:polarity r2))
                 (tax/genls tax (:functor r2) (:context r2))
                 (tax/specs tax (:functor r2) (:context r2)))]
     (into [] (mapcat #(get index [(:polarity r2) %])) reach)))
@@ -889,7 +889,7 @@
     The genl fan runs one way here: `(dog X)` contradicts `(not (animal X))` and
     `(animal X)` does not contradict `(not (dog X))`.
   - **`:disjoint`** — two unary type conclusions about one term whose types a `disjoint`,
-    `siblingDisjoint` or `disjointMetatype` declaration separates.
+    `sibling_disjoint` or `disjoint_metatype` declaration separates.
   - **`:functional`** — two conclusions filling one functional slot for one subject with
     values that are not the same term.  The mark is read **up** the predicate hierarchy,
     so two `fatherOf` conclusions clash against `(functional parentOf)`, and it is read
@@ -908,12 +908,12 @@
         fb  (:functor b)]
     (cond
       (not= (:polarity a) (:polarity b))
-      (let [[pos neg] (if (= :true (:polarity a)) [a b] [b a])]
+      (let [[pos neg] (if (= :positive (:polarity a)) [a b] [b a])]
         (when-let [s (res/subsuming-unify kb (:body neg) (:consequent pos)
                                           res/no-bindings context)]
           [:negation s]))
 
-      (= :false (:polarity a)) nil    ; two negations agree about everything
+      (= :negative (:polarity a)) nil    ; two negations agree about everything
 
       :else
       (or
@@ -973,7 +973,7 @@
 
   `(arity ?p n)` says it outright.  A unary `(T ?p)` says it whenever `T` reaches one of
   the three predicate-arity classes up `genl`, which is what makes `(symmetric ?p)` a
-  claim of arity 2: `symmetric` is a kind of `binaryPredicate`.  The roster is
+  claim of arity 2: `symmetric` is a kind of `binary_predicate`.  The roster is
   `checks/predicate-type-arities`, read here rather than copied, since a roster read twice
   is a roster that drifts."
   [tax lit context]
@@ -993,7 +993,7 @@
   arguments — `(functional arity)` says so of the table, and the three classes are
   pairwise `disjoint` (docs/taxonomy.md) — so no term satisfies both, whichever of the two
   spellings each literal used.  `(arity ?p 1)` beside `(arity ?p 2)`, and `(arity ?p 1)`
-  beside `(equivalenceRelation ?p)`, are the same finding read two ways.
+  beside `(equivalence_relation ?p)`, are the same finding read two ways.
 
   A declaration read, not an inference: nothing is derived and no fact is consulted, the
   same standing `separated-antecedents?` has beside it."
@@ -1078,7 +1078,7 @@
               (reduce (fn [m q] (update m q (fnil conj []) v)) m
                       (marks-over tax kind (:functor v) nil)))
             {}
-            (filter #(and (= :true (:polarity %)) (= 2 (:arity %))) views))))
+            (filter #(and (= :positive (:polarity %)) (= 2 (:arity %))) views))))
 
 (defn- clash-index
   "What `clash-partners` looks a rule's candidates up in — the consequent index, the
@@ -1086,7 +1086,7 @@
   and the marked groups for the two predicate properties."
   [kb views]
   (let [tax (:taxonomy kb)
-        pos (filterv #(= :true (:polarity %)) views)]
+        pos (filterv #(= :positive (:polarity %)) views)]
     {:by-key   (by-consequent views)
      :unary-fs (when (or (seq (tax/disjoint-pairs tax))
                          (seq (tax/disjoint-metatypes tax))
@@ -1106,16 +1106,16 @@
   [kb {:keys [by-key unary-fs marked]} a]
   (let [tax  (:taxonomy kb)
         f    (:functor a)
-        pos? (= :true (:polarity a))]
+        pos? (= :positive (:polarity a))]
     (distinct
      (concat
       (if pos?
-        (mapcat #(get by-key [:false %]) (tax/genls-global tax f))
-        (mapcat #(get by-key [:true %]) (tax/specs-global tax f)))
+        (mapcat #(get by-key [:negative %]) (tax/genls-global tax f))
+        (mapcat #(get by-key [:positive %]) (tax/specs-global tax f)))
       (when (and pos? unary-fs (= 1 (:arity a)))
         (for [g unary-fs
               :when (and (not= g f) (tax/disjoint? tax f g nil))
-              b (get by-key [:true g])]
+              b (get by-key [:positive g])]
           b))
       (when (and pos? (= 2 (:arity a)))
         (for [kind  [:functional :asymmetric]
@@ -1297,7 +1297,7 @@
           "goes inert when one arrives, so it reads as enforced while enforcing nothing.\n"
           "It is a finding rather than an error: nothing is wrong with the KB's belief,\n"
           "and the fix is to correct the position, to declare the arity the author meant,\n"
-          "or to mark the predicate `variableArity` where its tuples really do reach that\n"
+          "or to mark the predicate `variable_arity` where its tuples really do reach that\n"
           "far.\n"
           (when (seq (:stranded declarations))
             (str "\n"

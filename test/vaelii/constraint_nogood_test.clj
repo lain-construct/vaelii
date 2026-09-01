@@ -429,22 +429,22 @@
         (is (= [:disjoint] (mapv :kind (v/contradictions kb))))))))
 
 (tu/deftest-kb a-disjoint-metatype-arriving-last-is-arbitrated
-  ;; the `disjointMetatype` sweep: the clique is a property of the code rather than
+  ;; the `disjoint_metatype` sweep: the clique is a property of the code rather than
   ;; stored pairs, so the members have to be reached through `tax/metatype-members`
   (binding [checks/*arbitrate-constraints?* true]
     (tu/with-kb [kb]
-      (tu/with-terms [animalSpecies dog_t cat_t Muffet]
+      (tu/with-terms [animal_species dog_t cat_t Muffet]
         (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
         (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
-        (v/assert kb (list animalSpecies dog_t) 'CxUniverse)
-        (v/assert kb (list animalSpecies cat_t) 'CxUniverse)
+        (v/assert kb (list animal_species dog_t) 'CxUniverse)
+        (v/assert kb (list animal_species cat_t) 'CxUniverse)
         (v/assert kb (list dog_t Muffet) 'CxUniverse)
         (v/assert kb (list cat_t Muffet) 'CxUniverse)
         (is (empty? (v/contradictions kb)) "the metatype is not disjoint yet")
-        (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
+        (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)
         (is (= [:disjoint] (mapv :kind (v/contradictions kb))))
         (testing "and dropping the metatype releases the pair, as it releases the clique"
-          (v/retract! kb (v/handle-of kb (list 'disjointMetatype animalSpecies) 'CxUniverse))
+          (v/retract! kb (v/handle-of kb (list 'disjoint_metatype animal_species) 'CxUniverse))
           (is (empty? (v/contradictions kb))))))))
 
 (tu/deftest-kb a-metatype-member-arriving-last-is-arbitrated
@@ -457,16 +457,16 @@
   ;; decided it.
   (binding [checks/*arbitrate-constraints?* true]
     (tu/with-kb [kb]
-      (tu/with-terms [animalSpecies dog_t cat_t Muffet]
+      (tu/with-terms [animal_species dog_t cat_t Muffet]
         (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
         (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
-        (v/assert kb (list animalSpecies dog_t) 'CxUniverse)
-        (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
+        (v/assert kb (list animal_species dog_t) 'CxUniverse)
+        (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)
         (v/assert kb (list dog_t Muffet) 'CxUniverse)
         (v/assert kb (list cat_t Muffet) 'CxUniverse)
         (is (empty? (v/contradictions kb))
             "cat_t is not a member yet, so the metatype separates nothing from dog_t")
-        (v/assert kb (list animalSpecies cat_t) 'CxUniverse)
+        (v/assert kb (list animal_species cat_t) 'CxUniverse)
         (is (v/disjoint? kb dog_t cat_t) "the clique closed over the arriving member")
         (is (= [:disjoint] (mapv :kind (v/contradictions kb)))
             "the pair the new member separates is exposed but never arbitrated")))))
@@ -743,7 +743,7 @@
   ;; entry is keyed on the handle *set*, so a triple reached from three sides is one
   ;; dilemma rather than three.
   (binding [checks/*arbitrate-constraints?* true]
-    (let [ops [#(v/assert % '(antiTransitive zprecedes) 'CxUniverse)
+    (let [ops [#(v/assert % '(anti_transitive zprecedes) 'CxUniverse)
                #(v/assert % '(zprecedes Za Zb) 'CxUniverse)
                #(v/assert % '(zprecedes Zb Zc) 'CxUniverse)
                #(v/assert % '(zprecedes Za Zc) 'CxUniverse)]
@@ -776,7 +776,7 @@
   ;; has no caller to refuse, so the conclusion is placed and `settle` weighs it against
   ;; the chain — which is what leaves the loser a reason instead of `:not-stored`.
   (tu/with-terms [zprec zhints Qa Qb Qc]
-    (v/assert kb (list 'antiTransitive zprec) 'CxUniverse)
+    (v/assert kb (list 'anti_transitive zprec) 'CxUniverse)
     (v/assert kb (list zprec Qa Qb) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list zprec Qb Qc) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list 'set/defaultRule
@@ -795,7 +795,7 @@
   ;; without it would believe the defeated step again and report no dilemma, so the KB
   ;; would answer differently either side of a restart.
   (tu/with-terms [zprec Ra Rb Rc]
-    (v/assert kb (list 'antiTransitive zprec) 'CxUniverse)
+    (v/assert kb (list 'anti_transitive zprec) 'CxUniverse)
     (v/assert kb (list zprec Ra Rb) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list zprec Rb Rc) 'CxUniverse)
     (v/assert kb (list zprec Ra Rc) 'CxUniverse {:strength :monotonic})
@@ -816,7 +816,7 @@
         (v/assert kb (list zprec Pb Pc) 'CxUniverse)
         (v/assert kb (list zprec Pa Pc) 'CxUniverse)
         (is (empty? (v/contradictions kb)))
-        (v/assert kb (list 'antiTransitive zprec) 'CxUniverse)
+        (v/assert kb (list 'anti_transitive zprec) 'CxUniverse)
         (let [cs (v/contradictions kb)]
           (is (= 1 (count cs)) "the declaration convicts what was already stored")
           (is (= :anti-transitive (:kind (first cs))))
@@ -912,7 +912,7 @@
   ;; on `asymmetric`, `docs/taxonomy.md` and `docs/inherit.md`.  Asymmetry does not hand
   ;; you irreflexivity, and a conviction needs a *believed opposing* claim.
   (let [kb (tu/fresh)]
-    (v/assert kb '(binaryPredicate zSelfLarger) 'CxUniverse)
+    (v/assert kb '(binary_predicate zSelfLarger) 'CxUniverse)
     (v/assert kb '(asymmetric zSelfLarger) 'CxUniverse)
     (let [h1 (v/assert kb '(zSelfLarger zrock zrock) 'CxUniverse {:strength :monotonic})
           h2 (v/assert kb '(zSelfLarger zrock zrock) 'CxUniverse {:strength :monotonic})]
@@ -989,9 +989,9 @@
   ;; two memberships that make the clique, plus the two type memberships that clash —
   ;; and none of them is the one to blame.  120 orderings.
   (binding [checks/*arbitrate-constraints?* true]
-    (let [ops [#(v/assert % '(disjointMetatype zSpecies) 'CxUniverse)
-               #(v/assert % '(zSpecies zdog) 'CxUniverse)
-               #(v/assert % '(zSpecies zcat) 'CxUniverse)
+    (let [ops [#(v/assert % '(disjoint_metatype z_species) 'CxUniverse)
+               #(v/assert % '(z_species zdog) 'CxUniverse)
+               #(v/assert % '(z_species zcat) 'CxUniverse)
                #(v/assert % '(zdog Rex) 'CxUniverse)
                #(v/assert % '(zcat Rex) 'CxUniverse)]
           observe (fn [kb]

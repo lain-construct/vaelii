@@ -41,16 +41,16 @@
 ;; ---- the shape works ------------------------------------------------------
 
 (tu/deftest-kb a-generator-stamps-one-rule-per-firing
-  (tu/with-terms [planVerb outcomeEmotion planOf feels succeededAt failedAt Joy Regret]
+  (tu/with-terms [plan_verb outcomeEmotion planOf feels succeededAt failedAt Joy Regret]
     (v/assert kb (list 'implies
-                       (list 'and (list planVerb '?outcome)
+                       (list 'and (list plan_verb '?outcome)
                              (list outcomeEmotion '?outcome '?emotion))
                        (list 'implies
                              (list 'and (list planOf '?a '?p) (list '?outcome '?a '?p))
                              (list feels '?a '?emotion)))
               'CxUniverse)
-    (v/assert kb (list planVerb succeededAt) 'CxUniverse)
-    (v/assert kb (list planVerb failedAt) 'CxUniverse)
+    (v/assert kb (list plan_verb succeededAt) 'CxUniverse)
+    (v/assert kb (list plan_verb failedAt) 'CxUniverse)
     (v/assert kb (list outcomeEmotion succeededAt Joy) 'CxUniverse)
     (v/assert kb (list outcomeEmotion failedAt Regret) 'CxUniverse)
     (testing "one stamped rule per fill, and no more"
@@ -68,15 +68,15 @@
             "no stamped variable was frozen into a constant")))))
 
 (tu/deftest-kb a-stamped-rule-draws-conclusions
-  (tu/with-terms [planVerb outcomeEmotion planOf feels succeededAt Joy Tom Plan]
+  (tu/with-terms [plan_verb outcomeEmotion planOf feels succeededAt Joy Tom Plan]
     (v/assert kb (list 'implies
-                       (list 'and (list planVerb '?outcome)
+                       (list 'and (list plan_verb '?outcome)
                              (list outcomeEmotion '?outcome '?emotion))
                        (list 'implies
                              (list 'and (list planOf '?a '?p) (list '?outcome '?a '?p))
                              (list feels '?a '?emotion)))
               'CxUniverse)
-    (v/assert kb (list planVerb succeededAt) 'CxUniverse)
+    (v/assert kb (list plan_verb succeededAt) 'CxUniverse)
     (v/assert kb (list outcomeEmotion succeededAt Joy) 'CxUniverse)
     (v/assert kb (list planOf Tom Plan) 'CxUniverse)
     (v/assert kb (list succeededAt Tom Plan) 'CxUniverse)

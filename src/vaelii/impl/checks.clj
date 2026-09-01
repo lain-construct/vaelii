@@ -30,7 +30,7 @@
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.wff :as wff]))
 
-;; ---- invariants: naming + argument type constraints ---------------------
+;; ---- invariants: naming + argument type declarations --------------------
 
 ;; The definitional checks below are **value-first**: each returns the first
 ;; violation as a map `{:type ... :message ...}` (or nil), like the wff arms and
@@ -46,8 +46,8 @@
 
   Every non-variable symbol qualifies, whatever role its spelling reads as.  A
   predicate is as much a thing as `Muffet` is: the meta-ontology types predicates
-  (`unaryPredicate`, `instanceRelationPredicate`, …), separates those types with
-  `disjointMetatype`, and constrains predicate-valued argument positions with
+  (`unary_predicate`, `instance_relation_predicate`, …), separates those types with
+  `disjoint_metatype`, and constrains predicate-valued argument positions with
   `arg` — so restricting the checks to CapitalCamelCase individuals would leave
   the whole meta-level declared and unenforced.  Numbers, strings and compounds are
   excluded because a type membership cannot be asserted of one (a NAT reifies to its
@@ -56,17 +56,17 @@
   (and (symbol? x) (not (sx/variable? x))))
 
 (def ^:private syntactic-roots
-  "The syntactic types a literal is classified into — the roots of the kind lattice
+  "The syntactic types a value is classified into — the roots of the kind lattice
   `quotedArg` types against.  A `quotedArg` whose declared type is neither one of these
   nor below one is out of the feature's domain (an imported constraint typing an argument
   as some domain collection), and the check reads it open-world rather than convicting.
 
   One per leaf kind a sentence can carry, and complete on purpose: a kind with no root
   here is one both argument checks have to wave through, which is a hole rather than a
-  policy.  A compound is the exception `literal-type` states."
+  policy.  A compound is the exception `value-kind` states."
   '#{string number integer symbol keyword boolean character})
 
-(defn- literal-type
+(defn- value-kind
   "The syntactic type of an argument taken as a **term** — its EDN kind, mapped to the
   type the argument checks compare it against: a string is `string`, an integer `integer`
   (a `number` below), any other number `number`, a keyword `keyword`, a boolean
@@ -98,21 +98,21 @@
     (and (symbol? x) (not (sx/variable? x))) 'symbol
     :else                                    nil))
 
-(defn- literal-value-types
-  "The most specific built-in types known from a literal's value.
+(defn- value-kinds
+  "The most specific built-in types known from a value.
 
-  Most literals have only their EDN kind. Integers additionally carry the sign-refined
+  Most values have only their EDN kind. Integers additionally carry the sign-refined
   types declared in CxCore. Zero belongs to both non-negative and non-positive; returning
   a set rather than forcing one artificial leaf keeps both argument constraints exact.
 
   **Read by both argument readings, which is why it is not named for either.**  `arg`
   types what an argument denotes and `quotedArg` the term written there, and for a
-  *literal* those coincide — a literal denotes itself, which is the whole reason the EDN
+  *value* those coincide — a value denotes itself, which is the whole reason the EDN
   kinds sit in the `genl` lattice at all (CxCore, and `vocabulary.clj`'s note on the
-  literal types).  A sign is as decidable from `5` written in a position as from what
+  value kinds).  A sign is as decidable from `5` written in a position as from what
   `5` denotes, so a reading that admitted `integer` and refused `positive_integer` would
   not be more conservative, only wrong in one direction: `args-quoted-problem` read
-  `literal-type` alone and so convicted **every** integer of failing
+  `value-kind` alone and so convicted **every** integer of failing
   `(quotedArg P n positive_integer)`, the declared type being *below* the kind rather
   than above it (#55).  One reader, both doors."
   [x]
@@ -121,10 +121,10 @@
       (pos? x) '#{positive_integer non_negative_integer}
       (neg? x) '#{negative_integer non_positive_integer}
       :else    '#{non_negative_integer non_positive_integer})
-    (if-some [t (literal-type x)] #{t} #{})))
+    (if-some [t (value-kind x)] #{t} #{})))
 
 (defn- syntactic-type?
-  "Is `t` a type `quotedArg` can judge a literal against — a syntactic root or a subtype
+  "Is `t` a type `quotedArg` can judge a value against — a syntactic root or a subtype
   of one?  A declared type outside this lattice leaves the constraint open-world."
   [tax t context]
   (or (contains? syntactic-roots t)
@@ -244,7 +244,7 @@
 
   A **symbol** is typed by what somebody asserted, so the reading is open-world: it
   violates nothing until it holds a membership, and then only if none of them reaches
-  `t`.  A **literal** is typed by what it *is* — `literal-type` reads its EDN kind, and
+  `t`.  A **value** is typed by what it *is* — `value-kind` reads its EDN kind, and
   those kinds sit in the `genl` lattice (CxCore) exactly so this comparison can be made.
   No assertion is involved and none is possible, so there is nothing to be open-world
   about: a string is a `string` and a `string` is not a `dog`, and saying so is the
@@ -263,7 +263,7 @@
     (let [ms (types arg)]
       (and (kb/isa-among? (:closures ms) 'thing)
            (not (kb/isa-among? (:closures ms) t))))
-    (let [ks (literal-value-types arg)]
+    (let [ks (value-kinds arg)]
       (when (seq ks)
         (and (symbol? t)
              (tax/genl? tax t 'thing context)
@@ -272,7 +272,7 @@
 (defn- application-term?
   "Is `x` a function **application** — a compound whose head is a name?
 
-  The one argument shape neither `checkable-term?` nor `literal-type` answers for: a type
+  The one argument shape neither `checkable-term?` nor `value-kind` answers for: a type
   membership cannot be asserted of it, and its EDN kind is not the question its declared
   position asks.  A **vector** fails the head test rather than being excluded by name — a
   vector in a sentence is a list of forms (an `exceptWhen`'s conjuncts, a `thereExists`'s
@@ -311,7 +311,7 @@
 
   **A quoting predicate's argument is a mention and is left alone.** `(termOfUnit K
   (FruitFn AppleTree))` and a compound-argument `(rewriteOf T E)` carry the NAT
-  expression as a literal payload rather than as a term used in that position
+  expression as a verbatim payload rather than as a term used in that position
   (`nat/nat-quoting-predicates`, docs/nat.md), so typing it by what the function yields
   would type a quotation by its referent.  It is also the one place a mint would pay for
   this: `mint-nat!` writes a `termOfUnit` per constant, and that write is where a KB
@@ -334,7 +334,7 @@
   "First (arg pred n type) violation for a sentence, or nil.  Uses genl
   transitivity; only constraints and type memberships visible from `context`
   count.  Open-world about a **symbol**: an untyped one can't violate anything.  A
-  **literal** carries its type in its syntax and is checked against it —
+  **value** carries its type in its syntax and is checked against it —
   `outside-declared-type?` has that argument.
 
   **Genl transitivity in two places, not one.**  The constraint *type* is reached
@@ -348,7 +348,7 @@
 
   **An application is typed by its function's `result`**, which is the one thing the
   KB can know about a term no membership can be asserted of: `(result QuantityFn
-  measure)` refuses `(needsDog (QuantityFn 5 Meter))` under `(arg needsDog 1 dog)` and
+  measure)` refuses `(needs_dog (QuantityFn 5 Meter))` under `(arg needs_dog 1 dog)` and
   admits it under `(arg needsMeasure 1 measure)`.  `convicting-result-type` has that
   argument, the open-world floor included.
 
@@ -513,23 +513,23 @@
   "First `(quotedArg pred n type)` violation for a sentence, or nil.
 
   The **mention** twin of `args-problem`: where that types what an argument *denotes*,
-  this types the argument *as a term* — what is decidable from the literal itself
-  (`literal-value-types`), checked through genl against the declared syntactic type.
-  `(quotedArg nameOfGuy 1 string)` refuses
-  `(nameOfGuy 5)` because `5` is a `number`, not a `string`, and admits `(nameOfGuy
-  \"Bob\")`.  Closed about a decidable literal — every leaf kind has a name
+  this types the argument *as a term* — what is decidable from the value itself
+  (`value-kinds`), checked through genl against the declared syntactic type.
+  `(quotedArg name_of_guy 1 string)` refuses
+  `(name_of_guy 5)` because `5` is a `number`, not a `string`, and admits `(name_of_guy
+  \"Bob\")`.  Closed about a decidable value — every leaf kind has a name
   (`syntactic-roots`), a keyword and a character included — and open-world about the one
   shape no kind answers for, a **compound**, which is exempt on the same floor
   `args-problem` gives an argument outside the hierarchy.
 
-  **`literal-value-types`, not `literal-type`, and the difference is the sign-refined
+  **`value-kinds`, not `value-kind`, and the difference is the sign-refined
   integers.**  `syntactic-type?` admits any type below a syntactic root, so
   `positive_integer` — `(genl positive_integer integer)` in CxCore — is inside this
   check's domain and always was.  Judged by EDN kind alone the comparison ran the wrong
   way round, asking whether `integer` is below `positive_integer`, and refused every
-  integer literal written in such a position (#55).  The shared reader answers the
+  integer written in such a position (#55).  The shared reader answers the
   question the declaration actually asks, and the mention and denotation readings agree
-  about a literal for the reason they always have: a literal denotes itself.
+  about a value for the reason they always have: a value denotes itself.
 
   Behind the same O(1) gate as `inter-args-problem`, and for the same reason: nothing
   declares `quotedArg` in a bare KB, and this runs on every assert, so a
@@ -546,8 +546,8 @@
                     n   (get b '?n)
                     t   (get b '?type)
                     arg (arg-at as n)
-                    lit (literal-type arg)
-                    ks  (literal-value-types arg)]
+                    lit (value-kind arg)
+                    ks  (value-kinds arg)]
              :when (and (some? arg) lit (symbol? t)
                         (not (contains? ks t))
                         (syntactic-type? tax t context)
@@ -582,7 +582,7 @@
   Public because `settle`'s retroactive arity report triggers on an arriving *arity
   declaration*, and these memberships are the second way to write one — a roster read
   twice is a roster that drifts."
-  '{unaryPredicate 1 binaryPredicate 2 ternaryPredicate 3})
+  '{unary_predicate 1 binary_predicate 2 ternary_predicate 3})
 
 (defn- tabled-arity
   "The arity the `(arity P n)` **table** gives `pred` from `context`, or nil.
@@ -616,13 +616,13 @@
              n))))
 
 (defn- variable-arity?
-  "Is `pred` declared `variableArity`, from the vantage `types` reads with?
+  "Is `pred` declared `variable_arity`, from the vantage `types` reads with?
 
   The escape the whole arity family turns on, spelled once so every arm reads it the same
   way: off the predicate's own memberships, so a mark reached through a `genl` edge
   between collections releases exactly as a directly asserted one does."
   [types pred]
-  (kb/isa-among? (:closures (types pred)) 'variableArity))
+  (kb/isa-among? (:closures (types pred)) 'variable_arity))
 
 (defn- own-arity
   "The arity `pred` **itself** is declared with, visible from `context`, or nil when the
@@ -636,7 +636,7 @@
 
   A `genl` edge between predicates says the sub's tuples *are* the super's, and a tuple
   has an arity: a ternary `fatherOf` fact is a ternary `parentOf` tuple, which
-  `(binaryPredicate parentOf)` says does not exist.  So a sub-predicate the KB has said
+  `(binary_predicate parentOf)` says does not exist.  So a sub-predicate the KB has said
   nothing about is held to what the predicates above it declare — the cheapest and least
   contestable member of the descension family, since it convicts on the shape of the
   tuple rather than on anything the arguments happen to be.
@@ -656,12 +656,12 @@
   **Unanimity or nothing**, which is the stance `tax/declared-arity` already takes toward
   two contradictory declarations of one predicate: supers that disagree leave the
   question genuinely unsettled, and convicting on whichever was enumerated first would be
-  arbitrary.  A `variableArity` super releases the inheritance entirely, for the reason
+  arbitrary.  A `variable_arity` super releases the inheritance entirely, for the reason
   it exempts a predicate that carries it — a relation declared to read a chain of any
   length binds nothing beneath it to one length.
 
   The release is asked of **every** super, not only of the ones that declared the arity
-  being inherited.  A super marked `variableArity` and given no length of its own says
+  being inherited.  A super marked `variable_arity` and given no length of its own says
   the hierarchy under it reads a chain, which is exactly the claim that should release a
   sibling's binary declaration; reading the mark only off the supers that contributed a
   number let such a super sit in the hierarchy saying nothing, and refused the chain it
@@ -682,13 +682,13 @@
   one that was.
 
   **Cost is one membership read per super-predicate**, and that is a real per-assert
-  price on a deep hierarchy rather than a constant: the `variableArity` release has to
+  price on a deep hierarchy rather than a constant: the `variable_arity` release has to
   be asked of every super whatever the table said, so the table saves the *arity* read
   and not the membership one.  The read is memoized per assert, so it is one retrieval
   per distinct super and not one per question asked of it.  Making it flat in the depth
   would mean holding the memberships somewhere the taxonomy can answer from — the trade
   `(arity P n)` itself takes one screen up — and it is not a filter that can be bolted
-  on here, because a `variableArity` reached through a `genl` edge between collections
+  on here, because a `variable_arity` reached through a `genl` edge between collections
   releases exactly as a directly asserted one does, so a roster of the direct spelling
   would not be the superset such a gate needs.  `assert-cost-test`'s `deep-membership`
   workload and `perf`'s `membership-under-depth` pin the shape so it cannot worsen
@@ -768,7 +768,7 @@
   from `context` — the sentex a wrong-arity sentence convicts *against*.
 
   Two spellings declare it and `own-arity` reads both, so both are looked for: the
-  `(arity P n)` sentex, and failing that the predicate-type membership `(binaryPredicate
+  `(arity P n)` sentex, and failing that the predicate-type membership `(binary_predicate
   P)` that says the same thing.  `via` is the predicate the binding arity was read off,
   which is the sentence's own for a locally declared one and a super-predicate for an
   inherited one — so a refusal through the hierarchy names the declaration that convicted
@@ -797,7 +797,7 @@
 
   Open-world in the same shape as `arg`: a predicate the KB has never declared can
   be used at any arity, since the declaration may simply not have arrived.  A
-  `variableArity` predicate is exempt outright — `lessThan` is declared binary *and*
+  `variable_arity` predicate is exempt outright — `lessThan` is declared binary *and*
   reads a chain of any length, and the declaration is what says so.
 
   The binding arity **descends the predicate hierarchy** where the predicate declares
@@ -841,7 +841,7 @@
 ;;
 ;; **A specialization does not carry its own signature.**  A signature on the sub that
 ;; disagrees with the super is not a narrowing, it is a contradiction: `(genl fatherOf
-;; parentOf)` beside `(binaryPredicate parentOf)` and `(ternaryPredicate fatherOf)` admits
+;; parentOf)` beside `(binary_predicate parentOf)` and `(ternary_predicate fatherOf)` admits
 ;; a ternary `fatherOf` fact that answers a `(parentOf ?a ?b ?c)` query the door refuses.
 ;; Refusing the pair is also what keeps the arity *table* single-valued, which `(functional
 ;; arity)` needs: a conflicting declaration never lands, so no predicate has two lengths to
@@ -871,7 +871,7 @@
        " declared of " sub ", " super-arity " declared of " super
        ", and (genl " sub " " super ") says every " sub " tuple is a " super
        " tuple — tuples of different lengths are not the same tuples"
-       " (give the two one arity, or declare one variableArity)"))
+       " (give the two one arity, or declare one variable_arity)"))
 
 (defn- descended-arity
   "The arity `pred`'s **sub-predicates** declare, as `[n via]`, or nil — the spec-side
@@ -880,7 +880,7 @@
 
   Where `inherited-arity` looks up because a sub's tuples are its supers' tuples, this
   looks down because the same edge makes a spec's tuples the super's: `(genl grandOf
-  fatherOf)` with `(ternaryPredicate grandOf)` says `fatherOf` has ternary tuples under
+  fatherOf)` with `(ternary_predicate grandOf)` says `fatherOf` has ternary tuples under
   it, so an arriving `(genl fatherOf parentOf)` onto a binary `parentOf` is the same
   incoherent pair seen from below.
 
@@ -945,7 +945,7 @@
   without CxCore's derivation rules has only what somebody typed and a rule that saw one
   spelling and not the other would refuse by which one that was.
 
-  `variableArity` on **either** side releases, for the reason it exempts the predicate
+  `variable_arity` on **either** side releases, for the reason it exempts the predicate
   carrying it: a relation declared to read a chain of any length makes no claim about the
   length of the tuples above or below it, so there is nothing to contradict.
 
@@ -1003,7 +1003,7 @@
   its own docstring warns about, so the closure read is the shared one.
 
   **Read through the closure because the readers read through one.**  `membered-arity`
-  answers off `(:closures (types pred))`, so `(genl myBinPred binaryPredicate)` beside
+  answers off `(:closures (types pred))`, so `(genl myBinPred binary_predicate)` beside
   `(myBinPred fatherOf)` makes `fatherOf` binary to everything that *reads* a declaration.
   Matching the three literal functors here made the *writer* of one blind to exactly that
   spelling: the disagreeing edge lands, and the reader then convicts facts under it.  A
@@ -1022,7 +1022,7 @@
 
 (defn- arity-declared-by
   "The `[pred n]` an arriving sentence declares an arity of, or nil — both spellings,
-  `(arity P n)` and the `unaryPredicate` / `binaryPredicate` / `ternaryPredicate`
+  `(arity P n)` and the `unary_predicate` / `binary_predicate` / `ternary_predicate`
   membership that says the same thing.  The gate on the arm below: nothing else can
   put a predicate in disagreement with one a `genl` edge already relates it to."
   [kb sentence context]
@@ -1081,7 +1081,7 @@
   its length from a super-predicate has the position it lacks refused on the same
   grounds.
 
-  **`variableArity` releases it**, as it releases every other arm of the family.  Such a
+  **`variable_arity` releases it**, as it releases every other arm of the family.  Such a
   predicate reads a tuple of any length from its declared arity upward, so a position past
   that length is one its tuples really do reach and a constraint on it fires — `arg-at`
   bounds-checks per sentence, so the declaration is silent on the short tuples and
@@ -1118,8 +1118,8 @@
 
   * a position the predicate does not have (`arg-position-problem`).  `interArg` names
     two, and each is checked.
-  * a constraint disagreeing with the predicate's own `relationKind` — `genlArg` on
-    an `instanceRelationPredicate`, or `arg` on a `typeRelationPredicate`.
+  * a constraint disagreeing with the predicate's own `relation_kind` — `genlArg` on
+    an `instance_relation_predicate`, or `arg` on a `type_relation_predicate`.
     `interArg` reads its types as memberships, so it takes `arg`'s side of that.
 
   **Both constraints on one position is not a problem**, and this is the case worth
@@ -1138,9 +1138,9 @@
       (and (= 'interArg f) (= 5 (nm/arity sentence)) (symbol? pred))
       (some-> (or (arg-position-problem kb f pred n context types)
                   (arg-position-problem kb f pred m context types)
-                  (when (seq (res/matches-visible kb (list 'typeRelationPredicate pred) context))
+                  (when (seq (res/matches-visible kb (list 'type_relation_predicate pred) context))
                     {:type :arg-constraint-kind :predicate pred
-                     :message (str pred " is declared typeRelationPredicate, so its"
+                     :message (str pred " is declared type_relation_predicate, so its"
                                    " arguments are constrained with genlArg, not " f)}))
               (assoc :sentence sentence))
 
@@ -1149,7 +1149,7 @@
       (let [other (arg-constraint-kinds f)]
         (or (some-> (arg-position-problem kb f pred n context types)
                     (assoc :sentence sentence))
-            (let [clash (if (= f 'arg) 'typeRelationPredicate 'instanceRelationPredicate)]
+            (let [clash (if (= f 'arg) 'type_relation_predicate 'instance_relation_predicate)]
               (when (seq (res/matches-visible kb (list clash pred) context))
                 {:type :arg-constraint-kind :sentence sentence :predicate pred
                  :message (str pred " is declared " clash ", so its arguments are"
@@ -1380,9 +1380,9 @@
   the disjointness closes under must all be visible from `context` — a
   context is only ever refused on grounds it can see.
 
-  X is any term, not only an individual, so a `disjointMetatype` over predicate
+  X is any term, not only an individual, so a `disjoint_metatype` over predicate
   types separates the predicates it is declared of — one predicate cannot be both
-  an `instanceRelationPredicate` and a `typeRelationPredicate`.
+  an `instance_relation_predicate` and a `type_relation_predicate`.
 
   `:opposing-handle` is the conflicting membership's own handle: the clash is between
   two sentexes, and naming the second is what lets `settle` weigh them.
@@ -1813,11 +1813,11 @@
      [s1 ::self cl])))
 
 (defn- antitransitivity-problems
-  "Every `(antiTransitive P)` violation a sentence commits in `context`.
+  "Every `(anti_transitive P)` violation a sentence commits in `context`.
 
-  `(antiTransitive parentOf)` says a two-step chain forbids the direct step: believing
+  `(anti_transitive parentOf)` says a two-step chain forbids the direct step: believing
   `(P a m)` and `(P m c)` makes `(P a c)` contradictory, the dual of `transitive` and the
-  reason no predicate is declared both (`(disjoint transitive antiTransitive)`).  So the
+  reason no predicate is declared both (`(disjoint transitive anti_transitive)`).  So the
   conviction names **two** other believed sentexes rather than one, and the violation
   carries `:opposing-handles` where the pairwise kinds carry `:opposing-handle` —
   `settle` weighs the three together as one nogood (docs/nmtms.md).
@@ -1832,7 +1832,7 @@
 
   **The mark is read up the predicate hierarchy** (`tax/props-over`) and the steps are
   probed **at the marked predicate**, exactly as `asymmetry-problems` reads its converse:
-  `(antiTransitive parentOf)` with `(genl fatherOf parentOf)` convicts a `fatherOf` chain,
+  `(anti_transitive parentOf)` with `(genl fatherOf parentOf)` convicts a `fatherOf` chain,
   and a chain written half at each spelling is one chain.  Empty when nothing at or above
   the sentence's predicate is marked — one map read on a KB that declares none, which is
   every bulk load.
@@ -1846,7 +1846,7 @@
   is real and is kept: a triple that collapses to two distinct sentexes — `(P a b)` beside
   `(P b b)` — is a two-member nogood weighed like any pair, and a self tuple `(P a a)`,
   whose whole triple is itself, names no other sentex at all and so convicts nothing.
-  `antiTransitive` does not hand you `irreflexive` any more than `asymmetric` does
+  `anti_transitive` does not hand you `irreflexive` any more than `asymmetric` does
   (docs/taxonomy.md); a KB that wants the self tuple refused declares the mark that
   refuses it.
 
@@ -1896,7 +1896,7 @@
                        :chain chain
                        :opposing-handles hs
                        :weakest (reduce strength/min (map #(jtms/defeat-class tms %) hs))
-                       :message (str "antiTransitive: " q " chains " (pr-str (first chain))
+                       :message (str "anti_transitive: " q " chains " (pr-str (first chain))
                                      " and " (pr-str (second chain))
                                      ", so the direct step " (pr-str (nth chain 2))
                                      " cannot hold too")})]
@@ -1959,7 +1959,7 @@
 
 (defn antisymmetric-converses
   "The believed `[handle via]` pairs whose sentence is the converse of `(P a b)` under an
-  `(antiSymmetric P)` mark — the facts `(P b a)` that, with the sentence, force
+  `(anti_symmetric P)` mark — the facts `(P b a)` that, with the sentence, force
   `(equals a b)`.  Deduped on the converse's handle; `via` is the marked predicate the
   conviction reads through (the sentence's own where it carries the mark, a
   super-predicate where the mark descends), which the equality derivation names in its
@@ -1967,7 +1967,7 @@
 
   The converse is probed **at the marked predicate** and its mark read **up** the
   hierarchy, exactly as `asymmetry-problems` and `functional-clashes` do and for the same
-  reason: `(antiSymmetric parentOf)` with `(genl fatherOf parentOf)` must convict a
+  reason: `(anti_symmetric parentOf)` with `(genl fatherOf parentOf)` must convict a
   `fatherOf` pair whichever spelling arrives last, so reading the mark off the exact
   functor would leave the pair found or missed by arrival order.
 
@@ -1988,7 +1988,7 @@
         (map (fn [[h _ via]] [h via]) (first-per-slot triples))))))
 
 (defn- antisymmetry-problems
-  "The `(antiSymmetric P)` violations a sentence commits in `context` that cannot be
+  "The `(anti_symmetric P)` violations a sentence commits in `context` that cannot be
   **merged** away — a believed converse whose two arguments no equality could reconcile
   (two numbers, a compound, a self tuple's trivial case aside).
 
@@ -2012,7 +2012,7 @@
                            ", which no merge can make hold")}))))))
 
 (defn- antisymmetry-problem
-  "The first non-mergeable `(antiSymmetric P)` violation, for the refusal paths."
+  "The first non-mergeable `(anti_symmetric P)` violation, for the refusal paths."
   [kb sentence context]
   (first (antisymmetry-problems kb sentence context)))
 
@@ -2032,7 +2032,7 @@
   `types` is the shared membership reader (`kb/membership-reader`).  The arms that ask
   what types a term holds ask about the same few terms — the sentence's arguments and
   its predicate — and between them ask several times each: the arity arm reads the
-  predicate's memberships for three spellings and again for `variableArity`, `arg`
+  predicate's memberships for three spellings and again for `variable_arity`, `arg`
   reads an argument's twice per constraint, and for a unary sentence the disjointness
   arm wants the very memberships `arg` just read.
 
@@ -2378,7 +2378,7 @@
   rather than a settle one.  `docs/taxonomy.md` records that split.
 
   Only the position arm.  `declaration-problem` also convicts a declaration disagreeing
-  with its predicate's `relationKind`, and an arity arriving is not what makes that true,
+  with its predicate's `relation_kind`, and an arity arriving is not what makes that true,
   so asking it here would report a second finding under the first one's trigger.
 
   Both of `interArg`'s positions are asked, as at the door, and the first that
@@ -2451,7 +2451,8 @@
 (defn check-ground
   "Reject a non-rule sentence that still contains pattern variables.
 
-  A fact asserts something; `(mortal ?x)` asserts nothing — it is an open sentence.
+  A fact asserts something; `(mortal ?x)` asserts nothing — it is an open formula, not
+  a sentence.
   Stored as a premise it is worse than useless: `unify` matches it against any goal,
   so it silently behaves as a universally quantified fact that nothing ever licensed.
   Universal claims are written as rules, where `check-range-restricted` governs the
@@ -2462,7 +2463,7 @@
   canonicalize into `:antecedent`, and pattern-matching the input would have to
   re-derive that (and would miss a spelling).
 
-  A **schematic equation** `(equals (fatherOf (fatherOf ?x)) (grandfatherOf ?x))` is
+  A **schematic equation** `(equals (fatherOf (fatherOf ?x)) (grandfather_of ?x))` is
   the deliberate exception: its variables belong to a term-rewriting schema, not to an
   open fact, so it is stored as an oriented rewrite rule rather than refused
   (docs/equality.md, symbolic equational reasoning).  It is not matched as a fact
@@ -2484,7 +2485,7 @@
 
 ;; ---- storable values ----------------------------------------------------
 ;; A sentence's leaves must survive the durable log.  Symbols and keywords (the
-;; vocabulary), strings/numbers/chars (the literals), and booleans/nil — everything a
+;; vocabulary), strings/numbers/chars (the values), and booleans/nil — everything a
 ;; sentence is built from — always do, and are cleared without a freeze so the assert
 ;; hot path pays one type-check per leaf and no serialization.  Anything else (a
 ;; function, an atom/ref, an open stream, a Serializable object off nippy's thaw
@@ -2494,7 +2495,7 @@
 
 (defn- storable-scalar?
   "A leaf nippy always round-trips, recognised without a freeze.  Ordered by how often
-  a sentence's leaves are each — the vocabulary (symbols, keywords) and literals
+  a sentence's leaves are each — the vocabulary (symbols, keywords) and values
   (strings, numbers) first, the rarer nil/boolean/char last."
   [v]
   (or (symbol? v) (keyword? v) (string? v) (number? v)
@@ -2674,7 +2675,7 @@
   "The stratification graph's view of a stored rule: what it depends on, positively
   (its antecedent predicates) and negatively (the predicates its exceptWhen exceptions
   and its `unknown` antecedents mention, the predicate of a negative antecedent a
-  `closedExtentPredicate` grant reads as NAF, plus the equality relations when it reads
+  `closed_extent_predicate` grant reads as NAF, plus the equality relations when it reads
   `different`).  The exceptWhen predicates come from the rule's meta-sentexes, so kb is
   needed.
 
@@ -2807,12 +2808,12 @@
 ;; would conclude something the door refuses.  The rule is the mistake, and this is
 ;; where it is said.
 ;;
-;; **A type-level position asks for a type, which is a `unaryPredicate`.**  That is the
+;; **A type-level position asks for a type, which is a `unary_predicate`.**  That is the
 ;; second reading this arm needs and the KB already holds it twice over: every type is
-;; asserted a `unaryPredicate` when the schema loads, and `declaration-problem` refuses
-;; an `arg` declaration on a `typeRelationPredicate` precisely because *its* arguments
+;; asserted a `unary_predicate` when the schema loads, and `declaration-problem` refuses
+;; an `arg` declaration on a `type_relation_predicate` precisely because *its* arguments
 ;; name kinds.  So a position is type-level when a `genlArg` names it **or** when its
-;; predicate is a `typeRelationPredicate` — which is how `genl`'s second argument is
+;; predicate is a `type_relation_predicate` — which is how `genl`'s second argument is
 ;; constrained at all.  That position carries no declaration of its own, deliberately
 ;; (see CxCore), and the relation kind is what says what it holds.
 ;;
@@ -2835,33 +2836,33 @@
 ;; refusing the rule would refuse one that works.
 ;;
 ;;   - `quotedArg` × `arg`, and `quotedArg` × `quotedArg`.  Bind a **compound**.  It is
-;;     the one thing `literal-type` declines to answer for, so both sides read it
+;;     the one thing `value-kind` declines to answer for, so both sides read it
 ;;     open-world.  Every other leaf kind is named and therefore decided, so a compound
 ;;     is the whole of the escape — and it is an escape a `result` read at check time
 ;;     rather than at mint would close for an unreifiable function, which is the one way
 ;;     these verdicts could still move.  With
 ;;     `symbol` on the `quotedArg` side there is no tension to begin with: a symbol is
 ;;     what every term the `arg` side types is written as.
-;;   - `quotedArg` × a type-level position.  A string literal serves here, `(genl "Bob"
-;;     thing)` being admitted — `genls-problem` still exempts a literal outright, which
-;;     is its own question (a literal is never a subtype of anything).
+;;   - `quotedArg` × a type-level position.  A string value serves here, `(genl "Bob"
+;;     thing)` being admitted — `genls-problem` still exempts a value outright, which
+;;     is its own question (a value is never a subtype of anything).
 ;;   - `interArg`.  Its trigger is a *demand*, not a fact.  `(arg P i T)` does not make
 ;;     argument `i` a `T` — an unclassified term satisfies it vacuously — so no rule's
 ;;     own bindings entail the trigger, and a conditional constraint that never provably
 ;;     fires can convict nothing.
-;;   - `arg` × `genlArg` beyond the `unaryPredicate` mapping below.  A term may be an
+;;   - `arg` × `genlArg` beyond the `unary_predicate` mapping below.  A term may be an
 ;;     instance of one type and a subtype of another at once; the meta-ontology depends
-;;     on it, every type being an instance of `unaryPredicate`.
+;;     on it, every type being an instance of `unary_predicate`.
 ;;
 ;; Each of those has a witness in `rule_variable_arg_test`, so an extension has to turn
 ;; one red before it can land.  docs/taxonomy.md carries the same list for a reader.
 
 (def ^:private collection-type
   "The type a **type-level** argument position asks its filler to be an instance of.
-  Every type in the KB is asserted a `unaryPredicate` as the schema loads, so this is
-  what `genlArg`'s \"a subtype of T\" and `typeRelationPredicate`'s \"relates kinds\"
+  Every type in the KB is asserted a `unary_predicate` as the schema loads, so this is
+  what `genlArg`'s \"a subtype of T\" and `type_relation_predicate`'s \"relates kinds\"
   both amount to as a membership — and a membership is what `disjoint` separates."
-  'unaryPredicate)
+  'unary_predicate)
 
 (defn- binding-literals
   "The literals of rule `inner` that **bind** its variables: every positive antecedent,
@@ -2884,8 +2885,8 @@
 
   Two sources, and they are the two readings a position can carry.  An `(arg P n T)`
   declaration types the filler directly.  A **type-level** position — one a `genlArg`
-  names, or any position of a `typeRelationPredicate` — types it as a
-  `unaryPredicate`, since what stands there is a kind.  `:level` is kept so the refusal
+  names, or any position of a `type_relation_predicate` — types it as a
+  `unary_predicate`, since what stands there is a kind.  `:level` is kept so the refusal
   can say which reading it read, and `:via` so a constraint that descended from a
   super-predicate names the predicate it was written of, exactly as `args-problem` does.
 
@@ -2896,7 +2897,7 @@
         as   (vec (nm/args lit))]
     (when (and (sequential? lit) (symbol? pred) (some sx/variable? as))
       (let [decls    (declaration-reader kb pred context)
-            type-rel (seq (res/matches-visible kb (list 'typeRelationPredicate pred) context))
+            type-rel (seq (res/matches-visible kb (list 'type_relation_predicate pred) context))
             of-kind  (fn [kind mk]
                        (for [m     (in-content-order (decls kind))
                              :let  [b (nth m 1)
@@ -2929,7 +2930,7 @@
 
 (defn- variable-constraint-clause
   "How a refusal names one constraint it found — **a string (arg 2 of
-  comment)**, or **a type (arg 2 of genl, a typeRelationPredicate)** for a position
+  comment)**, or **a type (arg 2 of genl, a type_relation_predicate)** for a position
   whose demand comes from the relation kind rather than from a declaration.  Carries
   `via-clause` for a constraint that descended from a super-predicate, exactly as
   `args-problem`'s message does."
@@ -2941,7 +2942,7 @@
        " (arg " position " of " pred
        (case level
          :genlArg (str ", constrained with genlArg" (via-clause via pred))
-         :kind    ", a typeRelationPredicate"
+         :kind    ", a type_relation_predicate"
          (via-clause via pred))
        ")"))
 
@@ -2951,7 +2952,7 @@
 
   Only two **instance** demands can convict: `disjoint` says two types share no
   instance, and a membership is what each of these constraints asks for — the
-  `unaryPredicate` a type-level position asks for included.  Variables are taken in
+  `unary_predicate` a type-level position asks for included.  Variables are taken in
   name order and each one's constraints in literal-then-content order, so a rule
   several of whose variables clash is refused for the same one every time."
   [kb inner context]
@@ -3283,7 +3284,7 @@
                            :exception-preds (vec new-exc-preds) :cycle cycle})))))))
 
 (defn check-closed-extent-stratified
-  "Throw unless declaring `(closedExtentPredicate P)` leaves the rule set stratified.
+  "Throw unless declaring `(closed_extent_predicate P)` leaves the rule set stratified.
 
   The grant is what turns a closed `(not (P …))` antecedent from a lookup into negation
   as failure, so it adds a negative edge to every stored rule carrying one — and can close
@@ -3299,7 +3300,7 @@
   Runs before anything is written, so a refused grant leaves no mark, no posting and no
   cycle."
   [kb sentence context]
-  (when (and (= 'closedExtentPredicate (nm/functor sentence)) (= 2 (count sentence)))
+  (when (and (= 'closed_extent_predicate (nm/functor sentence)) (= 2 (count sentence)))
     (let [pred (second sentence)]
       (when-let [[node cycle]
                  (->> (reads/as-stored-rules-by-antecedent (:index kb) [:not pred])

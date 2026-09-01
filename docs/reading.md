@@ -115,7 +115,7 @@ is the one read here that grows with the knowledge base. So it runs the other wa
 of up to five consecutive words produces the symbols a KB term could be spelled as:
 
 ```
-prepared for winter  ->  preparedForWinter   prepared_for_winter
+prepared for winter  ->  prepared_for_winter   prepared_for_winter
 lions                ->  lions  Lions  lion  Lion
 ```
 
@@ -148,7 +148,7 @@ cap cuts:
 Tier 3 exists because a document rarely spells a predicate the way the KB does. *…and so
 repay the kindness* does not resolve `repaidKindness`; a reader who cannot see that name
 coins a synonym for it, and the claim joins nothing. `text/declared-in` reads the
-`unaryPredicate` / `binaryPredicate` / `ternaryPredicate` memberships **scoped to the target
+`unary_predicate` / `binary_predicate` / `ternary_predicate` memberships **scoped to the target
 context's cone** — which is the right scope on its merits, since a candidate filed in one
 context may reuse exactly the vocabulary that context sees — and orders the cone by how much
 each context sees, largest first. So a cap drops `CxCore`'s plumbing before it drops
@@ -340,7 +340,7 @@ The trade is the one the shape predicts: **higher precision, lower recall**. It 
 candidates where the larger model wrote 33, and almost everything it wrote landed — the
 boy who cried wolf scored 100% precision on six candidates and 36% recall, having simply
 not attempted most of the story. It also got the ant and the grasshopper's two-antecedent
-join right (`(and (survivesWinter ?x) (suffersInWinter ?y))`) where the larger model
+join right (`(and (survives_winter ?x) (suffers_in_winter ?y))`) where the larger model
 produced a free variable and was refused, which is the whole of that fable's 100% recall.
 
 **It is fifteen times faster**, and that is where the card cap shows up. 2.6–4.0 s per
@@ -396,10 +396,10 @@ not already decided the story was about the boy.
 
 **A rule stated at the wrong strength.** The same fable produced
 `(implies (liar ?x) (not (believed ?x)))` where the gold joins two conditions,
-`(and (liar ?x) (criesWolf ?x))`. It also wrote the joined version — both, from one
+`(and (liar ?x) (cries_wolf ?x))`. It also wrote the joined version — both, from one
 sentence — so the pair costs a precision point for the loose one and gains the recall for
 the tight one. What it never produced is the *positive* default it is the exception to,
-`(implies (criesWolf ?x) (believed ?x))`: the prose says "a cry is believed by default,
+`(implies (cries_wolf ?x) (believed ?x))`: the prose says "a cry is believed by default,
 except from a liar", and the reader took the exception and dropped the rule.
 
 **A coined argument to rescue a rule.** The tortoise and the hare produced
@@ -421,7 +421,7 @@ Three things make this an easier task than reading arbitrary prose, and the numb
 nothing without them:
 
 - **The narrative predicates are named after the English the fable uses.** `spared`,
-  `napped`, `preparedForWinter` — resolution works here partly because the vocabulary was
+  `napped`, `prepared_for_winter` — resolution works here partly because the vocabulary was
   written by somebody who had the same sentences in front of them. On a corpus whose author
   did not name the ontology, tier 1 of the card would be much thinner and tier 3 would be
   doing all the work.

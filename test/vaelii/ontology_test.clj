@@ -41,7 +41,7 @@
     (is (v/genl? kb 'flying 'travelling)))
   (testing "and no one-place flight predicate survives beside it"
     (is (empty? (v/sentexes-matching kb '(arity flies ?n) '?ctx)))
-    (is (empty? (v/sentexes-matching kb '(arity canTravel ?n) '?ctx)))))
+    (is (empty? (v/sentexes-matching kb '(arity can_travel ?n) '?ctx)))))
 
 (tu/deftest-kb what-a-kind-can-do-reaches-the-kinds-beneath-it
   ;; One sentence is stored.  Everything else here is the taxonomy being read.
@@ -98,11 +98,11 @@
   ;; the type it lies under.  So: two predicates, the kind-level one marked, and the pair
   ;; named in prose because the predicate that names pairs cannot take a mixed half.
   (testing "the kind-level half relates kinds, and says so"
-    (is (v/ask? kb '(typeRelationPredicate capabilityType))))
+    (is (v/ask? kb '(type_relation_predicate capabilityType))))
   (testing "the instance-level half is MIXED — one animal to one capability kind — so it
-            carries no relationKind, and its two positions take different checks"
-    (is (not (v/ask? kb '(instanceRelationPredicate hasCapability))))
-    (is (not (v/ask? kb '(typeRelationPredicate hasCapability))))
+            carries no relation_kind, and its two positions take different checks"
+    (is (not (v/ask? kb '(instance_relation_predicate hasCapability))))
+    (is (not (v/ask? kb '(type_relation_predicate hasCapability))))
     (is (v/ask? kb '(arg hasCapability 1 animal)))
     (is (v/ask? kb '(genlArg hasCapability 2 capability))))
   (testing "so the pairing cannot be declared — typeToInstancePred constrains its second
@@ -146,7 +146,7 @@
   fails it too, so the roster stays a list of reasons rather than a list of debts."
   (merge
    {'[genl 2]  "the root: (genlArg genl 2 thing) would entail (genl thing thing), refused as irreflexive"
-    '[not 1]   "a sentence, canonicalized into the record's truth slot; no argument type names one"}
+    '[not 1]   "a sentence, canonicalized into the record's polarity slot; no argument type names one"}
    ;; the five aggregation operators: a result variable, a census variable, a sentence body
    (into {} (for [op '[agg/count agg/sum agg/avg agg/min agg/max] i [1 2 3]]
               [[op i] "an operator slot — a variable, a variable and a sentence body"]))
@@ -168,8 +168,8 @@
                       (filter #(.endsWith (.getName ^java.io.File %) ".txt")))
         sents    (mapcat text/read-forms files)
         of       (fn [functors] (filter #(and (seq? %) (contains? functors (first %))) sents))
-        arities  (merge (into {} (for [s (of '#{unaryPredicate binaryPredicate ternaryPredicate})]
-                                   [(second s) ('{unaryPredicate 1 binaryPredicate 2 ternaryPredicate 3}
+        arities  (merge (into {} (for [s (of '#{unary_predicate binary_predicate ternary_predicate})]
+                                   [(second s) ('{unary_predicate 1 binary_predicate 2 ternary_predicate 3}
                                                 (first s))]))
                         (into {} (for [s (of '#{arity})] [(second s) (nth s 2)])))
         declared (set (for [s (of '#{arg genlArg quotedArg}) :when (integer? (nth s 2))]
@@ -191,7 +191,7 @@
   ;; depend on what else got said, and the strength is exactly the author saying it must
   ;; not.  Two independent hierarchies so neither answer can come from the other.
   (tu/with-terms [carriesLoad pack_animal mule_kind hauler_kind cart_kind]
-    (v/assert kb (list 'binaryPredicate carriesLoad) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate carriesLoad) 'CxUniverse)
     (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) 'CxUniverse)
     (v/assert kb (list 'genl pack_animal 'animal) 'CxUniverse)
     (v/assert kb (list 'genl mule_kind pack_animal) 'CxUniverse)
@@ -253,7 +253,7 @@
   ;; living things are a kind OF.  Were one wanted as a type it would be spelled for it —
   ;; `mortal_being`, not `mortal`.
   (testing "the properties the biology theory concludes are outside the hierarchy"
-    (doseq [p '[alive dead awake asleep mortal warmBlooded breathesAir]]
+    (doseq [p '[alive dead awake asleep mortal warm_blooded breathes_air]]
       (is (empty? (v/sentexes-matching kb (list 'genl p '?super) '?ctx))
           (str p " is a property, not a type — it must carry no genl edge"))
       (is (seq (v/sentexes-matching kb (list 'arity p 1) '?ctx))
@@ -312,8 +312,8 @@
                                 pairs))]
     (is (empty? (about 'arity))
         (str "the arity table pairs with nothing: " (pr-str (mapv :sentences (about 'arity)))))
-    (is (empty? (about 'unaryPredicate))
-        (str "nor do the classes: " (pr-str (mapv :sentences (about 'unaryPredicate)))))))
+    (is (empty? (about 'unary_predicate))
+        (str "nor do the classes: " (pr-str (mapv :sentences (about 'unary_predicate)))))))
 
 (tu/deftest-kb a-predicate-is-at-most-one-of-the-three-arity-classifications
   ;; The declaration that empties the reading above, read as the refusal it is.  A
@@ -321,46 +321,46 @@
   ;; where it is written rather than stored and convicted a step later as two values in
   ;; the `functional` `(arity P n)` table.
   (testing "the three pairs are separated, and pairwise — not by a mark on predicate"
-    (is (v/disjoint? kb 'unaryPredicate 'binaryPredicate))
-    (is (v/disjoint? kb 'unaryPredicate 'ternaryPredicate))
-    (is (v/disjoint? kb 'binaryPredicate 'ternaryPredicate))
-    (is (not (v/disjoint? kb 'binaryPredicate 'instanceRelationPredicate))
-        "arity is both, so a siblingDisjoint mark on predicate would be too wide"))
+    (is (v/disjoint? kb 'unary_predicate 'binary_predicate))
+    (is (v/disjoint? kb 'unary_predicate 'ternary_predicate))
+    (is (v/disjoint? kb 'binary_predicate 'ternary_predicate))
+    (is (not (v/disjoint? kb 'binary_predicate 'instance_relation_predicate))
+        "arity is both, so a sibling_disjoint mark on predicate would be too wide"))
   (testing "and the second classification is refused, in either order"
     (tu/with-terms [zebraOf yakOf]
-      (v/assert kb (list 'unaryPredicate zebraOf) 'CxUniverse)
+      (v/assert kb (list 'unary_predicate zebraOf) 'CxUniverse)
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'binaryPredicate zebraOf) 'CxUniverse)))
-      (v/assert kb (list 'binaryPredicate yakOf) 'CxUniverse)
+                   (v/assert kb (list 'binary_predicate zebraOf) 'CxUniverse)))
+      (v/assert kb (list 'binary_predicate yakOf) 'CxUniverse)
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'unaryPredicate yakOf) 'CxUniverse)))
+                   (v/assert kb (list 'unary_predicate yakOf) 'CxUniverse)))
       (testing "so the arity table holds one value for each"
         (is (= [1] (mapv #(last (:sentence %))
                          (v/sentexes-matching kb (list 'arity zebraOf '?n) '?ctx))))
         (is (= [2] (mapv #(last (:sentence %))
                          (v/sentexes-matching kb (list 'arity yakOf '?n) '?ctx)))))))
-  (testing "a mark below binaryPredicate carries the separation with it"
+  (testing "a mark below binary_predicate carries the separation with it"
     (tu/with-terms [emuOf]
       (v/assert kb (list 'functional emuOf) 'CxUniverse)
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'ternaryPredicate emuOf) 'CxUniverse)))))
+                   (v/assert kb (list 'ternary_predicate emuOf) 'CxUniverse)))))
   (testing "belief-filtered: retracting the first frees the second"
     (tu/with-terms [oxOf]
-      (let [h (v/assert kb (list 'unaryPredicate oxOf) 'CxUniverse)]
+      (let [h (v/assert kb (list 'unary_predicate oxOf) 'CxUniverse)]
         (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list 'ternaryPredicate oxOf) 'CxUniverse)))
+                     (v/assert kb (list 'ternary_predicate oxOf) 'CxUniverse)))
         (v/retract! kb h)
-        (is (v/assert kb (list 'ternaryPredicate oxOf) 'CxUniverse)))))
+        (is (v/assert kb (list 'ternary_predicate oxOf) 'CxUniverse)))))
   (testing "and scoped: two contexts neither of which sees the other keep both"
     (tu/with-terms [ibisOf CxLeft CxRight CxBelowLeft]
       (v/assert kb (list 'genlCx CxLeft 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'genlCx CxRight 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'genlCx CxBelowLeft CxLeft) 'CxUniverse)
-      (v/assert kb (list 'unaryPredicate ibisOf) CxLeft)
-      (is (v/assert kb (list 'binaryPredicate ibisOf) CxRight)
+      (v/assert kb (list 'unary_predicate ibisOf) CxLeft)
+      (is (v/assert kb (list 'binary_predicate ibisOf) CxRight)
           "neither context sees the other, so both classifications stand")
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'ternaryPredicate ibisOf) CxBelowLeft))
+                   (v/assert kb (list 'ternary_predicate ibisOf) CxBelowLeft))
           "the descendant sees the first classification, so it refuses the third"))))
 
 (tu/deftest-kb a-social-agent-is-a-person-but-not-a-mammal
@@ -407,7 +407,7 @@
 ;; convicting nothing for the life of the KB.  These pin the modelling half of that: the
 ;; placement, the two disjointness claims, and the one type the pattern does not reach.
 
-(tu/deftest-kb the-literal-types-are-placed-in-the-domain-lattice
+(tu/deftest-kb the-value-kinds-are-placed-in-the-domain-lattice
   (testing "text and a number have no mass and no location"
     (is (v/genl? kb 'string 'intangible))
     (is (v/genl? kb 'number 'intangible)))
@@ -443,7 +443,7 @@
       (is (= :arg-type (:type (first (v/check kb (list 'comment 'thing 'genl) 'CxUniverse))))))
     (testing "an unclassified name is exempt — nothing says what it denotes"
       (is (= [] (v/check kb (list 'comment 'thing SomeDoc) 'CxUniverse))))
-    (testing "and a string literal is what the position is for"
+    (testing "and a string value is what the position is for"
       (is (= [] (v/check kb (list 'comment 'thing "some text") 'CxUniverse))))))
 
 (tu/deftest-kb a-term-cannot-be-both-a-string-and-a-relation

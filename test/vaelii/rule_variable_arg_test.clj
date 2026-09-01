@@ -11,7 +11,7 @@
   other instead, and refuses `:arg-variable`.
 
   Two arms, and the second is the one that needs saying: a position is type-level when a
-  `genlArg` names it **or** when its predicate is a `typeRelationPredicate`, which says
+  `genlArg` names it **or** when its predicate is a `type_relation_predicate`, which says
   it of every position at once.  That second half is what constrains `genl`'s second
   argument, the one position in CxCore's schema carrying no declaration of its own."
   (:require [clojure.test :refer [is testing use-fixtures]]
@@ -109,9 +109,9 @@
   (let [text (tu/tmp-type)
         p (tu/tmp-pred) rel (tu/tmp-pred)]
     (v/assert kb (list 'genl text 'thing) 'CxUniverse)
-    (v/assert kb (list 'disjoint text 'unaryPredicate) 'CxUniverse)
+    (v/assert kb (list 'disjoint text 'unary_predicate) 'CxUniverse)
     (v/assert kb (list 'arg p 1 text) 'CxUniverse)
-    (v/assert kb (list 'typeRelationPredicate rel) 'CxUniverse)
+    (v/assert kb (list 'type_relation_predicate rel) 'CxUniverse)
     (v/assert kb (list 'genlArg rel 1 'thing) 'CxUniverse)
     (testing "a variable bound to a text is not a kind, so it cannot fill a kind slot"
       (is (= :arg-variable
@@ -121,16 +121,16 @@
   (let [text (tu/tmp-type)
         p (tu/tmp-pred) rel (tu/tmp-pred)]
     (v/assert kb (list 'genl text 'thing) 'CxUniverse)
-    (v/assert kb (list 'disjoint text 'unaryPredicate) 'CxUniverse)
+    (v/assert kb (list 'disjoint text 'unary_predicate) 'CxUniverse)
     (v/assert kb (list 'arity rel 2) 'CxUniverse)
     (v/assert kb (list 'arg p 1 text) 'CxUniverse)
-    (v/assert kb (list 'typeRelationPredicate rel) 'CxUniverse)
+    (v/assert kb (list 'type_relation_predicate rel) 'CxUniverse)
     (v/assert kb (list 'genlArg rel 1 'thing) 'CxUniverse)   ; position 1 only
     (testing "the relation kind says of position 2 what no genlArg was written for"
       (is (= :arg-variable
              (ex-type #(v/assert kb (list 'implies (list p '?x) (list rel (tu/tmp-type) '?x))
                                  'CxUniverse))))
-      (is (re-find #"typeRelationPredicate"
+      (is (re-find #"type_relation_predicate"
                    (:message (first (v/check kb (list 'implies (list p '?x)
                                                       (list rel (tu/tmp-type) '?x))
                                              'CxUniverse))))))))
@@ -146,12 +146,12 @@
           ps   (v/check kb form 'CxUniverse)]
       (is (= [:arg-variable] (mapv :type ps)))
       (is (= '?string (:variable (first ps))))
-      (is (= '[string unaryPredicate] (:expected (first ps))))
+      (is (= '[string unary_predicate] (:expected (first ps))))
       (is (= :arg-variable (ex-type #(v/assert kb form 'CxUniverse)))))))
 
 (tu/deftest-kb the-shipped-schema-refuses-a-function-fed-into-a-type-slot
   ;; The second half CxCore states outright — "A function is a thing, and is not a
-  ;; predicate" — now as a fact rather than as prose.  Every type is a unaryPredicate,
+  ;; predicate" — now as a fact rather than as prose.  Every type is a unary_predicate,
   ;; so a type-level position asks for a predicate, and the three declarations that
   ;; name a function-valued argument all meet `genl` on a variable no term can fill.
   (doseq [pred '[result genlResult functionCorrespondingPredicate]]
@@ -163,12 +163,12 @@
             ps   (v/check kb form 'CxUniverse)]
         (is (= [:arg-variable] (mapv :type ps)))
         (is (= '?f (:variable (first ps))))
-        (is (= '[function unaryPredicate] (:expected (first ps))))
+        (is (= '[function unary_predicate] (:expected (first ps))))
         (is (= :arg-variable (ex-type #(v/assert kb form 'CxUniverse)))))))
   (testing "and the type-valued position of the same literal is unaffected"
     (is (= [] (v/check kb '(implies (result ?f ?t) (genl ?t ?t)) 'CxUniverse)))))
 
-(tu/deftest-kb the-literal-types-are-one-vocabulary-and-symbol-is-mention-only
+(tu/deftest-kb the-value-kinds-are-one-vocabulary-and-symbol-is-mention-only
   (testing "the disjointness on number carries integer with it"
     ;; `(arg arity 2 non_negative_integer)`, and that type is below integer and number,
     ;; which no relation is
@@ -176,7 +176,7 @@
           ps   (v/check kb form 'CxUniverse)]
       (is (= [:arg-variable] (mapv :type ps)))
       (is (= '?n (:variable (first ps))))
-      (is (= '[non_negative_integer unaryPredicate] (:expected (first ps))))))
+      (is (= '[non_negative_integer unary_predicate] (:expected (first ps))))))
   (testing "symbol carries no disjointness, a name being how a predicate is written"
     ;; the deliberate absence, and the one that has to be pinned: `(disjoint symbol
     ;; predicate)` would read as a use-level claim and be false of every predicate name,
@@ -250,35 +250,35 @@
 ;; the point of writing it down as a test rather than as a paragraph.
 
 (tu/deftest-kb a-quoted-demand-and-an-instance-demand-are-not-a-clash
-  ;; A **compound** satisfies both, and it is the only thing that does: `literal-type`
+  ;; A **compound** satisfies both, and it is the only thing that does: `value-kind`
   ;; declines to answer for one, because what `(MsrFn 5)` denotes is its function's
-  ;; business (`result`) rather than its syntax's.  A string literal used to be the
+  ;; business (`result`) rather than its syntax's.  A string value used to be the
   ;; witness here and is not one — `args-problem` types a literal by its kind and
   ;; convicts it, `string` not reaching `predicate`.
   (let [qs (tu/tmp-pred) ap (tu/tmp-pred) f (tu/tmp-ind)]
-    (v/assert kb (list 'unaryPredicate qs) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate qs) 'CxUniverse)
     (v/assert kb (list 'quotedArg qs 1 'string) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate ap) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate ap) 'CxUniverse)
     (v/assert kb (list 'arg ap 1 'predicate) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction f) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function f) 'CxUniverse)
     (testing "the rule stands, though the two demands read as contradictory"
       (is (= [] (v/check kb (list 'implies (list qs '?x) (list ap '?x)) 'CxUniverse))))
     (testing "and here is the binding that says why"
       (is (= [] (v/check kb (list qs (list f 5)) 'CxUniverse)))
       (is (= [] (v/check kb (list ap (list f 5)) 'CxUniverse))))
-    (testing "a string literal is no longer one — the arg side types it and convicts"
+    (testing "a string value is no longer one — the arg side types it and convicts"
       (is (= [:arg-type] (mapv :type (v/check kb (list ap "Bob") 'CxUniverse)))))))
 
 (tu/deftest-kb two-quoted-demands-are-not-a-clash
-  ;; two incomparable syntactic kinds still admit the one kind `literal-type` does not
+  ;; two incomparable syntactic kinds still admit the one kind `value-kind` does not
   ;; answer for.  A keyword was the witness until keywords got a name of their own; a
   ;; compound is not going to get one, for the reason above.
   (let [qs (tu/tmp-pred) qi (tu/tmp-pred) f (tu/tmp-ind)]
-    (v/assert kb (list 'unaryPredicate qs) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate qs) 'CxUniverse)
     (v/assert kb (list 'quotedArg qs 1 'string) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate qi) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate qi) 'CxUniverse)
     (v/assert kb (list 'quotedArg qi 1 'integer) 'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction f) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function f) 'CxUniverse)
     (is (= [] (v/check kb (list 'implies (list qs '?x) (list qi '?x)) 'CxUniverse)))
     (testing "no term is both a string and an integer, and a compound is neither"
       (is (= [] (v/check kb (list qs (list f 5)) 'CxUniverse)))
@@ -288,7 +288,7 @@
   ;; the same `checkable-term?` floor one level up: a literal in a type-level position is
   ;; admitted, so a variable can be a string at one end and fill a kind slot at the other
   (let [qs (tu/tmp-pred)]
-    (v/assert kb (list 'unaryPredicate qs) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate qs) 'CxUniverse)
     (v/assert kb (list 'quotedArg qs 1 'string) 'CxUniverse)
     (is (= [] (v/check kb (list 'implies (list qs '?x) (list 'genl '?x 'thing)) 'CxUniverse)))
     (is (= [] (v/check kb '(genl "Bob" thing) 'CxUniverse))
@@ -304,11 +304,11 @@
         ia     (tu/tmp-pred) trig (tu/tmp-pred) tgt (tu/tmp-pred)
         Unc    (tu/tmp-ind)  Val  (tu/tmp-ind)]
     (v/assert kb (list 'genl a 'thing) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate ia) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate ia) 'CxUniverse)
     (v/assert kb (list 'interArg ia 1 a 2 u) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate trig) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate trig) 'CxUniverse)
     (v/assert kb (list 'arg trig 1 a) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate tgt) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate tgt) 'CxUniverse)
     (v/assert kb (list 'arg tgt 2 v') 'CxUniverse)
     (testing "the rule stands, though the interArg target and the arg type are disjoint"
       (is (= [] (v/check kb (list 'implies (list 'and (list trig '?x) (list ia '?x '?y))
@@ -320,14 +320,14 @@
       (is (= [] (v/check kb (list tgt Unc Val) 'CxUniverse))))))
 
 (tu/deftest-kb an-instance-demand-and-a-subtype-demand-are-not-a-clash
-  ;; beyond the `unaryPredicate` mapping the arm already makes: a term may be an instance
+  ;; beyond the `unary_predicate` mapping the arm already makes: a term may be an instance
   ;; of one type and a subtype of another at once, and the meta-ontology depends on it —
-  ;; every type in the KB is an instance of unaryPredicate.
+  ;; every type in the KB is an instance of unary_predicate.
   (let [d (tu/tmp-type) inst (tu/tmp-pred) sub (tu/tmp-pred) both (tu/tmp-type)]
     (v/assert kb (list 'genl d 'thing) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate inst) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate inst) 'CxUniverse)
     (v/assert kb (list 'arg inst 1 d) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate sub) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate sub) 'CxUniverse)
     (v/assert kb (list 'genlArg sub 1 'thing) 'CxUniverse)
     (is (= [] (v/check kb (list 'implies (list inst '?x) (list sub '?x 'thing)) 'CxUniverse)))
     (testing "one term, both readings"

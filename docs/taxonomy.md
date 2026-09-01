@@ -1,7 +1,7 @@
 # Taxonomy: types, genl, and disjointness
 
 - **Covers:** how the `genl` type hierarchy is cached and queried, how `disjoint` /
-  `disjointMetatype` are enforced, and how `arg` / `genlArg` constrain arguments as a
+  `disjoint_metatype` are enforced, and how `arg` / `genlArg` constrain arguments as a
   rejection check — of a ground sentence, and of a rule's shared variables.
 - **Not here:** `genlCx`, the sibling closure over contexts rather than types →
   [contexts.md](contexts.md); `arg` / `genlArg` read as an entailment that mints a
@@ -44,7 +44,7 @@ globally, and why: [below](#the-global-readers-and-who-may-use-one).
 1. **Arg constraints.** `(arg pred n type)` sentexes constrain arguments;
    `assert` checks arg *n* with `isa?` (does the arg have a type whose `genls`
    reaches the constraint). Open-world about a **symbol**: an untyped one can't
-   violate. A **literal** carries its type in its syntax and is checked against it.
+   violate. A **value** carries its type in its syntax and is checked against it.
    A **function application** is checked against what its function is declared to
    yield.
 2. **Specificity.** Matching a unary type predicate fans out over `specs`, so an
@@ -126,9 +126,9 @@ walks the `:derived?` subset (`special/integrate-transitive`) plus what
 | a rule concluding | the cache behind it | reached by |
 |---|---|---|
 | `genl` `genlCx` | the two closures | `:derived?` |
-| `disjoint` `disjointMetatype` `siblingDisjoint` `siblingDisjointException` | disjointness, the metatype and sibling marks, and the exemption | `:derived?` |
+| `disjoint` `disjoint_metatype` `sibling_disjoint` `siblingDisjointException` | disjointness, the metatype and sibling marks, and the exemption | `:derived?` |
 | `arity` `inverse` | the arity and inverse caches | `:derived?` |
-| `transitive` `symmetric` `asymmetric` `reflexive` `functional` `forcedDecontextualizedPredicate` `abduciblePredicate` `closedExtentPredicate` `reifiableFunction` `unreifiableFunction` | the predicate-metadata marks | `:derived?` |
+| `transitive` `symmetric` `asymmetric` `reflexive` `functional` `forced_decontextualized_predicate` `abducible_predicate` `closed_extent_predicate` `reifiable_function` `unreifiable_function` | the predicate-metadata marks | `:derived?` |
 | `rewriteOf` `sameAs` `equals` | the equality partition, and migration | by name — the arm's return value is the twins and the violations, which `:derived?` would discard ([equality.md](equality.md)) |
 | `arg` `genlArg` `interArg` | the roster of predicates some declaration of that kind names (`:declares-arg-isa` / `:declares-arg-genl` / `:declares-inter-arg-isa`), and the declarations themselves read back through the index per query | `:derived?` — the roster is what lets the descension ask *whose* declarations bind a tuple without an index probe per super-predicate |
 | `transitiveInArg` `transitiveInArgInverse` `functionCorrespondingPredicate` | none — read back through the index per query | nothing to reach |
@@ -137,11 +137,11 @@ walks the `:derived?` subset (`special/integrate-transitive`) plus what
 **Two conclusions reach their cache only once a restart replays them**, and both are
 stated here rather than left to be found:
 
-- **`decontextualizedPredicate`.** Its arm marks the predicate *and* runs an O(extent)
+- **`decontextualized_predicate`.** Its arm marks the predicate *and* runs an O(extent)
   retroactive lift whose copies are chaining seeds, which the `:derived?` walk would
   throw away — so a derived declaration would lift half of what an asserted one lifts.
   A rule concluding it therefore leaves the mark unset until a restart replays it.
-- **A disjoint metatype's own members.** `(animalSpecies dog)` is recorded by the
+- **A disjoint metatype's own members.** `(animal_species dog)` is recorded by the
   structural arm rather than by a table entry — the functor is the metatype, which is
   data and not vocabulary — and the derivation path runs no structural arm. A rule
   concluding a membership therefore separates nothing until a restart replays it, though
@@ -493,7 +493,7 @@ witness the reachability rests on — since a scoped `genl?` disagreeing with th
 **Scope.** The belief discipline applies to the two transitive relations, to the
 equality partition, and — through the shared `:cache-support` reference count, keyed by
 `[kind key]` — to the six flat caches too: `disjoint`, the disjoint metatypes and their
-members, the `siblingDisjoint` marks and their exemptions, the predicate properties
+members, the `sibling_disjoint` marks and their exemptions, the predicate properties
 (`transitive`/`symmetric`/`asymmetric`/`reflexive`/`functional`), `inverse`, and the
 declared `arity`. Only `genlCx` is forced-decontextualized, so only it is guaranteed one
 sentex per claim; `(disjoint dog cat)` asserted in two contexts is two sentexes folding
@@ -612,7 +612,7 @@ Three mechanisms declare that types share no instance; all are closed under `gen
 (subtypes of disjoint types are disjoint):
 
 - `(disjoint TypeA TypeB)` — an explicit pair.
-- `(disjointMetatype Metatype)` — a metatype whose member types (`(Metatype T)`
+- `(disjoint_metatype Metatype)` — a metatype whose member types (`(Metatype T)`
   facts) are pairwise disjoint. Membership is **recorded, not materialized**: the
   metatype and its members are cached (`:metatype-members`, reference-counted on the
   `(M T)` sentex) and `disjoint?` consults them, so the clique is a property of the
@@ -629,11 +629,11 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   `recover` re-reads the `(M T)` sentexes after marking the metatypes. The browser's
   disjointness list computes the induced disjoint pairs rather than querying for them,
   for the same reason — there are no `(disjoint …)` sentexes to query.
-- `(siblingDisjoint C)` — a collection whose **specializations** (the types below `C`
+- `(sibling_disjoint C)` — a collection whose **specializations** (the types below `C`
   under `genl`) are pairwise disjoint, *unless one is a `genl` of the other*. It is the
   metatype clique keyed off the `genl` closure rather than a recorded member set: only
   the mark on `C` is cached (`:sibling-disjoint`, reference-counted on the
-  `(siblingDisjoint C)` sentex), and `disjoint?` reads `C`'s specializations off `specs`
+  `(sibling_disjoint C)` sentex), and `disjoint?` reads `C`'s specializations off `specs`
   the way the metatype arm reads its members. So nothing quadratic is stored, dropping
   the mark releases every pair at once, and a specialization added later — an `(A C)`
   membership is a mistake, but a `(genl A C)` edge is the shape — is separated the
@@ -647,14 +647,14 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   visibility, so a descendant context never separates a pair the whole edge set knows
   overlaps.
 
-  **Covering is out of scope.** `siblingDisjoint` says the specializations do not
+  **Covering is out of scope.** `sibling_disjoint` says the specializations do not
   *overlap*; it does not say they *exhaust* `C`. There is no declaration that an
   instance of `C` must belong to one of its specializations, so a bare `C` with no
   further membership violates nothing. Disjointness is the half a truth-maintained KB
   can refuse a write against; exhaustiveness would be a closed-world claim over an
   open-world extent.
 - `(siblingDisjointException X Y)` — an escape hatch exempting the one pair `X`, `Y` that
-  a `siblingDisjoint` mark (or a `disjointMetatype`) would otherwise force disjoint. It is
+  a `sibling_disjoint` mark (or a `disjoint_metatype`) would otherwise force disjoint. It is
   keyed as an unordered pair exactly like `disjoint` (`:sib-exception-index`,
   reference-counted on the `(siblingDisjointException X Y)` sentex) and read by
   `disjointness-test` as one map lookup behind the `genl-related?` guard the sibling and
@@ -679,15 +679,15 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   present *ab initio* whose pair therefore never entered the clash set is re-armed on
   retract by the settle's own sweep off `:sib-exc-dirty`.
 
-**All three separating mechanisms — `disjoint`, `disjointMetatype` and `siblingDisjoint` — separate any term, not only individuals.** `checks/checkable-term?`
+**All three separating mechanisms — `disjoint`, `disjoint_metatype` and `sibling_disjoint` — separate any term, not only individuals.** `checks/checkable-term?`
 admits every non-variable symbol, so the predicate meta-ontology is enforced the same
-way the domain is: `(relationKind …)` is a `disjointMetatype` over
-`instanceRelationPredicate` and `typeRelationPredicate`, and a predicate declared both
+way the domain is: `(relation_kind …)` is a `disjoint_metatype` over
+`instance_relation_predicate` and `type_relation_predicate`, and a predicate declared both
 is refused exactly as `Muffet` being both a `dog` and a `cat` is. The same widening makes
 `arg` constrain predicate-valued positions — `(arg typeToInstancePred 1
-typeRelationPredicate)` refuses a link whose first argument is not classified
-type-level. A **literal** is typed by what it *is* rather than by what somebody
-asserted: `checks/literal-type` reads its EDN kind, and the kinds sit in the lattice
+type_relation_predicate)` refuses a link whose first argument is not classified
+type-level. A **value** is typed by what it *is* rather than by what somebody
+asserted: `checks/value-kind` reads its EDN kind, and the kinds sit in the lattice
 (CxCore) precisely so the comparison can be made — a `string` is not a `dog`, and `arg`
 says so. There is one per leaf kind a sentence can carry, and the set is complete on
 purpose: a kind with no name is one both argument checks must wave through, which is a
@@ -742,7 +742,7 @@ testing every type](defenses.md#the-answer-is-not-found-by-testing-every-type)
 So it is read off the same frame, the other way round. `tax/separating-partners` is
 every `y` a visible declaration separates `a` from — the pairs `a`'s supertypes carry
 in `:disjoint-index`, plus the other members of any disjoint metatype one of them
-belongs to, plus the specializations of a `siblingDisjoint` parent one of them stands
+belongs to, plus the specializations of a `sibling_disjoint` parent one of them stands
 beside. Every type disjoint from `a` is a subtype of one of those partners and
 nothing else is, since inheritance through `genl` is how a separation reaches a
 candidate at all; so the answer is `specs` of the partner set, and its size is the
@@ -771,7 +771,7 @@ A declaration changes what already-stored content *means*, so the settle that ad
 one re-examines the content written before it — or the KB would answer differently
 depending on whether the separation or the memberships were written first, which is
 the invariant [nmtms.md](nmtms.md) opens with. Eight sentence shapes reach back:
-`disjoint`, `disjointMetatype`, `siblingDisjoint`, a new `(M T)` member of a metatype,
+`disjoint`, `disjoint_metatype`, `sibling_disjoint`, a new `(M T)` member of a metatype,
 `genl`, `genlCx`, and (for the nogood path) `functional` and `asymmetric`.
 
 The reach is **two questions**, and keeping them apart is what makes a bounded sweep
@@ -1176,7 +1176,7 @@ maintained by `integrate-sentex`:
   than defeats. `(genl asymmetric irreflexive)` classifies every asymmetric predicate as an
   irreflexive one for a *query*, but does not set the `:irreflexive` property on it, so an
   asymmetric predicate still admits its self tuple.
-- `(antiSymmetric P)` — a *constraint* that resolves by **merging**: a believed converse
+- `(anti_symmetric P)` — a *constraint* that resolves by **merging**: a believed converse
   `(P b a)` beside `(P a b)` forces the two arguments to be one thing, so the KB derives
   `(equals a b)` and merges (`special/derive-antisymmetric-equalities`), the antisymmetric
   twin of what `functional` does with two symbol values and the same three arrival
@@ -1185,21 +1185,21 @@ maintained by `integrate-sentex`:
   two numbers, a compound — is the hard contradiction refused at the door instead (`:type`
   `:anti-symmetric`), like a numeric functional clash. A self tuple's converse is itself
   and `(equals a a)` is trivial, so it is admitted.
-- `(antiTransitive P)` — a *constraint* whose conviction spans **three** claims: `(P a b)`
+- `(anti_transitive P)` — a *constraint* whose conviction spans **three** claims: `(P a b)`
   and `(P b c)` believed make `(P a c)` contradictory, the dual of `transitive`. The three
   are one nogood rather than three pairs, weighed by the same rule any contradiction is
   (`settle/decide-nogood` over the whole member set): a chain that is known true refuses
   the direct step at the door, a chain with one defeasible step has that step defeated
   instead, and three equal defaults are a three-sided dilemma the engine reports and
   declines to decide ([nmtms.md](nmtms.md)). Read up the predicate hierarchy like the other
-  constraint marks, and probed at the marked predicate, so `(antiTransitive parentOf)`
+  constraint marks, and probed at the marked predicate, so `(anti_transitive parentOf)`
   convicts a `fatherOf` chain. It does **not** imply `irreflexive`: a self tuple `(P a a)`
   is its own whole chain, names no second sentex to weigh, and is admitted exactly as an
-  `asymmetric` predicate's is. Its disjointness `(disjoint transitive antiTransitive)`
+  `asymmetric` predicate's is. Its disjointness `(disjoint transitive anti_transitive)`
   holds beside that: no predicate is declared both.
-- `(equivalenceRelation P)` — no engine code: three shipped CxCore forward rules derive
+- `(equivalence_relation P)` — no engine code: three shipped CxCore forward rules derive
   `(symmetric P)`, `(transitive P)` and `(reflexive P)`, each a real mark the engine
-  enforces in turn. A `(genl equivalenceRelation symmetric)` subsumption edge would answer
+  enforces in turn. A `(genl equivalence_relation symmetric)` subsumption edge would answer
   the *query* but would not set the `:symmetric` property the enforcement reads, since a
   genl-inherited membership is not a stored `symmetric` sentex the mark ingestion sees — so
   the rules, which materialize that sentex, are the minimal correct expression.
@@ -1243,12 +1243,12 @@ value to be functional about — now because the second, disagreeing value never
 nearly every KB, so a descending read is one map lookup where nothing is declared — the
 gate `tax/inverses-under` takes on the empty `:inverse` map, and what keeps a closure
 walk off the goal paths that ask `has-prop?` per goal.
-- `(decontextualizedPredicate P)` — every `(P ...)`, asserted or concluded by a rule,
+- `(decontextualized_predicate P)` — every `(P ...)`, asserted or concluded by a rule,
   is also deduced into CxUniverse, which every context sees, so the fact stops
   being a claim of one theory. The target is fixed rather than named, because the
   definitional checks are context-scoped and only cover the copy when the stating
   context can see where it lands (see [contexts.md](contexts.md)).
-- `(forcedDecontextualizedPredicate P)` — stronger: every `(P ...)` is *stored* in
+- `(forced_decontextualized_predicate P)` — stronger: every `(P ...)` is *stored* in
   CxUniverse directly (its context forced there on assert, no justification). Declared
   for `genlCx`, so the context topology has one canonical home (see
   [contexts.md](contexts.md)).
@@ -1260,32 +1260,32 @@ Accessors: `has-prop?`, `inverse-of`, `props` (the set carrying a property).
 Predicates are **reified** and classified in the genl hierarchy under `predicate`
 (itself a `thing`):
 
-- by arity — `unaryPredicate` (every type, plus one-place properties like `flies`),
-  `binaryPredicate` (relations like `parentOf`), `ternaryPredicate` (`arg`);
+- by arity — `unary_predicate` (every type, plus one-place properties like `flies`),
+  `binary_predicate` (relations like `parentOf`), `ternary_predicate` (`arg`);
 - by algebra — `symmetric` / `asymmetric` / `transitive` / `reflexive` / `functional`,
-  each a subtype of `binaryPredicate`.
+  each a subtype of `binary_predicate`.
 
 **The three arity classes separate each other**, as three `(disjoint …)` pairs in CxCore.
 A predicate takes one number of arguments, so a second classification is refused where it
 is written (`:disjoint`) rather than stored and convicted a step later as two values in
 the `functional` `(arity P N)` table. It is stated pairwise and **not** as
-`(siblingDisjoint predicate)`: `predicate`'s specializations are every classification of a
+`(sibling_disjoint predicate)`: `predicate`'s specializations are every classification of a
 relation there is, and a predicate is rightly several of those at once — `arity` is a
-`binaryPredicate` and an `instanceRelationPredicate` — so the mark would separate pairs
+`binary_predicate` and an `instance_relation_predicate` — so the mark would separate pairs
 that must coexist. The separation closes under `genl` like any other, so the algebraic
-marks above are separated from `unaryPredicate` and `ternaryPredicate` along with the
-`binaryPredicate` they specialize.
+marks above are separated from `unary_predicate` and `ternary_predicate` along with the
+`binary_predicate` they specialize.
 
 The algebraic marks are **the classification itself** — no derived `…Predicate` twin.
 Each mark is one predicate doing two jobs: `(symmetric siblingOf)` maintains the
 `:symmetric` taxonomy property (canonicalization, the generic prover) **and**, through
-`(genl symmetric binaryPredicate)` in CxCore, *is* a membership in a `binaryPredicate`
-subtype. The mark is a `decontextualizedPredicate`, so `(symmetric P)` is stated once and
+`(genl symmetric binary_predicate)` in CxCore, *is* a membership in a `binary_predicate`
+subtype. The mark is a `decontextualized_predicate`, so `(symmetric P)` is stated once and
 seen KB-wide (the definitional reads and the structural ones agree), while a bare KB keeps
 it in its declaring context. Arity memberships are likewise direct (every genl type is
-looped into `unaryPredicate`). So `isa? siblingOf symmetric`, `isa? siblingOf
-binaryPredicate`, and `isa? siblingOf predicate` all hold, and `isa? dog unaryPredicate` /
-`isa? arg ternaryPredicate`.
+looped into `unary_predicate`). So `isa? siblingOf symmetric`, `isa? siblingOf
+binary_predicate`, and `isa? siblingOf predicate` all hold, and `isa? dog unary_predicate` /
+`isa? arg ternary_predicate`.
 
 Because the mark is a stored fact, `ask (symmetric ?p)` enumerates the declared predicates
 by ordinary retrieval — the same answer `isa?` reads, from the same store, with no separate
@@ -1300,7 +1300,7 @@ Before storing, `assert` checks the special predicates are structurally sound:
 
 - `genl` / `genlCx` — both arguments are types / contexts (not individuals), not
   equal, and don't create a cycle (the reverse relation must not already hold).
-- `disjoint` / `disjointMetatype` — arguments are types; two genl-related types can't
+- `disjoint` / `disjoint_metatype` — arguments are types; two genl-related types can't
   be declared disjoint (one contains the other, so they overlap).
 - `arg` / `genlArg` — a predicate, a positive-integer position, and a type. One
   check serves both (`wff/arg-constraint-problems`): they are structurally identical
@@ -1312,8 +1312,8 @@ These are structural checks; the *content* check that an argument actually reach
 ## Two argument constraints
 
 `(arg P n T)` asks argument *n* to be an **instance** of T; `(genlArg P n T)` asks
-it to be a **subtype** — `arg` one level up. An `instanceRelationPredicate` takes
-the first, a `typeRelationPredicate` the second, and the same symbol answers them
+it to be a **subtype** — `arg` one level up. An `instance_relation_predicate` takes
+the first, a `type_relation_predicate` the second, and the same symbol answers them
 differently: `penguin` satisfies `(genlArg partType 1 physical_object)` and fails
 `(arg partOf 1 physical_object)`, which is exactly the distinction between a claim
 about a kind and a claim about a thing.
@@ -1353,7 +1353,7 @@ convict harder the less a context sees.
 ### Arity
 
 `checks/arity-problem` holds a sentence to the arity its predicate is **bound** to —
-from `(arity P N)` or from a `unaryPredicate` / `binaryPredicate` / `ternaryPredicate`
+from `(arity P N)` or from a `unary_predicate` / `binary_predicate` / `ternary_predicate`
 membership, which the CxCore rules derive from each other, so either spelling binds, and
 from a super-predicate's where the predicate declares nothing of its own (below). One
 predicate binds one length: the three classes are pairwise `disjoint` (above), so a second
@@ -1362,18 +1362,18 @@ classification never lands to derive a second value. The **top literal only**, e
 not. Open-world in the same shape — a predicate the KB has never declared can be used
 at any arity, since the declaration may simply not have arrived.
 
-`(variableArity P)` exempts a predicate outright. `lessThan` is declared binary *and*
+`(variable_arity P)` exempts a predicate outright. `lessThan` is declared binary *and*
 reads a chain of any length (`(lessThan 1 2 3)` is `1 < 2 < 3`); the declaration is what
 says so, rather than the check carrying a roster of predicates it quietly skips.
 
 **A predicate that declares no arity takes its super-predicates'**, and only then: a
 `fatherOf` tuple is a `parentOf` tuple, so a ternary `fatherOf` fact is a ternary
-`parentOf` tuple that `(binaryPredicate parentOf)` says does not exist. The restriction
+`parentOf` tuple that `(binary_predicate parentOf)` says does not exist. The restriction
 to predicates that declare nothing is what keeps this a *check* rather than a preserved
 fact — `(arity fatherOf ?n)` answers the one value somebody wrote of `fatherOf`, and
 nothing where nobody wrote one. Supers that disagree bind nothing, which is the stance
 `tax/declared-arity` already takes toward two contradictory declarations of one
-predicate, and a `variableArity` super releases the inheritance for the reason it exempts
+predicate, and a `variable_arity` super releases the inheritance for the reason it exempts
 the predicate carrying it. Both spellings are read up the hierarchy, the `(arity P n)`
 table first because it costs a map read where the predicate-type membership costs a
 retrieval.
@@ -1390,7 +1390,7 @@ message names both predicates, both lengths, and the two ways out:
     arity does not descend: 3 arguments declared of fatherOf, 2 declared of parentOf,
     and (genl fatherOf parentOf) says every fatherOf tuple is a parentOf tuple —
     tuples of different lengths are not the same tuples (give the two one arity, or
-    declare one variableArity)
+    declare one variable_arity)
 
 A specialization therefore does not carry a signature of its own. This is the one point
 where an arity constraint is stricter than the argument constraints beside it, and the
@@ -1399,7 +1399,7 @@ the super demands of a tuple, while a second length says the two tuple sets are 
 and are shaped differently, which is not a stricter claim but an unmeanable one. Own
 declarations only, on both sides — what a predicate inherits is what the descension is
 for, and supers that disagree with *each other* are not a pair, since they are not
-genl-related and the sub takes nothing from them. `variableArity` on **either** side
+genl-related and the sub takes nothing from them. `variable_arity` on **either** side
 releases the match, for the reason it exempts the predicate carrying it.
 
 That strictness is also what keeps `(functional arity)` honest through the hierarchy.
@@ -1416,17 +1416,17 @@ already says about its predicate:
 - **A position the predicate does not have** — `(arg parentOf 5 animal)` where
   `parentOf` is declared binary. The constraint would never fire, so it reads as
   enforced while enforcing nothing. The arity comes from `(arity P N)` or from a
-  `unaryPredicate` / `binaryPredicate` / `ternaryPredicate` membership; the CxCore
+  `unary_predicate` / `binary_predicate` / `ternary_predicate` membership; the CxCore
   rules derive each from the other, so either spelling is enough, and both are read
-  because a `{:chain? false}` assert has only what was written. **`variableArity`
+  because a `{:chain? false}` assert has only what was written. **`variable_arity`
   releases this arm too**: such a predicate reads a tuple of any length from its declared
   arity upward, so a position past that length is one its tuples really do reach and a
   constraint on it fires on the tuples long enough to have it — refusing the declaration
   while the same KB admits those very facts is the reading no arrival order makes
   coherent. The release is read off the predicate's **own** memberships, since
   `checks/inherited-arity` already declines to bind when a super carries the mark.
-- **A constraint disagreeing with the predicate's `relationKind`** — `genlArg` on an
-  `instanceRelationPredicate`, or `arg` on a `typeRelationPredicate`.
+- **A constraint disagreeing with the predicate's `relation_kind`** — `genlArg` on an
+  `instance_relation_predicate`, or `arg` on a `type_relation_predicate`.
 
 **Both constraints on one position is not one of them**, and it is the case worth naming
 because the opposite reads plausible: one asks the argument to be an instance of a type
@@ -1463,19 +1463,19 @@ It refuses `:arg-variable`:
 
 ```clojure
 (v/check kb '(implies (comment ?x ?string) (genl ?x ?string)) 'CxUniverse)
-;; [{:type :arg-variable :variable ?string :expected [string unaryPredicate]
+;; [{:type :arg-variable :variable ?string :expected [string unary_predicate]
 ;;   :message "arg constraint: ?string must be a string (arg 2 of comment)
-;;             and a type (arg 2 of genl, a typeRelationPredicate), and the two types
+;;             and a type (arg 2 of genl, a type_relation_predicate), and the two types
 ;;             are disjoint"}]
 ```
 
 `(implies (arg ?pred ?n ?kind) (genl ?pred ?kind))` is the shape that must *pass*, and
 does: `?kind` is asked for a kind at both ends.
 
-**A type-level position asks for a `unaryPredicate`**, which is what makes the two
+**A type-level position asks for a `unary_predicate`**, which is what makes the two
 demands comparable at all — `disjoint` separates *memberships*, and a subtype demand is
 not one until it is read as the membership every type carries. A position is type-level
-when a `genlArg` names it **or** when its predicate is a `typeRelationPredicate`, the
+when a `genlArg` names it **or** when its predicate is a `type_relation_predicate`, the
 mark saying that of every position at once; that second half is how `genl`'s second
 argument is constrained, since it deliberately carries no declaration of its own
 (CxCore says why).
@@ -1489,7 +1489,7 @@ Four restrictions keep the arm to what it can actually prove:
   that position, so `(implies (and (dog ?x) (not (plant ?x))) …)` is saying exactly what
   its author meant; an existential is skipped because its variables are local.
 - **Declared disjointness only**, so the arm stays as open-world as the ground one. The
-  literal types carry the declaration that makes the case above bite —
+  value kinds carry the declaration that makes the case above bite —
   `(disjoint string predicate)` and `(disjoint number predicate)` in CxAbstract, text and
   a number each being a thing no relation is, and the second carrying `integer` with it.
   `symbol` deliberately carries neither: a name is exactly how a predicate is written, so
@@ -1501,11 +1501,11 @@ Four restrictions keep the arm to what it can actually prove:
   scope decision. `arg` and `genlArg` are read; `quotedArg` and `interArg` are not,
   because each pairing has a binding both ends accept — refusing the rule would refuse
   one that works. Both `quotedArg` pairings admit a **compound**, the one thing
-  `literal-type` declines to answer for; and `interArg`'s trigger is a
+  `value-kind` declines to answer for; and `interArg`'s trigger is a
   *demand*, not a fact — `(arg P i T)` does not make argument `i` a `T`, since an
   unclassified term satisfies it vacuously, so no rule's own bindings entail the trigger.
   For the same reason there is no reading of `arg` against `genlArg` sharper than the
-  `unaryPredicate` mapping above: a term may be an instance of one type and a subtype of
+  `unary_predicate` mapping above: a term may be an instance of one type and a subtype of
   another at once, and the meta-ontology depends on it. Each of those has a witness in
   `rule_variable_arg_test`, so widening the arm turns one red first.
 
@@ -1581,7 +1581,7 @@ stored and always will until somebody decides a wrong-arity fact may be admitted
 | declaration | declaration first | facts first | why |
 |---|---|---|---|
 | `disjoint` | refuses, or arbitrates under `:arbitrate` | reaches back: a nogood under `:arbitrate`, an exposure entry under `:refuse` | two memberships to weigh |
-| `disjointMetatype` | same | same | the members separate each other |
+| `disjoint_metatype` | same | same | the members separate each other |
 | `genl` / `genlCx` | same | same | closes a separation over content already stored |
 | `functional` | refuses, or arbitrates | reaches back as a nogood under `:arbitrate`, over the spec subtree of the predicate it names and not that predicate alone | two values to weigh |
 | `asymmetric` | refuses `:monotonic`, arbitrates `:default` | same | the converse is the second side |
@@ -1629,7 +1629,7 @@ parentOf 3 person)` is admitted while `parentOf` has no declared length, because
 highest position a declaration names is a lower bound on the arity rather than a claim
 about it. When a length arrives — declared of the predicate, or inherited through a
 `genl` edge — the declaration is left constraining a position the predicate provably does
-not have, and the door refuses the identical sentence one line later. A `variableArity`
+not have, and the door refuses the identical sentence one line later. A `variable_arity`
 predicate is the length that is not the last word, and it releases both halves at once:
 its tuples reach any length from the declared one upward, so a position past that length
 is one they really do have, and nothing of such a predicate's is stranded or refused

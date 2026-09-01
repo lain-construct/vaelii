@@ -428,20 +428,20 @@
           (is (v/disjoint? kb dog cat)))))))
 
 (tu/deftest-kb except-blocks-disjointMetatype-sentex-visibility
-  ;; disjointMetatype: members of the metatype become pairwise disjoint.
-  (tu/with-terms [animalSpecies dog cat CxDM]
+  ;; disjoint_metatype: members of the metatype become pairwise disjoint.
+  (tu/with-terms [animal_species dog cat CxDM]
     (v/assert kb (list 'genlCx CxDM 'CxWell) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list animalSpecies dog) CxDM {:strength :monotonic})
-    (v/assert kb (list animalSpecies cat) CxDM {:strength :monotonic})
-    (let [dmh (v/assert kb (list 'disjointMetatype animalSpecies) CxDM {:strength :monotonic})]
-      (testing "disjointMetatype makes members disjoint"
+    (v/assert kb (list animal_species dog) CxDM {:strength :monotonic})
+    (v/assert kb (list animal_species cat) CxDM {:strength :monotonic})
+    (let [dmh (v/assert kb (list 'disjoint_metatype animal_species) CxDM {:strength :monotonic})]
+      (testing "disjoint_metatype makes members disjoint"
         (is (v/disjoint? kb dog cat)))
       (let [eh (v/assert kb (list 'except (sx/sentex-handle dmh)) CxDM {:strength :monotonic})]
-        (testing "the disjointMetatype sentex is hidden from query"
-          (is (empty? (v/sentexes-matching kb (list 'disjointMetatype animalSpecies) CxDM))))
-        (testing "retract except — disjointMetatype sentex returns"
+        (testing "the disjoint_metatype sentex is hidden from query"
+          (is (empty? (v/sentexes-matching kb (list 'disjoint_metatype animal_species) CxDM))))
+        (testing "retract except — disjoint_metatype sentex returns"
           (v/retract! kb eh)
-          (is (seq (v/sentexes-matching kb (list 'disjointMetatype animalSpecies) CxDM))))))))
+          (is (seq (v/sentexes-matching kb (list 'disjoint_metatype animal_species) CxDM))))))))
 
 (tu/deftest-kb except-blocks-transitive-sentex-visibility
   ;; transitive: the transitive closure prover.
@@ -542,18 +542,18 @@
           (is (v/has-prop? kb :irreflexive before)))))))
 
 (tu/deftest-kb except-blocks-antiSymmetric-sentex-visibility
-  ;; antiSymmetric: a believed converse merges the two arguments via equals.
+  ;; anti_symmetric: a believed converse merges the two arguments via equals.
   (tu/with-terms [subsumes CxAnti]
     (v/assert kb (list 'genlCx CxAnti 'CxWell) 'CxUniverse {:strength :monotonic})
-    (let [ash (v/assert kb (list 'antiSymmetric subsumes) CxAnti {:strength :monotonic})]
-      (testing "antiSymmetric is active"
+    (let [ash (v/assert kb (list 'anti_symmetric subsumes) CxAnti {:strength :monotonic})]
+      (testing "anti_symmetric is active"
         (is (v/has-prop? kb :anti-symmetric subsumes)))
       (let [eh (v/assert kb (list 'except (sx/sentex-handle ash)) CxAnti {:strength :monotonic})]
-        (testing "the antiSymmetric sentex is hidden from query"
-          (is (empty? (v/sentexes-matching kb (list 'antiSymmetric subsumes) CxAnti))))
-        (testing "retract except — antiSymmetric sentex returns"
+        (testing "the anti_symmetric sentex is hidden from query"
+          (is (empty? (v/sentexes-matching kb (list 'anti_symmetric subsumes) CxAnti))))
+        (testing "retract except — anti_symmetric sentex returns"
           (v/retract! kb eh)
-          (is (seq (v/sentexes-matching kb (list 'antiSymmetric subsumes) CxAnti)))
+          (is (seq (v/sentexes-matching kb (list 'anti_symmetric subsumes) CxAnti)))
           (is (v/has-prop? kb :anti-symmetric subsumes)))))))
 
 (tu/deftest-kb except-blocks-arity-sentex-visibility
@@ -607,7 +607,7 @@
           (is (seq (v/sentexes-matching kb (list 'genlArg typeRel 1 root) CxAG))))))))
 
 (tu/deftest-kb except-blocks-interArgIsa-sentex-visibility
-  ;; interArgIsa: conditional argument type constraint.
+  ;; interArgIsa: conditional argument type declaration.
   (tu/with-terms [eats carnivore meat CxIA]
     (v/assert kb (list 'genlCx CxIA 'CxWell) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list 'genl carnivore 'thing) CxIA {:strength :monotonic})

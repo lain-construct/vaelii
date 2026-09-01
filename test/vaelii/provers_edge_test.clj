@@ -295,7 +295,7 @@
   ;; can be a list.  Ranking them with a bare `sort` throws `ClassCastException` — printed
   ;; form is the key, which every term has.
   (tu/with-terms [sameSizeAs quantityOf Meter Centimeter]
-    (v/assert kb (list 'unreifiableFunction quantityOf) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function quantityOf) 'CxUniverse)
     (v/assert kb (list 'transitive sameSizeAs) 'CxUniverse)
     (let [a (list quantityOf 5 Meter)
           b (list quantityOf 500 Centimeter)]

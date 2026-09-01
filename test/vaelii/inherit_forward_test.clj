@@ -189,20 +189,20 @@
   ;; No types in sight: the reach is walked over stored `partOf` facts, and the
   ;; justification names those facts and the `(transitive partOf)` that licensed
   ;; closing them.
-  (tu/with-terms [partOf needsMaintenance schedule Car Engine Piston]
+  (tu/with-terms [partOf needs_maintenance schedule Car Engine Piston]
     (v/with-deferred-settle kb
       (v/assert kb (list 'transitive partOf) ctx)
-      (v/assert kb (list 'transitiveInArg needsMaintenance 1 partOf) ctx)
+      (v/assert kb (list 'transitiveInArg needs_maintenance 1 partOf) ctx)
       (v/assert kb (list partOf Engine Car) ctx)
       (v/assert kb (list partOf Piston Engine) ctx))
-    (v/assert kb (list needsMaintenance Car) ctx)
-    (v/assert kb (list 'implies (list needsMaintenance '?x) (list schedule '?x)) ctx)
+    (v/assert kb (list needs_maintenance Car) ctx)
+    (v/assert kb (list 'implies (list needs_maintenance '?x) (list schedule '?x)) ctx)
     (is (holds? kb (list schedule Piston)) "two hops down the part chain")
     (is (v/ask? kb (list schedule Piston) ctx))
     (let [reasons (into #{}
                         (comp (mapcat :because) (map :sentence))
                         (:support (v/why kb (v/handle-of kb (list schedule Piston) ctx))))]
-      (is (contains? reasons (list needsMaintenance Car)))
+      (is (contains? reasons (list needs_maintenance Car)))
       (is (contains? reasons (list partOf Piston Engine)))
       (is (contains? reasons (list partOf Engine Car)))
       (is (contains? reasons (list 'transitive partOf))
@@ -425,12 +425,12 @@
   ;; genl has the shuffled oracle and genlCx the relanding edge; this is the
   ;; declared relation's turn: the trigger index cannot connect `partOf` to the
   ;; preserved predicate, so only the preserving re-join fires these.
-  (tu/with-terms [partOf needsMaintenance schedule Car Engine Piston]
+  (tu/with-terms [partOf needs_maintenance schedule Car Engine Piston]
     (v/with-deferred-settle kb
       (v/assert kb (list 'transitive partOf) ctx)
-      (v/assert kb (list 'transitiveInArg needsMaintenance 1 partOf) ctx))
-    (v/assert kb (list needsMaintenance Car) ctx)
-    (v/assert kb (list 'implies (list needsMaintenance '?x) (list schedule '?x)) ctx)
+      (v/assert kb (list 'transitiveInArg needs_maintenance 1 partOf) ctx))
+    (v/assert kb (list needs_maintenance Car) ctx)
+    (v/assert kb (list 'implies (list needs_maintenance '?x) (list schedule '?x)) ctx)
     (is (not (holds? kb (list schedule Piston))) "nothing connects the part yet")
     (v/assert kb (list partOf Engine Car) ctx)
     (is (holds? kb (list schedule Engine)) "one hop, connected by the late fact")
@@ -449,14 +449,14 @@
   ;; arrival.
   (doseq [batch? [true false]]
     (testing (if batch? "one deferred batch" "one assert at a time")
-      (tu/with-terms [partOf needsMaintenance schedule Car Engine Piston
+      (tu/with-terms [partOf needs_maintenance schedule Car Engine Piston
                       appliesIn noticed TheDecree CxWide CxNarrow]
         (let [content [(list 'transitive partOf)
-                       (list 'transitiveInArg needsMaintenance 1 partOf)
+                       (list 'transitiveInArg needs_maintenance 1 partOf)
                        (list partOf Engine Car)
                        (list partOf Piston Engine)
-                       (list needsMaintenance Car)
-                       (list 'implies (list needsMaintenance '?x) (list schedule '?x))
+                       (list needs_maintenance Car)
+                       (list 'implies (list needs_maintenance '?x) (list schedule '?x))
                        (list 'genlCx CxWide ctx)
                        (list 'genlCx CxNarrow CxWide)
                        (list 'transitiveInArg appliesIn 2 'genlCx)

@@ -16,14 +16,14 @@
 ;; ---- the check shape: a computed truth ----------------------------------
 
 (tu/deftest-kb a-check-predicate-holds-when-the-fn-returns-truthy
-  (tu/with-terms [bigEnough]
-    (v/add-evaluatable kb bigEnough (fn [n] (>= n 60)))
+  (tu/with-terms [big_enough]
+    (v/add-evaluatable kb big_enough (fn [n] (>= n 60)))
     (testing "the fn's truthy result is the predicate holding, its falsey result its failing"
-      (is (v/ask? kb (list bigEnough 75)))
-      (is (v/ask? kb (list bigEnough 60)))        ; the fn's own boundary: 60 >= 60
-      (is (not (v/ask? kb (list bigEnough 50)))))
+      (is (v/ask? kb (list big_enough 75)))
+      (is (v/ask? kb (list big_enough 60)))        ; the fn's own boundary: 60 >= 60
+      (is (not (v/ask? kb (list big_enough 50)))))
     (testing "nothing is stored — the answer is computed, so no sentex is minted"
-      (is (empty? (v/find-sentexes kb bigEnough))))))
+      (is (empty? (v/find-sentexes kb big_enough))))))
 
 ;; ---- the result-binding shape: a computed value -------------------------
 
@@ -96,18 +96,18 @@
   ;; unbound (docs/inference.md).  Written evaluatable-first and run unranked, the check
   ;; computes on nothing and the join answers empty.
   (tu/with-pinned [#'plan/*enabled*]
-    (tu/with-terms [bigEnough hasScore Alice Bob]
-      (v/add-evaluatable kb bigEnough (fn [n] (>= n 60)))
+    (tu/with-terms [big_enough hasScore Alice Bob]
+      (v/add-evaluatable kb big_enough (fn [n] (>= n 60)))
       (v/assert kb (list hasScore Alice 75) 'CxUniverse {:strength :monotonic})
       (v/assert kb (list hasScore Bob 40)   'CxUniverse {:strength :monotonic})
       (testing "the join binds ?n from the fact and then computes the check — either order"
         (is (= #{Alice}
                (set (map #(get % '?x)
-                         (v/query kb [(list hasScore '?x '?n) (list bigEnough '?n)]
+                         (v/query kb [(list hasScore '?x '?n) (list big_enough '?n)]
                                   'CxUniverse {:max-depth 1})))))
         (is (= #{Alice}
                (set (map #(get % '?x)
-                         (v/query kb [(list bigEnough '?n) (list hasScore '?x '?n)]
+                         (v/query kb [(list big_enough '?n) (list hasScore '?x '?n)]
                                   'CxUniverse {:max-depth 1}))))))
       (testing "a result-binding function likewise consumes a bound input and produces a value"
         (tu/with-terms [doubled]
@@ -181,11 +181,11 @@
 ;; firing would be dropped, splitting the two; they must agree.
 
 (tu/deftest-kb ask-and-query-agree-on-a-forward-rule-with-an-evaluatable-antecedent
-  (tu/with-terms [bigEnough score topScorer Alice Carol]
-    (v/add-evaluatable kb bigEnough (fn [n] (> n 60)))
+  (tu/with-terms [big_enough score topScorer Alice Carol]
+    (v/add-evaluatable kb big_enough (fn [n] (> n 60)))
     ;; rule asserted *before* the facts — the join runs as each fact arrives
     (v/assert kb (list 'implies
-                       (list 'and (list score '?x '?s) (list bigEnough '?s))
+                       (list 'and (list score '?x '?s) (list big_enough '?s))
                        (list topScorer '?x))
               'CxUniverse {:strength :monotonic})
     (v/assert kb (list score Alice 90) 'CxUniverse {:strength :monotonic})   ; 90 > 60 holds
@@ -215,14 +215,14 @@
   ;; unbound (docs/inference.md).  Written evaluatable-first and run unranked, the check
   ;; computes on nothing and the join answers empty.
   (tu/with-pinned [#'plan/*enabled*]
-    (tu/with-terms [bigEnough score topScorer Dave Erin]
-      (v/add-evaluatable kb bigEnough (fn [n] (> n 60)))
+    (tu/with-terms [big_enough score topScorer Dave Erin]
+      (v/add-evaluatable kb big_enough (fn [n] (> n 60)))
       (v/assert kb (list score Dave 90) 'CxUniverse {:strength :monotonic})
       (v/assert kb (list score Erin 40) 'CxUniverse {:strength :monotonic})
       ;; the rule is added last — `fire-rule` runs the full join over the existing facts,
       ;; and the evaluatable must still land after `score` binds its input
       (v/assert kb (list 'implies
-                         (list 'and (list score '?x '?s) (list bigEnough '?s))
+                         (list 'and (list score '?x '?s) (list big_enough '?s))
                          (list topScorer '?x))
                 'CxUniverse {:strength :monotonic})
       (testing "the full join over stored facts computes the check for each"

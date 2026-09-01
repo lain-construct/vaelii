@@ -103,15 +103,15 @@
     (try
       (tu/with-shipped-config
         ;; one write outside the count, so no reading below is a class-loading first call
-        (v/assert kb '(srmWarm SrmWarm) 'CxUniverse {})
+        (v/assert kb '(srm_warm SrmWarm) 'CxUniverse {})
         (testing "a plain fact — nothing derived, nothing opposed, nothing merged"
-          (is (= one-pass-reads (region-reads #(v/assert kb '(srmPlain SrmA) 'CxUniverse {})))))
+          (is (= one-pass-reads (region-reads #(v/assert kb '(srm_plain SrmA) 'CxUniverse {})))))
         (testing "a forward rule firing"
-          (v/assert-rule kb ['(srmTrig ?x)] '(srmConcl ?x) 'CxUniverse {:direction :forward})
-          (is (= one-pass-reads (region-reads #(v/assert kb '(srmTrig SrmB) 'CxUniverse {}))))
-          (is (v/ask? kb '(srmConcl SrmB) 'CxUniverse) "the firing must have placed"))
+          (v/assert-rule kb ['(srm_trig ?x)] '(srm_concl ?x) 'CxUniverse {:direction :forward})
+          (is (= one-pass-reads (region-reads #(v/assert kb '(srm_trig SrmB) 'CxUniverse {}))))
+          (is (v/ask? kb '(srm_concl SrmB) 'CxUniverse) "the firing must have placed"))
         (testing "and a retraction"
-          (let [h (v/handle-of kb '(srmPlain SrmA) 'CxUniverse)]
+          (let [h (v/handle-of kb '(srm_plain SrmA) 'CxUniverse)]
             (is (= one-pass-reads (region-reads #(v/retract! kb h)))))))
       (finally (tu/clear-kb! kb)))))
 
@@ -121,11 +121,11 @@
   (let [kb (tu/isolated-fresh)]
     (try
       (tu/with-shipped-config
-        (v/assert kb '(srmWarm SrmWarm) 'CxUniverse {})
+        (v/assert kb '(srm_warm SrmWarm) 'CxUniverse {})
         (is (= one-pass-reads
                (region-reads #(v/with-deferred-settle kb
                                 (dotimes [i 50]
-                                  (v/assert kb (list 'srmBatch (symbol (str "SrmZ" i)))
+                                  (v/assert kb (list 'srm_batch (symbol (str "SrmZ" i)))
                                             'CxUniverse {})))))))
       (finally (tu/clear-kb! kb)))))
 
@@ -137,16 +137,16 @@
   (let [kb (tu/isolated-fresh)]
     (try
       (tu/with-shipped-config
-        (v/assert kb '(srmNeg SrmX) 'CxUniverse {})
+        (v/assert kb '(srm_neg SrmX) 'CxUniverse {})
         (testing "the defeat converges in one pass"
           (is (= one-pass-reads
-                 (region-reads #(v/assert kb '(not (srmNeg SrmX)) 'CxUniverse
+                 (region-reads #(v/assert kb '(not (srm_neg SrmX)) 'CxUniverse
                                           {:strength :monotonic}))))
-          (is (not (v/ask? kb '(srmNeg SrmX) 'CxUniverse)) "the default must have lost"))
+          (is (not (v/ask? kb '(srm_neg SrmX) 'CxUniverse)) "the default must have lost"))
         (testing "the revival takes a second, and one more region read with it"
-          (let [h (v/handle-of kb '(not (srmNeg SrmX)) 'CxUniverse)]
+          (let [h (v/handle-of kb '(not (srm_neg SrmX)) 'CxUniverse)]
             (is (= (inc one-pass-reads) (region-reads #(v/retract! kb h)))))
-          (is (v/ask? kb '(srmNeg SrmX) 'CxUniverse) "the default must be believed again")))
+          (is (v/ask? kb '(srm_neg SrmX) 'CxUniverse) "the default must be believed again")))
       (finally (tu/clear-kb! kb)))))
 
 ;; ---- the clash memo ------------------------------------------------------
@@ -162,7 +162,7 @@
       (v/assert kb (list 'srca_t x) 'CxUniverse {})
       (v/assert kb (list 'srcb_t x) 'CxUniverse {})))
   (v/assert kb '(genl srcvictim_t srctop_t) 'CxUniverse {:strength :monotonic})
-  (v/assert kb '(srcPlain SrcTarget) 'CxUniverse {})
+  (v/assert kb '(src_plain SrcTarget) 'CxUniverse {})
   kb)
 
 (defn- arbitrable-calls
@@ -192,7 +192,7 @@
                       #(v/assert kb '(genl srcvictim_t srctop_t) 'CxUniverse
                                  {:strength :monotonic})))))
         (testing "the control: a plain fact leaving is already free"
-          (let [h (v/handle-of kb '(srcPlain SrcTarget) 'CxUniverse)]
+          (let [h (v/handle-of kb '(src_plain SrcTarget) 'CxUniverse)]
             (is (zero? (arbitrable-calls #(v/retract! kb h))))))
         (is (= n (count (v/contradictions kb)))
             "and every standing dilemma is still reported"))
@@ -214,7 +214,7 @@
       (v/assert kb (list pr x) 'CxUniverse {})
       (v/assert kb (list 'not (list pr x)) 'CxUniverse {})))
   (v/assert kb '(genlCx CxSrVictim CxUniverse) 'CxUniverse {})
-  (v/assert kb '(srPlain SrTarget) 'CxUniverse {})
+  (v/assert kb '(sr_plain SrTarget) 'CxUniverse {})
   kb)
 
 (defn- rederived-bodies
@@ -242,7 +242,7 @@
                     #(v/assert kb '(genlCx CxSrVictim CxUniverse)
                                'CxUniverse {})))))
       (testing "the control: a plain fact leaving is already free"
-        (let [h (v/handle-of kb '(srPlain SrTarget) 'CxUniverse)]
+        (let [h (v/handle-of kb '(sr_plain SrTarget) 'CxUniverse)]
           (is (zero? (rederived-bodies #(v/retract! kb h))))))
       (is (= n (count (v/contradictions kb)))
           "and every standing dilemma is still reported")

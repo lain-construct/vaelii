@@ -63,7 +63,7 @@
   "The household's common sense — four rules that turn a roommate's private facts into a
   stance on the dog, in two 2-hop chains.  Nobody ever asserts `(not (shouldAdopt …))`; it
   is DERIVED, and so is its opposite.  Shared knowledge, so they live in the channel."
-  [(list 'implies (list 'wantsCompanionship '?p) (list 'wouldEnjoy '?p 'Dog))
+  [(list 'implies (list 'wants_companionship '?p) (list 'wouldEnjoy '?p 'Dog))
    (list 'implies (list 'and (list 'memberOf '?p 'Apartment) (list 'wouldEnjoy '?p 'Dog))
          proposal)
    (list 'implies (list 'allergicTo '?p 'DogDander) (list 'harmedBy '?p 'Dog))
@@ -79,7 +79,7 @@
     (doseq [r house-rules] (v/assert kb r 'CxApartment))
     ;; each roommate states only FACTS about themselves — never a stance on the dog
     (ch/assert ava (list 'memberOf 'AgentAva 'Apartment))
-    (ch/assert ava (list 'wantsCompanionship 'AgentAva))
+    (ch/assert ava (list 'wants_companionship 'AgentAva))
     (ch/assert ben (list 'memberOf 'AgentBen 'Apartment))
     (ch/assert ben (list 'allergicTo 'AgentBen 'DogDander))
 
@@ -189,7 +189,7 @@
         (try
           ;; ── 1. Ava states her facts; the house rules FORM the pro-dog opinion ──
           (ch/assert ava (list 'memberOf 'AgentAva 'Apartment))
-          (ch/assert ava (list 'wantsCompanionship 'AgentAva))
+          (ch/assert ava (list 'wants_companionship 'AgentAva))
           (is (wait-for #(some #{proposal} @chat))
               "the chat watched the pro-dog opinion form — nobody stated it, the rules derived it")
           (let [adopt-h (v/handle-of kb proposal 'CxApartment)]

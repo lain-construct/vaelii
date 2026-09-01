@@ -26,7 +26,7 @@ namespace so the refusal stays exact.
 
 ## The representation: reify the outer function, keep the argument structural
 
-A `Cx*Fn` is declared `(contextDenotingFunction CxTimeFn)`. A ground application reifies —
+A `Cx*Fn` is declared `(context_denoting_function CxTimeFn)`. A ground application reifies —
 like any NAT, *before* the index sees it — but to an opaque **`cx/`**-namespaced constant
 rather than a `nat/` one:
 
@@ -37,7 +37,7 @@ rather than a `nat/` one:
 ```
 
 Only the **outer** function reifies. Its arguments are left alone by the mint, so an
-`unreifiableFunction` argument — `(DatetimeFn "2000")` — stays **structural inside the
+`unreifiable_function` argument — `(DatetimeFn "2000")` — stays **structural inside the
 stored expression**, exactly as `(QuantityFn 5 Meter)` does in an object NAT
 ([nat.md](nat.md), reifiable vs unreifiable). That is what lets the producer below read the
 time term's shape to decide containment: reifying it away would collapse `"2000"` into an
@@ -81,8 +81,8 @@ at argument `pos` are ordered by the sub-relation `R` on that argument — the o
 argument is `R`-**below** the other's is the spec, and `genlCx` the more general.
 
 ```clojure
-(assert kb '(contextDenotingFunction CxTimeFn) 'CxUniverse)
-(assert kb '(unreifiableFunction DatetimeFn) 'CxUniverse)
+(assert kb '(context_denoting_function CxTimeFn) 'CxUniverse)
+(assert kb '(unreifiable_function DatetimeFn) 'CxUniverse)
 (assert kb '(contextArgSubrelation CxTimeFn 2 subintervalOf) 'CxUniverse)  ; arg 2 = the datetime
 ```
 
@@ -107,7 +107,7 @@ fact** arriving after both sweeps the functions declared to order by `R`
 (`functions-ordered-by`), which is the arm a comparator dimension never needs and a
 stored-fact one cannot do without. The maintenance hook sits beside the correspondence
 reconcile at the tail of `assert` and behind the same free in-memory reifiable gate — a
-`contextDenotingFunction` is a reify-kind, so any KB with a context NAT to order already
+`context_denoting_function` is a reify-kind, so any KB with a context NAT to order already
 passes it, and a KB that reifies nothing pays neither the hook nor the
 `any-context-subrelations?` index read.
 
@@ -130,7 +130,7 @@ its own handle, so defeating it withdraws the edge.
 `vaelii.impl.datetime` is the first shipped dimension, and it reads **two spellings of one
 interval**.
 
-`DatetimeFn` is an `unreifiableFunction` taking a reduced-precision **ISO 8601** string:
+`DatetimeFn` is an `unreifiable_function` taking a reduced-precision **ISO 8601** string:
 `"2000"` the year, `"2000-01"` its January, `"2000-01-15"` a day, down through hour,
 minute, second. `YearFn` / `MonthFn` / `DayFn` are the **calendar constructors** over the
 same three coarsest fields, written as numbers rather than as a string — `(YearFn 2000)`,
@@ -216,7 +216,7 @@ Each candidate costs one **`count-in-context`**, an O(1) secondary-root read on 
 backend ([indexing.md](indexing.md)), and — only when that is zero — one inverted-term-index
 read over the constant's own footprint. So a live context holding a million facts costs a
 count rather than a million record fetches, and a KB that declares no
-`contextDenotingFunction` mints no `cx/` constant and pays nothing: the sweep sits behind
+`context_denoting_function` mints no `cx/` constant and pays nothing: the sweep sits behind
 the free in-memory reifiable gate, which a context function turns on.
 
 Nothing here can reach a context that is not a `cx/` constant. The three **query contexts**
@@ -247,7 +247,7 @@ which is the only spelling the map is keyed by.
 
 - **One dimension ships.** The calendar — `DatetimeFn` / `YearFn` / `MonthFn` / `DayFn`
   under `subintervalOf` — is the worked example; other dimensions are added by declaring a
-  `contextDenotingFunction`, a `contextArgSubrelation`, and either registering a comparator
+  `context_denoting_function`, a `contextArgSubrelation`, and either registering a comparator
   or asserting the `R` facts.
 - **A calendar term's endpoints are somebody else's job.** `(YearFn 2000)` is a
   `temporal_thing`, so it takes the interval relations and not `instantBefore`, which is a
@@ -273,7 +273,7 @@ which is the only spelling the map is keyed by.
   context-slot shape gate (`context-shape-problem`), the producer maintenance hook, its
   revival re-run on `retract!` / `edit!` (`context-nat/reconcile-revivals`), and
   `remove-orphaned-nats!`, which collects both kinds of constant at one gate.
-- `vaelii.impl.special` / `wff` — the `contextDenotingFunction` prop mark and the
+- `vaelii.impl.special` / `wff` — the `context_denoting_function` prop mark and the
   `contextArgSubrelation` well-formedness check.
 - `vaelii.impl.context-nat` — the producer, the comparator registry, and
   `functions-ordered-by`, the evidence-arrived-last arm of the stored-fact oracle.

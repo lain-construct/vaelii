@@ -3,7 +3,8 @@
 - **Covers:** `defnNecessary` / `defnSufficient` / `defnIff` — tying a collection's
   membership to a defining condition on the member `?x`, expanded into ordinary forward
   rules at assert so the entailment inherits indexing, TMS support, retraction and
-  belief-following.
+  belief-following, plus the two registry provers that evaluate a condition at query
+  time and the negative answer a violated necessary gives.
 - **Not here:** the argument-type declarations `arg` / `genlArg` a term is checked and
   entailed against → [argtypes.md](argtypes.md); carrying a stated claim across a
   transitive relation → [inherit.md](inherit.md); the `genl` / `disjoint` collection
@@ -50,7 +51,7 @@ derives `(bachelor Tom)`; and `defnIff` is exactly the conjunction of the two, n
 (v/sentexes-matching kb '(unmarried Tom) 'CxUniverse)  ; => the derived sentex
 ```
 
-The expansion is **into the existing machinery**, not a prover of its own. The companion
+The expansion is **into the existing machinery**. The companion
 rule is an ordinary rule sentex: it is indexed by its antecedent and consequent
 predicates, forward-chained from the same agenda, and placed in the maximal context that
 sees both it and the facts it fired on. A conjunctive necessary condition
@@ -58,7 +59,9 @@ sees both it and the facts it fired on. A conjunctive necessary condition
 conjunctive consequent, and a sufficient conjunction becomes a conjunctive rule body that
 needs every conjunct met. A **disjunctive** sufficient condition becomes a rule body that
 disjoins, polycanonicalized into one companion rule per alternative — which is how "a pet
-is a dog or a cat" is written ([canonicalization.md](canonicalization.md)).
+is a dog or a cat" is written ([canonicalization.md](canonicalization.md)). What the forward rule cannot
+reach — a condition the KB never stores for it to fire on — is answered where the
+question is asked instead, below.
 
 ## The rule is derived, so retraction and belief follow it
 
@@ -98,35 +101,91 @@ context can see up the `genlCx` cone, and its conclusions land where the reasons
 definition in one context does not reach a member stated in a sibling context it cannot
 see.
 
-## Open-world: what these do not do
+## Query time: the condition is evaluated, not only matched
 
-The reading is **open-world**, and the boundary is worth stating as an absence. A
-`defn*` relation licenses the two positive rules above and nothing else. In particular
-there is **no closed-world membership completion**: nothing concludes that a thing *is
-not* a member, and condition-absence draws no negation.
+The companion rule fires on a condition that is **stored and believed**. A condition
+built out of *computed* predicates is neither: `(defnSufficient positive_integer (and
+(integer ?x) (greaterThan ?x 0)))` — CxCore's own worked example — rests on checks the
+evaluables answer rather than on facts anybody asserted, so nothing matches the rule's
+body and `(positive_integer 7)` does not arrive by forward chaining. Two provers in the
+registry answer the question where it is asked instead.
+
+**`DefnSufficientProver`** takes a ground unary goal `(Coll a)`, substitutes `a` for the
+member variable in the sufficient conditions `Coll`'s spec cone carries, and asks the
+registry whether the condition holds — which *evaluates* the computed conjuncts. It runs
+at **level 6** ([levels.md](levels.md)), the registry with no rule expansion, so its
+reach matches the forward rule's rather than exceeding it; at `completeness` 50 it
+**augments** `FactProver` and the companion rule rather than replacing them, and a
+condition that is believed is answered by both paths and deduped by the union.
+
+- **It descends the spec cone.** `(Coll a)` is proved by `Coll`'s own sufficient or by a
+  **spec**'s, a spec being below `Coll` on the `genl` edges so that its members are
+  members. The walk uses the reflexive `tax/specs`, which folds the own-sufficient case
+  into the same iteration.
+- **A failing necessary of a strict `genl` fast-fails first.** The strict-genl cone is
+  walked most-general-first, so the broadest disqualifier is checked first and a rejected
+  query never evaluates the possibly-expensive sufficient at all. The cone is a
+  set, so a defn reachable by two paths through a diamond is evaluated exactly once.
+  `Coll`'s **own** necessary is excluded from that veto: a sufficient is authoritative,
+  and a collection whose two halves disagree has the inconsistency documented rather than
+  arbitrated.
+- **The goal is ground.** An open `(Coll ?x)` would ask a computed condition to
+  *enumerate* its members, which a sufficient built from `integer` and `lessThan` cannot
+  do, so the prover is inapplicable to one.
+- **A self-referential condition is bounded.** Nothing forbids `(defnSufficient Coll
+  (Coll ?x))` and level 6 carries no depth guard, so the walk holds a re-entry guard on
+  the collections it is already inside, shared with the negative walk below.
+
+## Open-world, and the one negative answer
+
+The reading is **open-world**, and where it stops is worth stating exactly. A `defn*`
+relation licenses no closed-world membership completion: condition-*absence* concludes
+nothing, and no path treats a failure to prove membership as a disproof of it.
 
 - A thing the condition is merely silent about is **neither** a member nor a non-member.
   Under `(defnIff bachelor (unmarried ?x))`, a `Tom` mentioned nowhere yields neither
   `(bachelor Tom)` nor `(not (bachelor Tom))`, and neither `(unmarried Tom)` nor its
   negation.
 - `defnSufficient` never fires on a condition it cannot see met. Failing to derive
-  `(unmarried Tom)` is not evidence that Tom is married, so it is not evidence that Tom is
-  not a bachelor.
+  `(unmarried Tom)` is not evidence that Tom is married.
 - `defnIff` is the conjunction of the necessary and sufficient rules — the "and nothing
   else is a member" a closed reading would add is not among them.
 
-A modeller who wants a negative conclusion writes it as knowledge: an `(unknown …)`
-antecedent for negation as failure ([naf.md](naf.md)), or a `disjoint` declaration and an
-explicit `not` for a genuine exclusion ([taxonomy.md](taxonomy.md)). The `defn*` relations
-stay on the positive side of that line.
+**A violated necessary is the exception, and it is a boundary rather than a feature.** A
+necessary is a disqualifier as well as an obligation, and
+`DefnNecessaryNegationProver` is the converse of the positive walk with three things
+flipped: member ↔ non-member, sufficient ↔ necessary, and the direction of the `genl`
+walk — the positive walk descends to a spec's sufficient, this one ascends to a genl's
+necessary. `(not (Coll a))` is proved by the first necessary that positively **fails**
+for `a` anywhere in `Coll`'s **reflexive** genl cone, a member satisfying every necessary
+at or above it. Reflexive, unlike the positive fast-fail's strict cone, because a
+collection's own failing necessary is itself a sound negative witness.
+
+That is not negation as failure. The check is two-valued on the condition: the prover
+fires on a condition that is evaluably false, never merely because `(Coll a)` could not
+be proved, and a `Coll` with no necessary anywhere in its cone makes the prover
+inapplicable — so an absent proof is never mistaken for a disproof. Like the positive
+prover it takes a ground goal only, an open `(not (Coll ?x))` being a search over the
+domain's complement rather than a test, and at `completeness` 50 it augments a stored
+`(not (Coll a))` and `ClosedExtentProver` rather than replacing either.
+
+It is also a **query-time answer alone**: nothing is stored, no rule is materialized and
+no JTMS node is created. A KB that states `(Coll a)` against a failing necessary is not
+rewritten — it answers both halves, and `argue` reports the two sides
+([api.md](api.md)).
+
+A modeller who wants a negative conclusion drawn from the *absence* of a condition writes
+it as knowledge: an `(unknown …)` antecedent for negation as failure ([naf.md](naf.md)),
+or a `disjoint` declaration and an explicit `not` for a genuine exclusion
+([taxonomy.md](taxonomy.md)).
 
 ## The vocabulary
 
 `defnNecessary` / `defnSufficient` / `defnIff` are declared in `CxCore` as binary
 predicates. The first argument names a collection (a kind, so `genlArg … 1 thing`); the
 second is the condition sentence, a term (`arg … 2 thing`). They relate a kind to a
-sentence, so they are honestly mixed and marked neither `instanceRelationPredicate` nor
-`typeRelationPredicate`, the way `result` is ([argtypes.md](argtypes.md)).
+sentence, so they are honestly mixed and marked neither `instance_relation_predicate` nor
+`type_relation_predicate`, the way `result` is ([argtypes.md](argtypes.md)).
 
 The condition carries the member variable `?x`, so a `defn*` fact is not ground — and it
 is exempted from the ground check the way a schematic equation is

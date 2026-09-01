@@ -83,7 +83,7 @@
   (doseq [pr (unordered-pairs cities) :let [[ca cb] (vec pr)]]
     (v/assert kb (list 'set/hardConstraint
                        (list 'implies (list 'and (list 'tourStop '?p ca) (list 'tourStop '?p cb))
-                             (list 'twoCitiesAt '?p)))
+                             (list 'two_cities_at '?p)))
               ctx))
   ;; hard at-least-one position per city — a negated-choice constraint over all positions
   (v/assert kb (list 'set/hardConstraint

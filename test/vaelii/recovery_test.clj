@@ -114,10 +114,10 @@
   ;; metatypes are known, or a restart silently loses every pair the metatype
   ;; separated — with no `(disjoint a b)` sentex left to cover for it, as there used
   ;; to be when the clique was materialized.
-  (let [animalSpecies (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type)]
-    (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
-    (v/assert kb (list animalSpecies dog) 'CxUniverse)
-    (v/assert kb (list animalSpecies cat) 'CxUniverse)
+  (let [animal_species (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type)]
+    (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)
+    (v/assert kb (list animal_species dog) 'CxUniverse)
+    (v/assert kb (list animal_species cat) 'CxUniverse)
     (is (v/disjoint? kb dog cat))
     (let [kb2 (restart)]
       (v/recover kb2)
@@ -125,13 +125,13 @@
           "membership must be rebuilt, not just the metatype mark"))))
 
 (tu/deftest-kb recover-rebuilds-sibling-disjoint-marks
-  ;; Only the `(siblingDisjoint C)` sentex is durable; the pairs it separates are read
+  ;; Only the `(sibling_disjoint C)` sentex is durable; the pairs it separates are read
   ;; off the genl closure, not stored.  So recovery has to re-mark the parent *and*
   ;; rebuild the closure it reads through, or a restart silently loses every separation.
   (let [collection (tu/tmp-type) dog (tu/tmp-type) cat (tu/tmp-type)]
     (v/assert kb (list 'genl dog collection) 'CxUniverse)
     (v/assert kb (list 'genl cat collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (is (v/disjoint? kb dog cat))
     (let [kb2 (restart)]
       (v/recover kb2)
@@ -146,7 +146,7 @@
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
     (v/assert kb (list 'genl c collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
     (is (not (v/disjoint? kb a b)))
     (is (v/disjoint? kb a c))
@@ -165,7 +165,7 @@
   (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type)]
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse {:strength :default})
     (v/assert kb (list 'not (list 'siblingDisjointException a b)) 'CxUniverse {:strength :monotonic})
     (let [before (v/disjoint? kb a b)
@@ -231,14 +231,14 @@
 
 (tu/deftest-kb recover-agrees-about-a-rule-concluded-disjoint-metatype
   ;; The same claim one functor over: `rebuild-taxonomy` replays every stored
-  ;; `disjointMetatype`, so a mark a rule concluded has to separate the metatype's
+  ;; `disjoint_metatype`, so a mark a rule concluded has to separate the metatype's
   ;; members in the running KB as well, or the restart is what makes two types
   ;; disjoint.  The members here are asserted; a member a rule *concludes* is a
   ;; structural arm rather than a table entry and is where the derivation path stops
   ;; (docs/taxonomy.md, "What a rule may conclude").
-  (let [seen (tu/tmp-pred "seen") m (tu/tmp-pred "kindOf")
+  (let [seen (tu/tmp-pred "seen") m (tu/tmp-pred "kind_of")
         a    (tu/tmp-type "aa")   b (tu/tmp-type "bb")]
-    (v/assert-rule kb [(list seen '?p)] (list 'disjointMetatype '?p) 'CxUniverse)
+    (v/assert-rule kb [(list seen '?p)] (list 'disjoint_metatype '?p) 'CxUniverse)
     (v/assert kb (list m a) 'CxUniverse)
     (v/assert kb (list m b) 'CxUniverse)
     (v/assert kb (list seen m) 'CxUniverse)

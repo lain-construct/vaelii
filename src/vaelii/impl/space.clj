@@ -47,7 +47,7 @@
 
   The vocabulary ships as `kb/upper/CxSpace.txt`, an *upper* context rather than
   the vocabulary head: these fourteen predicates are *about* space, so CxCore keeps
-  only the grammar they are declared in (`binaryPredicate`, `comment`) and a KB carries
+  only the grammar they are declared in (`binary_predicate`, `comment`) and a KB carries
   the subject only if it loads the layer.  The prover is **opt-in** on top of that —
   register it with `vaelii.core/add-prover` — so a KB can store spatial facts and
   retrieve them as ordinary facts without paying for the network."

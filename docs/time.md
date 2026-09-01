@@ -96,7 +96,7 @@ Seven **derived** predicates each name a disjunction:
 usually mean by "before". `subintervalOf` contains `:equal`, so it holds of an interval
 and itself, where `properSubintervalOf` does not. The last two are exact complements.
 
-All twenty are declared `binaryPredicate` in `resources/kb/upper/CxTime.txt`, beside the
+All twenty are declared `binary_predicate` in `resources/kb/upper/CxTime.txt`, beside the
 six instant predicates and the metric ones, each with its own `comment` sentex — an **upper**
 context rather than the vocabulary head, because they are *about* time and CxCore holds
 only the grammar they are stated in.
@@ -220,7 +220,7 @@ constructors give a name to the interval a calendar already picks out:
 ```
 
 Each takes one integer field per argument, coarsest first, so **its arity is its
-precision**, and each is an `unreifiableFunction` — the application stays structural, so
+precision**, and each is an `unreifiable_function` — the application stays structural, so
 the fields are readable inside the term rather than collapsed into an opaque constant. Each
 declares `(result … temporal_thing)`, which is what makes a calendar term an ordinary
 argument of `before`, `during` or `subintervalOf` and **not** of `instantBefore`: a year is
@@ -273,7 +273,7 @@ So the cat is asleep at four because something put it to sleep at three and noth
 it in between, and it is not asleep at six because something did.
 
 **A fluent is a term, not a sentence.** `(AsleepFn Whiskers)` is a reified NAT — one
-constant per subject, the bounded shape [nat.md](nat.md) reserves `reifiableFunction` for
+constant per subject, the bounded shape [nat.md](nat.md) reserves `reifiable_function` for
 — which keeps `holdsAt` an ordinary binary predicate over two terms. A quoted sentence
 would put a *mention* in argument position and have to be held opaque to identity
 congruence to mean anything; the term does not.
@@ -382,7 +382,7 @@ every other reasoner here (`add-reasoner kb :calendar`) and answering three fami
 
 **A moment is `(InstantFn Y M D h m s)` — six integer fields, always.** It is a
 `time_point` where the calendar constructors are `temporal_thing`s, declared in `CxTime`
-beside them and `unreifiableFunction` for their reason: the fields are what the ordering
+beside them and `unreifiable_function` for their reason: the fields are what the ordering
 reads. Six fields and not a reduced-precision spelling, because a term is identified by
 its shape and one moment must have exactly **one** term — `"2000-01-01T00:00:00"` and
 `"2000-1-1T0:0:0"` are two shapes for one moment where six integers are one. That is also

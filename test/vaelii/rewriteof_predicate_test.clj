@@ -50,8 +50,12 @@
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (list 'rewriteOf parentOf Muffet) CxName))))
     (testing "a clearly-camelCase predicate with a clearly-snake_case type"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'rewriteOf parentOf physical_object) CxName))))))
+      ;; built by hand rather than taken from `with-terms`: a predicate temp is bare
+      ;; lowercase now, which satisfies both conventions and so clashes with neither —
+      ;; this assertion needs a name that is unambiguously a relation
+      (let [camelPred (symbol (str (tu/tmp-pred) "Of"))]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (v/assert kb (list 'rewriteOf camelPred physical_object) CxName)))))))
 
 ;; ==========================================================================
 ;; 2. Predicate merge over facts (roles 2 — functor position)

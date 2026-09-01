@@ -9,7 +9,7 @@
   [glossary.md](glossary.md).
 
 Equations with **variables over function terms** — `(equals (fatherOf (fatherOf ?x))
-(grandfatherOf ?x))` — and how they come to rewrite and prove terms. This is the
+(grandfather_of ?x))` — and how they come to rewrite and prove terms. This is the
 gap [equality.md](equality.md) leaves open: the closure there is a partition over
 **symbols**, so it merges names but says nothing about a term-level *definition*.
 
@@ -21,7 +21,7 @@ already exists** rather than adding a new theory engine.
 ### Part A — compound equality over reifiable NATs
 
 `(equals (MotherOf Alice) (MotherOf Bob))` — *Alice and Bob share a mother, so they
-are siblings* — needs nothing new when `MotherOf` is a `reifiableFunction`. Each side
+are siblings* — needs nothing new when `MotherOf` is a `reifiable_function`. Each side
 is a **ground reifiable NAT**, so `assert` reifies it to its reified NAT constant *before*
 well-formedness runs ([nat.md](nat.md)): the sentence the checks see is an ordinary
 `(equals K1 K2)` over two symbols, and the partition + migration merge them. A fact
@@ -29,7 +29,7 @@ about one holds of the other, and retracting the equation un-merges them — all
 belief-following of ground equality, for free.
 
 A compound that **does not** reduce is still refused. A measure
-`(QuantityFn 5 Kilogram)` is an `unreifiableFunction` application: it stays
+`(QuantityFn 5 Kilogram)` is an `unreifiable_function` application: it stays
 structural, never reifies to a symbol, so `wff/equality-problems` sees the compound
 and rejects it. Measure sameness is `sameQuantity`, a *computed* comparison
 ([quantity.md](quantity.md)), not the equality closure.
@@ -38,8 +38,8 @@ and rejects it. Measure sameness is `sameQuantity`, a *computed* comparison
 
 `(equals L R)` with **variables** is not a merge — it is an oriented **rewrite rule**
 over a schema. Stored and queried terms are normalized to a single normal form, so a
-stored `(parentChain (fatherOf (fatherOf Tom)))` and a query `(parentChain
-(grandfatherOf Tom))` meet. Everything below is Part B.
+stored `(parent_chain (fatherOf (fatherOf Tom)))` and a query `(parent_chain
+(grandfather_of Tom))` meet. Everything below is Part B.
 
 `vaelii.impl.rewrite` is the pure term algebra — orientation, matching,
 normalization — knowing nothing of the store, belief, or the taxonomy. The taxonomy

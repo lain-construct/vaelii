@@ -13,6 +13,12 @@
 #   4. The legend (everything before the first section) references every badge
 #      in CATS.
 #   5. Each of those cat-*.svg files exists.
+#   6. Every entry named by docs/naming.md's reserved-words table exists here, and
+#      each row's declared sense count matches the number of entries it names.  The
+#      table is the declaration that a word carries more than one sense; this is what
+#      keeps the declaration and the glossary from drifting apart.  What it cannot see
+#      is a third sense arriving in prose — that stays a reviewer's job, and the table
+#      is where the question gets asked.
 #
 # Exit 0 when clean; prints each violation and exits 1 otherwise.
 set -euo pipefail
@@ -22,6 +28,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # Overridable for self-testing (link targets still resolve against docs/).
 GLOSS=${GLOSSARY_FILE:-docs/glossary.md}
+NAMING=${NAMING_FILE:-docs/naming.md}
 CATS=(kb inference tms asp backend qr)
 
 FAILS=0
@@ -87,6 +94,34 @@ for c in "${CATS[@]}"; do
   [[ -f ".github/badges/cat-$c.svg" ]] \
     || err "missing .github/badges/cat-$c.svg"
 done
+
+# ---- 6: the reserved-words table agrees with the glossary ----------------
+# A reserved-words row is the only 4-column row in naming.md whose third field is a
+# bare integer, which is what tells it from the role table and the strata table.
+while IFS= read -r msg; do
+  err "reserved-words: $msg"
+done < <(awk -F'|' '
+  FILENAME == gloss && /^\*\*/ {
+    t = $0; sub(/^\*\*/, "", t); i = index(t, "**"); t = substr(t, 1, i - 1)
+    gsub(/`/, "", t); have[t] = 1; next
+  }
+  FILENAME == naming && NF == 6 {
+    w = $2; n = $4; e = $5
+    gsub(/^[ \t]+|[ \t]+$/, "", w); gsub(/^[ \t]+|[ \t]+$/, "", n)
+    if (n !~ /^[0-9]+$/) next
+    cnt = split(e, parts, ";")
+    if (cnt != n + 0)
+      print "\"" w "\" declares " n " sense(s) but names " cnt " glossary entry(ies)"
+    for (k = 1; k <= cnt; k++) {
+      ent = parts[k]
+      gsub(/^[ \t]+|[ \t]+$/, "", ent)
+      if (!(ent in have))
+        print "\"" w "\" names glossary entry \"" ent "\", which does not exist"
+    }
+    rows++
+  }
+  END { if (rows == 0) print "no reserved-words rows found in " naming }
+' gloss="$GLOSS" naming="$NAMING" "$GLOSS" "$NAMING")
 
 if (( FAILS > 0 )); then
   echo "lint-glossary: $FAILS violation(s)" >&2

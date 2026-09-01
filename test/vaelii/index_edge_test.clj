@@ -31,8 +31,8 @@
 (tu/deftest-kb a-pattern-shorter-than-the-stored-path-yields-no-handles
   ;; The trie is ragged by arity, so `lookup` cannot decide "leaf" by exhausting the
   ;; pattern: a two-token pattern against a four-token path terminates on an INTERIOR
-  ;; node.  When child labels and leaf handles shared one set key, that returned the
-  ;; node's child labels as if they were handles — `[bornIn Tom]` answered `#{1970}`,
+  ;; node.  When child tokens and leaf handles shared one set key, that returned the
+  ;; node's child tokens as if they were handles — `[bornIn Tom]` answered `#{1970}`,
   ;; and `(v/sentex kb 1970)` is a real, unrelated sentex.  Nothing throws and nothing
   ;; comes back empty; the caller is simply lied to.
   (tu/with-terms [bornIn Tom CxBirth]
@@ -40,7 +40,7 @@
           idx (:index kb)]
       (testing "the full path answers with the handle it was indexed under"
         (is (= #{h} (p/lookup idx [bornIn Tom 1970 CxBirth]))))
-      (testing "every short prefix answers empty rather than with its child labels"
+      (testing "every short prefix answers empty rather than with its child tokens"
         (is (= #{} (p/lookup idx [bornIn Tom 1970])) "one token short — no context slot")
         (is (= #{} (p/lookup idx [bornIn Tom]))      "would have yielded the token 1970")
         (is (= #{} (p/lookup idx [bornIn]))          "would have yielded the token Tom")
@@ -143,14 +143,14 @@
         (is (empty? (p/children idx []))
             "the root no longer lists a predicate with nothing under it")))))
 
-;; ---- child labels round-trip every token type, not just handles ---------
+;; ---- child tokens round-trip every token type, not just handles ---------
 
-(tu/deftest-kb child-labels-keep-their-type
+(tu/deftest-kb child-tokens-keep-their-type
   ;; A `KvBackend` must store set members type-faithfully: the trie's child sets hold
   ;; KEYWORDS (`:rule`, `:false` — the key-frame tokens) and NUMBERS (a numeric
   ;; argument) alongside symbol functors.  A backend that flattened those to "rule" /
   ;; "1970" would still pass every other assertion in this suite: nothing compares a
-  ;; child label except `lookup`'s wildcard descent, which would then build a prefix
+  ;; child token except `lookup`'s wildcard descent, which would then build a prefix
   ;; of strings and silently match nothing.  So type is the assertion.
   (tu/with-terms [bornIn Tom Rex dog p q CxLabel]
     (v/assert kb (list bornIn Tom 1970) CxLabel)

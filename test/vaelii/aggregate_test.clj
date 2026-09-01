@@ -524,24 +524,24 @@
   (into #{} (map (comp second :sentence)) (v/sentexes-matching kb (list pred '?x) 'CxWell)))
 
 (tu/deftest-kb a-person-with-more-than-two-children
-  (tu/with-terms [person childOf largeFamily Ann Bob]
+  (tu/with-terms [person childOf large_family Ann Bob]
     (let [world {:person person :childOf childOf :Ann Ann :Bob Bob}]
       (family! kb world)
       (v/assert kb (list 'implies
                          (list 'and (list person '?x)
                                (list 'agg/count '?n '?c (list childOf '?x '?c))
                                (list 'lessThan 2 '?n))
-                         (list largeFamily '?x))
+                         (list large_family '?x))
                 'CxWell)
-      (is (= #{Ann} (holders kb largeFamily))
+      (is (= #{Ann} (holders kb large_family))
           "three children clears the bar and one does not")
       (testing "and the comparison is maintained against the count, both ways"
         (let [h1 (v/assert kb (list childOf Bob 'B2) 'CxWell)
               h2 (v/assert kb (list childOf Bob 'B3) 'CxWell)]
-          (is (= #{Ann Bob} (holders kb largeFamily))
+          (is (= #{Ann Bob} (holders kb large_family))
               "Bob crosses the threshold with no fact naming the conclusion")
           (v/retract! kb h2)
-          (is (= #{Ann} (holders kb largeFamily))
+          (is (= #{Ann} (holders kb large_family))
               "and falls back below it — the firing rested on a count that moved")
           (v/retract! kb h1))))))
 
@@ -552,13 +552,13 @@
   ;; placement phase, and deliberately was not: the *forward* chainer can reorder that
   ;; phase and the backward one cannot, so the exception would buy one writing order at
   ;; the price of the two chainers disagreeing about one rule.
-  (tu/with-terms [person childOf largeFamily Ann Bob]
+  (tu/with-terms [person childOf large_family Ann Bob]
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
     (let [e (try (v/assert kb (list 'implies
                                     (list 'and (list person '?x)
                                           (list 'lessThan 2 '?n)
                                           (list 'agg/count '?n '?c (list childOf '?x '?c)))
-                                    (list largeFamily '?x))
+                                    (list large_family '?x))
                            'CxWell)
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
@@ -570,35 +570,35 @@
   ;; the parity above reads the *stored* conclusion, which forward chaining put there —
   ;; so it cannot see a backward chainer that disagrees.  A `set/backwardRule` never
   ;; fires forward, so its conclusion exists only while a backchainer is looking for it.
-  (tu/with-terms [person childOf largeFamily Ann Bob]
+  (tu/with-terms [person childOf large_family Ann Bob]
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
     (v/assert kb (list 'set/backwardRule
                        (list 'implies
                              (list 'and (list person '?x)
                                    (list 'agg/count '?n '?c (list childOf '?x '?c))
                                    (list 'lessThan 2 '?n))
-                             (list largeFamily '?x)))
+                             (list large_family '?x)))
               'CxWell)
-    (is (empty? (holders kb largeFamily)) "nothing is stored — it never fires forward")
-    (is (v/query? kb (list largeFamily Ann) 'CxWell {:max-depth 2}))
-    (is (not (v/query? kb (list largeFamily Bob) 'CxWell {:max-depth 2})))))
+    (is (empty? (holders kb large_family)) "nothing is stored — it never fires forward")
+    (is (v/query? kb (list large_family Ann) 'CxWell {:max-depth 2}))
+    (is (not (v/query? kb (list large_family Bob) 'CxWell {:max-depth 2})))))
 
 (tu/deftest-kb forward-and-backward-agree-about-a-compared-count
   ;; the parity `provers/exception-holds?` exists to guarantee, asked of the shape that
   ;; breaks it first: a forward throw where backward answers
-  (tu/with-terms [person childOf largeFamily Ann Bob]
+  (tu/with-terms [person childOf large_family Ann Bob]
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
     (v/assert kb (list 'implies
                        (list 'and (list person '?x)
                              (list 'agg/count '?n '?c (list childOf '?x '?c))
                              (list 'lessThan 2 '?n))
-                       (list largeFamily '?x))
+                       (list large_family '?x))
               'CxWell)
-    (is (= #{Ann} (holders kb largeFamily))            "forward")
-    (is (v/ask? kb (list largeFamily Ann) 'CxWell)        "ask, yes")
-    (is (not (v/ask? kb (list largeFamily Bob) 'CxWell))  "ask, no")
-    (is (seq (v/prove kb (list largeFamily Ann) 'CxWell)) "prove, yes")
-    (is (empty? (v/prove kb (list largeFamily Bob) 'CxWell)) "prove, no")))
+    (is (= #{Ann} (holders kb large_family))            "forward")
+    (is (v/ask? kb (list large_family Ann) 'CxWell)        "ask, yes")
+    (is (not (v/ask? kb (list large_family Bob) 'CxWell))  "ask, no")
+    (is (seq (v/prove kb (list large_family Ann) 'CxWell)) "prove, yes")
+    (is (empty? (v/prove kb (list large_family Bob) 'CxWell)) "prove, no")))
 
 (tu/deftest-kb a-computed-literal-carries-a-later-one-along-with-it
   ;; the chain is aggregate -> evaluate -> comparison: `?d` is written by a literal that
@@ -883,13 +883,13 @@
     (is (= {:a 0 :b 1 :c 2 :d 3} (first answers)))))
 
 (defn- counting-rule!
-  "`(person ?x) & count > 2 => (largeFamily ?x)`, in `CxWell`."
-  [kb {:keys [person childOf largeFamily]}]
+  "`(person ?x) & count > 2 => (large_family ?x)`, in `CxWell`."
+  [kb {:keys [person childOf large_family]}]
   (v/assert kb (list 'implies
                      (list 'and (list person '?x)
                            (list 'agg/count '?n '?c (list childOf '?x '?c))
                            (list 'lessThan 2 '?n))
-                     (list largeFamily '?x))
+                     (list large_family '?x))
             'CxWell))
 
 (tu/deftest-kb a-merge-that-collapses-two-counted-values-withdraws-the-firing
@@ -898,45 +898,45 @@
   ;; handle — so no arm reports a fact moving on the counted predicate, and yet it is
   ;; gone from the belief-filtered read the census is.  Belief must not depend on whether
   ;; the count fell by retraction or by merge.
-  (tu/with-terms [person childOf largeFamily Ann Bob]
+  (tu/with-terms [person childOf large_family Ann Bob]
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
-    (counting-rule! kb {:person person :childOf childOf :largeFamily largeFamily})
-    (is (= #{Ann} (holders kb largeFamily)) "three children clears the bar")
+    (counting-rule! kb {:person person :childOf childOf :large_family large_family})
+    (is (= #{Ann} (holders kb large_family)) "three children clears the bar")
     (let [h (v/assert kb '(sameAs C2 C3) 'CxWell)]
       (is (= 2 (one kb (list 'agg/count '?n '?c (list childOf Ann '?c)) '?n))
           "two of the three children are one thing now")
-      (is (= #{} (holders kb largeFamily))
+      (is (= #{} (holders kb large_family))
           "so the firing that rested on three is withdrawn")
       (v/retract! kb h)
       (is (= 3 (one kb (list 'agg/count '?n '?c (list childOf Ann '?c)) '?n)))
-      (is (= #{Ann} (holders kb largeFamily))
+      (is (= #{Ann} (holders kb large_family))
           "and splitting the class again re-derives it — the count rose, which licenses
            a firing no block ever suppressed"))))
 
 (tu/deftest-kb the-merge-arriving-first-reaches-the-same-belief
   ;; the oracle for the test above.  Merged first, no trigger is involved at all: the
   ;; census is 2 the first time it is ever taken and the rule simply does not fire.
-  (tu/with-terms [person childOf largeFamily Ann Bob]
+  (tu/with-terms [person childOf large_family Ann Bob]
     (v/assert kb '(sameAs C2 C3) 'CxWell)
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
-    (counting-rule! kb {:person person :childOf childOf :largeFamily largeFamily})
-    (is (= #{} (holders kb largeFamily))
+    (counting-rule! kb {:person person :childOf childOf :large_family large_family})
+    (is (= #{} (holders kb large_family))
         "merged first, three children are two values and the rule never fires")))
 
 (tu/deftest-kb an-equality-the-engine-derives-moves-a-census-the-same-way
   ;; `functional` infers an equality rather than throwing, so a merge can arrive with no
   ;; `sameAs` anywhere in the KB.  It reaches the closure through the same arm an
   ;; asserted one does, and so must reach the same re-check.
-  (tu/with-terms [person childOf largeFamily birthOrder Ann Bob]
+  (tu/with-terms [person childOf large_family birthOrder Ann Bob]
     (v/assert kb (list 'functional birthOrder) 'CxWell)
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
-    (counting-rule! kb {:person person :childOf childOf :largeFamily largeFamily})
-    (is (= #{Ann} (holders kb largeFamily)))
+    (counting-rule! kb {:person person :childOf childOf :large_family large_family})
+    (is (= #{Ann} (holders kb large_family)))
     (v/assert kb (list birthOrder Ann 'C2) 'CxWell)
     (v/assert kb (list birthOrder Ann 'C3) 'CxWell)
     (is (= 2 (one kb (list 'agg/count '?n '?c (list childOf Ann '?c)) '?n))
         "a functional predicate with two values makes them one thing")
-    (is (= #{} (holders kb largeFamily))
+    (is (= #{} (holders kb large_family))
         "and the firing that rested on three goes with it")))
 
 (tu/deftest-kb a-float-sum-does-not-depend-on-the-order-the-facts-arrived
@@ -1023,14 +1023,14 @@
   namespace's `evaluate`."
   [candidates]
   (tu/with-cleared-kb [kb tu/isolated-fresh]
-    (v/add-prover kb (two-answer-prover 'pjCandidate))
+    (v/add-prover kb (two-answer-prover 'pj_candidate))
     (v/assert kb (list 'genlCx post-join-ctx post-join-above) 'CxUniverse)
-    (doseq [[c val] candidates] (v/assert kb (list 'pjCandidate val) c))
-    (v/assert kb '(pjPerson PjAnn) post-join-ctx)
+    (doseq [[c val] candidates] (v/assert kb (list 'pj_candidate val) c))
+    (v/assert kb '(pj_person PjAnn) post-join-ctx)
     (doseq [c '[PjC1 PjC2]] (v/assert kb (list 'pjChildOf 'PjAnn c) post-join-ctx))
     (v/clear-violations! kb)
     (v/assert kb (list 'implies
-                       (list 'and '(pjPerson ?x)
+                       (list 'and '(pj_person ?x)
                              '(agg/count ?n ?c (pjChildOf ?x ?c))
                              (list 'evaluate '?d (list '+ '?n ambiguity-marker)))
                        '(pjTally ?x ?d))
@@ -1045,7 +1045,7 @@
     (is (empty? entries) "and nothing is filed")))
 
 (deftest post-join-solutions-that-agree-conclude-once
-  ;; Two solutions, one value: `pjCandidate` is stated of the same term in two contexts of
+  ;; Two solutions, one value: `pj_candidate` is stated of the same term in two contexts of
   ;; one cone, so the prover answers twice with the same binding.  Agreement is what is
   ;; asked for, not a solution count.
   (let [{:keys [tallies entries]} (post-join-run! [[post-join-ctx 'PjSame]

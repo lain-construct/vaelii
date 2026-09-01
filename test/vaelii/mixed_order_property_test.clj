@@ -110,7 +110,7 @@
      #(v/assert-rule % '[(dog ?x) (not (barks ?x))] '(quiet ?x) cx-base)]]
    [[:mammals-have-fur-unless-shorn
      #(v/assert % (list 'exceptWhen '(shorn ?x)
-                        (default-rule '[(mammal ?x)] '(hasFur ?x)))
+                        (default-rule '[(mammal ?x)] '(has_fur ?x)))
                 cx-base)]]
    [[:rex-is-shorn
      #(v/assert % '(shorn Rex) cx-home {:strength :monotonic})]]
@@ -362,9 +362,9 @@
                         "the default rule fired, over a type it reaches by the genl chain")
                     (is (contains? (get-in r [:visible-from cx-home]) '(audible Bud))
                         "and the monotonic rule fired on its conclusion")
-                    (is (contains? (get-in r [:visible-from cx-home]) '(hasFur Bud))
+                    (is (contains? (get-in r [:visible-from cx-home]) '(has_fur Bud))
                         "the excepted rule concluded where its exception does not hold")
-                    (is (not (contains? (get-in r [:visible-from cx-home]) '(hasFur Rex)))
+                    (is (not (contains? (get-in r [:visible-from cx-home]) '(has_fur Rex)))
                         "and was blocked where it does")
                     (is (= '#{terrier dog mammal animal} (get-in r [:genls [cx-home 'terrier]]))
                         "the genl chain closed")
@@ -380,9 +380,9 @@
                     (is (contains? (get-in r [:believed-by-context cx-field])
                                    (list 'ownerOf (get-in r [:representative [cx-field 'Ann]]) 'Nell))
                         "and the fact it displaced, a context edge below it, is restated")
-                    (is (contains? (get-in r [:visible-from cx-field]) '(hasFur Thomas))
+                    (is (contains? (get-in r [:visible-from cx-field]) '(has_fur Thomas))
                         "the merge on the rule's own type concludes at the elected spelling")
-                    (is (not (contains? (get-in r [:visible-from cx-field]) '(hasFur Tom)))
+                    (is (not (contains? (get-in r [:visible-from cx-field]) '(has_fur Tom)))
                         "and nowhere else")
                     (is (not (contains? (get-in r [:believed-by-context cx-field]) '(dog Sparrow)))
                         "and the chains that end where they began left nothing behind")))))

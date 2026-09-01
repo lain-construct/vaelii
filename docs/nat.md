@@ -13,10 +13,10 @@ A **NAT** is a function-application term `(F arg…)` that *denotes an entity* �
 no first-class function terms; every stored token is atomic. NATs
 are supported by **reification**, and functions split by declaration into two kinds.
 
-- `(reifiableFunction F)` — **object-denoting**. A ground `(F a…)` is a **reified NAT**: it
+- `(reifiable_function F)` — **object-denoting**. A ground `(F a…)` is a **reified NAT**: it
   reifies to an opaque `nat/`-namespaced constant `K` *before it reaches the index*,
   so the reified NAT autoindexes exactly like a hand-minted symbol.
-- `(unreifiableFunction F)` — **evaluated / interpreted**. The application stays a
+- `(unreifiable_function F)` — **evaluated / interpreted**. The application stays a
   **structural NAT** — `(QuantityFn 5 Meter)` keeps its magnitude and
   unit readable for a downstream prover; it is never minted.
 
@@ -46,14 +46,14 @@ inverted term index like any other fact.
 
 | Fact | Meaning |
 |------|---------|
-| `(reifiableFunction F)` / `(unreifiableFunction F)` | F's kind — a **predicate-metadata mark** (`vaelii.impl.taxonomy` `:reifiable` / `:unreifiable` prop), belief-following like `transitive`/`symmetric` |
+| `(reifiable_function F)` / `(unreifiable_function F)` | F's kind — a **predicate-metadata mark** (`vaelii.impl.taxonomy` `:reifiable` / `:unreifiable` prop), belief-following like `transitive`/`symmetric` |
 | `(termOfUnit K E)` | the constant↔expression map: constant `K` denotes NAT expression `E`. The reverse (`K → E`) index; `E → K` is the inverted term index |
 | `(rewriteOf T E)` (compound `E`) | NAT `E` reifies to the existing real term `T` instead of a fresh constant |
 | `(result F T)` / `(genlResult F T)` | F's output types — materialized on mint as `(T K)` / `(genl K T)` |
 | `(functionCorrespondingPredicate F P N)` | F and P state one relationship: `(F a…) = V` exactly when P holds of `a…` with `V` at argument `N` |
 
 `termOfUnit` and `rewriteOf` are **quoting predicates** (`nat/nat-quoting-predicates
-= #{termOfUnit rewriteOf}`): their expression argument is a literal NAT payload that
+= #{termOfUnit rewriteOf}`): their expression argument is a verbatim NAT payload that
 must not itself be reified or type-checked as a term.
 
 `(rewriteOf T E)` overloads the equality/deprecation `rewriteOf`, discriminated by
@@ -64,21 +64,21 @@ compound shape, so it is stored as an inert quoting fact, never entering the clo
 
 ## Which mark a function gets
 
-`reifiableFunction` and `unreifiableFunction` describe two mechanisms — minted into a
+`reifiable_function` and `unreifiable_function` describe two mechanisms — minted into a
 constant, or left structural for a prover to compute — and the choice between them is not
 a matter of taste. The criterion is **boundedness of the application space**.
 
 Reifying stores one opaque constant per distinct application and keeps it, so it is safe
 exactly when the applications are bounded: `(FatherFn Muffet)` is one constant per animal,
 and an `AdultFn`-shaped function one per individual. A function whose arguments range over
-a continuous or open-ended domain is not, and takes `unreifiableFunction` instead —
+a continuous or open-ended domain is not, and takes `unreifiable_function` instead —
 `(QuantityFn 5 Meter)`, `(QuantityFn 5.001 Meter)` and every magnitude between them run
 over the reals, so a constant apiece is a store nothing bounds. That is why `QuantityFn`
 and `QuantityIntervalFn` are unreifiable, and why a **measure function is never reifiable
 however atomic its value reads** — the shape is the trap, since a measure looks like a
 thing you would want a name for.
 
-Both marks classify: `(reifiableFunction F)` and `(unreifiableFunction F)` each say F is a
+Both marks classify: `(reifiable_function F)` and `(unreifiable_function F)` each say F is a
 `function`, which is what `(disjoint function predicate)` reaches. The choice changes
 where a declared result type is *stored*, not whether it holds — a reifiable application
 carries `result` materialized on its constant, an unreifiable one is typed from the
@@ -152,11 +152,11 @@ and `(result InstantFn time_point)` in `CxTime` is what types it there — the s
 declaration binding the computed term and the typed one.
 
 ```clojure
-(v/assert kb '(unreifiableFunction QuantityFn) 'CxUniverse)
+(v/assert kb '(unreifiable_function QuantityFn) 'CxUniverse)
 (v/assert kb '(result QuantityFn measure) 'CxUniverse)
-(v/assert kb '(arg needsDog 1 dog) 'CxUniverse)
+(v/assert kb '(arg needs_dog 1 dog) 'CxUniverse)
 
-(v/assert kb '(needsDog (QuantityFn 5 Meter)) 'CxUniverse)
+(v/assert kb '(needs_dog (QuantityFn 5 Meter)) 'CxUniverse)
 ;; refused: (QuantityFn 5 Meter) must be a dog — QuantityFn results in a measure
 ```
 
@@ -183,7 +183,7 @@ Four things fix what that reading is and is not.
   this arm at all.
 
 A **quoting predicate's** argument is left alone: `(termOfUnit K (FruitFn AppleTree))`
-and a compound-argument `(rewriteOf T E)` carry the expression as a literal payload
+and a compound-argument `(rewriteOf T E)` carry the expression as a verbatim payload
 rather than as a term used in that position, so typing it by what the function yields
 would type a quotation by its referent. That is also where the reading would otherwise
 cost a mint something — `mint-nat!` writes one `termOfUnit` per constant.
@@ -270,7 +270,7 @@ once per NAT, where the reify is already probing for a `rewriteOf` target and a 
 and a KB declaring none pays one O(1) functor count per assert
 (`nat/any-corresponding-predicates?`). Nothing to integrate means nothing for `recover`
 to rebuild — a correspondence works across a restart because the declaration is a
-stored fact and always has been. It bites only for a `reifiableFunction`: an undeclared
+stored fact and always has been. It bites only for a `reifiable_function`: an undeclared
 function's application is a raw compound the reify pass never visits.
 
 ## Display / export

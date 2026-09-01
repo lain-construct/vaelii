@@ -50,7 +50,7 @@
 
 (tu/deftest-kb one-thing-cannot-be-two-kinds-that-exclude-each-other
   ;; Common sense says a dog is not a cat.  The KB says it twice over: once from a
-  ;; stated `(disjoint dog cat)`, and once from the `vertebrateClass` metatype, which
+  ;; stated `(disjoint dog cat)`, and once from the `vertebrate_class` metatype, which
   ;; separates all five classes pairwise and hands the separation down to every
   ;; subtype — so a penguin is not a dog without a word being written about either.
   (testing "the stated pair, and the pair a metatype separates"
@@ -268,7 +268,7 @@
   ;; that they are not.  A theory may say otherwise about one predicate, and only there.
   (testing "silence is not a denial"
     (is (not (v/ask? kb '(not (siblingOf Tom Bob)) N))))
-  (let [h (v/assert kb '(closedExtentPredicate siblingOf) N)]
+  (let [h (v/assert kb '(closed_extent_predicate siblingOf) N)]
     (testing "told the sibling relation is completely known, silence is a denial"
       (is (v/ask? kb '(not (siblingOf Tom Bob)) N))
       (is (not (v/ask? kb '(not (siblingOf Ann Carol)) N))

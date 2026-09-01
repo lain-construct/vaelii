@@ -57,10 +57,10 @@
   ;; each asserts a FACT, and common-sense rules in the channel derive the opposing
   ;; conclusions.  05 must surface the emergent contradiction exactly as it does a stated one.
   (channel-sees! kb 'CxDeploy '[AgentAtlas AgentBoreas])
-  (v/assert kb '(implies (greenAudit ?x) (reliable ?x)) 'CxDeploy)
-  (v/assert kb '(implies (failedFailover ?x) (not (reliable ?x))) 'CxDeploy)
-  (holds! kb 'AgentAtlas '(greenAudit ProdCluster))       ; Atlas's fact -> derives P
-  (holds! kb 'AgentBoreas '(failedFailover ProdCluster))  ; Boreas's fact -> derives ¬P
+  (v/assert kb '(implies (green_audit ?x) (reliable ?x)) 'CxDeploy)
+  (v/assert kb '(implies (failed_failover ?x) (not (reliable ?x))) 'CxDeploy)
+  (holds! kb 'AgentAtlas '(green_audit ProdCluster))       ; Atlas's fact -> derives P
+  (holds! kb 'AgentBoreas '(failed_failover ProdCluster))  ; Boreas's fact -> derives ¬P
   (testing "both stances are DERIVED — neither is a premise anyone stated"
     (is (v/ask? kb P 'CxDeploy))
     (is (v/ask? kb not-P 'CxDeploy))
@@ -245,7 +245,7 @@
 ;; ---- a clash with more than two members gets a name of its own -----------
 
 (clojure.test/deftest a-three-member-dispute-is-named-by-all-three-handles
-  ;; A nogood is a SET, and `antiTransitive` forms one over three sentexes
+  ;; A nogood is a SET, and `anti_transitive` forms one over three sentexes
   ;; (docs/nmtms.md), so `disputes-in` hands back three-handle entries — "a caller
   ;; destructuring `:handles` as a pair is reading a coincidence."  The lifecycle term is
   ;; where that bites: the stored `:notified` / `:stale` marks are keyed on it and the

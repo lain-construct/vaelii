@@ -17,15 +17,15 @@
   firings on one binding to one constant (no rule digest / frontier is needed, unlike a
   skolem witness, which is anonymous).
 
-  `Quasiquote` is an `unreifiableFunction`, so an *open* template — the one that lives in a
+  `Quasiquote` is an `unreifiable_function`, so an *open* template — the one that lives in a
   rule consequent until the antecedent binds its `Unquote` holes — stays structural and is
   never minted; range restriction (`rules/check-range-restricted`) already refuses a hole no
-  antecedent binds, so an open template never reaches storage.  It is a `quotingFunction`
+  antecedent binds, so an open template never reaches storage.  It is a `quoting_function`
   too, so while it waits in the rule its `Unquote`-marked spellings are held opaque to an
   identity merge exactly as a `Quote` payload is.
 
-  Turned on by declaration, like `reifiableFunction` turns the reify pass on: a KB that has
-  not declared `(quotingFunction Quasiquote)` pays one taxonomy-prop read per firing/assert
+  Turned on by declaration, like `reifiable_function` turns the reify pass on: a KB that has
+  not declared `(quoting_function Quasiquote)` pays one taxonomy-prop read per firing/assert
   and the reducer is a no-op.  And like reification, it is **declared before use**: opacity is
   applied when a mention is reified and again in the equality congruence, each gated on the
   mark being present then, so `ensure-quasiquote-functions` (or the four marks) must precede
@@ -51,7 +51,7 @@
   'Quote)
 
 (defn any-quasiquote?
-  "Gate: is quasiquotation enabled — `(quotingFunction Quasiquote)` declared?  False ⇒ the
+  "Gate: is quasiquotation enabled — `(quoting_function Quasiquote)` declared?  False ⇒ the
   reducer short-circuits, one prop read.  Mirrors `nat/any-reifiable-functions?`."
   [kb]
   (tax/quoting-function? (:taxonomy kb) quasiquote-function))
@@ -60,20 +60,20 @@
   "Enable quasiquotation as a unit — declare the four marks it needs, each only if absent:
   `Quote` reifiable + quoting (the constructed expression reifies to a mention constant) and
   `Quasiquote` unreifiable + quoting (an open template stays structural and is a mention).
-  The last of them, `(quotingFunction Quasiquote)`, is the gate `any-quasiquote?` reads, so
+  The last of them, `(quoting_function Quasiquote)`, is the gate `any-quasiquote?` reads, so
   this call is what turns the reducer on.  Idempotent, asserted without chaining or settling
   since it is pure metadata — the shape `skolem/ensure-skolem-function` uses."
   [kb]
   (let [tax (:taxonomy kb)]
     (doseq [s (cond-> []
                 (not (nat/reifiable-function? kb quote-function))
-                (conj (list 'reifiableFunction quote-function))
+                (conj (list 'reifiable_function quote-function))
                 (not (tax/quoting-function? tax quote-function))
-                (conj (list 'quotingFunction quote-function))
+                (conj (list 'quoting_function quote-function))
                 (not (tax/has-prop? tax :unreifiable quasiquote-function))
-                (conj (list 'unreifiableFunction quasiquote-function))
+                (conj (list 'unreifiable_function quasiquote-function))
                 (not (tax/quoting-function? tax quasiquote-function))
-                (conj (list 'quotingFunction quasiquote-function)))]
+                (conj (list 'quoting_function quasiquote-function)))]
       (wiring/assert-sentence kb s nat/universal-context {:strength :monotonic :chain? false}))))
 
 (defn- unquote-form? [x]
@@ -108,7 +108,7 @@
   (cond
     (and (quasiquote-form? term) (ground? term))
     (reify-fn (list quote-function (strip-unquotes (second term))))
-    ;; a mention is opaque — a `quotingFunction` application (`Quote`, or an open/nested
+    ;; a mention is opaque — a `quoting_function` application (`Quote`, or an open/nested
     ;; `Quasiquote`) or a quoting-predicate payload (`termOfUnit` / `rewriteOf`, the reified
     ;; NAT's own bookkeeping): a `Quasiquote` nested inside is literal syntax, not reduced
     ;; here.  Without this the `(termOfUnit K E)` re-assert `mint-nat!` makes would re-run

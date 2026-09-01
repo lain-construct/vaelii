@@ -39,13 +39,13 @@
     @n))
 
 (defn- excepted-rule!
-  "`(probeX ?x) => (seenX ?x)`, excepted when `(skipX ?x)`."
+  "`(probe_x ?x) => (seen_x ?x)`, excepted when `(skip_x ?x)`."
   [kb]
-  (v/assert kb '(exceptWhen (skipX ?x)
-                            (set/defaultRule (implies (and (probeX ?x)) (seenX ?x))))
+  (v/assert kb '(exceptWhen (skip_x ?x)
+                            (set/defaultRule (implies (and (probe_x ?x)) (seen_x ?x))))
             ctx))
 
-(defn- probe! [kb i] (v/assert kb (list 'probeX (symbol (str "PX" i))) ctx))
+(defn- probe! [kb i] (v/assert kb (list 'probe_x (symbol (str "PX" i))) ctx))
 
 ;; ---- the re-check is not quadratic in a rule's firing count -------------
 
@@ -63,7 +63,7 @@
                    (dotimes [i firings] (probe! kb i))
                    (counting-evaluations
                     #(dotimes [i triggers]
-                       (v/assert kb (list 'skipX (symbol (str "Unrelated" i))) ctx)))))
+                       (v/assert kb (list 'skip_x (symbol (str "Unrelated" i))) ctx)))))
           few  (cost 8 6)
           many (cost 32 6)]
       ;; the headline: quadrupling the firing count must not move the cost
@@ -89,11 +89,11 @@
                    ;; the exception fact first, so the firing is refused rather than
                    ;; placed and swept
                    (dotimes [i refusals]
-                     (v/assert kb (list 'skipX (symbol (str "PX" i))) ctx)
+                     (v/assert kb (list 'skip_x (symbol (str "PX" i))) ctx)
                      (probe! kb i))
                    (counting-evaluations
                     #(dotimes [i triggers]
-                       (v/assert kb (list 'skipX (symbol (str "Unrelated" i))) ctx)))))
+                       (v/assert kb (list 'skip_x (symbol (str "Unrelated" i))) ctx)))))
           few  (cost 8 6)
           many (cost 32 6)]
       (is (<= many (+ 4 (* 2 (max 1 few))))
@@ -112,7 +112,7 @@
     (let [cost (fn [n]
                  (tu/with-cleared-kb [kb tu/isolated-fresh]
                    (excepted-rule! kb)
-                   (v/assert kb '(set/defaultRule (implies (and (probeX ?x)) (skipX ?x))) ctx)
+                   (v/assert kb '(set/defaultRule (implies (and (probe_x ?x)) (skip_x ?x))) ctx)
                    (counting-evaluations #(dotimes [i n] (probe! kb i)))))
           small (cost 10)
           big   (cost 40)]
@@ -203,12 +203,12 @@
     ;; run and not a relabel.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (excepted-rule! kb)
-      (v/assert kb '(probeX PX0) ctx)
-      (is (seq (v/sentexes-matching kb '(seenX PX0) '?ctx)) "concluded while unexcepted")
-      (let [h (v/assert kb '(skipX PX0) ctx)]
-        (is (empty? (v/sentexes-matching kb '(seenX PX0) '?ctx)) "blocked and swept")
+      (v/assert kb '(probe_x PX0) ctx)
+      (is (seq (v/sentexes-matching kb '(seen_x PX0) '?ctx)) "concluded while unexcepted")
+      (let [h (v/assert kb '(skip_x PX0) ctx)]
+        (is (empty? (v/sentexes-matching kb '(seen_x PX0) '?ctx)) "blocked and swept")
         (v/retract! kb h)
-        (is (seq (v/sentexes-matching kb '(seenX PX0) '?ctx))
+        (is (seq (v/sentexes-matching kb '(seen_x PX0) '?ctx))
             "the released exception is re-derived by the time retract! returns")))))
 
 ;; ---- the choke points: every mutation path posts the re-check -----------
@@ -226,16 +226,16 @@
 (deftest a-derived-fact-triggers-the-re-check
   (testing "an exception satisfied only by inference still blocks: the derived fact
             is a re-check trigger like an asserted one"
-    ;; skipX never arrives as a premise — a second rule concludes it — so the
+    ;; skip_x never arrives as a premise — a second rule concludes it — so the
     ;; trigger must come from the derivation path's choke point.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (excepted-rule! kb)
-      (v/assert kb '(set/forwardRule (implies (and (markX ?x)) (skipX ?x))) ctx)
-      (v/assert kb '(probeX PX0) ctx)
-      (is (seq (v/sentexes-matching kb '(seenX PX0) '?ctx)) "concluded while nothing excepts it")
-      (v/assert kb '(markX PX0) ctx)          ; skipX PX0 arrives by derivation only
-      (is (seq (v/sentexes-matching kb '(skipX PX0) '?ctx)) "the exception fact was derived")
-      (is (empty? (v/sentexes-matching kb '(seenX PX0) '?ctx))
+      (v/assert kb '(set/forwardRule (implies (and (mark_x ?x)) (skip_x ?x))) ctx)
+      (v/assert kb '(probe_x PX0) ctx)
+      (is (seq (v/sentexes-matching kb '(seen_x PX0) '?ctx)) "concluded while nothing excepts it")
+      (v/assert kb '(mark_x PX0) ctx)          ; skip_x PX0 arrives by derivation only
+      (is (seq (v/sentexes-matching kb '(skip_x PX0) '?ctx)) "the exception fact was derived")
+      (is (empty? (v/sentexes-matching kb '(seen_x PX0) '?ctx))
           "the derived exception blocked the rule and its conclusion was swept"))))
 
 (deftest a-retraction-triggers-the-re-check
@@ -243,37 +243,37 @@
             swept derived exception releases the rule"
     ;; The exception fact is itself derived, so retracting its premise removes it
     ;; through retract!'s removal loop — the removal choke point.  Without the
-    ;; posting there, nothing re-chains the released rule and seenX never appears.
+    ;; posting there, nothing re-chains the released rule and seen_x never appears.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (excepted-rule! kb)
-      (v/assert kb '(set/forwardRule (implies (and (markX ?x)) (skipX ?x))) ctx)
-      (let [h (v/assert kb '(markX PX0) ctx)] ; skipX PX0 derived before the firing
-        (v/assert kb '(probeX PX0) ctx)
-        (is (empty? (v/sentexes-matching kb '(seenX PX0) '?ctx)) "blocked while the exception holds")
-        (v/retract! kb h)                      ; markX goes; skipX is swept with it
-        (is (empty? (v/sentexes-matching kb '(skipX PX0) '?ctx)) "the derived exception fell away")
-        (is (seq (v/sentexes-matching kb '(seenX PX0) '?ctx))
+      (v/assert kb '(set/forwardRule (implies (and (mark_x ?x)) (skip_x ?x))) ctx)
+      (let [h (v/assert kb '(mark_x PX0) ctx)] ; skip_x PX0 derived before the firing
+        (v/assert kb '(probe_x PX0) ctx)
+        (is (empty? (v/sentexes-matching kb '(seen_x PX0) '?ctx)) "blocked while the exception holds")
+        (v/retract! kb h)                      ; mark_x goes; skip_x is swept with it
+        (is (empty? (v/sentexes-matching kb '(skip_x PX0) '?ctx)) "the derived exception fell away")
+        (is (seq (v/sentexes-matching kb '(seen_x PX0) '?ctx))
             "the exception's departure re-chained the rule by the time retract! returned")))))
 
 (deftest a-sweep-triggers-the-re-check
   (testing "a conclusion deleted by the exception sweep is itself a trigger: its
             departure releases the rule it was blocking"
-    ;; Two excepted rules in a chain: probeX ⇒ skipX (except liftX) and
-    ;; probeX ⇒ seenX (except skipX).  Lifting the first sweeps skipX *inside
+    ;; Two excepted rules in a chain: probe_x ⇒ skip_x (except lift_x) and
+    ;; probe_x ⇒ seen_x (except skip_x).  Lifting the first sweeps skip_x *inside
     ;; settle*, and that deletion — the sweep's own teardown, not an assert or a
     ;; retract — must release the second rule within the same fixpoint.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (excepted-rule! kb)
-      (v/assert kb '(exceptWhen (liftX ?x)
-                                (set/defaultRule (implies (and (probeX ?x)) (skipX ?x))))
+      (v/assert kb '(exceptWhen (lift_x ?x)
+                                (set/defaultRule (implies (and (probe_x ?x)) (skip_x ?x))))
                 ctx)
-      (v/assert kb '(probeX PX0) ctx)
-      (is (seq (v/sentexes-matching kb '(skipX PX0) '?ctx)) "the exception fact is derived")
-      (is (empty? (v/sentexes-matching kb '(seenX PX0) '?ctx)) "and blocks the seenX rule")
-      (v/assert kb '(liftX PX0) ctx)
-      (is (empty? (v/sentexes-matching kb '(skipX PX0) '?ctx)) "the lift blocks skipX, which is swept")
-      (is (seq (v/sentexes-matching kb '(seenX PX0) '?ctx))
-          "the swept exception released seenX inside the same settle"))))
+      (v/assert kb '(probe_x PX0) ctx)
+      (is (seq (v/sentexes-matching kb '(skip_x PX0) '?ctx)) "the exception fact is derived")
+      (is (empty? (v/sentexes-matching kb '(seen_x PX0) '?ctx)) "and blocks the seen_x rule")
+      (v/assert kb '(lift_x PX0) ctx)
+      (is (empty? (v/sentexes-matching kb '(skip_x PX0) '?ctx)) "the lift blocks skip_x, which is swept")
+      (is (seq (v/sentexes-matching kb '(seen_x PX0) '?ctx))
+          "the swept exception released seen_x inside the same settle"))))
 
 ;; ---- the genl edge trigger is narrowed to the closures it moves ----------
 ;;
@@ -293,22 +293,22 @@
   (testing "the touched rule's conclusion is swept; the untouched rule's firings are
             not even re-evaluated"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
-      ;; touched: excepts on tall_thing, one firing.  untouched: excepts on skipX,
+      ;; touched: excepts on tall_thing, one firing.  untouched: excepts on skip_x,
       ;; twenty firings — under the old blanket trigger those twenty dominate.
       (v/assert kb '(exceptWhen (tall_thing ?x)
-                                (set/defaultRule (implies (and (probeA ?x)) (bigA ?x))))
+                                (set/defaultRule (implies (and (probe_a ?x)) (big_a ?x))))
                 ctx)
       (excepted-rule! kb)
       (dotimes [i 20] (probe! kb i))
-      (v/assert kb '(probeA PA1) ctx)
+      (v/assert kb '(probe_a PA1) ctx)
       (v/assert kb '(giant_thing PA1) ctx)
-      (is (seq (v/sentexes-matching kb '(bigA PA1) '?ctx)) "no edge yet: a giant is not yet tall")
+      (is (seq (v/sentexes-matching kb '(big_a PA1) '?ctx)) "no edge yet: a giant is not yet tall")
       (let [n (counting-evaluations
                #(v/assert kb '(genl giant_thing tall_thing) ctx))]
-        (is (empty? (v/sentexes-matching kb '(bigA PA1) '?ctx))
+        (is (empty? (v/sentexes-matching kb '(big_a PA1) '?ctx))
             "the edge reaches the tall_thing exception, so the touched rule is queued
              and its conclusion swept — narrowing must never skip an affected rule")
-        (is (= 20 (count (v/sentexes-matching kb '(seenX ?x) '?ctx)))
+        (is (= 20 (count (v/sentexes-matching kb '(seen_x ?x) '?ctx)))
             "the untouched rule's conclusions all stand")
         (is (< n 10)
             (str "the edge caused " n " exception evaluations; the untouched rule's "
@@ -316,9 +316,9 @@
 
 ;; ---- and the negated conjunct, which registers under a functor that hides it ----
 ;;
-;; `(exceptWhen (not (hasWings ?x)) …)` is ordinary common-sense content, and it
+;; `(exceptWhen (not (has_wings ?x)) …)` is ordinary common-sense content, and it
 ;; registers in the re-check index under the functor `not` rather than under
-;; `hasWings` — so the supertype keying above cannot see which predicate it is about
+;; `has_wings` — so the supertype keying above cannot see which predicate it is about
 ;; and cannot decide it.  Waving every such rule through costs `:all`, which is one
 ;; level-6 query per firing the rule ever made, on every `genl` edge written anywhere.
 ;;
@@ -337,9 +337,9 @@
   [firings sub pred]
   (tu/with-cleared-kb [kb tu/isolated-fresh]
     (v/assert kb (list 'exceptWhen (list 'not (list pred '?x))
-                       '(set/defaultRule (implies (and (negProbe ?x)) (negSeen ?x))))
+                       '(set/defaultRule (implies (and (neg_probe ?x)) (neg_seen ?x))))
               ctx)
-    (dotimes [i firings] (v/assert kb (list 'negProbe (symbol (str "NG" i))) ctx))
+    (dotimes [i firings] (v/assert kb (list 'neg_probe (symbol (str "NG" i))) ctx))
     (counting-evaluations
      #(v/assert kb (list 'genl sub 'negsuper_t) ctx {:strength :monotonic}))))
 
@@ -372,16 +372,16 @@
   (testing "narrowing the edge trigger changes nothing about what a negation excepts"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(exceptWhen (not (negskip ?x))
-                                (set/defaultRule (implies (and (negProbe ?x)) (negSeen ?x))))
+                                (set/defaultRule (implies (and (neg_probe ?x)) (neg_seen ?x))))
                 ctx)
-      (v/assert kb '(negProbe NG0) ctx)
-      (is (seq (v/sentexes-matching kb '(negSeen NG0) '?ctx))
+      (v/assert kb '(neg_probe NG0) ctx)
+      (is (seq (v/sentexes-matching kb '(neg_seen NG0) '?ctx))
           "nothing denies negskip of NG0, so the exception does not hold")
       (let [h (v/assert kb '(not (negskip NG0)) ctx)]
-        (is (empty? (v/sentexes-matching kb '(negSeen NG0) '?ctx))
+        (is (empty? (v/sentexes-matching kb '(neg_seen NG0) '?ctx))
             "the stored negation satisfies the exception and the conclusion is swept")
         (v/retract! kb h)
-        (is (seq (v/sentexes-matching kb '(negSeen NG0) '?ctx))
+        (is (seq (v/sentexes-matching kb '(neg_seen NG0) '?ctx))
             "and its departure releases the rule")))))
 
 ;; ---- the two channels a fact reaches an exception through sideways -------
@@ -625,24 +625,24 @@
 (deftest withdrawing-a-transitivity-releases-the-inheritance-it-licensed
   (testing "(transitive R) is also the licence every (transitiveInArg P n R) reads at use"
     ;; The indirect one, and the reason `transitive` gets a second posting: nothing
-    ;; here mentions `wneedsOil` except the declaration, and retracting the *relation's*
+    ;; here mentions `wneeds_oil` except the declaration, and retracting the *relation's*
     ;; transitivity is what stops its reach from closing.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(transitive wpartOf) ctx)
       (v/assert kb '(wpartOf WPiston WEngine) ctx)
       (v/assert kb '(wpartOf WEngine WCar) ctx)
-      (v/assert kb '(transitiveInArg wneedsOil 1 wpartOf) ctx)
-      (v/assert kb '(wneedsOil WCar) ctx)
-      (v/assert kb '(exceptWhen (wneedsOil WPiston)
+      (v/assert kb '(transitiveInArg wneeds_oil 1 wpartOf) ctx)
+      (v/assert kb '(wneeds_oil WCar) ctx)
+      (v/assert kb '(exceptWhen (wneeds_oil WPiston)
                                 (set/defaultRule (implies (and (wmark ?x)) (wseen ?x))))
                 ctx)
       (v/assert kb '(wmark WM1) ctx)
-      (is (v/ask? kb '(wneedsOil WPiston) ctx)
+      (is (v/ask? kb '(wneeds_oil WPiston) ctx)
           "two hops of a transitive relation, so the claim reaches the piston")
       (is (empty? (v/sentexes-matching kb '(wseen WM1) '?ctx))
           "the exception holds at firing time, so nothing is concluded")
       (v/retract! kb (v/handle-of kb '(transitive wpartOf) ctx))
-      (is (not (v/ask? kb '(wneedsOil WPiston) ctx))
+      (is (not (v/ask? kb '(wneeds_oil WPiston) ctx))
           "a relation nobody says composes is one whose reach may not be closed")
       (is (seq (v/sentexes-matching kb '(wseen WM1) '?ctx))
           "so the exception is released and the conclusion comes back"))))
@@ -849,8 +849,8 @@
                                           (symbol (str "PX" i)))
                                  ctx)))
                    [(counting-evaluations
-                     #(v/assert kb '(skipX Unrelated0) ctx))
-                    (count (v/sentexes-matching kb '(seenX ?x) '?c))]))]
+                     #(v/assert kb '(skip_x Unrelated0) ctx))
+                    (count (v/sentexes-matching kb '(seen_x ?x) '?c))]))]
       (is (= [0 20] (cost false)) "20 firings, one unrelated trigger, nothing merged")
       (is (= [0 20] (cost true))
           "the same trigger re-checked every firing because each bound a merged term"))))
@@ -877,16 +877,16 @@
                      (v/assert kb '(implies (and (gperson ?x)
                                                  (agg/count ?n ?c (gchildOf ?x ?c))
                                                  (lessThan 2 ?n))
-                                            (glargeFamily ?x))
+                                            (glarge_family ?x))
                                ctx)
                      (doseq [c '[GC1 GC2 GC3]]
                        (v/assert kb (list 'gchildOf 'GAnn c) 'CxGUp))
                      (when edge-last?
                        (v/assert kb '(genlCx CxGSub CxGUp) ctx
                                  {:strength :monotonic}))
-                     (mapv :sentence (v/sentexes-matching kb '(glargeFamily ?x)
+                     (mapv :sentence (v/sentexes-matching kb '(glarge_family ?x)
                                                           'CxGSub))))]
-      (is (= '[(glargeFamily GAnn)] (belief false))
+      (is (= '[(glarge_family GAnn)] (belief false))
           "with the edge in place the census sees three children and the rule fires")
       (is (= (belief false) (belief true))
           "and the edge arriving last reaches the same belief"))))
@@ -957,7 +957,7 @@
     ;; The narrowing substitutes the firing's bindings into each block literal and asks
     ;; whether a trigger could answer it.  A literal that is not flat and ground has no
     ;; shape to test, so it is kept — the safe direction, and for an exception that *is*
-    ;; a query operator it keeps everything: `(unknown (qskipX PX7))` reads as unshaped
+    ;; a query operator it keeps everything: `(unknown (qskip_x PX7))` reads as unshaped
     ;; however specific it is, so every firing is re-decided on every arriving fact and
     ;; the cost is the rule's whole history per trigger.
     ;;
@@ -966,15 +966,15 @@
     ;; Same claim, same shape, same bound as the flat case above.
     (let [cost (fn [firings triggers]
                  (tu/with-cleared-kb [kb tu/isolated-fresh]
-                   (v/assert kb '(exceptWhen (unknown (qskipX ?x))
+                   (v/assert kb '(exceptWhen (unknown (qskip_x ?x))
                                              (set/defaultRule
-                                              (implies (and (qprobeX ?x)) (qseenX ?x))))
+                                              (implies (and (qprobe_x ?x)) (qseen_x ?x))))
                              ctx)
                    (dotimes [i firings]
-                     (v/assert kb (list 'qprobeX (symbol (str "QX" i))) ctx))
+                     (v/assert kb (list 'qprobe_x (symbol (str "QX" i))) ctx))
                    (counting-evaluations
                     #(dotimes [i triggers]
-                       (v/assert kb (list 'qskipX (symbol (str "Unrelated" i))) ctx)))))
+                       (v/assert kb (list 'qskip_x (symbol (str "Unrelated" i))) ctx)))))
           few  (cost 8 6)
           many (cost 32 6)]
       (is (<= many (+ 4 (* 2 (max 1 few))))

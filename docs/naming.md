@@ -1,7 +1,8 @@
 # Naming invariants
 
 - **Covers:** the lexical conventions that mark a symbol as predicate, individual, type,
-  sense, context or lexeme, and what `assert` refuses for a badly-shaped name.
+  sense, context or lexeme, and what `assert` refuses for a badly-shaped name; and the
+  reserved words — the prose vocabulary the docs and docstrings are held to.
 - **Not here:** how a well-formed sentence's structure normalizes to one stored handle →
   [canonicalization.md](canonicalization.md); whether an argument's type (not its
   spelling) is correct → [argtypes.md](argtypes.md).
@@ -11,7 +12,7 @@
 
 | Role | Convention | Regex (on the symbol name) | Examples |
 |------|-----------|----------------------------|----------|
-| predicate | camelCase, lowercase-initial, no `_` | `[a-z][a-zA-Z0-9]*` | `parentOf`, `genl`, `arg` |
+| predicate | camelCase, lowercase-initial, no `_`, **arity 2+** | `[a-z][a-zA-Z0-9]*` | `parentOf`, `genlCx`, `arg` |
 | individual | CapitalCamelCase | `[A-Z][A-Za-z0-9]*` (not a context) | `Muffet`, `Tom` |
 | type | snake_case, a **unary** predicate | `[a-z][a-z0-9_]*` | `dog`, `physical_object` |
 | **sense** | a type, plus the disambiguator saying *which* sense | `[a-z._][…]*-[a-z0-9][…]*` | `abrasive-grit`, `abandonment-romantic` |
@@ -67,13 +68,13 @@
   malformed number (`134a-gas`), and a leading `'` is the quote macro, so
   `'centaur'-mythical` reads as a list rather than a term. Both are escaped with a
   leading underscore when minted — `_134a-gas` — which reads and says it was escaped.
-- **Overlap is expected.** A plain lowercase word (`dog`, `genl`, `parentOf`)
+- **Overlap is expected.** A plain lowercase word (`dog`, `genl`, `likes`)
   satisfies both `predicate?` and `type-symbol?`. Role is disambiguated by
   position and arity, not the symbol alone — `genl` is a predicate in
   `(genl dog animal)`, `dog` is a type in `(dog Muffet)`.
 - **Accessors.** `functor`, `args`, `arity` destructure a sentence.
 
-## Enforcement: every literal, and snake_case is unary
+## Enforcement: every literal, and the arity biconditional
 
 `assert` calls `nm/check!` and `check` (docs/api.md, "Validating without writing") calls
 `nm/blocking-problems`; both read the KB's policy, and both are `nm/problems` underneath.
@@ -83,14 +84,14 @@ rest marker where one cannot appear. That argument step is lexical — is this s
 individual, a type or a predicate at all — and not a type check; whether the argument is
 of the *right* type is `arg`'s job.
 
-### Literals, frames, and arguments
+### Literals, wrappers, and arguments
 
 A naming invariant is about a **literal** — a predicate applied to arguments. A
-sentence is built from literals plus *frames*, and `nm/literals` descends the frames
+sentence is built from literals plus *wrappers*, and `nm/literals` descends the wrappers
 to reach the literals:
 
-| Frame | Descends to |
-|-------|-------------|
+| Wrapper | Descends to |
+|---------|-------------|
 | `(not X)` | `X` |
 | `(and X …)` | each conjunct |
 | `(or X …)` | nothing, and it never arrives: a disjunctive antecedent is polycanonicalized into one rule per alternative before naming runs, so what this walk sees is the expansion ([canonicalization.md](canonicalization.md)) |
@@ -98,7 +99,7 @@ to reach the literals:
 | `set/forwardRule` · `backwardRule` · `inertRule` · `defaultRule` · `assumptionRule` · `hardConstraint` · `softConstraint` | the rule inside, wrappers nesting in any order |
 | `(exceptWhen Q R)` | `Q`'s conjuncts (`:exception`), then `R` |
 | `(ist Ctx S)` | `S` (and `Ctx` is checked as a context name) |
-| `(unknown S)` · `(thereExists ?v S)` · `(exists ?v C)` | the query / consequent framed |
+| `(unknown S)` · `(thereExists ?v S)` · `(exists ?v C)` | the query / consequent wrapped |
 | `(agg/count ?n ?v B)` and its four siblings | `B` — an aggregate's body is a goal, not an argument ([aggregate.md](aggregate.md)) |
 | `(sentexHandle N)` | nothing — it names a stored sentex by id |
 | `(do/labeling Ctx)` and the rest of `do/` | nothing — an imperative instructs the engine rather than stating that something is true, so it names no relation: it is dispatched at the top level of `assert` and refused anywhere inside a rule ([labeling.md](labeling.md)) |
@@ -110,41 +111,62 @@ Meter)`, a quoted connective `(comment not "…")`. And a **variable in functor
 position** is a pattern that names no predicate, so the dotted rest form
 `(?pred . ?args)` and a bare `(?p ?x)` pass.
 
-Descending the frames is what makes the check reach a rule. A rule's outermost functor
+Descending the wrappers is what makes the check reach a rule. A rule's outermost functor
 is `implies`, which is engine vocabulary, so a check that stopped there would examine
 nothing an author wrote: `(implies (penguin ?x) (lives_in ?x cold_place))` is refused
 for its consequent, and a consequent is exactly where derived and generated content
 lands.
 
-### snake_case is a type name, hence unary
+### The spelling is a biconditional on arity
 
 A functor carrying an underscore satisfies `type-symbol?` and not `predicate?`, so it
 names a **type**, and a type is used as a unary predicate. It is therefore legal at
-arity 1 and nowhere else:
+arity 1 and nowhere else. And the converse holds: a camelCase functor — one carrying an
+interior capital, which `type-symbol?` refuses — is legal at arity 2 and above and
+nowhere else.
 
 ```clojure
 (physical_object Rock1)              ; fine — a type membership
+(warm_blooded Muffet)                ; fine — a unary predicate, spelled like one
 (lives_in penguin cold_place)        ; refused — a type name doing a relation's job
-(livesIn Tweety Antarctica)          ; fine — camelCase, unconstrained in arity
+(warmBlooded Muffet)                 ; refused — a property wearing a relation's spelling
+(livesIn Tweety Antarctica)          ; fine — camelCase at arity 2
 ```
 
-A bare lowercase word (`dog`, `likes`) is both, so arity decides and nothing is
-refused.
+**Why both directions.** A one-place predicate is not a relation: its extension is a
+*set*, not a set of tuples, and a set is what `genl` orders — which is why the taxonomy
+exists at all and why its closure is cached rather than derived by a rule. Every
+ontology language that reads a role off a name marks that split (OWL's classes against
+its properties, Cyc's collections against its predicates); what none of them can do is
+mark it in one direction only, because a rule that half-holds is a rule an author
+cannot use to *read*. `(warmBlooded Muffet)` under a one-way rule is legal, unremarkable
+and wrong, and the KB shipped thirteen of them before this was closed.
+
+**Where the rule stops.** A bare lowercase word (`dog`, `likes`, `alive`) satisfies both
+conventions, so arity decides and nothing is refused. That is not a gap to be closed
+later: the marker lives on the *interior* of a name, so a name of one word has nowhere
+to carry it. Roughly three quarters of the shipped type names are single words and
+always will be — the invariant marks multi-word names, and says so.
+
+**The one exemption.** `sentexHandle` stands at arity 1 and is not a predicate: it names
+a stored sentex by its id, a term constructor wearing a literal's shape. It states
+nothing, so there is no relation to spell either way. `nm/unary-spelling-exempt` is the
+roster, and a name earns a place on it only by naming no relation.
 
 ### What a rejection says
 
 The `ex-info` `:type` is `:naming`. A repair loop is handed the message verbatim, so
-each one names the literal, the frame it sits in, and the spelling to use instead:
+each one names the literal, the wrapper it sits in, and the spelling to use instead:
 
 ```
 functor lives_in in rule consequent (lives_in ?x cold_place) is snake_case, which
-names a type and is legal only as a unary predicate, but has 2 arguments — write it
-camelCase as livesIn, or as (lives_in <one argument>)
+names a unary predicate — a kind or a property — and is legal only at arity 1, but has
+2 arguments — write it camelCase as livesIn, or as (lives_in <one argument>)
 ```
 
 A rejection is **data before it is prose**. `nm/problems*` yields one
 `{:class :role :symbol :literal}` map per violation — `:class` one of
-`:context-name` `:functor` `:lexeme-functor` `:functor-arity` `:argument`
+`:context-name` `:functor` `:lexeme-functor` `:functor-arity` `:functor-unary` `:argument`
 `:ist-context` `:dot-marker` — and `nm/message` renders one; `problems` is the two
 composed. `assert` wants the sentence it refused spelled out, but anything *counting*
 violations wants to group, and a message embeds the literal, so it is unique per record
@@ -153,7 +175,7 @@ and counting messages counts records.
 **The throw is a reporting path, so it does not pay for a stack trace nobody prints.** A
 checked import counts what the front door refuses, which makes the refusal a hundred
 thousand calls in a load rather than an exceptional one — and most of what `ex-info`
-costs is materializing the trace so it can elide its own two frames, which is a cost
+costs is materializing the trace so it can elide its own two stack frames, which is a cost
 that grows with the depth of the stack it is thrown from where a bare constructor's does
 not. `check!` builds the `ExceptionInfo` directly. Same class, same message, same
 `:type :naming` ex-data.
@@ -272,6 +294,79 @@ What it proposes:
 a shape somebody might legitimately mean stays out, because a warning on legitimate
 content is a warning an author learns to ignore.
 
+## Reserved words
+
+The lexical rules above are about a **symbol**. These are about a **word**: the prose
+vocabulary the docs, the docstrings and the KB comments are held to.
+
+> **One word, one stratum, one field.** Where that is impossible, the glossary carries
+> *every* sense as its own entry — and a word with two senses and one entry is a bug.
+
+Four strata, and every noun in the tree names something at exactly one of them. A word
+carrying two senses at the same stratum is a defect; one carrying two senses at strata a
+reader cannot confuse is a *declared collision*, and the row below is the declaration.
+
+| Stratum | What lives there |
+|---------|------------------|
+| **term** | expressions that *denote* a thing |
+| **formula** | expressions that *assert* something |
+| **knowledge** | what the KB *holds* and believes |
+| **machine** | how it is *stored and found* |
+
+The formula stratum runs on the standard ladder, and the docs use it exactly:
+an **atomic formula** is a predicate applied to terms; an **atomic sentence** is a closed
+atomic formula; a **literal** is an atomic formula or its negation; a **formula** is an
+atomic formula, a logical operator applied to formulas, or a quantifier binding variables
+in one; a **sentence** is a closed formula. So `(P ?x)` is an open atomic formula and a
+positive literal and *not* a sentence, while `(P Alice)` is an atomic sentence and a
+positive literal. A possibly-open goal is a **pattern**, never a sentence.
+
+A **qualified compound is a different word.** *Stack frame*, *binding frame*, *keyword
+literal*, *string literal*, *character literal* and *regex literal* are ordinary
+programming vocabulary, and the qualifier is what tells them from the bare reserved word.
+The rule governs `literal` and `frame` standing alone; it does not reach into a compound
+that names something else and says so.
+
+`scripts/lint-glossary.sh`'s check 6 reads the table below: every entry it names must
+exist in [glossary.md](glossary.md), and the count must match. Adding a second sense of a
+word means adding its row here and its entry there, in the same commit.
+
+| Word | Stratum | Senses | Glossary entries |
+|------|---------|--------|------------------|
+| asserted | knowledge | 1 | Asserted |
+| atomic | term, machine | 2 | Atomic (term); Atomic (storage) |
+| atomic formula | formula | 1 | Atomic formula |
+| atomic sentence | formula | 1 | Atomic sentence |
+| belief | knowledge | 2 | Belief; Belief (an agent's) |
+| constraint | formula, knowledge | 2 | Constraint (rule slot); Constraint network |
+| context | knowledge | 3 | Context; Query context; Placement context |
+| denotational term | term | 1 | Denotational term |
+| derived | knowledge | 1 | Derived |
+| door | machine | 1 | Door |
+| extent | machine | 1 | Extent |
+| formula | formula | 1 | Formula |
+| frame | machine | 1 | Frame |
+| ground | term | 1 | Ground |
+| inert | knowledge | 1 | Inert |
+| kind | term | 1 | Kind |
+| label | knowledge | 1 | Labeling |
+| literal | formula | 1 | Literal |
+| pattern | formula | 1 | Pattern |
+| polarity | formula | 1 | Polarity |
+| record | machine | 1 | Record |
+| region | knowledge, term | 2 | Region (relabel scope); Region (spatial) |
+| sentence | formula | 1 | Sentence |
+| sentex | knowledge | 1 | Sentex |
+| strength | knowledge | 1 | Strength |
+| term | machine | 1 | Term |
+| value | term | 1 | Value |
+| variable | term | 1 | Variable |
+| wrapper | formula | 1 | Wrapper |
+
+What the check cannot do is notice a *third* sense arriving in prose. That is the
+reviewer's job, and the table is where the question gets asked: a word not in it is
+free, and a word in it means what its entries say and nothing else.
+
 ## Temporaries in tests
 
 `vaelii.test-util/with-terms` infers a temporary's role from the symbol's own shape and
@@ -281,3 +376,11 @@ already carrying an underscore (`physical_object`) becomes snake_case
 (`dog`, `likes`) becomes another bare lowercase word (`tmpdog17`) and stays usable at
 any arity — as ambiguous as the word the test wrote. Writing the base with an
 underscore is how a test says "a type, and only a type".
+
+A `:predicate` temp is **bare lowercase** for the same reason read the other way. Now
+that the rule is a biconditional, a camelCase temp would commit to being a relation
+exactly as an underscored one commits to being a kind, and a test that wrote
+`parentOf` as a base made neither commitment — so the base's capitals are folded out
+(`parentOf` ⇒ `tmpparentof17`). A test that wants the arity-1 commitment writes the
+base with an underscore and takes a `:type` temp; one that wants arity 2 and above
+writes the literal rather than a temp.

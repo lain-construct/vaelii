@@ -35,20 +35,20 @@
     (is (= :true (:verdict (v/argue kb (list animal Muffet) 'CxUniverse))))))
 
 (tu/deftest-kb argue-rule-expansion-with-max-depth
-  (tu/with-terms [dog hasFur Muffet]
+  (tu/with-terms [dog has_fur Muffet]
     (v/assert kb (list dog Muffet) 'CxUniverse)
-    (v/assert-rule kb [(list dog '?x)] (list hasFur '?x) 'CxUniverse {:direction :backward})
+    (v/assert-rule kb [(list dog '?x)] (list has_fur '?x) 'CxUniverse {:direction :backward})
     (testing "without opts: ask does not fire backward rules"
-      (is (= :unknown (:verdict (v/argue kb (list hasFur Muffet) 'CxUniverse)))))
+      (is (= :unknown (:verdict (v/argue kb (list has_fur Muffet) 'CxUniverse)))))
     (testing "with max-depth: rules fire"
-      (is (= :true (:verdict (v/argue kb (list hasFur Muffet) 'CxUniverse {:max-depth 3})))))
+      (is (= :true (:verdict (v/argue kb (list has_fur Muffet) 'CxUniverse {:max-depth 3})))))
     (testing "and the rule-derived side carries the search's derivation, not a JTMS why"
       ;; the conclusion of a backward rule is never stored, so the JTMS has nothing to
       ;; explain it with and `:for-why` is the wrong key to look under
-      (let [r (v/argue kb (list hasFur Muffet) 'CxUniverse {:max-depth 3})]
+      (let [r (v/argue kb (list has_fur Muffet) 'CxUniverse {:max-depth 3})]
         (is (nil? (:for-why r)))
         (is (seq (:for-derivation r)))
-        (is (= (list hasFur Muffet) (:goal (first (:for-derivation r)))))
+        (is (= (list has_fur Muffet) (:goal (first (:for-derivation r)))))
         (is (= :rule (:via (first (:for-derivation r)))))))))
 
 (tu/deftest-kb argue-a-stored-side-carries-the-jtms-why-and-no-derivation
@@ -62,12 +62,12 @@
       (is (nil? (:for-derivation r))))))
 
 (tu/deftest-kb argue-derives-no-tree-for-a-pattern-or-at-depth-zero
-  (tu/with-terms [dog hasFur Muffet Rex]
+  (tu/with-terms [dog has_fur Muffet Rex]
     (v/assert kb (list dog Muffet) 'CxUniverse)
     (v/assert kb (list dog Rex) 'CxUniverse)
-    (v/assert-rule kb [(list dog '?x)] (list hasFur '?x) 'CxUniverse {:direction :backward})
+    (v/assert-rule kb [(list dog '?x)] (list has_fur '?x) 'CxUniverse {:direction :backward})
     (testing "a pattern answers once per binding, so one tree off the front names none of them"
-      (let [r (v/argue kb (list hasFur '?who) 'CxUniverse {:max-depth 3})]
+      (let [r (v/argue kb (list has_fur '?who) 'CxUniverse {:max-depth 3})]
         (is (= :true (:verdict r)))
         (is (= 2 (count (:for r))) "both answers are reported")
         (is (nil? (:for-derivation r)) "and no tree claims to explain them")))
@@ -121,10 +121,10 @@
   ;; at all for exactly the misspelling that matters: `{:max-deph 3}` would answer
   ;; `:unknown` for a sentence a rule derives, which is the failure the docstring says
   ;; must not happen.  The check is `argue`'s own, and the roster is `query`'s.
-  (tu/with-terms [dog hasFur Muffet]
+  (tu/with-terms [dog has_fur Muffet]
     (v/assert kb (list dog Muffet) 'CxUniverse)
-    (v/assert-rule kb [(list dog '?x)] (list hasFur '?x) 'CxUniverse {:direction :backward})
-    (let [goal    (list hasFur Muffet)
+    (v/assert-rule kb [(list dog '?x)] (list has_fur '?x) 'CxUniverse {:direction :backward})
+    (let [goal    (list has_fur Muffet)
           refusal (fn [opts]
                     (try (v/argue kb goal 'CxUniverse opts) nil
                          (catch clojure.lang.ExceptionInfo e (ex-data e))))]

@@ -15,8 +15,8 @@
             [vaelii.impl.seed :as seed]
             [vaelii.test-util :as tu]))
 
-;; a fresh KB per test: the CxCore grammar (`unreifiableFunction`,
-;; `binaryPredicate`, …) plus CxMeasure, the upper context that declares
+;; a fresh KB per test: the CxCore grammar (`unreifiable_function`,
+;; `binary_predicate`, …) plus CxMeasure, the upper context that declares
 ;; QuantityFn / QuantityIntervalFn unreifiable and documents the comparison and table
 ;; predicates.  Measurement is subject matter, not grammar, so it is nobody's business
 ;; but its own context's.

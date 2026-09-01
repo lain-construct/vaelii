@@ -1485,7 +1485,7 @@ checks that every permutation of a conjunction returns the one answer set.
 two decisions and only one of them is cost: the **readiness discipline** — a deferred
 literal placed behind what binds its arguments, the recursive literal pinned last — runs
 whether or not the ranking does, because an order that violates it is not slower but
-illegal. `[(bigEnough ?n) (hasScore ?x ?n)]` with the check ahead of its binder computes
+illegal. `[(big_enough ?n) (hasScore ?x ?n)]` with the check ahead of its binder computes
 on nothing and answers empty; a recursive literal ahead of its generators is a rule that
 may not terminate. Neither is a cost, so neither is behind the switch.
 
@@ -1782,7 +1782,7 @@ taking the far conclusion and leaving the near one, and both arrival orders.
 those bindings rebuilds `(parentOf Tom Bob)`. Ordinary sentences (no `.`) are
 unaffected — plain Clojure lists, no Java interop. This lets a rule quantify over an
 arbitrary predicate and its whole argument list; it is what the inert
-`decontextualizedPredicate` documentation rule uses (see [contexts.md](contexts.md)).
+`decontextualized_predicate` documentation rule uses (see [contexts.md](contexts.md)).
 
 ## The pluggable prover engine (`vaelii.impl.provers`, `ask`)
 
@@ -1869,12 +1869,12 @@ Built-in provers (`default-provers`, held per-KB in an atom):
 - **The algebraic predicate types are not a prover.** Each mark — `symmetric`,
   `transitive`, `asymmetric`, `reflexive`, `functional` — is a single predicate that does
   both jobs: it maintains its taxonomy property (canonicalization, the generic provers)
-  **and**, through `(genl symmetric binaryPredicate)` in CxCore, is a queryable
-  `binaryPredicate` type. There is no derived `…Predicate` twin. So `(symmetric ?p)` is
+  **and**, through `(genl symmetric binary_predicate)` in CxCore, is a queryable
+  `binary_predicate` type. There is no derived `…Predicate` twin. So `(symmetric ?p)` is
   answered by ordinary retrieval of the stored mark (the `FactProver`), scoped to the
   asking vantage like every read; `isa? siblingOf symmetric` and `isa? siblingOf
-  binaryPredicate` follow the genl closure from that same stored membership. The shipped
-  marks are `decontextualizedPredicate`s lifted into CxUniverse, so on a real KB every
+  binary_predicate` follow the genl closure from that same stored membership. The shipped
+  marks are `decontextualized_predicate`s lifted into CxUniverse, so on a real KB every
   context sees them; on a bare KB the mark stays in its declaring context and the read is
   scoped there. `genl` / `genlCx` are the exception the taxonomy names `closure-relations`:
   `(transitive genl)` is stored and queryable but held out of the `:transitive` property
@@ -1930,13 +1930,30 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   *is* the negative answer. Ground only, for `unknown`'s reason. `:compute`, partial
   (50) — it augments the stored `(not (P a))` `FactProver` answers. See
   [naf.md](naf.md).
+- **DefnSufficientProver** — a ground unary membership goal `(Coll a)` answered by
+  *evaluating* a definitional condition rather than matching a stored one: the member is
+  substituted into every `defnSufficient` condition in `Coll`'s **spec** cone and the
+  condition is asked of this same registry, so a condition built from computed predicates
+  (`integer`, `lessThan`, an `add-evaluatable` check) — which the companion forward rule
+  can never fire on, nothing having stored it — answers. A failing `defnNecessary` on a
+  **strict** `genl` fast-fails first, most-general-first. Ground only, for `unknown`'s
+  reason: a computed condition tests a member and cannot enumerate one. `:compute`,
+  partial (50) — it augments `FactProver` and the companion rule. See
+  [defns.md](defns.md).
+- **DefnNecessaryNegationProver** — the converse: a ground `(not (Coll a))` proved by the
+  first `defnNecessary` that positively **fails** for `a` anywhere in `Coll`'s reflexive
+  `genl` cone, a member satisfying every necessary at or above it. Not negation as
+  failure — it fires on an evaluably false condition, never on an unprovable membership,
+  and a `Coll` with no necessary in its cone leaves it inapplicable. Ground only.
+  `:compute`, partial (50) — it augments the stored `(not (Coll a))` and
+  `ClosedExtentProver`. See [defns.md](defns.md).
 - **ArgTypeProver** — infers an individual's type from *how it is used*: if a
   believed relation puts `x` in a position that `(arg P n T')` constrains, then
   `x` is a `T'` (and, by genl, every supertype). So `arg` reads two ways — a
   **constraint** when asserting, and an **inference** when querying (Muffet eats
   Bone1 and eat's 2nd argument is food ⇒ Bone1 is food). On-demand, never
   materialized. Partial (50).
-- **BeliefProjectionProver** — a registered `(modalPredicate P)` of arity 2 with a ground
+- **BeliefProjectionProver** — a registered `(modal_predicate P)` of arity 2 with a ground
   agent: `(believes A P)` is answered by running `P` through the registry in the agent's
   own context rather than the asker's. `:compute`, partial (50) — `believes` stays an
   ordinary assertible relation, so a stored belief and a projected one are unioned. See

@@ -16,7 +16,7 @@
   (:import (clojure.lang ExceptionInfo)))
 
 (defn- belief-kb
-  "A fresh CxCore KB — CxCore carries the `believes` modalPredicate grant, and
+  "A fresh CxCore KB — CxCore carries the `believes` modal_predicate grant, and
   `core-context/load-into` wires `(genlCx CxUniverse CxCore)` so a modal goal asked from
   CxUniverse is recognized."
   []
@@ -118,7 +118,7 @@
       (testing "'what has Atlas withdrawn' is a plain read, and it is per-agent"
         (is (= 1 (count (bel/disregards kb 'AgentAtlas))))
         (is (empty? (bel/disregards kb 'AgentBoreas))))
-      (testing "the disregard is UNMARKED — except never carries targetFollowingPredicate"
+      (testing "the disregard is UNMARKED — except never carries target_following_predicate"
         (is (not (v/has-prop? kb :target-following 'except))))
       (testing "so a later hard retract of the statement leaves the except a harmless orphan"
         (v/retract! kb h)

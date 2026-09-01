@@ -121,7 +121,7 @@ sentex's decomposition:
 `:assumption` and `:constraint` are **constant slots**, `nil` for a rule that is
 neither, so every rule keys at one depth. That is not cosmetic: a variable in a path
 fans out over a node's whole child set, so at a ragged level a wildcard *context* slot
-would descend into the deeper rule's extra node and read child labels back as handles.
+would descend into the deeper rule's extra node and read child tokens back as handles.
 Being in the key at all is the point — a choice rule and a plain rule with the same
 implication are different rules, and so are a hard-constraint rule and a soft one.
 
@@ -459,7 +459,7 @@ index exists only to decide *when*:
 
 A fact on `P` arriving or leaving looks up `[:exception-index P]` and re-checks those rules'
 conclusions. An exception can also flip with no matching fact ever arriving — assert
-`(genl penguin flightlessBird)` and `(flightlessBird ?b)` starts holding — and an edge
+`(genl penguin flightless_bird)` and `(flightless_bird ?b)` starts holding — and an edge
 change is what the `:rules` roster is for. It is read as the **gate**, not as the answer:
 both edge triggers ask it first, so a KB that writes no `exceptWhen` pays one set read
 per edge and stops, and each then narrows from it. `special/recheck-genl-edge` keys on

@@ -77,8 +77,8 @@
             :comment
             (recur (inc i) (if (= c \newline) :code :comment) stack pairs stacks)))))))
 
-(def literal-type
-  "A `:type` whose value is a keyword literal, namespaced or not.  The namespace segment
+(def keyword-type
+  "A `:type` whose value is a keyword written out, namespaced or not.  The namespace segment
   is read because koinii spells its refusals `:koinii/…`, and a pattern stopping at the
   slash would collapse all twenty of them to a bare `:koinii`."
   #":type\s+:([A-Za-z][A-Za-z0-9-]*(?:/[A-Za-z][A-Za-z0-9-]*)?)")
@@ -116,9 +116,9 @@
   One classifier for both, because they are the same question asked of two spellings —
   scanning the symbols separately would be a second set of rules to drift from the first."
   [^String src]
-  (let [lits (matches-of src literal-type)
+  (let [kws  (matches-of src keyword-type)
         syms (matches-of src symbolic-type)
-        {:keys [pairs stacks]} (delimiter-analysis src (map :pos (into lits syms)))
+        {:keys [pairs stacks]} (delimiter-analysis src (map :pos (into kws syms)))
         n (.length src)
         ex-info-open? (fn [p]
                         (and (= \( (.charAt src p))
@@ -139,7 +139,7 @@
                     (keyword kw))]
     {:keywords (into (set defaulted)
                      (comp (filter (comp on-surface? :pos)) (map (comp keyword :name)))
-                     lits)
+                     kws)
      :symbols  (into #{} (comp (filter (comp on-surface? :pos)) (map :name)) syms)}))
 
 (defn refusal-types

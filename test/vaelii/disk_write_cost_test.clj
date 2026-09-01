@@ -150,7 +150,7 @@
     (fn [kb]
       ;; one write outside the count: the first assert in a process pays a class load and
       ;; the codec's own warm-up, and neither is a per-record cost
-      (v/assert kb '(dwcWarm DwcWarm) 'CxPerf {:chain? false})
+      (v/assert kb '(dwc_warm DwcWarm) 'CxPerf {:chain? false})
       (let [ops (file-ops #(dotimes [i n]
                              (v/assert kb (list 'dwcFact (symbol (str "DwcA" i)) i)
                                        'CxPerf {:chain? false})))]

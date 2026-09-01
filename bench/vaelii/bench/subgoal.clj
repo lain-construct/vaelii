@@ -176,28 +176,28 @@
    #(v/sentexes-matching kb '(repaidKindness LionA MouseA) 'CxLionMouse)
    #(v/sentexes-matching kb '(wins TortoiseA HareA) 'CxTortoiseHare)
    #(v/sentexes-matching kb '(wins HareA TortoiseA) 'CxTortoiseHare)
-   #(v/sentexes-matching kb '(survivesWinter AntA) 'CxAntGrasshopper)
-   #(v/sentexes-matching kb '(suffersInWinter GrasshopperA) 'CxAntGrasshopper)
+   #(v/sentexes-matching kb '(survives_winter AntA) 'CxAntGrasshopper)
+   #(v/sentexes-matching kb '(suffers_in_winter GrasshopperA) 'CxAntGrasshopper)
    #(v/sentexes-matching kb '(betterPreparedThan AntA GrasshopperA) 'CxAntGrasshopper)
    #(v/sentexes-matching kb '(believed BoyA) 'CxCriedWolf)
    #(v/sentexes-matching kb '(not (believed BoyA)) 'CxCriedWolf)
    #(v/why-not kb '(believed BoyA) 'CxCriedWolf)
-   #(v/sentexes-matching kb '(inDanger BoyA) 'CxCriedWolf)
-   #(v/sentexes-matching kb '(inDanger WolfA) 'CxCriedWolf)
+   #(v/sentexes-matching kb '(in_danger BoyA) 'CxCriedWolf)
+   #(v/sentexes-matching kb '(in_danger WolfA) 'CxCriedWolf)
    #(v/sentexes-matching kb '(mortal LionA) 'CxLionMouse)
    #(v/sentexes-matching kb '(flies WolfA) '?ctx)
    #(v/sentexes-matching kb '(flies HareA) '?ctx)
-   #(v/isa? kb 'lion 'unaryPredicate)
-   #(v/isa? kb 'mouse 'unaryPredicate)
-   #(v/isa? kb 'hare 'unaryPredicate)
-   #(v/isa? kb 'wolf 'unaryPredicate)
-   #(v/isa? kb 'tortoise 'unaryPredicate)
-   #(v/isa? kb 'ant 'unaryPredicate)
-   #(v/isa? kb 'grasshopper 'unaryPredicate)
-   #(v/isa? kb 'spared 'binaryPredicate)
-   #(v/isa? kb 'repaidKindness 'binaryPredicate)
-   #(v/isa? kb 'inDanger 'unaryPredicate)
-   #(v/isa? kb 'criesWolf 'unaryPredicate)
+   #(v/isa? kb 'lion 'unary_predicate)
+   #(v/isa? kb 'mouse 'unary_predicate)
+   #(v/isa? kb 'hare 'unary_predicate)
+   #(v/isa? kb 'wolf 'unary_predicate)
+   #(v/isa? kb 'tortoise 'unary_predicate)
+   #(v/isa? kb 'ant 'unary_predicate)
+   #(v/isa? kb 'grasshopper 'unary_predicate)
+   #(v/isa? kb 'spared 'binary_predicate)
+   #(v/isa? kb 'repaidKindness 'binary_predicate)
+   #(v/isa? kb 'in_danger 'unary_predicate)
+   #(v/isa? kb 'cries_wolf 'unary_predicate)
    #(v/sentexes-matching kb '(achievesGoal FoxF HasCheese) 'CxFoxCrow)
    #(v/sentexes-matching kb '(achievesGoal TortoiseA WinRace) 'CxTortoiseHare)
    #(v/sentexes-matching kb '(achievesGoal FoxF HasCheese) 'CxTortoiseHare)
@@ -215,8 +215,8 @@
    #(v/isa? kb 'Flatter1 'event)
    #(v/isa? kb 'FoxF 'agent)
    #(v/isa? kb 'causes 'transitive)
-   #(v/isa? kb 'achievesGoal 'binaryPredicate)
-   #(v/isa? kb 'responsibleFor 'binaryPredicate)])
+   #(v/isa? kb 'achievesGoal 'binary_predicate)
+   #(v/isa? kb 'responsibleFor 'binary_predicate)])
 
 (defn- arm-b
   "One `examples/run` per worked example — a render of the commonsense gallery."
@@ -232,18 +232,18 @@
    #(v/query kb '(beforeEvent ?x ?y) 'CxFoxCrow {:max-depth 3})
    #(v/query kb '(afterEvent ?x ?y) 'CxFoxCrow {:max-depth 3})
    #(v/query kb '(achievesGoal ?a ?g) 'CxFoxCrow {:max-depth 3})
-   #(v/query kb '(inDanger ?x) 'CxCriedWolf {:max-depth 3})
+   #(v/query kb '(in_danger ?x) 'CxCriedWolf {:max-depth 3})
    #(v/query kb '(locatedIn ?p House1) 'CxNaturalWorld {:max-depth 3})
    #(v/query kb '(owns Tom ?x) 'CxSocialWorld {:max-depth 3})
    #(v/query kb '(mortal ?x) 'CxLionMouse {:max-depth 3})
    #(v/query kb '(repaidKindness ?a ?b) 'CxLionMouse {:max-depth 3})
    #(v/query kb '[(causes ?x ?y) (beforeEvent ?x ?y)] 'CxFoxCrow {:max-depth 3})
-   #(v/prove kb '(inDanger ?x) 'CxCriedWolf)
+   #(v/prove kb '(in_danger ?x) 'CxCriedWolf)
    #(v/prove kb '(betterPreparedThan ?a ?b) 'CxAntGrasshopper)
    #(v/escalate kb '(causes Flatter1 FoxGetsCheese) 'CxFoxCrow)
-   #(v/escalate kb '(inDanger BoyA) 'CxCriedWolf)
+   #(v/escalate kb '(in_danger BoyA) 'CxCriedWolf)
    #(v/escalate kb '(grandparentOf AdaEx CalEx) cx)
-   #(v/explain-levels kb '(inDanger BoyA) 'CxCriedWolf)])
+   #(v/explain-levels kb '(in_danger BoyA) 'CxCriedWolf)])
 
 (defn- arm-d
   "One render of the inference debugger.  `compare-tacticians` asks one goal once per
@@ -251,8 +251,8 @@
   [kb _cx]
   [#(v/search-tree kb '(causes ?x ?y) 'CxFoxCrow {:max-depth 3})
    #(v/compare-tacticians kb '(causes ?x ?y) 'CxFoxCrow {:max-depth 3})
-   #(v/search-tree kb '(inDanger ?x) 'CxCriedWolf {:max-depth 3})
-   #(v/compare-tacticians kb '(inDanger ?x) 'CxCriedWolf {:max-depth 3})])
+   #(v/search-tree kb '(in_danger ?x) 'CxCriedWolf {:max-depth 3})
+   #(v/compare-tacticians kb '(in_danger ?x) 'CxCriedWolf {:max-depth 3})])
 
 (defn- arms [kb cx]
   [["A  fables + story questions"   (arm-a kb cx)]
@@ -375,7 +375,7 @@
                    (core-context/load-into)
                    (sa/load-speech-acts))
         proposal (list 'shouldAdopt 'Apartment 'Dog)
-        rules    [(list 'implies (list 'wantsCompanionship '?p) (list 'wouldEnjoy '?p 'Dog))
+        rules    [(list 'implies (list 'wants_companionship '?p) (list 'wouldEnjoy '?p 'Dog))
                   (list 'implies (list 'and (list 'memberOf '?p 'Apartment)
                                        (list 'wouldEnjoy '?p 'Dog))
                         proposal)
@@ -390,7 +390,7 @@
             [[:write #(doseq [r rules] (v/assert kb r 'CxApartment))]
              [:write #(ch/assert ava (list 'memberOf 'AgentAva 'Apartment))]
              [:read  #(v/ask? kb proposal 'CxApartment)]
-             [:write #(ch/assert ava (list 'wantsCompanionship 'AgentAva))]
+             [:write #(ch/assert ava (list 'wants_companionship 'AgentAva))]
              [:read  #(v/ask? kb proposal 'CxApartment)]
              [:read  #(v/ask? kb (list 'not proposal) 'CxApartment)]
              [:write #(ch/assert ben (list 'memberOf 'AgentBen 'Apartment))]
@@ -429,7 +429,7 @@
   "One assert and its retraction — the mutation a live KB performs between reads, and
   the whole of what a coarse change clock needs to see.  Taken back, so no answer moves."
   [kb n]
-  (v/retract! kb (v/assert kb (list 'criesWolf (symbol (str "ClockTickBench" n))) 'CxCriedWolf)))
+  (v/retract! kb (v/assert kb (list 'cries_wolf (symbol (str "ClockTickBench" n))) 'CxCriedWolf)))
 
 (defn- time-runs! ^double [qs n between]
   (let [t0 (System/nanoTime)]

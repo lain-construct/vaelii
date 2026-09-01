@@ -95,9 +95,9 @@
   (let [found (into {} (map (juxt :surface :term))
                     (text/resolutions kb (text/segments ant)))]
     (testing "prepared for winter is one predicate, not two words that happen to resolve"
-      (is (= 'preparedForWinter (found "prepared for winter")))
-      (is (= 'idledInSummer (found "idled in summer")))
-      (is (= 'suffersInWinter (found "suffers in winter"))))
+      (is (= 'prepared_for_winter (found "prepared for winter")))
+      (is (= 'idled_in_summer (found "idled in summer")))
+      (is (= 'suffers_in_winter (found "suffers in winter"))))
     (testing "so `winter` alone is not also reported inside it"
       (is (nil? (found "winter"))))))
 
@@ -115,8 +115,8 @@
 
 (tu/deftest-kb a-resolved-term-is-its-equality-class-representative
   (tu/with-terms [oldName newName]
-    (v/assert kb (list 'unaryPredicate oldName) 'CxUniverse)
-    (v/assert kb (list 'unaryPredicate newName) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate oldName) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate newName) 'CxUniverse)
     (v/assert kb (list 'rewriteOf oldName newName) 'CxUniverse)
     (let [found (text/known kb [oldName])]
       (is (= {oldName (v/representative kb oldName)} found)

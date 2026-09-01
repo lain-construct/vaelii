@@ -160,7 +160,7 @@
   "`a` before a vowel becomes `an`.  The article is the *comment's* — \"every SubType is a
   SuperType\" — and substitution is what puts a vowel after it, so repairing it is
   finishing the comment's own sentence rather than writing one.  `u` is left alone: a
-  unaryPredicate, a unit."
+  unary_predicate, a unit."
   [s]
   (str/replace s #"(?i)\ba (?=[aeio])" #(if (= \A (first %1)) "An " "an ")))
 

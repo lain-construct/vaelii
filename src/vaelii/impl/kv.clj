@@ -29,7 +29,7 @@
   prefix of another's: `(rel A B)` in `CxCee` keys as `[rel A B CxCee]`,
   and `(rel A B CxCee X)` in `CxDee` keys as `[rel A B CxCee X
   CxDee]` — the first path is an interior node of the second.  Storing both
-  handles and child labels in one set therefore mixed them, and a caller could not
+  handles and child tokens in one set therefore mixed them, and a caller could not
   tell them apart by type (a handle is an integer, and so is the token `1970`).  Two
   keys make the distinction structural: `lookup` reads only the leaf key at its
   terminus, so it can never return a token as a handle, and `children` reads only
@@ -193,7 +193,7 @@
 
 (defn- count-key [prefix] [:trie :count prefix])
 (defn- set-key   [prefix] [:trie :children prefix])
-;; leaf handles live under their own key, never mixed into the child-label set —
+;; leaf handles live under their own key, never mixed into the child-token set —
 ;; see the ragged-path note in the namespace docstring.
 (defn- leaf-key  [prefix] [:trie :handles prefix])
 
@@ -550,7 +550,7 @@
   (count-children [_ prefix] (prof/record-read :trie-counts) (kv-count backend (set-key prefix)))
 
   ;; The terminus reads the *leaf* key, so an under-long pattern — which stops on an
-  ;; interior node — yields nothing instead of that node's child labels, and a full
+  ;; interior node — yields nothing instead of that node's child tokens, and a full
   ;; path that also happens to be interior (ragged arity) yields its own handles
   ;; without the child token sitting at the same prefix.
   ;;
@@ -570,13 +570,13 @@
   ;; key, holding no marker for the skip to read, walks one level per token.
   (lookup [_ pattern]
     (prof/record-read :trie-lookup)
-    (letfn [(child-labels [prefix] (kv-members backend (set-key prefix)))
+    (letfn [(child-tokens [prefix] (kv-members backend (set-key prefix)))
             (skip-one [prefix]                         ; advance past one complete form
               (mapcat (fn [c]
                         (if (sx/subterm-mark? c)
                           (skip-n (conj prefix c) (sx/subterm-arity c))
                           [(conj prefix c)]))
-                      (child-labels prefix)))
+                      (child-tokens prefix)))
             (skip-n [prefix n]                         ; advance past n complete forms
               (if (zero? n)
                 [prefix]

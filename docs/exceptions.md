@@ -26,7 +26,7 @@ Nothing connects them, and nothing records which one wins.
 An exception belongs on the rule it excepts:
 
 ```clojure
-(exceptWhen (flightlessBird ?b)
+(exceptWhen (flightless_bird ?b)
   (set/defaultRule (implies (bird ?b) (hasAbility ?b flying))))
 ```
 
@@ -36,7 +36,7 @@ An exception belongs on the rule it excepts:
 conclude for that binding — there is no conclusion to defeat and nothing to
 arbitrate. Under forward chaining the conclusion is never created; under backward
 chaining the argument is constructed and then reported as excepted, so `why-not`
-can say *"rule R applies via `(bird Opus)`, but its exception `(flightlessBird
+can say *"rule R applies via `(bird Opus)`, but its exception `(flightless_bird
 Opus)` holds"* instead of recomputing a contradiction it never recorded.
 
 `why-not` therefore needs an arity that takes a **sentence and a context**, not
@@ -78,7 +78,7 @@ Two properties make this affordable:
 **A conjunction is a vector**, spelled the way `core/prove` spells one:
 
 ```clojure
-(exceptWhen [(flightlessBird ?b) (adult ?b)] (implies (bird ?b) …))
+(exceptWhen [(flightless_bird ?b) (adult ?b)] (implies (bird ?b) …))
 ```
 
 Closure is what makes this cheap: with every variable already bound, the conjuncts
@@ -454,8 +454,8 @@ edge column of the table above.
 
 ### Taxonomy changes are keyed on what the closure moved
 
-An exception like `(flightlessBird ?b)` can flip because someone asserted
-`(genl penguin flightlessBird)` — no fact with a matching predicate ever arrives, so
+An exception like `(flightless_bird ?b)` can flip because someone asserted
+`(genl penguin flightless_bird)` — no fact with a matching predicate ever arrives, so
 there is no *sentence* to narrow by and the queueing is `:all`. What is narrowed is
 **which rules**, and the two edge kinds key it differently because their closures reach
 an answer differently.
@@ -469,7 +469,7 @@ an answer differently.
   can be keyed on a predicate and both take `:all`.
 
   A **negated** conjunct is the third case, and it is keyed at the edge's other end. It
-  registers under the functor `not` — that is what `(exceptWhen (not (hasWings ?x)) …)`
+  registers under the functor `not` — that is what `(exceptWhen (not (has_wings ?x)) …)`
   puts in the index — so the registration hides the predicate the conjunct is about and
   the `genls(super)` walk has nothing to decide it with. What decides it is that a
   negative match is **contravariant**: `(not (dog X))` is read off a stored

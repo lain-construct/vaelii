@@ -9,16 +9,16 @@
 
   * **Part A — compound equality over reifiable NATs.**  `(equals (MotherOf Alice)
     (MotherOf Bob))` — *Alice and Bob have the same mother, so they are siblings* —
-    is accepted when `MotherOf` is a `reifiableFunction`.  It reduces to ordinary
+    is accepted when `MotherOf` is a `reifiable_function`.  It reduces to ordinary
     individual equality: each side reifies to its constant *before* wff runs
     (docs/nat.md), so `(equals K1 K2)` merges in the partition and a fact about one
     holds of the other.  A compound equality that does **not** reduce — a structural NAT
     measure like `(QuantityFn 5 Kilogram)` — stays refused.
 
   * **Part B — schematic equational rules.**  `(equals (fatherOf (fatherOf ?x))
-    (grandfatherOf ?x))` is an oriented rewrite `fatherOf∘fatherOf → grandfatherOf`.
-    A stored `(parentChain (fatherOf (fatherOf Tom)))` normalizes to `(parentChain
-    (grandfatherOf Tom))`, so a query on the `grandfatherOf` normal form matches.
+    (grandfather_of ?x))` is an oriented rewrite `fatherOf∘fatherOf → grandfather_of`.
+    A stored `(parent_chain (fatherOf (fatherOf Tom)))` normalizes to `(parent_chain
+    (grandfather_of Tom))`, so a query on the `grandfather_of` normal form matches.
     Oriented by a reduction order (strict size decrease + the variable condition), so
     rewriting terminates.
 
@@ -27,7 +27,7 @@
   discipline ground migration already has.
 
   House rules: gensym'd temporaries via `tu/with-terms`; engine vocabulary
-  (`equals`, `reifiableFunction`, `QuantityFn`, `Kilogram`, contexts) literal; the
+  (`equals`, `reifiable_function`, `QuantityFn`, `Kilogram`, contexts) literal; the
   neutral fixture asserts the KB is restored.  CxCore is loaded because the NAT
   bookkeeping (`termOfUnit`, `result`) rides real vocabulary."
   (:require [clojure.test :refer [is testing use-fixtures]]
@@ -56,7 +56,7 @@
   ;; side reifies to a reified NAT constant before wff, so this is ordinary individual
   ;; equality — the two reified NATs merge and a fact about one holds of the other.
   (tu/with-terms [MotherOf Alice Bob livesIn NYC]
-    (v/assert kb (list 'reifiableFunction MotherOf) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MotherOf) 'CxUniverse)
     (v/assert kb (list livesIn (list MotherOf Alice) NYC) 'CxUniverse)
     (testing "before the merge, nothing is known about Bob's mother"
       (is (empty? (v/ask kb (list livesIn (list MotherOf Bob) '?c) '?ctx))))
@@ -92,45 +92,45 @@
 (defn- nest [f base n] (reduce (fn [t _] (list f t)) base (range n)))
 
 (tu/deftest-kb schematic-rewrite-normalizes-store-and-query
-  ;; (equals (fatherOf (fatherOf ?x)) (grandfatherOf ?x)) orients fatherOf∘fatherOf →
-  ;; grandfatherOf; a stored (parentChain (fatherOf (fatherOf Tom))) normalizes so a
-  ;; query on the grandfatherOf normal form matches.
-  (tu/with-terms [fatherOf grandfatherOf parentChain Tom]
-    (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfatherOf '?x))
+  ;; (equals (fatherOf (fatherOf ?x)) (grandfather_of ?x)) orients fatherOf∘fatherOf →
+  ;; grandfather_of; a stored (parent_chain (fatherOf (fatherOf Tom))) normalizes so a
+  ;; query on the grandfather_of normal form matches.
+  (tu/with-terms [fatherOf grandfather_of parent_chain Tom]
+    (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfather_of '?x))
               'CxUniverse)
-    (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
-    (testing "the stored term meets a query at the grandfatherOf normal form"
-      (is (seq (v/sentexes-matching kb (list parentChain (list grandfatherOf Tom)) 'CxUniverse))))
+    (v/assert kb (list parent_chain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
+    (testing "the stored term meets a query at the grandfather_of normal form"
+      (is (seq (v/sentexes-matching kb (list parent_chain (list grandfather_of Tom)) 'CxUniverse))))
     (testing "a query on the pre-normal form still matches — the goal normalizes too"
-      (is (seq (v/sentexes-matching kb (list parentChain (list fatherOf (list fatherOf Tom)))
+      (is (seq (v/sentexes-matching kb (list parent_chain (list fatherOf (list fatherOf Tom)))
                                     'CxUniverse))))
     (testing "ask binds through the normal form"
       (is (= [{'?y Tom}]
-             (v/ask kb (list parentChain (list grandfatherOf '?y)) 'CxUniverse))))))
+             (v/ask kb (list parent_chain (list grandfather_of '?y)) 'CxUniverse))))))
 
 (tu/deftest-kb schematic-rewrite-is-belief-following
   ;; Every rewrite is a JTMS-justified twin, so retracting the equation collects it and
   ;; the original revives — the same discipline ground migration has.
-  (tu/with-terms [fatherOf grandfatherOf parentChain Tom]
+  (tu/with-terms [fatherOf grandfather_of parent_chain Tom]
     (let [he (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x))
-                                (list grandfatherOf '?x))
+                                (list grandfather_of '?x))
                        'CxUniverse)]
-      (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
-      (is (seq (v/sentexes-matching kb (list parentChain (list grandfatherOf Tom)) 'CxUniverse)))
+      (v/assert kb (list parent_chain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list parent_chain (list grandfather_of Tom)) 'CxUniverse)))
       (testing "retracting the equation drops the twin and revives the original"
         (v/retract! kb he)
-        (is (empty? (v/sentexes-matching kb (list parentChain (list grandfatherOf Tom)) 'CxUniverse)))
-        (is (seq (v/sentexes-matching kb (list parentChain (list fatherOf (list fatherOf Tom)))
+        (is (empty? (v/sentexes-matching kb (list parent_chain (list grandfather_of Tom)) 'CxUniverse)))
+        (is (seq (v/sentexes-matching kb (list parent_chain (list fatherOf (list fatherOf Tom)))
                                       'CxUniverse)))))))
 
 (tu/deftest-kb schematic-rewrite-terminates-on-a-cascade
   ;; The reduction order guarantees termination whatever the nesting depth: fatherOf^6
-  ;; Tom reduces to grandfatherOf^3 Tom, and normalization does not hang.
-  (tu/with-terms [fatherOf grandfatherOf ancestry Tom]
-    (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfatherOf '?x))
+  ;; Tom reduces to grandfather_of^3 Tom, and normalization does not hang.
+  (tu/with-terms [fatherOf grandfather_of ancestry Tom]
+    (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfather_of '?x))
               'CxUniverse)
     (v/assert kb (list ancestry (nest fatherOf Tom 6)) 'CxUniverse)
-    (is (seq (v/sentexes-matching kb (list ancestry (nest grandfatherOf Tom 3)) 'CxUniverse)))))
+    (is (seq (v/sentexes-matching kb (list ancestry (nest grandfather_of Tom 3)) 'CxUniverse)))))
 
 (tu/deftest-kb schematic-rewrite-is-order-independent
   ;; Both migration paths converge on the same normal form: a fact asserted BEFORE the
@@ -151,14 +151,14 @@
   ;; Parity: prove/backward now rewrite the top goal like query/ask, so a schematic
   ;; normal form — and a merged (retired) spelling — is answered there too, closing the
   ;; path-dependent-answer gap.
-  (tu/with-terms [fatherOf grandfatherOf parentChain Tom  bornIn Keep Retire Hawaii]
-    (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfatherOf '?x))
+  (tu/with-terms [fatherOf grandfather_of parent_chain Tom  bornIn Keep Retire Hawaii]
+    (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfather_of '?x))
               'CxUniverse)
-    (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
-    (testing "prove answers the grandfatherOf normal form"
-      (is (seq (v/prove kb (list parentChain (list grandfatherOf Tom)) 'CxUniverse))))
+    (v/assert kb (list parent_chain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
+    (testing "prove answers the grandfather_of normal form"
+      (is (seq (v/prove kb (list parent_chain (list grandfather_of Tom)) 'CxUniverse))))
     (testing "backward answers the pre-normal form — the goal normalizes"
-      (is (seq (v/prove kb (list parentChain (list fatherOf (list fatherOf Tom)))
+      (is (seq (v/prove kb (list parent_chain (list fatherOf (list fatherOf Tom)))
                         'CxUniverse))))
     ;; merged-spelling equality parity: rewriteOf makes Retire the deprecated spelling
     (v/assert kb (list bornIn Retire Hawaii) 'CxUniverse)
@@ -215,13 +215,13 @@
   ;; rewrite-term is symbol congruence THEN schematic normalization, so a schematic
   ;; term containing a merged symbol normalizes both in one pass — congruence and
   ;; rewriting compose.
-  (tu/with-terms [fatherOf grandfatherOf parentChain Tom Thomas]
-    (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfatherOf '?x))
+  (tu/with-terms [fatherOf grandfather_of parent_chain Tom Thomas]
+    (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfather_of '?x))
               'CxUniverse)
-    (v/assert kb (list parentChain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
+    (v/assert kb (list parent_chain (list fatherOf (list fatherOf Tom))) 'CxUniverse)
     (v/assert kb (list 'equals Tom Thomas) 'CxUniverse)      ; a symbol merge
     (let [rep (v/representative kb Tom)]
-      (is (seq (v/sentexes-matching kb (list parentChain (list grandfatherOf rep)) 'CxUniverse))
+      (is (seq (v/sentexes-matching kb (list parent_chain (list grandfather_of rep)) 'CxUniverse))
           "the fact normalizes under both the merge (Tom→rep) and the rewrite (∘→gp)"))))
 
 (tu/deftest-kb retracting-one-schematic-rule-leaves-the-other

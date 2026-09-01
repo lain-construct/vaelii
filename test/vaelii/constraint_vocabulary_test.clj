@@ -86,13 +86,13 @@
         "the sweep is over the predicate's extent; only the offender is in the finding")))
 
 (tu/deftest-kb the-membership-spelling-of-an-arity-reaches-back-too
-  ;; `(binaryPredicate P)` says the same thing as `(arity P 2)`, and `declared-arity`
+  ;; `(binary_predicate P)` says the same thing as `(arity P 2)`, and `declared-arity`
   ;; reads both — so the trigger set and the O(1) gate have to know both, or the reach
   ;; works for a KB carrying CxCore's derivation rules and silently not for one
   ;; loaded without them.
   (tu/with-terms [relOf A B C]
     (v/assert kb (list relOf A B C) 'CxUniverse)
-    (v/assert kb (list 'binaryPredicate relOf) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate relOf) 'CxUniverse)
     (is (= [(list relOf A B C)] (:sample (get (arity-entries kb) relOf))))))
 
 (tu/deftest-kb a-variableArity-predicate-is-exempt-on-the-retroactive-path-too
@@ -101,7 +101,7 @@
   ;; direction the check is asked from.
   (tu/with-terms [chainOf A B C]
     (v/assert kb (list chainOf A B C) 'CxUniverse)
-    (v/assert kb (list 'variableArity chainOf) 'CxUniverse)
+    (v/assert kb (list 'variable_arity chainOf) 'CxUniverse)
     (v/assert kb (list 'arity chainOf 2) 'CxUniverse)
     (is (empty? (arity-entries kb)))))
 

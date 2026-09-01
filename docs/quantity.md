@@ -9,7 +9,7 @@
 - **Assumes:** sentex, context, structural NAT, deferred literal →
   [glossary.md](glossary.md).
 
-A **measure** is a structural NAT — an `unreifiableFunction` application that stays *structural*
+A **measure** is a structural NAT — an `unreifiable_function` application that stays *structural*
 so its magnitude and unit are readable ([nat.md](nat.md)):
 
 ```clojure
@@ -199,10 +199,10 @@ and still be believed the same.
 - `vaelii.impl.provers` — `QuantityProver`, `normalize-quantity`, `measure-comparisons`,
   `*quantity-tolerance*`. Registered in `default-provers`, so every KB has it.
 - `resources/kb/upper/CxMeasure.txt` — the vocabulary: `QuantityFn` /
-  `QuantityIntervalFn` (`unreifiableFunction`), `dimensionOf` / `conversionFactor` (the
+  `QuantityIntervalFn` (`unreifiable_function`), `dimensionOf` / `conversionFactor` (the
   table predicates), and the five comparisons, each documented by a comment sentex. An
   *upper* context, not the vocabulary head: measurement is subject matter, and only the
-  grammar it is declared in (`unreifiableFunction`, `binaryPredicate`, …) is CxCore's.
+  grammar it is declared in (`unreifiable_function`, `binary_predicate`, …) is CxCore's.
   The sign vocabulary shares the file ([sign.md](sign.md)) — same quantities, no
   figures — and shares nothing else: a measure is never read into a sign, and a sign is
   never rendered as a measure.

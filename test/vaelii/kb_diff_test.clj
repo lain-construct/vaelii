@@ -49,13 +49,13 @@
 (deftest an-add-a-retract-a-defeated-default-and-a-move-land-in-four-buckets
   (with-sides*
     (fn [a b]
-      (tu/with-terms [dog likesCake Muffet Spot Rex Bess Tom CxOne CxTwo]
+      (tu/with-terms [dog likes_cake Muffet Spot Rex Bess Tom CxOne CxTwo]
         (doseq [k [a b]]
           (v/assert k (list 'genlCx CxOne 'CxUniverse) 'CxUniverse)
           (v/assert k (list 'genlCx CxTwo 'CxUniverse) 'CxUniverse)
           (v/assert k (list dog Muffet) CxOne)
           ;; stored in both; defeated in `b` alone, below
-          (v/assert k (list likesCake Tom) CxOne))
+          (v/assert k (list likes_cake Tom) CxOne))
         ;; an add: in b and not in a
         (v/assert b (list dog Rex) CxOne)
         ;; a retract: in a and not in b
@@ -64,7 +64,7 @@
         (v/assert a (list dog Bess) CxOne)
         (v/assert b (list dog Bess) CxTwo)
         ;; a defeated default: a known-true rival in `b` puts the default OUT there
-        (v/assert b (list 'not (list likesCake Tom)) CxOne {:strength :monotonic})
+        (v/assert b (list 'not (list likes_cake Tom)) CxOne {:strength :monotonic})
         (let [d (v/kb-diff a b)]
           (testing "what b has and a does not"
             (is (contains? (set (sentences (:added d))) (list dog Rex))))
@@ -77,7 +77,7 @@
             (is (not (contains? (set (sentences (:added d))) (list dog Bess))))
             (is (not (contains? (set (sentences (:removed d))) (list dog Bess)))))
           (testing "stored in both, believed in one: the bucket a record comparison misses"
-            (is (= [{:sentence (list likesCake Tom) :context CxOne :strength :default
+            (is (= [{:sentence (list likes_cake Tom) :context CxOne :strength :default
                      :premise? true :believed-in-a true :believed-in-b false}]
                    (:belief-changed d)))))))))
 

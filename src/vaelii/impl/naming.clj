@@ -4,7 +4,7 @@
   "KB naming invariants, as predicates over symbols — and the walk that applies them to
   every **literal** of a sentence rather than to its outermost functor alone.
 
-    predicate    camelCase, lowercase-initial, no underscore   parentOf, genl, arg
+    predicate    camelCase, lowercase-initial, arity 2+         parentOf, genlCx, arg
     individual   CapitalCamelCase                               Muffet, Tom
     type         snake_case, lowercase, unary predicate         dog, physical_object
     sense        a type, plus which sense of it is meant        abrasive-grit
@@ -15,12 +15,16 @@
   `type-symbol?`; role is disambiguated by position and arity, not the symbol alone.
   A sense is a type too, so it is unary for the same reason, and a lexeme is the one
   role a *namespace* decides — its text is a surface form and not ours to spell.
-  A functor carrying an **underscore** is a type name and nothing else, and types are
-  used as *unary* predicates — `(dog Muffet)`, not `(isa Muffet Dog)` — so it is legal at
-  arity 1 and nowhere else.  `(lives_in penguin cold_place)` is a type name doing a
-  relation's job; admitting it fragments the vocabulary into one-off predicates
-  (`lives_in_antarctica`, `capable_of_swimming`) that can never join a rule or match
-  another sentence.
+The spelling is a **biconditional on arity**.  A functor carrying an underscore is a
+  type name and nothing else, and types are used as *unary* predicates — `(dog Muffet)`,
+  not `(isa Muffet Dog)` — so it is legal at arity 1 and nowhere else.  And the converse
+  now holds too: a *camelCase* functor at arity 1 is refused, because a one-place
+  predicate is a kind or a property rather than a relation between terms, and the whole
+  point of a spelling that reads a role is that it reads it in both directions.
+  `(lives_in penguin cold_place)` is a type name doing a relation's job;
+  `(warmBlooded Muffet)` is a property wearing a relation's spelling.  A bare lowercase
+  word (`dog`, `alive`) satisfies both conventions and is caught by neither, which is
+  where the rule stops: it marks the names that carry more than one word.
 
   How hard these are enforced is the **KB's** to say, not this namespace's: `open-kb`'s
   `:naming` selects `:strict` / `:warn` / `:off` (`policies`, below) and `assert` reads
@@ -209,7 +213,7 @@
   never throws on a mixed pair — which `clojure.core/compare` does across types — and
   orders them deterministically instead.  A sentence is EDN: symbols (predicates,
   terms, contexts, `?vars`), numbers, strings, keywords, booleans, and the one nested
-  kind a literal or a term is — a sequential."
+  kind a value or a term is — a sequential."
   [x]
   (cond
     (nil? x)        0
@@ -334,10 +338,10 @@
 
 ;; ---- the literals of a sentence ------------------------------------------
 ;; A naming invariant is about a **literal** — a predicate applied to arguments.
-;; Everything else a sentence is built from is a *frame*: a structural connective
+;; Everything else a sentence is built from is a *wrapper*: a structural connective
 ;; (`not` / `and` / `implies`), a virtual rule wrapper (`set/*Rule`), an `exceptWhen`,
 ;; an `ist` redirection, a negation-as-failure quantifier, a `sentexHandle` naming
-;; another sentex.  A frame's functor is engine vocabulary rather than a name the
+;; another sentex.  A wrapper's functor is engine vocabulary rather than a name the
 ;; author chose, so the walk descends through it and checks what it holds.
 ;;
 ;; Arguments are deliberately **not** walked: a compound in argument position is a
@@ -346,7 +350,7 @@
 ;; is plain data, neither of which the predicate conventions govern.
 
 (def ^:private literal-roles
-  "The frame a literal sits in, as it reads in a rejection.  A repair loop is handed
+  "The wrapper a literal sits in, as it reads in a rejection.  A repair loop is handed
   the message verbatim, so it has to say *which* literal of the sentence broke."
   {:sentence   "sentence"
    :antecedent "rule antecedent"
@@ -365,7 +369,8 @@
   class is the datum and the message is rendered from it."
   {:context-name   "the KB context named is not a context"
    :functor        "a functor matching no convention"
-   :functor-arity  "a snake_case functor (a type) at an arity other than 1"
+   :functor-arity  "a snake_case functor (a unary predicate) at an arity other than 1"
+   :functor-unary  "a camelCase functor at arity 1 — a unary predicate is snake_case"
    :lexeme-functor "a lexeme applied to arguments — a surface form names no relation"
    :argument       "a symbol argument matching no convention"
    :ist-context    "an ist context slot that does not name a context"
@@ -391,10 +396,10 @@
 
 (defn applied-literals
   "The `[role literal]` pairs of `sentence` as written — every position at which it
-  applies *something* to arguments, tagged with the frame that position sits in
+  applies *something* to arguments, tagged with the wrapper that position sits in
   (`:sentence` / `:antecedent` / `:consequent` / `:exception`).
 
-  Frames are descended through, arguments are not, so this is exactly the set of
+  Wrappers are descended through, arguments are not, so this is exactly the set of
   positions an author wrote a predicate application in — a variable functor
   (`(?p ?x ?y)`, the dotted rest `(?pred . ?args)`) among them, which is what
   `literals` filters back out and `rules/variable-functor-literals` keeps."
@@ -450,13 +455,13 @@
          ;; `ist-context-problems`)
          (and (= sx/ist-functor h) (= 3 n)) (applied-literals role (nth form 2))
 
-         ;; negation as failure: `(unknown S)` and `(thereExists <vars> S)` frame a
-         ;; query, and a head `(exists <vars> C)` frames the consequent it quantifies
+         ;; negation as failure: `(unknown S)` and `(thereExists <vars> S)` wrap a
+         ;; query, and a head `(exists <vars> C)` wraps the consequent it quantifies
          (sx/unknown? form)      (applied-literals role (second form))
          (sx/there-exists? form) (applied-literals role (nth form 2))
          (sx/head-exists? form)  (applied-literals role (sx/head-exists-body form))
 
-         ;; an aggregate frames a query too: `(agg/count ?n ?v <body>)` says
+         ;; an aggregate wraps a query too: `(agg/count ?n ?v <body>)` says
          ;; nothing itself, and its body is a goal rather than an argument — read as a
          ;; literal it would be a three-place `agg/count` and the body inside it
          ;; would never be checked at all
@@ -483,6 +488,20 @@
   (let [[head & more] (str/split (nm s) #"_+")]
     (apply str head (map str/capitalize more))))
 
+(def unary-spelling-exempt
+  "The camelCase functors that stand at arity 1 and are **not** unary predicates, so the
+  snake_case rule does not reach them.  `sentexHandle` names a stored sentex by its id —
+  a term constructor wearing a literal's shape, which states nothing and so is no
+  predicate to spell either way.  Kept as a roster rather than a shape test because it is
+  engine vocabulary and finite; a name earns a place here only by naming no relation."
+  '#{sentexHandle})
+
+(defn snake-case
+  "The snake_case spelling of a camelCase symbol — `warmBlooded` ⇒ `warm_blooded`.  The
+  inverse of `camel-case`, and what a `:functor-unary` rejection proposes."
+  [s]
+  (symbol (str/replace (nm s) #"([A-Z])" (fn [[_ c]] (str "_" (str/lower-case c))))))
+
 (defn- functor-problem
   "The naming violation of one `[role literal]` pair's functor, or nil.  Two ways to
   fail: the symbol matches no convention at all, or it is snake_case — a type name —
@@ -504,7 +523,17 @@
       {:class :functor :role role :symbol f :literal literal}
 
       (and (not (predicate? f)) (not= 1 (arity literal)))
-      {:class :functor-arity :role role :symbol f :literal literal})))
+      {:class :functor-arity :role role :symbol f :literal literal}
+
+      ;; The converse fence, and what makes the spelling a biconditional: snake_case is
+      ;; arity 1, and arity 1 is snake_case.  A camelCase functor carries an interior
+      ;; capital, so `type-symbol?` refuses it, and applied to one argument it is a unary
+      ;; predicate spelled as a relation.  A bare lowercase word satisfies both
+      ;; conventions and is therefore never caught here — which is why `dog` and `alive`
+      ;; need no underscore and never will.
+      (and (not (type-symbol? f)) (= 1 (arity literal))
+           (not (contains? unary-spelling-exempt f)))
+      {:class :functor-unary :role role :symbol f :literal literal})))
 
 (defn- pascal-case
   "The CapitalCamelCase spelling of an underscored symbol — `South_Pole` ⇒ `SouthPole`."
@@ -551,7 +580,7 @@
 
 (defn message
   "One `problems*` map rendered as the line a rejection carries.  Every message names
-  the offending symbol, the frame it sits in and the spelling to write instead: whoever
+  the offending symbol, the wrapper it sits in and the spelling to write instead: whoever
   reads it is mid-repair, and a violation reported without its fix is a second lookup."
   [{:keys [class role symbol literal]}]
   (let [where (str (literal-roles role) " " (pr-str literal))]
@@ -575,9 +604,16 @@
         (str "functor " symbol " in " where " is a sense, which names a type and is legal"
              " only as a unary predicate, but has " (arity literal) " arguments — write the"
              " relation as a camelCase predicate, or as (" symbol " <one argument>)")
-        (str "functor " symbol " in " where " is snake_case, which names a type and is legal"
-             " only as a unary predicate, but has " (arity literal) " arguments — write it"
-             " camelCase as " (camel-case symbol) ", or as (" symbol " <one argument>)"))
+        (str "functor " symbol " in " where " is snake_case, which names a unary"
+             " predicate — a kind or a property — and is legal only at arity 1, but has "
+             (arity literal) " arguments — write it camelCase as " (camel-case symbol)
+             ", or as (" symbol " <one argument>)"))
+
+      :functor-unary
+      (str "functor " symbol " in " where " is camelCase and has one argument, but a"
+           " unary predicate is snake_case — a one-place predicate is a kind or a"
+           " property, not a relation between terms, and the spelling says so. Write it"
+           " " (snake-case symbol) ", or give it the arguments a relation takes")
 
       :argument
       (str "argument " (pr-str symbol) " in " where
@@ -597,7 +633,7 @@
 (defn problems*
   "Checkable naming violations for a sentence in a context, as **data**: a vector of
   `{:class :role :symbol :literal}` maps in the order `problems` reports them.  `:class`
-  is one of `problem-classes`, `:role` the frame the offending literal sits in, `:symbol`
+  is one of `problem-classes`, `:role` the wrapper the offending literal sits in, `:symbol`
   the name that broke the convention, and `message` renders the line.
 
   Data rather than prose because the two callers want different halves of it.  `assert`
@@ -626,7 +662,7 @@
 
 (defn problems
   "Checkable naming violations for a sentence in a context (seq of strings): the
-  context's own name, then every literal's functor (outermost frame first), then every
+  context's own name, then every literal's functor (outermost wrapper first), then every
   literal's atomic symbol arguments, then any `ist` context slot, then the dotted rest
   marker where it cannot appear.
 

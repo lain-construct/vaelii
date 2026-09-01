@@ -36,7 +36,7 @@
   sentence here is at the default `:default` unless a test says otherwise, which is what
   the shipped ontology's own edges and declarations are."
   [kb {:keys [pred hauler cart]} & {:keys [edge?] :or {edge? true}}]
-  (v/assert kb (list 'binaryPredicate pred) U)
+  (v/assert kb (list 'binary_predicate pred) U)
   (v/assert kb (list 'transitiveInArg pred 1 'genl) U)
   (v/assert kb (list 'genl hauler 'animal) U)
   (when edge? (v/assert kb (list 'genl cart hauler) U)))
@@ -232,7 +232,7 @@
   ;; undercut" comes to: the general claim reaches the subkind and the nearer default
   ;; does not stop it.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
-    (v/assert kb (list 'binaryPredicate carriesLoad) U)
+    (v/assert kb (list 'binary_predicate carriesLoad) U)
     (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) U mono)
     (v/assert kb (list 'genl hauler_kind 'animal) U mono)
     (v/assert kb (list 'genl cart_kind hauler_kind) U mono)
@@ -248,7 +248,7 @@
   ;; Both stored claims known-true, and the reading between them too: nothing may be
   ;; defeated, so it is a clash the engine hands back — a contradiction like any other.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
-    (v/assert kb (list 'binaryPredicate carriesLoad) U)
+    (v/assert kb (list 'binary_predicate carriesLoad) U)
     (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) U mono)
     (v/assert kb (list 'genl hauler_kind 'animal) U mono)
     (v/assert kb (list 'genl cart_kind hauler_kind) U mono)
@@ -317,7 +317,7 @@
   ;; The gate, from the outside: with no declaration the reach does not exist, so the two
   ;; claims are about two different tuples and neither denies the other.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
-    (v/assert kb (list 'binaryPredicate carriesLoad) U)
+    (v/assert kb (list 'binary_predicate carriesLoad) U)
     (v/assert kb (list 'genl hauler_kind 'animal) U)
     (v/assert kb (list 'genl cart_kind hauler_kind) U)
     (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)

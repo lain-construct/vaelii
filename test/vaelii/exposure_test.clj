@@ -322,21 +322,21 @@
             "the reader is told what it costs: clashes nobody will hear about")))))
 
 (tu/deftest-kb a-metatype-declaration-arriving-last-exposes-the-clash
-  ;; `(disjointMetatype M)` is a *unary* sentence whose argument is a symbol — the
+  ;; `(disjoint_metatype M)` is a *unary* sentence whose argument is a symbol — the
   ;; same shape as a type membership — so the membership arm claims it unless the
   ;; declarations are matched first, and the metatype gets filed as a term holding a
   ;; type while the clash its arrival creates goes unswept.
-  (tu/with-terms [CxA CxC animalSpecies dog_t cat_t Rex]
+  (tu/with-terms [CxA CxC animal_species dog_t cat_t Rex]
     (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
     (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
     (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
-    (v/assert kb (list animalSpecies dog_t) 'CxUniverse)
-    (v/assert kb (list animalSpecies cat_t) 'CxUniverse)
+    (v/assert kb (list animal_species dog_t) 'CxUniverse)
+    (v/assert kb (list animal_species cat_t) 'CxUniverse)
     (v/assert kb (list dog_t Rex) CxC)
     (v/assert kb (list cat_t Rex) CxA)
     (is (empty? (v/violations kb)) "the metatype separates nothing yet")
-    (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
+    (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)
     (let [vs (filter #(= :disjoint (:violation %)) (v/violations kb))]
       (is (= [Rex] (mapv #(get-in % [:detail :term]) vs))
           "the members become pairwise disjoint, and the term holding two of them is a clash")
@@ -421,18 +421,18 @@
   ;; M's *other* members, so a term below T holding nothing else of M is not a
   ;; candidate.  Twenty such terms sit below dog_t against a budget of three.
   (binding [tax/*exposure-instance-budget* 3]
-    (tu/with-terms [CxA CxC animalSpecies dog_t cat_t Rex]
+    (tu/with-terms [CxA CxC animal_species dog_t cat_t Rex]
       (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
       (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
       (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
-      (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)
-      (v/assert kb (list animalSpecies cat_t) 'CxUniverse)
+      (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)
+      (v/assert kb (list animal_species cat_t) 'CxUniverse)
       (dotimes [_ 20] (v/assert kb (list dog_t (tu/tmp-ind "Pup")) CxC))
       (v/assert kb (list dog_t Rex) CxC)
       (v/assert kb (list cat_t Rex) CxA)
       (v/clear-violations! kb)
-      (v/assert kb (list animalSpecies dog_t) 'CxUniverse)
+      (v/assert kb (list animal_species dog_t) 'CxUniverse)
       (let [vs (v/violations kb)]
         (is (= [Rex] (mapv #(get-in % [:detail :term])
                            (filter #(= :disjoint (:violation %)) vs)))
@@ -656,7 +656,7 @@
   (binding [checks/*arbitrate-constraints?* true
             tax/*exposure-instance-budget* 2]
     (tu/with-terms [ownerOf]
-      (v/assert kb (list 'binaryPredicate ownerOf) 'CxUniverse)
+      (v/assert kb (list 'binary_predicate ownerOf) 'CxUniverse)
       (dotimes [_ 20]
         (v/assert kb (list ownerOf (tu/tmp-ind "Thing") (tu/tmp-ind "Who")) 'CxUniverse))
       (v/clear-violations! kb)
@@ -1310,7 +1310,7 @@
   ;; as six that were cleared.
   (binding [tax/*exposure-instance-budget* 2]
     (tu/with-terms [p]
-      (v/assert kb (list 'unaryPredicate p) 'CxUniverse)
+      (v/assert kb (list 'unary_predicate p) 'CxUniverse)
       (v/assert kb (list 'functionalInArg p 1) 'CxUniverse)
       (let [ctxs (vec (repeatedly 6 #(tu/tmp-ctx "Leaf")))]
         (doseq [c ctxs]
@@ -1336,7 +1336,7 @@
   ;; `functionalInArg` at an unnarrowed position must not start carrying one.
   (binding [tax/*exposure-instance-budget* 64]
     (tu/with-terms [p]
-      (v/assert kb (list 'unaryPredicate p) 'CxUniverse)
+      (v/assert kb (list 'unary_predicate p) 'CxUniverse)
       (v/assert kb (list 'functionalInArg p 1) 'CxUniverse)
       (let [ctxs (vec (repeatedly 4 #(tu/tmp-ctx "Leaf")))]
         (doseq [c ctxs]

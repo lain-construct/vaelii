@@ -10,15 +10,15 @@
 (deftest term-size-counts-leaves
   (is (= 1 (rw/term-size 'Tom)))
   (is (= 1 (rw/term-size '?x)))
-  (is (= 2 (rw/term-size '(grandfatherOf ?x))))
+  (is (= 2 (rw/term-size '(grandfather_of ?x))))
   (is (= 3 (rw/term-size '(fatherOf (fatherOf ?x))))))
 
 (deftest orient-picks-the-shrinking-direction
   (testing "the bigger side rewrites to the smaller"
-    (is (= '[(fatherOf (fatherOf ?x)) (grandfatherOf ?x)]
-           (rw/orient '(fatherOf (fatherOf ?x)) '(grandfatherOf ?x))))
-    (is (= '[(fatherOf (fatherOf ?x)) (grandfatherOf ?x)]
-           (rw/orient '(grandfatherOf ?x) '(fatherOf (fatherOf ?x))))
+    (is (= '[(fatherOf (fatherOf ?x)) (grandfather_of ?x)]
+           (rw/orient '(fatherOf (fatherOf ?x)) '(grandfather_of ?x))))
+    (is (= '[(fatherOf (fatherOf ?x)) (grandfather_of ?x)]
+           (rw/orient '(grandfather_of ?x) '(fatherOf (fatherOf ?x))))
         "orientation is content-derived, independent of the written order"))
   (testing "an equal-weight pair is oriented by the symbol precedence, either way written"
     ;; g ≻_F f by name, so both spellings orient (g …) → (f …)
@@ -93,47 +93,47 @@
     (is (nil? (rw/match '(fatherOf ?x) '(fatherOf Tom Extra))))))
 
 (deftest normalize-reduces-to-the-normal-form
-  (let [rules [{:lhs '(fatherOf (fatherOf ?x)) :rhs '(grandfatherOf ?x)}]]
+  (let [rules [{:lhs '(fatherOf (fatherOf ?x)) :rhs '(grandfather_of ?x)}]]
     (testing "a term is rewritten to its normal form"
-      (is (= '(grandfatherOf Tom) (rw/normalize rules '(fatherOf (fatherOf Tom))))))
+      (is (= '(grandfather_of Tom) (rw/normalize rules '(fatherOf (fatherOf Tom))))))
     (testing "a nested application normalizes innermost-first, cascading"
-      ;; fatherOf(fatherOf(fatherOf(fatherOf Tom)))) -> grandfatherOf(grandfatherOf Tom)
-      (is (= '(grandfatherOf (grandfatherOf Tom))
+      ;; fatherOf(fatherOf(fatherOf(fatherOf Tom)))) -> grandfather_of(grandfather_of Tom)
+      (is (= '(grandfather_of (grandfather_of Tom))
              (rw/normalize rules '(fatherOf (fatherOf (fatherOf (fatherOf Tom))))))))
     (testing "an already-normal term is unchanged"
-      (is (= '(grandfatherOf Tom) (rw/normalize rules '(grandfatherOf Tom)))))
+      (is (= '(grandfather_of Tom) (rw/normalize rules '(grandfather_of Tom)))))
     (testing "a variable-bearing term normalizes too"
-      (is (= '(grandfatherOf ?y) (rw/normalize rules '(fatherOf (fatherOf ?y))))))
+      (is (= '(grandfather_of ?y) (rw/normalize rules '(fatherOf (fatherOf ?y))))))
     (testing "an empty list is a term with no functor, and comes back as itself"
       ;; rebuilding it as `(apply list (first term) …)` would hand back `(nil)` — a term
       ;; nobody wrote, which then keys and matches as itself
       (is (= '() (rw/normalize rules '())))
-      (is (= '(parentChain ()) (rw/normalize-sentence rules '(parentChain ())))))))
+      (is (= '(parent_chain ()) (rw/normalize-sentence rules '(parent_chain ())))))))
 
 (deftest normalize-sentence-protects-the-predication
-  (let [rules [{:lhs '(fatherOf (fatherOf ?x)) :rhs '(grandfatherOf ?x)}]]
+  (let [rules [{:lhs '(fatherOf (fatherOf ?x)) :rhs '(grandfather_of ?x)}]]
     (testing "each argument normalizes; the sentence functor is left alone"
-      (is (= '(parentChain (grandfatherOf Tom))
-             (rw/normalize-sentence rules '(parentChain (fatherOf (fatherOf Tom)))))))
+      (is (= '(parent_chain (grandfather_of Tom))
+             (rw/normalize-sentence rules '(parent_chain (fatherOf (fatherOf Tom)))))))
     (testing "a bare predication matching the rule shape is NOT rewritten"
       ;; (fatherOf (fatherOf Tom)) as a top-level fact keeps its predicate
       (is (= '(fatherOf (fatherOf Tom))
              (rw/normalize-sentence rules '(fatherOf (fatherOf Tom))))))
     (testing "no rules is a no-op"
-      (is (= '(parentChain (fatherOf (fatherOf Tom)))
-             (rw/normalize-sentence [] '(parentChain (fatherOf (fatherOf Tom)))))))))
+      (is (= '(parent_chain (fatherOf (fatherOf Tom)))
+             (rw/normalize-sentence [] '(parent_chain (fatherOf (fatherOf Tom)))))))))
 
 (deftest schematic-equation-detection
-  (is (rw/schematic-equation? '(equals (fatherOf (fatherOf ?x)) (grandfatherOf ?x))))
+  (is (rw/schematic-equation? '(equals (fatherOf (fatherOf ?x)) (grandfather_of ?x))))
   (testing "not schematic: ground compound (reifies to symbols), symbol merge, sameAs"
     (is (not (rw/schematic-equation? '(equals (FruitFn AppleA) (FruitFn AppleB)))))
     (is (not (rw/schematic-equation? '(equals Obama BarackObama))))
     (is (not (rw/schematic-equation? '(sameAs (fatherOf ?x) (dadOf ?x)))))))
 
 (deftest rule-applies-tracks-contribution
-  (let [rule {:lhs '(fatherOf (fatherOf ?x)) :rhs '(grandfatherOf ?x)}]
-    (is (rw/rule-applies? rule '(parentChain (fatherOf (fatherOf Tom)))))
-    (is (not (rw/rule-applies? rule '(parentChain (motherOf Tom)))))))
+  (let [rule {:lhs '(fatherOf (fatherOf ?x)) :rhs '(grandfather_of ?x)}]
+    (is (rw/rule-applies? rule '(parent_chain (fatherOf (fatherOf Tom)))))
+    (is (not (rw/rule-applies? rule '(parent_chain (motherOf Tom)))))))
 
 (deftest non-joining-pairs-surfaces-inter-rule-conflicts
   (let [r1 {:handle 1 :lhs '(f (f ?x)) :rhs '(g ?x)}

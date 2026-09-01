@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.wff
   "Well-formedness checks for the special predicates: genl / genlCx (the type and
-  context hierarchies), disjoint / disjointMetatype, and arg (argument types).
+  context hierarchies), disjoint / disjoint_metatype, and arg (argument types).
   Each returns a seq of problem strings; `assert` throws if any are present.
   Ordinary sentences are checked for argument *types* by checks/constraint-checks.
 
@@ -80,15 +80,15 @@
     (and (not= a b) (or (tax/genl?-global tax a b) (tax/genl?-global tax b a)))
     (conj (str a " and " b " are genl-related, so they overlap and can't be disjoint"))))
 
-(defn disjointMetatype-problems [_ [_ m :as s]]
+(defn disjoint-metatype-problems [_ [_ m :as s]]
   (cond-> []
-    (not= 2 (count s)) (conj "disjointMetatype takes one argument")
-    (nm/individual? m) (conj (str m " is an individual; disjointMetatype marks a metatype"))))
+    (not= 2 (count s)) (conj "disjoint_metatype takes one argument")
+    (nm/individual? m) (conj (str m " is an individual; disjoint_metatype marks a metatype"))))
 
-(defn siblingDisjoint-problems [_ [_ c :as s]]
+(defn sibling-disjoint-problems [_ [_ c :as s]]
   (cond-> []
-    (not= 2 (count s)) (conj "siblingDisjoint takes one argument")
-    (nm/individual? c) (conj (str c " is an individual; siblingDisjoint marks a collection"))))
+    (not= 2 (count s)) (conj "sibling_disjoint takes one argument")
+    (nm/individual? c) (conj (str c " is an individual; sibling_disjoint marks a collection"))))
 
 (defn siblingDisjointException-problems [_ [_ a b :as s]]
   (cond-> []
@@ -292,7 +292,7 @@
            (= #{:predicate :type} (hash-set ra rb)))))
 
 (defn function-decl-problems
-  "`reifiableFunction` / `unreifiableFunction` declare a NAT function's kind.  Their
+  "`reifiable_function` / `unreifiable_function` declare a NAT function's kind.  Their
   one argument is a *function name* — a `FruitFn`-shaped constant, which reads as an
   individual by the naming invariants, so `prop-problems` (which refuses an
   individual) is the wrong check.  All that matters here is the arity and that the
@@ -354,7 +354,7 @@
     symbol) and skipped by the equality integrate arm.
 
   * `(equals L R)` with a **variable-bearing** compound side is a **schematic
-    equational rule** — an oriented rewrite `fatherOf∘fatherOf → grandfatherOf`, not a
+    equational rule** — an oriented rewrite `fatherOf∘fatherOf → grandfather_of`, not a
     merge (docs/equality.md, symbolic equational reasoning).  Its sides are compounds
     by design, so the compound refusal is waived; instead it must be **orientable**
     into a terminating rewrite (`rewrite/orient`), or it is refused here before

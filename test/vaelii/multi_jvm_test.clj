@@ -83,9 +83,9 @@
    (v/set-log-level :error)
    (let [dir (first *command-line-args*)
          kb  (v/open-kb {:backend :disk-log :dir dir :recover? false})]
-     (v/assert kb '(genl mjDog mjAnimal) 'CxUniverse {:strength :monotonic})
-     (v/assert kb '(mjDog MjFido) 'CxUniverse {:strength :monotonic})
-     (println (str \"##vaelii## wrote \" (v/handle-of kb '(mjDog MjFido) 'CxUniverse)))
+     (v/assert kb '(genl mj_dog mjAnimal) 'CxUniverse {:strength :monotonic})
+     (v/assert kb '(mj_dog MjFido) 'CxUniverse {:strength :monotonic})
+     (println (str \"##vaelii## wrote \" (v/handle-of kb '(mj_dog MjFido) 'CxUniverse)))
      (v/close! kb)
      (println \"##vaelii## closed\")
      (flush))")
@@ -97,8 +97,8 @@
    (v/set-log-level :error)
    (let [dir (first *command-line-args*)
          kb  (v/open-kb {:backend :disk-log :dir dir :recover? false})
-         _   (v/assert kb '(genl mjDog mjAnimal) 'CxUniverse {:strength :monotonic})
-         _   (v/assert kb '(mjDog MjFido) 'CxUniverse {:strength :monotonic})
+         _   (v/assert kb '(genl mj_dog mjAnimal) 'CxUniverse {:strength :monotonic})
+         _   (v/assert kb '(mj_dog MjFido) 'CxUniverse {:strength :monotonic})
          srv (serve/start kb {:port 0 :token nil})]
      (println (str \"##vaelii## port \" (serve/port srv)))
      (flush)
@@ -177,11 +177,11 @@
         (testing "this process opens the directory it never wrote to"
           (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? :auto})]
             (try
-              (is (some? (v/handle-of kb '(mjDog MjFido) 'CxUniverse))
+              (is (some? (v/handle-of kb '(mj_dog MjFido) 'CxUniverse))
                   "the record the other process stored is readable")
-              (is (= written (v/handle-of kb '(mjDog MjFido) 'CxUniverse))
+              (is (= written (v/handle-of kb '(mj_dog MjFido) 'CxUniverse))
                   "at the same handle, so the id survived the process it was minted in")
-              (is (seq (v/sentexes-matching kb '(mjDog ?x) 'CxUniverse))
+              (is (seq (v/sentexes-matching kb '(mj_dog ?x) 'CxUniverse))
                   "and is believed, not merely stored")
               (is (v/isa? kb 'MjFido 'mjAnimal)
                   "with the taxonomy rebuilt from a store this JVM did not derive")
@@ -200,12 +200,12 @@
               conn (vc/client "localhost" port {:token nil :timeout-ms 20000})]
           (is (pos? port) "the daemon reported the port it bound")
           (testing "a read crosses the boundary"
-            (is (vc/ask? conn '(mjDog MjFido) 'CxUniverse)
+            (is (vc/ask? conn '(mj_dog MjFido) 'CxUniverse)
                 "the client sees what the daemon's own process asserted"))
           (testing "and a write does, landing in the other process's KB"
-            (vc/assert conn '(mjDog MjRex) 'CxUniverse {:strength :monotonic})
-            (is (vc/ask? conn '(mjDog MjRex) 'CxUniverse))
-            (is (seq (vc/sentexes-matching conn '(mjDog ?x) 'CxUniverse))
+            (vc/assert conn '(mj_dog MjRex) 'CxUniverse {:strength :monotonic})
+            (is (vc/ask? conn '(mj_dog MjRex) 'CxUniverse))
+            (is (seq (vc/sentexes-matching conn '(mj_dog ?x) 'CxUniverse))
                 "and is matched by a pattern the daemon grounds"))
           (testing "the CLI cannot take a directory the daemon owns"
             ;; docs/operations.md: "The CLI with `--dir` takes the same lock, so it and a

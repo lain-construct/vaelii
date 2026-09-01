@@ -205,7 +205,7 @@
   ;; is ignored leaves the KB as it found it.
   (tu/with-terms [wabGoal wabPremise N CxAbduce]
     (v/assert kb (list 'genlCx CxAbduce 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'abduciblePredicate wabPremise) CxAbduce)
+    (v/assert kb (list 'abducible_predicate wabPremise) CxAbduce)
     (v/assert kb (list 'implies (list 'and (list wabPremise '?x)) (list wabGoal '?x))
               CxAbduce)
     (let [handler (open-app kb)

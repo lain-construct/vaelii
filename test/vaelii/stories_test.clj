@@ -73,17 +73,17 @@
     (is (empty? (v/sentexes-matching kb '(wins HareA TortoiseA) 'CxTortoiseHare)))))
 
 (tu/deftest-kb ant-and-grasshopper-derives-preparation-pays
-  ;; derived facts feed a further join: survivesWinter(ant) + suffersInWinter(hopper)
+  ;; derived facts feed a further join: survives_winter(ant) + suffers_in_winter(hopper)
   ;; ⇒ betterPreparedThan(ant, hopper).
   (testing "the intermediate conclusions are derived"
-    (is (seq (v/sentexes-matching kb '(survivesWinter AntA) 'CxAntGrasshopper)))
-    (is (seq (v/sentexes-matching kb '(suffersInWinter GrasshopperA) 'CxAntGrasshopper))))
+    (is (seq (v/sentexes-matching kb '(survives_winter AntA) 'CxAntGrasshopper)))
+    (is (seq (v/sentexes-matching kb '(suffers_in_winter GrasshopperA) 'CxAntGrasshopper))))
   (testing "and the moral joins them"
     (is (seq (v/sentexes-matching kb '(betterPreparedThan AntA GrasshopperA) 'CxAntGrasshopper)))))
 
 (tu/deftest-kb boy-who-cried-wolf-is-non-monotonic
   ;; belief in a cry is a default that carries its own exception: the rule is
-  ;; `(exceptWhen (liar ?x) (set/defaultRule (implies (criesWolf ?x) (believed ?x))))`.
+  ;; `(exceptWhen (liar ?x) (set/defaultRule (implies (cries_wolf ?x) (believed ?x))))`.
   ;; So for a liar the rule concludes *nothing* — this is undercutting, not
   ;; rebutting, and there is no competing conclusion to arbitrate.
   (testing "the liar's cry is not believed"
@@ -109,9 +109,9 @@
     (is (empty? (v/conflicts kb)))
     (is (empty? (v/contradictions kb))))
   (testing "yet the danger is real: a joined rule with a constant character derives it"
-    ;; (approaches WolfA ?victim) + (criesWolf ?victim) ⇒ (inDanger ?victim)
-    (is (seq (v/sentexes-matching kb '(inDanger BoyA) 'CxCriedWolf)))
-    (is (empty? (v/sentexes-matching kb '(inDanger WolfA) 'CxCriedWolf)))))   ; the constant binds only the victim
+    ;; (approaches WolfA ?victim) + (cries_wolf ?victim) ⇒ (in_danger ?victim)
+    (is (seq (v/sentexes-matching kb '(in_danger BoyA) 'CxCriedWolf)))
+    (is (empty? (v/sentexes-matching kb '(in_danger WolfA) 'CxCriedWolf)))))   ; the constant binds only the victim
 
 (tu/deftest-kb middle-theories-reach-story-characters-but-siblings-stay-isolated
   ;; In the layered spindle a *middle* theory (biology) is seen by every CxWell
@@ -128,12 +128,12 @@
 (tu/deftest-kb story-vocabulary-is-classified-in-the-meta-ontology
   (testing "the new animal types are unary predicates, like every type"
     (doseq [t '[lion mouse hare wolf tortoise ant grasshopper]]
-      (is (v/isa? kb t 'unaryPredicate) (str "type " t))))
+      (is (v/isa? kb t 'unary_predicate) (str "type " t))))
   (testing "the narrative predicates carry their arity, upholding self-classification"
-    (is (v/isa? kb 'spared 'binaryPredicate))
-    (is (v/isa? kb 'repaidKindness 'binaryPredicate))
-    (is (v/isa? kb 'inDanger 'unaryPredicate))
-    (is (v/isa? kb 'criesWolf 'unaryPredicate))))
+    (is (v/isa? kb 'spared 'binary_predicate))
+    (is (v/isa? kb 'repaidKindness 'binary_predicate))
+    (is (v/isa? kb 'in_danger 'unary_predicate))
+    (is (v/isa? kb 'cries_wolf 'unary_predicate))))
 
 (tu/deftest-kb every-story-documents-its-moral
   (testing "each story context carries a moral comment"
@@ -182,5 +182,5 @@
     (is (v/isa? kb 'FoxF 'agent)))
   (testing "the narrative relations are self-classified"
     (is (v/isa? kb 'causes 'transitive))
-    (is (v/isa? kb 'achievesGoal 'binaryPredicate))
-    (is (v/isa? kb 'responsibleFor 'binaryPredicate))))
+    (is (v/isa? kb 'achievesGoal 'binary_predicate))
+    (is (v/isa? kb 'responsibleFor 'binary_predicate))))

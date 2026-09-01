@@ -203,7 +203,7 @@ nothing else, and antecedents sharing a variable are exactly a join.
 ```clojure
 (implies (and (person ?x)
               (forall ?y (implies (childOf ?x ?y) (asleep ?y))))
-         (allKidsAsleep ?x))
+         (all_kids_asleep ?x))
 ;; "all of ?x's children are asleep"
 ```
 
@@ -269,8 +269,8 @@ faithful native reading: it joins the store like any generator, one witness per
 solution, and needs no special matcher. A person-with-a-child is a parent:
 
 ```clojure
-(implies (and (person ?x) (thereExists ?y (parentOf ?x ?y))) (aParent ?x))
-;; stored as (implies (and (person ?x) (parentOf ?x ?y)) (aParent ?x))
+(implies (and (person ?x) (thereExists ?y (parentOf ?x ?y))) (a_parent ?x))
+;; stored as (implies (and (person ?x) (parentOf ?x ?y)) (a_parent ?x))
 ```
 
 A `thereExists` **inside** `unknown` is a NAF query, evaluated by the prover, and is
@@ -280,15 +280,15 @@ only `unknown` is deferred.
 ## A closed extent: `(not (P a))` without a stored negative
 
 `unknown` chooses closure **per goal** — the author writes it where they want it. A
-`closedExtentPredicate` grant chooses it **per predicate**, for everything read under it:
+`closed_extent_predicate` grant chooses it **per predicate**, for everything read under it:
 
 ```clojure
-(v/assert kb '(closedExtentPredicate monthOfYear) 'CxCalendar)
+(v/assert kb '(closed_extent_predicate month_of_year) 'CxCalendar)
 ;; "the months of the year are exactly these twelve"
 ```
 
-Where the grant is visible, `monthOfYear`'s **believed** extent is complete, so nothing
-answering `(monthOfYear Smarch)` at level 6 is what answers `(not (monthOfYear Smarch))`.
+Where the grant is visible, `month_of_year`'s **believed** extent is complete, so nothing
+answering `(month_of_year Smarch)` at level 6 is what answers `(not (month_of_year Smarch))`.
 `ClosedExtentProver` does that: a ground negative goal, the positive run through the
 registry, and the negative held exactly while the positive finds nothing. Cost tier
 `:compute`, nothing stored — a closed extent creates no negative space, the same refusal
@@ -297,7 +297,7 @@ registry, and the negative held exactly while the positive finds nothing. Cost t
 It is a **grant**, and the only thing that closes an extent: an undeclared predicate stays
 open-world, where a fact nobody stated is not thereby false. And it is a **policy of the
 context that gives it**, read from the asking context's `genlCx` up-cone the way
-`abduciblePredicate` is ([abduction.md](abduction.md)) rather than universally — one
+`abducible_predicate` is ([abduction.md](abduction.md)) rather than universally — one
 theory may state the twelve months and read a thirteenth as refuted while a sibling,
 reading the same predicate, answers only what it was told. It is belief-following like the
 other predicate marks: a defeated or retracted member leaves the extent, and the closure
@@ -306,10 +306,10 @@ follows.
 ### Under the grant, a negative antecedent is NAF
 
 ```clojure
-(implies (and (candidateMonth ?m) (not (monthOfYear ?m))) (notAMonth ?m))
+(implies (and (candidate_month ?m) (not (month_of_year ?m))) (not_a_month ?m))
 ```
 
-Without the grant that `(not (monthOfYear ?m))` is an ordinary literal, satisfied by a
+Without the grant that `(not (month_of_year ?m))` is an ordinary literal, satisfied by a
 stored negative. Under it the literal is negation as failure, and it takes `unknown`'s
 whole path: **withheld from the join** (`planned-join`, beside the post-join literals),
 decided at **derive time in the placement context** (`chain/closed-extent-blocks?`),
@@ -514,7 +514,7 @@ implementations.
   `ForallProver` desugars and hands the goal **back to the registry**, so the goal and
   the rule antecedent are answered by one mechanism.
 - **`ClosedExtentProver`**, the fourth, for a ground `(not (P …))` under a visible
-  `closedExtentPredicate`. Partial rather than complete (completeness 50): a stored
+  `closed_extent_predicate`. Partial rather than complete (completeness 50): a stored
   negative is `FactProver`'s answer, and this augments it.
 - **Representation** in `sentex`: `unknown?` / `there-exists?` recognizers, `free-vars`
   respecting the quantifier, `unknown` in `deferred-predicates`, the standalone
@@ -545,7 +545,7 @@ implementations.
   rules already stored.
 - **The closed extent** in `rules` (`closed-negative-antecedents` / `closed-extent-antecedents`
   / `closed-extent-predicates-of`, the structural half), `special` (the
-  `closedExtentPredicate` entry and `index-closed-extent-rules`) and `chain`
+  `closed_extent_predicate` entry and `index-closed-extent-rules`) and `chain`
   (`closed-extent-blocks?`, the withheld join literal, the `:closed-extent` slot on the
   rule view).
 - **Every chainer**: `res/solve-deferred` (the registry reached through

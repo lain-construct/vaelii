@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.sibling-disjoint-test
-  "siblingDisjoint — a collection's genl-specializations are pairwise disjoint unless
+  "sibling_disjoint — a collection's genl-specializations are pairwise disjoint unless
   one is a genl of the other — and the contradiction detection it drives, through the
   same JTMS/ASP path as disjoint."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -23,7 +23,7 @@
         muffet (tu/tmp-ind) whiskers (tu/tmp-ind)]
     (v/assert kb (list 'genl dog collection) 'CxUniverse)
     (v/assert kb (list 'genl cat collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list dog muffet) 'CxUniverse)
     (testing "two specializations of the marked parent are disjoint, no pair asserted"
       (is (v/disjoint? kb dog cat)))
@@ -41,7 +41,7 @@
         rex (tu/tmp-ind)]
     (v/assert kb (list 'genl breed collection) 'CxUniverse)
     (v/assert kb (list 'genl sub_breed breed) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (testing "a subtype is not disjoint from its own supertype"
       (is (not (v/disjoint? kb sub_breed breed)))
       (is (not (v/disjoint? kb breed sub_breed))))
@@ -56,7 +56,7 @@
     (v/assert kb (list 'genl b collection) 'CxUniverse)
     (v/assert kb (list 'genl sub_a a) 'CxUniverse)
     (v/assert kb (list 'genl sub_b b) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (testing "subtypes of separated siblings are themselves disjoint"
       (is (v/disjoint? kb sub_a sub_b)))
     (testing "and a conflicting membership among the subtypes is refused"
@@ -81,7 +81,7 @@
         (testing "before the mark, nothing separates them and nothing is wrong"
           (is (not (v/disjoint? kb a b)))
           (is (empty? (v/contradictions kb))))
-        (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+        (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
         (testing "the mark arriving last separates the pair"
           (is (v/disjoint? kb a b)))
         (testing "and the retroactive sweep convicts the pre-existing pair as a dilemma"
@@ -93,19 +93,19 @@
   (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type) x (tu/tmp-ind)]
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list a x) 'CxUniverse)
     (is (v/disjoint? kb a b))
     (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list b x) 'CxUniverse)))
     (testing "retracting the one mark releases the separation and admits the membership"
-      (v/retract! kb (v/handle-of kb (list 'siblingDisjoint collection) 'CxUniverse))
+      (v/retract! kb (v/handle-of kb (list 'sibling_disjoint collection) 'CxUniverse))
       (is (not (v/disjoint? kb a b)))
       (is (v/assert kb (list b x) 'CxUniverse)))))
 
 (tu/deftest-kb the-mark-is-ill-formed-over-an-individual
   (let [fido (tu/tmp-ind)]
     (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list 'siblingDisjoint fido) 'CxUniverse)))))
+                 (v/assert kb (list 'sibling_disjoint fido) 'CxUniverse)))))
 
 ;;; ── context scoping: a general context may hold what a specific one forbids ──
 
@@ -118,7 +118,7 @@
     (v/assert kb (list 'genl t2 col) 'CxUniverse)
     (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint col) CxA)      ; the mark in the specific context only
+    (v/assert kb (list 'sibling_disjoint col) CxA)      ; the mark in the specific context only
     (v/assert kb (list t1 Pip) CxA)
 
     (testing "the context that can see the mark separates the pair"
@@ -157,7 +157,7 @@
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
     (v/assert kb (list 'genl c collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (testing "before the exception every pair of specializations is disjoint"
       (is (v/disjoint? kb a b))
       (is (v/disjoint? kb a c)))
@@ -192,7 +192,7 @@
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
     (v/assert kb (list 'genl sub_a a) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
     (testing "the declared pair overlaps"
       (is (not (v/disjoint? kb a b))))
@@ -207,7 +207,7 @@
   (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type) x (tu/tmp-ind)]
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list a x) 'CxUniverse)
     (testing "without the exception the second membership is refused"
       (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list b x) 'CxUniverse))))
@@ -223,7 +223,7 @@
   (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type) x (tu/tmp-ind)]
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
     (v/assert kb (list a x) 'CxUniverse)
     (testing "with the exception standing both memberships coexist, nothing exposed"
@@ -250,7 +250,7 @@
         fn-name (tu/tmp-type) nat (list fn-name a) x (tu/tmp-ind)]
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list 'siblingDisjointException nat b) 'CxUniverse)
     (testing "retracting an exception whose argument is a NAT does not throw"
       (let [h (v/handle-of kb (list 'siblingDisjointException nat b) 'CxUniverse)]
@@ -269,7 +269,7 @@
       (tu/with-terms [collection a b Muffet]
         (v/assert kb (list 'genl a collection) 'CxUniverse)
         (v/assert kb (list 'genl b collection) 'CxUniverse)
-        (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+        (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
         (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
         (v/assert kb (list a Muffet) 'CxUniverse)
         (v/assert kb (list b Muffet) 'CxUniverse)
@@ -287,7 +287,7 @@
       (tu/with-terms [collection a b Muffet]
         (v/assert kb (list 'genl a collection) 'CxUniverse)
         (v/assert kb (list 'genl b collection) 'CxUniverse)
-        (v/assert kb (list 'siblingDisjoint collection) 'CxUniverse)
+        (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
         (v/assert kb (list a Muffet) 'CxUniverse)
         (v/assert kb (list b Muffet) 'CxUniverse)
         (testing "the mark makes the pre-existing pair a standing dilemma"
@@ -303,6 +303,8 @@
       (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException Fido a) 'CxUniverse)))
       (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException a Fido) 'CxUniverse))))
     (testing "the wrong arity is refused"
-      (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException a) 'CxUniverse))))
+      ;; :naming rather than :not-well-formed — a camelCase functor at arity 1 is a unary
+      ;; predicate wearing a relation's spelling, and the naming door is upstream of `wff`
+      (is (= :naming (assert-outcome kb (list 'siblingDisjointException a) 'CxUniverse))))
     (testing "a self-pair is refused"
       (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException a a) 'CxUniverse))))))

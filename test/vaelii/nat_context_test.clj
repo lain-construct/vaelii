@@ -53,7 +53,7 @@
   ;; half is a lowercase gensym, so `term-role` reads it as an ordinary predicate-shaped
   ;; term (the general path any bare lowercase name takes), never as a context.
   (tu/with-terms [MtFn Story1]
-    (v/assert kb (list 'reifiableFunction MtFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MtFn) 'CxUniverse)
     (let [k (mint kb (list MtFn Story1))]
       (is (nat/reified-nat-symbol? k))
       (is (not= :context (v/term-role k)))
@@ -68,7 +68,7 @@
   ;; be wired into the hierarchy.  Without this a reified constant would silently become
   ;; a context that sees nothing and is seen by nothing.
   (tu/with-terms [MtFn Story1]
-    (v/assert kb (list 'reifiableFunction MtFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MtFn) 'CxUniverse)
     (let [k (mint kb (list MtFn Story1))]
       (testing "the NAT compound spelling — reified first, then refused"
         (is (= :not-well-formed
@@ -84,7 +84,7 @@
 
 (tu/deftest-kb a-reified-nat-cannot-name-a-context-slot
   (tu/with-terms [MtFn Story1 likes Tom Ann]
-    (v/assert kb (list 'reifiableFunction MtFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MtFn) 'CxUniverse)
     (let [k (mint kb (list MtFn Story1))]
       (testing "a raw NAT compound in the context slot is a shape error — the slot is a
                 bare symbol and is never reified (only sentences are)"
@@ -109,7 +109,7 @@
   ;; a member of the hierarchy — which is why a reified NAT is unreachable as a *working*
   ;; context under every policy.
   (tu/with-terms [MtFn Story1 likes Tom Ann]
-    (v/assert kb (list 'reifiableFunction MtFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function MtFn) 'CxUniverse)
     (let [k      (mint kb (list MtFn Story1))
           kb-off (assoc kb :naming :off)]
       (is (= ::stored (refusal #(v/assert kb-off (list likes Tom Ann) k)))

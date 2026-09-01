@@ -98,7 +98,7 @@ the same witness rule everything else depending on a reachability takes.
 ## Three directions, or belief depends on arrival order
 
 A declaration has to reach back over content already stored, or belief depends on which
-of the ingredients arrived first. `decontextualizedPredicate` lifts the facts already
+of the ingredients arrived first. `decontextualized_predicate` lifts the facts already
 present when it arrives, so `arg` has to as well — and with the descension the
 ingredients are three rather than two, so there are three entry points:
 
@@ -301,24 +301,24 @@ about a type is a violation, which is the policy question nobody has answered.
 
 `(quotedArg P n T)` types argument `n` **as a term** rather than by what it denotes: its
 EDN kind — a `string`, a `number` (with `integer` below it), a `symbol` — checked through
-`genl` against a syntactic type. `(quotedArg nameOfGuy 1 string)` refuses `(nameOfGuy 5)`,
-5 being a number and not a string, and admits `(nameOfGuy "Bob")`. It is the mention twin
+`genl` against a syntactic type. `(quotedArg name_of_guy 1 string)` refuses `(name_of_guy 5)`,
+5 being a number and not a string, and admits `(name_of_guy "Bob")`. It is the mention twin
 of `arg`: where `arg` reads the referent's type, `quotedArg` reads the argument's own
-syntax, which is decidable from the literal — so it is **checked, never entailed**, there
+syntax, which is decidable from the value — so it is **checked, never entailed**, there
 being nothing to mint about a term that already is what it is. Open-world about a kind it
 does not type (a compound) and about a declared type outside the syntactic lattice, so an
-imported constraint on a domain collection never convicts a literal it cannot judge.
+imported constraint on a domain collection never convicts a value it cannot judge.
 `checks/args-quoted-problem`, behind the same O(1) gate as `interArg`. Why the kind
 decides at all, rather than every non-symbol being exempt:
-[defenses.md](defenses.md#a-literal-is-typed-by-its-kind-and-the-openness-moves-to-the-declared-type).
+[defenses.md](defenses.md#a-value-is-typed-by-its-kind-and-the-openness-moves-to-the-declared-type).
 
 **One vocabulary, not two.** `string`, `number`, `integer`, `keyword`, `boolean`,
-`character` and `symbol` name the EDN kinds a literal argument can carry — one per leaf
+`character` and `symbol` name the EDN kinds a value can carry — one per leaf
 kind, deliberately complete — and both declarations read them. Beside them sit the
 value-refined integer types `positive_integer`, `negative_integer`,
 `non_negative_integer` and `non_positive_integer`, each below `integer` in the `genl`
-lattice; zero satisfies both non-positive and non-negative, so a literal's value can
-answer to two of them at once and `checks/literal-value-types` returns the set rather
+lattice; zero satisfies both non-positive and non-negative, so a value can
+answer to two of them at once and `checks/value-kinds` returns the set rather
 than forcing one artificial leaf.
 
 **Both declarations read the refinements, and for the reason they share the kinds.** A
@@ -328,8 +328,8 @@ so `(quotedArg p n positive_integer)` refuses `-5` and admits `5`, exactly as
 and is the trap this page already warns about one paragraph down, arrived at from the
 other direction: `positive_integer` is *inside* the syntactic lattice, being below
 `integer`, so the open-world escape does not apply to it — the check compared the
-literal's bare kind upward against the declared type, and refused every integer literal
-written in such a position. One reader, both doors. A string literal denotes itself, so
+value's bare kind upward against the declared type, and refused every integer
+written in such a position. One reader, both doors. A string value denotes itself, so
 `(arg comment 2 string)` and `(quotedArg p n string)` ask two questions of one set — what
 the argument denotes, and what is written there. A parallel domain spelling would buy
 nothing and cost a trap: `quotedArg` reads a type outside the syntactic lattice

@@ -7,7 +7,7 @@
   `has-prop?`, `isa?` and stored-sentex reads beside it from every vantage.
 
   The shipped ontology **masks** the scoping: `symmetric`/`transitive`/`reflexive`/
-  `functional` are `decontextualizedPredicate`s (CxCore), so a real KB lifts every such
+  `functional` are `decontextualized_predicate`s (CxCore), so a real KB lifts every such
   mark into CxUniverse and every context sees it — global and scoped agree.  So this pins
   the scoping on a **bare** KB, where the mark stays in the context it was declared in and
   a sibling cannot see it; `meta_test` is the companion that pins the lifted, shipped
@@ -21,7 +21,7 @@
 
 (deftest a-predicate-type-mark-is-answered-from-the-asking-vantage
   (testing "a symmetric mark declared in one context does not answer a sibling's query"
-    ;; No CxCore here, so `symmetric` is not a decontextualizedPredicate and the mark
+    ;; No CxCore here, so `symmetric` is not a decontextualized_predicate and the mark
     ;; stays in CxPtsA rather than lifting to CxUniverse.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(symmetric psym) 'CxPtsA)

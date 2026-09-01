@@ -58,9 +58,9 @@
 
 (deftest the-vocabulary-the-engine-interprets-is-present
   (testing "every cache-maintaining special predicate has an entry"
-    (doseq [f '[genl genlCx disjoint disjointMetatype
+    (doseq [f '[genl genlCx disjoint disjoint_metatype
                 transitive symmetric reflexive functional inverse
-                decontextualizedPredicate forcedDecontextualizedPredicate]]
+                decontextualized_predicate forced_decontextualized_predicate]]
       (is (contains? special/table f) (str f " missing from the table"))))
   (testing "the equality relations are entries too"
     (doseq [f '[rewriteOf sameAs equals]]
@@ -71,12 +71,109 @@
 
 (deftest the-property-kinds-marked-and-the-ones-specced-are-the-same-set
   ;; `has-prop?` and `props` are specced on `::vspec/prop-kind`, and the table is what
-  ;; decides which kinds exist — a mark declares its kind through `prop-entry`'s
-  ;; `:prop`.  Held together in both directions here, because each drift is silent on
-  ;; its own: a kind the table marks and the spec omits is a documented call that
-  ;; instrumentation refuses, and a kind the spec names and nothing marks is a
-  ;; `has-prop?` that can only ever answer false.
-  (let [marked  (into #{} (keep :prop) (vals special/table))
-        specced (set (s/form ::vspec/prop-kind))]
+  ;; decides which kinds exist — a mark declares its kind through the `:prop` storage
+  ;; target on its declaration, which is where the spec now reads them from too.  So the
+  ;; drift this held in both directions is gone rather than tested: a kind the spec names
+  ;; and nothing marks cannot be written, and a kind the table marks and the spec omits
+  ;; cannot either.  What is left to check is that the generated spec is a live one — a
+  ;; computed `s/def` that registered nothing would refuse every call instead.
+  (let [marked (into #{} (keep :prop) (vals special/table))]
     (is (contains? marked :transitive) "the table declares its kinds through :prop")
-    (is (= marked specced))))
+    (doseq [k marked]
+      (is (s/valid? ::vspec/prop-kind k) (str k " is marked and must be a legal call")))
+    (is (not (s/valid? ::vspec/prop-kind :declares-max-cardinality))
+        "and the spec still refuses a kind nothing declares")))
+
+(def ^:private frozen-table
+  "The table as it stood before the enumeration moved to `vaelii.impl.predicates` —
+  every functor in order, the arm columns it fills, the `:props` kind it maintains and
+  whether its arms run on the derivation path.
+
+  Frozen deliberately, and it is the only statement of these four facts that the
+  declaration cannot make true by construction.  `entries` is now a *join*: the order,
+  the `:prop` and the `:derived?` are read off the declaration, so a reconstruction test
+  that derives them from the declaration and compares them to the table proves the join
+  is wired and nothing more.  This says what the values are.
+
+  A red line here means one of four things happened — a functor moved in the replay
+  order, an arm column was gained or lost, a mark's kind changed, or a declaration
+  started or stopped reaching the derivation path.  Each is a deliberate change and each
+  is a change to recovery, so each rewrites this literal in the same commit that makes
+  it.  It is not a golden to regenerate when it goes red."
+  '[[genl                             [:integrate :disintegrate :rebuild :wff]       nil                        true]
+    [genlCx                           [:integrate :disintegrate :rebuild :wff]       nil                        true]
+    [disjoint                         [:integrate :disintegrate :rebuild :wff]       nil                        true]
+    [disjoint_metatype                 [:integrate :disintegrate :rebuild :wff]       nil                        true]
+    [sibling_disjoint                  [:integrate :disintegrate :rebuild :wff]       nil                        true]
+    [siblingDisjointException         [:integrate :disintegrate :rebuild :wff]       nil                        true]
+    [transitive                       [:integrate :disintegrate :rebuild :wff]       :transitive                true]
+    [symmetric                        [:integrate :disintegrate :rebuild :wff]       :symmetric                 true]
+    [asymmetric                       [:integrate :disintegrate :rebuild :wff]       :asymmetric                true]
+    [reflexive                        [:integrate :disintegrate :rebuild :wff]       :reflexive                 true]
+    [functional                       [:integrate :disintegrate :rebuild :wff]       :functional                true]
+    [irreflexive                      [:integrate :disintegrate :rebuild :wff]       :irreflexive               true]
+    [anti_symmetric                    [:integrate :disintegrate :rebuild :wff]       :anti-symmetric            true]
+    [anti_transitive                   [:integrate :disintegrate :rebuild :wff]       :anti-transitive           true]
+    [arity                            [:integrate :disintegrate :rebuild]            nil                        true]
+    [functionalInArg                  [:integrate :disintegrate :rebuild :wff]       nil                        true]
+    [inverse                          [:integrate :disintegrate :rebuild :wff]       nil                        true]
+    [decontextualized_predicate        [:integrate :disintegrate :rebuild :wff]       :decontextualized          false]
+    [forced_decontextualized_predicate  [:integrate :disintegrate :rebuild :wff]       :forced-decontextualized   true]
+    [target_following_predicate         [:integrate :disintegrate :rebuild :wff]       :target-following          true]
+    [abducible_predicate               [:integrate :disintegrate :rebuild :wff]       :abducible                 true]
+    [closed_extent_predicate            [:integrate :disintegrate :rebuild :wff]       :closed-extent             true]
+    [modal_predicate                   [:integrate :disintegrate :rebuild :wff]       :modal                     true]
+    [reifiable_function                [:integrate :disintegrate :rebuild :wff]       :reifiable                 true]
+    [unreifiable_function              [:integrate :disintegrate :rebuild :wff]       :unreifiable               true]
+    [quoting_function                  [:integrate :disintegrate :rebuild :wff]       :quoting                   true]
+    [context_denoting_function          [:integrate :disintegrate :rebuild :wff]       :context-denoting          true]
+    [contextArgSubrelation            [:wff]                                         nil                        false]
+    [functionCorrespondingPredicate   [:wff]                                         nil                        false]
+    [equals                           [:integrate :disintegrate :rebuild :wff]       nil                        false]
+    [rewriteOf                        [:integrate :disintegrate :rebuild :wff]       nil                        false]
+    [sameAs                           [:integrate :disintegrate :rebuild :wff]       nil                        false]
+    [arg                              [:integrate :disintegrate :rebuild :wff]       :declares-arg-isa          true]
+    [genlArg                          [:integrate :disintegrate :rebuild :wff]       :declares-arg-genl         true]
+    [quotedArg                        [:integrate :disintegrate :rebuild :wff]       :declares-quoted-arg       true]
+    [interArg                         [:integrate :disintegrate :rebuild :wff]       :declares-inter-arg-isa    true]
+    [transitiveInArg                  [:wff]                                         nil                        false]
+    [transitiveInArgInverse           [:wff]                                         nil                        false]
+    [defnNecessary                    [:wff]                                         nil                        false]
+    [defnSufficient                   [:wff]                                         nil                        false]
+    [defnIff                          [:wff]                                         nil                        false]
+    [different                        [:wff]                                         nil                        false]
+    [unknown                          [:wff]                                         nil                        false]
+    [thereExists                      [:wff]                                         nil                        false]
+    [forall                           [:wff]                                         nil                        false]
+    [agg/count                        [:wff]                                         nil                        false]
+    [agg/sum                          [:wff]                                         nil                        false]
+    [agg/min                          [:wff]                                         nil                        false]
+    [agg/max                          [:wff]                                         nil                        false]
+    [agg/avg                          [:wff]                                         nil                        false]])
+
+(deftest the-table-still-holds-what-it-held-before-the-enumeration-moved
+  ;; `entries` joins the arms in `special` to the declarations in
+  ;; `vaelii.impl.predicates`, and `check-declarations` refuses a disagreement at
+  ;; namespace load.  What neither validator can see is an arm attached to the *wrong*
+  ;; functor, or a whole entry that slid past in the join — both of which pass load,
+  ;; pass every in-process test that does not exercise that predicate, and come back
+  ;; wrong after a restart, because `rebuild-taxonomy` is this vector replayed.
+  (is (= frozen-table
+         (mapv (fn [[f spec]]
+                 [f (vec (filter #(get spec %) [:integrate :disintegrate :rebuild :wff]))
+                  (:prop spec)
+                  (boolean (:derived? spec))])
+               special/entries))))
+
+(deftest the-declaration-and-the-arms-are-one-enumeration
+  (testing "a table that enumerates different functors than the declarations is refused"
+    ;; the mirror of `check-entries`: that one refuses an entry whose arms disagree with
+    ;; each other, this one refuses a table that disagrees with what the predicates say.
+    (let [data (try (special/check-declarations [['brokenPred {:wff (fn [_ _])}]])
+                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :bad-table-entry (:type data))
+          "one word for one bad table — the caller catching it is the namespace load")
+      (is (= :enumeration (:mismatch data))
+          ":mismatch is what says which validator refused it")))
+  (testing "the live table passes, which namespace load already proved"
+    (is (= special/entries (special/check-declarations special/entries)))))

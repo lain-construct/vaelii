@@ -29,7 +29,7 @@
 ;; else follows from it. Nothing else is granted: an abducer that will assume anything
 ;; explains everything and is worth nothing, so each grant is a policy this context
 ;; states rather than a capability the engine has.
-(abduciblePredicate asleep)
+(abducible_predicate asleep)
 
 (implies (and (asleep ?x)) (not (awake ?x)))
 (exceptWhen (asleep ?x)
@@ -37,7 +37,7 @@
 
 ;; ---- air-breathing, excepted by a whole class ----------------------------
 (exceptWhen (fish ?x)
-  (set/defaultRule (implies (and (animal ?x)) (breathesAir ?x))))
+  (set/defaultRule (implies (and (animal ?x)) (breathes_air ?x))))
 
 ;; ---- what a kind can do, and the kind that cannot -----------------------
 ;; Flight is a claim about the KIND, so it is said with capabilityType — the type-level
@@ -106,8 +106,8 @@
 ;; Never asserted of any particular animal: the five vertebrate classes are pairwise
 ;; disjoint, so exactly one of these fires for a typed animal and the KB cannot hold
 ;; both halves of the contradiction.
-(implies (and (amphibian ?x)) (not (warmBlooded ?x)))
-(implies (and (bird ?x)) (warmBlooded ?x))
-(implies (and (fish ?x)) (not (warmBlooded ?x)))
-(implies (and (mammal ?x)) (warmBlooded ?x))
-(implies (and (reptile ?x)) (not (warmBlooded ?x)))
+(implies (and (amphibian ?x)) (not (warm_blooded ?x)))
+(implies (and (bird ?x)) (warm_blooded ?x))
+(implies (and (fish ?x)) (not (warm_blooded ?x)))
+(implies (and (mammal ?x)) (warm_blooded ?x))
+(implies (and (reptile ?x)) (not (warm_blooded ?x)))

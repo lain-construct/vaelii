@@ -3,7 +3,7 @@
 (ns vaelii.attitude-opacity-test
   "Attitude opacity — docs/belief.md, docs/equality.md.
 
-  A `modalPredicate`'s proposition is a **mention**: what the *agent* holds true, named
+  A `modal_predicate`'s proposition is a **mention**: what the *agent* holds true, named
   as syntax.  From *Oedipus believes he married Jocasta* and *Jocasta is his mother* it
   does not follow that he believes he married his mother, so an identity merge the asker
   can see must not rewrite a term inside `(believes Oedipus …)`.  The merge the *agent*
@@ -126,7 +126,7 @@
           "while the proposition keeps every spelling it was written with"))))
 
 (tu/deftest-kb a-spelling-rename-does-reach-inside-the-quotation
-  ;; The `spelling?` half, exactly as a `quotingFunction`'s arguments take it: `rewriteOf`
+  ;; The `spelling?` half, exactly as a `quoting_function`'s arguments take it: `rewriteOf`
   ;; retires a *name*, so the mention follows it; `sameAs` merges *referents*, so it does
   ;; not.  Both sides of a rename move, which is why the belief stays retrievable.
   (tu/with-terms [Oedipus Preferred Deprecated marriedTo]
@@ -136,7 +136,7 @@
                             ask-ctx)))))
 
 (tu/deftest-kb an-ungranted-predicate-holds-nothing-opaque
-  ;; Control.  Opacity is what the `modalPredicate` marker buys; a binary relation over a
+  ;; Control.  Opacity is what the `modal_predicate` marker buys; a binary relation over a
   ;; sentence-shaped argument that nobody granted it to gets ordinary congruence, and must.
   (tu/with-terms [Oedipus Jocasta MotherOf marriedTo mutters]
     (let [dead (loser kb Jocasta MotherOf)

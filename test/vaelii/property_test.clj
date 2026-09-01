@@ -89,7 +89,7 @@
    [[:robin-is-a-bird
      #(v/assert % '(bird Robin) 'CxUniverse)]]
    [[:flight-enables-travel
-     #(v/assert-rule % '[(flies ?x)] '(canTravel ?x) 'CxUniverse)]]
+     #(v/assert-rule % '[(flies ?x)] '(can_travel ?x) 'CxUniverse)]]
    ;; The edge that makes the penguin a bird by inheritance rather than by assertion,
    ;; so `default-birds-fly` reaches Tweety through the type hierarchy and
    ;; `penguins-dont-fly` meets it there.  Drawn in any position, including after both
@@ -127,11 +127,11 @@
         rb (v/handle-of kb '(flies Robin) 'CxUniverse)]
     {:tweety-flies       (believed? kb '(flies Tweety))
      :tweety-grounded    (believed? kb '(not (flies Tweety)))
-     :tweety-travels     (believed? kb '(canTravel Tweety))
+     :tweety-travels     (believed? kb '(can_travel Tweety))
      :robin-flies        (believed? kb '(flies Robin))
-     :robin-travels      (believed? kb '(canTravel Robin))
+     :robin-travels      (believed? kb '(can_travel Robin))
      :sparrow-flies      (believed? kb '(flies Sparrow))
-     :sparrow-travels    (believed? kb '(canTravel Sparrow))
+     :sparrow-travels    (believed? kb '(can_travel Sparrow))
      :tweety-isa-bird    (v/isa? kb 'Tweety 'bird 'CxUniverse)
      :flies-classes      [(v/defeat-class kb tw) (v/defeat-class kb rb)]
      :contradictions     (count (v/contradictions kb))

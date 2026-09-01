@@ -1,11 +1,11 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.quote-test
-  "Mention opacity for a `quotingFunction` (`Quote`) — docs/nat.md, docs/equality.md.
+  "Mention opacity for a `quoting_function` (`Quote`) — docs/nat.md, docs/equality.md.
 
   A `Quote` reified NAT names a term *as syntax*: `(cycl_constant (Quote Muffet))` reifies
   to `(cycl_constant K)`, an ordinary unary type membership on an opaque constant, reusing
-  the NAT machinery with no new engine support.  What `quotingFunction` adds is opacity in
+  the NAT machinery with no new engine support.  What `quoting_function` adds is opacity in
   the equality congruence: a `rewriteOf` **spelling** rename reaches into the mention, but a
   `sameAs` / `equals` **identity** merge of the referent does not fold the quoted term."
   (:require [clojure.test :refer [is testing use-fixtures]]
@@ -25,8 +25,8 @@
   [kb Quote cycl_expression cycl_constant]
   (v/assert kb (list 'genl cycl_expression 'thing)        'CxUniverse)
   (v/assert kb (list 'genl cycl_constant cycl_expression) 'CxUniverse)
-  (v/assert kb (list 'reifiableFunction Quote)            'CxUniverse)
-  (v/assert kb (list 'quotingFunction Quote)              'CxUniverse)
+  (v/assert kb (list 'reifiable_function Quote)            'CxUniverse)
+  (v/assert kb (list 'quoting_function Quote)              'CxUniverse)
   (v/assert kb (list 'result Quote cycl_expression)    'CxUniverse))
 
 (defn- k-of [kb h] (second (:sentence (v/sentex kb h))))
@@ -75,10 +75,10 @@
             "the retired spelling still resolves to the merged constant")))))
 
 (tu/deftest-kb a-non-quoting-reifiable-nat-still-folds-on-a-spelling-merge
-  ;; Control: mention opacity is specific to a quotingFunction.  A plain reifiable NAT's
+  ;; Control: mention opacity is specific to a quoting_function.  A plain reifiable NAT's
   ;; expression is rewritten by the ordinary full-representative walk, unchanged by this work.
   (tu/with-terms [FruitFn AppleTree MalusTree]
-    (v/assert kb (list 'reifiableFunction FruitFn) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (let [k (k-of kb (v/assert kb (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse))]
       (v/assert kb (list 'rewriteOf MalusTree AppleTree) 'CxUniverse)
       (is (= (list FruitFn MalusTree) (nat/nat-expression kb k))
@@ -141,9 +141,9 @@
 
 (tu/deftest-kb an-unreifiable-quoting-function-keeps-a-structural-mention-opaque
   (tu/with-terms [Quasiquote PlainFn Muffet Fluffet Obj p]
-    (v/assert kb (list 'unreifiableFunction Quasiquote) 'CxUniverse)
-    (v/assert kb (list 'quotingFunction Quasiquote)     'CxUniverse)
-    (v/assert kb (list 'unreifiableFunction PlainFn)    'CxUniverse)
+    (v/assert kb (list 'unreifiable_function Quasiquote) 'CxUniverse)
+    (v/assert kb (list 'quoting_function Quasiquote)     'CxUniverse)
+    (v/assert kb (list 'unreifiable_function PlainFn)    'CxUniverse)
     (v/assert kb (list 'sameAs Muffet Fluffet)          'CxUniverse)
     (testing "the quoting mention stays structural — never minted"
       (let [h (v/assert kb (list p Obj (list Quasiquote Muffet)) 'CxUniverse)]
@@ -177,7 +177,7 @@
 ;; ---- recover -------------------------------------------------------------
 
 (tu/deftest-kb mention-opacity-survives-recover
-  ;; the `:quoting` prop is a taxonomy mark rebuilt from the stored `(quotingFunction Q)`
+  ;; the `:quoting` prop is a taxonomy mark rebuilt from the stored `(quoting_function Q)`
   ;; fact, so a rebuild must reconstruct the gate — else a recovered KB would start
   ;; folding a mention the running one held opaque, a restart changing an answer.
   (tu/with-terms [Quote Muffet Fluffet cycl_expression cycl_constant]
@@ -193,14 +193,14 @@
         (is (not (v/same-class? kb k1 k2)))))))
 
 ;; ---- opacity reaches the REIFY pass, not only congruence ------------------
-;; A compound mention whose payload contains a reifiableFunction must not have that inner
+;; A compound mention whose payload contains a reifiable_function must not have that inner
 ;; NAT reified *by identity* — `reify-or-mint-nat` would otherwise fold two quoted syntaxes
 ;; whose payloads' referents merged onto one constant, before congruence could protect them.
 
 (tu/deftest-kb a-reifiable-payload-inside-a-quote-is-not-folded-by-a-sameas
   (tu/with-terms [Quote foo Muffet Fluffet cycl_expression cycl_constant]
     (declare-quote! kb Quote cycl_expression cycl_constant)
-    (v/assert kb (list 'reifiableFunction foo) 'CxUniverse)   ; the payload's inner functor reifies
+    (v/assert kb (list 'reifiable_function foo) 'CxUniverse)   ; the payload's inner functor reifies
     (v/assert kb (list 'sameAs Muffet Fluffet) 'CxUniverse)   ; referents merged FIRST
     (let [k1 (k-of kb (v/assert kb (list cycl_constant (list Quote (list foo Muffet)))  'CxUniverse))
           k2 (k-of kb (v/assert kb (list cycl_constant (list Quote (list foo Fluffet))) 'CxUniverse))]
@@ -216,7 +216,7 @@
   ;; the fact would read back as no-match — stored-but-unretrievable.
   (tu/with-terms [Quote foo bar Muffet cycl_expression cycl_constant]
     (declare-quote! kb Quote cycl_expression cycl_constant)
-    (v/assert kb (list 'reifiableFunction foo) 'CxUniverse)   ; the quoted payload's functor reifies
+    (v/assert kb (list 'reifiable_function foo) 'CxUniverse)   ; the quoted payload's functor reifies
     (v/assert kb (list cycl_constant (list Quote (list foo Muffet))) 'CxUniverse)
     (testing "the exact quoted-payload fact round-trips through the read path"
       (is (= 1 (count (v/sentexes-matching kb (list cycl_constant (list Quote (list foo Muffet)))

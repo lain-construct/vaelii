@@ -89,26 +89,26 @@
   "One antecedent, satisfied by the datum itself — no join runs."
   []
   (let [kb (fresh)]
-    (v/assert-rule kb ['(fcOne ?x)] '(fcConclA ?x) 'CxPerf
+    (v/assert-rule kb ['(fc_one ?x)] '(fc_concl_a ?x) 'CxPerf
                    {:direction :forward :chain? false})
     [kb
-     (mapv (fn [i] (v/assert kb (list 'fcOne (ind "FcO" i)) 'CxPerf
+     (mapv (fn [i] (v/assert kb (list 'fc_one (ind "FcO" i)) 'CxPerf
                              {:strength :monotonic :chain? false}))
            (range n))
-     'fcConclA]))
+     'fc_concl_a]))
 
 (defn- unfanned-join
   "A join antecedent `(fcFn ?x ?y)` with `?x` bound and `fcFn` holding no sub-predicates —
   the case `join-matches` answers through the trie."
   []
   (let [kb (fresh)]
-    (v/assert-rule kb ['(fcTrig ?x) '(fcFn ?x ?y)] '(fcConclB ?x ?y) 'CxPerf
+    (v/assert-rule kb ['(fc_trig ?x) '(fcFn ?x ?y)] '(fcConclB ?x ?y) 'CxPerf
                    {:direction :forward :chain? false})
     (dotimes [i n]
       (v/assert kb (list 'fcFn (ind "FcA" i) (ind "FcB" i)) 'CxPerf
                 {:strength :monotonic :chain? false}))
     [kb
-     (mapv (fn [i] (v/assert kb (list 'fcTrig (ind "FcA" i)) 'CxPerf
+     (mapv (fn [i] (v/assert kb (list 'fc_trig (ind "FcA" i)) 'CxPerf
                              {:strength :monotonic :chain? false}))
            (range n))
      'fcConclB]))
@@ -122,13 +122,13 @@
     (dotimes [i 4]
       (v/assert kb (list 'genl (symbol (str "fcSub" i)) 'fcBroad) 'CxPerf
                 {:strength :monotonic}))
-    (v/assert-rule kb ['(fcTrig ?x) '(fcBroad ?x ?y)] '(fcConclC ?x ?y) 'CxPerf
+    (v/assert-rule kb ['(fc_trig ?x) '(fcBroad ?x ?y)] '(fcConclC ?x ?y) 'CxPerf
                    {:direction :forward :chain? false})
     (dotimes [i n]
       (v/assert kb (list 'fcSub0 (ind "FcA" i) (ind "FcB" i)) 'CxPerf
                 {:strength :monotonic :chain? false}))
     [kb
-     (mapv (fn [i] (v/assert kb (list 'fcTrig (ind "FcA" i)) 'CxPerf
+     (mapv (fn [i] (v/assert kb (list 'fc_trig (ind "FcA" i)) 'CxPerf
                              {:strength :monotonic :chain? false}))
            (range n))
      'fcConclC]))

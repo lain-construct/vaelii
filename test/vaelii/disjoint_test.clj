@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.disjoint-test
-  "disjoint and disjointMetatype, and the contradiction detection they drive."
+  "disjoint and disjoint_metatype, and the contradiction detection they drive."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.taxonomy :as tax]
@@ -37,19 +37,19 @@
                    (v/assert kb (list trout muffet) 'CxNaturalWorld))))))
 
 (tu/deftest-kb disjoint-type-makes-members-disjoint
-  (let [animalSpecies (tu/tmp-pred)
+  (let [animal_species (tu/tmp-pred)
         dog (tu/tmp-type) cat (tu/tmp-type) fish (tu/tmp-type) muffet (tu/tmp-ind)]
     (v/assert kb (list 'genlCx 'CxNaturalWorld 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list animalSpecies dog) 'CxUniverse)
-    (v/assert kb (list animalSpecies cat) 'CxUniverse)
-    (v/assert kb (list 'disjointMetatype animalSpecies) 'CxUniverse)   ; members become pairwise disjoint
+    (v/assert kb (list animal_species dog) 'CxUniverse)
+    (v/assert kb (list animal_species cat) 'CxUniverse)
+    (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)   ; members become pairwise disjoint
     (v/assert kb (list dog muffet) 'CxNaturalWorld)
     (testing "members of a disjoint metatype are disjoint"
       (is (v/disjoint? kb dog cat))
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (list cat muffet) 'CxNaturalWorld))))
     (testing "a member added after the declaration is also disjoint"
-      (v/assert kb (list animalSpecies fish) 'CxUniverse)
+      (v/assert kb (list animal_species fish) 'CxUniverse)
       (is (v/disjoint? kb dog fish)))))
 
 (tu/deftest-kb a-membership-is-recorded-on-the-marks-storage-not-its-belief
@@ -59,9 +59,9 @@
   ;; one arrival order and not the other.
   (let [species (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type)
         t (:taxonomy kb)]
-    (v/assert kb (list 'disjointMetatype species) 'CxUniverse)
+    (v/assert kb (list 'disjoint_metatype species) 'CxUniverse)
     (v/assert kb (list species dog) 'CxUniverse)
-    (let [neg (v/assert kb (list 'not (list 'disjointMetatype species)) 'CxUniverse
+    (let [neg (v/assert kb (list 'not (list 'disjoint_metatype species)) 'CxUniverse
                         {:strength :monotonic})]
       (is (not (tax/disjoint-metatype? t species)) "the mark is defeated")
       (is (tax/stored-disjoint-metatype? t species) "but it is still stored")
@@ -78,10 +78,10 @@
 (tu/deftest-kb a-member-retracted-while-the-mark-is-defeated-leaves-no-support
   (let [species (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type)
         t (:taxonomy kb)]
-    (v/assert kb (list 'disjointMetatype species) 'CxUniverse)
+    (v/assert kb (list 'disjoint_metatype species) 'CxUniverse)
     (v/assert kb (list species dog) 'CxUniverse)
     (let [hcat (v/assert kb (list species cat) 'CxUniverse)
-          neg  (v/assert kb (list 'not (list 'disjointMetatype species)) 'CxUniverse
+          neg  (v/assert kb (list 'not (list 'disjoint_metatype species)) 'CxUniverse
                          {:strength :monotonic})]
       (v/retract! kb hcat)
       (is (nil? (get-in @t [:cache-support [:member species cat]]))
@@ -98,9 +98,9 @@
   ;; members the live arm recorded — including one stated while the mark was defeated.
   (let [species (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type)
         t (:taxonomy kb)]
-    (v/assert kb (list 'disjointMetatype species) 'CxUniverse)
+    (v/assert kb (list 'disjoint_metatype species) 'CxUniverse)
     (v/assert kb (list species dog) 'CxUniverse)
-    (let [neg (v/assert kb (list 'not (list 'disjointMetatype species)) 'CxUniverse
+    (let [neg (v/assert kb (list 'not (list 'disjoint_metatype species)) 'CxUniverse
                         {:strength :monotonic})]
       (v/assert kb (list species cat) 'CxUniverse)
       (let [live (tax/metatype-members t species)]
@@ -120,7 +120,7 @@
   (let [species (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type) seed (tu/tmp-pred)
         Kim (tu/tmp-ind) t (:taxonomy kb)]
     (v/assert kb (list 'genlCx 'CxNaturalWorld 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'disjointMetatype species) 'CxUniverse)
+    (v/assert kb (list 'disjoint_metatype species) 'CxUniverse)
     (v/assert kb (list species dog) 'CxUniverse)
     ;; `cat` joins the metatype only by inference — nothing states `(species cat)`
     (v/assert kb (list 'implies (list seed '?x) (list species '?x)) 'CxUniverse)
@@ -140,14 +140,14 @@
 
 (tu/deftest-kb a-metatype-separates-predicates-not-only-individuals
   ;; the definitional checks admit any term, so the predicate meta-ontology is
-  ;; enforced the way the domain is — this is what makes relationKind bite
+  ;; enforced the way the domain is — this is what makes relation_kind bite
   (let [kind (tu/tmp-pred) instanceKind (tu/tmp-type) typeKind (tu/tmp-type)
         rel (tu/tmp-pred) other (tu/tmp-pred)]
     (v/assert kb (list 'genl instanceKind 'predicate) 'CxUniverse)
     (v/assert kb (list 'genl typeKind 'predicate) 'CxUniverse)
     (v/assert kb (list kind instanceKind) 'CxUniverse)
     (v/assert kb (list kind typeKind) 'CxUniverse)
-    (v/assert kb (list 'disjointMetatype kind) 'CxUniverse)
+    (v/assert kb (list 'disjoint_metatype kind) 'CxUniverse)
     (v/assert kb (list instanceKind rel) 'CxUniverse)
     (testing "one predicate cannot take both kinds"
       (is (v/disjoint? kb instanceKind typeKind))
@@ -157,7 +157,7 @@
       (is (v/assert kb (list typeKind other) 'CxUniverse)))))
 
 (tu/deftest-kb argisa-constrains-a-predicate-valued-position
-  ;; (arg typeToInstancePred 1 typeRelationPredicate) is only enforceable because
+  ;; (arg typeToInstancePred 1 type_relation_predicate) is only enforceable because
   ;; the argument check reaches past CapitalCamelCase individuals
   (let [typeKind (tu/tmp-type) otherKind (tu/tmp-type) link (tu/tmp-pred)
         typeLevel (tu/tmp-pred) instanceLevel (tu/tmp-pred) unclassified (tu/tmp-pred)]
@@ -333,7 +333,7 @@
     (v/assert kb (list mkind aa) 'CxUniverse)
     (v/assert kb (list mkind bb) 'CxUniverse)
     (v/assert kb (list 'genl bb aa) 'CxUniverse)          ; bb is a kind of aa
-    (v/assert kb (list 'disjointMetatype mkind) 'CxUniverse)
+    (v/assert kb (list 'disjoint_metatype mkind) 'CxUniverse)
     (testing "a type is not disjoint from itself"
       (is (not (v/disjoint? kb bb bb)))
       (is (not (v/disjoint? kb aa aa))))

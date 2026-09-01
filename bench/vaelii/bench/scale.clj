@@ -131,7 +131,7 @@
         combined (retained (vals comps))
         whole    (retained [kb])
         per    #(double (/ % (max 1 stored)))
-        at100M #(/ (* (per %) 1e8) GiB)]
+        at100_m #(/ (* (per %) 1e8) GiB)]
     (println)
     (println (format "── %s ── %,d stored sentexes, %,d justifications | JTMS %,d nodes, %,d justifications"
                      label stored dedns nodes justs))
@@ -140,14 +140,14 @@
     (doseq [k [:index :records :jtms :taxonomy]]
       (let [b (sizes k)]
         (println (format "%-14s %14.1f %14.0f %16.1f"
-                         (name k) (/ b 1048576.0) (per b) (at100M b)))))
+                         (name k) (/ b 1048576.0) (per b) (at100_m b)))))
     (let [sum (reduce + (vals sizes))]
       (println (apply str (repeat 62 \-)))
-      (println (format "%-14s %14.1f %14.0f %16.1f" "sum-of-parts" (/ sum 1048576.0) (per sum) (at100M sum)))
+      (println (format "%-14s %14.1f %14.0f %16.1f" "sum-of-parts" (/ sum 1048576.0) (per sum) (at100_m sum)))
       (println (format "%-14s %14.1f %14.0f %16.1f  (shared structure counted once)"
-                       "deduped total" (/ combined 1048576.0) (per combined) (at100M combined)))
+                       "deduped total" (/ combined 1048576.0) (per combined) (at100_m combined)))
       (println (format "%-14s %14.1f %14.0f %16.1f  (whole KB graph)"
-                       "whole-kb (jol)" (/ whole 1048576.0) (per whole) (at100M whole))))
+                       "whole-kb (jol)" (/ whole 1048576.0) (per whole) (at100_m whole))))
     {:stored stored :dedns dedns :nodes nodes :justs justs :sizes sizes :jtms (:jtms sizes)}))
 
 (defn- config [n]

@@ -524,9 +524,9 @@
   grows with the depth above the predicate being asserted — was invisible to all thirty
   checks, and shipped once for that reason.
 
-  The claim is deliberately not `flat`.  `inherited-arity` asks the `variableArity`
+  The claim is deliberately not `flat`.  `inherited-arity` asks the `variable_arity`
   release of every super-predicate; that question is a retrieval the arity table cannot
-  answer, and no roster can gate it while a `variableArity` reached through a `genl` edge
+  answer, and no roster can gate it while a `variable_arity` reached through a `genl` edge
   between collections releases exactly as a directly asserted one does.  So the bound is
   a record of the shape today rather than a target, in the sense `assert-cost-test`'s
   preamble means it: a change that makes the descension flat in the depth drops this to
@@ -635,7 +635,7 @@
   reading as at the first."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(reifiableFunction PNatFn) 'CxUniverse {:strength :monotonic})
+    (v/assert kb '(reifiable_function PNatFn) 'CxUniverse {:strength :monotonic})
     (v/with-deferred-settle kb
       (doseq [i (range n)]
         (v/assert kb (list 'pNatUse (symbol (str "PNU" i))
@@ -829,10 +829,10 @@
   makes any sweep at all visible as growth rather than hiding inside a report."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(arity pReach 2) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(arity p_reach 2) 'CxPerf {:strength :monotonic})
     (doall
      (for [i (range n)]
-       (nanos (v/assert kb (list 'pReach (symbol (str "PR" i)) 'PRval) 'CxPerf {}))))))
+       (nanos (v/assert kb (list 'p_reach (symbol (str "PR" i)) 'PRval) 'CxPerf {}))))))
 
 (defn- feed-listener-scaling
   "n asserts on a KB with two change-feed listeners attached — one plain, one a standing
@@ -1056,11 +1056,11 @@
   by is only how many firings were re-decided anyway."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(exceptWhen (not (pNegSkip ?x))
-                              (set/defaultRule (implies (and (pNegProbe ?x)) (pNegSeen ?x))))
+    (v/assert kb '(exceptWhen (not (p_neg_skip ?x))
+                              (set/defaultRule (implies (and (p_neg_probe ?x)) (p_neg_seen ?x))))
               'CxPerf {})
     (doseq [i (range n)]
-      (v/assert kb (list 'pNegProbe (symbol (str "PNG" i))) 'CxPerf {}))
+      (v/assert kb (list 'p_neg_probe (symbol (str "PNG" i))) 'CxPerf {}))
     (doall (for [i (range edge-writes)]
              (nanos (v/assert kb (list 'genl (symbol (str "pnegv" i "_t")) 'pnegtop_t)
                               'CxPerf {:strength :monotonic}))))))
@@ -1142,7 +1142,7 @@
            :let [root (symbol (str "parsRoot" i))
                  mid  (symbol (str "parsMid" i))]]
        (do
-         (v/assert kb (list 'binaryPredicate root) 'CxPerf {:strength :monotonic})
+         (v/assert kb (list 'binary_predicate root) 'CxPerf {:strength :monotonic})
          ;; the subtree is what this measures against, not what it measures
          (v/with-deferred-settle kb
            (doseq [j (range n)
@@ -1197,7 +1197,7 @@
   is right there in the source — so a bound set between the two would pass it."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(binaryPredicate parbTop) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(binary_predicate parbTop) 'CxPerf {:strength :monotonic})
     (doall
      (for [b (range settles-per-batch-reading)]
        (do
@@ -1235,7 +1235,7 @@
   walk reaches is a violation: this measures the reach, not the report."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(binaryPredicate pacFact) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(binary_predicate pacFact) 'CxPerf {:strength :monotonic})
     (v/with-deferred-settle kb
       (doseq [i (range n)]
         (v/assert kb (list 'pacFact (symbol (str "PAC" i)) 'PACval) 'CxAcBig {})))
@@ -1275,7 +1275,7 @@
   [n]
   (binding [tax/*exposure-instance-budget* 100]
     (let [kb (fresh-kb)]
-      (v/assert kb '(binaryPredicate pabcRoot) 'CxPerf {:strength :monotonic})
+      (v/assert kb '(binary_predicate pabcRoot) 'CxPerf {:strength :monotonic})
       (v/with-deferred-settle kb
         (v/assert kb '(genl pabcMid pabcRoot) 'CxPerf {})
         (doseq [j (range capped-subtree-predicates)
@@ -1386,12 +1386,12 @@
                                 {:strength :monotonic})]]
         (v/assert kb (list 'except (sx/sentex-handle h)) 'CxPerf
                   {:strength :monotonic})))
-    (v/assert kb '(pvSeen PVOne) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(pv_seen PVOne) 'CxPerf {:strength :monotonic})
     (binding [lc/*enabled* false]
       (doall
        (for [_ (range 60)]
          (nanos (dotimes [_ reads-per-visibility-reading]
-                  (count (v/sentexes-matching kb '(pvSeen ?x) 'CxPerf)))))))))
+                  (count (v/sentexes-matching kb '(pv_seen ?x) 'CxPerf)))))))))
 
 (def ^:private reads-per-clash-reading
   "Readings of the standing set batched into one timed measurement, and **the same batch

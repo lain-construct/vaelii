@@ -78,7 +78,7 @@
       (sandbox/open kb sbx)
       (v/assert kb '(living_thing SandboxTibbles) sbx)
       (v/assert kb '(bird SandboxPingu) sbx)
-      (v/assert-rule kb '[(bird ?x)] '(sandboxFeathered ?x) sbx)
+      (v/assert-rule kb '[(bird ?x)] '(sandbox_feathered ?x) sbx)
       (is (< (count sentexes-before) (count (tu/sentex-ids kb))) "there is something to lose")
       (is (< (count justs-before) (count (tu/justification-ids kb)))
           "including derived content, which is what a naive teardown leaves behind")

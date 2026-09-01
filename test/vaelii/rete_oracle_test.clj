@@ -86,9 +86,9 @@
     (R '(parentOf ?x ?y) '(ancestorOf ?x ?y))
     (R '(and (parentOf ?x ?y) (ancestorOf ?y ?z)) '(ancestorOf ?x ?z))
     ;; unary subtype fan-out (a poodle is a dog)
-    (R '(dog ?x) '(hasFur ?x))
+    (R '(dog ?x) '(has_fur ?x))
     ;; type antecedent joined with a relation
-    (R '(and (owns ?p ?a) (animal ?a)) '(petOwner ?p))
+    (R '(and (owns ?p ?a) (animal ?a)) '(pet_owner ?p))
     ;; a symmetric predicate as a NON-trigger antecedent — exercises the mirror probe
     ;; inside the matcher (triggered by parentOf, siblingOf joined second)
     (R '(and (parentOf ?x ?y) (siblingOf ?y ?z)) '(uncleAuntOf ?x ?z))
@@ -106,7 +106,7 @@
 
 (defn- sx-content [kb id]
   (when-let [s (p/get-sentex (:records kb) id)]
-    [(:sentence s) (:context s) (:truth s)]))
+    [(:sentence s) (:context s) (:polarity s)]))
 
 (defn stored-content [kb]
   (into #{} (keep #(sx-content kb %)) (p/sentex-ids (:records kb))))

@@ -16,7 +16,7 @@
   records cannot cancel each other out.
 
   **What is hashed is what the index is a function of**: the handle, `:sentence`,
-  `:context`, `:truth`, and a rule's `:antecedent` / `:consequent`.  `sentex/path`,
+  `:context`, `:polarity`, and a rule's `:antecedent` / `:consequent`.  `sentex/path`,
   `kv/root-keys`, `kv/sentex-terms` and the rule index read exactly those, and the handle
   because a posting *is* a set of handles — the same content at a different handle makes
   every posting naming it wrong.  Deliberately **not** hashed: `:strength`, `:varmap`,
@@ -59,7 +59,7 @@
       (mix h)
       (mix (hash (:sentence sx)))
       (mix (hash (:context sx)))
-      (mix (hash (:truth sx)))
+      (mix (hash (:polarity sx)))
       (mix (hash (:antecedent sx)))
       (mix (hash (:consequent sx)))))
 
