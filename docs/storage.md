@@ -992,9 +992,15 @@ rewrite (read + thaw + re-freeze + write every live frame) runs *without* the ki
 lock, reading the log's immutable region through a private read handle, so reads and
 writes of that kind do not stall for it.  Only two brief lock holds bracket it — a
 snapshot of the live slots up front, and a delta reconcile + swap at the end that folds
-in whatever was stored/killed during the rewrite (a concurrent `clear-records!` sets an
-abort flag and the reconcile discards its temps).  `reindex` rebuilds the index from the records on
-disk unchanged.
+in whatever was stored/killed during the rewrite.  A concurrent `clear-records!` — or a
+`close!` of the directory — sets an abort flag: the copy loop stops at its next check
+(every 256 frames) and the reconcile discards its temps rather than replaying them over
+a wiped store or leaving them under a directory another process has just been handed.  A
+rewrite already **past its commit marker** is deliberately out of the flag's reach: the
+reconcile reads it under the kind lock and holds that lock until the install is done, and
+a marker on disk is a rewrite the next open would finish off the marker anyway, so the
+close lets this one finish now rather than hand over a half-installed directory.
+`reindex` rebuilds the index from the records on disk unchanged.
 
 The rewrite preserves every live record and its handle, with one exception: a slot whose
 frame the log cannot give back — what a truncated tail leaves under a slot the truncation
@@ -1077,9 +1083,17 @@ The switch is read **at acquire time and nowhere else**: it decides whether an e
 made, and `held?` and `release!` follow the entry.  Toggling `vaelii.disk.lock` under a
 directory this JVM already locked therefore cannot strand the OS lock, which is what a
 `release!` re-reading the property would do.
-`vaelii.core/close!` releases it without the JVM exiting —
-flush and close each component, deregister from the durability daemon, drop the lock —
-so a long-running process can hand the directory to another process.  An unclean close
+`vaelii.core/close!` releases it without the JVM exiting, and **the order it does that
+in is the contract**: deregister from the durability daemon, abort any compaction still
+running, wait for the compactor to go quiet, write the index image, close each
+component, drop the lock.  The lock goes last because it is the thing the other process
+is waiting on, and everything above it is a file of this directory's still being
+written.  The join is not belt-and-braces: the record store's rewrite phase holds no
+lock on purpose, so it is still appending to `sentexes.log.compact` *by name* when a
+close that skipped the wait would already have handed the directory over — and the next
+owner's own compaction opens those same paths.  Two rewrites appending to one temp log,
+one commit marker, and a replay installing frames from both is exactly the tearing the
+lock exists to prevent.  An unclean close
 still releases: every component gets its close attempt, the lock release and the
 registry removal run even when one throws, and the first component failure is rethrown
 *after* that cleanup — so a throw from `close!` means the directory is handed back but

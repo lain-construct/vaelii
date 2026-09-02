@@ -6,7 +6,8 @@
   close→reopen persistence round-trip, compaction of dead frames, and torn-tail crash
   recovery.  Needs no KB — the store is a plain id→blob engine over the
   disk `files` primitives."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.disk.codec :as codec]
             [vaelii.impl.disk.files :as f]
@@ -454,6 +455,40 @@
             (is (= (set (range 1 41 2)) (p/sentex-ids s)))
             (doseq [id (range 1 41 2)]
               (is (= (list 'p (dec id)) (:sentence (p/get-sentex s id))))))
+          (finally (drs/close! s)))))))
+
+(deftest an-abort-that-lands-before-the-rewrite-still-stops-it
+  ;; `abort-compaction!` exists for a close, and a close reaches it through the
+  ;; durability registry: the executor's task checks the registry and only *then* calls
+  ;; `compact!`, so the abort can take the kind lock in the gap between that check and
+  ;; the compaction's own snapshot.  Marking only a rewrite that is already running
+  ;; leaves that gap open — the flag lands on a nil `:compacting`, does nothing, and the
+  ;; rewrite a moment later runs to completion while the close waits out its whole
+  ;; timeout for it.  Here the gap is the whole of the test: the abort is set with
+  ;; nothing running at all, and the rewrite that follows has to honour it.
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)]
+        (try
+          (dotimes [i 40] (p/put-sentex s {:sentence (list 'p i) :context 'C :n i}))
+          (doseq [id (range 2 41 2)] (p/delete-sentex! s id))
+          (let [before (drs/dead-ratio s)]
+            (is (pos? before) "the deletes left dead frames worth reclaiming")
+            (drs/abort-compaction! s)
+            (drs/compact! s)
+            (is (< (Math/abs (- (drs/dead-ratio s) before)) 1.0e-9)
+                "the rewrite abandoned: the dead frames are still there"))
+          (testing "and the originals are untouched — every live record still reads"
+            (is (= (set (range 1 41 2)) (p/sentex-ids s)))
+            (doseq [id (range 1 41 2)]
+              (is (= (list 'p (dec id)) (:sentence (p/get-sentex s id))))))
+          (testing "no temp or commit marker survives the abandoned rewrite"
+            (is (empty? (filter #(str/includes? (.getName ^java.io.File %) ".compact")
+                                (file-seq (java.io.File. ^String dir))))))
+          (testing "and the next compaction, unaborted, does the work"
+            (drs/compact! s)
+            (is (< (drs/dead-ratio s) 1.0e-9) "the flag did not stick past its rewrite")
+            (is (= (set (range 1 41 2)) (p/sentex-ids s))))
           (finally (drs/close! s)))))))
 
 (deftest next-id-never-reuses-a-handle-across-recovery

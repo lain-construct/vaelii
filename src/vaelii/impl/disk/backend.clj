@@ -259,13 +259,38 @@
   component gets its close attempt, the lock release and the registry removal run even
   when one throws, and the first component failure is rethrown *after* that cleanup.
   The caller learns the close did not complete cleanly, and the directory is still
-  released either way."
+  released either way.
+
+  **The order is the contract**, because handing a directory over is the point:
+  deregister → abort any rewrite → join the compactor → write the image → close the
+  components → release the lock.  Releasing the OS lock is the last thing that happens,
+  because it is the thing the other process is waiting on, and everything above it is a
+  file of this directory's still being written."
   [dir]
   (let [cdir (canonical-dir dir)]
     (locking stores
       (when-let [{:keys [records index overlay-meta snapshot dur-ids]} (@stores cdir)]
-        ;; the image first: it is stamped against the records, so it has to be written
-        ;; while they are still open, and a failure to write one must not stop the close
+        ;; Deregister first: it is the signal a task the compaction executor has queued
+        ;; but not started reads, so it turns every waiting rewrite of this directory
+        ;; into a skip rather than something to wait out.  It also stops the next daemon
+        ;; tick queueing a fresh one behind our backs, which is what makes the join below
+        ;; terminate.
+        (doseq [id (vals dur-ids)] (dur/deregister! id))
+        ;; Then stop the rewrite that is already running, and wait for it.  The record
+        ;; store's rewrite phase holds no lock on purpose (`record-store/compact-kind!`),
+        ;; so nothing a close does to the store blocks it: it reads through a private
+        ;; handle and appends to `sentexes.log.compact` *by name*, which is a path the
+        ;; next process to own this directory will compact over.  Releasing the OS lock
+        ;; with that rewrite still running is two processes appending to one temp log and
+        ;; a replay installing frames from both — the exact tearing the directory lock
+        ;; exists to prevent, under a setting (`vaelii.disk.auto-compact`) that is on by
+        ;; default.  The abort makes the wait short; the wait makes the release honest.
+        (when records (drs/abort-compaction! records))
+        (dur/await-compaction-quiescent! (vals dur-ids))
+        ;; The image after the join and before the closes: it is stamped against the
+        ;; records, so it has to be written while they are still open *and* while nothing
+        ;; is rewriting the offsets underneath it — and a failure to write one must not
+        ;; stop the close.
         (when snapshot
           (try (snapshot)
                (catch Throwable t
@@ -273,7 +298,6 @@
                               :msg (str "disk backend: the index snapshot for " cdir
                                         " was not written (" (.getMessage t)
                                         ") — the next open rebuilds from the records")}))))
-        (doseq [id (vals dur-ids)] (dur/deregister! id))
         (let [failures (into []
                              (keep identity)
                              [(when records
