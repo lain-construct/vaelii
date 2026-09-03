@@ -441,6 +441,22 @@ so one dial governs every cross-context sweep in the KB) and, past it, files a
 prevents has no second chance: nothing re-triggers on a `genlCx` edge that already
 finished landing, so the pairs past the cut stay unmerged for good, this edge.
 
+**All three of these fire for an edge nobody asserted.** A `genlCx` edge reaches the
+store by three doors — asserted (`core/assert-one`), concluded by a rule
+(`chain/place-fact-conclusion`), or **computed** by the structural producer off a
+`contextArgSubrelation` declaration ([context-nat.md](context-nat.md)) — and the first
+two spelled `migrate-under-context-edge`, `equate-under-context-edge` and
+`antisym-equate-under-context-edge` out side by side while the third called none of
+them. A calendar month→year edge therefore reached the taxonomy and the exception
+re-checks and stopped: two fillers of one functional slot, made jointly visible for the
+first time by that edge, stayed unmerged and unreported, and whether the KB merged them
+came down to whether the year's fact was written before January existed (vaelii#56).
+`special/reconcile-context-edge` is the one door all three now call, and the producer
+calls it on the **transition into belief** — after the justification, because the three
+sweeps read the belief-filtered `genlCx` closure and a line earlier the edge supports
+nothing; and only on the transition, because the producer is idempotent and re-runs over
+every context of a declared function, where each edge owes exactly one sweep in its life.
+
 **Past that cap, and only past it, order independence is a residual rather than a
 guarantee.** The cone is enumerated in handle order — assertion order — and the budget
 takes a prefix of it, so which merges a cut edge derives depends on when the facts

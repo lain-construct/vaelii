@@ -1562,19 +1562,21 @@
               axe  (special/antisym-equate-existing kb sentence)
               axd  (special/antisym-equate-under-edge kb sentence)
               ;; ...and the same three ingredients once more, through the *other*
-              ;; closure: a `genlCx` edge widens which merges a context can see, so it
-              ;; restates the sentexes the widened cone newly exposes to one — or the
-              ;; record keeps a spelling every read from below has retired
-              ;; (docs/equality.md, "An equality applies where it is visible")
-              cme  (special/migrate-under-context-edge kb sentence)
-              ;; ...and the fourth arrival order of the functional/antisymmetric merge
-              ;; itself, alongside the declaration meeting the facts and the `genl` edge
-              ;; bringing them under a mark above them: a `genlCx` edge can make two
-              ;; already-marked facts jointly visible for the first time, and without
-              ;; this the merge those two arrival orders derive would depend on whether
-              ;; the contexts were ever wired together before the facts arrived
-              cfn  (special/equate-under-context-edge kb sentence)
-              cax  (special/antisym-equate-under-context-edge kb sentence)
+              ;; closure, which takes all three of them in one call.  A `genlCx` edge
+              ;; widens which merges a context can see, so it restates the sentexes the
+              ;; widened cone newly exposes to one — or the record keeps a spelling every
+              ;; read from below has retired (docs/equality.md, "An equality applies where
+              ;; it is visible") — and it is the fourth arrival order of the
+              ;; functional/antisymmetric merge besides, alongside the declaration meeting
+              ;; the facts and the `genl` edge bringing them under a mark above them: two
+              ;; already-marked facts can be made jointly visible for the first time by an
+              ;; edge, and without this the merge those two arrival orders derive would
+              ;; depend on whether the contexts were ever wired together before the facts
+              ;; arrived.  One call and not three because a *computed* edge — one the
+              ;; structural producer materializes with nobody asserting it — has to make
+              ;; the same one, and a list each door remembers separately is a list one of
+              ;; them forgets (vaelii#56)
+              cxe  (special/reconcile-context-edge kb sentence)
               ;; ...and the one mark whose retroactive half is a *storage* migration
               ;; rather than a derivation: `(symmetric P)` sorts a literal's arguments at
               ;; the door, so the rows stored before it are spelled the way no row stored
@@ -1582,7 +1584,7 @@
               ;; proposition, each retractable without the other (vaelii#61)
               sym  (integrate/symmetrize-existing kb sentence h)
               mig  (merge-with into {:new [] :superseded [] :violations []}
-                               eq own fnl fex fdn asym axe axd cme cfn cax sym)]
+                               eq own fnl fex fdn asym axe axd cxe sym)]
           ;; Only when this assert actually merged something.  The reconcile re-examines
           ;; every entry the closure currently displaces, and an assert that merged
           ;; nothing cannot change one: an entry stops being displaced when its terms
@@ -2001,6 +2003,33 @@
                       {:type :unknown-option :strength (:strength opts)
                        :options (vec (sort strength/assertable))})))))
 
+(defn- apply-computed-edge-merges
+  "The follow-through a **computed** `genlCx` edge's merges owe, in the order
+  `assert-one` runs the same three for an asserted one: the retired spellings
+  reconciled, the twins put on the agenda as seeds, the violations reported after the
+  chain that could add to them, and one settle.
+
+  `mig` is what `context-nat/reconcile-genlCx` — or, on the teardown path,
+  `reconcile-revivals` — carried up from `special/reconcile-context-edge`.  It is nil
+  whenever the producer merged nothing, which is every KB that states no equality and
+  every re-run over edges it already had, so the common case costs one test.
+
+  **Separate from `assert-one`'s own block, and it has to be.**  A structural edge is
+  entailed *by the fact that was just stored* — the mint of one context beside another
+  is what creates the sibling pair to order — so the producer cannot run until that
+  fact is in, and by then `assert-one` has chained and settled.  The merges a computed
+  edge licenses are therefore genuinely later knowledge, and they need their own pass
+  rather than a second settle nested inside the first."
+  [kb mig opts]
+  (when mig
+    (when (seq (:superseded mig))
+      (special/refresh-supersessions kb (:superseded mig)))
+    (when (and (:chain? opts true) (seq (:new mig)))
+      (chain/chain-all kb (vec (:new mig)) opts))
+    (violations/report kb (:violations mig))
+    (when-not *defer-settle?* (settle/settle kb)))
+  nil)
+
 (defn assert
   "Assert `sentence` in `context` (default 'CxUniverse) as a JTMS premise: enforce
   naming, arg, and disjointness constraints, persist, index (trie + term index),
@@ -2160,7 +2189,11 @@
            ;; order already passes it, and one without any reifiable function has no cx/
            ;; context and nothing to reconcile — so the `any-context-subrelations?` index
            ;; read the producer gates on is never paid by a KB that reifies nothing.
-           (context-nat/reconcile-genlCx kb sentence context))
+           ;; ...and what those edges merged.  A computed edge widens which merges a
+           ;; context can see exactly as a stated one does, so it owes the same
+           ;; follow-through — nil, and one test, whenever it merged nothing (vaelii#56)
+           (apply-computed-edge-merges
+            kb (context-nat/reconcile-genlCx kb sentence context) opts))
          h)))))
 
 (defn assert-rule
@@ -5188,7 +5221,10 @@
   [kb sink]
   (retract-following-metas! kb sink)
   (collect-orphaned-nats! kb sink)
-  (context-nat/reconcile-revivals kb))
+  ;; and the merges a revived edge licenses, on the same terms the assert path gives a
+  ;; computed one: an edge the producer could not build while its declaration was OUT
+  ;; widens a cone the moment it is built, whichever door built it
+  (apply-computed-edge-merges kb (context-nat/reconcile-revivals kb) nil))
 
 ;; ---- rolling a batch back: the seam `edit!` and `preview` share -----------
 ;;

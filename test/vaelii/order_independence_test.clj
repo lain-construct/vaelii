@@ -710,6 +710,49 @@
              result)))
     (tu/clear-kb! (tu/test-kb))))
 
+(deftest a-computed-context-edge-merges-in-every-ordering
+  ;; The calendar case, and the one where the edge nobody asserts is the whole question.
+  ;; `contextArgSubrelation` makes January a spec of its year *structurally*, so the
+  ;; `genlCx` edge is computed rather than written — and until vaelii#56 the producer
+  ;; that computes it ran the exception re-checks and none of the equality reconcilers a
+  ;; stated edge runs.  So which of two fillers of one functional slot the KB believed
+  ;; came down to whether the year's fact was written before January existed: four
+  ;; ingredients, twenty-four orderings, and the ones that mint January last merged
+  ;; nothing at all.
+  ;;
+  ;; The mark lives in the year rather than in CxUniverse because a reified `cx/` context
+  ;; is not wired under CxUniverse by anything — the declarations compute its whole cone —
+  ;; so a mark left up there is invisible from the calendar and the scenario would be
+  ;; asking a different question.  `calendar-op` declares the two reify kinds ahead of
+  ;; each op: without them a calendar expression is not a context and the assert is
+  ;; refused, which makes them a precondition of the scenario rather than one of its
+  ;; arrivals.
+  (let [year  '(CxCalFn CxMonad (DatetimeFn "2000"))
+        month '(CxCalFn CxMonad (DatetimeFn "2000-01"))
+        calendar-op
+        (fn [f] (fn [kb]
+                  (v/assert kb '(context_denoting_function CxCalFn) 'CxUniverse)
+                  (v/assert kb '(unreifiable_function DatetimeFn) 'CxUniverse)
+                  (f kb)))
+        ops [(calendar-op #(v/assert % '(contextArgSubrelation CxCalFn 2 subintervalOf)
+                                     'CxUniverse))
+             (calendar-op #(v/assert % '(functionalInArg the_best 1) year))
+             (calendar-op #(v/assert % '(the_best LaMulanaTwo) year))
+             (calendar-op #(v/assert % '(the_best Silksong) month))]
+        observe
+        (fn [kb]
+          {:from-january (sort (map (comp str '?x) (v/ask kb '(the_best ?x) month)))
+           :from-year    (sort (map (comp str '?x) (v/ask kb '(the_best ?x) year)))
+           :merged?      (boolean (v/same-class? kb 'LaMulanaTwo 'Silksong))})
+        result (one-outcome! "a computed calendar genlCx edge" ops observe)]
+    (testing "and the one outcome is that the computed edge did the merge"
+      (is (true? (:merged? result)))
+      (is (= ["LaMulanaTwo"] (:from-january result))
+          "one filler from below, which is January inheriting the year and merging it")
+      (is (= ["LaMulanaTwo"] (:from-year result))
+          "and the year, which the merge is not visible from, keeps its own"))
+    (tu/clear-kb! (tu/test-kb))))
+
 (deftest a-late-asymmetric-mark-is-accounted-for-in-every-ordering
   ;; `(asymmetric asBelow)` with both directions of one pair: 6 orderings, and the two
   ;; that put the declaration last are the ones with no door left to refuse at — both

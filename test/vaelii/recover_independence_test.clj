@@ -191,3 +191,30 @@
       (is (= 1 (count (:rows reading))) "one proposition, one record — restarted too")
       (is (= 1 (:handles reading)) "and both spellings resolve to the one handle")
       (is (= [true true] [(:ask-sf reading) (:ask-fs reading)])))))
+
+(tu/deftest-kb a-computed-context-edge-merge-reads-the-same-after-a-restart
+  ;; vaelii#56.  The `genlCx` edge here is **computed** — `contextArgSubrelation` makes
+  ;; January a spec of its year structurally, and nobody asserts the edge — so the merge
+  ;; it licenses is derived by a producer that runs on the assert maintenance path and
+  ;; nowhere in `recover`'s replay.  What a restart rebuilds instead is the stored edge
+  ;; sentex, its justification, and the twins the merge wrote, and the question is
+  ;; whether those three add up to the reading the deriving KB reached: a merge the live
+  ;; KB performed off a route the rebuild does not travel is exactly the shape that
+  ;; answers one way today and another after a restart.
+  (v/assert kb '(context_denoting_function CxCalFn) 'CxUniverse)
+  (v/assert kb '(unreifiable_function DatetimeFn) 'CxUniverse)
+  (v/assert kb '(contextArgSubrelation CxCalFn 2 subintervalOf) 'CxUniverse)
+  (let [year  '(CxCalFn CxMonad (DatetimeFn "2000"))
+        month '(CxCalFn CxMonad (DatetimeFn "2000-01"))]
+    (v/assert kb '(functionalInArg the_best 1) year)
+    (v/assert kb '(the_best LaMulanaTwo) year)
+    (v/assert kb '(the_best Silksong) month)
+    (let [observe (fn [k]
+                    {:from-january (sort (map (comp str '?x) (v/ask k '(the_best ?x) month)))
+                     :merged?      (boolean (v/same-class? k 'LaMulanaTwo 'Silksong))
+                     :rows         (set (map :sentence
+                                             (v/sentexes-matching k '(the_best ?x) '?c)))})
+          reading (one-reading! "a computed calendar edge's merge" kb observe)]
+      (is (true? (:merged? reading)) "the two fillers are one thing, restarted too")
+      (is (= ["LaMulanaTwo"] (:from-january reading))
+          "and January reads one filler on both sides of the restart"))))

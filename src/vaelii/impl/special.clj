@@ -3398,6 +3398,48 @@
    derive-antisymmetric-equalities
    :anti-symmetric))
 
+(defn reconcile-context-edge
+  "Everything a `(genlCx sub super)` edge means for the **equality** closure, in one
+  call: the sentexes the widened cone newly exposes to a standing merge
+  (`migrate-under-context-edge`), and the two merges the same widening newly licenses
+  (`equate-under-context-edge` for the functional family,
+  `antisym-equate-under-context-edge` for the antisymmetric one).  Returns the usual
+  `{:new :superseded :violations}`.  Safe on any sentence: each arm gates on the
+  `genlCx` functor itself, so a non-edge costs three functor reads and returns the
+  empty result.
+
+  **One function because a `genlCx` edge arrives by three doors, and only two of them
+  remembered the list.**  An edge can be *asserted* (`core/assert-one`), *concluded* by
+  a rule (`chain/place-fact-conclusion`), or **computed** — materialized by the
+  structural producer off a `contextArgSubrelation` declaration with nobody asserting
+  anything (`context-nat/materialize-edge`).  The first two spelled the trio out
+  side by side and the third spelled none of it, so a calendar month→year edge posted
+  the exception re-checks and ran no merge at all: two fillers of one functional slot,
+  made jointly visible for the first time by that edge, stayed unmerged and
+  uncontradicted, and asserting a single *irrelevant* stated edge afterwards repaired
+  it (vaelii#56).  A door that has to remember a list is a door that forgets it — this
+  is the list, and it is the only thing a fourth door has to call.
+
+  **Not merged into the `genlCx` `:integrate` arm**, which would be the one place every
+  door already passes through, for a timing reason that is not incidental: the arm runs
+  from `integrate/sentex-added` and `derived-sentex-added` *before* the edge is
+  justified, so the edge is a node nothing supports, `tax/context-up` and
+  `tax/context-down` — belief-filtered like every closure here — have not widened yet,
+  and all three sweeps would enumerate the pre-edge cone and find nothing.  Chaining
+  learned this first and says so at its own call site; the rule is the same one:
+  reconcile *after* the justification, never beside the integrate arm.
+
+  **nil when no arm did anything**, which is the shape each of them already returns and
+  the one the fixpoint's `mig` gate reads: a conclusion re-derived on every round of
+  every defaults pass must cost nothing rather than a little, so this collapses to nil
+  rather than to an empty accumulator."
+  [kb sentence]
+  (let [cme (migrate-under-context-edge kb sentence)
+        cfn (equate-under-context-edge kb sentence)
+        cax (antisym-equate-under-context-edge kb sentence)]
+    (when (or cme cfn cax)
+      (merge-with into {:new [] :superseded [] :violations []} cme cfn cax))))
+
 (defn- stored-declarations
   "Every **stored** sentex whose functor is `f`, believed or not.
 
