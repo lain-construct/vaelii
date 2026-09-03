@@ -24,7 +24,16 @@
       orderings key on content, not the handle\").
     * a positional take off a **match set** — `(first (sentexes-matching …))`.  The
       retrieval promises the set, never an order, so `first` names whichever member the
-      index enumerated: a KB holding two matches answers by the order it was written in."
+      index enumerated: a KB holding two matches answers by the order it was written in.
+
+  A fourth scan is here for a different reason — cost, not correctness.  `sort-by` runs
+  its key fn *inside* the comparator, so a key that reads the KB is a taxonomy closure
+  re-read ~2·n·log₂n times where `sort-by-content-key` reads it n times.  Same file
+  because it is the same fix, and because these sites are found the same way: by reading
+  the key a call is handed.
+
+  What every one of them reads is the **form**, not the line.  A key written below its
+  call was invisible until it was, which is the whole content of #50."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
@@ -158,17 +167,77 @@
        (remove #(str/ends-with? % "sort_by_content_key_test.clj"))
        sort))
 
-(defn- key-argument
-  "The part of `line` that can be an ordering key: everything after the ordering call,
-  or nil when the line makes none.  Printing *before* the call is a different thing — a
-  `(map pr-str (sort-by …))` renders what the sort answered and never keys on it.
+(defn- string-end
+  "One past the string literal opening at `i`, escapes honoured — so a `\\\"` inside it
+  does not end it and a `(` inside it balances nothing."
+  [^String s i]
+  (let [n (count s)]
+    (loop [j (inc i)]
+      (cond (>= j n)             n
+            (= \\ (.charAt s j)) (recur (+ j 2))
+            (= \" (.charAt s j)) (inc j)
+            :else                (recur (inc j))))))
 
-  `call` is which roster of ordering calls to look for, so the scans below share one
-  reading of what a key argument *is* rather than each cutting the line its own way."
-  ([line] (key-argument ordering-call line))
-  ([call line]
-   (when-let [m (re-find call line)]
-     (subs line (+ (str/index-of line m) (count m))))))
+(defn- atom-end
+  "One past the bare atom starting at `i` — a symbol, keyword or number, which runs to the
+  first whitespace or delimiter."
+  [^String s i]
+  (let [n (count s)]
+    (loop [j (inc i)]
+      (if (or (>= j n)
+              (let [c (.charAt s j)]
+                (or (Character/isWhitespace c)
+                    (contains? #{\( \) \[ \] \{ \} \" \; \, \'} c))))
+        j
+        (recur (inc j))))))
+
+(defn- form-end
+  "One past the **single form** beginning at or after `i`: the paren-balanced read a line
+  cut cannot do.  Strings and line comments are skipped whole, a character literal is one
+  atom, and a reader prefix (`#`, `'`, `` ` ``, `~`, `@`, `^`) decorates the form after it
+  rather than standing as one."
+  [^String s i]
+  (let [n (count s)]
+    (loop [i i depth 0]
+      (if (>= i n)
+        n
+        (let [c (.charAt s i)]
+          (cond
+            (= \; c)                     (recur (or (str/index-of s "\n" i) n) depth)
+            (= \" c)                     (let [e (string-end s i)]
+                                           (if (zero? depth) e (recur e depth)))
+            (= \\ c)                     (if (zero? depth)
+                                           (atom-end s (inc i))
+                                           (recur (+ i 2) depth))
+            (contains? #{\( \[ \{} c)    (recur (inc i) (inc depth))
+            (contains? #{\) \] \}} c)    (if (<= depth 1) (inc i) (recur (inc i) (dec depth)))
+            (pos? depth)                 (recur (inc i) depth)
+            (Character/isWhitespace c)   (recur (inc i) depth)
+            (contains? #{\# \' \` \~ \@ \^} c) (recur (inc i) depth)
+            :else                        (atom-end s i)))))))
+
+(defn- ordering-keys
+  "`[line-number line key-form]` for every `call` in `text` — the ordering **key** each one
+  is handed, read as a form.
+
+  A key is not \"the rest of the line\".  Written below its call — a `juxt` broken over two
+  lines, a `pr-str` on the continuation — it is invisible to a scan that cuts the line
+  after the call, and that one-line window is how every site this file has ever missed was
+  missed: PR #46's `quality.clj` one, and the four `llm/inventory.clj` ones.  Reading to
+  the key's own closing paren sees all of it, however far down the page it runs, **and
+  stops there** — so the collection argument, which may legitimately print what the sort
+  answered (`(map pr-str (sort-by …))` renders an answer and never keys on it), is no part
+  of what is judged."
+  [call ^String text]
+  (let [lines (vec (str/split-lines text))
+        m     (re-matcher call text)]
+    (loop [found [] pos 0 line 1]
+      (if-not (.find m)
+        found
+        (let [start (.start m)
+              line  (+ line (count (re-seq #"\n" (subs text pos start))))
+              key   (subs text (.end m) (form-end text (.end m)))]
+          (recur (conj found [line (nth lines (dec line) "") key]) start line))))))
 
 (defn- unguarded-printed-keys
   "Every `[path line-number line]` in `src/vaelii` that hands a bare `pr-str` to an
@@ -182,17 +251,15 @@
   []
   (for [path  (clj-sources)
         :when (not (str/ends-with? path "/naming.clj"))
-        :let  [lines (vec (str/split-lines (slurp path)))]
-        i     (range (count lines))
-        :let  [line (nth lines i)
-               key  (key-argument line)
-               above (str/join "\n" (subvec lines (max 0 (- i 12)) (inc i)))]
-        :when (and key
-                   (str/includes? key "pr-str")
+        :let  [text  (slurp path)
+               lines (vec (str/split-lines text))]
+        [n line key] (ordering-keys ordering-call text)
+        :let  [above (str/join "\n" (subvec lines (max 0 (- n 13)) n))]
+        :when (and (str/includes? key "pr-str")
                    (not (str/includes? key "print-key"))
                    (not (str/includes? above "*print-length*"))
                    (not-any? #(str/includes? line %) printed-key-allowed))]
-    [path (inc i) (str/trim line)]))
+    [path n (str/trim line)]))
 
 (deftest no-ordering-key-prints-without-the-guard
   ;; The recurring bug this closes: `(sort-by pr-str …)` over an answer *set*, or over a
@@ -223,14 +290,11 @@
   []
   (for [path  (clj-sources)
         :when (not (str/ends-with? path "/naming.clj"))
-        :let  [lines (vec (str/split-lines (slurp path)))]
-        i     (range (count lines))
-        :let  [line (nth lines i)
-               key  (key-argument line)]
-        :when (and key
-                   (re-find bare-str key)
+        :let  [text (slurp path)]
+        [n line key] (ordering-keys ordering-call text)
+        :when (and (re-find bare-str key)
                    (not-any? #(str/includes? line %) printed-key-allowed))]
-    [path (inc i) (str/trim line)]))
+    [path n (str/trim line)]))
 
 (deftest no-ordering-key-is-a-bare-str
   ;; The wider half of the same class, and the one that had ~50 live sites: `str` honours
@@ -244,6 +308,86 @@
              "a collection (a sentence, a NAT, a context NAT, a binding map), `nm/name-key` "
              "where it is a scalar, or `nm/compare-form` where no key is needed at all:\n"
              (str/join "\n" (map (fn [[p n l]] (str "  " p ":" n "  " l)) bad))))))
+
+;; ---- a key that reads the KB, run once per comparison -------------------
+
+(def ^:private plain-sort-by
+  "`sort-by` itself, and not the cure.  `sort-by-content-key` and `min-by-content-key`
+  both continue past a `-`, which the lookahead refuses, so a converted site simply stops
+  matching and no second roster has to be kept in step with this one."
+  #"\((?:nm/|naming/)?sort-by(?![\w/-])")
+
+(def ^:private kb-reading-key
+  "`kb` named inside an ordering key — the key asks the knowledge base something.  A
+  `genls` closure, a match, an `arg` read: whatever it is, it is not a field access, and
+  `sort-by` will run it once per *comparison*."
+  #"(?<![\w-])kb(?![\w-])")
+
+(defn- kb-reading-sort-keys
+  "Every `[path line-number line]` in `src/vaelii` that hands `sort-by` a key that reads
+  the KB.  No allowlist, because there is no case for one: the cure is a drop-in with the
+  same order and the same tie-break, so a site that wants this key wants
+  `nm/sort-by-content-key` (or `nm/min-by-content-key`, where the sort was thrown away
+  but for its first element)."
+  []
+  (for [path (clj-sources)
+        :let [text (slurp path)]
+        [n line key] (ordering-keys plain-sort-by text)
+        :when (re-find kb-reading-key key)]
+    [path n (str/trim line)]))
+
+(deftest no-sort-by-key-reads-the-kb
+  ;; `sort-by` calls its key fn from inside the comparator, so `(sort-by (partial
+  ;; specificity kb) types)` re-reads a taxonomy closure ~2·n·log₂n times to answer a
+  ;; question n reads settle.  Nothing goes red — the order is right, and only the cost is
+  ;; wrong — which is why this is a scan rather than a test of an answer.
+  (let [bad (kb-reading-sort-keys)]
+    (is (empty? bad)
+        (str "an ordering key reads the KB and `sort-by` runs it per comparison — use "
+             "`nm/sort-by-content-key` (or `nm/min-by-content-key` where only the first "
+             "element is kept), which builds the key once per element:\n"
+             (str/join "\n" (map (fn [[p n l]] (str "  " p ":" n "  " l)) bad))))))
+
+;; ---- what the scans read: the form, not the line -----------------------
+
+(deftest a-key-written-below-its-call-is-read
+  ;; The hole every one of these scans had, as a fixture rather than as a source file: cut
+  ;; the line after `(sort-by` and there is nothing left to judge, so a key one line down
+  ;; passed a green guard.  That is how PR #46's `quality.clj` site and #50's four
+  ;; `llm/inventory.clj` ones were all written under a scan that was watching for exactly
+  ;; them.
+  (let [text (str "(defn- ranked [kb xs]\n"
+                  "  (sort-by\n"
+                  "   (juxt first (comp (partial specificity kb) second)\n"
+                  "         (fn [x] (pr-str x)))\n"
+                  "   xs))\n")
+        [[n line key] :as found] (ordering-keys ordering-call text)]
+    (is (= 1 (count found)) "one ordering call, found once")
+    (is (= 2 n) "reported at the line the call is on, not the line the key ends on")
+    (is (= "(sort-by" (str/trim line)))
+    (is (str/includes? key "specificity kb")
+        "the key below the call is read at all — cutting the line saw nothing after `(sort-by`")
+    (is (str/includes? key "pr-str")
+        "and all of it, however many lines down it runs")
+    (is (not (str/includes? key "xs"))
+        "and it stops at the key's own closing paren — the collection is no part of the key")
+    (testing "so all four scans see it, where a line cut saw none of them"
+      (is (re-find #"pr-str" key))
+      (is (re-find kb-reading-key key)))))
+
+(deftest the-form-read-is-not-fooled-by-a-string-or-a-comment
+  ;; A paren inside a string or after a `;` closes nothing, and a scan that counted them
+  ;; would end the key early — which reads as a *narrower* guard, the failure mode this
+  ;; whole file exists to refuse.
+  (let [text (str "(sort-by (juxt :a   ; ) does not close anything\n"
+                  "               #(str \"(\" %))\n"
+                  "         xs)\n")
+        [[_ _ key]] (ordering-keys ordering-call text)]
+    (is (str/includes? key "#(str")
+        "the comment's paren did not end the key")
+    (is (str/ends-with? key "%))")
+        "and the string's paren did not either — the key ends where its own paren does")
+    (is (not (str/includes? key "xs")))))
 
 ;; ---- the handle as a key: arrival order, written down ------------------
 
@@ -289,15 +433,24 @@
   `:handle` key fn handed to an ordering call, or a bare `sort` over a collection of
   handles — minus the allowlist above."
   []
-  (for [path  (clj-sources)
-        :let  [lines (vec (str/split-lines (slurp path)))]
-        i     (range (count lines))
-        :let  [line (nth lines i)
-               key  (key-argument handle-ordering-call line)]
-        :when (and (or (and key (re-find handle-key key))
-                       (re-find handle-collection-sort line))
-                   (not-any? #(str/includes? line %) handle-key-allowed))]
-    [path (inc i) (str/trim line)]))
+  (distinct
+   (sort
+    (concat
+     (for [path (clj-sources)
+           :let [text (slurp path)]
+           [n line key] (ordering-keys handle-ordering-call text)
+           :when (and (re-find handle-key key)
+                      (not-any? #(str/includes? line %) handle-key-allowed))]
+       [path n (str/trim line)])
+     ;; the bare `sort` over a collection *of* handles passes no key fn, so there is no
+     ;; form to read and the line is the whole of what there is to see
+     (for [path  (clj-sources)
+           :let  [lines (vec (str/split-lines (slurp path)))]
+           i     (range (count lines))
+           :let  [line (nth lines i)]
+           :when (and (re-find handle-collection-sort line)
+                      (not-any? #(str/includes? line %) handle-key-allowed))]
+       [path (inc i) (str/trim line)])))))
 
 (deftest no-ordering-key-is-a-handle
   ;; The half of the rule the printed scan cannot see, and the more direct one: a handle

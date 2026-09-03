@@ -32,6 +32,7 @@
   (:require [clojure.string :as str]
             [vaelii.core :as v]
             [vaelii.impl.llm.inventory :as inv]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.sentex :as sx]))
 
 ;; ---- what the sentence is about -------------------------------------------
@@ -83,9 +84,9 @@
   signatures use, so a position reads the same in both places.  Narrowest is also the
   honest reading of two constraints: a term must satisfy both to stand there."
   [kb pred n]
-  (first (sort-by (partial inv/specificity kb)
-                  (for [{:keys [sentence]} (v/sentexes-matching kb (list 'arg pred n '?t) '?ctx)]
-                    (nth sentence 3)))))
+  (nm/min-by-content-key (partial inv/specificity kb) compare
+                         (for [{:keys [sentence]} (v/sentexes-matching kb (list 'arg pred n '?t) '?ctx)]
+                           (nth sentence 3))))
 
 (defn- structural?
   "Is this **frame** rather than vocabulary — a connective or meta-form the engine

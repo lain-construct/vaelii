@@ -293,7 +293,7 @@
          arities   (into (inventory/declared-arities kb) local)
          struct    (inventory/structural-terms kb)
          seed-set  (set seeds)
-         nearest   #(sort-by (partial inventory/specificity kb) %)
+         nearest   #(nm/sort-by-content-key (partial inventory/specificity kb) compare %)
          up        (for [t seeds :when (all-types t)
                          g (take max-genls (nearest (disj (set (v/genls kb t)) t)))]
                      g)

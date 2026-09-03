@@ -522,7 +522,7 @@
               ;; `*print-length*` collapsing the key would decide an admission on the
               ;; order the retrieval happened to answer in
               (nm/min-by-content-key (juxt #(- (st/rank-of (:class %)))
-                                           #(str (:context %))
+                                           #(nm/name-key (:context %))
                                            #(nm/print-key (:sentence %)))
                                      compare
                                      cs)))))

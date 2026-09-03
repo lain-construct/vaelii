@@ -133,10 +133,14 @@
   contract: it releases all three print bounds, where a `*print-meta*` left at the
   caller's setting keys a form carrying metadata apart from one that does not.  Built
   once per candidate rather than once per comparison (`min-by-content-key`), which is
-  the whole of what a term commented in one context costs."
+  the whole of what a term commented in one context costs.
+
+  The context goes through `nm/name-key` for the same reason the sentence goes through
+  `nm/print-key`: a context can be a NAT, and a bare `str` on one honours the caller's
+  print bounds — the collapse this key exists to rule out, one argument further in."
   [kb term]
   (when-let [hit (nm/min-by-content-key
-                  #(nm/print-key [(:sentence %) (str (:context %))])
+                  #(nm/print-key [(:sentence %) (nm/name-key (:context %))])
                   compare
                   (v/sentexes-matching kb (list 'comment term '?text) '?ctx))]
     (template (nth (:sentence hit) 2 nil))))

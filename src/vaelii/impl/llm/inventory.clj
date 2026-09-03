@@ -160,7 +160,7 @@
   Public because `vaelii.impl.llm.text` builds a card from a document's resolved terms
   rather than from one page term, and a second copy of this ordering would drift."
   [kb t]
-  [(- (count (v/genls kb t))) (str t)])
+  [(- (count (v/genls kb t))) (nm/name-key t)])
 
 (def predicate-type-arities
   "The predicate meta-ontology's arity declarations: the type a predicate is a member of,
@@ -255,7 +255,7 @@
   ([kb term] (seed-types kb term {}))
   ([kb term {:keys [max-genls max-specs max-siblings]
              :or {max-genls 8 max-specs 12 max-siblings 12}}]
-   (let [order #(sort-by (partial specificity kb) %)
+   (let [order #(nm/sort-by-content-key (partial specificity kb) compare %)
          role  (term-kind kb term)]
      (case role
        :type
@@ -288,8 +288,9 @@
              up   (order (disj (set (v/genls kb term)) term))
              down (order (disj (set (v/specs kb term)) term))]
          {:term term :role role
-          :arg-types (vec (distinct (map second (sort-by (juxt first (comp (partial specificity kb) second))
-                                                         args))))
+          :arg-types (vec (distinct (map second (nm/sort-by-content-key
+                                                 (juxt first (comp (partial specificity kb) second))
+                                                 compare args))))
           :genls (vec (take max-genls up))
           :specs (vec (take max-specs down))})
 
@@ -409,9 +410,11 @@
   [kb p arity]
   {:predicate p
    :arity (or arity (observed-arity kb p))
-   :args (vec (sort-by (juxt first (comp (partial specificity kb) second))
-                       (for [{:keys [sentence]} (v/sentexes-matching kb (list 'arg p '?n '?t) '?ctx)]
-                         [(nth sentence 2) (nth sentence 3)])))
+   :args (vec (nm/sort-by-content-key
+               (juxt first (comp (partial specificity kb) second))
+               compare
+               (for [{:keys [sentence]} (v/sentexes-matching kb (list 'arg p '?n '?t) '?ctx)]
+                 [(nth sentence 2) (nth sentence 3)])))
    :props (props-of kb p)
    :inverse (v/inverse-of kb p)
    :doc (first (core-context/comment-of kb p))})
@@ -489,7 +492,8 @@
       :seed seed
       :types (vec (for [t shown]
                     {:type t
-                     :parent (first (sort-by (partial specificity kb) (disj (set (v/genls kb t)) t)))
+                     :parent (nm/min-by-content-key (partial specificity kb) compare
+                                                    (disj (set (v/genls kb t)) t))
                      :doc (first (core-context/comment-of kb t))}))
       :relations (vec (for [p kept] (assoc (predicate-shape kb p (arities p)) :tier (best p))))
       :structural (vec (for [p structural-predicates

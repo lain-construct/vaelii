@@ -1886,7 +1886,8 @@
           ;; two supertypes the same distance up are ordered by something a reader can
           ;; account for rather than by where the closure set happens to hold them.  The
           ;; list is capped, so the tie decides which claims are shown
-          super (sort-by (juxt #(- (count (v/genls kb %))) print-key) (v/genls kb t))
+          super (nm/sort-by-content-key (juxt #(- (count (v/genls kb %))) print-key)
+                                        compare (v/genls kb t))
           :let  [claim (list super x)]
           :when (and (not= super t) (not= 'thing super) (not (stated claim)))]
       {:sentence claim :context (:context sx) :type t :individual x})))

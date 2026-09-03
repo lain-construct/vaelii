@@ -248,6 +248,14 @@ claim worth writing down.
 `sort_by_content_key_test`'s positional-take scan reads `src/` for the ones that do
 neither.
 
+Each of those scans reads the ordering **key** as a *form* — from the call to the key's
+own closing paren — rather than as the rest of the call's line. A key written one line
+below its call is the shape that had slipped every earlier reading of them, and a guard
+that narrows without reddening is the failure this file is about. The same reading
+carries a fourth scan that is about cost rather than order: `sort-by` runs its key fn
+inside the comparator, so a key that reads the KB is a taxonomy closure re-read
+~2·n·log₂n times where `nm/sort-by-content-key` reads it n times.
+
 ### The touched window is a superset, not the flip set
 
 `settle` publishes the region it moved so three readers — a consequence preview, a
