@@ -80,12 +80,44 @@ literal holding a variable is a **pattern** (a query, or an antecedent about to 
 matched) and is never reordered: variables sort last, so sorting one would move its
 ground argument into slot 1 and miss the stored fact.
 
-Order-insensitive *lookup* is handled at match time instead — `res/raw-match`,
-`core/sentexes-matching`, and `kb/find-sentex-handle` probe **both argument orders** for a
-symmetric predicate. That also keeps a fact asserted *before* its `(symmetric P)`
-declaration reachable, and makes re-asserting its mirror resolve to it rather than
-duplicate. Sorting needs the taxonomy, so every store/lookup builds its sentex
-through `res/kb-sentex` (which supplies `:symmetric?`).
+Order-insensitive *lookup* is handled at match time instead — `res/raw-match` and
+`core/sentexes-matching` probe **both argument orders** for a symmetric predicate, which is
+how a query answers a pair whichever way round it was asked. Sorting needs the taxonomy,
+so every store/lookup builds its sentex through `res/kb-sentex` (which supplies
+`:symmetric?`).
+
+### A mark arriving after the facts migrates them
+
+The sort is what the *door* does, so a `(symmetric P)` declaration arriving after `P`'s
+facts leaves the store holding spellings no later assertion will ever produce — and if
+both spellings of one pair were written, two records for one proposition, each retractable
+without the other. Match-time probing does not close that: it makes both records answer,
+which reports the fact twice rather than once.
+
+So the declaration migrates what is stored (`integrate/symmetrize-existing`), which is the
+one retroactive arm that writes records rather than deriving content. A row with no mirror
+stored is **re-spelled where it lies** — same handle, same TMS node, same premise mark,
+same justifications, since for a re-canonicalization nothing resting on the row is about
+its spelling (`kb/respell-sentex!`, the store's third mutation beside `create-sentex` and
+`integrate/sentex-removed!`). A mirrored pair **folds into one row**: the redundant one
+hands over its premise mark, the justifications drawn through it and its handle-naming
+metas, and then leaves through the ordinary teardown.
+
+Which of a pair survives is decided from what supports it and only then from the handle. A
+row a rule concluded cannot be the one to leave — folding it would mean deleting the
+justifications naming it as their consequence, and the JTMS has no door for that on
+purpose — so the row standing on nothing but its own premise is the one that goes. Between
+two such rows the **lower handle** survives: it is the row the KB would be holding had the
+declaration come first, which is the claim being restored. Two rows a rule concluded are
+left alone, pair and all, and for that pair the KB reads as it did before the arm existed.
+
+The migration is a **write**, so retracting the mark does not undo it: `P`'s facts stay
+spelled the way the declaration had them spelled. That is a spelling and not a belief. The
+alternative — an alias recording that two records mean one — would have to be rebuilt on
+every `recover` from records that still spell the fact two ways, and consulted for ever
+after by matching, retraction, the TMS and every handle door. Migrating leaves the records
+themselves canonical, so `recover` reads a store that needs no reconciling
+(`recover_independence_test`).
 
 ## Comparison siblings folded
 

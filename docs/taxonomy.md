@@ -942,6 +942,14 @@ maintained by `integrate-sentex`:
 - `(transitive P)` / `(symmetric P)` / `(reflexive P)` — drive the generic
   relation provers (see [inference.md](inference.md)).
 
+  `symmetric` is the one of the three that also decides **storage**: the door sorts a
+  ground symmetric literal's arguments, so the two spellings of a pair are one sentex.
+  That makes its retroactive half a record migration rather than a derivation — a mark
+  arriving after the facts re-spells the rows stored before it and folds a mirrored pair
+  into one, or the same knowledge in two arrival orders would leave two records for one
+  proposition (vaelii#61). What it does, what it keeps and what it declines:
+  [canonicalization.md](canonicalization.md#a-mark-arriving-after-the-facts-migrates-them).
+
   A declared-transitive `P` is **metadata only** — it is not a cached relation. Nothing
   about `P` enters the adjacency, so there is no closure to maintain, no depth potential
   to repair, and nothing an arrival order could make expensive; asserting `(largerThan A

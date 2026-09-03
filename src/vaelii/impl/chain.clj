@@ -13,6 +13,7 @@
   (:require [taoensso.trove :as trove]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.inherit :as inherit]
+            [vaelii.impl.integrate :as integrate]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
@@ -1493,13 +1494,18 @@
               ;; the first time, exactly as an asserted one does
               cfn  (when new? (special/equate-under-context-edge kb conseq))
               cax  (when new? (special/antisym-equate-under-context-edge kb conseq))
+              ;; ...and a *derived* `(symmetric P)` re-spells the rows stored before it
+              ;; exactly as an asserted one does — the mark sorts arguments at the door,
+              ;; so without this whether one proposition is one record would depend on
+              ;; whether the declaration was written or inferred
+              symx (when new? (integrate/symmetrize-existing kb conseq h))
               ;; nil when nothing merged, which is every conclusion on a KB that states
               ;; no equality and every re-derivation on one that does — and a fixpoint
               ;; re-derives the same conclusion on every round of every defaults pass, so
               ;; this is the arm that must cost nothing rather than a little
-              mig  (when (or eq fnl fex fed asym axe axd cme cfn cax)
+              mig  (when (or eq fnl fex fed asym axe axd cme cfn cax symx)
                      (merge-with into {:new [] :superseded [] :violations []}
-                                 eq fnl fex fed asym axe axd cme cfn cax))
+                                 eq fnl fex fed asym axe axd cme cfn cax symx))
               ;; The spellings those merges retired, applied here rather than left to the
               ;; settle that follows.  A supersession *starts* when migration says so and
               ;; reaches the reconcile only as its `extra` (`special/supersession-map`),

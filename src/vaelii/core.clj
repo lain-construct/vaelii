@@ -1575,8 +1575,14 @@
               ;; the contexts were ever wired together before the facts arrived
               cfn  (special/equate-under-context-edge kb sentence)
               cax  (special/antisym-equate-under-context-edge kb sentence)
+              ;; ...and the one mark whose retroactive half is a *storage* migration
+              ;; rather than a derivation: `(symmetric P)` sorts a literal's arguments at
+              ;; the door, so the rows stored before it are spelled the way no row stored
+              ;; after it will be — and a mirrored pair is two records for one
+              ;; proposition, each retractable without the other (vaelii#61)
+              sym  (integrate/symmetrize-existing kb sentence h)
               mig  (merge-with into {:new [] :superseded [] :violations []}
-                               eq own fnl fex fdn asym axe axd cme cfn cax)]
+                               eq own fnl fex fdn asym axe axd cme cfn cax sym)]
           ;; Only when this assert actually merged something.  The reconcile re-examines
           ;; every entry the closure currently displaces, and an assert that merged
           ;; nothing cannot change one: an entry stops being displaced when its terms
@@ -3196,8 +3202,10 @@
   Storage, not belief: a stored-but-defeated sentex still has a handle and is
   returned.  Test belief with `in?`, or use `sentexes-matching` (which filters it).
 
-  A **ground** symmetric literal also probes its mirror, so `(siblingOf Ann Bob)`
-  finds a stored `(siblingOf Bob Ann)`.
+  Either spelling of a **ground** symmetric literal finds the one sentex the pair is
+  stored as, `(siblingOf Ann Bob)` and `(siblingOf Bob Ann)` alike — the sort is what the
+  store and the lookup both go through, and a row written before the `(symmetric P)`
+  declaration was re-spelled by it (docs/canonicalization.md).
 
   Being ist's counterpart, it reads an `(ist Ctx S)` sentence the way `ist` writes one:
   S is looked up in Ctx, which wins over `context` (`ist-goal`).  And it refuses the

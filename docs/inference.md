@@ -1090,7 +1090,8 @@ held where it is instead, in the closure answers and the search step's reach mem
 
 A table of `solve-goal` answers — keyed `[canonical goal, context, prover set]`, holding
 the answers with their supports, stamped with the same change clock — would be **sound**.
-Every mutation that could move an answer moves that clock: the two store choke points,
+Every mutation that could move an answer moves that clock: the store choke points (both,
+plus `kb/respell-sentex!`, which is their two halves back to back),
 every mutating `jtms` entry point (so a relabel, a defeat and a premise change are all in
 it) and a watch on the taxonomy's own atom, so a belief change and a `genlCx` edge both
 retire the whole table (`observe/note-change`). The prover set belongs in the key for the

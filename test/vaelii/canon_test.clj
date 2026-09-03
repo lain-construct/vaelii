@@ -469,17 +469,29 @@
       (is (empty? (v/sentexes-matching kb (list sib '?x (tu/tmp-ind)) 'CxU))))))
 
 (tu/deftest-kb a-fact-asserted-before-its-symmetric-declaration-stays-reachable
-  ;; canonical sorting only applies once (symmetric P) is known, so a fact stored
-  ;; earlier may sit in the "wrong" order — lookup probes both ways so it never
-  ;; becomes unreachable, and re-asserting its mirror resolves rather than duplicates.
-  (let [sib (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
-    (let [h (v/assert kb (list sib a b) 'CxU)]        ; stored before the metadata
-      (v/assert kb (list 'symmetric sib) 'CxU)
-      (testing "it is still found from either direction"
-        (is (seq (v/sentexes-matching kb (list sib a b) 'CxU)))
-        (is (seq (v/sentexes-matching kb (list sib b a) 'CxU))))
-      (testing "and asserting the mirror image resolves to it rather than duplicating"
-        (is (= h (v/assert kb (list sib b a) 'CxU)))))))
+  ;; Canonical sorting only applies once `(symmetric P)` is known, so a fact stored
+  ;; earlier may sit in the "wrong" order.  The declaration re-spells it where it lies
+  ;; (`integrate/symmetrize-existing`), so the handle survives, both directions answer,
+  ;; and the mirror asserted afterwards resolves to it rather than storing a second row.
+  ;;
+  ;; Both orders of the pair, because only one of them is out of order and which one is
+  ;; decided by the generated names: run over the canonically-spelled fact alone this
+  ;; reads as a claim about the other and never stores one.
+  (let [a (tu/tmp-ind) b (tu/tmp-ind)]
+    (doseq [[x y] [[a b] [b a]]]
+      (let [sib (tu/tmp-pred)
+            h   (v/assert kb (list sib x y) 'CxU)]    ; stored before the metadata
+        (v/assert kb (list 'symmetric sib) 'CxU)
+        (testing "it is still found from either direction"
+          (is (seq (v/sentexes-matching kb (list sib x y) 'CxU)))
+          (is (seq (v/sentexes-matching kb (list sib y x) 'CxU))))
+        (testing "and it is one row, at the handle the assertion returned"
+          (is (= 1 (count (v/sentexes-matching kb (list sib '?p '?q) 'CxU))))
+          (is (= h (v/handle-of kb (list sib x y) 'CxU)))
+          (is (= h (v/handle-of kb (list sib y x) 'CxU))))
+        (testing "and asserting the mirror image resolves to it rather than duplicating"
+          (is (= h (v/assert kb (list sib y x) 'CxU)))
+          (is (= 1 (count (v/sentexes-matching kb (list sib '?p '?q) 'CxU)))))))))
 
 (tu/deftest-kb an-anonymous-wildcard-consequent-is-rejected
   ;; `_` is a fresh variable at each occurrence, so it can never carry a binding from

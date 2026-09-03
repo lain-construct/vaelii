@@ -2012,7 +2012,7 @@
      twin)
     (sx/canon (retarget-handle (kb/rewrite-term kb s reader) orig twin))))
 
-(defn- migrate-handle-metas
+(defn migrate-handle-metas
   "Carry every believed handle-naming meta of sentex `orig` onto its migrated twin `twin`.
 
   A meta and the sentex it names are **separate** sentexes linked by the handle —
@@ -2027,11 +2027,16 @@
   through `integrate-twin`, so the twin reaches every index arm the original did — the
   exception re-check, the `except` roster, the reply cascade.
 
-  `eqs` are the equality supporters that migrated the sentex — the meta twin exists
-  *because* the sentex did, so it rests on the same merge.  Rewrites read from `reader`, the
-  vantage the twin's own form was elected from (`migrate-into`), so a meta elects the
-  spellings its target does; the unscoped rewrite used the global election, which a merge
-  `reader` cannot see would diverge from — a twin mis-guarded, mis-hidden or mis-aimed."
+  `eqs` are the witnesses that migrated the sentex — the meta twin exists *because* the
+  sentex did, so it rests on the same merge.  Public because a `(symmetric P)` mark folding
+  two mirrored rows into one owes its doomed row's metas the same carry, and hands the
+  declaration itself as the single witness (`integrate/symmetrize-existing`): what raises a
+  twin differs between the two callers, what a stranded meta costs does not.
+
+  Rewrites read from `reader`, the vantage the twin's own form was elected from
+  (`migrate-into`), so a meta elects the spellings its target does; the unscoped rewrite
+  used the global election, which a merge `reader` cannot see would diverge from — a twin
+  mis-guarded, mis-hidden or mis-aimed."
   [kb orig twin eqs reader]
   (let [realign (varmap-realign (p/get-sentex (:records kb) twin))]
     (doseq [mh   (reads/as-stored-with-term (:index kb) (sx/sentex-handle orig))

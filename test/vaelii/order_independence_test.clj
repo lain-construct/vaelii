@@ -650,6 +650,66 @@
     (is (< 1 (count (distinct doors)))
         (str "and the scenario reaches more than one of them — " (pr-str (frequencies doors))))))
 
+(deftest a-late-symmetric-mark-leaves-one-row-for-one-proposition
+  ;; `(symmetric P)` is the one mark whose effect is **canonicalization** rather than
+  ;; conviction: the door sorts a symmetric literal's arguments, so the two spellings of
+  ;; one pair store as one sentex.  A mark arriving after both spellings were written
+  ;; therefore leaves the KB holding *two* records for one proposition where a KB told the
+  ;; same things in the other order holds one — and the retraction of either then withdraws
+  ;; half a fact (vaelii#61).  The mark may land anywhere among the facts; what may not
+  ;; vary is what the KB stores and believes once it has.
+  (let [h   (atom nil)
+        ops [[#(reset! h (v/assert % '(bordersOn Spain France) 'CxUniverse))
+              #(v/assert % '(bordersOn France Spain) 'CxUniverse)]
+             [#(v/assert % '(symmetric bordersOn) 'CxUniverse)]
+             [#(v/assert % '(genl bordersOn near) 'CxUniverse)]]
+        observe
+        (fn [kb]
+          {:rows        (count (v/sentexes-matching kb '(bordersOn ?x ?y) 'CxUniverse))
+           ;; the two spellings are one proposition, so they are one handle
+           :one-handle? (= (v/handle-of kb '(bordersOn Spain France) 'CxUniverse)
+                           (v/handle-of kb '(bordersOn France Spain) 'CxUniverse))
+           :borders-sf  (v/ask? kb '(bordersOn Spain France) 'CxUniverse)
+           :borders-fs  (v/ask? kb '(bordersOn France Spain) 'CxUniverse)
+           ;; ...and the derived answers, which is where the second record hid: `near` is
+           ;; reached through `(genl bordersOn near)`, so a surviving twin answers both
+           :near-sf     (v/ask? kb '(near Spain France) 'CxUniverse)
+           :near-fs     (v/ask? kb '(near France Spain) 'CxUniverse)})
+        result (one-outcome-under! "late symmetric mark" ops observe)]
+    (testing "and the one outcome is the mark-first reading"
+      (is (= 1 (:rows result)) "one proposition, one record")
+      (is (true? (:one-handle? result)))
+      (is (every? true? ((juxt :borders-sf :borders-fs :near-sf :near-fs) result))
+          "both spellings hold, and both derived answers with them"))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-late-symmetric-mark-leaves-nothing-for-a-retraction-to-miss
+  ;; The issue's own sequence.  The retraction runs in `observe` rather than as a
+  ;; permuted op, because it names the handle the *first* assertion returned and what
+  ;; that handle denotes is the whole question: with the mark already in, it is the pair;
+  ;; retracted before the mark arrives it is one of two rows, and the KB legitimately
+  ;; keeps the other.  So the mark ranges over every position among the facts, the
+  ;; retraction stays after all of them, and every ordering must withdraw the proposition
+  ;; whole — including the two `near` answers derived through the predicate above it.
+  (let [h   (atom nil)
+        ops [[#(reset! h (v/assert % '(bordersOn Spain France) 'CxUniverse))
+              #(v/assert % '(bordersOn France Spain) 'CxUniverse)]
+             [#(v/assert % '(symmetric bordersOn) 'CxUniverse)]
+             [#(v/assert % '(genl bordersOn near) 'CxUniverse)]]
+        observe
+        (fn [kb]
+          (v/retract! kb @h)
+          {:rows       (count (v/sentexes-matching kb '(bordersOn ?x ?y) 'CxUniverse))
+           :borders-sf (v/ask? kb '(bordersOn Spain France) 'CxUniverse)
+           :borders-fs (v/ask? kb '(bordersOn France Spain) 'CxUniverse)
+           :near-sf    (v/ask? kb '(near Spain France) 'CxUniverse)
+           :near-fs    (v/ask? kb '(near France Spain) 'CxUniverse)})
+        result (one-outcome-under! "late symmetric mark, then a retraction" ops observe)]
+    (testing "and the one outcome is that the retraction reached all of it"
+      (is (= {:rows 0 :borders-sf false :borders-fs false :near-sf false :near-fs false}
+             result)))
+    (tu/clear-kb! (tu/test-kb))))
+
 (deftest a-late-asymmetric-mark-is-accounted-for-in-every-ordering
   ;; `(asymmetric asBelow)` with both directions of one pair: 6 orderings, and the two
   ;; that put the declaration last are the ones with no door left to refuse at — both

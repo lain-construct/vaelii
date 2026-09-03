@@ -168,3 +168,26 @@
             reading (one-reading! "a naf condition over a merged term" kb observe)]
         (is (= {:seen #{} :ask false} reading)
             "a term with an answer under its representative is not absent, restarted either")))))
+
+(tu/deftest-kb a-late-symmetric-mark-reads-the-same-after-a-restart
+  ;; The durable half of vaelii#61.  A `(symmetric P)` mark arriving after both spellings
+  ;; of a pair were stored *migrates the records* — one row is folded into the other and
+  ;; the survivor is re-spelled where it lies — which is the one retroactive arm that
+  ;; writes rather than derives, and so the one a restart can most directly contradict.
+  ;; A migration that moved only the live KB's reading would leave the records still
+  ;; spelling the fact two ways, so `recover` rebuilds the pair the live KB has just
+  ;; collapsed and the KB answers one thing until it restarts and another afterwards.
+  (tu/with-terms [pborders SEsp SFra]
+    (v/assert kb (list pborders SEsp SFra) 'CxUniverse)
+    (v/assert kb (list pborders SFra SEsp) 'CxUniverse)
+    (v/assert kb (list 'symmetric pborders) 'CxUniverse)
+    (let [observe (fn [k]
+                    {:rows    (set (map :sentence (v/sentexes-matching k (list pborders '?x '?y) '?c)))
+                     :handles (count (set [(v/handle-of k (list pborders SEsp SFra) 'CxUniverse)
+                                           (v/handle-of k (list pborders SFra SEsp) 'CxUniverse)]))
+                     :ask-sf  (v/ask? k (list pborders SEsp SFra) 'CxUniverse)
+                     :ask-fs  (v/ask? k (list pborders SFra SEsp) 'CxUniverse)})
+          reading (one-reading! "a late symmetric mark" kb observe)]
+      (is (= 1 (count (:rows reading))) "one proposition, one record — restarted too")
+      (is (= 1 (:handles reading)) "and both spellings resolve to the one handle")
+      (is (= [true true] [(:ask-sf reading) (:ask-fs reading)])))))

@@ -1798,16 +1798,22 @@
             handles))))
 
 (defn find-sentex-handle
-  "The handle of an existing sentex for `sentence` in `context`, or nil.  A **ground**
-  symmetric literal also probes its mirror, so a fact stored before its `symmetric`
-  declaration is still found (and re-asserting the mirror image resolves to it rather
-  than storing a duplicate).  A sentence **with variables** is found by its stored
-  sentence, not by its trie key alone: the key α-renames, so the sentexes at that key's
-  own leaf share the sentence's shape and `stored-at` picks the one that *is* it.
+  "The handle of an existing sentex for `sentence` in `context`, or nil.  A sentence
+  **with variables** is found by its stored sentence, not by its trie key alone: the key
+  α-renames, so the sentexes at that key's own leaf share the sentence's shape and
+  `stored-at` picks the one that *is* it.
 
   Every probe here is `p/leaf-at` — the **exact** leaf — never `p/lookup`: dedup asks
   where *this* sentence is stored, and a match would fan a caller-supplied variable over
-  every stored sentex of that shape (`stored-at`)."
+  every stored sentex of that shape (`stored-at`).
+
+  **One probe answers a symmetric literal, not two.**  The sort is order-blind and
+  idempotent, so a ground symmetric literal and its mirror canonicalize to one sentence
+  and therefore to one trie key: a mirrored second probe reads the leaf the first one just
+  read.  What makes a fact stored under the *other* spelling findable is that no such fact
+  survives its predicate's `(symmetric P)` declaration — the mark migrates the rows stored
+  before it (`integrate/symmetrize-existing`), so the store holds the spelling this probe
+  builds."
   [kb sentence context]
   (let [stamp (canon-stamp kb)]
     (or (observe/cached-handle stamp sentence context)
@@ -1821,28 +1827,17 @@
           (if (and (= sentence (:sentence built))
                    (functor-cache-authoritative? kb stamp built))
             nil
-            (let [probe  #(first (p/leaf-at (:index kb) (sx/path (res/kb-sentex kb % context))))
-                  direct (stored-at kb built (p/leaf-at (:index kb) (sx/path built)))]
-              (if direct
-                ;; only this arm fills the cache, and the difference is what the answer
-                ;; *says*.  Here it is "this sentence is stored at this handle" — true until
-                ;; the sentex is removed, which is a choke point.  The mirror arm's answer is
-                ;; "this sentence resolves to the handle of its mirror", which additionally
-                ;; needs the mirror to keep resolving; the stamp covers that, but a firing
-                ;; never asks it, so there is nothing to buy by widening the contract.
-                ;; **Cached only when the spelling survives canonicalization**: the removal
-                ;; choke point clears the canonical key (`integrate/sentex-removed!`), so an
-                ;; entry keyed on a spelling canonicalization rewrites — a sorted symmetric
-                ;; literal, a folded comparison — would outlive its sentex as a stale handle
+            (let [direct (stored-at kb built (p/leaf-at (:index kb) (sx/path built)))]
+              (when direct
+                ;; The cache says "this sentence is stored at this handle" — true until the
+                ;; sentex is removed, which is a choke point.  **Filled only when the
+                ;; spelling survives canonicalization**: the removal choke point clears the
+                ;; canonical key (`integrate/sentex-removed!`), so an entry keyed on a
+                ;; spelling canonicalization rewrites — a sorted symmetric literal, a folded
+                ;; comparison — would outlive its sentex as a stale handle
                 (if (= sentence (:sentence built))
                   (observe/cache-handle! stamp sentence context direct)
-                  direct)
-                ;; the global property, matching kb-sentex's key discipline: storage sorted
-                ;; the arguments (or did not), and which it did cannot vary by who is looking
-                (let [sym? #(tax/has-prop? (:taxonomy kb) :symmetric %)]
-                  (when (and (sx/symmetric-literal? sentence sym?)
-                             (every? sx/ground-term? (rest sentence)))
-                    (probe (sx/mirror-literal sentence)))))))))))
+                  direct))))))))
 
 ;; ---- the P/¬P coincidence set --------------------------------------------
 ;; A negation nogood (`settle/negation-nogoods`) needs a body stored in *both*
@@ -2224,6 +2219,68 @@
      ;; whether preservation can clash with anything is an `empty?` on it
      (note-preserving! kb (:sentence s) true)
      [h s])))
+
+(defn canonical-sentence
+  "`sentence` as this KB would **store** it in `context` — the door's own canonicalizer,
+  asked without storing or looking anything up.  Equal to `sentence` for the sentence a
+  caller just wrote through the door, and different for one the store already holds under
+  a spelling the taxonomy has since stopped canonicalizing to: a `(symmetric P)` mark
+  arriving after `(P b a)` was stored is the case, and telling the two apart is what
+  `integrate/symmetrize-existing` sweeps on."
+  [kb sentence context]
+  (:sentence (res/kb-sentex kb sentence context)))
+
+(defn respell-sentex!
+  "Store the sentex at `sx`'s handle under `sentence` instead — the **same** handle, the
+  same TMS node, the same premise mark, the same justifications, one different stored
+  spelling.  Returns the restored record.
+
+  The store's third mutation, and the only one that moves a record without moving a
+  handle.  `create-sentex` and `integrate/sentex-removed!` are the two that add and drop
+  one; this pairs their store-side halves back to back, so everything keyed on the
+  *sentence* (the trie path, the alpha memories, the handle cache, the P/¬P coincidence
+  set, the visibility and preservation rosters) is dropped under the old spelling and
+  rebuilt under the new one, while everything keyed on the *handle* is not consulted at
+  all and therefore cannot drift.  The caller owes the cache-effect walk on either side
+  (`special/disintegrate-sentex!`, then `special/integrate-sentex`), the way
+  `sentex-removed!` owes it around its own delete.
+
+  **For a re-canonicalization, not for a rewrite.**  The one caller is a late `(symmetric
+  P)` mark bringing a stored fact into the argument order the declaration puts every later
+  one in (`integrate/symmetrize-existing`): same predicate, same arguments, same truth, so
+  nothing a justification or a premise records about the handle stops being true.  A
+  caller changing what the sentex *says* would be lying to the TMS about what its
+  supporters support, and the assert door is the way to say something else.
+
+  The new sentence goes back through `res/kb-sentex` rather than being `assoc`ed on, so
+  the record the store ends up holding is canonical by construction under the taxonomy as
+  it now reads — which for the one caller is the whole point, and for any other is the
+  invariant `create-sentex` holds too."
+  [kb sx sentence]
+  (let [h   (:id sx)
+        idx (:index kb)
+        s'  (assoc (res/kb-sentex kb sentence (:context sx))
+                   :id h :strength (:strength sx))]
+    ;; the old spelling out — `integrate/sentex-removed!`'s store-side half, minus the
+    ;; record delete and the re-check the caller's integrate half posts for the new one
+    (p/unindex-sentex! idx sx h)
+    (observe/notify-remove kb sx)
+    (observe/forget-handle! (:sentence sx) (:context sx))
+    (note-opposed! kb (:sentence sx))
+    (note-excepted! kb sx false)
+    (note-preserving! kb (:sentence sx) false)
+    ;; ...and the new spelling in — `create-sentex`'s half, with the handle it already has
+    (p/put-sentex (:records kb) s')
+    (p/index-sentex idx s' h)
+    (when-let [d (:snapshot-dir kb)]
+      (disk/maybe-refresh-index-snapshot! d (p/count-at idx [])))
+    (observe/notify-add kb s' h)
+    (observe/note-change)
+    (observe/cache-handle! (canon-stamp kb) (:sentence s') (:context s') h)
+    (note-opposed! kb (:sentence s'))
+    (note-excepted! kb s' true)
+    (note-preserving! kb (:sentence s') true)
+    s'))
 
 (defn find-or-create-sentex
   "The existing sentex for `sentence` in `context`, or a new one — `[handle sentex new?]`.
