@@ -164,6 +164,47 @@
               "and so does the dump")))
       (finally (rm-rf! d)))))
 
+;; ---- the pin on nippy's attachment points --------------------------------
+
+(deftest the-pin-names-the-nippy-that-is-actually-on-the-classpath
+  ;; The pin is only worth its ceremony if it is read from the resolved dependency rather
+  ;; than restated by hand, so this asserts the two agree — and that the descriptor the
+  ;; reading depends on is there at all, in a checkout and in whatever jar this runs from.
+  (is (some? (safe/resolved-nippy-version))
+      "nippy's own META-INF/maven descriptor is readable, which is what the pin reads")
+  (is (= safe/pinned-nippy-version (safe/resolved-nippy-version))
+      "the release the class-name door was written against is the one on the classpath")
+  (is (= safe/pinned-nippy-version (safe/check-nippy-pin! safe/pinned-nippy-version))
+      "and the check passes, returning the version it agreed on"))
+
+(deftest a-moved-nippy-refuses-the-load-rather-than-narrowing-in-silence
+  ;; The pin exercised rather than trusted: the failure it exists for is a bump that keeps
+  ;; `read-record` / `read-deftype` and stops routing a class name through them, which
+  ;; nothing else in the tree can see.  So the one thing to prove is that a version other
+  ;; than the pinned one throws — the same throw a real bump would meet at load.
+  (let [d (ex-data-of #(safe/check-nippy-pin! "0.0.0-not-the-pinned-one"))]
+    (is (= :nippy-version-moved (:type d))
+        "a nippy other than the pinned one refuses, which fails the namespace and the build")
+    (is (= "0.0.0-not-the-pinned-one" (:pinned d)))
+    (is (= (safe/resolved-nippy-version) (:found d))
+        "and the refusal names both versions, so the reader knows which way the ground moved"))
+  (testing "the message says what a bumper is supposed to do, not merely that it stopped"
+    (let [msg (try (safe/check-nippy-pin! "0.0.0-not-the-pinned-one")
+                   (catch clojure.lang.ExceptionInfo e (.getMessage e)))]
+      (doseq [point ["taoensso.nippy.io/read-record"
+                     "taoensso.nippy.io/read-deftype"
+                     "taoensso.nippy.impl/serializable-allowed?"]]
+        (is (.contains ^String msg point)
+            (str "the refusal names the attachment point to re-read: " point))))))
+
+(deftest a-nippy-that-cannot-be-identified-refuses-too
+  ;; Unreadable is not "probably fine".  A door that cannot say which nippy it stands in
+  ;; front of has no claim to be guarding anything, so the two ways of being wrong refuse
+  ;; alike and only their kind differs.
+  (with-redefs [safe/resolved-nippy-version (constantly nil)]
+    (is (= :nippy-version-unreadable
+           (:type (ex-data-of #(safe/check-nippy-pin! safe/pinned-nippy-version)))))))
+
 ;; ---- the manifest bound --------------------------------------------------
 
 (defn- write-manifest!

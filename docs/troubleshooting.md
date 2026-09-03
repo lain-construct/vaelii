@@ -559,6 +559,8 @@ so one vocabulary reads both.
 | `:naf-justification` | a dump names a justification with a non-empty `:out` slot, which is reserved and empty here | [naf.md](naf.md) |
 | `:naf-not-closed` | an `unknown` antecedent or an aggregate census reads a variable nothing else in the rule binds | [naf.md](naf.md) |
 | `:naming` | a symbol's spelling does not match its role — see [`assert` refused it](#assert-refused-it) | [naming.md](naming.md) |
+| `:nippy-version-moved` | the nippy on the classpath is not the release the class-name door was written against; re-read its three attachment points, then move `thaw/pinned-nippy-version` | [defenses.md](defenses.md) |
+| `:nippy-version-unreadable` | nippy's own Maven descriptor could not be read, so the class-name door cannot say which release it is guarding | [defenses.md](defenses.md) |
 | `:no-base` | an `:overlay` backend was opened with neither `:base` nor `:base-stores` | [overlay.md](overlay.md) |
 | `:no-depth-bound` | the node engine was asked a goal with no `:max-depth` and no `*max-depth*` binding | [inference.md](inference.md) |
 | `:no-destination` | an export was asked for with a blank destination directory | [catalog.md](catalog.md) |

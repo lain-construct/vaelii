@@ -177,7 +177,8 @@
     :malformed-entry :malformed-manifest :malformed-record :manifest-too-large
     :missing-resource :naf-justification
     :naf-not-closed
-    :naming :no-base :no-depth-bound :no-destination
+    :naming :nippy-version-moved :nippy-version-unreadable
+    :no-base :no-depth-bound :no-destination
     :no-dump :no-foreign-reader :not-a-directory :not-assertible
     :not-checkable :not-defeasible :not-edn :not-empty :not-encodable :not-indexable
     :not-a-report :not-found :not-ground :not-in-process :not-range-restricted :not-stratified

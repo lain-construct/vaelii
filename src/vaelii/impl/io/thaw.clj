@@ -34,8 +34,15 @@
   `try` — so it travels rather than becoming the `{:nippy/unthawable …}` placeholder a
   failed resolution otherwise reads as, and no class is loaded on the way.  The
   replacement calls straight through to the reader it replaced unless `with-guard` is in
-  force, so a host application thawing its own records in this JVM is unaffected."
-  (:require [taoensso.nippy :as nippy]
+  force, so a host application thawing its own records in this JVM is unaffected.
+
+  **What holds that wrap to the release it was written against** is
+  `pinned-nippy-version`: three internals are reached into here, and a bump that keeps
+  their names while routing deserialization around them would narrow this door without
+  reddening anything.  So the version is checked at load and the namespace refuses to
+  come up against another one."
+  (:require [clojure.java.io :as io]
+            [taoensso.nippy :as nippy]
             [taoensso.nippy.io :as nippy-io]))
 
 (def allowed-classes
@@ -79,6 +86,76 @@
   (or (contains? allowed-classes class-name)
       (refuse-class! :serializable class-name)))
 
+;; ---- the nippy release the three attachment points were read against -----
+
+(def pinned-nippy-version
+  "The nippy release this door was written against, and the whole of what keeps it from
+  narrowing in silence.
+
+  The gate reaches into three of nippy's **internals**: the vars
+  `taoensso.nippy.io/read-record` and `taoensso.nippy.io/read-deftype`, wrapped in place
+  below, and nippy's own call to `taoensso.nippy.impl/serializable-allowed?`, which is
+  what lets a `Serializable` frame be refused by name rather than arrive as a placeholder.
+  A bump that **renames or moves** any of them fails this namespace at load, and that is
+  loud enough.  The failure this pin exists for is the quiet one: a bump that keeps the
+  vars and stops routing a class name through them — a new reader path, an inlined call —
+  wraps cleanly, evaluates green, and covers less than it did.  On a **deserialization
+  trust boundary** \"the guard silently narrowed\" is the worst available outcome, so the
+  version is asserted rather than assumed.
+
+  **Moving this string is the ceremony, and the ceremony is the point.**  Whoever bumps
+  nippy re-reads those three attachment points against the new release, confirms that
+  every path resolving a class name still passes through them, and only then writes the
+  new version here.  One line per upgrade buys a guard that cannot drift without a
+  reader."
+  "3.8.1")
+
+(defn resolved-nippy-version
+  "The nippy release actually on the classpath, or nil when it cannot be read.
+
+  Off the artifact's own Maven descriptor, because nippy states its version nowhere a
+  caller can read it — it asserts *encore*'s (`enc/assert-min-encore-version`) and exposes
+  none of its own.  Every jar Maven builds carries
+  `META-INF/maven/<group>/<artifact>/pom.properties`, and leiningen's uberjar keeps it
+  (only signature files are excluded), so this reads the same string from a checkout and
+  from the standalone jar."
+  []
+  (when-let [u (io/resource "META-INF/maven/com.taoensso/nippy/pom.properties")]
+    (let [props (java.util.Properties.)]
+      (with-open [in (io/input-stream u)] (.load props in))
+      (.getProperty props "version"))))
+
+(defn check-nippy-pin!
+  "Refuse to go on unless the nippy on the classpath is `pinned`; the version agreed on,
+  otherwise a throw, which fails this namespace and with it the build.
+
+  Two ways to be wrong, and they are not the same one.  The descriptor is **unreadable**,
+  so nothing at all is known about what the wrap below is wrapping
+  (`:nippy-version-unreadable`); or it is readable and names **another release**
+  (`:nippy-version-moved`).  Both refuse — a door that cannot say which nippy it is
+  standing in front of is not a door — and both say what the reader has to do next."
+  [pinned]
+  (let [found (resolved-nippy-version)]
+    (cond
+      (nil? found)
+      (throw (ex-info (str "cannot read which nippy is on the classpath, so the class-name"
+                           " door cannot say it is guarding the release it was written"
+                           " against (" pinned ") — expected the artifact's own"
+                           " META-INF/maven/com.taoensso/nippy/pom.properties")
+                      {:type :nippy-version-unreadable :pinned pinned}))
+
+      (not= pinned found)
+      (throw (ex-info (str "nippy " found " is on the classpath and the class-name door was"
+                           " written against " pinned " — re-read"
+                           " taoensso.nippy.io/read-record,"
+                           " taoensso.nippy.io/read-deftype and nippy's call to"
+                           " taoensso.nippy.impl/serializable-allowed?, confirm that every"
+                           " path resolving a class name still routes through them, then"
+                           " move `pinned-nippy-version` to " found)
+                      {:type :nippy-version-moved :pinned pinned :found found}))
+
+      :else found)))
+
 ;; ---- the two readers nippy gates behind nothing --------------------------
 ;; Installed once, at load.  `defonce` on the originals, so reloading this namespace in
 ;; a REPL does not wrap a wrapper: what is captured the first time is nippy's own.
@@ -92,6 +169,7 @@
 #_{:clj-kondo/ignore [:unused-private-var]}
 (defonce ^:private installed
   (do
+    (check-nippy-pin! pinned-nippy-version)
     (alter-var-root #'nippy-io/read-record
                     (constantly
                      (fn [ibr class-name]

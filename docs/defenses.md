@@ -639,6 +639,17 @@ frame is a field map and carries no class name by the format's own rule
 every leaf a sentence may carry is a type nippy has an id for. So a name in a file is a
 name this engine did not write, whatever it turns out to be.
 
+What holds the door to the library it reaches into is a **version pin**. Only the
+`Serializable` allowlist is a published hook; the other two readers are gated by wrapping
+nippy's own vars, and nippy's call to `serializable-allowed?` is an implementation detail
+of the same release. A bump that renamed any of the three would fail the namespace at
+load, which is loud enough — but one that kept the names and stopped routing a class name
+through them would install cleanly and cover less, which on a deserialization boundary is
+the worst available outcome. So `thaw/pinned-nippy-version` states the release the wrap
+was written against, the resolved dependency is read off its own Maven descriptor, and a
+mismatch refuses to load. The cost is one line per upgrade; what it buys is that the three
+attachment points are re-read by a person each time the ground moves.
+
 The tempting alternative is to allowlist the classes a *value* may be — nippy's own
 curated set, which admits `java.time.LocalDate` and the throwables. It reads as
 generous and is the wrong shape twice over: it is an allowlist of what is safe to
