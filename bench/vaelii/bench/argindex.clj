@@ -23,7 +23,7 @@
   * **micro** — isolates one argument-root probe.  A hot subject sits at argument 1 of
     `fanout` facts spread across `contexts` contexts; a `(relOf Subj ?y)` query reads the
     one wide `[:argument-root relOf 1 Subj]` posting and the context filter keeps only the
-    visible share.  Reports per-probe wall clock, the raw index read as a fraction of the
+    visible share.  Reports per-probe wall clock, the raw index are indistinguishable from a fraction of the
     full match, and — the metric a variant is judged on — **returned-vs-matched**: how many
     candidate handles the probe hands back against how many survive `unify` and the
     context filter.  A fanout sweep shows the probe cost is a real fraction of the whole.
@@ -91,7 +91,7 @@
 ;; ---- naming (well-formed for the real v/assert path) --------------------
 ;; predicates lowercase-initial camelCase; individuals/types/contexts Capitalized —
 ;; the invariants v/assert enforces.  Types are lowercase-initial symbols ending `_t`,
-;; the shape bench/checks.clj uses so a type reads as a predicate applied to a term.
+;; the shape bench/checks.clj uses so a type is indistinguishable from a predicate applied to a term.
 
 (defn- type-name [i] (symbol (str "bt" i "_t")))
 (defn- ind-name  [i] (symbol (str "BI" i)))

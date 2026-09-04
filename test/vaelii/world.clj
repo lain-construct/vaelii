@@ -15,7 +15,7 @@
         CxSocialWorld    social-world facts
         CxStories        the Aesop fables + story-understanding schema
 
-  The cast is told twice over about one of its animals, deliberately.  `(asleep Whiskers)`
+  The cast is told twice over about one of its animals.  `(asleep Whiskers)`
   is the timeless reading CxBiology's awake-until-told-otherwise default handles; the same
   cat's afternoon is also written as events and fluents, which is what CxChange's inertia
   reads to answer whether it is asleep at four and awake at six.  The two say different

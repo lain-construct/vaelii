@@ -18,12 +18,12 @@
 #
 # **A checkout puts the plugin on EVERY command's classpath**, including
 # `lein test`'s. That is safe for the suite, whose absence claims read the SOURCE
-# TREE and the seam rather than the classpath:
+# TREE and the extension point rather than the classpath:
 #
 #   * `no-reader-ships-in-this-tree` stats src/vaelii/impl/foreign and
 #     resources/vaelii/foreign.edn IN THIS REPO;
-#   * `nothing-outside-the-seam-names-a-reader` greps this repo's src/ and test/;
-#   * `the-seam-holds-no-compile-time-reference` reads the seam file;
+#   * `nothing-outside-the-extension-point-names-a-reader` greps this repo's src/ and test/;
+#   * `the-extension-point-holds-no-compile-time-reference` reads the plugin file;
 #   * the runtime tests use synthetic kinds (:no-such-format, :test-format) and a
 #     temp-dir manifest, so a real plugin on the path is not what they measure.
 #

@@ -55,7 +55,7 @@
   the layout fns below.  Idempotent, so a caller may measure once and place twice.
 
   The text is `:display` when the caller supplied one, else the term itself: what a term
-  is *called* on the page is the caller's business (a reified term reads as the
+  is *called* on the page is the caller's business (a reified term is indistinguishable from the
   expression it denotes), and `:term` stays the identity the layout dedups on.
 
   The width is rounded **up to an even number**, and `node-h` is even for the same reason:

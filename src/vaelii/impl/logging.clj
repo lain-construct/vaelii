@@ -98,7 +98,7 @@
   (when-not (settable level)
     (throw (ex-info (str "no such log level: " (pr-str level) " — want one of "
                          (str/join ", " (map pr-str dial-levels)))
-                    {:type :unknown-option :level level :known dial-levels})))
+                    {:type :unknown-option :mismatch :bad-value :level level :known dial-levels})))
   (reset! dial level)
   (alter-var-root #'trove/*log-fn* (constantly @log-fn))
   level)

@@ -22,7 +22,7 @@
   edge label the inverse map decodes — so a rebuild from the records (`reindex` / `recover`)
   that re-interns in a different order yields an equal index (identical lookups), which
   is the order-independence that matters.  A durable columnar index that persisted its
-  `int` edges would instead load this dictionary before reading them; that is the seam
+  `int` edges would instead load this dictionary before reading them; that is the format
   Phase 2's durable variant uses.
 
   **Keyed by Clojure equality, not Java's** — see `Key` below.  That is not a refinement;

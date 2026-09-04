@@ -559,7 +559,7 @@
 ;; `(functionCorrespondingPredicate F P N)` says the function and the predicate state
 ;; one relationship, so the reify reads it **both** ways: an application resolves to
 ;; the value `P` already names, and a constant minted for want of one is projected
-;; back onto `P`.  What the tests below are really about is the seam between those
+;; back onto `P`.  What the tests below are really about is the boundary between those
 ;; two — whichever of the application, the fact and the declaration lands last, the KB
 ;; ends up holding one term for one application.
 
@@ -672,7 +672,7 @@
 
 (tu/deftest-kb an-ill-formed-correspondence-is-refused
   (tu/with-terms [MotherFn motherOf Mary]
-    ;; the arity-1 row is caught by the NAMING door, which runs upstream of `wff`: a
+    ;; the arity-1 row is caught by the NAMING entry point, which runs upstream of `wff`: a
     ;; camelCase functor at arity 1 is a unary predicate wearing a relation's spelling,
     ;; and `problems` names that before `wff` gets to count the arguments
     (doseq [[what expected s]

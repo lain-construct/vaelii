@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.llm.provider
-  "Which backend a turn runs against — the selection seam.
+  "Which backend a turn runs against — the selection extension point.
 
   Stands where `vaelii.impl.asp.solver` stands for the ASP backends: a keyword names a
   backend, the backend is **lazily resolved** so choosing one is what loads it, and an
@@ -92,7 +92,7 @@
   With no `kind`, the configured one — and the stub when nothing is configured, when
   the configured backend is unreachable, or when it cannot be built.  **Falling back is
   the point**: an application that cannot reach its model degrades to a provider that
-  proposes nothing rather than to an exception, which is how the ASP seam behaves and
+  proposes nothing rather than to an exception, which is how the `Solver` protocol behaves and
   what makes the pipeline testable everywhere.
 
   Falling back is not the same as falling silent: a backend that probes available and

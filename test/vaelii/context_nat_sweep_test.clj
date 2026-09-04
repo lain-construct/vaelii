@@ -237,7 +237,7 @@
         (is (= 1 (count (v/sentexes-matching kb (list 'termOfUnit '?k year) 'CxUniverse)))
             "one constant for the expression — the re-mint dedups, it does not double")
         (is (= km2 (:context (v/sentex kb (v/assert kb '(knows Bob Dee) month))))
-            "and the write door resolves the compound to that one constant")
+            "and the write entry point resolves the compound to that one constant")
         (is (v/sees? kb km2 ky2) "the computed edge is back")
         (is (= [{'?x 'NewYear}] (v/ask kb '(holiday ?x) month))
             "and the month reads the year's fact again, as it did before the sweep")))))
@@ -246,7 +246,7 @@
 
 (tu/deftest-kb a-query-context-is-never-a-sweep-candidate
   ;; `CxEverything` / `CxInference` / `CxNothing` name a *way of reading*, resolved at the
-  ;; read door and refused at every write door (docs/contexts.md), so nothing is ever
+  ;; read entry point and refused at every write entry point (docs/contexts.md), so nothing is ever
   ;; stored in one and nothing mints one.  They are `Cx…` names, not `cx/` constants, and
   ;; the sweep collects `cx/` constants alone — so a query holding one holds a symbol the
   ;; candidate set cannot contain, and there is no teardown to race.
@@ -301,7 +301,7 @@
   ;; through the ordinary `retract!` that does so.  So a context the fork empties is
   ;; collected in the fork's view and stands in the base, which is how an object NAT's
   ;; sweep already behaves there.  Own spaces, and a `:memory` base so the fork is
-  ;; admissible on every run (a `:columnar` index has no KV seam to decorate).
+  ;; admissible on every run (a `:columnar` index has no `KvBackend` to decorate).
   (let [base (v/open-kb {:backend :memory :space [::sweep-base 1] :recover? false})]
     (core-context/load-into base)
     (let [cxfn  (declare-dimension! base)

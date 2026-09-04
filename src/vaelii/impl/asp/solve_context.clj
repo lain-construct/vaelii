@@ -156,7 +156,7 @@
   of one and is decisive: a user context occupying a slot, even one they hung under this
   very base, holds what they asserted and is neither swept nor refused over.  So the two
   categories are disjoint, and the residue — a marker retracted *and* believed content
-  written in — reads as the user's context, which is what it has become."
+  written in — is indistinguishable from the user's context, which is what it has become."
   [kb base into-cx]
   (let [existing (set (v/contexts kb))
         taken?   (fn [c] (or (existing c) (pos? (v/count-in-context kb c))))
@@ -655,7 +655,7 @@
 
            ;; no answer set at all: the hard constraints admit no model.  Under `:all`
            ;; that falls out of enumerating nothing; under `:one` / `:sat` it has to be
-           ;; said, or the empty labeling reads as a world in which every choice is
+           ;; said, or the empty labeling is indistinguishable from a world in which every choice is
            ;; false — which is itself a world the constraints exclude.
            (and single? (empty? optima))
            (merge {:base base :into into-cx :count 0 :choices choices

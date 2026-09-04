@@ -9,13 +9,13 @@
   this machinery → [from-asp.md](from-asp.md).
 - **Assumes:** edge solver, nogood, brave/cautious → [glossary.md](glossary.md).
 
-The real answer-set solver behind the edge-solver seam. Two layers: a
+The real answer-set solver behind the `Solver` protocol. Two layers: a
 general-purpose ASP toolkit that
 knows nothing about vaelii, and one namespace that renders a
 [`Program`](nmtms.md) to it.
 
 ```
-vaelii.impl.solve/Solver          the seam  (docs/nmtms.md)
+vaelii.impl.solve/Solver          the protocol   (docs/nmtms.md)
   └── vaelii.impl.asp.edge        Program  ->  ASPIF,  answer set -> {:defeat :violated}
         └── vaelii.impl.asp.solver          backend selection
               ├── vaelii.impl.asp.clingo    in-process libclingo, via JNA
@@ -160,8 +160,8 @@ at all — every contradiction the engine sends is soft.
 Same policy, same reason. The backends fail in several currencies — clingo's
 `:solver-failed` naming the native call that returned zero, clasp's
 `:solver-unavailable` when the binary is gone, a JNA `Error` against a missing or
-wrong-ABI libclingo — and `edge-solver` catches all of them at the seam, because the
-seam is where a native failure crosses into the engine.
+wrong-ABI libclingo — and `edge-solver` catches all of them at the boundary, because the
+the boundary is where a native failure crosses into the engine.
 
 Left to propagate, such a throw unwinds whatever arbitration is in progress.
 `settle`'s `resolve-contradictions` reaches the solver *after* an earlier round has
@@ -171,7 +171,7 @@ half-way through an arbitration nobody can finish. Deciding nothing leaves it ex
 the round found it, and the failure comes back as `:error` for a caller to rank.
 
 The imperative readers are not mid-arbitration, so they still throw: a refusal there
-costs nothing and says more than a result would.
+adds no work and says more than a result would.
 
 ## The encoding
 
@@ -339,12 +339,12 @@ solver: `settle/settle`'s `decide-nogood` classifies it as *hard* and reports it
 directly, and `solve/program` drops any nogood with no contested member. What does
 arrive always has a contested member, and defeating that member always satisfies it.
 
-The `:doomed` path in `edge.clj` is therefore defensive. It costs nothing and stays
+The `:doomed` path in `edge.clj` is therefore defensive. It adds no work and stays
 correct if nogoods ever grow beyond today's `S` vs `(not S)` pairs.
 
 ## Where the ASP layer stops
 
-What the engine encodes is the contradiction edge and nothing above it: `edge.clj`
+The engine encodes the contradiction edge and nothing above it: `edge.clj`
 translates one settle's nogoods into a program, and `label.clj` classifies and labels
 what comes back. There is no multi-context classification, no cardinality grounding
 and no multi-shot solving — a solve is one program, built from one region, answered

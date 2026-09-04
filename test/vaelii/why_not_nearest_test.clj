@@ -3,14 +3,14 @@
 (ns vaelii.why-not-nearest-test
   "`why-not`'s `{:nearest n}`: which rule nearly fired, and what it was still waiting for.
 
-  `:not-stored` is the emptiest answer the door has — no handle, no support, no defeat —
+  `:not-stored` is the emptiest answer the entry point has — no handle, no support, no defeat —
   and it is the one a reader whose rule was *supposed* to conclude the goal gets.  What
   they need next is the antecedent they have not asserted, and these tests are about
   getting that named.
 
   Two contracts beside the answer itself.  The search is **off unless asked for**, since
   `why-not` is called in a loop over a conflict list and a backward search per call would
-  change what the door costs.  And the ranking keys on **content** — how many antecedents
+  change what the entry point costs.  And the ranking keys on **content** — how many antecedents
   are satisfied, then the rule's own sentence — never on the rule's handle, which is
   assertion order."
   (:require [clojure.test :refer [is testing use-fixtures]]
@@ -155,7 +155,7 @@
                (try (cli/dispatch kb "why-not" [h] {:nearest "3"})
                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))))))
 
-(tu/deftest-kb an-option-the-door-does-not-read-is-refused
+(tu/deftest-kb an-option-the-entry-point-does-not-read-is-refused
   ;; A misspelt `:nearset` would answer the ordinary `:not-stored`, which is exactly what
   ;; a goal no rule concludes gives — so the failure is invisible unless it is refused.
   (tu/with-terms [goal A B CxR]

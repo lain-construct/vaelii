@@ -44,11 +44,11 @@
   ## What it does not catch
 
   - **Work that is not an index read.**  A taxonomy walk, an allocation, a record fetch.
-    The seams are on `IndexStore`; `record_fetch_cost_test` is the record-store half.
+    The counted calls are `IndexStore`'s; `record_fetch_cost_test` is the record-store half.
   - **A more expensive version of the same read.**  One `sentexes-with-arg` counts once
     whether it returns four handles or four million; `lein perf` holds that.
   - **Anything that scales.**  A cost growing with the KB is a ratio's subject, and
-    `join_lead_cost_test` is the shape gate for this same seam.
+    `join_lead_cost_test` is the shape gate for these same calls.
   - **A configuration other than the shipped one**, and a backend other than `:memory`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -253,7 +253,7 @@
              (pr-str (take 3 (:sentences got)))))))
 
 (deftest the-instrument-is-silent-when-off
-  ;; The budgets are only meaningful if the seams cost nothing when nobody is collecting.
+  ;; The budgets are only meaningful if the protocols added no work when nobody is collecting.
   (testing "a chaining run outside `start`/`stop` records nothing"
     (is (false? (prof/profiling?)))
     (let [[kb trigs _] (unfanned-join)]

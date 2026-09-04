@@ -196,7 +196,7 @@
 ;; shrinks a term is never touched.
 
 (defn- within-ms
-  "`f`'s value, or `::timeout` when it has not returned after `ms` — the shape a
+  "`f`'s value, or `::timeout` when it has not returned after `ms` — the form a
   termination claim is tested in, since a hang has no value to assert on."
   [ms f]
   (let [fut (future (f))

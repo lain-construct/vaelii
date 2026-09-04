@@ -12,7 +12,7 @@
       `(sentexHandle H)` + `target_following_predicate` pointing pattern koinii's reply acts
       use (`target_following_meta_test`, `koinii_speech_acts_test`).
 
-  The load-bearing check is the examples' integrity: every `positiveExample` names a
+  The required check is the examples' integrity: every `positiveExample` names a
   sentex the KB can prove, and every `negativeExample` names one whose negation it can
   prove — so a card that states a verdict the ontology no longer gives turns a test red.
   `borderlineExample` is truth-agnostic and carries no such obligation."

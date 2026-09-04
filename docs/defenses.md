@@ -9,7 +9,7 @@
   design; it does not teach it.
 
 A subsystem doc says **how** the engine works. A few of its decisions are non-obvious, or
-have a tempting alternative that fails for a reason worth writing down once — and left in
+have a tempting alternative that fails for a reason recorded here once — and left in
 the how-to doc that argument grows until the mechanism is hard to find under it, and the
 same argument gets re-derived in three sections because it bears on all of them. So the
 argument lives here, under a stable heading, and the how-to doc states the rule and links
@@ -22,7 +22,7 @@ Each entry names the doc it defends, and the sections below follow the grouping 
 Many of the entries defend a **refusal**, and none of them indexes one. The `:type`
 keyword a refusal carries is looked up in
 [troubleshooting.md](troubleshooting.md#i-have-a-type-and-do-not-know-what-it-means),
-which holds the whole vocabulary and the page that owns each; come here for why the door
+which holds the whole vocabulary and the page that owns each; come here for why the entry point
 refuses, go there for what a keyword you caught means.
 
 ## Belief and truth maintenance
@@ -51,7 +51,7 @@ mark is resolved from *content*, the way a re-asserted rule's slots are
 
 The alternative — last-writer-wins, the mark taking whatever the latest assertion carried
 — reads a re-assert's silence as a claim. A re-assert carrying no `:strength` states
-nothing about the class; the `:default` it falls back to is the door's fallback, not the
+nothing about the class; the `:default` it falls back to is the entry point's fallback, not the
 caller's claim. Treat that silence as a downgrade and arrival order decides belief: assert
 `S` known-true, re-assert it bare, then assert the known-true `¬S`, and a last-writer-wins
 mark leaves `S` **defeated**, while the same three sentences in the other order leave the
@@ -164,7 +164,7 @@ boundary node* is structural: the `Tms` protocol passes the network plus integer
 plain values and nothing else, so no implementation of it can turn a boundary read into a
 lock and a slot decode, or into a round trip. That is why the strength cache is resident,
 and it is what makes this a claim about representations rather than about the reference's
-happens-to-be-free reads. What is left is the cost of the in-region work itself, and that
+happens-to-be-free reads. The cost of the in-region work itself is what is left, and that
 is where the bitmap-rebuild shape hides — it satisfies equivalence, satisfies containment,
 pays nothing per boundary node, and still grows with the KB. Nothing structural rules it
 out and no unit test reaches the scale that shows it, so it is held by `lein bench-jtms`
@@ -244,9 +244,18 @@ counts (the LLM inventory reads 64 of a functor's facts and answers the arity mo
 them carry), or states why there can be only one — a `functional` predicate leaves one
 value in the slot, a second symbol merging into the first through the `(equals V1 V2)` the
 KB derives from the pair and a second non-symbol refused outright, and resting on that is a
-claim worth writing down.
+claim recorded here.
 `sort_by_content_key_test`'s positional-take scan reads `src/` for the ones that do
 neither.
+
+Each of those scans reads the ordering **key** as a *form*, from the call to the key's
+own closing paren, rather than as the rest of the call's line. Reading it as the rest of
+the line misses a key written on the next line, and the scan then passes a call it should
+have flagged. A guard that narrows what it checks without turning red is the failure mode
+this page collects. The same reading
+carries a fourth scan that is about cost rather than order: `sort-by` runs its key fn
+inside the comparator, so a key that reads the KB is a taxonomy closure re-read
+~2·n·log₂n times where `nm/sort-by-content-key` reads it n times.
 
 ### The touched window is a superset, not the flip set
 
@@ -256,7 +265,7 @@ answer instead of each diffing the believed set at O(KB) per write. The window
 deliberately means *what I published about this datum may be out of date*, which is a shade
 larger than *whose belief flipped*.
 
-That extra shade is load-bearing. A **redundant justification** — a second derivation of an
+That extra shade is required. A **redundant justification** — a second derivation of an
 already-believed conclusion, conferring no stronger a class — is the write the JTMS declines
 to relabel for, and that fast path is what collapses a recursive forward load from
 O(derived²) to O(derived). Belief does not move, so no label does; but in a dilemma the
@@ -317,9 +326,9 @@ by **defeating a member**, which makes admission a stronger question than incomp
 The criterion ([nmtms.md](nmtms.md), *What qualifies as a nogood*) is that a nogood stays
 derivable exactly as long as what it convicts stands.
 
-`arity` is the case that makes it concrete, and the tempting alternative is to file it as a
+`arity` is the case that makes it concrete, and the alternative to avoid is to file it as a
 nogood and let the class decide — it names a second believed sentex, it ranks like a
-definitional clash, and the machinery is already there. What that buys is a clash decided
+definitional clash, and the machinery is already there. That gives a clash decided
 once. `declared-arity` answers from a cache that follows belief, so a defeat aimed at the
 `(arity P n)` declaration removes the conviction's own premise: the offending sentex goes on
 standing, nothing can look at the pair again, and the KB is left holding exactly what the
@@ -333,7 +342,7 @@ claim was inherited — the general claim, the declaration permitting the move, 
 edges the reach travelled. Defeating one of those does dissolve the detection, and there it
 is the answer rather than the bug, because an inherited claim has no sentex of its own for a
 defeat to reach instead of its reasons; withdrawing the reach withdraws the claim, and the
-reason stays defeated so it stays withdrawn. What separates the two is what stands
+reason stays defeated so it stays withdrawn. The two are separated by what stands
 afterwards, not what the detection touched. `nogood_admissibility_test` pins the member
 sets of all three shipped sources against the criterion.
 
@@ -379,10 +388,10 @@ Defends [namespaces.md](namespaces.md).
 
 The engine's requires run one way, from `kb` up through `checks`, `special`,
 `integrate`, `chain` and `settle` to `vaelii.core`, and the compiler checks every edge.
-Three calls break that order, and all three live in `impl/wiring.clj` instead of at the
+Four calls break that order, and all four live in `impl/wiring.clj` instead of at the
 call site that needs them.
 
-None of the three is a misplaced function waiting to be moved somewhere that restores
+None of the four is a misplaced function waiting to be moved somewhere that restores
 the one-way order. `assert-sentence` is called back from `impl/nat.clj`,
 `impl/skolem.clj` and `impl/quasiquote.clj` because storing is a whole assert — naming,
 the definitional checks, the index, chaining, settle — so the write path itself runs
@@ -392,16 +401,20 @@ how the code happens to be arranged, so no rearrangement removes it. `solve-goal
 prover registry that `impl/resolution.clj` calls to discharge a deferred antecedent, and
 `unknown` runs that same registry back over its own argument — negation-as-failure is
 mutually recursive with the chainer that asked for it, not merely calling down into it.
-`import-dump` sits
-`impl/io/import.clj` above `vaelii.core` because reading a dump is asserting: it
+`impl/io/import.clj` sits above `vaelii.core` because reading a dump is asserting: it
 re-canonicalizes records, reindexes and recovers through the public write path.
 `core/import!` is `export!`'s inverse, and a round trip whose two halves are not both
 public is not a round trip, so the delegation has to point up to reach `vaelii.core`.
+`impl/predall.clj` sits above it for the mirror-image reason: running a `predAllSpecified`
+audit is asking. The audit asks one goal per member of the audited collection, and the
+context resolution a public read runs is private to `vaelii.core`, so an audit answered
+below that entry point would report violations a scoped read would not have
+([predall.md](predall.md)).
 
-Gathering the three in one file beats leaving each as a `requiring-resolve` at its own
+Gathering the four in one file beats leaving each as a `requiring-resolve` at its own
 call site. Scattered, a `requiring-resolve` is invisible: nothing counts it, nothing
 stops the next one, and the set of places the layering is broken can only be recovered
-by grepping for it. Gathered, they are an inventory — three entries, each owing the
+by grepping for it. Gathered, they are an inventory — four entries, each owing the
 reason it cannot be an ordinary require — and `lein lint`'s E8 fails a written-out
 `requiring-resolve` anywhere else under `src/`, excepting the optional dependencies it
 names by target. Only the written-out form is a cut: a symbol computed off a keyword-dispatch
@@ -457,7 +470,7 @@ the same call, so there is nothing for a comment to attach to that a copy-paste 
 carry along with it.
 
 So both readings get a name — `reads/as-stored-…` and `reads/believed-…` — and the raw
-protocol read is refused outside the implementers (`lein lint`'s E16). The as-stored door
+protocol read is refused outside the implementers (`lein lint`'s E16). The as-stored entry point
 is the one that had to be named rather than left as the default, because it is the one
 whose omission is silent: a missing belief filter answers *more* than it should, and more
 is what an unfiltered read looks like whether or not anybody chose it. Naming it also
@@ -493,6 +506,21 @@ stale index state rather than out of any record actually present, with no signal
 that anything is wrong. Refusing the pairing outright is cheaper and safer than
 trying to detect or repair that mismatch after the fact, so the axis combination is
 rejected before a KB is ever built from it.
+
+### The two records are named for the sentence's shape, not for its role
+
+Defends [storage.md](storage.md#the-sentex-records--literalsentex-and-rulesentex).
+
+The record holding a non-rule sentex is `LiteralSentex`. The tempting pair is
+`FactSentex` / `RuleSentex`, which looks like the obvious split and is wrong: that record
+holds a fact, a metadata declaration **or** a query pattern, and only the first of those
+is a fact. `literal` is the one word covering all three, because it names the sentence's
+*shape* — one signed predicate application — rather than the role a caller puts it to.
+
+Shape is also what the split is for. The discriminant every consumer uses is
+`(some? (:antecedent sx))`, a question about structure, and the reason the two records
+exist at all is that a literal must not carry the seven rule-only slots at 100M+ facts.
+A name taken from the role would have to be re-read against the structure at every use.
 
 ### Frames are positional, not tagged
 
@@ -574,8 +602,8 @@ it against whatever the records now say, and a label that disagrees with a re-re
 a belief nobody computed — [order independence](nmtms.md) spent for a warm start, and on top
 of the reason the JTMS cannot be a write-ahead log in the first place
 ([why the index persists and these two do not](storage.md#why-the-index-persists-and-these-two-do-not)).
-What a cold open can safely carry across is not the answer but the *permission to skip
-re-deriving part of it*. So the stamp the open reads records only that a clean close found
+A cold open can safely carry across the *permission to skip re-deriving part of it*, but
+never the answer itself. So the stamp the open reads records only that a clean close found
 no standing clash, plus the record store's slot fingerprint; belief is still rederived from
 the records on every open, and the certificate only lets the closing settle skip the
 constraint-clash scan whose result a clean close already proved. Any fingerprint mismatch
@@ -583,10 +611,10 @@ discards it, so the
 worst a wrong certificate can do is make an open redo the scan it always did — never believe
 something no derivation produced.
 
-### The bulk seam is a sink, not a batched put
+### The bulk-load protocol is a sink, not a batched put
 
 A store that can write many records at once — `COPY` on a server, one packed append on the
-disk log — needs the engine to hand it many records, and the obvious seam is a `put-many`
+disk log — needs the engine to hand it many records, and the obvious protocol is a `put-many`
 taking a batch. It does not fit what the loader does. `import!` indexes each record from
 the copy it holds and needs that record's **handle now**, before the next one is read: a
 batched put decides the handles inside the store and answers them afterwards, so the loader
@@ -612,7 +640,7 @@ make that substitution a breaking change for every store rather than a choice ea
 makes. A caller wanting `conj` / `disj` / `clojure.set` converts with `(set …)` at the site
 that wants them, which is the site that can afford it.
 
-The disk store takes the substitution one layer in rather than at the seam: it *holds* the
+The disk store takes the substitution one layer in rather than at the boundary: it *holds* the
 bitmap and still *answers* a Clojure set
 ([storage.md](storage.md#the-enumerations-and-what-a-roster-costs)). Residency and a
 caller's peak allocation are separate arguments, and keeping them apart is what let the
@@ -620,11 +648,11 @@ first be won without touching the second.
 
 ### A frame naming a class is refused, never resolved
 
-Every nippy thaw the engine runs over a file goes through one door
-(`vaelii.impl.io.thaw`), and that door's allowlist of class names is **empty**: a frame
+Every nippy thaw the engine runs over a file goes through one entry point
+(`vaelii.impl.io.thaw`), and that entry point's allowlist of class names is **empty**: a frame
 that names a class is refused (`:disallowed-class`) before the name is resolved.
 
-The reason it has to be a door rather than a trust is what a class name costs on the way
+The reason it has to be an entry point rather than a trust is what a class name costs on the way
 in. nippy's frozen form can name a class in three of its type ids, and reading one
 resolves the name and *builds from it* — a record frame loads the class and invokes its
 static `create`, a deftype frame invokes the first public constructor over the fields
@@ -639,13 +667,24 @@ frame is a field map and carries no class name by the format's own rule
 every leaf a sentence may carry is a type nippy has an id for. So a name in a file is a
 name this engine did not write, whatever it turns out to be.
 
-The tempting alternative is to allowlist the classes a *value* may be — nippy's own
+A **version pin** holds the wrap to the nippy release it was written against. Only the
+`Serializable` allowlist is a published hook; the other two readers are gated by wrapping
+nippy's own vars, and nippy's call to `serializable-allowed?` is an implementation detail
+of the same release. A bump that renamed any of the three would fail the namespace at
+load, which is visible enough — but one that kept the names and stopped routing a class name
+through them would install cleanly and cover less, which on a deserialization boundary is
+the worst available outcome. So `thaw/pinned-nippy-version` states the release the wrap
+was written against, the resolved dependency is read off its own Maven descriptor, and a
+mismatch refuses to load. The cost is one line per upgrade; what it provides is that the three
+attachment points are re-read by a person each time the dependency moves.
+
+One alternative to avoid is to allowlist the classes a *value* may be — nippy's own
 curated set, which admits `java.time.LocalDate` and the throwables. It reads as
 generous and is the wrong shape twice over: it is an allowlist of what is safe to
 *deserialize* rather than of what this engine *writes*, so it grows whenever the library's
 does; and it blesses leaves whose only durable form is Java serialization, which makes
 every later read of that store open an `ObjectInputStream` to answer a query. The front
-door refuses such a leaf instead — `check-encodable` probes a class through this same
+entry point refuses such a leaf instead — `check-encodable` probes a class through this same
 thaw — so what a store can contain and what its readers accept are one decision rather
 than two that agree today.
 
@@ -748,11 +787,11 @@ record already answers, for a query nothing in the engine actually asks.
 ### The exception index stays coarse
 
 The exception re-check index answers "which rules might need re-checking", at two
-coarse granularities, deliberately. The trigger is coarse in what it is *addressed by*:
+coarse granularities. The trigger is coarse in what it is *addressed by*:
 a fact on a predicate arriving or leaving re-checks every rule whose exception mentions
 that predicate, a `genl` edge every rule whose exception is keyed at or above the edge's
 supertype (`special/recheck-genl-edge`, over `tax/genls-global` of it), and a `genlCx` edge
-every excepted rule with a firing placed in the cone the edge widened
+every excepted rule with a firing placed in the ancestor set the edge widened
 (`special/recheck-genlCx-edge`) — never which cached closure entry a particular exception
 query actually read. Exception-bearing rules are few, so a coarse address is cheaper than a
 fine-grained one — and it cannot be subtly wrong the way a closure-tracking scheme could,
@@ -769,7 +808,7 @@ whose scale is tens of entries, never millions.
 
 ### A variable functor rule is refused, not silently accepted
 
-Where a variable functor sits decides whether the rule can be run, so the door splits
+Where a variable functor sits decides whether the rule can be run, so the entry point splits
 on it. In an **antecedent** — `(?p ?x ?y)` as a trigger — it names no predicate, and the
 rule index is keyed by predicate (canonicalization numbers the functor to `?var0` like any
 other variable), so no arriving fact can ever spell the key. Such a rule is **refused** at
@@ -844,7 +883,7 @@ Defends [contexts.md](contexts.md).
 ### A goal every literal of which is computed names no context
 
 A variable context is the **joint** reading: the answer must hold from some one reader's
-`genlCx` cone, and that reader is unified into the variable. Reading the union instead is
+`genlCx` ancestor set, and that reader is unified into the variable. Reading the union instead is
 unsound for the reason [the QCN prover fans](#a-variable-context-goal-fans-over-readers-rather-than-reading-one-unioned-network)
 rather than unioning — a conjunctive read would join a fact in `CxA` to a fact in `CxB`
 when no context sees both, which is an answer no reader of the KB has.
@@ -865,11 +904,11 @@ literals decide which readers can answer, and the computed ones are evaluated at
 `CxInference` and a variable context are answered either by fanning over the readers and
 asking each the ordinary scoped question, or by asking once unscoped and placing each
 answer by what it rested on. The two owe the same answers, so the choice is pure cost — and
-the tempting thing is to predict it: read the lattice, guess which will win, dispatch.
+the wrong move is to predict it: read the lattice, guess which will win, dispatch.
 
 That does not work, and the measurement is what says so: which strategy wins is a fact
 about the **data**, not about the lattice. A predictor fitted to lattice shape (reader
-count, average cone depth) called it right five times in fourteen. Post-hoc's edge is on
+count, average ancestor set depth) called it right five times in fourteen. Post-hoc's edge is on
 small joins, and it loses on large ones two different ways — a wide flat lattice discards
 most of what the join builds, while a deep one discards nothing and still loses, because a
 quadratic join costs less partitioned across readers than done whole. Only the first is
@@ -880,7 +919,7 @@ So post-hoc runs by default and is **measured out** rather than predicted out. I
 partial solution whose ingredients already have no common descendant — a later literal only
 adds contexts, so a dead row stays dead — and it abandons past a row budget sized off the
 lattice, mid-stage rather than between literals, because the cost is in the rows. The fan
-then answers whatever was abandoned. What is left is a strategy that wins 1.5× to 17× in
+then answers whatever was abandoned. A strategy that wins 1.5× to 17× in
 its regime and costs at most about 1.5× outside it, the extra being the bounded probe; on
 a store where every join outgrows the budget it simply *is* the fan, reached after that
 probe. The
@@ -925,7 +964,7 @@ function can answer. `disjoint-problems` is a different shape: it names an
 two and defeat one. A structural application holds no membership sentex, so the only pair
 available is *the fact and the function's declaration*, and letting one application's
 assertion defeat that declaration would unbind every other application of the same
-function. Naming no opposing handle instead would make it a hard door refusal, harsher
+function. Naming no opposing handle instead would make it a hard entry point refusal, harsher
 than the reifiable case it mirrors. So the demand-shaped checks read the result
 declaration and the pair-shaped one does not.
 
@@ -934,7 +973,7 @@ declaration and the pair-shaped one does not.
 `string`, `number`, `integer`, `keyword`, `boolean`, `character` and `symbol` are the KB's
 only names for the kinds a value can carry — one per leaf kind, and `arg` and
 `quotedArg` both read the same seven, along with the four sign-refined integer types below
-`integer` (`checks/value-kinds`). The tempting alternative is a
+`integer` (`checks/value-kinds`). One alternative to avoid is a
 parallel spelling per declaration, so that what an argument *denotes* and what is *written*
 there never share a name.
 
@@ -1015,11 +1054,11 @@ conjuncts are tried in is free to change without changing what the query proves.
 
 `prove-from` and the node engine both take a `:leaf-solver` — how a literal the
 search will not rewrite gets answered — and the division between rewriting and the
-leaf is load-bearing: a leaf that itself backchained would run the engine's rewriting
+leaf is required: a leaf that itself backchained would run the engine's rewriting
 *plus* a nested search per binding under it, compounding the two costs instead of
 paying one.
 
-Measured on a converging rule graph — the shape that asks one subgoal from many branches
+Measured on a converging rule graph — the structure that asks one subgoal from many branches
 — a leaf that started its own backward search ran **24-73x slower** than the divided
 arrangement on the same queries. Both shipped leaf solvers expand no rule: `nil` is
 `matches-visible`, the stored facts, and `core/query` passes `provers/solve-goal`, whose
@@ -1043,7 +1082,7 @@ beside belief, and already the reason it is retained for revival rather than swe
 settled clash from inside a read, and answering it
 differently from `ask`, `sentexes-matching` and `why` about the same KB.
 
-The revival path is what makes that cost nothing. Retract the defeater and the datum is IN
+The revival path is what makes that added no work. Retract the defeater and the datum is IN
 again on those very derivations, with no cache to invalidate and nothing to re-derive — so
 what the filter withholds is exactly what belief currently withholds, and for exactly as
 long.
@@ -1157,8 +1196,8 @@ runs the census body as a joined conjunction, so `(agg/count ?n ?c (and (childOf
 for a witness changes what is done with the solutions, not how they are found — the join
 produces one witness per solution either way, and the reduction reads `?v` off it.
 
-The line is not the shape of the conjunction but whether the operator reading it threads
-bindings, and both of them do. What is still refused is what no join can repair: a
+The line is not the structure of the conjunction but whether the operator reading it threads
+bindings, and both of them do. Still refused is what no join can repair: a
 **disjunctive** body, since a count over a union is not the sum of two counts and a
 witness satisfying both alternatives would be counted twice; and a census variable no
 conjunct of the body binds and no earlier antecedent names (`:naf-not-closed`), which is
@@ -1202,21 +1241,21 @@ intent.
 ### A deadline on `ask` / `prove` refuses; a depth does not
 
 `ask`, `ask?`, `prove` and `provable?` take a bound of their own, and a `:max-ms` those
-doors *reach* is `:budget-exhausted` rather than the answer they had in hand. That reads
+entry points *reach* is `:budget-exhausted` rather than the answer they had in hand. That reads
 as harsh next to `ask-within` / `prove-within`, which hand the same prefix back happily —
-and the difference between the two doors is the whole argument.
+and the difference between the two entry points is the whole argument.
 
-An anytime door's return shape **says what it is**: `:status` is `:timeout`, `:count` is
+An anytime entry point's return shape **says what it is**: `:status` is `:timeout`, `:count` is
 what this step found, `:resume` continues. A caller that asked for a partial gets one and
 is told. `prove` returns a vector of solutions and `provable?` returns a boolean, and
 neither shape has room for that: a truncated vector is indistinguishable from the whole
 answer of a KB that knows less, and `false` from a search that stopped looking is
 indistinguishable from a KB that does not say so. Silently returning either is the same
 failure `assert`'s option rosters exist to refuse — an answer taken at a setting nobody
-chose, arriving in the shape of one somebody did — and it is worse here, because the
+chose, arriving in the structure of one somebody did — and it is worse here, because the
 setting *is* the ceiling the daemon filled in on a request that named no clock at all.
 
-`:max-depth` is on the same doors and does not refuse, which is not an inconsistency but
+`:max-depth` is on the same entry points and does not refuse, which is not an inconsistency but
 the other half of the same rule. A depth **prunes**: the space under it is genuinely
 exhausted, so the run reports `:complete` and the answer is the whole of what that depth
 admits. `(provable? kb g ctx {:max-depth 2})` answering `false` is a true statement — no
@@ -1273,7 +1312,7 @@ blaming a single member makes the stored KB's error depend on the order the fact
 asserted in. Throwing would also cost a fixpoint per assert, run whether or not anybody
 asked for it, and the provers are opt-in, so a KB that never registered one would be held
 to a calculus it never asked for. Recording the inconsistency where the pass already
-proved it, in the violations ledger, costs nothing beyond a pass the KB already ran and
+proved it, in the violations ledger, adds no work beyond a pass the KB already ran and
 holds the property every other check in the engine holds: the answer does not depend on
 the order the facts arrived in.
 
@@ -1378,7 +1417,7 @@ back a partial result labelled as the one that was asked for, which is the anyti
 contract's `:status` lying; a refusal carrying the ceiling tells the caller what the next
 request has to name. And **applying the ceiling at the HTTP route** would be a ceiling the
 model's generated tool surface does not have, since that surface dispatches through the
-same op table ([llm.md](llm.md)) — so the clamp lives in the table, where both doors
+same op table ([llm.md](llm.md)) — so the clamp lives in the table, where both entry points
 reach it.
 
 An op with no option map is deliberately not on the table. `:prove` and `:ask` take no
@@ -1421,7 +1460,7 @@ Defends [web.md](web.md).
 
 `lein browser` pairs two things that are each a considered risk alone and a remote shell
 together: the browser's write route, unauthenticated, and an nREPL, arbitrary code
-execution by design. Either one on a shared interface is a risk that stays local to what
+execution by design. Either one on a shared network interface is a risk that stays local to what
 it grants; combined, a request that reaches the browser can drive the REPL, and a REPL
 is a way past every check the browser's own write routes enforce. So the pairing is not
 configurable — the profile pins nREPL to `127.0.0.1` rather than trusting Leiningen's

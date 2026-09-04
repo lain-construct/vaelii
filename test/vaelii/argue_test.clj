@@ -115,7 +115,7 @@
     (v/assert kb (list hungry Muffet) 'CxUniverse {:strength :monotonic})
     (is (= :true (:verdict (v/argue kb (list hungry Muffet) 'CxUniverse))))))
 
-(tu/deftest-kb argue-refuses-an-option-it-does-not-read-at-its-own-door
+(tu/deftest-kb argue-refuses-an-option-it-does-not-read-at-its-own-entry-point
   ;; `argue` reaches `query` only when `:max-depth` is there and takes the
   ;; no-rule-expansion `ask` arm otherwise, so a roster checked downstream is not checked
   ;; at all for exactly the misspelling that matters: `{:max-deph 3}` would answer

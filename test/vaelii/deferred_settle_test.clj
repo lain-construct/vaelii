@@ -110,9 +110,9 @@
                      (v/handle-of kb (list parentOf Bob Ann) CxFam)])))))))
 
 ;; ---- bulk-assert-facts!: the fast path lands what the slow one lands ------
-;; The door's whole promise is that turning the checks, the dedup and the provenance
+;; The entry point's whole promise is that turning the checks, the dedup and the provenance
 ;; off changes *nothing that is stored* — so the two halves below are the same corpus
-;; through the two doors, into two unrelated contexts, compared on all four things the
+;; through the two entry points, into two unrelated contexts, compared on all four things the
 ;; docstring names: stored sentexes, index, beliefs, `count-with-functor`.
 
 (tu/deftest-kb bulk-assert-facts-lands-what-per-fact-assert-lands
@@ -147,7 +147,7 @@
         (is (some? (v/provenance kb (v/handle-of kb (first facts) CxSlow))))))))
 
 (tu/deftest-kb bulk-assert-facts-reports-its-rate-to-on-progress
-  ;; The load rate is what makes the next regression noticeable, so the door reports
+  ;; The load rate is what makes the next regression noticeable, so the entry point reports
   ;; it rather than leaving every caller to time the call.  The closing event fires
   ;; *after* the deferred settle, so it covers the whole load.
   (tu/with-terms [edgeOf CxRate]

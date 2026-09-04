@@ -12,7 +12,7 @@
   rather than by reading the keyword back.
 
   **Completeness.**  A diagnostics list that quietly omits a cache is worse than no list:
-  a reader concludes the engine holds nothing else.  Two tests hold the line — a roster,
+  a reader concludes the engine holds nothing else.  Two tests enforce it — a roster,
   so adding a cache is a visible change in a diff, and a scan of the sources for the
   **bounded**-cache idiom, so a cache spelled with a `…-limit` / `…-budget` /
   `…-capacity` constant and no registration fails here rather than going unnoticed.  The
@@ -44,7 +44,7 @@
          (f)
          (finally (swap! reg dissoc (:cache descriptor))))))
 
-;; ---- the shape of a row -------------------------------------------------
+;; ---- the structure of a row -------------------------------------------------
 
 (tu/deftest-kb every-row-says-what-it-counts-and-what-it-is-about
   (let [rows (v/caches kb)]

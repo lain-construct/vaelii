@@ -72,7 +72,7 @@
       (testing "genl? between two types, scoped and unscoped"
         (is (true? (ok-result handler :genl? [dog animal])))
         (is (true? (ok-result handler :genl? [dog animal CxClosure]))))
-      (testing "the genlCx cone, both directions, and the visibility question behind it"
+      (testing "the genlCx ancestor set, both directions, and the visibility question behind it"
         (is (contains? (set (ok-result handler :context-up [CxClosure])) 'CxUniverse))
         (is (contains? (set (ok-result handler :context-down ['CxUniverse])) CxClosure))
         (is (true? (ok-result handler :sees? [CxClosure 'CxUniverse])))

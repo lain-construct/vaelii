@@ -9,7 +9,7 @@
   disagreed with the set it probes would pass all three: the two ops answer different
   questions and nothing compares them.  And the probe is a genuinely separate code path
   per backend — a hash lookup, a binary search over an `int[]`, a `RoaringBitmap` test, an
-  interned-key route, a three-way merge across the overlay seam — because that is the
+  interned-key route, a three-way merge across the overlay protocol — because that is the
   point of having it: `exception-rule?` is taken once per candidate rule per new datum, so
   answering it by materializing the roster makes forward chaining a product of two
   KB-sized quantities.  The property below is the whole specification, over a spread of
@@ -18,7 +18,7 @@
       (kv-member? b k m)  =  (contains? (kv-members b k) m)
 
   The overlay arm carries a second property.  A fork's `kv-count`, `kv-members` and
-  `kv-intersect` take a fast path when the merged answer *is* the base's — the shape of
+  `kv-intersect` take a fast path when the merged answer *is* the base's — the structure of
   nearly every key a fork reads, and the one that decides what its query plans cost — so
   all three are checked against
   the merge rule transcribed independently here from the overlay's own bookkeeping keys,
@@ -177,7 +177,7 @@
     [:functor-root roundtrip]  #{60 61}          ; a member removed and then put back
     [:functor-root shareda]    #{1 20 40 60}     ; two keys that actually overlap, so an
     [:functor-root sharedb]    #{20 40 99}       ;   intersection over them is not vacuous
-    [:exception-index :rules]  #{70 71}          ; the roster, edited across the seam
+    [:exception-index :rules]  #{70 71}          ; the roster, edited across the protocol
     [:trie :children [p0]]     #{tok0 tok1}})    ; a non-handle family
 
 (def ^:private fork-keys
@@ -283,7 +283,7 @@
 (deftest a-fork-inherits-its-bases-answers-without-merging-them
   ;; The fast-path claim itself, stated behaviourally: on a key the fork has never touched
   ;; the merged answer is the base's own, member for member and count for count — including
-  ;; the roster, which is what `exception-rule?` probes through the seam.
+  ;; the roster, which is what `exception-rule?` probes through the protocol.
   (let [raw  (doto (dense/dense-kv-backend {:space [::member-inherit]}) (kv/kv-clear!))
         _    (doseq [i (range 400)] (kv/kv-add-to-set raw [:functor-root 'wide] i))
         _    (doseq [i (range 5)]   (kv/kv-add-to-set raw [:exception-index :rules] i))

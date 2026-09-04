@@ -16,7 +16,7 @@
 # it is.  A bare run is the ROUTINE roster — thirteen of the fifteen, the two
 # durable-records-with-a-derived-index pairs that are a third copy of one claim sitting
 # out — and `full` is the fifteen, which is what a release runs and what a change to
-# the record/index seam itself owes.  Every run names what did not run, on the header
+# the record/index boundary itself owes.  Every run names what did not run, on the header
 # and again on the verdict.
 #
 # WHY CONCURRENT IS SAFE, given both of those scripts are sequential on purpose:
@@ -85,7 +85,7 @@
 #   ./scripts/test-matrix.sh --owed           # only what the changed files owe
 #   ./scripts/test-matrix.sh --owed -n        # ...and print that set without running it
 #   ./scripts/test-matrix.sh --owed=<ref>     # ...measuring the change from <ref> instead
-#   ./scripts/test-matrix.sh full             # all fifteen — a release, or a seam change
+#   ./scripts/test-matrix.sh full             # all fifteen — a release, or a protocol change
 #   ./scripts/test-matrix.sh full :all        # ...with the ^:slow half — before a tag
 #   ./scripts/test-matrix.sh backends         # one axis (also: sweeps, routine, full)
 #   ./scripts/test-matrix.sh memory disk-log rete   # only these
@@ -578,7 +578,7 @@ reap() {                                           # reap <index> -> prints its 
 # multi-byte cells never have to line up with a byte-counted `printf` width — the colour
 # escapes it emits are zero-width bytes, so they do not disturb that either.  The reached
 # run and its head carry the verdict colour `col`; the unreached remainder is dim grey,
-# so the bar reads as a filling gauge rather than a solid green (or red) block.
+# so the bar is indistinguishable from a filling gauge rather than a solid green (or red) block.
 bar() {                                            # bar <reached> <total> <width> <col>
   local reached="$1" total="$2" w="$3" col="$4" fill i s=""
   (( total < 1 )) && total=1
@@ -731,7 +731,7 @@ redraw() {
             "$m" "$cfg" "${fin[i]}" "$DIM" "$(hms "${secs[i]}")" "${rev[i]}" "$OFF")"
         fi ;;
       *)
-        # `queued` and `skipped` both land here and they are not the same news.
+        # `queued` and `skipped` both land here and those are two different things news.
         # `--fail-fast` sets `skipped` on everything after the failure, and a frame
         # spelling that `queued` says work is still coming when the run has stopped —
         # the closing frame is the one a reader keeps, and it would be the lie.  The

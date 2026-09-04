@@ -4,7 +4,7 @@
   "A converging rule graph — one subgoal reached from many branches — answered the same
   whether or not the caches under the search are on.
 
-  The shape that repeats is a subgoal which survives substitution with an **open
+  The repeating form is a subgoal which survives substitution with an **open
   argument**: `(anc <parent> ?z)`, reached once per child of that parent.  A rule whose
   antecedents are unary over a single variable has no such residual — it substitutes to
   a ground literal, distinct per binding — so the graphs here are relational, with a

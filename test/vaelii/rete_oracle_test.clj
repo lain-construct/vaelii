@@ -295,7 +295,7 @@
                       (parentOf I9 ?z)       ; no matches
                       (siblingOf ?x I1)      ; symmetric, needs the mirror
                       (siblingOf I1 ?y)      ; symmetric, other order
-                      ;; symmetric with BOTH arguments open — the shape that pins the
+                      ;; symmetric with BOTH arguments open — the structure that pins the
                       ;; dedup key.  One stored fact answers twice and differently (the
                       ;; mirror swaps the bindings), so a dedup keyed on the handle alone
                       ;; drops the second; the palindrome above is the other side of the

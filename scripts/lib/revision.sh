@@ -21,7 +21,7 @@
 # arguments and the repository, so both the suite scripts and `gate.sh` can take
 # it without taking anything else.
 
-# The revision, short.  `no-git` rather than empty, so a log line reads as a fact
+# The revision, short.  `no-git` rather than empty, so a log line is indistinguishable from a fact
 # about a tarball rather than as a field somebody forgot to fill in.
 revision_hash() {
   git rev-parse --short HEAD 2>/dev/null || echo "no-git"

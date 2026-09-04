@@ -3,10 +3,10 @@
 (ns vaelii.inference-test
   "The node engine's own contract (`vaelii.impl.inference`): the residual transformation,
   per-literal depth, binding flow, guards, the claimed-key set, the frontier's order,
-  and the shape of the tree it leaves behind.
+  and the structure of the tree it leaves behind.
 
   Answer-set agreement with the DFS is the criterion that actually decides whether this
-  engine is right, and it lives next door in `inference_parity_test`.  What is here is the
+  engine is right, and it lives in the adjacent namespace in `inference_parity_test`.  What is here is the
   diagnosis when that one goes red."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
@@ -356,7 +356,7 @@
             (is (= :complete (:status r2)))
             (is (= #{HaveA} (values (into (set (:results r)) (:results r2)) '?x)))
             (is (nil? (:resume r2)))))
-        (testing "the front door holds the same line under the node engine"
+        (testing "the public entry point holds the same line under the node engine"
           (binding [v/*query-engine* :inference, inf/*max-depth* 3]
             (let [r  (v/prove-within kb (list target '?x) CxDl {:max-ms 2 :max-depth 3})
                   r2 (v/resume r {:max-ms 60000})]

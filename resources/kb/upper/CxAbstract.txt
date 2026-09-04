@@ -94,7 +94,7 @@
 (comment leg "A body part an animal stands and walks on.")
 (genl leg body_part)
 
-(comment liquid "A substance that flows and takes the shape of its container.")
+(comment liquid "A substance that flows and takes the structure of its container.")
 (genl liquid substance)
 
 (comment living_thing "An organism — it is born, lives, and (by default) dies.")

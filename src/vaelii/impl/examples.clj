@@ -271,7 +271,7 @@
 
 (defn available?
   "Is every sentex this example rests on actually stored?  One `handle-of` per
-  dependency — indexed, and find-*without*-create, so asking costs nothing and writes
+  dependency — indexed, and find-*without*-create, so asking adds no work and writes
   nothing.  A KB that does not hold them cannot be asked the example's question."
   [kb {:keys [rests-on]}]
   (every? (fn [[sentence context]] (v/handle-of kb sentence context)) rests-on))

@@ -39,7 +39,7 @@
   `decide-nogood` classifies it as *hard* and reports it directly, and
   `solve/program` drops any nogood with no contested member.  What does arrive
   always has a contested member, and defeating that member always satisfies it.
-  The `:doomed` path below is therefore defensive — it costs nothing and stays
+  The `:doomed` path below is therefore defensive — it adds no work and stays
   correct if nogoods ever grow beyond today's `S` vs `(not S)` pairs.
 
   ## The objective, most significant first
@@ -95,7 +95,7 @@
 
   A backend that **throws** — clingo's `:solver-failed`, clasp's `:solver-unavailable`,
   a JNA `Error` against a missing libclingo — reads the same way, and the catch is here
-  rather than at the caller because this is the seam a native failure crosses.  Left to
+  rather than at the caller because this is the boundary a native failure crosses.  Left to
   propagate it would unwind whatever arbitration was in progress: `settle`'s
   `resolve-contradictions` calls the solver *after* an earlier round already mutated the
   TMS, so the throw would leave a half-arbitrated KB behind — stale `:conflicts`,
@@ -108,7 +108,7 @@
 
   The imperative readers (`kept-of`, `enumerate-optima`, `classify-program`) refuse an
   unanswered result with `:solver-failed` rather than return a world nobody computed.
-  They are not mid-arbitration, so a throw there costs nothing and says more."
+  They are not mid-arbitration, so a throw there adds no work and says more."
   (:require
    [taoensso.trove :as trove]
    [vaelii.impl.asp.aspif :as aspif]
@@ -423,7 +423,7 @@
           (not (solver/available?)) (solve/solve solve/local-solver program)
           :else
           ;; Only the backend call is guarded, and it is guarded against `Throwable`:
-          ;; a native seam fails as an `Error` as readily as an exception, and a
+          ;; a native call fails as an `Error` as readily as an exception, and a
           ;; failure there must not unwind an arbitration already in progress.  A
           ;; `settle` that threw out of `resolve-contradictions` would leave a
           ;; half-arbitrated KB — round 1's defeats landed, stale `:conflicts`,

@@ -246,9 +246,9 @@
         (is (= #{(list 'not (list flies Tweety))}
                (set (map :sentence (:contradicted-by (v/why-not kb th))))))))))
 
-;; ---- the candidates the backward door reads -----------------------------
+;; ---- the candidates the backward entry point reads -----------------------------
 
-(tu/deftest-kb the-backward-doors-candidate-rules-are-one-definition
+(tu/deftest-kb the-backward-entry-points-candidate-rules-are-one-definition
   ;; `why` / `argue` / `prove` / `abduce` all reach the rules that could conclude a goal
   ;; through `provers/candidate-rules` — one filter chain, so the DFS prover, the node
   ;; engine, the tacticians and the abducer cannot answer from four readings of "which
@@ -262,7 +262,7 @@
       ;; question about the rule index rather than about the goal
       (is (nil? (provers/candidate-rules kb Subject CxWhyCand)))
       (is (nil? (provers/candidate-rules kb nil CxWhyCand))))
-    (testing "and the door has no second copy of the filter chain"
+    (testing "and the entry point has no second copy of the filter chain"
       ;; Two definitions of "which rules could conclude this" is two things to keep in
       ;; step, and they had already drifted on exactly the case above.
       (is (nil? (re-find #"\(defn-? +candidate-rules" (slurp "src/vaelii/core.clj")))

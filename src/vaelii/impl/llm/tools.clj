@@ -147,7 +147,7 @@
                   "facts and cached closures — which is a real answer, not an error, so "
                   "pass a depth when the conclusion you want follows from rules. "
                   "Send context alongside it: the argument shapes nest, so opts with no "
-                  "context names the shape that has neither and is refused. "
+                  "context names the structure that has neither and is refused. "
                   "Elsewhere, per-op options such as \"{:limit 20}\".")})
 
 (defn- param-schema [p]
@@ -176,7 +176,7 @@
   A `serve/kbless-ops` op keeps its whole list: the daemon supplies a KB to every row of
   its table, but these fns take none, so their first parameter is an argument the caller
   sends (`quality-report`'s reading, `readable-sentence`'s sentex).  Dropping it here
-  published a one-argument read as a no-argument tool that then threw on arity."
+  published a one-argument are indistinguishable from a no-argument tool that then threw on arity."
   [op v]
   (let [drop-kb (if (serve/kbless-ops op) identity rest)]
     (vec (sort-by count (map #(vec (drop-kb %)) (arglists v))))))
@@ -214,7 +214,7 @@
       (= (count all) (count required)) (assoc "strict" true))))
 
 (defn schemas
-  "Every exposed read as a tool schema, in `read-ops` order.  `opts`:
+  "Every exposed are indistinguishable from a tool schema, in `read-ops` order.  `opts`:
 
     :only     a set of op keywords to keep (default: all reads)
     :exclude  a set of op keywords to drop"
@@ -343,7 +343,7 @@
   so an input of goal *and* opts with no context satisfies only the first, and passing
   it on would answer facts-only with the depth discarded, which reads exactly like a
   goal no rule can reach.  That is `opts/check!`'s failure one level out: an argument
-  nothing reads takes the default in silence.  So the refusal names the shape the
+  nothing reads takes the default in silence.  So the refusal names the form the
   input selected and the shapes the op has, and the model supplies the argument in
   between.
 
@@ -386,7 +386,7 @@
            ;; The class name when there is no message, as `session/parse-batch` does: a
            ;; `StackOverflowError` carries none, so `.getMessage` is nil and the arm that
            ;; exists to name the failure hands the model `{:error ""}` — a refusal that
-           ;; says nothing, which reads as a tool that answered emptily rather than as an
+           ;; says nothing, which is indistinguishable from a tool that answered emptily rather than from an
            ;; argument it should fix.
            (catch Throwable e
              {:ok false

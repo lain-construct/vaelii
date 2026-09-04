@@ -1,10 +1,10 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.solve-test
-  "The soft-contradiction solver seam: `Program`, `content-key`, and the shipped
+  "The soft-contradiction `Solver` protocol: `Program`, `content-key`, and the shipped
   `local-solver` stub (`vaelii.impl.solve`).
 
-  Two things are at stake here, and they are not the same thing.
+  Two separate things are at stake here.
 
   **The split between what a solver may decide and what it may not.**  A `Program`
   carries `:assumptions` — contested `:default` nodes — and `:fixed`, the known-true
@@ -65,7 +65,7 @@
 ;; ---- 1. Program: the split between decidable and fixed -------------------
 
 (deftest program-splits-contested-assumptions-from-fixed-background
-  ;; The one structural guarantee the solver seam rests on.  A member of a nogood
+  ;; The one structural guarantee the `Solver` protocol rests on.  A member of a nogood
   ;; that is not contested is known-true background: it belongs in `:fixed`, never in
   ;; `:assumptions`, and its content must not be handed over either — `content-key`
   ;; is a tie-break among things that may lose, and nothing fixed may lose.
@@ -93,7 +93,7 @@
 
 (deftest an-empty-program-decides-nothing
   ;; Nothing contested, nothing to satisfy.  `settle` short-circuits before building
-  ;; this, but the seam has to be total: a solver is a plug-in and may be handed one.
+  ;; this, but the protocol has to be total: a solver is a plug-in and may be handed one.
   (let [p (solve/program #{} [] {})]
     (is (= #{} (:assumptions p)))
     (is (= #{} (:fixed p)))
@@ -150,7 +150,7 @@
   ;; A sentex is a sentence *plus* a context, so two contexts asserting the same
   ;; sentence are two different claims and must key differently.  Dropping the
   ;; context from the vector would collapse them and push the choice onto the
-  ;; handle fallback — order dependence by the back door.
+  ;; handle fallback — order dependence by the back entry point.
   (let [p (solve/program #{1 2} []
                          {1 {:sentence '(a) :context 'C}
                           2 {:sentence '(a) :context 'D}})]
@@ -272,7 +272,7 @@
 (deftest a-nogood-already-satisfied-by-an-earlier-choice-is-skipped
   ;; The `(< (count live) (count nogood))` arm.  Two overlapping pairs where the first
   ;; decision happens to fall on the shared member: the second nogood no longer has
-  ;; all its members believed, so it is satisfied and must cost nothing more.
+  ;; all its members believed, so it is satisfied and must added no work more.
   (let [c (content 1 '(a) 2 '(b) 3 '(c))
         r (decide (solve/program #{1 2 3} [(ng 0 1 2) (ng 0 2 3)] c))]
     (is (= #{'(b)} (claims c (:defeat r))) "one defeat satisfies both")
@@ -287,7 +287,7 @@
   ;; (b) is defeated, and defeating (d) as well is the failure this pins.
   ;;
   ;; Latent rather than live — `negation-nogoods` only ever builds P/¬P pairs — but
-  ;; `program` is a public seam that accepts any nogood, and over-defeating is the
+  ;; `program` is a public fn that accepts any nogood, and over-defeating is the
   ;; failure mode the whole assumptions/fixed split exists to prevent.
   (let [c (content 1 '(a) 2 '(b) 3 '(c) 4 '(d))
         r (decide (solve/program #{1 2 3 4} [(ng 0 1 2) (ng 0 2 3 4)] c))]
@@ -339,7 +339,7 @@
     (is (= #{'(b)} (claims c (:defeat r))) "the content-sort loser, in every ordering")
     (is (= #{:defeat :violated} (set (keys r))) "and the result shape is closed")))
 
-;; ---- 6. the seam on a live KB --------------------------------------------
+;; ---- 6. the protocol on a live KB --------------------------------------------
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 

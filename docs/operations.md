@@ -1,13 +1,13 @@
 # Operational surface
 
-- **Covers:** the five interfaces that drive a KB — CLI, daemon, client, access facade
+- **Covers:** the five surfaces that drive a KB — CLI, daemon, client, access facade
   and the browser's launch path — the single-writer contract across them, and every
   environment variable or system property with where it is read.
 - **Not here:** the browser's own pages, panels and editing UI → [web.md](web.md); which
   KB a process has loaded, and how one is found → [catalog.md](catalog.md).
 - **Assumes:** sentex, context, handle → [glossary.md](glossary.md).
 
-`vaelii.core` is the engine; the operational surface is the set of in-repo interfaces
+`vaelii.core` is the engine; the operational surface is the set of in-repo surfaces
 that *drive* it. There are five:
 
 | Interface | Namespace | Launch | For |
@@ -20,13 +20,13 @@ that *drive* it. There are five:
 
 All five go through `vaelii.core` alone — the same boundary the rest of the repo keeps
 ([api.md](api.md)). None of them is a separate repo: the
-engine does its own storage (the `:disk` backend), so an interface is an in-repo
+engine does its own storage (the `:disk` backend), so a surface is an in-repo
 namespace, not a sibling.
 
 ## The single-writer contract
 
 The store allows **one writer per directory** (docs/storage.md); the `:disk` backend
-enforces it with a fail-fast file lock. That shapes how the interfaces coexist:
+enforces it with a fail-fast file lock. That shapes how the surfaces coexist:
 
 - The **daemon** is the canonical single writer — one JVM owns one KB and every client
   reaches it through that one process. The daemon serializes its ops through one
@@ -58,7 +58,7 @@ lein cli repl --starter                                                    # int
 - **A command that answers a set prints it sorted.** `match`, `query` and `ask` answer
   sets, and a set has no order of its own — so an unsorted print was whichever order the
   retrieval enumerated, and two loads of the same knowledge printed it differently, which
-  a `diff` of two runs reads as a change in the KB. They are ordered by content key
+  a `diff` of two runs is indistinguishable from a change in the KB. They are ordered by content key
   (`naming/print-key`), alongside `types` and `contexts`, which always were. **`prove` is
   the exception and stays in DFS order**: it answers one solution per derivation, and the
   order those were found in is part of what a proof says ([inference.md](inference.md)).
@@ -70,7 +70,7 @@ lein cli repl --starter                                                    # int
 - **`describe <term>`** prints everything the KB holds about one term, shaped by the
   term's role ([api.md](api.md)) — the shell spelling of "what can I ask about this?".
   **`--context <CxName>`** is the vantage: the argument declarations, the grants and the
-  comments are each read from that context's `genlCx` up-cone, so two vantages give two
+  comments are each read from that context's `genlCx` ancestor set, so two vantages give two
   correct answers; absent, it reads every context.
 - **`why-not '<goal>' <CxName> --nearest <n>`** adds the rules that came closest to
   concluding the goal, each with the antecedent it is still missing. A flag rather than
@@ -190,7 +190,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   so a browser must preflight it, and the daemon answers no CORS headers — which stops
   a page the operator merely visits from driving the write route over loopback. A
   request stamping another site's `Origin` (or `Referer`) is refused with 403, the
-  second layer on the same door.
+  second layer on the same entry point.
 - **Every route answers only a recognised `Host`** — the allowlist follows the
   interface the daemon is bound to, so the loopback default answers only loopback
   names, which is what closes DNS rebinding; an unrecognised `Host` gets 400.
@@ -219,13 +219,13 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   Under it answers; over it is refused **400** with `{:type :over-ceiling}` carrying the
   requested figure and the ceiling, so the next request knows what to name. A read that
   names *no* `:max-ms` is given the ceiling's, because absent there means no clock at all
-  — and for the four backward-search doors that holds even when the request sent no
+  — and for the four backward-search entry points that holds even when the request sent no
   option map, since the alternative is an unbounded search on the write monitor. `0` on
   either variable lifts that ceiling. The ops it applies to are the ones with a bound to
   raise — `:query`, `:query?`, `:argue`, `:why`, `:why-not`, `:search-tree`,
   `:compare-tacticians`, `:ask`, `:ask?`, `:prove`, `:provable?`, `:ask-within`,
   `:prove-within`. A search that reaches its clock is **400** `{:type
-  :budget-exhausted}` at the four plain doors, which answer with a solution set or a
+  :budget-exhausted}` at the four plain entry points, which answer with a solution set or a
   boolean and have no room to say the answer is a prefix; `:ask-within` and
   `:prove-within` return the prefix with a `:status` instead
   ([anytime.md](anytime.md)). **30 seconds is the client's own read timeout**
@@ -275,7 +275,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   but the caller is who can act on it — by dropping a subscription, or by not asking to
   wait — and a status of its own would break the promise that a client discriminates on
   `:type`. The first two exist because an empty answer
-  was the tempting alternative for each: [why they refuse
+  was the alternative to avoid for each: [why they refuse
   instead](defenses.md#unknown-subscription-and-bad-cursor-refuse-rather-than-answer-an-empty-feed)
 - **Sentex records are projected to plain maps** before they hit the wire (the
   `sentex`-map contract, docs/api.md), so a client needs no `impl` record class.
@@ -359,7 +359,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
 - **Export runs on the daemon's host** (`:export`). It is a write to the *filesystem*
   rather than to the KB, and the directory it names is resolved where the daemon runs —
   the only place it can be, since the daemon owns the KB and there is no stream to hand a
-  client back. Two consequences worth stating: it reports **no progress** (`:on-progress`
+  client back. Two consequences follow: it reports **no progress** (`:on-progress`
   is a function, and functions do not cross an EDN wire), and it runs under the write
   monitor — the walk fetches record by record, which needs the same protection a query's
   projection does ([why](defenses.md#a-read-that-crosses-the-wire-is-realized-inside-the-write-monitor)).
@@ -403,7 +403,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   the network mirror of `vaelii.core`'s explicit-`kb` API. `client` returns a `conn`
   holding a reusable `HttpClient`; no socket opens until a call. It reads `:timeout-ms`
   and `:token` and nothing else — a key outside those two, or a non-map, is refused
-  `:unknown-option` at the same door every other options map goes through, because a
+  `:unknown-option` at the same entry point every other options map goes through, because a
   misspelt `:token` is not an explicit nil: it falls back to `VAELII_API_TOKEN`, so a
   caller meaning to present a different credential presents the environment's.
 - **The `conn` carries the bearer token**, and every call sets one more header on the
@@ -414,7 +414,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   call with no token to a daemon that requires one throws the daemon's own
   `:unauthorized`, like any other remote refusal.
 - A daemon `{:ok false}` reply becomes an `ex-info` carrying its `:error` and `:type`,
-  so a remote naming / disjointness refusal reads like a local one. The client mints
+  so a remote naming / disjointness refusal is indistinguishable from a local one. The client mints
   two `:type`s of its own, for what the wire hands it that the daemon never typed:
   `:daemon-error` (an `{:ok false}` with no usable `:type` — the fallback holds even
   against `:type nil`) and `:bad-reply` (a reply that does not read as EDN, or reads
@@ -534,7 +534,7 @@ rather than `java -jar`, because the jar's Main-Class is `vaelii.core`.
   exiting 2 before it opens the KB. `docker-compose.yml` declares the variable required,
   so the failure is a message at `up` rather than a daemon that starts unauthenticated.
   The port is published to host loopback: the daemon authenticates, and putting an
-  authenticated writer on a public interface stays a deliberate act.
+  authenticated writer on a public network interface stays a deliberate act.
 - **One container per volume.** The `:disk` backend takes an exclusive lock on open and
   refuses a second opener with `:disk-locked`, which is uncaught — so a second container
   over one volume dies at startup rather than corrupting the store. A `replicas:` count
@@ -633,7 +633,7 @@ What follows is worth knowing before an incident rather than during one:
 - **A refused request leaves no line on the server.** The 401, the 403 (cross-origin),
   the 413 (body over the ceiling) and the 415 (not `application/edn`) are all answered by
   middleware that writes nothing. The evidence for one is the status code the *client*
-  holds. What the daemon does log is a **500** (`::op-error`, at `:warn`, with the
+  holds. The daemon does log a **500** (`::op-error`, at `:warn`, with the
   exception) and its two start-up posture lines — which is why the authentication posture
   is announced at start: it is the line to grep for afterwards.
 - **Turning the dial up does not add request lines.** The dial governs the engine's own
@@ -658,10 +658,12 @@ Three things hold for every row:
   properties `vaelii.impl.config` reads are checked at `open-kb` (`config/check!`), so
   `vaelii.disk.fsync=always` fails the open naming itself rather than silently selecting
   the three-second tick. The ASP three are in that sweep too, which is why they are read
-  through `config` rather than where they are used: a misspelt backend read as a bare
+  through `config` rather than where they are used: a misspelt backend are indistinguishable from a bare
   keyword matched no arm and ran **auto**, and a non-numeric byte cutoff threw from a
-  cache at the first solve. Both now refuse at the same door as everything else. `VAELII_MAX_BODY_BYTES` and `VAELII_LOG_LEVEL` refuse at
-  namespace load, each being the root value of a var.
+  cache at the first solve. Both now refuse at the same entry point as everything else. `VAELII_MAX_BODY_BYTES` and `VAELII_LOG_LEVEL` refuse at
+  namespace load, each being the root value of a var. **Every** switch is in that sweep
+  and not the ones somebody remembered to list: `check!` walks `config/switches`, one row
+  per reader, and a reader with no row fails the build rather than going unchecked.
 - **The boolean switches share one vocabulary**: `true` `1` `on` `yes` and `false` `0`
   `off` `no`, case-insensitively, and nothing else. A blank value is *unset* — an
   exported-but-empty variable is the shell's way of saying nothing.
@@ -679,7 +681,7 @@ so where they sit.
 NNN and read down*, and the number is rounded to a multiple of ten. An exact line was
 checked exactly and drifted the moment anything above it was edited — a comment six
 screens up failed the surface test with a diff that had nothing to do with
-configuration, and the fix was always to retype a number nobody reads as a number.
+configuration, and the fix was always to retype a number nobody is indistinguishable from a number.
 
 The rule the test applies is **floor ≤ the file's first mention of the switch**, which
 is what makes the tolerance real and the check still worth running. Insertion above
@@ -697,9 +699,9 @@ the read still found one of them. Set a new floor by rounding the first mention 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
 | `VAELII_API_TOKEN` | `src/vaelii/impl/guard.clj:140+` | any string; blank or whitespace-only is unset | unset | The one shared bearer token: with it set every daemon request carries `Authorization: Bearer …` or is answered 401, and a client and an attached browser present it from their own environment. |
-| `VAELII_ALLOWED_HOSTS` | `src/vaelii/impl/guard.clj:40+` | comma-separated host **names**; a port on an entry is read as the name alone, and a value naming nothing is unset | unset | The `Host` headers a server answers, overriding the list the bind address implies. Entries are compared in the shape a `Host` header is, so `kb.example.com:8080` and `kb.example.com` are one entry. |
+| `VAELII_ALLOWED_HOSTS` | `src/vaelii/impl/guard.clj:40+` | comma-separated host **names**; a port on an entry is read as the name alone, and a value naming nothing is unset | unset | The `Host` headers a server answers, overriding the list the bind address implies. Entries are compared in the form a `Host` header is, so `kb.example.com:8080` and `kb.example.com` are one entry. |
 | `VAELII_MAX_BODY_BYTES` | `src/vaelii/impl/guard.clj:160+` | a positive whole number of bytes | `16777216` (16 MiB) | The request-body ceiling both servers refuse above, with 413. |
-| `VAELII_MAX_QUERY_MS` | `src/vaelii/impl/config.clj:330+` | a whole number of milliseconds, 0 or more | `30000` | The wall clock a served read may name. A request may name less and is refused (`:over-ceiling`, 400) for naming more; a read naming none is given this, the four backward-search doors included. `0` lifts the ceiling. |
+| `VAELII_MAX_QUERY_MS` | `src/vaelii/impl/config.clj:330+` | a whole number of milliseconds, 0 or more | `30000` | The wall clock a served read may name. A request may name less and is refused (`:over-ceiling`, 400) for naming more; a read naming none is given this, the four backward-search entry points included. `0` lifts the ceiling. |
 | `VAELII_MAX_QUERY_DEPTH` | `src/vaelii/impl/config.clj:340+` | a whole number of rule expansions, 0 or more | `256` | The rule-expansion depth a served read may name, refused the same way. `0` lifts it. |
 | `VAELII_WEB_PORT` | `src/vaelii/impl/web.clj:5830+` | a port number | `3000` | The port the browser binds. An unparseable value falls through to the property rather than failing the start. |
 | `vaelii.web.port` | `src/vaelii/impl/web.clj:5830+` | a port number | `3000` | The same port, read after the variable. |
@@ -776,7 +778,7 @@ representation nobody chose.
 | `VAELII_OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:40+` | a base URL | `http://localhost:11434` | Where the Ollama backend connects. |
 | `VAELII_OLLAMA_MODEL` | `src/vaelii/impl/llm/ollama.clj:40+` | a model name | `phi4:14b` | The model a turn runs. |
 | `VAELII_OLLAMA_GENERATION_MODEL` | `src/vaelii/impl/llm/ollama.clj:60+` | a model name | `qwen3-coder:30b` | The model the page-generation path runs. |
-| `VAELII_OLLAMA_NUM_CTX` | `src/vaelii/impl/llm/ollama.clj:90+` | a whole number of tokens | `8192` | The context window a request asks for. An unparseable value reads as the default. |
+| `VAELII_OLLAMA_NUM_CTX` | `src/vaelii/impl/llm/ollama.clj:90+` | a whole number of tokens | `8192` | The context window a request asks for. An unparseable value is indistinguishable from the default. |
 | `VAELII_OLLAMA_KEEP_ALIVE` | `src/vaelii/impl/llm/ollama.clj:80+` | an Ollama duration (`30m`, `0`) | `30m` | How long the host is asked to hold the model resident after a turn. |
 
 **Read, not ours.** Four names another project defines and the engine reads. An operator
@@ -858,7 +860,7 @@ missed them rather than handed what it would need to reconstruct them.
 
 There is no **server-sent-events route and no websocket**. The feed crosses the wire as a
 long poll ([feed.md](feed.md)), which keeps one endpoint, one content type and one thing
-to authenticate; a streaming transport is a second protocol with a second door on it, and
+to authenticate; a streaming transport is a second protocol with a second entry point on it, and
 the latency it would buy over a parked `POST /op` is the round trip the poll already
 saves.
 

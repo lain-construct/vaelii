@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.asp-edge-test
-  "The ASP edge solver (`vaelii.impl.asp.edge`) behind the `solve/Solver` seam.
+  "The ASP edge solver (`vaelii.impl.asp.edge`) behind the `solve/Solver` protocol.
 
   Two halves.  The first drives `edge-solver` directly with hand-built `Program`s
   — no KB, no store — because the translation is a pure function of the program
@@ -17,7 +17,7 @@
   KB does not settle to one side, and the KB-level property worth pinning is the
   negative one: installing a real ASP backend does not change belief, is never
   consulted, and cannot quietly re-introduce arbitration.  Arbitration remains the
-  right answer for nogoods that are *not* plain rebuttals, which is why the seam and
+  right answer for nogoods that are *not* plain rebuttals, which is why the protocol and
   its encoding are still tested at full strength above.
 
   Everything here is skipped when no ASP backend is reachable: `edge-solver`
@@ -25,7 +25,7 @@
   clingo or clasp would silently assert the stub's behaviour instead of the
   solver's and prove nothing.
 
-  No `:each` fixture, deliberately.  The permutation tests below build a fresh KB
+  No `:each` fixture.  The permutation tests below build a fresh KB
   per ordering, and `tu/fresh` clears the scratch databases — which would pull the
   ground out from under a namespace-wide fixture KB and fail teardown against a
   baseline that no longer exists.  The KB tests therefore take the inline
@@ -199,7 +199,7 @@
             (is (= :default (v/defeat-class kb neg)))))
         (testing "the backend was never handed a program"
           (is (nil? (v/last-program kb))))
-        (testing "and the pair reads as a dilemma, not an unsatisfiable conflict"
+        (testing "and the pair is indistinguishable from a dilemma, not an unsatisfiable conflict"
           (is (= 1 (count (v/contradictions kb))))
           (is (empty? (v/conflicts kb))))))))
 
@@ -319,7 +319,7 @@
 ;; Every reader maps an atom's absence to *defeated* / *not kept*, so read as an
 ;; answer an empty result defeats every contested assumption — the exact opposite
 ;; of "decide nothing".  No backend is needed to pin this: `solver/solve` is the
-;; seam, and a stub answer in its shape is what arrives either way.
+;; protocol, and a stub answer in its shape is what arrives either way.
 
 (def ^:private two-choices
   (solve/program #{1 2}
@@ -328,7 +328,7 @@
 
 ;; Two nogoods sharing a member, with the handles arranged so the stub's greedy
 ;; per-nogood choice and the global optimum land on *different* sides: the stub
-;; defeats {1,3} and ASP defeats {2}.  This is the shape that makes degradation
+;; defeats {1,3} and ASP defeats {2}.  This is the structure that makes degradation
 ;; visible — on `two-choices` above the two solvers happen to agree.
 (def ^:private shared-member
   (solve/program #{1 2 3}
@@ -408,7 +408,7 @@
 
 (deftest a-backend-that-throws-does-not-unwind-the-arbitration
   ;; `resolve-contradictions` reaches the solver after an earlier round has already
-  ;; defeated things, so an exception escaping the seam leaves a half-arbitrated KB:
+  ;; defeated things, so an exception escaping the protocol leaves a half-arbitrated KB:
   ;; round 1's defeats landed, `:conflicts` stale, `settle-finish` never reached.  The
   ;; three currencies a backend fails in all read as one decided-nothing result.
   (doseq [[what thrown expected-type]

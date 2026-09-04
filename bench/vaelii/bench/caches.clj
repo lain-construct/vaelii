@@ -21,7 +21,7 @@
 
   * `taxonomy` `:closure-memo`, **unscoped** level — one reach set per `[relation
     direction node]` ever read, invalidated by a `:gen` bump rather than by size.  Its
-    population is bounded by the vocabulary and its *bytes* by the shape of the
+    population is bounded by the vocabulary and its *bytes* by the structure of the
     hierarchy, since a memo of sets retains the sets.
   * `taxonomy` `:vis-index` — one interned visible-context set per `[relation context]`,
     so it is bounded by the context census rather than by the read count.

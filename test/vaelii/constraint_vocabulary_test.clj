@@ -156,8 +156,8 @@
         (is (= 2 (:budget e)))
         (is (<= (:count e) 2) "and counts only what it looked at")))))
 
-(tu/deftest-kb a-wrong-arity-fact-is-refused-at-the-door-under-either-policy
-  ;; The forward door has a caller to refuse and the conviction is not a weighable pair,
+(tu/deftest-kb a-wrong-arity-fact-is-refused-at-the-entry-point-under-either-policy
+  ;; The forward entry point has a caller to refuse and the conviction is not a weighable pair,
   ;; so unlike disjointness and functionality the constraint policy does not move it.
   (doseq [policy [:refuse :arbitrate]]
     (testing (str policy)
@@ -310,7 +310,7 @@
           (str bad)))))
 
 (tu/deftest-kb the-conditional-declaration-entails-the-target-type
-  ;; Under `*assertive-arg-types?*` the constraint reads as an entailment as well, exactly
+  ;; Under `*assertive-arg-types?*` the constraint is indistinguishable from an entailment as well, exactly
   ;; as strong as `arg`'s and drawn under the same condition it convicts on — so a
   ;; dormant declaration entails nothing.
   (binding [checks/*assertive-arg-types?* true]

@@ -7,7 +7,7 @@
   The record half of the `:overlay` backend (the index half is
   `vaelii.impl.overlay.kv`).
 
-  * **The id seam.**  The overlay's handle counter is seeded above every handle the base
+  * **The id boundary.**  The overlay's handle counter is seeded above every handle the base
     holds, so a newly minted handle can never collide with a base one.  A record written
     at a handle the base *already* uses is therefore an **override** — the same handle,
     a different record — and the overlay's copy wins every read.  That is how a base
@@ -72,13 +72,13 @@
   "A handle the **merged** view holds, given the two halves' own samples and a predicate
   saying whether the merged view keeps one — `nil` only when neither half holds anything.
 
-  `nil` is the load-bearing part.  Every caller of a sampler reads it as *this store is
+  `nil` is the part that decides it.  Every caller of a sampler reads it as *this store is
   empty* (`kb/write-hazards`, `kb/discharge-over-empty-store!`, `open-kb`'s recovery
   branch), so a fork that deleted the one record its base happened to sample must not read
   as an empty fork: where the sample is a handle this fork took out, the answer falls back
   to the merged enumeration, which is the walk the capability exists to avoid and is
   reached only in that case.  Which handle comes back is the store's own choice
-  (`protocols/Tallying`), so preferring the overlay's costs nothing and skips the base."
+  (`protocols/Tallying`), so preferring the overlay's adds no work and skips the base."
   [own inherited keeps? ids]
   (let [h (if (some? own) own inherited)]
     (cond
@@ -264,8 +264,8 @@
   ;; implemented rather than left out because **this protocol cannot be half-implemented**
   ;; — `capabilities` branches on `satisfies?`, which a `defrecord` answers true for the
   ;; whole protocol however few methods it lists, so an omitted one is an
-  ;; `AbstractMethodError` at the call rather than the fallback the door promises
-  ;; (`protocols/BulkAnnotating` states the same rule one seam over).  So they read exactly
+  ;; `AbstractMethodError` at the call rather than the fallback the entry point promises
+  ;; (`protocols/BulkAnnotating` states the same rule one protocol over).  So they read exactly
   ;; what the fallback read, and the fork pays for the samplers alone.
   p/Tallying
   (sentex-tally        [this] (count (p/sentex-ids this)))

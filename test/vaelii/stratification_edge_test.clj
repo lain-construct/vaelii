@@ -240,7 +240,7 @@
 ;; A rule concluding `(?p ?x)` could conclude *any*
 ;; predicate once `?p` binds, so the stratification check treats it as a concluder of the
 ;; predicate its NAF antecedent depends on — `rules/direct-concluders` folds in the
-;; `p/var-consequent-key` catch-all.  Without that a one-rule negation cycle slips the door.
+;; `p/var-consequent-key` catch-all.  Without that a one-rule negation cycle slips the entry point.
 
 (tu/deftest-kb a-variable-consequent-rule-that-could-conclude-its-own-naf-is-refused
   (tu/with-terms [bar foo]

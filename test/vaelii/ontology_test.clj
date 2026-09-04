@@ -4,7 +4,7 @@
   "The shipped ontology as a *modelling* claim, where `starter-test` reads it as a schema
   that loads and reasons.
 
-  What is pinned here is the shape of the mini-ontology rather than any one inference:
+  What is pinned here is the structure of the mini-ontology rather than any one inference:
   which names are types and which are properties, that every type is placed under the
   root, that a capability is related to a kind rather than spelled as a predicate of its
   own, and how a claim about a kind reaches the kinds beneath it and stops where a nearer
@@ -284,7 +284,7 @@
         (str "covered: " (pr-str (mapv (juxt :by-sentence :sentence) (:subsumed q)))))))
 
 (tu/deftest-kb every-negated-conclusion-the-ontology-can-clash-with-is-stated-as-an-exception
-  ;; The other rule-hygiene reading, and the shape of what it finds here is the finding.
+  ;; The other rule-hygiene reading, and the structure of what it finds here is the finding.
   ;; Every pair whose conclusions contradict outright — a bird's flight against a
   ;; penguin's, wakefulness against sleep, life against death, and the shepherd boy's
   ;; credibility against his lying — is one of the two rules **stating** the other as an

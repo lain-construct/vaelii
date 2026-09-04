@@ -5,7 +5,7 @@
 
   Nothing else evaluates them.  `scripts/check-doc-drift.py` reads the pages as text,
   and its E13 asks only whether a block *balances* — so an example may name a fn that
-  no longer exists, pass a map key the door now refuses, or print a value the engine
+  no longer exists, pass a map key the entry point now refuses, or print a value the engine
   stopped producing, and read as current for as long as nobody pastes it.  This
   namespace pastes it.
 
@@ -15,7 +15,7 @@
       ```clojure run
 
   Almost every block in the tree is a *fragment* — KB sentences written as bare
-  s-expressions (`(genl dog animal)`), a signature listing, a map showing the shape of
+  s-expressions (`(genl dog animal)`), a signature listing, a map showing the structure of
   a result, a call over a `kb` the surrounding prose introduced.  None of those is a
   program, and none can be made one without rewriting the page into a transcript.  The
   whole-program blocks are a handful.  So opt-out would need a marker on nearly every

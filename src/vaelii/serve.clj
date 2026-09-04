@@ -32,7 +32,7 @@
 
 (defn app
   "The ring handler for `kb` — pure `request -> response`, so it is tested without a
-  socket.  `:host` names the interface it will be served on, which fixes the `Host`
+  socket.  `:host` names the network interface it will be served on, which fixes the `Host`
   values it answers to; `:token` is the bearer token every request must present
   (`VAELII_API_TOKEN` when the key is absent, an explicit nil to serve open)."
   ([kb] (serve/app kb))

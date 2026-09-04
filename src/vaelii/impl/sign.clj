@@ -185,7 +185,7 @@
 
 (def sign-of-value
   "The three sign individuals, and the value each denotes.  Symbols in the KB, keywords in
-  the arithmetic — the KB's own three terms are the interface and the keywords are what
+  the arithmetic — the KB's own three terms are the public representation and the keywords are what
   the tables are written over."
   '{SignNegative :negative SignZero :zero SignPositive :positive})
 
@@ -209,7 +209,7 @@
 
   A stated value narrows the quantity to that one sign, and **two that disagree narrow it
   to nothing** — which is the contradiction `reading` reports rather than adjudicates.
-  There is no `functional` mark on either predicate to refuse the second at the door, and
+  There is no `functional` mark on either predicate to refuse the second at the entry point, and
   deliberately: `functional` merges two symbol arguments through the equality partition,
   and merging `SignPositive` with `SignNegative` would make one term of the two rather
   than report that a KB has said both."
@@ -393,7 +393,7 @@
 (defn- goal-literal
   "The `(signOf Q S)` literal a goal is about — the goal itself, or the one under a `not`
   — else nil.  The surface convention `qcn-kb/claimed-literal` reads, for the same reason:
-  a goal reaches a prover in the shape the caller wrote it."
+  a goal reaches a prover in the form the caller wrote it."
   [goal]
   (let [lit (if (and (sequential? goal) (= 2 (count goal))
                      (= sx/not-functor (first goal)) (sequential? (second goal)))

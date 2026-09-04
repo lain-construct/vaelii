@@ -10,6 +10,7 @@
  {abduce "[[conn goal] [conn goal context] [conn goal context opts]]",
   abduce-discard! "[[conn result]]",
   add-provenance "[[conn handle m]]",
+  all-specified-violations "[[conn context]]",
   argue "[[conn asent context] [conn asent context opts]]",
   ask "[[conn goal] [conn goal context] [conn goal context opts]]",
   ask-within "[[conn goal budget] [conn goal context budget]]",
@@ -110,6 +111,8 @@
   sentexes-with-arg "[[conn pos term] [conn pos term opts]]",
   sentexes-with-functor "[[conn pred] [conn pred opts]]",
   settle-stats "[[conn]]",
+  specified-violations
+  "[[conn pred indep dep context] [conn pred indep dep context arg-pos]]",
   specs "[[conn t] [conn t context]]",
   supporting-justifications "[[conn handle]]",
   term-count "[[conn]]",
@@ -140,6 +143,7 @@
   add-prover "[[kb prover]]",
   add-reasoner "[[kb & names]]",
   agent-of-context "[[ctx]]",
+  all-specified-violations "[[kb context]]",
   argue "[[kb asent context] [kb asent context opts]]",
   ask "[[kb goal] [kb goal context] [kb goal context opts]]",
   ask-opt-keys :var,
@@ -274,6 +278,8 @@
   set-solver "[[kb solver]]",
   settle-stats "[[kb]]",
   sort-by-content "[[keyfn coll] [keyfn cmp coll]]",
+  specified-violations
+  "[[kb pred indep dep context] [kb pred indep dep context arg-pos]]",
   specs "[[kb t] [kb t context]]",
   supporting-justifications "[[kb handle]]",
   term-count "[[kb]]",

@@ -884,7 +884,7 @@
   (`stated-constraints` snaps them at a fixed scale), so the network alone does not record
   which band the cycle check was made in — and a run under a rebound tolerance would
   otherwise be answered with the verdict reached under the ambient one.  It is one number
-  in the key and constant for a whole query loop, so it costs nothing that the sharing
+  in the key and constant for a whole query loop, so it adds no work that the sharing
   below is for.
 
   The **report** is deliberately not on that path.  Two KBs, or two contexts of one KB,
@@ -942,7 +942,7 @@
 ;; **Both directions.**  A bound is `[lo hi]`, and `lo` is `−d[q][p]` where `hi` is
 ;; `d[p][q]` — two different chains in general — so the support of the bound is the union
 ;; of the two paths' constraints.  A caller reading only one side is not a case worth a
-;; second seam: `solve-distance` binds or checks the pair, never a half of it.
+;; second entry point: `solve-distance` binds or checks the pair, never a half of it.
 ;;
 ;; It is an **over-approximation of one derivation**, on the same two counts
 ;; `qcn/path-consistent-with-support` states: a pair narrowed by two facts keeps both, and
@@ -1029,7 +1029,7 @@
   Nil when either is missing, or when either is stated of two *different* instants, which
   is a disagreement no reasoning should paper over.
 
-  Restating one endpoint in several contexts of the cone is not a disagreement — the
+  Restating one endpoint in several contexts of the ancestor set is not a disagreement — the
   matches carry the same instant and collapse to one — and all of them are named, for
   `provers/table-read`'s reason: the reading is a property of the set."
   [kb i context]

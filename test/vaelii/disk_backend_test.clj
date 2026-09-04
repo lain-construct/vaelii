@@ -345,7 +345,7 @@
   ;; mints a second handle for one already stored.
   ;;
   ;; The `:pg` store is the sibling adapter's and is resolved lazily; a RAM store stands in
-  ;; at that one seam, because the gate reads the stamp file and the `:pg` opts and never
+  ;; at that one call, because the gate reads the stamp file and the `:pg` opts and never
   ;; the store.
   (let [records (mem/memory-record-store {:space [::pg-stand-in]})
         opened  (fn [dir url]
@@ -415,3 +415,102 @@
                   (.delete (java.io.File. (str dir "/index/clean.nippy")))
                   (lop! dir 64)
                   (is (reopened-finds-all? dir)))))))
+
+;; ---- the close hands the directory over, and waits until it can -------------
+
+(defn- records-dur-id
+  "The durability registrant id of `dir`'s record store — the id the compaction executor
+  keys an in-flight rewrite of those logs by."
+  [dir]
+  (get-in @@#'backend/stores [(backend/canonical-dir dir) :dur-ids :records]))
+
+(defn- compact-fn-of
+  "The `:compact` thunk the record store registered — the very thunk the daemon's tick
+  would call, so the test drives the real rewrite rather than a stand-in."
+  [id]
+  (:compact (get @@#'dur/registry id)))
+
+(deftest close-dir-waits-for-a-running-compaction-before-releasing-the-lock
+  ;; The record store's rewrite phase runs **without** the kind lock, by design: an
+  ;; O(bytes) copy that stalled reads and writes would be worse than the dead frames it
+  ;; reclaims.  What that costs is that a `close!` blocks on nothing the rewrite holds —
+  ;; it read through a private handle and appended to `sentexes.log.compact` by name.
+  ;; Releasing the directory's OS lock there hands `D` to a second process while this one
+  ;; is still writing `D`'s temp files, and the second process's own compaction opens the
+  ;; same paths: two rewrites appending to one temp log, one commit marker, and a replay
+  ;; that installs frames from both with each one's slot offsets pointing into the
+  ;; other's bytes.  Auto-compaction is on by default, so this is the default
+  ;; configuration.
+  ;;
+  ;; The barrier is what makes it a test rather than a coin flip: a rewrite of a
+  ;; test-sized log is over in microseconds, so the window has to be held open at the
+  ;; exact point rather than slept at.
+  (with-tmp
+    (fn [dir]
+      (tu/with-terms [dog Muffet]
+        (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? false})]
+          ;; something for the rewrite to copy, and a dead frame or two behind it
+          (dotimes [i 40]
+            (v/assert kb (list dog (symbol (str Muffet i))) 'CxUniverse
+                      {:strength :monotonic}))
+          (doseq [i (range 0 40 2)]
+            (v/retract! kb (v/handle-of kb (list dog (symbol (str Muffet i))) 'CxUniverse)))
+          (let [id      (records-dur-id dir)
+                compact (compact-fn-of id)
+                entered (promise)
+                release (promise)]
+            (is (some? compact) "the record store registered a compaction thunk")
+            (reset! drs/rewrite-barrier (fn [_] (deliver entered true) @release))
+            (try
+              (#'dur/submit-compaction! id "close-handshake-probe" compact 0.9 0.5)
+              (is (= true (deref entered 10000 nil))
+                  "the rewrite is open, past its snapshot and before its reconcile")
+              (let [closed (future (backend/close-dir! dir))]
+                (is (= :running (deref closed 400 :running))
+                    "the close does not return while that rewrite is still in flight")
+                (is (lock/held? dir)
+                    "and the lock the other process is waiting on is still ours")
+                (deliver release true)
+                (is (not= :timeout (deref closed 20000 :timeout))
+                    "and it returns once the compactor goes quiet")
+                (is (not (lock/held? dir)) "having released the lock last"))
+              (finally
+                (reset! drs/rewrite-barrier nil)
+                (deliver release true))))
+          (testing "the abandoned rewrite left no temp behind for the next owner to trip on"
+            (is (empty? (filter #(str/includes? (.getName ^java.io.File %) ".compact")
+                                (file-seq (io/file dir))))
+                "no .compact temp or commit marker survives the close"))
+          (testing "and the originals still hold every record"
+            (let [kb2 (v/open-kb {:backend :disk-log :dir dir :recover? false})]
+              (try
+                (is (= 20 (count (filter #(v/handle-of kb2 (list dog (symbol (str Muffet %)))
+                                                       'CxUniverse)
+                                         (range 40))))
+                    "the twenty that were not retracted read back")
+                (finally (v/close! kb2))))))))))
+
+(deftest a-submit-that-loses-the-race-with-stop-builds-no-second-executor
+  ;; `stop!` shuts `@compaction-executor` and nils it under `lifecycle`.  A tick already
+  ;; inside `submit-compaction!` then read that nil, took `lifecycle` after `stop!` had
+  ;; let it go, and built a **new** single-thread executor — one no var points at, so
+  ;; `stop!` returned having stopped nothing, and the replacement lived to JVM exit.
+  ;; Daemon threads, so nothing hangs; the contract is what was false.
+  (let [prior @@#'dur/scheduler]
+    (dur/stop!)
+    (when prior (.awaitTermination ^ScheduledExecutorService prior 5 TimeUnit/SECONDS))
+    (try
+      (is (nil? @@#'dur/compaction-executor) "stop! left no executor")
+      (#'dur/submit-compaction! ::post-stop "post-stop-probe"
+                                (fn [] (throw (AssertionError. "a stopped compactor ran")))
+                                0.9 0.5)
+      (is (nil? @@#'dur/compaction-executor)
+          "a submit after stop! skips rather than building a replacement")
+      (is (not (contains? @@#'dur/compaction-in-flight ::post-stop))
+          "and strands no in-flight id, which would bar that backend for the process")
+      (finally
+        ;; a registration is what un-stops it, which is also what the next open does
+        (dur/deregister! (dur/register! {:fsync (fn [_] nil)
+                                         :close (fn [] nil)
+                                         :label "post-stop-restart"}))))
+    (is (false? @@#'dur/compaction-stopped) "and a register! puts the compactor back")))

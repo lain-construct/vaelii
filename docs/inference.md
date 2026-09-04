@@ -66,7 +66,7 @@ believed like any other rule and posted under all of its predicates, so it is fi
 by its terms and readable in the browser; what it never does is fire. That is how a
 rule the engine does *not* execute is still written down where a reader looks for it —
 the transitivity of `genl` beside the closure that actually computes it
-([taxonomy.md](taxonomy.md)). Two consequences worth stating: an inert rule is the one
+([taxonomy.md](taxonomy.md)). Two consequences follow: an inert rule is the one
 rule shape whose *antecedent* predicate may be a **variable**, exempt from the
 `:not-indexable` refusal because a rule that runs in neither engine claims nothing the
 index has to honour (a variable *consequent* functor is allowed for every rule, filed
@@ -161,12 +161,12 @@ predicate-agnostic slot read narrowed to the closure in memory, or one scoped re
 spec where that side is smaller (`res/*lead-side*`), the identical set under the same
 belief filter, polarity check and symmetric mirror. The route is taken only with the
 reference matcher bound and `res/*hierarchical-retrieval*` on, so a rete run keeps its
-seam and the reference-retrieval sweep keeps the trie everywhere.
+boundary and the reference-retrieval sweep keeps the trie everywhere.
 
 **And only where there is a fan to collapse.** A functor with no sub-predicates has a
 singleton spec closure, which is `match-pattern`'s own fast path — one cached set lookup
 and a single `raw-match`, whose `candidate-handles` already reads the argument roots for
-the shape the trie cannot narrow and the trie for the shapes it can. Nothing is saved
+the form the trie cannot narrow and the trie for the shapes it can. Nothing is saved
 there and the lead is not free, so `join-matches` asks the closure width first
 (2 index reads per firing on a binary join, measured over 2,000 firings: 52,003 reads
 against 48,003). That is the common case — every predicate nobody has written a `genl`
@@ -185,7 +185,7 @@ roots already answer what the alpha memories would. On the OpenRuleBench join py
 hold a thin lead on the identical answer set: 11.8s against 12.5s. Matching is ~12% of
 that run (the rest is placement), which is the ceiling on what any matcher moves there.
 
-**One seam, one novelty.** The only thing the network changes is *which stored facts a
+**One boundary, one novelty.** The only thing the network changes is *which stored facts a
 non-trigger antecedent finds*. Forward chaining looks them up through a dynamic
 `chain/*matcher*`, whose default is `res/match-pattern` (the reference path,
 unchanged). `rete` binds it to a matcher that returns the **identical set** —
@@ -203,7 +203,7 @@ which firings are new; the reference does everything else.
 defeated or superseded; `in?` is consulted at read time exactly as `match-one` does. So
 a belief flip needs no memory update — the only structural mutations are a stored fact
 arriving (`kb/create-sentex`) or leaving (`integrate/sentex-removed!`), routed to the
-network through the leaf `vaelii.impl.observe` seam so no require cycle forms. Subtype and
+network through the leaf `vaelii.impl.observe` extension point so no require cycle forms. Subtype and
 symmetric resolution also happen at read time over the live taxonomy, so a `genl` or
 `symmetric` edge change needs no memory update either.
 
@@ -486,7 +486,7 @@ from the query's context, is not produced — neither as a top-level answer nor 
 intermediate one a further derivation would read
 ([why its other derivations are not a second chance](defenses.md#a-defeated-datums-other-derivations-are-not-a-second-chance)).
 
-Four things about the shape of it:
+Four things about the structure of it:
 
 - **The check is where the answer becomes ground**, not over the top-level results. In
   `prove` that is a marker pushed behind the rule's antecedents, the third use of the same
@@ -526,7 +526,7 @@ expands a rule — which is what makes it the thing a closed-world reader can ru
 inside a relabel loop, and what makes its cost a property of the goal rather than of
 the rule graph.
 
-`core/query` is the door in front of both, and `:max-depth` is the whole of what it
+`core/query` is the entry point in front of both, and `:max-depth` is the whole of what it
 decides. A depth and it is the node engine, bounded there. No depth and it is the
 registry alone — through `ask` for a single literal, and for a **conjunction** through
 the DFS at depth 0, which is the registry as a leaf under a bound admitting no rewrite.
@@ -640,7 +640,7 @@ A step rather than a query, because that precondition and laziness cannot both h
 wider. `prove-seq` drives the loop in several calls, so a lazily consumed search opens one
 scope per pull: the memo starts empty each time and resident values are re-read rather
 than held across the seq. That is sound for a read — a query mutates no belief, so there
-is nothing for the pin to hold still against, and what it buys there is only that a
+is nothing for the pin to hold still against, and what it provides there is only that a
 consumer placing conclusions off the seq joins against one state per segment. An eager
 `prove` keeps one scope and pays for the memo once, which is why it remains the call for
 wanting the whole answer set.
@@ -676,7 +676,7 @@ they collide. The node's `:answer-terms` is the only record of what the asker ca
 its variables, which is why reading an answer out is resolving those terms and nothing
 more.
 
-`prove` also carries the seam **abduction** listens on. `res/*dead-end*` observes the
+`prove` also carries the extension point **abduction** listens on. `res/*dead-end*` observes the
 subgoals it could neither match nor expand — nil by default, and a sink rather than a
 filter, so an observed run takes a byte-identical path. A branch cut short by the `seen`
 guard or by `:max-depth` deliberately does *not* report: that is a search out of budget,
@@ -768,7 +768,7 @@ the goal side first), which leaves the rule's variable carrying our identity —
 rewrite records the aliases it created, or the link to the parent is dropped silently and
 an answer goes with it.
 
-### What it buys, and what it costs
+### What it provides, and what it costs
 
 Measured against the DFS on the same KB. The node counts are exact — they are a function
 of the rule graph, below — and the times are one box's, rounded, since what they carry is
@@ -849,7 +849,7 @@ suffices; `:all` the sum — a complete search runs them all; a repeated goal ca
 recursion). It exists because the index costs a **rule-only** predicate at zero, ranking
 the most expensive literal in a conjunction as the cheapest — and it is a sub-search per
 enqueued node, so it is asked only of a literal that still has allowance. `auto-strategy`
-picks a tactician from the shape of the query in one index read: no allowance at all →
+picks a tactician from the structure of the query in one index read: no allowance at all →
 nothing to order; a conjunction or a literal several rules conclude → portfolio; one
 route → dive.
 
@@ -1090,14 +1090,15 @@ held where it is instead, in the closure answers and the search step's reach mem
 
 A table of `solve-goal` answers — keyed `[canonical goal, context, prover set]`, holding
 the answers with their supports, stamped with the same change clock — would be **sound**.
-Every mutation that could move an answer moves that clock: the two store choke points,
+Every mutation that could move an answer moves that clock: the store choke points (both,
+plus `kb/respell-sentex!`, which is their two halves back to back),
 every mutating `jtms` entry point (so a relabel, a defeat and a premise change are all in
 it) and a watch on the taxonomy's own atom, so a belief change and a `genlCx` edge both
 retire the whole table (`observe/note-change`). The prover set belongs in the key for the
 reason above — a cost-capped answer must not be served to an uncapped ask — and a bounded
 run stores nothing, on `literal-cache/storing`'s discipline.
 
-What such a table is not is **hit**. `lein bench-subgoal` counts every registry dispatch
+Such a table is not a **hit** count. `lein bench-subgoal` counts every registry dispatch
 over the fables' question set, the shipped worked examples, a `query`/`prove`/`escalate`
 pass that does expand rules, one render of the inference debugger, and a koinii
 conversation — then replays the sequence with a prototype table switched on and off in one
@@ -1124,7 +1125,7 @@ drops a converging node before it ever reaches the leaf. The replay prices the 2
 | five passes, one assert between each | 82.2 ms | 81.5 ms | 1.01× |
 
 The middle row is the ceiling: 80% hits and 1.45× over a KB asked the identical question
-set and written to *not once* in between. The bottom row is the shape of the thing — one
+set and written to *not once* in between. The bottom row is the structure of the thing — one
 assert and its retraction between passes moves the global clock, retires every entry, and
 takes the cross-query win with it. The 17.9% of hits left in that row are the within-call
 repeats, which is why it reads 1.01× rather than 1.00×. The koinii row says it from the
@@ -1163,11 +1164,11 @@ interchangeable:
 | reading of 1 | a *proof* of at most one match | a guess that there is about one row |
 | composes across a join | no — maxima of products do not factor | yes — expectations do, under independence |
 
-The one-sidedness of `est-matches` is load-bearing and the placement rules rest on it.
+The one-sidedness of `est-matches` is required and the placement rules rest on it.
 `est-rows` is what a *join* is costed in, and being allowed to be wrong is precisely
 what lets it be composed.
 
-`est-rows` returns a **summary** — the shape of the relation a literal denotes, not one
+`est-rows` returns a **summary** — the structure of the relation a literal denotes, not one
 number:
 
 ```clojure
@@ -1260,7 +1261,7 @@ ratio says where the crossover is: against a chain of 20 rows fanning to 80
 and one of five rows reads 5/4 and is held back. Both sides of that crossover are the
 cheapest permutation by the rows the engine actually runs.
 
-Because the law is stated over blocks rather than literals, it reaches the shape a
+Because the law is stated over blocks rather than literals, it reaches the form a
 one-literal-at-a-time rule cannot see: two literals disconnected from the rest but
 sharing a variable with **each other** are a cartesian factor just as much, and neither
 is isolated, because each shares a variable with something.
@@ -1275,7 +1276,7 @@ Two placements sit outside the law, and both are claims the estimate cannot make
 
 - **A block that cannot multiply runs first.** `est-matches` bounds each literal from
   above, so a block whose literals each bound to 1 is *proved* to match at most once: it
-  can only prune. The case that makes this load-bearing is the **ground** literal —
+  can only prune. The case that makes this required is the **ground** literal —
   both chaining paths substitute a rule's bindings into its antecedents *before*
   planning, so an antecedent whose variables the trigger bound arrives fully ground, and
   a literal with no variables shares none vacuously. Held back, `(dog Bob)` runs the
@@ -1332,11 +1333,11 @@ counts, not joint ones, and sampling at plan time is not affordable at 100M fact
 **The counts span every context, and a read is scoped to one.** The trie key ends with
 the context ([indexing.md](indexing.md)), so `count-at` under a prefix counts a sentence
 once per context it is stored in, while the query it is costing sees one context and the
-`genlCx` cone above it. Nothing scopes the counts, and nothing cheaply could: a
+`genlCx` ancestor set above it. Nothing scopes the counts, and nothing cheaply could: a
 per-context count is a second index, maintained on every write, for a number only the
-planner reads. Three things follow, and they are not the same thing.
+planner reads. Three things follow.
 
-- `est-matches` **stays sound**. A cone is a subset of what is stored, so a count over all
+- `est-matches` **stays sound**. An ancestor set is a subset of what is stored, so a count over all
   contexts can only be too large — the direction the bound is allowed to be wrong in, and
   a reading of 1 is still a proof.
 - `est-rows` **over-counts, on the rows only**. The level the walk stops at holds argument
@@ -1388,7 +1389,7 @@ available without fetching a record.
 
 **What the subtype fan costs, and what it does not.** It is the only branch of
 `est-matches` that is not a handful of O(1) index reads: one estimate per subtype, summed,
-and `order` asks for it once per pick, per plan, per firing attempt. For the shape that
+and `order` asks for it once per pick, per plan, per firing attempt. For the structure that
 actually costs — `(animal ?x)`, the argument a bare open variable — the general walk is a
 long way round to one number, because the literal's token stream is the functor (known, so
 it extends the prefix) and then the variable (neither known nor bound, so the walk stops).
@@ -1429,7 +1430,7 @@ the cached closure, so its cost is the closure's size, not the handful of stored
 edges. A *partial* prover's estimate is not used — several are constants, and the
 index models fan-out better.
 
-That substitution is a **seam a caller opts into** (`plan/order`'s `:est-override`,
+That substitution is an **extension point a caller opts into** (`plan/order`'s `:est-override`,
 built by `provers/registry-est-override`), and which caller matters: it is right exactly
 for an executor whose **leaf is the registry**, because only then is the closure what a
 `genl` conjunct will actually be answered from. So level 7 and `query`'s depth-0
@@ -1495,12 +1496,12 @@ is meant to be a cost decision that never changes the answer *set*, the claim
 is checked the same way, by running every test unranked and requiring the failing set and
 the assertion count to be identical (`scripts/test-sweeps.sh plan-off`). Twelve
 randomized trials are what `plan_test` affords; every conjunction the suite runs is what
-the sweep affords. A ranking bug is the shape that wants the larger sample: nothing
+the sweep affords. A ranking bug is the structure that wants the larger sample: nothing
 throws and an answer set is quietly smaller.
 
 Put to the suite, the claim did not hold unqualified — which is the next section.
 
-### Where the ranking is load-bearing
+### Where the ranking is required
 
 The claim above is the ranking's own, and running the suite under it found three places
 where the ranking carries more than cost. Each is pinned back to the shipped reader
@@ -1598,7 +1599,7 @@ and the agenda in `chain` is a plain queue with no dedup: two `edge` facts under
 run to `:max-derivations` and truncate, on a KB whose whole content is three derivable
 pairs.
 
-Gating on `new?` costs nothing the seeding is for: a re-derivation adds a *justification*
+Gating on `new?` adds no work the seeding is for: a re-derivation adds a *justification*
 rather than a link, so the closure it would re-drive the join over is the one the join
 already ran against. Pinned by
 `chaining_contracts_test/a-recursive-rule-concluding-a-transitive-predicate-converges`,
@@ -1653,7 +1654,7 @@ registry rather than growing a second evaluator that could drift from it:
   since neither reads anything stored. It is not the same answer for the deferred
   provers that *do* read the KB. `QuantityProver` reads `dimensionOf` /
   `conversionFactor` at the wildcard, so a forward join sees every context's unit table
-  rather than one cone's — but the rows it read are then in the firing's antecedents, so
+  rather than one ancestor set's — but the rows it read are then in the firing's antecedents, so
   placement refuses a conclusion no context can see them all from, and the reading
   cannot outrun the placement. `DifferentProver` reads the equality partition and
   reports no support, so a forward join sees every merge rather than the ones the
@@ -1699,7 +1700,7 @@ A forward firing that named none of those would keep its conclusion after the ro
 it was retracted — belief resting on a reason nothing can take away, which is the failure
 [nmtms.md](nmtms.md) rules out everywhere else.
 
-**`provers/SupportingProver` is the seam that closes it.** A prover implements it beside
+**`provers/SupportingProver` is the protocol that closes it.** A prover implements it beside
 `Prover` and gains three methods: `support-functors` (what it answers with support),
 `support-sources` (what it reads), and `solve-with-support`, which answers exactly what
 `solve` answers with each solution paired with the handles it was read from. An
@@ -1733,7 +1734,7 @@ taxonomy read. So both its sets are empty and the two questions a roster would s
 asked of the taxonomy instead: `chain/transitive-antecedent?` for which antecedent the
 join solves by walking, `chain/transitive-rejoin-rules` for which rules an arriving edge
 owes a re-join. `solve-with-support` is reached through `satisfies?` and needs no roster
-at all, so the seam carries the part that matters.
+at all, so the protocol carries the part that matters.
 
 What its answer rests on is **one chain of edges**, found by a breadth-first pass with
 parent pointers out from the bound end — so the support is a shortest path's worth rather
@@ -1758,7 +1759,7 @@ the trigger index cannot offer, and the `(transitive P)` **declaration** itself,
 what makes the antecedent a walk and arrives after the edges it walks.
 
 Such an antecedent is joined **per reader context** rather than at the wildcard, since a
-metric network is what one reader sees up its `genlCx` cone and a wildcard read would
+metric network is what one reader sees up its `genlCx` ancestor set and a wildcard read would
 close one network out of every context's constraints at once — and a hop is visible or not
 from where it is read, so the same argument holds a transitive walk. And it is **union, not
 replacement**: a `temporalDistance` is a stored fact as well as a derived bound, so the
@@ -1932,7 +1933,7 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   [naf.md](naf.md).
 - **DefnSufficientProver** — a ground unary membership goal `(Coll a)` answered by
   *evaluating* a definitional condition rather than matching a stored one: the member is
-  substituted into every `defnSufficient` condition in `Coll`'s **spec** cone and the
+  substituted into every `defnSufficient` condition in `Coll`'s **spec** ancestor set and the
   condition is asked of this same registry, so a condition built from computed predicates
   (`integer`, `lessThan`, an `add-evaluatable` check) — which the companion forward rule
   can never fire on, nothing having stored it — answers. A failing `defnNecessary` on a
@@ -1942,9 +1943,9 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   [defns.md](defns.md).
 - **DefnNecessaryNegationProver** — the converse: a ground `(not (Coll a))` proved by the
   first `defnNecessary` that positively **fails** for `a` anywhere in `Coll`'s reflexive
-  `genl` cone, a member satisfying every necessary at or above it. Not negation as
+  `genl` ancestor set, a member satisfying every necessary at or above it. Not negation as
   failure — it fires on an evaluably false condition, never on an unprovable membership,
-  and a `Coll` with no necessary in its cone leaves it inapplicable. Ground only.
+  and a `Coll` with no necessary in its ancestor set leaves it inapplicable. Ground only.
   `:compute`, partial (50) — it augments the stored `(not (Coll a))` and
   `ClosedExtentProver`. See [defns.md](defns.md).
 - **ArgTypeProver** — infers an individual's type from *how it is used*: if a
@@ -1960,7 +1961,9 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   [belief.md](belief.md).
 - **MetaConstraintProver** — the argument-type meta-predicates read up the `genl`
   closure, so `(arg petMammal 1 animal)` succeeds off a stored
-  `(arg petMammal 1 mammal)`. A bounded closure walk rather than a preservation
+  `(arg petMammal 1 mammal)`. All four of the family, `quotedArg` included: the entry point
+  reads a super-predicate's declaration against a sub's tuple, so the query surface
+  descends with it or one declaration means two things. A bounded closure walk rather than a preservation
   declaration, which would route every `arg` lookup in the KB through the general
   machinery. `:compute`, partial (50) — it augments the stored declaration `FactProver`
   already answers. See [argtypes.md](argtypes.md).
@@ -2010,7 +2013,7 @@ Its `est-bindings` reports the goal as maximally unselective while its inputs ar
 which is what lets the join planner (`vaelii.impl.plan`) run a generator that binds those
 inputs first: so a computed literal **joins** in a conjunctive `query`, and **discharges a
 rule antecedent** inside a `query` with a `:max-depth` — the node engine's leaf being the
-registry — where it reads as a `:leaf` of a `{:proof? true}` derivation and the derived
+registry — where it is indistinguishable from a `:leaf` of a `{:proof? true}` derivation and the derived
 conclusion follows the belief of the facts that fed it. **Forward materialization reaches
 it too**: `chain/deferred-antecedent?` reads the KB's registered evaluatable functors
 (`provers/evaluatable-preds`, cached per run in `chain/*evaluatable-preds*`) and computes
@@ -2022,7 +2025,7 @@ not reach it, by the engine's design rather than the wrapper's: the DFS `prove`,
 leaf is the stored facts and not the registry.
 
 **The RCC-8 prover** (`vaelii.impl.space/spatial-prover`) is the worked example of that
-seam: qualitative spatial reasoning over the generic constraint-network engine in
+extension point: qualitative spatial reasoning over the generic constraint-network engine in
 `vaelii.impl.qcn`. It reads every believed spatial fact visible from a context into a
 network, tightens it by composition to a fixpoint, and answers a region goal by
 entailment — `:compute`, complete (100), and opt-in via `add-prover` rather than

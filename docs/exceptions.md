@@ -137,8 +137,8 @@ per-firing bookkeeping is required.
 That allows an index at *rule* granularity:
 
 ```
-[:exception-index <predicate>] -> #{rule handles whose exception mentions that predicate}
-[:exception-index :rules]      -> #{every rule handle carrying an exception}
+[:exception-index <predicate>] -> #{rule handles whose re-check condition mentions it}
+[:exception-index :rules]      -> #{every rule handle carrying a re-check condition}
 ```
 
 Rules are few, so this is the scale of the existing rule index — tens of entries,
@@ -160,13 +160,21 @@ arrival that completes it.
 under `not` as well — one coarse bucket for every negated condition, but the two agree,
 and peeling one side alone is what would break it.
 
+A `different` antecedent is the one condition whose trigger predicates are named rather
+than read off the sentence. It is negation as failure over the equality closure and over
+the `indeterminate_term` category, so what flips it is a merge or an indeterminacy
+arriving, and neither of those appears anywhere in the antecedent. The rule is registered
+under the fixed set `rules/different-flip-predicates`, and `chain/different-blocks?`
+re-decides the firing against its settled bindings
+([predall.md](predall.md#a-different-guard-is-re-checked-not-supported)).
+
 When in doubt, **over-approximate**: a spurious re-check costs one query, while a
 missed one is a correctness bug that shows up as a conclusion that should have been
 swept and wasn't. A predicate reachable only through a *subterm* is not indexed, and
 the `genl` and equality edge triggers are what cover the conditions that move without
 one.
 
-Two consequences worth stating:
+Two consequences follow:
 
 - The **`:rules` roster is written unconditionally**, even for an exception that
   mentions no indexable predicate. The taxonomy trigger enumerates that set, and a
@@ -205,7 +213,7 @@ firings are filtered before a single query is paid for:
 - A triggering fact can only answer a ground exception literal when their argument
   lists agree **and** the fact's predicate lies in the closure that literal's polarity
   names. That closure is the in-memory taxonomy, not the stored index, and for a
-  **positive** conjunct it is `specs`. That half is load-bearing rather than defensive:
+  **positive** conjunct it is `specs`. That half is required rather than defensive:
   an exception on `flightless` is satisfied by a stored `(penguin Opus)` when
   `(genl penguin flightless)`, so comparing the two predicates for equality would miss
   the case the taxonomy exists for. It is also exactly the test the index itself is
@@ -273,7 +281,7 @@ handle joins that rule over the **whole fact extent**, so handing it every rule 
 pass touched costs one firing, and one level-6 query, per fact the rule has ever
 matched: quadratic again, and independently of the re-check above.
 
-What actually needs re-deriving is what the pass **released** — the informants of the
+Re-derivation is needed for what the pass **released** — the informants of the
 justifications that were blocked and are not any more. A newly *blocked* justification
 has nothing to revive; its conclusion is what the sweep is about to collect. Three
 things are re-chained: those released rules, the rules queued with `:all` (no sentence
@@ -331,7 +339,7 @@ The same holds past the cap below. A reader tempted to narrow `recheck-except`'s
 fire-on-H rule set should note that it is what covers the fourth row: narrowing it to a
 sentence-specific trigger would turn this table's last line into a real gap.
 
-Four properties hold of the record, and each is the shape a work list has rather than
+Four properties hold of the record, and each is the form a work list has rather than
 the shape an answer has:
 
 - **It never decides belief.** It says which firings to re-ask, never what the answer
@@ -420,7 +428,7 @@ The workload is a taxonomy load under an excepted predicate: 800 firings of one 
 rule, then 50 `genl` edges whose supertype is at or below the exception's own predicate,
 so the rule is queued on every edge. Both halves matter and they pull in opposite
 directions, so both are here. The times are one run's wall clock on one box, rounded —
-what they are for is the ratio between the rows, which is the shape of the argument:
+what they are for is the ratio between the rows, which is the structure of the argument:
 
 | 800 firings, then 50 edges | building the firings | the 50 edges | total |
 |---|---|---|---|
@@ -487,17 +495,17 @@ an answer differently.
   evaluated in its conclusion's placement context — so an exception is affected iff one
   of its rule's firings is placed in `context-down(sub)`. Each excepted rule's firings
   are checked for one, a context lookup apiece and no query. Keyed on where a firing
-  was *placed*, so the same cone test is asked of the rule's **recorded refusals**,
+  was *placed*, so the same ancestor set test is asked of the rule's **recorded refusals**,
   whose entries name the placement context the refused conclusion would have had — a
   rule blocked every time it fired has no placed firing to read a context off, and a
-  widened cone that releases it would otherwise reach nothing.
+  widened ancestor set that releases it would otherwise reach nothing.
 
   **A rule an arrival can release is waved through that narrowing**
   (`rules/arrival-releasable?`), because for it the absence is not a gap but a wrong
-  answer. Most re-check conditions are a block, so whatever a widened cone can change
+  answer. Most re-check conditions are a block, so whatever a widened ancestor set can change
   always left a firing to find. Two are not. An aggregate binds a **value**, and a census
   that rises licenses a firing that never existed — no placed conclusion, no context to
-  read, nothing for the cone test to match; a count taken in `CxSub` before it inherited
+  read, nothing for the ancestor set test to match; a count taken in `CxSub` before it inherited
   `CxUp` would simply stay taken. A **nested** NAF is the same shape one level in: an
   arriving fact removes the witness the inner query found ([naf.md](naf.md), `forall`),
   and again there was never a blocked justification to unblock. It is the same asymmetry
@@ -505,8 +513,8 @@ an answer differently.
 
   The narrowing is what that exemption is measured against, and it is not free: one
   record fetch per excepted rule to ask the exemption, and then one per **firing** for
-  the cone test. `some` short-circuits on a hit, so a rule the edge reaches costs the
-  firings up to the first one in the cone, and a rule it reaches through none costs every
+  the ancestor set test. `some` short-circuits on a hit, so a rule the edge reaches costs the
+  firings up to the first one in the ancestor set, and a rule it reaches through none costs every
   firing that rule ever made. That is the price of narrowing on placement rather than
   queueing wholesale, and a `genlCx` edge is the only thing that pays it.
 
@@ -859,7 +867,7 @@ is a premise like any other, so it stands at a strength — and `assert` takes o
 for what is really *two* assertions, the rule and the exception qualifying it. That one
 option reaches both halves, which says three of the four rule × exception pairings and
 cannot say the fourth: a **known-true exception on a default rule**. That one is stated
-on the query, `(exceptWhen (set/monotonic Q) R)`. The wrapper is peeled at the door
+on the query, `(exceptWhen (set/monotonic Q) R)`. The wrapper is peeled at the entry point
 (`sentex/peel-exception-strength`) and never reaches the store, so the meta-sentex is the
 sentence it always was; what it changes is the class the premise is marked at. `check`
 reports the same `:shape` refusal `assert` throws for a wrapper written round the wrong
@@ -966,7 +974,7 @@ synthetic chain, so the loop never actually iterates on anything the bundled ont
 contains. The bounded loop stays, and stratification stays a pure correctness guard
 against cycles rather than an evaluation-ordering mechanism.
 
-The evidence is not perfectly clean and the caveat is worth stating: the count is not
+The evidence is not perfectly clean and the caveat matters: the count is not
 *constant*, it varies 0/1 with permutation order. But that variation is between "the
 derive-time check in `derive-conclusion` already caught it" and "the rule fired first,
 so settle had to block and sweep once" — not between one pass and two. Both converge
@@ -991,7 +999,7 @@ narrowed run against an unnarrowed one:
 
 Roughly 14× at n=200, and the row does not bend.
 
-Timing measures the machine as much as the algorithm, so the load-bearing number is
+Timing measures the machine as much as the algorithm, so the required number is
 the count of level-6 exception evaluations, which is exact:
 
 | level-6 evaluations per assert | n=25 | n=50 | n=100 | n=200 |
@@ -1013,7 +1021,7 @@ one reintroduced puts the curve back:
   through `derive-conclusion` rather than through the re-check at all. Unnarrowed that
   is 375 / 1 375 / 5 250 evaluations at n = 25/50/100; as it runs, 50 / 100 / 200.
 
-The lesson is the ordinary one about attributing a measurement: the shape of the curve
+The lesson is the ordinary one about attributing a measurement: the structure of the curve
 says "quadratic in the firing count" and the first plausible mechanism fits it, but the
 call sites tell a different story, and only one of the two candidates is on the
 benchmark's path. `except_recheck_test` pins both, by count rather than by clock.

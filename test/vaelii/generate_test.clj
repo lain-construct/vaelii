@@ -209,7 +209,7 @@
         (is (empty? (v/conflicts kb)))))))
 
 (deftest the-progress-callback-can-cancel-a-load
-  (testing "a callback that throws stops the load where it stands — the seam the catalog
+  (testing "a callback that throws stops the load where it stands — the extension point the catalog
             cancels on"
     (tu/with-cleared-kb [kb tu/fresh]
       (let [seen (atom 0)]

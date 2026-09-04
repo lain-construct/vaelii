@@ -199,7 +199,7 @@
   ;; `((ff ?x) a)` is a legal term whose functor is a compound, so the precedence is
   ;; asked to rank two compounds.  It must answer — an equation the order cannot decide
   ;; is refused with a message (`permutative-schematic-equation-is-refused`), and a
-  ;; comparison that throws is not a refusal but a crash at the assert door.
+  ;; comparison that throws is not a refusal but a crash at the assert entry point.
   (tu/with-terms [ff gg wrap]
     (let [a (tu/tmp-ind "A")
           h (v/assert kb (list 'equals (list (list ff '?x) a) (list (list gg '?x) a))

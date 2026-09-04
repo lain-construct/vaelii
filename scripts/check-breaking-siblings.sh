@@ -45,7 +45,7 @@
 #
 # This is a release step, not a check the suite runs: it reads other repositories
 # on the machine, and which of them are cloned is not a fact about this tree. A
-# missing sibling is reported by name and costs nothing. It exits 0 whatever it
+# missing sibling is reported by name and adds no work. It exits 0 whatever it
 # finds; `--strict` is the one exception, and it fails on three things, all of
 # them an entry saying less than §3.8 asks: a Breaking or Refusal entry naming no
 # token at all — an entry nothing can check — one carrying no `*Migration:*` line,
@@ -89,7 +89,7 @@ cd "$ROOT" || exit 1
 # a row in docs/operations.md and a changelog line, which is a lot of ceremony
 # for a roster only a release step reads. `--root` already covers the one-off.
 #
-# What belongs on it is anything that goes through a door this repo can break:
+# What belongs on it is anything that goes through an entry point this repo can break:
 # a plugin reaching into `vaelii.impl.*` on purpose, a store or feed adapter
 # implementing the protocols, a harness driving the whole API — and content
 # repositories too, since a newly refused sentence shape breaks a corpus that

@@ -214,7 +214,7 @@
   ;; the test above holds the rule in the reading context, so the conclusion is placed
   ;; there and an exact-context lookup finds it.  Here Atlas holds the rule in its OWN
   ;; context, which is where the placement then goes — so CxDeploy proves `deployable`
-  ;; while storing no `deployable` of its own, and the flag has to follow the cone.
+  ;; while storing no `deployable` of its own, and the flag has to follow the ancestor set.
   (v/assert kb '(implies (reliable ?x) (deployable ?x)) 'CxAtlas)
   (clash! kb)
   (testing "the channel proves the conclusion but is not where it lives"
@@ -228,7 +228,7 @@
     (is (= [P] (mapv #(:sentence (v/sentex kb %))
                      (adj/contested-premises kb deployable 'CxDeploy)))
         "and it names the contested premise itself"))
-  (testing "the cone bounds it: a context that cannot see the conclusion reports nothing"
+  (testing "the ancestor set bounds it: a context that cannot see the conclusion reports nothing"
     (is (not (v/ask? kb deployable 'CxBoreas)) "Boreas sees neither Atlas's rule nor its premise")
     (is (empty? (adj/contested-premises kb deployable 'CxBoreas))
         "so reading the flag there is not a read of Atlas's derivation")))

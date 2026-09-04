@@ -30,7 +30,7 @@ does not parse falls through to the next one rather than refusing to start
 ([operations.md](operations.md) tabulates both).
 
 `--listen` and `--attach` are independent axes: `--listen` says who may reach the
-browser, `--attach` says whose KB it shows. The startup log names the interface it
+browser, `--attach` says whose KB it shows. The startup log names the network interface it
 took.
 
 **`--listen` naming a non-loopback address requires `VAELII_API_TOKEN`.** Without one the
@@ -107,7 +107,7 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/edit` (GET/POST) | the **multi-sentex editor**: GET seeds a textarea for a set of selected handles, POST checks and applies the save. htmx fragments swapped into the editor panel, not standalone pages. |
 | `/propose` (GET/POST) | the **proposal panel** at the foot of a term page: GET renders the instruction box (asking no model), POST runs one page-scoped turn through `vaelii.impl.llm.session/propose-page` and swaps the lines it proposed into `#propose-result`. The turn writes nothing (below) |
 | `/propose/level` (POST) | the **same proposal at another density** — the list's own originals reposted, every verdict re-derived, no second model turn. Writes nothing |
-| `/propose/line` (POST) | one reviewed line, **re-rendered on the shape the reader picked** — the numbered alternative is re-derived from `correct` and re-checked, so the chips are of the sentence that would actually be stored. Writes nothing |
+| `/propose/line` (POST) | one reviewed line, **re-rendered on the form the reader picked** — the numbered alternative is re-derived from `correct` and re-checked, so the chips are of the sentence that would actually be stored. Writes nothing |
 | `/propose/preview` (POST) | what accepting the accepted lines would **mean** — the belief added, the belief withdrawn, the dilemmas opened, the refusals — through `vaelii.core/preview`. Writes nothing; the KB comes back at the same handles |
 | `/propose/apply` (POST) | the accepted lines, checked whole and stored through `vaelii.core/edit!` in **one settle**. The panel's one write |
 | `/retract` (GET/POST) | the **retract confirmation**: GET previews the teardown (the selection and what the sweep would take with it) and writes nothing; POST performs it |
@@ -268,9 +268,9 @@ can discard, with nothing arranging for it.
 
 Promotion — moving something out of a sandbox into a context that outlives it — is
 deliberately absent. A dead end that cannot be half-escaped is easier to reason about than
-one with a door in it.
+one with an entry point in it.
 
-One limit worth stating: a session cookie that is dropped (the browser closed) leaves its
+One limit: a session cookie that is dropped (the browser closed) leaves its
 sandbox in the KB with nothing pointing at it. For the default browser, whose `-main`
 clears and reloads the starter each start, they cannot accumulate; against a persistent KB
 they do, and nothing collects them.
@@ -317,7 +317,7 @@ inference the shipped ontology performs, each a real question with the answer th
 when the page was drawn. The table is `vaelii.impl.examples`; the page is the rendering of
 it.
 
-Two properties keep it from being a brochure, and both are load-bearing:
+Two properties keep it from being a brochure, and both are required:
 
 - **Every card names the sentexes it reasons from**, and those are looked up (`handle-of`,
   find-*without*-create) before anything is claimed. So a card is *linked* to its
@@ -419,7 +419,7 @@ the one that lasts:
 
 **And the second condition is read-only.** The banner explains an *answer*; a write into
 the same state is a different matter, because an answer can be re-asked and a record the
-store keeps cannot be taken back. Every definitional check the assert door runs — arity,
+store keeps cannot be taken back. Every definitional check the assert entry point runs — arity,
 arg, genlArg, interArg, declaration consistency, disjointness, functionality,
 asymmetry — reads `jtms/in?`, so over an empty network all of them match nothing and pass
 vacuously, and nothing re-runs them afterwards: `recover` does not, and its closing settle
@@ -442,7 +442,7 @@ job sees a consistent prefix — but two interleaved writers are not serializabl
 all ([storage.md](storage.md), the single-writer contract), and the job is already
 this process's writer. `write-refusal` asks a third question beside that one and the
 origin check, and it is the banner's second condition arriving here: a KB whose belief
-was never built is refused too, because the engine's doors throw `:unrecovered-kb` for
+was never built is refused too, because the engine's entry points throw `:unrecovered-kb` for
 one and a route that let the exception out would answer an error status — which is the
 silent no-op the whole page shape exists to avoid. So every route that changes a KB's
 content goes through **`writing`**: `/assert`,
@@ -454,7 +454,7 @@ only in the page it lands on. `/kbs/load`, `/kbs/unload`, `/kbs/activate` and
 `/jobs/cancel` are **not** guarded: they write this process's registry rather than a KB,
 and cancelling a job has to stay reachable precisely *because* one is running. `/kbs/unload`
 still hands `catalog/unload!` the write monitor, because *releasing* an entry is the end of
-a KB's stores: a synchronous write already past the write doors has to drain before they go
+a KB's stores: a synchronous write already past the write entry points has to drain before they go
 rather than interleave with the clear, exactly as the export route's does.
 
 `/kbs/load` is the one KB write that runs outside this monitor altogether, and that is
@@ -470,7 +470,7 @@ purpose — it asks about the KB this request would actually write, so loading a
 in the background never stops you writing to the one on screen.
 
 **And it names the KB it judged**, which is not the same as naming the active one. The
-door derefs the holder once and hands that KB to the refusal and to the write, precisely
+entry point derefs the holder once and hands that KB to the refusal and to the write, precisely
 because `/kbs/activate` can re-point it at any moment — so the entry that is active by the
 time the page renders is the one KB the refusal can be sure it is *not* about. Every arm
 reads the resolved KB's own name.
@@ -489,7 +489,7 @@ It takes it as a **barrier** and not as a hold, which is where it parts company 
 chaining job. A chain writes the KB, so it keeps the monitor for its whole run and every
 synchronous write waits. An export writes no KB, and both `write-refusal` and `unload!`
 already refuse for the walk's whole duration — so the only thing left to wait for is the
-write that slipped past a door in the moment before the job was submitted. Holding it
+write that slipped past an entry point in the moment before the job was submitted. Holding it
 across the walk instead parks every later `/kbs/unload` on a Jetty worker for the length
 of a multi-minute dump, with no page and no progress, on ring-jetty's default pool of 50.
 
@@ -514,7 +514,7 @@ refused is a value, never an absence.
 
 `/levels` and `/levels/rows` refuse one more thing, and it is a value their own context box
 will send: a **query context**. `CxEverything`, `CxInference` and `CxNothing` are readings
-rather than places ([contexts.md](contexts.md)), and the levels read through doors that do
+rather than places ([contexts.md](contexts.md)), and the levels read through entry points that do
 not resolve one — so the engine answers `:unsupported-context`, which this handler stack
 has no exception middleware to render, and Jetty answers 500. Checked before the read, it
 is the same 400 page, naming the context and the three that are not places. The fragment
@@ -903,7 +903,7 @@ every write form — the editor's Save, the assert form, the accepted-proposal c
 and the retract POST — runs `check-edit` over the batch it is about to apply and
 renders the problems against the lines that produced them, so the reader sees
 `line 2 · not-ground · not ground: (parentOf Tom ?x) contains a variable` instead of a
-stack trace. It costs nothing when the content is fine, and the alternative — attempt
+stack trace. It adds no work when the content is fine, and the alternative — attempt
 the write and catch — writes the good half of a batch before failing on the bad half.
 
 ## Proposing knowledge
@@ -914,7 +914,7 @@ shown the page's own sentexes and the vocabulary the term's `genl` neighbourhood
 licenses, and answers with type-level assertions in that vocabulary. See
 [docs/llm.md](llm.md) for the path itself.
 
-What the browser adds is the bounds:
+The browser adds the bounds:
 
 - **The turn writes nothing.** A model proposes; the lines come back as a list to read.
   What reaches the KB is what a reader **accepted**, through the same `edit!` every other
@@ -995,7 +995,7 @@ pick a shape.
   re-renders the row. A correction is a pure function of the KB and what the model wrote,
   so nothing can be smuggled into a row by editing the request.
 - **The chosen shape is re-checked.** `correct` does not re-check its own output by
-  contract, so the chips a reviewer commits against are computed from the shape that
+  contract, so the chips a reviewer commits against are computed from the structure that
   would actually be stored — while the correction chip stays, since it is *why* the line
   was restated and dropping it would erase the reason to change your mind.
 - **Accepting is a disabled field flipped on.** The whole list is one form; a row's
@@ -1071,7 +1071,7 @@ position by position. Measured over every believed sentex in the shipped schema,
 a **95% floor**, so the percentage is a reading of the schema as it stands and the floor
 is what is guaranteed.
 
-The variables are load-bearing twice over. A parameter spelled `?place` cannot be
+The variables are required twice over. A parameter spelled `?place` cannot be
 mistaken for an individual the way `Place` can, so the comment is a better comment; and
 because the name carries the sort, the clause needs no sortal noun leaning on it, so what
 substitutes is "Paris lies due north of Lyon" rather than "place Paris lies due north of
@@ -1199,7 +1199,7 @@ expected size of the relation it denotes on its own; **plan rows** is the expect
 the whole plan up to and including it, which is what a join was actually costed in. Read
 them together and a surprising order is diagnosable: a literal placed early on a small
 *est. matches* whose *plan rows* then jumps is the cost model wrong about a join rather
-than about a literal. None of the three reads as a sorted column, and the first two
+than about a literal. None of the three is indistinguishable from a sorted column, and the first two
 differ for a reason — an upper bound and an expectation answer different questions
 ([inference.md](inference.md)) — while *est. matches* is made *under the bindings the rows
 above it produce*, which is sideways information passing and is the thing worth seeing.
@@ -1210,12 +1210,12 @@ marked **pinned** — an evaluable may not outrun what binds it, and a recursive
 recursive literal stays last so right-recursion survives. A literal is marked
 **cartesian** when it shares no variable with the rest *and* was ranked behind a block
 that does: it multiplies the row count of everything after it wherever it runs, so the
-estimate beside it is not what placed it — worth saying, since a selective one otherwise
-reads as a small number sitting last for no reason. The mark is the answer to "why is
+estimate beside it is not what placed it — worth noting, since a selective one otherwise
+is indistinguishable from a small number sitting last for no reason. The mark is the answer to "why is
 this last", not a property of the literal, and it is why the two cases that are *not*
 held back go unmarked: one matching at most once multiplies by at most one and leads like
 any cheap literal, and one whose block the ranking put first was never held back at all —
-a cheap enough disconnected block leads, which is the transposition law rather than an
+a inexpensive enough disconnected block leads, which is the transposition law rather than an
 exception to it ([inference.md](inference.md)). The eight levels answer about one literal, so a
 conjunction gets the plan and stops there, and says so.
 
@@ -1240,7 +1240,7 @@ is not something the reader can infer from its position in the list.
 
 A capped list ends in a **sentinel row** that fetches its own next page —
 `hx-trigger="revealed, click, keyup[key=='Enter']"`, replacing itself with the rows that
-come back. So a tail nobody scrolls to costs nothing, and one that is scrolled to is
+come back. So a tail nobody scrolls to adds no work, and one that is scrolled to is
 reachable rather than reported as "N more not shown". `click` is the same request for a
 reader who would rather ask, and for a viewport too tall to produce a scroll event;
 Enter is that reader's keyboard, and the sentinel is focusable so they can reach it.
@@ -1275,7 +1275,7 @@ The **flat lists** read their functor root rather than a wholly-open pattern. `(
 ?term ?text)` pins nothing, so the trie fans over every child token at every level: a
 `take` would bound the records fetched and not the candidates enumerated, which is a walk
 of the whole extent to show fifty rows. Sorting is bounded the same way — alphabetical
-order is worth having and costs nothing at the shipped schema's size, so a list sorts
+order is worth having and adds no work at the shipped schema's size, so a list sorts
 when its O(1) count is under a thousand and is in index order, saying so, above it. The
 same rule governs a tree level, and where a level was not sorted its sentinel says "show
 more" rather than a count it did not pay for.
@@ -1397,7 +1397,7 @@ anybody wrote and says nothing to a reader, so **no page shows one**. Every term
 
 > **(** `FruitFn` `AppleTree` **)**
 
-The **bold parens are the whole of the notation**, and they are load-bearing rather than
+The **bold parens are the whole of the notation**, and they are required rather than
 decorative. A reified term is a *term* that happens to have structure, and it sits in
 sentences beside ordinary compounds — on the constant's own page `(termOfUnit K E)`
 renders K and E identically otherwise, so the constant and the literal expression it is
@@ -1412,7 +1412,7 @@ It reaches past the prose, because a leak anywhere is a reader seeing a gensym: 
 displays, and the **assert form's textarea** — which matters most, since a textarea is
 content on its way back *in* and `assert` reifies a ground NAT to the constant already
 minted, where a hand-typed constant would be a reader writing about an opaque
-identity. What is left holding the constant is what a machine reads back: the `href` of
+identity. The constant is held by what a machine reads back: the `href` of
 the link to its own page, and the hidden field the proposal panel posts.
 
 Two things the display cannot assume, both tested by injecting at the access facade.
@@ -1452,7 +1452,7 @@ symbol's namespace.
   `prefers-reduced-motion`.
 - **Two typefaces, one weight each.** [Hasklig](https://github.com/i-tu/Hasklig)
   (monospace) sets the *formal* content — sentences, terms, handles, index keys, the
-  query inputs — so a KB reads like the code it resembles.
+  query inputs — so a KB is indistinguishable from the code it resembles.
   [Atkinson Hyperlegible Next](https://www.brailleinstitute.org/freefont/)
   (proportional) is reserved for *natural-language* text only — headings, prose,
   section labels, the predicate comments; proportional never touches a sentence. Both
@@ -1572,7 +1572,7 @@ answers nil for anything unreadable and renders a message.
 ### The browser reads what is stored, not what would be admitted
 
 Escaping is the *display* half of that second bullet. The other half is shape, and it
-has bitten three times, so it is worth stating as a rule rather than as three fixes.
+has bitten three times, so it matters as a rule rather than as three fixes.
 `assert` refuses a great deal — `wff` will not store `(disjoint A A)`, the naming
 invariants keep a type node a symbol — but **an import does not go through `assert`**.
 `import-dump` stores re-canonicalized records directly, and a translated ontology

@@ -10,7 +10,7 @@
   holds does license it, and licenses it for that agent alone.
 
   Two halves, and they are separate mechanisms.  The **barrier** is congruence opacity in
-  `res/representative-term`, which every read door and every migration goes through — so
+  `res/representative-term`, which every read entry point and every migration goes through — so
   the question and the stored belief hold still together, and neither can retrieve what
   the other renamed.  The **licence** is `BeliefProjectionProver`, which normalizes the
   projected proposition against the agent's own partition, the ordinary rule that the
@@ -100,7 +100,7 @@
       (is (v/ask? kb (list 'believes Oedipus (list marriedTo Oedipus Jocasta)) ask-ctx)))))
 
 ;; ---- what the barrier holds, and what it lets through ---------------------
-;; Read at `kb/rewrite-goal`, which is the one door every read path prepares its goal
+;; Read at `kb/rewrite-goal`, which is the one entry point every read path prepares its goal
 ;; through, so these say exactly which positions move.
 
 (tu/deftest-kb the-proposition-does-not-move-where-the-same-sentence-alone-does
@@ -145,7 +145,7 @@
       (is (not= g (kb/rewrite-goal kb g ask-ctx))))))
 
 (tu/deftest-kb a-non-sentence-argument-refers-rather-than-quotes
-  ;; `(believes A Foo)` names a term, not a proposition — the shape the projector itself
+  ;; `(believes A Foo)` names a term, not a proposition — the form the projector itself
   ;; declines — so nothing is held opaque and the merge reaches it.
   (tu/with-terms [Oedipus Jocasta MotherOf]
     (let [dead (loser kb Jocasta MotherOf)]

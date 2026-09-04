@@ -44,7 +44,7 @@
   pin that the verdict is a property of *what a context sees*, not of which context ran
   first or of state left behind by the first descent.
 
-  STATUS.  Written before the implementation existed, deliberately.  Every row passes;
+  STATUS.  Written before the implementation existed.  Every row passes;
   nothing here is pending.  Two rounds of closing got it there, and the second is the
   one worth reading, because the first looked complete.
 
@@ -57,11 +57,11 @@
   context on **every** arrival order, not only the genlCx-edge one, since these rows
   wire their contexts before their facts and so exercise the plain fact-arrival
   trigger; and `settle/could-clash?`, `partner-contexts` and `constraint-facts-in-
-  cone` needed their own empty-determinant arm, since none of the three had ever read
+  ancestor set` needed their own empty-determinant arm, since none of the three had ever read
   past arity 2 for a `functional`-family mark.  Two of the two-argument rows also had
   their own assertions corrected rather than the engine bent to fit them — row 1
   checked `contradictions` where an unmergeable cross-context clash actually lands in
-  `violations` (the same door the arity-2 case already takes), and row 2's \"neither
+  `violations` (the same entry point the arity-2 case already takes), and row 2's \"neither
   side alone concludes anything\" used the unscoped whole-KB `same-class?` where a
   scoped, per-context read was the question actually being asked.
 
@@ -72,7 +72,7 @@
   now asserts exactly that, because a represented dilemma is what \"the clash is not
   lost\" means, and it is stronger than the storage-checks the old expectations used.
 
-  vaelii#54 then closed what all of that had missed, and the shape of the miss is the
+  vaelii#54 then closed what all of that had missed, and the structure of the miss is the
   lesson.  Every row above turns on a pair of **symbol** fillers, so every one of them
   exercises the *merge* lane — `special/equate-existing` and the `derive-*` family.  The
   unmergeable pair takes an entirely different lane, `settle`'s clash exposure, and
@@ -127,7 +127,7 @@
   "The set of contexts named by the sides of every recorded contradiction.
 
   `contradictions` entries carry `:sides [{:handle :sentence :context …} …]` — the
-  context is on each **side**, not on the entry, which is worth stating because reading
+  context is on each **side**, not on the entry, which matters because reading
   `:context` off the entry yields nil for every entry and a filter that is quietly
   always empty."
   [kb]
@@ -146,9 +146,9 @@
   was ever refused (both facts were already stored and believed before the edge made
   them jointly visible, so there was no write left to turn away) and nothing is
   arbitrated under the default `:refuse` constraint policy, so it never reaches
-  `contradictions` — `settle/expose-constraint-clashes!` is the door it takes instead,
+  `contradictions` — `settle/expose-constraint-clashes!` is the entry point it takes instead,
   and `docs/equality.md`'s own account of the arity-2 `functional` case takes the
-  identical door for the identical reason.  Checking `contradictions` here would be
+  identical entry point for the identical reason.  Checking `contradictions` here would be
   the same mistake vaelii#43's own repro made checking it over `violations`."
   [kb]
   (into #{} (mapcat #(get-in % [:detail :visible-from]))
@@ -189,15 +189,15 @@
 ;; the `genl` edge that puts the facts under the mark arrives LAST
 ;; (`special/equate-under-edge`).
 ;;
-;; It failed for the generalized spelling alone.  The door's body asks
+;; It failed for the generalized spelling alone.  The entry point's body asks
 ;; `derive-functional-equalities`, which reads both spellings — but its pre-gate asked
 ;; `props :functional` and nothing else, so a KB whose only mark was `(functionalInArg P
 ;; n)` took the "declares nothing functional, free" exit and merged nothing, where
 ;; `(functional P)` over the identical shape merged.  The same omission as vaelii#52 and
-;; vaelii#54, in the third of the family's three doors: each door spelled the gate for
+;; vaelii#54, in the third of the family's three entry points: each entry point spelled the gate for
 ;; itself, so joining the vocabulary to two of them left the third silently closed.
 ;;
-;; The gate is now `tax/functional-family-declared?`, read by every door of the family,
+;; The gate is now `tax/functional-family-declared?`, read by every entry point of the family,
 ;; which is what makes this one test cover all three rather than one of them.
 ;; **Two tests and not one parameterized over the spelling**, which is the trap this
 ;; pair walked into first: the gate under test is *global* (does the taxonomy hold any
@@ -282,13 +282,13 @@
 ;; vaelii#43 closed the gap: `special/equate-under-context-edge` (and the
 ;; `derive-functional-equalities` sweep it now shares with the plain fact-arrival
 ;; trigger) derives the merge from CxBottom, and `settle/could-clash?` /
-;; `partner-contexts` / `constraint-facts-in-cone` — none of which had ever read the
+;; `partner-contexts` / `constraint-facts-in-ancestors` — none of which had ever read the
 ;; `:functional-in-arg` table, only the arity-2 `:functional` one — now admit the
 ;; empty-determinant shape too, so `expose-constraint-clashes!` finds the unmergeable
 ;; pair.  That ledger, `v/violations`, is where an unmergeable cross-context clash
 ;; lands under the default `:refuse` policy — not `contradictions`, which the arity-2
 ;; `functional` case does not reach here either (docs/equality.md).  This row now
-;; reads `violations`, not the door the original spec checked.
+;; reads `violations`, not the entry point the original spec checked.
 (tu/deftest-kb two-numbers-under-an-empty-determinant-contradict-in-the-context-below
   ;; Row 1.  `(p 1)` in CxLeft and `(p 2)` in CxRight are each fine where they stand;
   ;; CxBottom sees both and no merge can reconcile two numbers, so the clash is a
@@ -456,7 +456,7 @@
         (v/assert kb (list p 2) CxRight)
         ;; `violations`, not `contradictions` — see row 1's comment: an unmergeable
         ;; cross-context clash is reported through the exposure ledger under the
-        ;; default `:refuse` policy, the same door the arity-2 `functional` case
+        ;; default `:refuse` policy, the same entry point the arity-2 `functional` case
         ;; already takes.
         (is (any-functional-violation? kb) "the unmergeable clash is reported")
         (doseq [b [CxBottomOne CxBottomTwo]]
@@ -593,10 +593,10 @@
 ;; ---- declaration-last over an UNMERGEABLE pair ---------------------------
 
 ;; The declaration-last rows above test the *merge* lane: two symbol fillers, reconciled
-;; by `special/equate-existing`, which learned the `functionalInArg` door in #52.  The
+;; by `special/equate-existing`, which learned the `functionalInArg` entry point in #52.  The
 ;; other half of the same arrival order is the pair no merge can reconcile, and it takes
 ;; an entirely different lane — `settle`'s clash exposure, which `functionalInArg` had
-;; not joined (#54).  The generalization enforced at the door and went unswept behind it:
+;; not joined (#54).  The generalization enforced at the entry point and went unswept behind it:
 ;; a mark arriving after two numbers convicted nothing, where `(functional P)` in the
 ;; same order convicts.
 ;;

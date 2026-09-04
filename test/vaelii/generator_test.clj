@@ -162,7 +162,7 @@
         (is (empty? (v/sentexes-matching kb (list dst Rex) 'CxUniverse)))))))
 
 (tu/deftest-kb one-rule-stamped-two-ways-is-one-handle
-  ;; dedup is the ordinary sentex dedup, so it costs nothing: two fills that substitute
+  ;; dedup is the ordinary sentex dedup, so it adds no work: two fills that substitute
   ;; to the same rule share a handle and collect a justification each
   (tu/with-terms [markerA markerB src dst]
     (doseq [m [markerA markerB]]
@@ -301,7 +301,7 @@
                              (list 'implies (list '?o '?a) (list pp '?a))))))))
 
 (tu/deftest-kb check-predicts-assert-on-every-generator-refusal
-  ;; the repo's contract, and it matters most at the one door that writes two records:
+  ;; the repo's contract, and it matters most at the one entry point that writes two records:
   ;; an editor validating a generator must be told what the firing would refuse
   (tu/with-terms [marker dst aa bb cc dd mid inner]
     (doseq [[label sentence]
@@ -454,7 +454,7 @@
 
 (tu/deftest-kb a-middle-level-owes-what-a-generator-owes
   ;; every level reaches the store as a rule, and the mint reads the same check list the
-  ;; assert door does — so a wrapper or a guard the firing could not honour is refused
+  ;; assert entry point does — so a wrapper or a guard the firing could not honour is refused
   ;; at the sentence rather than one mint later
   (tu/with-terms [marker dst blocked]
     (testing "a backward wrapper on a middle level"
@@ -478,7 +478,7 @@
                                            (list dst '?x '?loose))))))))))
 
 (tu/deftest-kb a-nested-mint-that-cannot-stand-is-dropped-and-recorded
-  ;; the mint door under nesting: a fill can make the *middle* rule junk, and the
+  ;; the mint entry point under nesting: a fill can make the *middle* rule junk, and the
   ;; firing must record it rather than throw — the fixpoint is halfway through itself
   (tu/with-terms [typeVersion capType]
     (v/assert kb (list 'implies (list typeVersion '?ipred '?tpred)
@@ -511,7 +511,7 @@
              (refusal kb (list 'implies (list 'and (list kk '?o) (list pp '?o))
                                (list 'implies (list '?o '?a) (list pp '?a)))))))))
 
-;; ---- the mint goes through the same door ---------------------------------
+;; ---- the mint goes through the same entry point ---------------------------------
 
 (tu/deftest-kb a-mint-that-cannot-stand-is-dropped-and-recorded
   ;; a fill can put a name in functor position that the index cannot key.  The firing
@@ -564,7 +564,7 @@
 (tu/deftest-kb asserting-a-stamped-rule-gives-it-a-ground-of-its-own
   ;; A stamped rule is a *conclusion*: it rests on the generator's justification and
   ;; goes when the generator does.  Asserting the same rule is a second and independent
-  ;; ground for it, and the rule door marks the premise for it as the fact door does —
+  ;; ground for it, and the rule entry point marks the premise for it as the fact entry point does —
   ;; so the rule outlives the generator that first stamped it, and carries the class
   ;; the assertion stated rather than none.
   (tu/with-terms [marker src dst Fido]

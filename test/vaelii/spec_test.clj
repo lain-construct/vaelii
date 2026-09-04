@@ -185,7 +185,7 @@
   ;; `assert`'s own shape check admits a ground application of a declared
   ;; `context_denoting_function` and reifies it to its `cx/` constant (docs/context-nat.md),
   ;; and the reads that take a context take the same form.  A `::context` narrower than
-  ;; that door refuses under `instrument` a write the engine accepts without it — so an
+  ;; that entry point refuses under `instrument` a write the engine accepts without it — so an
   ;; instrumented caller could not store into a time-indexed context at all.
   (tu/with-neutral-kb [kb #(doto (tu/fresh) core-context/load-into)]
     (tu/with-terms [likes Tom Ann]
@@ -194,12 +194,12 @@
         (v/assert kb (list 'context_denoting_function cxfn) 'CxUniverse)
         (v/assert kb '(unreifiable_function DatetimeFn) 'CxUniverse)
         (instrumented
-         (testing "the write door takes the application where it takes a symbol"
+         (testing "the write entry point takes the application where it takes a symbol"
            (is (nat-int? (v/assert kb (list likes Tom Ann) expr))))
          (testing "and so do the reads that take a context"
            (is (= [{'?x Ann}] (vec (v/ask kb (list likes Tom '?x) expr))))
            (is (nat-int? (v/handle-of kb (list likes Tom Ann) expr))))
-         (testing "while a string is still no context, at the boundary as at the door"
+         (testing "while a string is still no context, at the boundary as at the entry point"
            (is (= :instrument (rejection #(v/assert kb (list likes Tom Ann) "CxSpec"))))
            (is (= :instrument (rejection #(v/ask kb (list likes Tom '?x) "CxSpec"))))))))))
 
@@ -227,7 +227,7 @@
                 same `:type`, since `shape-problems` runs the same guard"
         (is (= [:unknown-option]
                (mapv :type (v/check kb (list dog Muffet) CxSpec :nope)))))
-      (testing "with an unknown key *and* a non-sequential sentence, both doors read
+      (testing "with an unknown key *and* a non-sequential sentence, both entry points read
                 the opts first — one precedence, so one answer"
         (is (= :unknown-option
                (rejection #(v/assert kb "(dog Muffet)" CxSpec {:strenth :monotonic}))))
@@ -240,7 +240,7 @@
   ;; `assert` acts on `:direction`, so every refusal it makes must be one `check`
   ;; reports — `check-edit` runs `check` per entry, and a batch checked clean that then
   ;; throws mid-`edit` is a batch rolled back whole, which is a write the caller was told
-  ;; would happen and did not.  Both doors read `direction-opt-problem`.
+  ;; would happen and did not.  Both entry points read `direction-opt-problem`.
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [dog cat Muffet CxSpec]
       (let [rule (list 'implies (list dog '?x) (list cat '?x))]
@@ -263,14 +263,14 @@
           (is (= [:unknown-option]
                  (mapv :type (v/check kb (list 'set/forwardRule rule) CxSpec
                                       {:direction :backward})))))
-        (testing "an applicable direction passes both doors and lands on the record"
+        (testing "an applicable direction passes both entry points and lands on the record"
           (is (empty? (v/check kb rule CxSpec {:direction :backward})))
           (let [h (v/assert kb rule CxSpec {:direction :backward})]
             (is (= :backward (:direction (v/sentex kb h))))))))))
 
 ;; ---- the connective frames --------------------------------------------------
 
-(deftest a-malformed-connective-is-refused-at-both-doors
+(deftest a-malformed-connective-is-refused-at-both-entry-points
   ;; `implies?` is arity-checked and the shape stage walks the frames, so an
   ;; `implies` at arity 2 (a bare exception before), an arity-4 one (a silently
   ;; truncated rule before), a two-body `not` (a positive fact whose record and

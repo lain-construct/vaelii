@@ -1,16 +1,16 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.assert-soundness-test
-  "Probes for the seams where `assert`'s checks and `assert`'s *storage* can
+  "Probes for the gaps where `assert`'s checks and `assert`'s *storage* can
   disagree.
 
   Every definitional check — naming, well-formedness, arg, disjointness,
   functionality — runs on the sentence the caller handed in.  What gets stored is
   the sentence the `sentex` constructor canonicalizes out of it.  Wherever those two
-  forms differ, there is a seam, and a check that runs on one side while the other
+  forms differ, there is a gap, and a check that runs on one side while the other
   is stored is a check that can be walked around.
 
-  The seams tested here: a virtual wrapper peeled by the constructor, a conjunctive
+  The gaps tested here: a virtual wrapper peeled by the constructor, a conjunctive
   consequent split into several rules, and the derivation path, which stores without
   going through `assert` at all."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -21,7 +21,7 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-;; ---- seam 1: a virtual wrapper around a non-rule ------------------------
+;; ---- gap 1: a virtual wrapper around a non-rule ------------------------
 ;;
 ;; `set/defaultRule` / `exceptWhen` / `set/forwardRule` are wrappers the sentex
 ;; constructor peels into record fields.  Wrapped around an *implication* that is
@@ -71,7 +71,7 @@
     (is (thrown? clojure.lang.ExceptionInfo
                  (v/assert kb (list 'set/defaultRule (list mortal '?x)) 'CxNaturalWorld)))))
 
-;; ---- seam 2: a conjunctive consequent split into several rules ----------
+;; ---- gap 2: a conjunctive consequent split into several rules ----------
 ;;
 ;; `(implies A (and C1 C2))` is polycanonicalized into one rule per conjunct, and
 ;; `assert` then `mapv`s over them.  A `mapv` is not a transaction: if the second
@@ -107,7 +107,7 @@
         (is (seq (v/sentexes-matching kb (list b Thing) 'CxNaturalWorld)))
         (is (seq (v/sentexes-matching kb (list c Thing) 'CxNaturalWorld)))))))
 
-;; ---- seam 3: the derivation path ----------------------------------------
+;; ---- gap 3: the derivation path ----------------------------------------
 ;;
 ;; `place-conclusion` runs the three *constraint* checks (arg, disjointness,
 ;; functionality) so derived content is held to the same standard as asserted
@@ -135,7 +135,7 @@
     (testing "and the cycle is not reachable through the up-closure"
       (is (not (contains? (set (v/genls kb animal)) dog))))))
 
-;; ---- seam 4: rule identity must track the consequent's polarity ---------
+;; ---- gap 4: rule identity must track the consequent's polarity ---------
 ;;
 ;; The trie key drops the `implies`/`and` frame, and a negative literal keeps its
 ;; `not` there as *polarity*.  If the consequent's `not` were dropped from the key,
@@ -178,7 +178,7 @@
          (try (vr/check-range-restricted ['(p ?x)] '(q ?y)) nil
               (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
 
-;; ---- seam 4: a rule the rule index cannot key on ------------------------
+;; ---- gap 4: a rule the rule index cannot key on ------------------------
 ;;
 ;; The rule index has two cells and both are keyed on a **predicate**
 ;; (`kv/rule-ante-key` / `rule-conseq-key`).  A variable in functor position names none,
@@ -186,7 +186,7 @@
 ;; the sentence.  The split (reasoning/27): a variable functor in an **antecedent** is the
 ;; widest trigger the engine can have — no arriving fact can key it, so it fires only when
 ;; a concrete antecedent beside it arrives, which makes its conclusions depend on arrival
-;; order.  That is refused at the door, with the one exception that claims nothing — an
+;; order.  That is refused at the entry point, with the one exception that claims nothing — an
 ;; `:inert` rule.  A variable functor in the **consequent** is bound by a concrete
 ;; antecedent (range restriction guarantees it), so it fires forward with the predicate
 ;; ground and is filed under the `p/var-consequent-key` catch-all for backward reach.

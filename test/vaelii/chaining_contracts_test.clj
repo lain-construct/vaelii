@@ -92,7 +92,7 @@
   ;; `:max-derivations`: the run truncates, warns, and returns a fixpoint it never
   ;; reached, on a KB whose whole content is three derivable pairs.
   ;;
-  ;; Seeding only for a NEW conclusion is what closes it, and it costs nothing: a
+  ;; Seeding only for a NEW conclusion is what closes it, and it adds no work: a
   ;; re-derivation adds a justification rather than a link, so the closure it would
   ;; re-drive the join over is the one the join already ran against.
   ;;

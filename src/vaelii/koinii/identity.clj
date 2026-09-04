@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.koinii.identity
   "Koinii actor identity: per-agent contexts as the identity substrate AND the
-  write boundary, an admin-only agent registry, and the one auth seam whose strength
+  write boundary, an admin-only agent registry, and the one auth extension point whose strength
   is conditional on the adjudication policy.
 
   The engine deliberately pushes per-caller identity OUT — `*creator*` is an
@@ -20,7 +20,7 @@
     context agents may NOT write — the governed may not write the authority that
     governs them.
 
-  The auth seam is conditional on policy (koinii design D4):
+  The auth extension point is conditional on policy (koinii design D4):
 
   - **Cooperative** (the default) — `*creator*` bound by convention, the write routed
     to the agent's own context, trusted because the agents are.  Correct for a
@@ -29,9 +29,9 @@
     plainly that identity is unauthenticated here.
   - **Proof-tier** — REQUIRED the moment trust-resolve is enabled, because
     trust-weighting a spoofable identity is worse than no trust.  `authenticate`
-    verifies a credential (the `verify-fn` seam — sign-at-ingest, an authenticating
+    verifies a credential (the `verify-fn` extension point — sign-at-ingest, an authenticating
     proxy, or A2A AgentCards / DIDs) and REFUSES an unverified request; the
-    write-boundary is enforced at that same seam.
+    write-boundary is enforced at that same extension point.
 
   Every write goes through the provenance-stamping `assert` path — NEVER
   `bulk-assert-facts!`, which binds `*bulk-load?*` and writes no provenance at all."
@@ -119,14 +119,14 @@
   because `(genlCx ?parent ctx)` and `(genlCx ctx ?root)` are the ordinary wiring of any
   nested context — the same two edges under a channel rolled up into a wider one.
   Inferring the role from them makes admission a function of what else has landed and of
-  which vocabulary a placement rooted at, which is order dependence in a door.  A
+  which vocabulary a placement rooted at, which is order dependence in an entry point.  A
   positive stored fact is neither: it is written once by whoever placed the context, it
   reads the same however the rest of the lattice grew, and every koinii placement route
   writes it.
 
   It lands in the agent's OWN context, which is the one context D8 already says the agent
   writes — so recording it needs no privilege the agent does not have, and no agent can
-  mark a context it may not write.  Under cooperative identity that boundary is a door
+  mark a context it may not write.  Under cooperative identity that boundary is an entry point
   and not a wall (`*policy*`), exactly as it is for everything else the agent asserts."
   [ctx agent]
   (list 'agentContext ctx agent))
@@ -163,7 +163,7 @@
   [kb deploy-ctx agent-id]
   (place-agent-context #(v/assert kb %1 %2 %3) deploy-ctx agent-id 'CxCore))
 
-;; ---- the auth seam: authenticate a principal (policy-conditional) --------
+;; ---- the auth extension point: authenticate a principal (policy-conditional) --------
 
 (def ^:dynamic *policy*
   "The identity policy (koinii design D4).
@@ -177,15 +177,15 @@
   :cooperative)
 
 (def ^:dynamic *verify-fn*
-  "The proof-tier verifier SEAM: `(verify-fn claimed-id credential)` returns truthy
+  "The proof-tier verifier EXTENSION POINT: `(verify-fn claimed-id credential)` returns truthy
   iff the credential proves the claim.  nil ships no crypto — the design provides the
-  seam (sign-at-ingest / an authenticating proxy / A2A AgentCards / DIDs) and the
+  extension point (sign-at-ingest / an authenticating proxy / A2A AgentCards / DIDs) and the
   deployment wires it.  Under `:proof-tier` a nil verifier fails CLOSED: every
   request is refused rather than silently trusted."
   nil)
 
 (defn authenticate
-  "Turn a `request` into an authenticated principal, or refuse — the identity seam,
+  "Turn a `request` into an authenticated principal, or refuse — the identity extension point,
   behaviour CONDITIONAL ON POLICY.
 
   `request` is `{:claimed-id <agent-id> :credential <opaque> :source <str>}`.
@@ -258,7 +258,7 @@
 
 (defn check-write-boundary!
   "Throw if `principal` may not write `target-ctx`; else return nil.  The single
-  enforcement point — the seam a proof-tier deployment relies on, and the reason no
+  enforcement point — the extension point a proof-tier deployment relies on, and the reason no
   call site can route a write into a context it does not own."
   [principal target-ctx]
   (when-let [prob (write-boundary-problem principal target-ctx)]
@@ -270,10 +270,10 @@
 (defn check-registry-write!
   "Throw if `target-ctx` is the admin registry; else return nil.  The **one** boundary
   that holds even in cooperative mode — where an agent may otherwise write across
-  contexts (the speech-act doors take an explicit `ctx` for exactly that) — because the
+  contexts (the speech-act entry points take an explicit `ctx` for exactly that) — because the
   governed may never write the authority that governs them (docs/koinii.md).  Narrower
   than `check-write-boundary!`, which also enforces own-context-only, a proof-tier rule
-  the cooperative doors do not impose.  `who` is named in the refusal for the log."
+  the cooperative entry points do not impose.  `who` is named in the refusal for the log."
   [who target-ctx]
   (when (= target-ctx registry-context)
     (throw (ex-info (str "koinii: write refused — registry-forbidden: " (pr-str who)

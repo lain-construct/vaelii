@@ -102,7 +102,7 @@
   is derived from content alone, so the order stays what `prec>` promises: arbitrary,
   deterministic, and identical whichever way round the equation was written.
 
-  Totality is the point.  `orient` is reached from the assert door, and a comparison
+  Totality is the point.  `orient` is reached from the assert entry point, and a comparison
   that throws there refuses an equation by exception rather than by returning nil —
   which is not a refusal but a crash."
   [a b]
@@ -270,7 +270,7 @@
 
 (defn schematic-equation?
   "Is `sentence` a schematic equational rule — an `(equals L R)` whose sides carry a
-  variable-bearing compound?  This is the shape that becomes a rewrite rule rather
+  variable-bearing compound?  This is the structure that becomes a rewrite rule rather
   than a partition merge: `equals` specifically (not `sameAs`, individuals-only, nor
   `rewriteOf`, whose compound form is a NAT declaration), with a compound side and a
   variable, so a ground `(equals (F a) (F b))` — which reifies to symbols — is *not*

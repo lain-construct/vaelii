@@ -43,7 +43,7 @@
 (def ^:private value-flags
   "Every value-taking flag spelling the driver knows — what `parse-opts` will bind at
   all, as against which command may carry which, that being `command-flags`' answer
-  one door further in.  A flag outside it is refused, not keywordized: `--strenght monotonic`
+  one entry point further in.  A flag outside it is refused, not keywordized: `--strenght monotonic`
   accepted in silence would store known-true content at `:default` — the exact
   sentence the flag-with-no-value refusal beside it exists for, reached from the
   other side — and a misspelt `--dir` would open the in-memory KB, gone at exit."
@@ -74,7 +74,7 @@
                                (str/join ", " (sort (into #{"--help" "--memory" "--starter"}
                                                           value-flags)))
                                ", and a command reads only its own of those")
-                          {:type :unknown-option :flag a}))
+                          {:type :unknown-option :mismatch :unknown-key :flag a}))
           :else (let [v (second as)]
                   ;; a following flag is not a value: `--dir --starter` otherwise opens
                   ;; a directory literally named `--starter` and never loads the schema
@@ -84,7 +84,7 @@
                                          (if v (str "the next word is the flag " v)
                                              "the line ends after it")
                                          " — write " a " <value>")
-                                    {:type :unknown-option :flag a})))))))))
+                                    {:type :unknown-option :mismatch :missing-value :flag a})))))))))
 
 (defn read-arg
   "One argv string as data: the EDN it reads as — a sentence, a context symbol, a handle
@@ -172,7 +172,12 @@
                              ", given " n
                              "\n  usage: " cmd (when (seq ops) (str " " ops))
                              "\n  quote every argument: the shell eats ( ) [ ] and ?")
-                        {:type :unknown-option :cmd cmd :given n :takes [mn mx]}))))))
+                        ;; `:bad-args`, not `:unknown-option`: the operands are the wrong
+                        ;; number and every flag on the line may be one this command reads.
+                        ;; A caller branching on `:unknown-option` reports a bad option, and
+                        ;; there is none — `:op` is the word `serve` already refuses a wire
+                        ;; call's argument count under.
+                        {:type :bad-args :op cmd :given n :takes [mn mx]}))))))
 
 (def ^:private driver-flags
   "The flags that say which KB to open rather than what a command does with it.  They
@@ -181,8 +186,8 @@
 
 (def ^:private command-flags
   "The value flags each command reads, keyed by command word; a command absent from the
-  map reads none.  This is `assert-opt-keys`' rule at the shell door (docs/api.md): an
-  option is a request, and one the door cannot honour is refused rather than dropped.
+  map reads none.  This is `assert-opt-keys`' rule at the shell entry point (docs/api.md): an
+  option is a request, and one the entry point cannot honour is refused rather than dropped.
   `match … --strength monotonic` accepted and ignored reads from the outside exactly
   like a strength that was applied.
 
@@ -221,7 +226,7 @@
                              (if (seq allowed) (flag-names allowed) "no options of its own")
                              ".  A flag a command cannot honour is dropped in silence"
                              " otherwise, which reads exactly like one that was applied.")
-                        {:type :unknown-option :cmd cmd
+                        {:type :unknown-option :mismatch :unknown-key :cmd cmd
                          :unread (mapv #(str "--" (name %)) (sort unread))
                          :reads  (mapv #(str "--" (name %)) (sort allowed))}))))))
 
@@ -261,7 +266,7 @@
 
   Three commands answer with one — `match`, `query` and `ask` — and a set has no order of
   its own, so what reached stdout was whichever order the retrieval enumerated: two loads
-  of the same knowledge printed it differently, and a diff of the two outputs read as a
+  of the same knowledge printed it differently, and a diff of the two outputs are indistinguishable from a
   change in the KB.  `types` and `contexts` in the same table are sorted for that reason,
   and these are held to it too.
 
@@ -316,7 +321,7 @@
                                            (nth args 0) " is stored, so :not-stored is not"
                                            " the answer it can get and there is no rule to"
                                            " look for.  Write the sentence and its context.")
-                                      {:type :unknown-option :flag "--nearest"
+                                      {:type :unknown-option :mismatch :conflict :flag "--nearest"
                                        :handle (nth args 0)}))
 
                       nearest (v/why-not kb (nth args 0) (or (second args) '?ctx) nearest)
@@ -329,7 +334,7 @@
       ;; everything the KB holds about one term, by the term's role — the shell spelling
       ;; of "what can I ask about this?" (docs/troubleshooting.md).  `--context` is what
       ;; scopes it: the argument declarations, the grants and the comments are each read
-      ;; from that context's genlCx up-cone, so two vantages give two correct answers
+      ;; from that context's genlCx ancestor set, so two vantages give two correct answers
       "describe"    (v/describe kb (nth args 0) ctx)
       ;; `by-print-key`, never bare `sort`: a type node may be a NAT, and a NAT keyed with
       ;; `str` collapses under an ambient print bound
@@ -347,7 +352,7 @@
       ;; context resting on another's content loads whichever name sorts first.
       "load"        (dissoc (v/load-text! kb (str (nth args 0))) :elapsed-ms)
       ;; the one command whose argument is a **destination** rather than knowledge.
-      ;; Two formats, and they are two doors rather than one with a flag (docs/api.md):
+      ;; Two formats, and they are two entry points rather than one with a flag (docs/api.md):
       ;; a dump is the KB's state at its own handles, a text KB is its premises in the
       ;; format an author edits.  So `--variant` / `--compression` describe a dump and
       ;; are refused beside `--format text` rather than ignored — accepted and dropped,
@@ -359,7 +364,7 @@
                             (throw (ex-info (str "--format text writes a text KB, which has no "
                                                  (str/join " and no " (map name ignored))
                                                  " — those describe an export dump")
-                                            {:type :unknown-option :unknown (vec ignored)
+                                            {:type :unknown-option :mismatch :conflict :unknown (vec ignored)
                                              :options [:format]})))
                           (v/export-text! kb (str (nth args 0))))
                       (v/export! kb (str (nth args 0))
@@ -387,7 +392,7 @@
     (throw (ex-info (str "--memory and --dir " dir " contradict — a memory KB has no"
                          " directory.  Drop one: --dir for the durable KB, --memory"
                          " (or neither) for the in-process one.")
-                    {:type :unknown-option :flags ["--memory" "--dir"]})))
+                    {:type :unknown-option :mismatch :conflict :flags ["--memory" "--dir"]})))
   (let [kb (if dir
              (v/open-kb {:backend :disk-log :dir dir :recover? :auto})
              (v/open-kb {}))]
@@ -461,7 +466,7 @@
         kb (try (open-kb-from opts)
                 ;; Throwable, matching the command arm below: an unwritable --dir or a
                 ;; corrupt log throws a plain IOException, and a stack trace is not the
-                ;; one-line courtesy this door promises
+                ;; one-line courtesy this entry point promises
                 (catch Throwable e
                   (err! "error:" (or (ex-message e) (.getName (class e))))
                   (System/exit 1)))]

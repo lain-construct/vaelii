@@ -663,7 +663,7 @@
 (deftest a-large-sweep-drops-every-swept-supersession-and-keeps-the-rest
   ;; `superseded` is the one persistent map the dense network keeps, and a sweep drops the
   ;; swept region from it in a single transient pass (`jtms/dissoc-all`).  A transient
-  ;; rewrite is exactly the shape that loses an entry at a boundary, so the region is made
+  ;; rewrite is exactly the structure that loses an entry at a boundary, so the region is made
   ;; big enough to have boundaries and the answer is compared against the naive
   ;; `apply dissoc` it stands in for — plus survivors, since a map emptied wholesale would
   ;; pass a comparison against `{}` however it got there.

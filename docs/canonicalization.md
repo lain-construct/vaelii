@@ -80,12 +80,44 @@ literal holding a variable is a **pattern** (a query, or an antecedent about to 
 matched) and is never reordered: variables sort last, so sorting one would move its
 ground argument into slot 1 and miss the stored fact.
 
-Order-insensitive *lookup* is handled at match time instead — `res/raw-match`,
-`core/sentexes-matching`, and `kb/find-sentex-handle` probe **both argument orders** for a
-symmetric predicate. That also keeps a fact asserted *before* its `(symmetric P)`
-declaration reachable, and makes re-asserting its mirror resolve to it rather than
-duplicate. Sorting needs the taxonomy, so every store/lookup builds its sentex
-through `res/kb-sentex` (which supplies `:symmetric?`).
+Order-insensitive *lookup* is handled at match time instead — `res/raw-match` and
+`core/sentexes-matching` probe **both argument orders** for a symmetric predicate, which is
+how a query answers a pair whichever way round it was asked. Sorting needs the taxonomy,
+so every store/lookup builds its sentex through `res/kb-sentex` (which supplies
+`:symmetric?`).
+
+### A mark arriving after the facts migrates them
+
+The sort is what the *entry point* does, so a `(symmetric P)` declaration arriving after `P`'s
+facts leaves the store holding spellings no later assertion will ever produce — and if
+both spellings of one pair were written, two records for one proposition, each retractable
+without the other. Match-time probing does not close that: it makes both records answer,
+which reports the fact twice rather than once.
+
+So the declaration migrates what is stored (`integrate/symmetrize-existing`), which is the
+one retroactive arm that writes records rather than deriving content. A row with no mirror
+stored is **re-spelled where it lies** — same handle, same TMS node, same premise mark,
+same justifications, since for a re-canonicalization nothing resting on the row is about
+its spelling (`kb/respell-sentex!`, the store's third mutation beside `create-sentex` and
+`integrate/sentex-removed!`). A mirrored pair **folds into one row**: the redundant one
+hands over its premise mark, the justifications drawn through it and its handle-naming
+metas, and then leaves through the ordinary teardown.
+
+Which of a pair survives is decided from what supports it and only then from the handle. A
+row a rule concluded cannot be the one to leave — folding it would mean deleting the
+justifications naming it as their consequence, and the JTMS has no entry point for that on
+purpose — so the row standing on nothing but its own premise is the one that goes. Between
+two such rows the **lower handle** survives: it is the row the KB would be holding had the
+declaration come first, which is the claim being restored. Two rows a rule concluded are
+left alone, pair and all, and for that pair the KB reads as it did before the arm existed.
+
+The migration is a **write**, so retracting the mark does not undo it: `P`'s facts stay
+spelled the way the declaration had them spelled. That is a spelling and not a belief. The
+alternative — an alias recording that two records mean one — would have to be rebuilt on
+every `recover` from records that still spell the fact two ways, and consulted for ever
+after by matching, retraction, the TMS and every handle entry point. Migrating leaves the records
+themselves canonical, so `recover` reads a store that needs no reconciling
+(`recover_independence_test`).
 
 ## Comparison siblings folded
 
@@ -121,7 +153,7 @@ not negotiable ([nmtms.md](nmtms.md)).
 
 A **third** slot resolves the same way, and for the same reason read one step
 further. `:strength` — the class the rule itself is held at, `opts :strength` at the
-door — is not in the identity key either, and it takes the **stronger** of the two
+entry point — is not in the identity key either, and it takes the **stronger** of the two
 assertions. A re-assert carrying no `:strength` states nothing about the class, so
 reading that silence as a downgrade would make `defeat-class` answer differently for
 the same two assertions in the two orders. No *belief* moves either way, nothing in
@@ -129,7 +161,7 @@ the engine defeating a rule ([nmtms.md](nmtms.md)), which is why this one is abo
 what a caller reads back rather than about what the KB believes. Narrowing any of
 the three is `retract!` and re-assert, never a second spelling.
 
-The **fact** door resolves its own `:strength` the same way and by the same argument,
+The **fact** entry point resolves its own `:strength` the same way and by the same argument,
 where belief does move: a re-asserted fact keeps the stronger mark, so a bare re-assert
 of known-true content cannot retire it ([nmtms.md](nmtms.md)).
 
@@ -226,7 +258,7 @@ it covers.
 ### Where `or` cannot go
 
 The connective earns its place by disappearing, so the positions it cannot disappear
-from are refused at the shape door — before the KB is read at all, by `assert`,
+from are refused at the shape entry point — before the KB is read at all, by `assert`,
 `assert-inert` and `check` alike:
 
 | position | refused | because, and instead |
@@ -236,7 +268,7 @@ from are refused at the shape door — before the KB is read at all, by `assert`
 | an `exceptWhen` query | `:not-well-formed` | the conjuncts of one exception all have to hold — but a rule's exceptions block if **any** holds, so a disjunctive exception is two exceptions, one `exceptWhen` per alternative against the same handle ([exceptions.md](exceptions.md)) |
 | under `not` | `:not-well-formed` | `(not (or A B))` is "neither A nor B", a conjunction of negations, so expanding on it would store the opposite claim — write the two negations as separate antecedents |
 | an empty `(or)` | `:not-well-formed` | it expands to no rules at all |
-| a **goal** | `:shape` | a rule is expanded once at the write door; a goal would have to be expanded at every read, and a read normalizes to *one* conjunction that the planner orders once and every engine walks as one ([api.md](api.md)). Run the query once per alternative and concatenate, or put the disjunction in a rule — which *is* expanded — and ask for its conclusion |
+| a **goal** | `:shape` | a rule is expanded once at the write entry point; a goal would have to be expanded at every read, and a read normalizes to *one* conjunction that the planner orders once and every engine walks as one ([api.md](api.md)). Run the query once per alternative and concatenate, or put the disjunction in a rule — which *is* expanded — and ask for its conclusion |
 
 An `or` in an **argument** slot is not a connective frame at all and is left where it
 stands, exactly as a compound argument is everywhere else: `(likes Tom (or A B))` is one

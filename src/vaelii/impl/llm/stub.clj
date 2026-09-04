@@ -4,7 +4,7 @@
   "The default provider: deterministic, offline, no credential.
 
   Standing in the same place `vaelii.impl.solve/local-solver` stands — the stub that
-  makes the seam usable before (and without) a real backend.  `lein test` runs the
+  makes the LLM provider usable before (and without) a real backend.  `lein test` runs the
   whole pipeline against it, so the suite needs no API key and opens no socket, and a
   deployment with no credential degrades to a provider that proposes nothing rather
   than to an exception.

@@ -146,7 +146,7 @@
   (let [argv (or (mode-args mode)
                  (throw (ex-info (str "unknown clasp mode: " (pr-str mode) " — want one of "
                                       (pr-str (vec (sort (keys mode-args)))))
-                                 {:type :unknown-option :mode mode :valid (keys mode-args)})))
+                                 {:type :unknown-option :mismatch :bad-value :mode mode :valid (keys mode-args)})))
         parsed (invoke-clasp (concat argv (time-limit-args)) aspif-text)
         status (status-of parsed)]
     (case mode

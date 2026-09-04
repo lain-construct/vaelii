@@ -252,7 +252,7 @@ failing_tests() {
 }
 
 # The assertion count alone, for `assertion_deltas_ok` — empty for a run that never
-# printed one, which that function skips rather than reads as a zero.
+# printed one, which that function skips rather than is indistinguishable from a zero.
 run_assertions() {
   run_summary "$1" | sed -nE 's/^[0-9]+ tests, ([0-9]+) assertions$/\1/p'
 }

@@ -6,7 +6,7 @@
   backend) and to the `ColumnarIndexStore`, and every read of the `IndexStore` protocol
   must agree — set-for-set and count-for-count.  Proving the two stores answer every
   `lookup` / `count-at` / `children` / root / rule / exception / term query identically
-  proves `:memory-columnar` set-equal to `:memory` at the storage seam; the whole test
+  proves `:memory-columnar` set-equal to `:memory` at the storage protocol; the whole test
   suite run under `VAELII_TEST_BACKEND=memory-columnar` proves it end-to-end.
 
   Exercised on purpose: the native trie's ragged paths (a fact's path a proper prefix of
@@ -248,7 +248,7 @@
           (compare-all mem col (map first (subvec ops 0 3))))
 
         ;; and it promotes again afterwards — the tier is a function of the current width,
-        ;; not a one-way door
+        ;; not a one-way entry point
         (apply! p/index-sentex (subvec ops 3))
         (is (= :map (rep)))
         (compare-all mem col (map first ops))

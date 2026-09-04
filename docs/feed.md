@@ -112,7 +112,7 @@ It does **not** re-run the goal, and that is the point: a listener that re-queri
 make every mutation cost a query per listener, which is the cost polling already had.
 
 Context-scoped like every other read, on **both** halves of the match — the sentex must
-sit in a context the watch's own can see up the `genlCx` cone, *and* the subsumption that
+sit in a context the watch's own can see up the `genlCx` ancestor set, *and* the subsumption that
 connects the goal's predicate to the stored one is walked only through the `genl` edges
 that context can see. So a watch does not fire through a predicate-genl edge stated where
 it cannot see it — the edge `ask` from that context would not walk either, so the feed and
@@ -240,7 +240,7 @@ and start from what it says. A feed is how belief *moves*, never how it is first
 - **A batch that threw.** `edit!` is all-or-nothing ([api.md](api.md)): a throw is
   followed by a rollback that puts the KB back at the handles it wrote, so there is no
   belief left for the batch to have moved. The rollback runs with `feed/*enabled?*` off
-  and therefore accumulates no region of its own, and the one event the door delivers has
+  and therefore accumulates no region of its own, and the one event the entry point delivers has
   nothing to hand anybody. The next settle reports its own news and never the rolled-back
   batch's.
 
@@ -373,7 +373,7 @@ arity takes no context at all, so `[nil CxDeploy]` would register an unscoped li
 while the registry stored `CxDeploy` and `:watchers` reported it back — the daemon naming
 a scope it is not applying, which is worse than the contextless goal it mirrors. It is
 refused under the same `:type :not-watchable`: scoping is the goal's, so a context
-arriving alone is a request this door cannot honour rather than one to drop.
+arriving alone is a request this entry point cannot honour rather than one to drop.
 
 Three things the wire inherits rather than restates. A goal `watch` refuses is refused
 identically over `POST /op`, under the same `:type :not-watchable`, because it is the same
@@ -409,7 +409,7 @@ progress, and progress is not belief moving. Nothing in the browser subscribes.
   consequences** — the sinks are closed for the duration, or an
   `edit-with-consequences!` would attribute them to the caller.
 - **Honesty**: a standing query fires only on what answers it, through a subtype and a
-  sub-predicate, up the `genlCx` cone and no further; eight unanswerable goal shapes
+  sub-predicate, up the `genlCx` ancestor set and no further; eight unanswerable goal shapes
   are refused and register nothing, as are a goal with no context and a listener that is
   `ifn?` but not a function; two live KBs never hear each other and a fork inherits no
   listeners.

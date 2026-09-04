@@ -23,7 +23,8 @@ Each entry is tagged with its subsystem:
 **`abducible_predicate`** ![kb](../.github/badges/cat-kb.svg): The grant that
 makes a `(P …)` assumable by `abduce`, and the only thing that does — a
 belief-following taxonomy prop like `transitive`, but read from the asking
-context's up-cone rather than universally, because abducibility is a policy of
+context's `genlCx` ancestor set rather than universally, because abducibility is a
+policy of
 the context granting it. See [abduction.md](abduction.md).
 
 **Abduction** ![inference](../.github/badges/cat-inference.svg): `abduce` —
@@ -77,6 +78,14 @@ a type whose genl closure reaches `type`. Open-world and context-scoped. See
 a `T` — and it reads open-world in *both* directions at once: an unestablished trigger
 leaves it dormant, an unreachable target convicts. See [argtypes.md](argtypes.md).
 
+**Arm** ![kb](../.github/badges/cat-kb.svg): The function a table stores under a functor
+and a walk over that table invokes at one fixed point — `special/arms` holds an
+`:integrate`, a `:disintegrate`, a `:rebuild` and a `:wff` per interpreted predicate, and
+`special/entries` is the ordered join all four walks read. The word is the `case` arm's:
+the table *is* a dispatch on the functor, and an entry supplies the branch taken for it.
+So a check written by hand and reached from no table is not one, however much semantics it
+carries. See [predicates.md](predicates.md).
+
 **`ask`** ![inference](../.github/badges/cat-inference.svg): The pluggable
 prover-engine query. It runs the cheapest complete prover alone, else unions the
 applicable provers cheapest-first by cost tier. See [inference.md](inference.md).
@@ -97,7 +106,7 @@ on a justification. A sentex may be both asserted and **Derived**; `kb-diff`'s
 
 **Atomic (storage)** ![backend](../.github/badges/cat-backend.svg): All-or-nothing, the systems sense —
 an atomic rename publishing a new file over the live one, a crash-atomic write, and
-`edit!` as the all-or-nothing door. A declared collision with the term sense below,
+`edit!` as the all-or-nothing write. A declared collision with the term sense below,
 three strata away and never on the same page. See [storage.md](storage.md), [api.md](api.md).
 
 **Atomic (term)** ![kb](../.github/badges/cat-kb.svg): Not a function application — a symbol, a number, a string, or
@@ -176,7 +185,7 @@ folding. See [canonicalization.md](canonicalization.md).
 **`closed_extent_predicate`** ![kb](../.github/badges/cat-kb.svg): The grant that
 a predicate's **believed** extent is complete, so nothing answering `(P a)` at
 level 6 is what answers `(not (P a))`. Read from the asking context's `genlCx`
-up-cone, so it is a policy of the theory that closes the extent; a closed
+ancestor set, so it is a policy of the theory that closes the extent; a closed
 `(not (P …))` rule antecedent under it is negation as failure. See
 [naf.md](naf.md).
 
@@ -236,7 +245,7 @@ individuals and fables hang below it. See [contexts.md](contexts.md).
 
 ## D
 
-**Declaration** ![kb](../.github/badges/cat-kb.svg): A sentex the engine reads as a statement about the
+**Declaration** ![kb](../.github/badges/cat-kb.svg): A sentex the engine interprets as a statement about the
 *vocabulary* rather than about the world — `(arg parentOf 1 person)`, `(symmetric
 marriedTo)`, `(genl dog mammal)`. Stored, believed and retracted like any fact, and acted on
 besides. What each term of the engine's own grammar says about itself is written once in
@@ -292,8 +301,9 @@ of **Asserted**, and a sentex may be both. See [nmtms.md](nmtms.md).
 one term, in one map, keyed by the term's own `term-role` — arity, the argument
 declarations, the relation properties, the closures, the counts and the comment for a
 predicate; the disjointness and the admitting predicates for a type; the types and
-mention counts for an individual; the two `genlCx` cones for a context. Read from the
-asking context's up-cone, since a declaration and a grant are policies of the context
+mention counts for an individual; the two `genlCx` closures for a context. Read from
+the asking context's ancestor set, since a declaration and a grant are policies of the
+context
 that states them, and every list is a window carrying its own `:total` / `:exact?` /
 `:sorted?`. The browser's term page renders it. See [api.md](api.md).
 
@@ -313,19 +323,19 @@ types share no instance, closed under genl. A metatype's members are pairwise
 disjoint by being consulted, not by storing the clique. Belief-following. See
 [taxonomy.md](taxonomy.md).
 
-**Door** ![kb](../.github/badges/cat-kb.svg): An entry point knowledge reaches the
-engine through — `assert` / `assert-rule` / `edit!`, the `check` family that predicts
-them without storing, the CLI and the daemon's op dispatch. The word earns its keep
-because the doors must agree: a sentence one refuses and another stores is a state no
-caller asked for, and `check` disagreeing with `assert` makes the prediction worse than
-none. See [api.md](api.md), [operations.md](operations.md).
-
 ## E
 
 **Edge solver** ![asp](../.github/badges/cat-asp.svg): The pluggable `Solver`
 that arbitrates only the contested *edges* of a soft contradiction; known-true
 content is the fixed background and is never sent. Deterministic stub by default,
 ASP backend opt-in. See [solving.md](solving.md).
+
+**Entry point** ![kb](../.github/badges/cat-kb.svg): A public function knowledge
+reaches the engine through: `assert` / `assert-rule` / `edit!`, the `check` family that
+predicts them without storing, the CLI, and the daemon's op dispatch. Every entry point
+runs the same checks, because a sentence one refuses and another stores leaves the KB in
+a state no caller asked for, and `check` disagreeing with `assert` makes the prediction
+worse than no prediction. See [api.md](api.md), [operations.md](operations.md).
 
 **`equals`** ![kb](../.github/badges/cat-kb.svg): An equality relation feeding
 the one equivalence closure, `sameAs` without OWL's individuals restriction. A
@@ -456,6 +466,14 @@ holds at every moment between its start and its end. See [time.md](time.md).
 
 ## I
 
+**`indeterminate_term`** ![kb](../.github/badges/cat-kb.svg): The extensible
+category of terms that stand for some object without pinning down which. A skolem
+constant is its built-in first member, read off the `SkolemFn` expression it was minted
+from; a further kind joins with `(genl NewKind indeterminate_term)`. A member is not a
+determinate filler for a `predAllSpecified` audit, and the unique-name assumption is
+suspended for it until a merge pins it. Membership is what the KB holds, not what a
+prover infers on demand. See [predall.md](predall.md).
+
 **Index (count-aware trie)** ![backend](../.github/badges/cat-backend.svg): The
 trie a sentex is indexed by: its key tokens then context as the final
 level, connective-free and α-renamed. Each node carries a count, a child-token
@@ -476,7 +494,7 @@ applications, differing in whether the KB *believes* what it stores.
   **never a premise**, so it is never believed by anything: the primitive behind a
   solve's materialized labeling, a recorded truth value rather than a claim
   ([solving.md](solving.md)). It takes atoms and their negations; a **rule** is
-  refused (`:not-indexable`), the door that indexes a rule being the one that
+  refused (`:not-indexable`): the entry point that indexes a rule is the one that
   creates it.
 
 See [inference.md](inference.md) for the first and [solving.md](solving.md) for
@@ -529,6 +547,16 @@ and never entailed. See [argtypes.md](argtypes.md).
 answer set as belief — every datum in the settled tie assigned `:true`,
 `:supportable` or `:false`, checked against the brave/cautious classification of the
 same tie. See [labeling.md](labeling.md).
+
+**Lane** ![kb](../.github/badges/cat-kb.svg): A consumer of a declaration that is wired
+per spelling and **fails silently** when a spelling is left out of it — the unit a Facet
+names and a Mark family has to agree about. `facet-contract`'s `:lane?` says which facets
+are ones: `:retriggers` is not, because a re-check posting is one line inside one Arm
+rather than a wiring of its own, and `:query-only` and `:inert` are not, because a
+classification of the whole term is nothing a family can differ about. The scale is a
+subsystem's whole reading of the declaration — the merge lane, the clash-exposure lane —
+and a family joined to one in one spelling and not another is #52 and #54. See
+[predicates.md](predicates.md).
 
 **`lessThan` / `greaterThan`** ![inference](../.github/badges/cat-inference.svg):
 Evaluable arithmetic comparators, variable-arity — a ground chain
@@ -641,7 +669,7 @@ until nothing narrows. A *greatest* fixpoint, so it removes rather than adds,
 and it is order-independent. See [qcn.md](qcn.md).
 
 **Pattern** ![inference](../.github/badges/cat-inference.svg): A **Formula** with `?x`
-variables, read as a *shape to match* rather than as a claim. Never stored as a non-rule
+variables, are read as a *pattern to match* rather than as a claim. Never stored as a non-rule
 sentence — `checks/check-ground` refuses that — so a pattern reaches the engine only as a
 goal or inside a rule. See [inference.md](inference.md).
 
@@ -679,6 +707,14 @@ retracting the example sentex tears the annotation down with it. The engine read
 them; the obligation the first two carry — that the target holds, or holds as its negation
 — is held by `curation_test`. See [predicates.md](predicates.md).
 
+**`predAll` family** ![kb](../.github/badges/cat-kb.svg): The eight relations that
+quantify one argument position of a binary predicate and fix the other, in three
+classes. The *Instance* pair (`predAllInstance` / `predInstanceAll`) is a rule generator
+and produces inference. The *Exists* four are inert records beside a sanctioned
+placeholder functor. The *Specified* pair (`predAllSpecified` / `predSpecifiedAll`) is an
+on-demand integrity audit reporting the instances with no determinate filler. See
+[predall.md](predall.md).
+
 **Premise** ![tms](../.github/badges/cat-tms.svg): An asserted datum held IN
 unconditionally (subject to defeat/supersession), as opposed to a derived
 conclusion resting on a justification. Carries an assumption strength. See
@@ -700,7 +736,8 @@ See [inference.md](inference.md).
 ## Q
 
 **Query** ![inference](../.github/badges/cat-inference.svg): `query` / `query?` — the
-front door for answering a goal, returning binding maps. One dial: `:max-depth` says how
+public entry point for answering a goal, returning binding maps. One dial: `:max-depth`
+says how
 far to expand rules, and without one the read answers from what the registry reaches and
 expands nothing. There is no default depth, since a bound decides which derivations
 exist. Takes a goal — a formula, open or closed — or a **vector** of them (joining on shared
@@ -710,10 +747,12 @@ different question and returns sentexes. See [api.md](api.md),
 
 **Query context** ![kb](../.github/badges/cat-kb.svg): One of `CxEverything`,
 `CxInference` and `CxNothing` — a `Cx…` symbol naming a **way of reading** rather than a
-place. Resolved at the read door and never reaching the engine; refused at `assert` and in
+place. Resolved at the read entry point and never reaching the engine; refused at
+`assert` and in
 the `genlCx` slots, so nothing is stored in one and nothing wires one into the lattice.
 `CxEverything` reads the store as spelled, belief ignored; `CxInference` keeps only what
-one reader's `genlCx` cone sees over the whole derivation and reports that reader as
+one reader's `genlCx` ancestor set sees over the whole derivation and reports that
+reader as
 `:context`;
 `CxNothing` sees no fact at all, leaving the provers. A **variable** context (`?ctx`, the
 default of every short arity, or any name) is the same reading as `CxInference`, the witness
@@ -748,6 +787,18 @@ their converses. `vaelii.impl.space`, registered as `:rcc8`. See
 **`recover`** ![backend](../.github/badges/cat-backend.svg): Rebuild the taxonomy
 and JTMS from the durable stores after a restart, ending in a `settle` so belief
 is applied consistently either side of a restart. See [storage.md](storage.md).
+
+**Refusal** ![kb](../.github/badges/cat-kb.svg): An `ex-info` thrown instead of accepting —
+at an entry point, or at a namespace load, carrying a `:type` keyword the caller
+discriminates on.
+The vocabulary is closed by hand: `type_contract_test` pins every one, `refusal_roster_test`
+demands each be provoked by a test and looked up in a page, and
+[troubleshooting.md](troubleshooting.md) is the index. Distinct from a `violations` entry,
+which is filed and moves no belief, and from a Nogood, which is arbitrated rather than
+thrown. A new `:type` is caller-visible vocabulary and owes a changelog entry; reusing
+`:bad-table-entry` with a fresh `:mismatch` is the cheaper move, and the `:mismatch`
+values are a closed vocabulary of their own, pinned beside the `:type` one. See
+[troubleshooting.md](troubleshooting.md).
 
 **Region (relabel scope)** ![tms](../.github/badges/cat-tms.svg): The forward consequence closure
 of what changed — the scope a relabel is confined to, with everything outside
@@ -789,6 +840,16 @@ default behind `chain/*matcher*`. See [inference.md](inference.md).
 `(rewriteOf P D)` marks `D` deprecated and migrates onto `P`. It names the
 representative and, being about spelling, may relate any terms. See
 [equality.md](equality.md).
+
+**Roster** ![kb](../.github/badges/cat-kb.svg): An enumeration written out and kept in
+step **by hand**, as against a *view*, which is derived from the declaration it projects
+and cannot drift from it. The word is used against itself throughout
+[predicates.md](predicates.md) — "an open field is a roster again, with the same drift and
+none of the checking" — the twenty-odd functor-keyed ones being projections of one fact
+that each had to be remembered separately. What is left is named where it stands: a roster
+the declaration cannot derive says so on its own docstring. Term roster is the second,
+declared sense and carries none of this one's pejorative — it is a set of names the index
+keeps, not a list anybody maintains. See [predicates.md](predicates.md).
 
 **Rule index** ![backend](../.github/badges/cat-backend.svg): The predicate index
 keying rules by their antecedent *and* consequent predicates — both sets
@@ -854,7 +915,7 @@ belief-following, and raising contradictions through the same JTMS/ASP path as
 of types it names from a disjointness a `sibling_disjoint` mark or a `disjoint_metatype`
 would otherwise force — pair-local, so it does not disturb either type's disjointness from
 the parent's other specializations and does not leak to subtypes. Read over the whole KB,
-not the reader's context cone, because an exemption removes a clash. See
+not the reader's context ancestor set, because an exemption removes a clash. See
 [taxonomy.md](taxonomy.md).
 
 **Sideways information passing** ![inference](../.github/badges/cat-inference.svg):
@@ -976,8 +1037,9 @@ subtype fact satisfies the antecedent. See [inference.md](inference.md).
 
 **Unique-name assumption (UNA)** ![kb](../.github/badges/cat-kb.svg): Distinct
 symbols denote distinct things until an equality sentex says otherwise —
-preserved even under the equality closure and made provable by `different`. See
-[equality.md](equality.md).
+preserved even under the equality closure and made provable by `different`.
+Suspended for an unpinned indeterminate term (skolems and `indeterminate_term`
+members) until a `rewriteOf`/merge pins it. See [equality.md](equality.md).
 
 **`unknown`** ![inference](../.github/badges/cat-inference.svg): The negation-as-
 failure prover — `(unknown S)` holds iff `S` is not derivable over the level-6
@@ -1012,7 +1074,7 @@ each a pass finding more than it will file — the first naming whichever bound 
 cut walk or the entry cap, the second the cap alone; `:partner-sweep-truncated`, a
 vantage the cap kept a pass from consulting at all; and
 `:context-edge-exposure-truncated`, the only one filed eagerly from an assert rather than
-a settle, over merges a `genlCx` edge's cone did not reach; a retroactive
+a settle, over merges a `genlCx` edge's ancestor set did not reach; a retroactive
 `:arity` reach beside a `:non-confluent` pair of equations; and the provers' own —
 `:aggregate` for an extent that will not reduce, `:qualitative-inconsistency` and the two
 `:metric-temporal-*` for a network a context cannot satisfy, and `:sign-inconsistency`

@@ -177,13 +177,13 @@
 ;;; ── the reach of a disjointness: exactly its declaration's visibility ──
 
 (tu/deftest-kb a-disjointness-counts-only-where-its-declaration-is-visible
-  ;; The OpenCyc shape, now answered the way Cyc answers it: the context cone is
+  ;; The OpenCyc shape, now answered the way Cyc answers it: the context ancestor set is
   ;; applied at lookup, so a `(disjoint …)` stated in one context separates the
   ;; pair exactly where that statement is visible.  Cyc states `(disjointWith
   ;; #$Place #$Agent-Generic)` in PhysicalGeographyMt alone, and separately makes a
   ;; city both a place and (via GeopoliticalEntity, an Organization) an agent — and
   ;; stays consistent, because the disjointness and the full subsumption path never
-  ;; coexist in any one context's cone.  A sibling context that cannot see the
+  ;; coexist in any one context's ancestor set.  A sibling context that cannot see the
   ;; declaration is not constrained by it; the unscoped read still reports every
   ;; declaration in the KB, which is what a global auditor wants.
   (tu/with-terms [a_place an_agent a_city CxPhysicalGeography CxGeography
@@ -245,7 +245,7 @@
 ;; context is only ever refused on grounds it can see.
 
 (defn- assert-outcome
-  "`:ok`, or the `:type` of the refusal — so a case reads as a value rather than as
+  "`:ok`, or the `:type` of the refusal — so a case is indistinguishable from a value rather than as
   the presence or absence of a throw."
   [kb sentence context]
   (try (v/assert kb sentence context) :ok
@@ -325,7 +325,7 @@
 (tu/deftest-kb a-disjoint-metatype-does-not-separate-genl-related-members
   ;; Two members of a disjoint metatype separate only when neither generalizes the
   ;; other: `(genl bb aa)` says every `bb` is an `aa`, so they overlap and cannot be
-  ;; disjoint — the same rule the explicit-`disjoint` door applies.  Without the guard a
+  ;; disjoint — the same rule the explicit-`disjoint` entry point applies.  Without the guard a
   ;; type came out disjoint from its own supertype, and from itself.
   (let [mkind (tu/tmp-pred)
         aa (tu/tmp-type) bb (tu/tmp-type) x (tu/tmp-ind)]

@@ -11,7 +11,7 @@
   half checks the page says all three out loud, offers the step the KB is actually up to,
   and links records rather than describing them.
 
-  The handle changing is the load-bearing assertion.  `exceptWhen` blocks rather than
+  The handle changing is the required assertion.  `exceptWhen` blocks rather than
   rebuts, so a blocked justification is invalid, groundability goes with it, and the
   dependency-directed sweep deletes the conclusion — revival is a re-derivation, not a
   flag being flipped.  A test that only checked belief flipping back would pass against

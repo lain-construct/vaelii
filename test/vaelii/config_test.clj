@@ -29,12 +29,14 @@
   "Every *property* `config/check!` reads, so a test can clear the lot and see the
   defaults — a run with nothing set must be indistinguishable from one with the
   properties absent.  The environment variables it also reads are not here: a JVM cannot
-  clear its own environment, and `prop-bool` is where they are covered."
-  ["vaelii.disk.auto-compact" "vaelii.disk.fsync" "vaelii.disk.compress"
-   "vaelii.disk.tokens" "vaelii.disk.cache" "vaelii.disk.sync-ms"
-   "vaelii.disk.compact-dead-ratio" "vaelii.disk.compact-min-interval-ms"
-   "vaelii.disk.lock" "vaelii.index.snapshot" "vaelii.belief.snapshot"
-   "vaelii.asp.solver"])
+  clear its own environment, and `prop-bool` is where they are covered.
+
+  **Read off `config/switch-names`, not written out.**  A hand-kept copy of a roster
+  drifts, and this one drifted: it stood one short of the build's, missing
+  `vaelii.index.snapshot-drift`, so `with-nothing-set` left that property set and the
+  defaults it claims to show were whatever the run carried.  That is `config/switches`'
+  own failure one layer out, and it takes the same fix."
+  (into [] (remove #(re-find #"^[A-Z]" %)) config/switch-names))
 
 (defn- with-properties*
   "Run `f` with each `[name value]` set (nil clears), restoring every one afterwards —
@@ -108,7 +110,7 @@
               "the message names both, since a log line is all an operator has"))))))
 
 (deftest a-switch-nothing-reads-fails-the-open
-  (testing "the refusal lands at open-kb — the earliest door, before a record moves"
+  (testing "the refusal lands at open-kb — the earliest entry point, before a record moves"
     (with-property "vaelii.disk.fsync" "always"
       (let [e (is (thrown? clojure.lang.ExceptionInfo
                            (v/open-kb {:space 88 :recover? false})))]
@@ -177,7 +179,7 @@
 
 (deftest nothing-set-is-the-documented-default
   (with-nothing-set
-    (is (nil? (config/check!)) "a run with no switch set passes the door")
+    (is (nil? (config/check!)) "a run with no switch set passes the entry point")
     (is (true?  (config/disk-auto-compact?)))
     (is (= :tick (config/disk-fsync-mode)))
     (is (nil?   (config/disk-compress)))

@@ -57,7 +57,7 @@
     (not (nm/context? sub))   (conj (str sub " is not a context (must start with Cx)"))
     (not (nm/context? super)) (conj (str super " is not a context (must start with Cx)"))
     ;; A **query context** spells like a context and is not one: it names a way of
-    ;; reading, is resolved at the read door and never reaches the engine
+    ;; reading, is resolved at the read entry point and never reaches the engine
     ;; (`nm/query-contexts`).  An edge naming one would be the only way to give it a
     ;; place in the lattice, which is exactly what must not exist — `CxNothing` sees
     ;; nothing *because* nothing wires it, and `CxEverything` / `CxInference` would
@@ -293,7 +293,7 @@
 
 (defn function-decl-problems
   "`reifiable_function` / `unreifiable_function` declare a NAT function's kind.  Their
-  one argument is a *function name* — a `FruitFn`-shaped constant, which reads as an
+  one argument is a *function name* — a `FruitFn`-shaped constant, which is indistinguishable from an
   individual by the naming invariants, so `prop-problems` (which refuses an
   individual) is the wrong check.  All that matters here is the arity and that the
   name is a symbol."

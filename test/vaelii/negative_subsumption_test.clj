@@ -49,7 +49,7 @@
         (is (nil? (res/match1 kb (list parentOf x y) (negate (list fatherOf A B)))))))))
 
 (tu/deftest-kb match1-subsumes-a-genl-under-a-negation-for-a-unary-type
-  ;; a negation is two elements long, so it has the shape the unary-type branch takes and
+  ;; a negation is two elements long, so it has the form the unary-type branch takes and
   ;; is told apart from one by the negation arm running first; the same claim at arity 1
   (tu/with-terms [dog_t animal_t Muffet]
     (v/assert kb (list 'genl dog_t animal_t) 'CxCore {:strength :monotonic})

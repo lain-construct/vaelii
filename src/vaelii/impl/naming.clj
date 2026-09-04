@@ -85,7 +85,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
 
   Cyc reifies `InferencePSC` / `EverythingPSC` as contexts you can assert into.
   Here scope is a property of the read (docs/from-cyc.md), so these are resolved at the
-  read door and **never reach the engine** — nothing is stored in one, no `genlCx` edge
+  read entry point and **never reach the engine** — nothing is stored in one, no `genlCx` edge
   names one, and `core/contexts` does not list them.  Each names one of the readings the
   engine already had and could not spell:
 
@@ -97,7 +97,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
 
   A **variable** context (`?ctx`, the default of every short arity) is the fourth spelling
   of the `CxInference` question.  It follows belief like the last two and reads **joint**
-  like `CxInference`: an answer holds only from some one reader's `genlCx` cone, so two
+  like `CxInference`: an answer holds only from some one reader's `genlCx` ancestor set, so two
   facts no single context sees are never joined — and that reader unifies into the
   variable, where `CxInference` hands it back as `?ctx` beside the bindings
   (docs/contexts.md).
@@ -150,7 +150,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
   because only it is what the reader dispatches on.
 
   What it may not do is **lead with a digit**, and the reason is the reader rather than
-  taste: `134a-gas` is read as a malformed *number*, not as a symbol, so a KB holding one
+  taste: `134a-gas` is are indistinguishable from a malformed *number*, not as a symbol, so a KB holding one
   could not be written to text and read back.  A leading `'`, `#` or `:` fails the same
   way.  A word that starts with a digit is escaped with an underscore when it is minted
   — `_134a-gas` — which reads, sorts beside its neighbours, and says it was escaped."
@@ -462,7 +462,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
          (sx/head-exists? form)  (applied-literals role (sx/head-exists-body form))
 
          ;; an aggregate wraps a query too: `(agg/count ?n ?v <body>)` says
-         ;; nothing itself, and its body is a goal rather than an argument — read as a
+         ;; nothing itself, and its body is a goal rather than an argument — are indistinguishable from a
          ;; literal it would be a three-place `agg/count` and the body inside it
          ;; would never be checked at all
          (sx/aggregate? form)    (applied-literals role (sx/aggregate-body form))
@@ -666,7 +666,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
   literal's atomic symbol arguments, then any `ist` context slot, then the dotted rest
   marker where it cannot appear.
 
-  **This is a check on the shape of a name, not on whether the name is worth having.**
+  **This is a check on the structure of a name, not on whether the name is worth having.**
   A *unary* snake_case functor is a well-formed type name, so
   `(implies (penguin ?x) (has_black_and_white_feathers ?x))` passes here, and so would
   `capable_of_swimming` or `thermoregulates_via_blubber_and_feathers` — each is exactly
@@ -682,7 +682,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
 ;;
 ;; The conventions above are what *this* KB reads a role off, and a KB holding a corpus
 ;; that spells its names differently is not thereby malformed — it is a KB whose front
-;; door is set to a different opinion.  So the policy is per-KB (`open-kb`'s `:naming`),
+;; entry point is set to a different opinion.  So the policy is per-KB (`open-kb`'s `:naming`),
 ;; not a property of the build: one process can hold a strict KB beside a corpus loaded
 ;; verbatim, and neither has to win.
 ;;
@@ -697,7 +697,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
   "What a KB does with a naming violation, and the one line each is for.
 
   A bulk path is not on this list because it does not consult it: a corpus import builds
-  records directly and never asks (`docs/naming.md`, \"The two doors\").  What it does
+  records directly and never asks (`docs/naming.md`, \"The two entry points\").  What it does
   instead is *report* — an operator learns the refused fraction at load time, from a
   count rather than from a failed experiment a year later."
   {:strict "refuse the assertion (the default: names stay legible)"
@@ -712,10 +712,10 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
   [policy sentence context]
   (when (= :strict policy) (seq (problems sentence context))))
 
-;; ---- the other door: count what it would have refused ---------------------
+;; ---- the other entry point: count what it would have refused ---------------------
 ;;
 ;; A bulk path stores what `assert` refuses, which is the point of having one — but a
-;; store whose contents the front door disagrees with is a fact about that store, and the
+;; store whose contents the public entry point disagrees with is a fact about that store, and the
 ;; only moment anybody is in a position to learn it cheaply is while the records are
 ;; going past.  So the bulk paths **count** what they do not check.  The tally is a
 ;; running map rather than a scan afterwards: a second pass over a corpus that needed a
@@ -745,7 +745,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
                            % (into #{} (map :class) ps)))))))
 
 (defn tally-line
-  "The one line a load prints about `t`, or nil when the front door agrees with the
+  "The one line a load prints about `t`, or nil when the public entry point agrees with the
   corpus — which is the common case and deserves no output at all."
   [t]
   (let [{:keys [checked refused by-class]} t]
@@ -809,7 +809,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
 
   Silent under `:naming :off`, which asks for names not to be policed at all.  Never a
   refusal at any policy: the sentence is well-formed, and refusing a legal shape on a
-  guess about intent would make the front door unpredictable."
+  guess about intent would make the public entry point unpredictable."
   [policy sentence context]
   (when (not= :off policy)
     (when-let [{:keys [id message]} (advice sentence)]
@@ -824,9 +824,9 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
   than `ex-info`.
 
   A refusal here is not a rare event, and that is by design.  The *checked* load — the
-  door a corpus takes when the point is to learn what this KB makes of it, rather than the
+  entry point a corpus takes when the point is to learn what this KB makes of it, rather than the
   bulk path `tally` above is for — asserts one sentence at a time and **counts** what the
-  front door refuses, because which of these checks an ontology trips is the most useful
+  public entry point refuses, because which of these checks an ontology trips is the most useful
   thing an import has to say about it.  So the throw is a reporting path taken a hundred
   thousand times in a load, and what it costs shows up as the load's own profile.
 

@@ -6,7 +6,7 @@
   and so has never priced a byte reaching a disk.
 
   `lein perf`'s checks are ratios over the in-RAM stores, and `assert_cost_test` opens on
-  `:backend :memory` deliberately, because the seams it counts live in `KvIndexStore`.
+  `:backend :memory` deliberately, because the calls it counts live in `KvIndexStore`.
   Between them the durable path is uncovered in both directions: a ratio cannot see a
   constant (that file's preamble says why), and neither gate runs a workload that touches
   `vaelii.impl.disk.files` at all.  A syscall per record is exactly a constant, and the
@@ -17,7 +17,7 @@
 
   ## What is counted, and why it is not a syscall
 
-  Nothing on this JVM counts syscalls without an agent, so the seams are the file
+  Nothing on this JVM counts syscalls without an agent, so the counted calls are the file
   operations themselves, each of which `files.clj` documents as a fixed number of them:
 
   | counted                      | what it is                        | syscalls |
@@ -35,7 +35,7 @@
   reading **low**, and a second length read to learn a payload the caller was already
   handed fails it by reading high.
 
-  `write-fully-at!` and `append-bytes!` are private, which is the right side of the seam
+  `write-fully-at!` and `append-bytes!` are private, which is the right side of the boundare
   to be on — they are the two functions whose whole content is the syscall — and
   `with-redefs` reaches a private var the same way `settle_region_cost_test` reaches
   `settle/body-nogoods`.  Both carry primitive argument or return hints, so each stand-in
@@ -66,7 +66,7 @@
   - **fsync.**  The durability daemon's tick is `f/force!` and is not on the assert path;
     what it costs is a function of the tick interval and belongs to a durability test.
   - **A store that is not the disk one.**  `sqlite` and the foreign backends write
-    through their own drivers and none of these seams."
+    through their own drivers and none of these calls."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.disk.durability :as dur]

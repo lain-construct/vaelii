@@ -309,7 +309,7 @@
     ;; layered on the six below exactly as an outside consumer would be (docs/koinii.md).
     ;; It is excluded here for the same reason it is excluded from the SPI and refusal
     ;; rosters — pinning it as a public promise would make koinii's own development churn
-    ;; the engine's contract. What holds it honest is the other direction:
+    ;; the engine's contract. The other direction is what keeps it honest:
     ;; `koinii-reaches-into-no-impl` below.
     (is (= #{"vaelii.core" "vaelii.client" "vaelii.starter"
              "vaelii.web" "vaelii.serve" "vaelii.cli"}
@@ -387,7 +387,7 @@
   ;; indistinguishable from a believed extent with nothing defeated in it.
   (tu/with-terms [flies Tweety CxExtent]
     (v/assert kb (list flies Tweety) CxExtent)
-    (testing "the missing-? typo is refused at all three doors, naming the roster"
+    (testing "the missing-? typo is refused at all three entry points, naming the roster"
       (doseq [call [#(v/sentexes-in-context kb CxExtent {:believed true})
                     #(v/sentexes-with-functor kb flies {:believed true})
                     #(v/sentexes-with-arg kb 1 Tweety {:believed true})]]
@@ -403,17 +403,17 @@
       (is (= 1 (count (v/sentexes-with-functor kb flies {:believed? true}))))
       (is (= 1 (count (v/sentexes-in-context kb CxExtent {:believed? true})))))))
 
-;; ---- a disjunctive goal is refused at every door that takes one --------
+;; ---- a disjunctive goal is refused at every entry point that takes one --------
 
-(tu/deftest-kb a-disjunctive-goal-is-refused-at-every-door-that-takes-one
-  ;; `or` is expanded at the write door and nowhere else: a rule antecedent stores one
+(tu/deftest-kb a-disjunctive-goal-is-refused-at-every-entry-point-that-takes-one
+  ;; `or` is expanded at the write entry point and nowhere else: a rule antecedent stores one
   ;; rule per alternative, and a goal would have to be a union of queries rather than a
-  ;; query.  The read doors say so by shape.  `watch` takes a goal too, and a stored
+  ;; query.  The read entry points say so by shape.  `watch` takes a goal too, and a stored
   ;; sentence never unifies with a disjunction — so a watch that registered one would
   ;; fire never, which is the silent-nothing every other watch refusal exists to prevent.
   (tu/with-terms [dog cat]
     (let [goal (list 'or (list dog '?x) (list cat '?x))]
-      (testing "the read doors refuse it by shape"
+      (testing "the read entry points refuse it by shape"
         (doseq [call [#(v/sentexes-matching kb goal 'CxUniverse)
                       #(v/ask kb goal 'CxUniverse)
                       #(v/prove kb goal 'CxUniverse)

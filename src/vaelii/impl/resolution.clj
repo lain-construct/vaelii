@@ -473,7 +473,7 @@
   "May a rule stored in `rule-ctx` answer a goal asked from `context`?
 
   A rule is a sentex, so it is inherited like any other: a context reasons with the
-  rules its `genlCx` up-cone holds and no others.  This is the backward dual of
+  rules its `genlCx` ancestor set holds and no others.  This is the backward dual of
   forward chaining refusing to place a conclusion in a context that cannot see the
   rule — without it a context proves `(ancestorOf Tom Bob)` from a rule some
   sibling theory wrote, while the *forward* firing of that same rule correctly
@@ -490,8 +490,8 @@
   else.
 
   This is a named opt-out of the fourth invariant (\"a stored sentex is not a believed
-  one\", README.md), which is why it is a dynamic var scoped to one read by the door that
-  resolves the symbol, and not an option any caller can set.  What it buys is a
+  one\", README.md), which is why it is a dynamic var scoped to one read by the entry point that
+  resolves the symbol, and not an option any caller can set.  It gives a
   *syntactic* query: unification against the store with no JTMS read at all, which is both
   the cheapest question the engine can be asked and the only one that can see a defeated
   default.
@@ -511,7 +511,7 @@
   cost is an `or` against a boolean that short-circuits; read at the filter and it is a
   var deref per handle, which `negation-arbitration` is close enough to its bound to see.
 
-  Correct to hoist because the value cannot change under a path: the door binds it around
+  Correct to hoist because the value cannot change under a path: the entry point binds it around
   the whole read and `blind-seq` re-establishes it per realization step, so whichever of
   those constructed this seq had it bound already."
   []
@@ -522,8 +522,8 @@
   re-established for each.
 
   A plain `(binding [*belief-blind* true] (read …))` is **wrong here and silently so**,
-  which is the whole reason this exists.  Every read door answers with a lazy seq, so the
-  binding frame is popped the moment the door returns and long before the first element is
+  which is the whole reason this exists.  Every read entry point answers with a lazy seq, so the
+  binding frame is popped the moment the entry point returns and long before the first element is
   computed: the belief filter then runs unbound, the read answers exactly what an ordinary
   belief-following one would, and nothing anywhere reports that the flag did not take.
   Wrapping the seq puts the binding back on the stack for each realization step — the
@@ -550,7 +550,7 @@
   believed\" of an absence would be reading it as a verdict, where what it says is that
   the network was never asked.  For a **rule** that arm is defence rather than a live
   case — `core/assert-inert` refuses a rule (`:not-indexable`), so a stored rule has
-  been through a door that premised it — and it is worth keeping only because a wrong
+  been through an entry point that premised it — and it is worth keeping only because a wrong
   answer here is a rule that silently stops firing.
 
   An **inert rule** is a different thing and is *not* what this arm is about: it is
@@ -592,7 +592,7 @@
   or a `?var` — the unscoped path, which every caller reads as *no filter* rather than
   as *nothing visible*.
 
-  The seam a **context-scoped equality** read hangs on: the equality partition records
+  The dynamic var a **context-scoped equality** read hangs on: the equality partition records
   its supporters as handles, and only the record store knows where each was asserted."
   [kb context]
   (when (and (symbol? context) (not (sx/variable? context)))
@@ -614,7 +614,7 @@
 (defn same-class-in?
   "Do `a` and `b` denote one thing as `context` sees the merges?  The context-scoped
   twin of `tax/same-class?`: two terms are one class here only when the edges that merged
-  them are visible up `context`'s `genlCx` cone, so a merge behind a supporter the reader
+  them are visible up `context`'s `genlCx` ancestor set, so a merge behind a supporter the reader
   cannot see does not put them in one class for it.  A nil or `?var` context is unscoped
   and gives the global answer `tax/same-class?` gives — the reads share `representative-in`,
   which is one map lookup until an *invisible* edge actually splits the class."
@@ -860,7 +860,7 @@
   prover normalizes its own arguments instead.
 
   A question asked from a context is a question about what that context holds, so a merge
-  it does not inherit must not rename what it asked.  `kb/rewrite-goal` is the read doors'
+  it does not inherit must not rename what it asked.  `kb/rewrite-goal` is the read entry points'
   spelling; `BeliefProjectionProver` calls this one directly, to put a proposition held
   opaque to the asker into the normal form of the **agent** whose belief it is."
   [kb goal context]
@@ -930,7 +930,7 @@
                        ;; value it does not read, and a caller discriminating on the one
                        ;; vocabulary should not have to know it came from a var rather
                        ;; than from the environment.
-                       {:type     :unknown-option
+                       {:type     :unknown-option :mismatch :bad-value
                         :setting  'vaelii.impl.resolution/*prefetch-candidates*
                         :value    v
                         :expected "false, or a positive integer (256 is the measured plateau)"})))))
@@ -1115,7 +1115,7 @@
   exists for `matches-visible*`, which matches at each ancestor context in turn but
   stands at the *view* context throughout: scoping the fan by the ancestor would
   shrink the vantage as the walk ascends, and the set-algebra twin (which filters by
-  the view's cone once) would disagree."
+  the view's ancestor set once) would disagree."
   ([kb sentence] (match-pattern kb sentence '?ctx))
   ([kb sentence context] (match-pattern kb sentence context context))
   ([kb sentence context vantage]
@@ -1169,7 +1169,7 @@
   or a **variable functor with something indexable to lead with** (`(?type Muffet)`).
   The two differ only in which dimensions are pinned — a variable functor names no
   predicate, so there is no predicate hierarchy to filter by and every candidate's
-  functor is admissible, while the argument root and the context cone still narrow
+  functor is admissible, while the argument root and the context ancestor set still narrow
   exactly as they do for a concrete one.
 
   A negation keys under `not`/its positive body, a dotted pattern is not a stored-fact
@@ -1699,24 +1699,24 @@
   answer false.  Every caller is on a hot path and almost every KB hides nothing at all,
   so that distinction is the common case rather than an edge of it.
 
-  The gate is **storage**, not belief: a cone holding excepts that are all currently
+  The gate is **storage**, not belief: an ancestor set holding excepts that are all currently
   defeated still gets a predicate, which then answers false for everything.  Deciding
-  otherwise would mean asking `jtms/in?` of every except in the cone to find out whether
+  otherwise would mean asking `jtms/in?` of every except in the ancestor set to find out whether
   to build a predicate that asks `jtms/in?` of two of them.
 
   The roster and the `context-up` closure are read **once**, here, and the returned
   predicate does a map lookup per context that states an except plus a `jtms/in?` per
   except naming the handle asked about — usually none.  That is the trade against
   materializing the hidden set: building the set is one pass over every except in the
-  reader's cone regardless of how many handles will be asked about, and the callers ask
+  reader's ancestor set regardless of how many handles will be asked about, and the callers ask
   about a rule's two or three antecedents, or about matches one at a time.  Since a set
   is only cheaper once the questions outnumber the excepts, and the questions are bounded
   by the answer set while the excepts are not, the predicate is the right default and the
   set is kept for the caller that genuinely wants every hidden handle.
 
-  A cone that stores a **meta-exception** is the one exception: the cascade resolves an
-  except to its own targets anywhere in the cone, so there the predicate flattens the
-  visible roster once (`target->ehs`, one pass over every except in the cone).  Gated on
+  An ancestor set that stores a **meta-exception** is the one exception: the cascade resolves an
+  except to its own targets anywhere in the ancestor set, so there the predicate flattens the
+  visible roster once (`target->ehs`, one pass over every except in the ancestor set).  Gated on
   `:meta-except-count`, so the common no-meta read never builds it and stays O(what it
   returns)."
   [kb view-context]
@@ -1730,8 +1730,8 @@
         (when (seq live)
           (if (pos? @(:meta-except-count kb))
             ;; Meta-exceptions present: the cascade (`except-in-force?`) resolves an
-            ;; except-handle to *its own* targets anywhere in the cone, so it needs the
-            ;; whole roster in one map.  Flatten it once, here — O(excepts in the cone) —
+            ;; except-handle to *its own* targets anywhere in the ancestor set, so it needs the
+            ;; whole roster in one map.  Flatten it once, here — O(excepts in the ancestor set) —
             ;; and pay it only on the KB that actually stores a meta-except, which is
             ;; almost none.
             (let [target->ehs (reduce (fn [m entries]
@@ -1746,7 +1746,7 @@
             ;; The common case — no meta-exception, so a believed except is in force.
             ;; Ask the handle of each live context's own map directly, without flattening:
             ;; the work is one lookup per context that states an except, bounded by the
-            ;; question, not by how many handles the cone hides.  This is what keeps a
+            ;; question, not by how many handles the ancestor set hides.  This is what keeps a
             ;; scoped read O(what it returns) rather than O(what the KB hides).
             (fn [handle]
               (boolean
@@ -1775,7 +1775,7 @@
 (defn without-excepted
   "Drop the `[handle …]` matches whose handle is hidden from `view-context` by a
   believed `except` — the visibility-removal filter, and the **identical seq** when the
-  reader's cone stores no except at all, which is almost every read of almost every KB."
+  reader's ancestor set stores no except at all, which is almost every read of almost every KB."
   [kb view-context matches]
   (if-let [hidden? (hidden-fn kb view-context)]
     (remove #(hidden? (first %)) matches)
@@ -1912,7 +1912,7 @@
   `(genl fatherOf parentOf)` says every `fatherOf` tuple **is** a `parentOf` tuple, and
   a tuple set only narrows going down, so `(arg parentOf 1 person)` constrains every
   `fatherOf` tuple exactly as it constrains every `parentOf` one.  Reading the
-  declarations off the exact functor makes the refusal *door-dependent*: the same
+  declarations off the exact functor makes the refusal *entry-point-dependent*: the same
   ill-typed claim is refused under the general spelling, admitted under the specialized
   one, and then answers every general-spelling query through the matcher's own fan —
   which is the one job the constraint exists for.  Both readers of a declaration come
@@ -2296,7 +2296,7 @@
   nil `leaf-solver` reads the stored facts (`matches-visible`), which is what `prove`
   means by a leaf and the only thing it has ever meant.
 
-  The seam exists because a rule's antecedent is not always a fact question.  A caller
+  The separate call exists because a rule's antecedent is not always a fact question.  A caller
   that wants an antecedent answerable by *any* prover — transitivity, an evaluable, an
   inferred argument type — passes the registry here, and gets one chainer doing the rule
   expansion over whatever leaf semantics it was handed.  The alternative is a second
@@ -2326,7 +2326,7 @@
   `resume`.
 
   `est-override` costs the top conjunction by something other than the index — the same
-  seam, and for the same reason, as `planned-antecedents` takes for a rule's antecedents.
+  shape, and for the same reason, as `planned-antecedents` takes for a rule's antecedents.
   An executor whose leaf is the prover registry passes it, because a `genl` conjunct that
   a cached closure answers costs the closure's size and not the handful of stored edges
   the trie can count."

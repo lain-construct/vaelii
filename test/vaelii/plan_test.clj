@@ -268,7 +268,7 @@
 (tu/deftest-kb the-counts-span-every-context-and-a-read-is-scoped-to-one
   ;; The trie key ends with the context, so `count-at` under a prefix sums the sentence
   ;; over *every* context it is stored in, while the read the plan is for sees one context
-  ;; and the `genlCx` cone above it.  Nothing scopes the counts and nothing can
+  ;; and the `genlCx` ancestor set above it.  Nothing scopes the counts and nothing can
   ;; cheaply: a per-context count is a second index (docs/inference.md).  Two consequences,
   ;; and they land on the two estimators differently, which is why both are checked here.
   (tu/with-terms [parentOf Tom Bob Cid CxTop CxSub]
@@ -280,7 +280,7 @@
     (let [goal (list parentOf Tom '?y)
           seen (fn [c] (count (v/sentexes-matching kb goal c)))]
       (testing "the bound stays sound, which is the property everything rests on"
-        ;; a context cone is a subset of what is stored, so a count over all of them can
+        ;; a context ancestor set is a subset of what is stored, so a count over all of them can
         ;; only ever be too large — the direction `est-matches` is allowed to be wrong in,
         ;; and the reason a reading of 1 is still a proof
         (is (<= (seen CxTop) (plan/est-matches kb goal #{} {:context CxTop})))
@@ -518,7 +518,7 @@
   "A 1:1 chain `link1 ?a ?b`, `link2 ?b ?c`, `link3 ?c ?d` of `n` facts each, plus a
   `loose` relation of `few` facts sharing no variable with them.
 
-  This is the shape a per-literal cost model gets wrong.  `loose` is the smallest
+  This is the form a per-literal cost model gets wrong.  `loose` is the smallest
   extent in the KB and constrains nothing, so taking the cheapest literal available
   puts it *first*, where it multiplies every row count after it; the chain literals
   look dearer alone and each collapses to one row once its join variable is bound."
@@ -562,7 +562,7 @@
         (let [rows (plan/explain kb written CxPlan)]
           (is (= [lo] (map :goal (filter :isolated? rows))))
           ;; the trap the flag exists for: it is the cheapest literal in the
-          ;; conjunction and sits last, which without a reason reads as a mistake
+          ;; conjunction and sits last, which without a reason is indistinguishable from a mistake
           (is (:isolated? (last rows)))
           (is (< (:est-matches (last rows)) (:est-matches (first rows)))))))))
 
@@ -774,7 +774,7 @@
           (is (= 0 (:est-rows (first steps)))))))))
 
 (tu/deftest-kb an-est-override-replaces-the-index-model-and-counts-no-columns
-  ;; The seam a caller whose executor's leaf is the prover registry opts into: a `genl`
+  ;; The extension point a caller whose executor's leaf is the prover registry opts into: a `genl`
   ;; conjunct is answered from the cached closure, so what it costs is the closure's
   ;; size and not the handful of stored edges the trie can count.  An override reports
   ;; a row count and nothing at all about columns, so every join with it defers to
@@ -868,7 +868,7 @@
           c2 (list linkTwo '?b '?c)
           lo4 (list four '?u '?v)
           lo5 (list five '?u '?v)]
-      (testing "four rows is cheap enough to lead the chain; five is not"
+      (testing "four rows is inexpensive enough to lead the chain; five is not"
         (is (= [lo4 c1 c2] (plan/order kb [c1 c2 lo4] CxPlan)))
         (is (= [c1 c2 lo5] (plan/order kb [c1 c2 lo5] CxPlan))))
       (testing "and each is the cheapest permutation, by the rows the engine runs"
@@ -1247,7 +1247,7 @@
       (testing "the hierarchy is deep enough that the fan is the branch under test"
         (is (< 100 types))
         (is (< (est (list (typ (dec types)) '?x) #{}) (est (list (typ 0) '?x) #{}))))
-      (testing "an open atom argument — the shape the direct read answers"
+      (testing "an open atom argument — the form the direct read answers"
         (doseq [i [0 1 (quot types 2) (dec types)]]
           (let [goal (list (typ i) '?x)]
             (is (= (walked goal #{}) (est goal #{})) (str "at " (typ i))))))

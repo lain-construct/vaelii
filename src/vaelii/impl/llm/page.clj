@@ -179,7 +179,7 @@
   "How many of the term's stored lines the prompt is showing — `40`, `40 of 137`, or
   `40 of more than 137`.
 
-  A bare count of what is on screen reads as the whole of what is stored, and the model
+  A bare count of what is on screen is indistinguishable from the whole of what is stored, and the model
   is asked in the same breath not to repeat anything already there.  Where the cut or
   `stored-lines`' scan bound bit, saying so is what keeps that instruction honest: a
   model shown a sample and told it is one writes about the gaps rather than assuming it

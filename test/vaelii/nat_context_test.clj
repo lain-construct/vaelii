@@ -18,7 +18,7 @@
   - the naming check refuses a context slot that is not a context name (`:naming`), so a
     reified constant cannot name where a sentex is stored either.
 
-  The refusal is a front-door **policy**, not a store limit: with `:naming :off` the
+  The refusal is an entry-point **policy**, not a store limit: with `:naming :off` the
   store will hold a sentex keyed by a `nat/` symbol — but genlCx still refuses to wire
   it, so it is an island that sees nothing and no context sees, never a member of
   `(contexts kb)`.  A reified NAT as a working context is therefore unreachable under
@@ -103,7 +103,7 @@
 
 (tu/deftest-kb naming-off-stores-into-a-nat-symbol-but-it-is-an-island
   ;; The store itself has no objection to a `nat/` symbol in the context slot — the
-  ;; objection is the naming door's.  Turn the door off and the sentex stores and reads
+  ;; objection is the naming check's.  Turn the entry point off and the sentex stores and reads
   ;; back from that symbol; but genlCx still refuses to wire it (gate 1 is wff, not
   ;; naming), so the symbol sees nothing and no context sees it.  It is a bucket, never
   ;; a member of the hierarchy — which is why a reified NAT is unreachable as a *working*

@@ -6,7 +6,7 @@
   the value is outside it**.
 
   This is `kb/check-opts!`'s invariant one layer out: *an option that is not read is not
-  an option*.  A switch read as a membership test or an equality against one spelling has
+  an option*.  A switch are indistinguishable from a membership test or an equality against one spelling has
   no wrong value — every misspelling falls to the other branch — so under that reading
   `vaelii.disk.auto-compact=disabled` is compaction **on** and `vaelii.disk.fsync=always`
   is the three-second tick, which is the durability level the operator is trying to
@@ -24,26 +24,26 @@
 
   ## Where a refusal lands
 
-  Each switch is read **once at a door**, never on a worker:
+  `check!` reads every switch at `kb/open-kb`, so a wrong value fails the open — before a
+  record is written and while what the operator typed is still legible.  It reads the
+  whole set rather than the ones this KB's backend uses, because gating the check on the
+  configuration is how a wrong value in the configuration escapes it.
 
-  - `check!` reads every switch here at `kb/open-kb`, so a wrong value fails the open —
-    before a record is written and while what the operator typed is still legible.  It
-    checks the whole set rather than the ones this KB's backend reads, because gating
-    the check on the configuration is how a wrong value in the configuration escapes it.
-  - `durability/compact-dead-ratio` and `compact-min-interval-ms` are read **per fsync
-    tick**, inside `fsync-all`'s `catch Throwable`, which logs an exception's class name
-    and nothing else.  A throw there is an unattributable log line repeating every three
-    seconds with auto-compaction silently dead, which is why the eager `check!` exists
-    rather than trusting the reader at its call site.
-  - `arbitrate-constraints?` and `web-dev?` are read at **namespace load**, because each
-    is the root value of a var and a var root cannot be deferred.  They refuse there,
-    naming themselves, for `guard/max-body-bytes`' reason: a silent fallback leaves an
-    operator believing a setting they never made, and a raw parse failure out of a `def`
-    reports as a namespace that would not load rather than as the typo it is.
-  - `log-level` is read at namespace load too (`vaelii.impl.logging`), for a different
-    reason: it is the one switch whose effect is an *install*, and the door it belongs
-    at is the moment the engine is loaded rather than the moment a KB is opened.  A
-    process asks for a level once and gets it before the first line it wanted.
+  Where each switch is read **besides** that is the `:read-at` column of `switches`, and
+  `read-at-kinds` says what the three values mean.  It is a column rather than a list of
+  names here for the reason `check!` is a walk rather than a list of calls: a roster
+  spelled twice is one that can disagree with itself, and this one had.
+
+  The two that make the eager read worth its cost are visible there as `:worker` and
+  `:load`.  A `:worker` row is read inside `fsync-all`'s `catch Throwable`, which logs an
+  exception's class name and nothing else — an unattributable line repeating every three
+  seconds with auto-compaction silently dead.  A `:load` row is the root value of a var
+  and cannot be deferred at all; it refuses at that namespace's load, naming itself, for
+  `guard/max-body-bytes`' reason: a silent fallback leaves an operator believing a setting
+  they never made, and a raw parse failure out of a `def` reports as a namespace that
+  would not load rather than as the typo it is.  `log-level` is `:load` for a different
+  reason — it is the one switch whose effect is an *install*, and the entry point it belongs at
+  is the moment the engine is loaded rather than the moment a KB is opened.
 
   ## What is not checkable here
 
@@ -88,7 +88,7 @@
   carries the domain in whatever shape the domain has."
   [nm value want data]
   (throw (ex-info (str nm "=" value " is not a value " nm " reads — want " want)
-                  (merge {:type :unknown-option :property nm :value value} data))))
+                  (merge {:type :unknown-option :mismatch :bad-value :property nm :value value} data))))
 
 (defn- boolean-vocabulary [] (vec (concat (sort truthy) (sort falsy))))
 
@@ -239,7 +239,7 @@
   on the KB to tell them apart, which is the failure this namespace's `check!` exists to
   close.
 
-  Refused rather than read as a default, on the argument `kb/reserved-backend-names`
+  Refused rather than are indistinguishable from a default, on the argument `kb/reserved-backend-names`
   makes for `:disk`: a switch that silently does nothing is discovered by the operator
   running out of the resource they thought they had bought.
 
@@ -255,7 +255,7 @@
                          " — the mapped index image is an index representation, selected"
                          " as {:backend :disk-snapshot}, so the KB's own opts record that"
                          " it was asked for.  Unset the property and name the backend.")
-                    {:type :unknown-option :property "vaelii.index.snapshot" :value v
+                    {:type :unknown-option :mismatch :unknown-key :property "vaelii.index.snapshot" :value v
                      :remedy {:backend :disk-snapshot}})))
   nil)
 
@@ -324,7 +324,7 @@
 (defn asp-solver
   "Which ASP backend solves (`vaelii.asp.solver`, else `VAELII_ASP_SOLVER`), or **nil**
   for auto.  The property is read first, and both spellings refuse a name outside the
-  roster: read as a bare `(keyword …)` a misspelt backend became a keyword nothing
+  roster: are indistinguishable from a bare `(keyword …)` a misspelt backend became a keyword nothing
   matches and the selector's fallback arm ran **auto**, so a run pinned to clasp could
   silently use clingo and report a clean pass for a backend nothing exercised."
   []
@@ -341,7 +341,7 @@
   "The seconds **one ASP solve** may run before the backend is interrupted
   (`VAELII_ASP_TIME_LIMIT`, default 60; 0 lifts the limit).  Both backends honour it —
   clasp through `--time-limit`, in-process clingo by cancelling the solve handle — and
-  an interrupted solve reports `:interrupted`, which no consumer reads as an answer
+  an interrupted solve reports `:interrupted`, which no consumer is indistinguishable from an answer
   (`asp.edge`): the edge solver decides nothing and an imperative refuses.
 
   A solve runs on the single writer, so an unbounded one holds every write behind it —
@@ -392,36 +392,183 @@
   []
   (prop-long "VAELII_MAX_QUERY_DEPTH" 256 0 nil))
 
+;; ---- the roster ---------------------------------------------------------
+
+(def read-at-kinds
+  "Where a switch's value is read **besides** `check!` — closed, because an open set of
+  keywords would be a roster again, with the same drift and none of the checking.
+
+  - `:open`   an entry point a caller is standing at: a store or log open, the daemon's start, a
+              request.  A wrong value already stops that call and names itself, so
+              `check!` moves an existing refusal earlier rather than inventing one.
+  - `:load`   the root value of a var in another namespace, read at *that* namespace's
+              load.  `check!` is not its first reader and cannot be — a var root cannot be
+              deferred — so the refusal lands at load, naming the switch.
+  - `:worker` read again after the open: on the fsync tick, per write, per solve.  A throw
+              there is swallowed by a `catch Throwable` that logs a class name, or repeats
+              every three seconds with the feature silently dead.  **These are the rows
+              `check!` exists for.**"
+  #{:open :load :worker})
+
+(def switches
+  "Every switch this namespace reads, one row per reader: `:names` — the spellings it
+  reads, in the order it reads them — `:reader`, and `:read-at` from `read-at-kinds`.
+
+  **One roster, not two.**  An accessor per switch and a hand-written call per switch in
+  `check!` are the same set spelled twice, and nothing notices a reader that reaches one
+  spelling and not the other.  What that leaves is this namespace's own failure — a
+  process that reports itself configured and is not — on the properties that decide
+  whether a crash loses data.  So `check!` walks this table, and `check-switches!` refuses
+  a reader without a row at load.
+
+  `:read-at` carries as a column what the ns docstring's *Where a refusal lands* section
+  says about each row.  Prose naming switches by hand is a roster too, and one nothing can
+  check."
+  [{:names ["vaelii.disk.auto-compact"]             :reader #'disk-auto-compact?           :read-at :worker}
+   {:names ["vaelii.disk.fsync"]                    :reader #'disk-fsync-mode              :read-at :open}
+   {:names ["vaelii.disk.compress"]                 :reader #'disk-compress                :read-at :worker}
+   {:names ["vaelii.disk.tokens"]                   :reader #'disk-tokens?                 :read-at :open}
+   {:names ["vaelii.disk.cache"]                    :reader #'disk-cache-capacity          :read-at :open}
+   {:names ["vaelii.disk.sync-ms"]                  :reader #'disk-sync-ms                 :read-at :open}
+   {:names ["vaelii.disk.compact-dead-ratio"]       :reader #'disk-compact-dead-ratio      :read-at :worker}
+   {:names ["vaelii.disk.compact-min-interval-ms"]  :reader #'disk-compact-min-interval-ms :read-at :worker}
+   {:names ["vaelii.disk.lock"]                     :reader #'disk-lock?                   :read-at :open}
+   {:names ["vaelii.index.snapshot"]                :reader #'index-snapshot?              :read-at :open}
+   {:names ["vaelii.index.snapshot-drift"]          :reader #'index-snapshot-drift         :read-at :worker}
+   {:names ["vaelii.belief.snapshot"]               :reader #'belief-snapshot?             :read-at :open}
+   {:names ["VAELII_ARBITRATE_CONSTRAINTS"]         :reader #'arbitrate-constraints?       :read-at :load}
+   {:names ["VAELII_ASSERTIVE_ARG_TYPES"]           :reader #'assertive-arg-types?         :read-at :load}
+   {:names ["VAELII_DEV"]                           :reader #'web-dev?                     :read-at :load}
+   {:names ["VAELII_PROFILER"]                      :reader #'profiler?                    :read-at :open}
+   {:names ["VAELII_PROFILER_PORT"]                 :reader #'profiler-port                :read-at :open}
+   {:names ["VAELII_LOG_LEVEL"]                     :reader #'log-level                    :read-at :load}
+   ;; the property is read first and the environment variable second, which is the order
+   ;; `asp-solver` reads them in and the order the refusal has to name them in
+   {:names ["vaelii.asp.solver" "VAELII_ASP_SOLVER"] :reader #'asp-solver                  :read-at :worker}
+   {:names ["VAELII_CLINGO_MAX_BYTES"]              :reader #'clingo-max-program-bytes     :read-at :worker}
+   {:names ["VAELII_ASP_TIME_LIMIT"]                :reader #'asp-time-limit               :read-at :worker}
+   {:names ["VAELII_MAX_QUERY_MS"]                  :reader #'max-query-ms                 :read-at :open}
+   {:names ["VAELII_MAX_QUERY_DEPTH"]               :reader #'max-query-depth              :read-at :open}])
+
+(def switch-names
+  "Every spelling on the roster, sorted.  `opts/check!`'s promise at the process entry point: a
+  caller who can ask whether a name is one the build reads does not have to find out from
+  a run that ignored it.  `config_surface_test` holds it to the names the sources
+  actually name, so a row cannot claim a switch nothing reads."
+  (into (sorted-set) (mapcat :names) switches))
+
 (defn check!
   "Read every switch once, refusing the first whose value is outside its domain.
-  `kb/open-kb` calls it, which is the earliest door that exists for the properties the
+  `kb/open-kb` calls it, which is the earliest entry point that exists for the properties the
   durability daemon would otherwise read on a tick.
 
   Every switch and not this KB's: a `:memory` KB with `vaelii.disk.fsync=always` set is
   a process one directory away from a durability guarantee it does not have, and the
-  next open is not a better place to hear about it."
+  next open is not a better place to hear about it.
+
+  A walk of `switches` rather than a list of calls, so the set it reads is the set the
+  roster declares and cannot be a subset of it."
   []
-  (disk-auto-compact?)
-  (disk-fsync-mode)
-  (disk-compress)
-  (disk-tokens?)
-  (disk-cache-capacity)
-  (disk-sync-ms)
-  (disk-compact-dead-ratio)
-  (disk-compact-min-interval-ms)
-  (disk-lock?)
-  (index-snapshot?)
-  (index-snapshot-drift)
-  (belief-snapshot?)
-  (arbitrate-constraints?)
-  (assertive-arg-types?)
-  (web-dev?)
-  (profiler?)
-  (profiler-port)
-  (log-level)
-  (asp-solver)
-  (clingo-max-program-bytes)
-  (asp-time-limit)
-  (max-query-ms)
-  (max-query-depth)
+  (doseq [{:keys [reader]} switches] (reader))
   nil)
+
+(def ^:private not-a-switch-reader
+  "Public vars here that read no switch of their own, each with why.  A recorded
+  exception rather than a suppression — `check-switches!` refuses one that has stopped
+  being true, so an entry cannot outlive its reason, and refuses a blank one, since an
+  exception with no reason is a suppression spelled longer.
+
+  **Every** public var and not only the zero-arity functions.  The domain-carrying
+  readers are all `defn`s today, but a switch read at the *root* of a `def` is a switch
+  `check!` never calls and a scan keyed on `:arglists` cannot see — the one shape of the
+  defect this table exists to refuse that the old scan admitted.  So the price of the
+  wider net is these rows: the helpers, which read a switch their **caller** names, and
+  the vocabularies and the roster itself, which read none."
+  {'check!              "the walk over the roster, not a row in it"
+   'prop-bool           "a helper: the switch it reads is the one its caller names"
+   'prop-double         "a helper, as `prop-bool`"
+   'prop-enum           "a helper, as `prop-bool`"
+   'prop-long           "a helper, as `prop-bool`"
+   'truthy              "the vocabulary every boolean switch is read against, not a read"
+   'falsy               "the same, for off"
+   'log-level-spellings "the vocabulary `log-level` is read against"
+   'asp-solver-spellings "the vocabulary `asp-solver` is read against"
+   'read-at-kinds       "the vocabulary a row's `:read-at` column is held to"
+   'switches            "the roster itself"
+   'switch-names        "the roster's spellings, derived from it"})
+
+(defn- check-switches!
+  "Refuse at load a reader with no row, an exemption that has gone stale or lost its
+  reason, a name claimed by two rows, or a `:read-at` outside `read-at-kinds`.
+
+  The first is the one that matters: a reader whose row nobody writes is a switch `check!`
+  does not call, first read wherever it is used — which for a `:worker` row is a `catch
+  Throwable` logging a class name on a three-second timer.  Every public var here is a
+  switch reader unless `not-a-switch-reader` says otherwise, so a new one has to be given
+  a row or named as the exception, and either is a decision somebody made rather than a
+  line nobody wrote.
+
+  **Takes its three tables**, rather than reading the vars beside it, so the refusals can
+  be driven over a broken roster by a test.  A validator whose only caller is its own
+  namespace's load has run every branch it will ever run against one table that passes:
+  nothing then says it would refuse, and a `remove` written the wrong way round reads
+  exactly like a table with nothing wrong.  `publics` is the symbol set the load hands it
+  — this namespace's, since the call is the last form in the file.
+
+  Refuses under `:bad-table-entry`, discriminated by `:mismatch`, as
+  `predicates/check-families` does and for its reason: whichever way the table is bad, the
+  caller catching it is the namespace load, and there is nothing a keyword of its own
+  would let that caller do."
+  [switches not-a-switch-reader publics]
+  (let [rostered   (into #{} (map (comp :name meta :reader)) switches)
+        exempt     (set (keys not-a-switch-reader))]
+    (doseq [sym (sort (remove (into rostered exempt) publics))]
+      (throw (ex-info (str "vaelii.impl.config/" sym " has no row on `switches`, so"
+                           " `check!` does not call it and its value is first read at the"
+                           " call site — for a worker read, inside a `catch Throwable`"
+                           " that logs a class name.  Give it a row, or name it in"
+                           " `not-a-switch-reader` with why it reads no switch.")
+                      {:type :bad-table-entry :mismatch :unrostered-reader :reader sym})))
+    (doseq [sym (sort (remove publics exempt))]
+      (throw (ex-info (str "`not-a-switch-reader` names " sym ", which is not a public"
+                           " var here — the exemption has outlived what it"
+                           " excused.  Drop the entry.")
+                      {:type :bad-table-entry :mismatch :stale-exemption :reader sym})))
+    (doseq [sym (sort (filter rostered exempt))]
+      (throw (ex-info (str sym " is both on `switches` and in `not-a-switch-reader` — one"
+                           " of the two is wrong about whether it reads a switch.")
+                      {:type :bad-table-entry :mismatch :exempt-and-rostered :reader sym})))
+    (doseq [[sym why] (sort-by key not-a-switch-reader)
+            :when     (not (and (string? why) (seq why)))]
+      (throw (ex-info (str "`not-a-switch-reader` excuses " sym " and gives no reason — an"
+                           " exception with no reason is a suppression, and the next reader"
+                           " cannot tell an argument from an omission.")
+                      {:type :bad-table-entry :mismatch :blank-exemption :reader sym}))))
+  (doseq [{:keys [names reader read-at]} switches]
+    (when-not (seq names)
+      (throw (ex-info (str "switch row for " (:name (meta reader)) " names no switch —"
+                           " `check!` would call it and `switch-names` would not list it,"
+                           " so the surface would be short by one.")
+                      {:type :bad-table-entry :mismatch :no-names
+                       :reader (:name (meta reader))})))
+    (when-not (read-at-kinds read-at)
+      (throw (ex-info (str "switch row for " (:name (meta reader)) " reads at "
+                           (pr-str read-at) ", which is not one of "
+                           (pr-str (vec (sort read-at-kinds))) " — an entry point outside the"
+                           " vocabulary is an entry point nothing can be said about.")
+                      {:type :bad-table-entry :mismatch :read-at
+                       :reader (:name (meta reader)) :read-at read-at}))))
+  (doseq [[nm rows] (group-by identity (mapcat :names switches))
+          :when     (< 1 (count rows))]
+    (throw (ex-info (str nm " is claimed by " (count rows) " rows — two readers with two"
+                         " domains for one name is one of them wrong, and which one wins"
+                         " is the order `check!` happens to walk in.")
+                    {:type :bad-table-entry :mismatch :duplicate-name :property nm})))
+  switches)
+
+;; At load, as `predicates/check-families` runs at its own: a reader added without a row
+;; is a build failure rather than a switch discovered to be unchecked by the crash it was
+;; set to prevent.  The last form in the file, because `ns-publics` answers what has been
+;; defined so far and a reader defined below this line would not be in it.
+(check-switches! switches not-a-switch-reader
+                 (set (keys (ns-publics 'vaelii.impl.config))))

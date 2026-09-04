@@ -4,7 +4,7 @@
   "`CxInference` — which readers can answer a goal, and the two ways of working that out.
 
   A **variable** context reads \"in some context\", and it reads it **joint**, exactly as
-  `CxInference` does: an answer survives only if some one reader's `genlCx` cone covers
+  `CxInference` does: an answer survives only if some one reader's `genlCx` ancestor set covers
   the whole derivation, so two facts no single context sees are never joined
   (docs/contexts.md).  The reader that covered it is the answer's **witness** — handed
   back as `?ctx` for `CxInference`, unified into the variable for a variable context.
@@ -37,7 +37,7 @@
   walk, an evaluable, an inferred argument type — names no context to place by, so
   `placeable?` asks the registry whether the stored-fact prover is the only one that
   applies, and `answers` hands anything else back to the fan and says so.  A narrowing that
-  does not announce itself reads as a covered case.
+  does not announce itself is indistinguishable from a covered case.
 
   The two must return the same answers, witnesses included.  `query_context_test` pins the
   cases one at a time; `vantage_differential_test` compares them over generated lattices,
@@ -56,7 +56,7 @@
   A binding is what a *variable* the caller wrote gets bound to, and `CxInference` is a
   constant — the caller named no variable, so there is nothing to bind and inventing one
   would be this namespace answering a question nobody asked.  Assoc'ing `?ctx` instead
-  reads like a binding and is not one: no `?ctx` appears in the call.  A keyword cannot
+  is indistinguishable from a binding and is not one: no `?ctx` appears in the call.  A keyword cannot
   collide with a binding either, since those are keyed by the `?`-symbols the goal
   spells.
 
@@ -70,7 +70,7 @@
 
   A pure cost decision that **must not change the answer set**, in the shape
   `res/*hierarchical-retrieval*` already establishes for retrieval — so it is a var to
-  rebind in a benchmark or a differential test, not an option on the read doors.  Outside
+  rebind in a benchmark or a differential test, not an option on the read entry points.  Outside
   post-hoc's declared domain the fan answers whatever this says.
 
   **`:post-hoc` by default, because it is bounded rather than because it is faster.**  On
@@ -193,7 +193,7 @@
 (defn fan
   "Ask every reader the ordinary scoped question, and keep what a reader really answered.
 
-  `run-at` is the read itself, as a function of the context to run it in — the seam that
+  `run-at` is the read itself, as a function of the context to run it in — the function that
   keeps this namespace out of `vaelii.core`'s way, and that lets one implementation serve
   `query`, `prove`, `ask` and `sentexes-matching` alike."
   [kb goals witness run-at]
@@ -313,7 +313,7 @@
   — its prover is not the fact prover — and cheaply, since `applicable?` is designed to be
   the cheap question.
 
-  This is the gate at the **door**, and it is not the whole of it: `applicable?` gates on
+  This is the gate at the **entry point**, and it is not the whole of it: `applicable?` gates on
   groundness, so a literal can leave the domain once a join binds it.  `fact-only?` is
   re-asked of each substituted literal for that reason, and the join abandons where the
   answer changes."
@@ -356,7 +356,7 @@
   contexts]` rather than bindings alone. Two things go in: the matched sentex's own
   context, and the contexts of the `genl` edges the match subsumed through. Matching runs
   at `'?ctx`, which is what makes this one pass instead of |readers|, and what makes the
-  placement afterwards load-bearing rather than a formality."
+  placement afterwards required rather than a formality."
   [kb goals budget]
   (let [tax   (:taxonomy kb)
         reg   (provers/registry kb)
@@ -452,7 +452,7 @@
   So a targeted supporter forces the same descent `chain/exception-aware-placements` makes
   forward: enumerate the contexts that structurally see every ingredient, keep the ones that
   see every *exact* supporter, and maximize those. `excepted-anywhere?` is the coarse gate,
-  so an ordinary answer — which is nearly every answer — takes no cone walk at all and
+  so an ordinary answer — which is nearly every answer — takes no ancestor set walk at all and
   reaches the one-line path above."
   [kb supporters ctxs]
   (let [tax     (:taxonomy kb)
@@ -503,7 +503,7 @@
                                                 acc (placements kb hs ctxs))))
                                     {} rows)))))
 
-;; ---- the door -----------------------------------------------------------
+;; ---- the entry point -----------------------------------------------------------
 
 (defn- nothing-to-witness?
   "Is every literal of `goals` **computed** rather than matched — `different`, `evaluate`,

@@ -32,7 +32,7 @@ never here. A category added to dodge one finding hides every future finding lik
 
 NO SIBLING-CLAIMS MACHINERY. A scan of this shape usually needs a way to say "this
 var's only caller lives in a repo that is not checked out". This engine has no such
-caller: its one optional companion is a foreign-reader plugin whose whole seam is
+caller: its one optional companion is a foreign-reader plugin whose whole contract is
 `requiring-resolve` from an edn manifest, and which calls nothing here. That half is
 deliberately absent rather than ported and left inert.
 """

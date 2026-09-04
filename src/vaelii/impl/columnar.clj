@@ -860,7 +860,7 @@
   (when (instance? ColumnarIndexStore store) (t-compact! (:trie store)))
   store)
 
-;; ---- the snapshot seam ---------------------------------------------------
+;; ---- the `SnapshotSink` / `SnapshotSource` protocols ---------------------------------------------------
 ;; `vaelii.impl.disk.index-snapshot` writes a compacted trie's sections to disk and maps
 ;; them back.  It reaches the CSR through these three rather than through the deftype, so
 ;; the field access stays inside `Trie` and the snapshot depends on a shape rather than on

@@ -552,7 +552,7 @@
 
 (tu/deftest-kb a-wait-value-no-long-holds-is-a-refusal-and-not-a-fault
   ;; Every one of these is a well-formed request with a bad option *value*.  Answered
-  ;; 500 they would read as a backend fault at every reverse proxy between the caller and
+  ;; 500 they would are indistinguishable from a backend fault at every reverse proxy between the caller and
   ;; the daemon; `##NaN` was worse than that, coercing to 0 so the long poll silently
   ;; became one that never waits.
   (let [handler (open-app kb)
@@ -564,7 +564,7 @@
                       ["negative"           -1]]]
       (testing what
         (let [r (post handler :poll [token 0 {:wait-ms v}])]
-          (is (= 400 (:status r)) (str ":wait-ms " what " must not read as a server fault"))
+          (is (= 400 (:status r)) (str ":wait-ms " what " must not are indistinguishable from a server fault"))
           (is (= :unknown-option (:type r))))))))
 
 (tu/deftest-kb a-subscription-dropped-mid-registration-leaves-no-listener-and-no-zombie

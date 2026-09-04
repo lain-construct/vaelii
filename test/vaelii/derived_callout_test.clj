@@ -122,7 +122,7 @@
         (let [r (v/edit-with-consequences! kb {:add [[(list seed Thing) CxCap]]}
                                            {:max-results 2})]
           (is (= 2 (count (:believed-added r))))
-          (is (:bounded? r) "a partial answer never reads as a complete one"))))))
+          (is (:bounded? r) "a partial answer never is indistinguishable from a complete one"))))))
 
 ;; ---- the browser: the callout --------------------------------------------
 

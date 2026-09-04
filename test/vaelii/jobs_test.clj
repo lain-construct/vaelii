@@ -147,7 +147,7 @@
     (is (true? (jobs/cancel! id)))
     (let [j (jobs/wait id 5000)]
       (is (= :cancelled (:status j))
-          "an interrupt reads as a cancellation, not as a failure")
+          "an interrupt is indistinguishable from a cancellation, not as a failure")
       (is (nil? (:summary j))))))
 
 (defn- deref-hook

@@ -260,7 +260,7 @@ Two things very close to a third *cannot* be very far from each other, and asser
 they are makes the context's network unsatisfiable and reportable. A derived range is what
 usually survives: the same very-close chain entails `(withinNearDistanceOf A D)` while
 entailing no class at all. Sold as an entailment engine this would disappoint; sold as a
-way to rule arrangements out, it earns its keep.
+way to rule arrangements out, it pays for itself.
 
 Exactness is per **pair** of classes, and that is as far as it reaches: composing a
 *result* onward loses the correlation between the two legs that produced it, so this is

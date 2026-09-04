@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bulk-sink-test
-  "`protocols/BulkLoading` — the seam an `import!` writes its records through, so a store
+  "`protocols/BulkLoading` — the protocol an `import!` writes its records through, so a store
   with an ingest path faster than a record at a time can use it.
 
   The engine's own stores do not implement it: a `put-sentex` on the RAM and disk
@@ -45,7 +45,7 @@
   `inner` — the visibility a real bulk sink has (a `COPY` lands when the copy ends), made
   absolute so a read-back would fail rather than merely be slow.
 
-  It mints and returns the handle itself, which is the half of the seam that lets the
+  It mints and returns the handle itself, which is the half of the protocol that lets the
   import path index a record it has not stored yet."
   [inner log buffered kind {:keys [premises?] :or {premises? true}}]
   (let [pending (atom [])]
@@ -193,7 +193,7 @@
                 (is (= (set (p/justification-ids (:records bulked)))
                        (set (:justification @log)))
                     "and every justification too")))
-            (testing "and the annotate seam took the premise marks and the provenance"
+            (testing "and the annotate call took the premise marks and the provenance"
               (if (= false belief)
                 (is (and (nil? (:mark-batches @log)) (nil? (:prov-batches @log)))
                     "the records-only path writes neither: the marks ride the record and
@@ -210,7 +210,7 @@
 (deftest a-sink-owns-its-records-until-it-closes
   ;; The wrapper throws on a read of a handle a sink still holds, so this passing is the
   ;; assertion: no import path fetches a record back inside the pass that wrote it.  It
-  ;; is the property the seam is a *sink* for — a loader that had to read back could not
+  ;; is the property the protocol is a *sink* for — a loader that had to read back could not
   ;; use one, and would want a batched put whose handles it waits for instead.
   (doseq [belief [true :stored false]]
     (testing (str ":belief? " (pr-str belief))
@@ -224,7 +224,7 @@
 (deftest the-handles-come-back-through-a-sink-too
   ;; A dump of ours numbers its records, and preserving those numbers is what lets an
   ;; index be replayed rather than rebuilt.  The handle is decided caller-side and the
-  ;; sink is told, so it survives — which is the reason the seam can be a sink at all.
+  ;; sink is told, so it survives — which is the reason the protocol can be a sink at all.
   (with-dump
     (fn [dump source]
       (let [log    (atom {})
@@ -258,7 +258,7 @@
         (is (= #{a b} (set (p/premise-ids rs))))))))
 
 (deftest a-store-without-the-capability-loads-through-the-loop
-  ;; The default half of the seam, and the one every backend the engine ships takes: no
+  ;; The default half of the protocol, and the one every backend the engine ships takes: no
   ;; `BulkLoading`, so `sentex-sink` answers `put-sentex` per record and the premise mark
   ;; the caller would have made.  Asserted here rather than left to the other tests,
   ;; because it is the path a store takes on the day it implements nothing.

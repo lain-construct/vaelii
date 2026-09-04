@@ -261,7 +261,7 @@
   (with-kb* opts nm (fn [kb] (f kb (imp/import-dump kb dir)))))
 
 (deftest a-replayed-index-and-a-rebuilt-one-are-the-same-index
-  ;; The load-bearing test.  Import the same dump twice — once with its index, once with
+  ;; The required test.  Import the same dump twice — once with its index, once with
   ;; the index taken away so the importer has to rebuild — and compare every read the
   ;; protocol has, plus the queries the KB answers.
   (let [t (terms)
@@ -363,7 +363,7 @@
   ;; An index entry is a posting of *handles*, so an import that could not put every
   ;; record where the dump said must not replay one: the postings would name records that
   ;; are not there.  Provoked here by taking one frame's `:id` away — the frame is then a
-  ;; record with no handle to preserve, which is exactly the shape a dialect that does
+  ;; record with no handle to preserve, which is exactly the form a dialect that does
   ;; not number its records has, and one minted handle is enough to void the whole index.
   (exported "remapped"
             (fn [dir _t]
@@ -380,7 +380,7 @@
                         "and the import says so, which is what the index decision reads")))))))
 
 (deftest a-truncated-stream-refuses-rather-than-importing-a-prefix
-  ;; a torn chunk reads as a clean EOF — the decompressor cannot tell a truncated
+  ;; a torn chunk is indistinguishable from a clean EOF — the decompressor cannot tell a truncated
   ;; file from a finished one — so the frames read are counted against what meta.edn
   ;; states.  The failure this closes: a smaller KB reported as a successful import.
   (exported "truncated"

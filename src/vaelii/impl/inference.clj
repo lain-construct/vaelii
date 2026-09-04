@@ -193,7 +193,7 @@
 (def ^:dynamic *estimate*
   "`(fn [kb strategy node] -> long)`, the number the frontier is ordered by.
 
-  `tactics/estimate` unless a caller substitutes one — the seam a whole ordering policy
+  `tactics/estimate` unless a caller substitutes one — the extension point a whole ordering policy
   reaches through, which is why the frontier is a priority queue rather than a stack.
   Whatever is bound here must be an **ordering** and not a filter: the search visits the
   same nodes in every order, so a number that changed the answer set would be a number
@@ -683,7 +683,7 @@
   **The union equals any single racer's answer set.**  Each racer is a complete search,
   so the portfolio is a bet that *one ordering finds the answer sooner*, never a way to
   find more answers — a racer that contributed an answer no other racer found would be a
-  bug in the others.  What it buys is latency under a bound, where the ordering that
+  bug in the others.  It gives latency under a bound, where the ordering that
   suits this query gets there before the deadline and the others do not.
 
   **Read-only by construction.**  Racing is safe here only because a query in this
@@ -741,7 +741,7 @@
 
   `opts` carries `:max-depth`, the `:strategy` (`tactics/strategy`), `:portfolio?` to
   race the default racers instead of running one ordering, and `:auto?` to let
-  `tactics/auto-strategy` pick from the shape of the query.  An explicit `:strategy`
+  `tactics/auto-strategy` pick from the structure of the query.  An explicit `:strategy`
   answers `:auto?`, so naming one turns the probe off.
 
   Neither `:portfolio?` nor an `:auto?` that picks one is an **anytime** mode: a race is
@@ -775,7 +775,7 @@
   **The leaf solver must not itself backchain**, and `provers/solve-goal` does not:
   nothing in the registry expands a rule.  That is what makes the division clean — this
   engine expands the rules, the leaf answers everything that is not a rule — and it is
-  load-bearing rather than incidental.  A leaf that started its own backward search would
+  required rather than incidental.  A leaf that started its own backward search would
   run the engine's rewriting *plus* a nested search per binding under it, which measured
   24-73x slower than the divided arrangement on the same queries.
 

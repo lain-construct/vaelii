@@ -87,7 +87,7 @@
   "The `Program` an application would build to rank a reported dilemma: the two
   contested handles, the nogood between them, and what each side asserts.
 
-  This is `contradictions`' promise turned back into the shape the solver machinery
+  This is `contradictions`' promise turned back into the form the solver machinery
   takes — which is the point of reporting both sides rather than deciding between
   them.  The engine declines to arbitrate; the classification machinery is still right
   here for a caller that wants to."

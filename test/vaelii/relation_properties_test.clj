@@ -3,7 +3,7 @@
 (ns vaelii.relation-properties-test
   "The four relation properties added in #14, enforced rather than declared:
 
-  * **`irreflexive`** — a self tuple `(P a a)` is refused at the door, the strict
+  * **`irreflexive`** — a self tuple `(P a a)` is refused at the entry point, the strict
     counterpart of `reflexive` and stronger than `asymmetric` (which admits it).
   * **`anti_symmetric`** — a believed converse `(P b a)` merges the two arguments,
     deriving `(equals a b)`, the antisymmetric twin of what `functional` does with two
@@ -34,7 +34,7 @@
 
 (def U 'CxUniverse)
 
-;;; ── irreflexive: a self tuple is refused at the door ──────────────────
+;;; ── irreflexive: a self tuple is refused at the entry point ──────────────────
 
 (tu/deftest-kb an-irreflexive-self-tuple-is-refused
   (tu/with-terms [before Alice]
@@ -50,7 +50,7 @@
         (is (v/assert kb (list before Alice Bob) U))))))
 
 (tu/deftest-kb an-irreflexive-refusal-holds-in-both-declaration-orders
-  ;; The declaration-then-tuple order refuses at the door; the tuple-then-declaration
+  ;; The declaration-then-tuple order refuses at the entry point; the tuple-then-declaration
   ;; order is the arity case, not the asymmetric one — a lone self tuple names no second
   ;; sentex to defeat, so the stored tuple stands and the late mark reports rather than
   ;; retracts (docs/nmtms.md).  Both orders agree that a *new* self tuple is refused.
@@ -165,7 +165,7 @@
 
 (tu/deftest-kb an-antisymmetric-converse-no-merge-can-reconcile-is-refused
   ;; Two numbers a converse forces equal, which no merge can make one thing — the hard
-  ;; contradiction, refused at the door like a numeric functional clash.
+  ;; contradiction, refused at the entry point like a numeric functional clash.
   (tu/with-terms [atOrAbove]
     (v/assert kb (list 'anti_symmetric atOrAbove) U)
     (v/assert kb (list atOrAbove 1 2) U)
@@ -192,7 +192,7 @@
 (tu/deftest-kb antitransitive-classifies-and-clashes-with-transitive
   ;; The enforced half.  The bare mark carries its classification — (anti_transitive P)
   ;; makes P a binary_predicate — and declaring the same predicate transitive too is a
-  ;; direct disjoint membership clash refused at the door under :refuse.
+  ;; direct disjoint membership clash refused at the entry point under :refuse.
   (tu/with-terms [flowsInto]
     (v/assert kb (list 'anti_transitive flowsInto) U)
     (testing "the mark classifies it as a binary_predicate"
@@ -204,7 +204,7 @@
 
 (tu/deftest-kb a-known-true-chain-refuses-the-direct-step
   ;; The conviction, read the way `asymmetric` reads its converse: what refuses at the
-  ;; door is a chain the arbitration could never break.
+  ;; entry point is a chain the arbitration could never break.
   (tu/with-terms [parentOf Alice Bob Carol]
     (v/assert kb (list 'anti_transitive parentOf) U)
     (v/assert kb (list parentOf Alice Bob) U {:strength :monotonic})
@@ -288,7 +288,7 @@
 (tu/deftest-kb an-antitransitive-self-tuple-is-admitted
   ;; The stated absence: `(P a a)` is its own two-step chain, so the triple collapses onto
   ;; one sentex and there is no second claim to weigh — a lone tuple, which this engine
-  ;; refuses at the door or not at all (`checks/antitransitivity-problems`).
+  ;; refuses at the entry point or not at all (`checks/antitransitivity-problems`).
   ;; `anti_transitive` does not hand you `irreflexive`, exactly as `asymmetric` does not.
   (tu/with-terms [parentOf Alice]
     (v/assert kb (list 'anti_transitive parentOf) U)
@@ -359,7 +359,7 @@
 
 (tu/deftest-kb symmetric-and-asymmetric-are-disjoint
   ;; `(disjoint symmetric asymmetric)` on the bare marks: a direct membership in the second
-  ;; clashes with the first and is refused at the door under :refuse.
+  ;; clashes with the first and is refused at the entry point under :refuse.
   (tu/with-terms [nextTo]
     (v/assert kb (list 'symmetric nextTo) U)
     (testing "so declaring the same predicate asymmetric is refused"

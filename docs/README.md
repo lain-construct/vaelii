@@ -74,7 +74,7 @@ rather than a compatibility claim.
 ## Core model & storage
 
 - [namespaces.md](namespaces.md) — the file map: what lives in each namespace under `src/`.
-- [predicates.md](predicates.md) — the engine's own grammar as one declaration per term: the nine fields and five closed vocabularies an interpreted predicate is written from, the arms it is joined to, the rosters that derive from it rather than repeat it, the nine refusals that fire at namespace load, and the sequence for adding one.
+- [predicates.md](predicates.md) — the engine's own grammar as one declaration per term: the eleven fields and five closed vocabularies an interpreted predicate is written from, the contract each facet commits it to, the arms it is joined to, the rosters that derive from it rather than repeat it, the twenty refusals that fire at namespace load, the sequence for adding one and what adding one comes to, and the three things the declaration deliberately leaves outside itself — the prover registry, the structural connectives, and the two joins stated by hand.
 - [canonicalization.md](canonicalization.md) — the canonical form: how sentences and rules identical up to variable names, literal order, symmetric arguments or comparison direction dedup to one handle, and how a conjunctive consequent or a disjunctive antecedent unfolds into several.
 - [naming.md](naming.md) — the KB naming invariants (predicates, individuals, types, contexts).
 - [storage.md](storage.md) — record + index stores, the protocols, nippy serialization, the single-writer contract.
@@ -85,6 +85,7 @@ rather than a compatibility claim.
 - [taxonomy.md](taxonomy.md) — the `genl` type hierarchy, `isa?`, `disjoint` / `disjoint_metatype`.
 - [inherit.md](inherit.md) — argument-position preservation: `(transitiveInArg P n R)` / `(transitiveInArgInverse P n R)`, whether a claim about two kinds reaches their subkinds, the specificity that lets a stated claim undercut an inherited default, the `(asymmetric P)` that lets a strict one conflict instead, and how a forward rule fires on an inherited claim by naming what the claim was read from.
 - [argtypes.md](argtypes.md) — `arg` / `genlArg` read as **entailments** as well as constraints: the type an argument declaration says a term has, minted as a derived justified sentex, both arrival directions, and why only a locally-written declaration entails. Off by default.
+- [predall.md](predall.md) — the `predAll` quantifier family: eight relations that quantify one argument position of a binary predicate and fix the other, in three classes — the *Instance* pair that stamps a rule per declaration, the *Exists* four that derive nothing beside a sanctioned placeholder functor, and the *Specified* pair that audits for a determinate filler; plus the extensible `indeterminate_term` category, the identity exemption it carries, and the stratification refusal that comes with it.
 - [defns.md](defns.md) — `defnNecessary` / `defnSufficient` / `defnIff`: tying a collection's membership to a defining condition on the member `?x`, expanded into ordinary forward rules justified by the `defn*` fact so retraction and belief follow it, the two registry provers that evaluate a condition at query time, and the open-world boundary that draws no non-membership from the condition's absence.
 
 ## Inference & belief
@@ -98,8 +99,8 @@ rather than a compatibility claim.
 - [naf.md](naf.md) — negation as failure: `unknown` / `thereExists`, evaluated at level 6, storing nothing (and why the JTMS `out` slot stays reserved).
 - [aggregate.md](aggregate.md) — aggregation as a query operator: the five reductions over a query's solutions, where GROUP BY comes from, and how a firing that rests on a count is maintained.
 - [belief.md](belief.md) — modal belief projection: `(believes Agent P)` answered by proving `P` in the agent's own context, `modal_predicate` / `register-modal-predicate` to open the same machinery to `knows` / `desires` / `intends`, why contradictory agents coexist without a contradiction, and the opacity of the proposition — whose merges may rewrite a term inside a belief.
-- [nmtms.md](nmtms.md) — the non-monotonic TMS: assumption strengths, soft prioritized contradictions, the solver seam.
-- [defenses.md](defenses.md) — the design defenses: why a non-obvious decision across the engine is shaped the way it is and why the tempting alternative is worse, collected out of the subsystem docs so each states the mechanism and links the argument.
+- [nmtms.md](nmtms.md) — the non-monotonic TMS: assumption strengths, soft prioritized contradictions, the `Solver` protocol.
+- [defenses.md](defenses.md) — the design defenses: why a non-obvious decision across the engine is shaped the way it is and why the alternative to avoid is worse, collected out of the subsystem docs so each states the mechanism and links the argument.
 - [preview.md](preview.md) — `preview`: the belief a batch would add and take away, read off and then rolled back at the same handles.
 - [equality.md](equality.md) — `rewriteOf` / `sameAs` / `equals` over one belief-following partition, and the `different` that keeps the unique-name assumption.
 - [equational.md](equational.md) — symbolic (schematic) equational reasoning: oriented term rewriting by a Knuth-Bendix order, normalizing store and query to one belief-following normal form.
@@ -120,7 +121,7 @@ rather than a compatibility claim.
 
 ## Contradiction solving (ASP)
 
-- [asp.md](asp.md) — the ASP backend behind the solver seam: the ASPIF encoding, clingo/clasp, determinism.
+- [asp.md](asp.md) — the ASP backend behind the `Solver` protocol: the ASPIF encoding, clingo/clasp, determinism.
 - [solving.md](solving.md) — `assumptionRules` and persistent, inert labeling contexts.
 - [labeling.md](labeling.md) — `do/` imperatives and brave/cautious solve.
 

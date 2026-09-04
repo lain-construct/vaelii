@@ -78,7 +78,7 @@
 
   `*lead-side*` is the one measured to carry weight: `:scoped` leads a join from one
   predicate-scoped bucket per spec, which takes `join_lead_cost_test`'s reading from flat
-  (32 at either width) to 27 against 39 — the shape that file exists to hold, inverted by
+  (32 at either width) to 27 against 39 — the structure that file exists to hold, inverted by
   a var it does not name.  The rest are pinned because `assert_cost_test` prices exact
   per-family budgets and each of them moves which family answers; both gates hold that
   claim with a test rather than asserting it here."
@@ -231,7 +231,7 @@
 ;; what supplies an answer: a registered evaluatable's placement, where the event
 ;; calculus stops, and — the one that is not about a single query — the completeness of
 ;; incremental forward chaining over a prover extent that grows.  docs/inference.md,
-;; "Where the ranking is load-bearing", carries all three with their witnesses.
+;; "Where the ranking is required", carries all three with their witnesses.
 ;;
 ;; Spelled positively for `VAELII_HIER`'s reason — the value says what it selects.
 (when-not (config/prop-bool "VAELII_PLAN" true)
@@ -346,7 +346,7 @@
 
   Opting in is checked **first**, before the host is so much as probed: a reachable Ollama
   is not consent.  Then reachability, then whether the host has actually pulled the model
-  — a host that is up but has never seen the model fails in a way that reads like a bug in
+  — a host that is up but has never seen the model fails in a way that is indistinguishable from a bug in
   the code under test.
 
   `what` names the tier in the skip line.  `opts`: `:model` (default
@@ -422,7 +422,7 @@
 (defn- alnum "Letters and digits only — individuals and predicates admit no underscore."
   [s] (str/replace (str s) #"[^A-Za-z0-9]" ""))
 
-(defn- snake "Lowercase, non-alphanumerics folded to _ — the shape a type must have."
+(defn- snake "Lowercase, non-alphanumerics folded to _ — the form a type must have."
   [s] (str/lower-case (str/replace (str s) #"[^A-Za-z0-9]+" "_")))
 
 (defn- cap [s] (if (seq s) (str (str/upper-case (subs s 0 1)) (subs s 1)) s))
@@ -474,7 +474,7 @@
 
   A `:type` temp keeps the **base's own spelling**: a base already carrying an
   underscore (`physical_object`) becomes snake_case, a bare lowercase word (`dog`)
-  becomes another bare lowercase word.  That distinction is load-bearing.  A
+  becomes another bare lowercase word.  That distinction is required.  A
   snake_case functor names a type and is therefore legal only as a *unary* predicate
   (`vaelii.impl.naming/problems`), so spelling every type temp with underscores would
   commit it to arity 1 — a commitment a test writing `dog` or `likes` never made,
@@ -521,7 +521,7 @@
     ;; dog -> tmpdog17   Muffet -> TmpMuffet18
     ;; parentOf -> tmpParentOf19   CxStory -> CxTmpStory20
 
-  So the test reads like the ontology it is about, while every term stays unique and
+  So the test is indistinguishable from the ontology it is about, while every term stays unique and
   disposable (see the net-neutrality guarantee above).  A bare base like `dog` stays
   bare (`tmpdog17`) so the temp is not committed to arity 1; see `fresh-term`."
   [syms & body]
@@ -670,14 +670,14 @@
     (with-kb [kb] (v/assert kb …))
 
   **The binding vector takes the symbol and nothing else**, and an init form is refused
-  at macroexpansion rather than ignored.  The shape that reads like a `let` and is not one
+  at macroexpansion rather than ignored.  The form that resembles a `let` and is not one
   is `(with-kb [k (fresh)] …)`: it binds the fixture's KB, and whatever the init says it
   never runs — so a helper called twice in one test runs its second arm over everything
   the first left, and a test comparing two arrangements compares the second against the
   first instead of against the same baseline.  Nothing in the reading says so, which is
   why this refuses the spelling instead of quietly honouring half of it.
 
-  Evaluating the init is not the fix, which is worth stating so nobody re-derives it: a
+  Evaluating the init is not the fix, which matters so nobody re-derives it: a
   `fresh` **mid-test** clears the store the `:each` fixture recorded its baseline against,
   and the net-neutrality check then reports a leak for content the clear removed.  A test
   wanting a genuinely separate KB gives each arm its own gensym'd terms (`with-terms`

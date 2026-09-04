@@ -5,7 +5,7 @@
   surface, so `ask` agrees with the generalization `check` already walks internally.
   Read literally instead, a stored `(arg petMammal 1 mammal)` is the only thing
   `(ask (arg petMammal 1 animal))` could return — nothing — even though
-  `(genl mammal animal)` holds and `check` accepts an animal there, and the two doors
+  `(genl mammal animal)` holds and `check` accepts an animal there, and the two entry points
   disagree about one declaration.
 
   The engine answers it in `provers/MetaConstraintProver`, a bounded closure walk, and
@@ -73,6 +73,55 @@
     (testing "the stored subtype constraint answers up to the supertype"
       (is (v/ask? kb (list 'genlArg typeRel 1 animal) C))
       (is (empty? (v/sentexes-matching kb (list 'genlArg typeRel 1 animal) '?ctx))))))
+
+(tu/deftest-kb quotedArg-answers-along-the-closure-like-its-three-siblings
+  ;; The mention twin was the one member of the family this table had no row for, so
+  ;; `ask` disagreed with the entry point about one declaration: `checks/declaration-reader`
+  ;; reads `quotedArg` through `res/constraining-predicates` exactly as it reads the
+  ;; other three, and refuses a sub-predicate's tuple under a super's declaration —
+  ;; while the query surface answered only what was literally stored.
+  ;;
+  ;; The types here are the *syntactic* lattice CxCore ships, not a stated one: a
+  ;; `quotedArg` types the term written in a position, so `positive_integer` below
+  ;; `integer` is the refinement the covariance is read over.
+  (tu/with-terms [pAge pInfantAge]
+    (v/assert kb (list 'genl pInfantAge pAge) C)
+    (v/assert kb (list 'quotedArg pAge 1 'positive_integer) C)
+    (testing "the stored declaration answers, and it is stored"
+      (is (v/ask? kb (list 'quotedArg pAge 1 'positive_integer) C))
+      (is (seq (v/sentexes-matching kb (list 'quotedArg pAge 1 'positive_integer) '?ctx))))
+    (testing "position 3 widens UP — the narrower kind answers the broader query"
+      (is (v/ask? kb (list 'quotedArg pAge 1 'integer) C))
+      (is (empty? (v/sentexes-matching kb (list 'quotedArg pAge 1 'integer) '?ctx))
+          "answered on demand, never materialized — nothing is minted from a quotedArg"))
+    (testing "and does not narrow down: a broader declaration is not the narrower one"
+      (is (not (v/ask? kb (list 'quotedArg pAge 1 'string) C))))
+    (testing "position 1 reaches DOWN the predicate — a super's declaration binds the sub,
+              which is the reading the entry point already had"
+      (is (v/ask? kb (list 'quotedArg pInfantAge 1 'positive_integer) C))
+      (is (v/ask? kb (list 'quotedArg pInfantAge 1 'integer) C)
+          "both variances at once, as arg does"))
+    (testing "position 2 is fixed — a declaration on one position answers for no other"
+      (is (not (v/ask? kb (list 'quotedArg pAge 2 'positive_integer) C))))))
+
+(tu/deftest-kb quotedArg-answers-what-the-entry-point-already-refuses-on
+  ;; The two entry points, on one declaration.  `checks/args-quoted-problem` reads a super's
+  ;; declaration against a sub's tuple through `res/constraining-predicates`, so the
+  ;; refusal descends; the query surface has to descend with it or the same declaration
+  ;; means one thing to `assert` and another to `ask`.  Binary, because a quoted position
+  ;; needs a tuple to sit in and a unary functor is snake_case by the naming rule.
+  (tu/with-terms [pAgeOf pInfantAgeOf]
+    (v/assert kb (list 'genl pInfantAgeOf pAgeOf) C)
+    (v/assert kb (list 'quotedArg pAgeOf 2 'string) C)
+    (testing "the entry point refuses the sub's tuple under the super's declaration"
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (v/assert kb (list pInfantAgeOf 'Bob 5) C)))
+      (is (v/assert kb (list pInfantAgeOf 'Bob "two") C)
+          "and admits one whose written term is the declared kind"))
+    (testing "and `ask` says the declaration binding it is there to be read"
+      (is (v/ask? kb (list 'quotedArg pInfantAgeOf 2 'string) C))
+      (is (empty? (v/sentexes-matching kb (list 'quotedArg pInfantAgeOf 2 'string) '?ctx))
+          "answered, not stored — the entry point reads the same closure without materializing it"))))
 
 (tu/deftest-kb interArg-trigger-narrows-down-target-widens-up
   ;; The conditional constraint's two types have OPPOSITE variance.  The trigger

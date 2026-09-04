@@ -7,7 +7,7 @@
   fourth, a **known-true exception on a default rule**, is what a wrapper on the query
   says: `(exceptWhen (set/monotonic Q) R)`.
 
-  Two claims, and they are one claim asked at two doors.  `assert` reads the wrapper —
+  Two claims, and they are one claim asked at two entry points.  `assert` reads the wrapper —
   and `check` reports the same refusal for a malformed one, since check and do may
   disagree on nothing but the delivery.  And the **text KB format** writes whichever
   spelling reproduces the pair, so all four round-trip: byte-identically, because a text
@@ -50,7 +50,7 @@
     [(:strength (first (filter #(some? (:antecedent %)) sxs)))
      (:strength (first (filter #(sx/exceptWhen-meta? (:sentence %)) sxs)))]))
 
-;;; ── the door ──────────────────────────────────────────────────────────
+;;; ── the entry point ──────────────────────────────────────────────────────────
 
 (deftest assert-reads-a-strength-stated-on-an-exceptWhen-query
   ;; The inline-rule form, which is also the one the text writer emits.
@@ -72,7 +72,7 @@
 (deftest a-strength-on-the-query-of-a-by-handle-exceptWhen-is-read-too
   ;; The other branch of the split: the exceptWhen names its rule by handle, so there is
   ;; no rule to store and the `opts` has only ever been the exception's.  It reads the
-  ;; wrapper all the same, so one spelling means one thing at both spellings of the door.
+  ;; wrapper all the same, so one spelling means one thing at both spellings of the entry point.
   (tu/with-cleared-kb [kb tu/fresh]
     (tu/with-terms [bird flies penguin CxHalf]
       (v/assert kb (list 'genlCx CxHalf 'CxUniverse) 'CxUniverse)

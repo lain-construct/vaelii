@@ -237,7 +237,7 @@
     (nippy/freeze value {:compressor c})
     (nippy/freeze value)))
 
-;; Behind the class-name door (`vaelii.impl.io.thaw`): a log is a file, a file is
+;; Behind the class-name check (`vaelii.impl.io.thaw`): a log is a file, a file is
 ;; untrusted input, and a frame naming a class is refused before the name is resolved.
 (defn- thaw-bytes [^bytes bs] (safe/thaw bs))
 
@@ -595,7 +595,7 @@
   four bytes as a count and allocates for it: a truncated file whose tail happens to
   leave a large one is a gigabyte allocation before anything is checked.  Reading the
   file into an array first bounds every such allocation by the file's own length, which
-  costs nothing here — these blobs are whole-file values being read into heap either
+  adds no work here — these blobs are whole-file values being read into heap either
   way.  The thaw is still `thaw-from-in!`, because `write-nippy-atomic!` writes with
   `freeze-to-out!`: a headerless typed stream, not a `freeze`d array."
   ([path] (read-nippy-file path nil))

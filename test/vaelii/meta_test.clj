@@ -370,7 +370,7 @@
             "and goes when the last one does")))))
 
 (tu/deftest-kb a-consequence-of-a-lifted-fact-is-lifted-in-turn
-  ;; The copy is a chaining seed, and what that buys is **placement**: forward chaining
+  ;; The copy is a chaining seed, and what that provides is **placement**: forward chaining
   ;; already matches antecedents across contexts, so firing on the copy does not find
   ;; anything new — it places the conclusion in CxUniverse rather than only in the
   ;; context the fact came from.  A consequence of a fact true everywhere is true
@@ -440,7 +440,7 @@
                          (catch clojure.lang.ExceptionInfo e (ex-data e)))))))
     (testing "and it takes exactly one argument"
       ;; :naming, not :not-well-formed — the property is snake_case now, so a second
-      ;; argument is refused by the naming door before `wff` counts them
+      ;; argument is refused by the naming check before `wff` counts them
       (is (= :naming
              (:type (try (v/assert kb (list 'decontextualized_predicate rulesOver 'CxUniverse)
                                    'CxUniverse)

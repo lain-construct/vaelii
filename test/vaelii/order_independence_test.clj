@@ -107,7 +107,7 @@
 
 (defn- outcome-census
   "The distinct outcomes over `orderings`, each mapped to how many produced it (`:n`) and
-  the index of the first that did (`:at`) — the shape a failure is read from.  A
+  the index of the first that did (`:at`) — the form a failure is read from.  A
   sixteen-against-four split says at once which side is the defect, where a bare set of
   readings leaves that to be guessed, and the index reproduces it: `interleavings` is
   deterministic, so ordering #3 is the same ordering on the next run."
@@ -344,9 +344,9 @@
     (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-re-assert-never-downgrades-a-premises-class
-  ;; The class a sentex is held at is resolved from **content**, so the door cannot let
+  ;; The class a sentex is held at is resolved from **content**, so the entry point cannot let
   ;; arrival order decide it.  A re-assert carrying no `:strength` states nothing about
-  ;; the class — the `:default` it falls back to is the door's fallback, not the
+  ;; the class — the `:default` it falls back to is the entry point's fallback, not the
   ;; caller's claim — so reading that silence as a downgrade retired the known-true
   ;; mark: asserted monotonic, re-asserted bare, and then met by a known-true negation,
   ;; the original was *defeated*, where the same three sentences without the bare
@@ -380,7 +380,7 @@
 
 (defn- blocked-observe
   "The reading a block-condition scenario is judged by: every conclusion the KB holds on
-  `seen`, the backward door's answer for each of `subjects`, and the clash report.  The
+  `seen`, the backward entry point's answer for each of `subjects`, and the clash report.  The
   stored sentences alone would not separate a conclusion that was never drawn from one
   drawn and then swept under a name nobody asks about."
   [seen subjects]
@@ -399,7 +399,7 @@
   ;; orderings for a retired binding, 12 of 24 for a retired conjunct constant.
   ;;
   ;; `except_recheck_test/every-arrival-order-of-a-merge-reaches-one-belief` walks the
-  ;; same two shapes over the stored sentences; this reads the backward door and the
+  ;; same two shapes over the stored sentences; this reads the backward entry point and the
   ;; clash report beside them, which is what a stored-sentence reading cannot see.
   (testing "the firing's own binding is the retired spelling"
     ;; `(qmark QOne)` binds `?x` to a term the merge retires, and the exception has to be
@@ -451,7 +451,7 @@
   ;; Two equally-specific defaults collide with no strength and no specificity to
   ;; separate them, and neither rule names the other's case. The engine declines to
   ;; decide that: both sides stay believed and the pair is reported by
-  ;; `contradictions`. What must not vary with typing order is the whole reading —
+  ;; `contradictions`. The whole reading must not vary with typing order —
   ;; which sides are believed, that neither was defeated, and that exactly one dilemma
   ;; is reported.
   (let [ops [#(v/assert % (default-rule '[(quaker ?x)] '(pacifist ?x)) 'CxUniverse)
@@ -551,16 +551,16 @@
 ;;
 ;; A constraint declaration is an ingredient of the clash exactly as the two facts are,
 ;; so all three orderings of "declaration, fact, fact" are the same knowledge and the KB
-;; owes them the same answer.  The engine has two doors for that answer and the arrival
-;; order picks which: a fact written *after* the declaration is refused at the door (or
+;; owes them the same answer.  The engine has two entry points for that answer and the arrival
+;; order picks which: a fact written *after* the declaration is refused at the entry point (or
 ;; weighed into `contradictions` where the opposing claim is defeasible), and a
 ;; declaration written after the facts is reported by the settle's exposure pass, with
-;; belief untouched.  Both declarations take the second door by the same route: a
+;; belief untouched.  Both declarations take the second entry point by the same route: a
 ;; declaration in the settle's moved region says what it puts back in question, and the
 ;; pass sweeps that.
 ;;
 ;; **So what a single outcome means here is that the clash is *accounted for*, not that
-;; every ordering picks the same door.** Which door is the constraint policy's business
+;; every ordering picks the same entry point.** Which entry point is the constraint policy's business
 ;; (`checks/arbitrating?`), and under `:refuse` the two answers are deliberately
 ;; different things: a refusal turns a write away, a report leaves belief alone and names
 ;; what it found.  What may not vary is whether the KB says anything at all — and the
@@ -568,11 +568,11 @@
 ;; forbids standing, believed, and mentioned by nothing.
 ;;
 ;; The reading `one-outcome!` compares is therefore the account and the believed extent
-;; — never the door, which is what the orderings are entitled to differ on.  Two things
+;; — never the entry point, which is what the orderings are entitled to differ on.  Two things
 ;; keep that from being a weakened boolean.  The **count** is compared, not its
 ;; positivity, so an engine that refused a write *and* reported the pair, or reported one
 ;; pair twice, fails exactly as one that did neither does.  And every ordering's full
-;; reading is kept, so the tests below can go on to check that the doors actually used
+;; reading is kept, so the tests below can go on to check that the entry points actually used
 ;; are the two that exist and that each ordering used exactly one — a claim about the
 ;; whole set that no single outcome can carry.
 ;;
@@ -581,8 +581,8 @@
 ;; them.
 
 (defn- refusing-assert
-  "An `assert` op at `strength` that survives the door turning it away, recording the
-  refusal in `refusals` instead.  The refusal is one of the two doors these tests read: a
+  "An `assert` op at `strength` that survives the entry point turning it away, recording the
+  refusal in `refusals` instead.  The refusal is one of the two entry points these tests read: a
   KB that refuses the write and a KB that reports the pair have both answered, and one
   that does neither has not."
   [refusals strength sentence]
@@ -591,7 +591,7 @@
          (catch clojure.lang.ExceptionInfo _ (swap! refusals inc)))))
 
 (defn- constraint-reading
-  "How one KB accounted for a definitional clash — per door, summed, and the extent the
+  "How one KB accounted for a definitional clash — per entry point, summed, and the extent the
   account is about.
 
   `mapv` on the ledger kinds and the extent, `count` everywhere else: every reader here
@@ -613,7 +613,7 @@
 
   `:invariant` is `one-outcome!`'s verdict over the part that may not vary — the account
   and, at `:default`, the extent; `:readings` is every ordering's full reading, for the
-  claims about the *set* of doors used that a single outcome cannot make."
+  claims about the *set* of entry points used that a single outcome cannot make."
   [label strength sentences pattern]
   (let [refusals (atom 0)
         seen     (atom [])
@@ -633,26 +633,129 @@
                (= :default strength) (assoc :believed (:believed full))))))]
     {:invariant invariant :readings @seen}))
 
-(defn- one-door-each!
-  "Assert that every ordering used exactly one of the two doors, and that both doors are
-  used across the set — a scenario where one door answers every ordering is one that
+(defn- one-entry-point-each!
+  "Assert that every ordering used exactly one of the two entry points, and that both entry points are
+  used across the set — a scenario where one entry point answers every ordering is one that
   never exercised the other."
   [readings]
-  (let [doors (mapv (fn [r]
-                      (cond-> #{}
-                        (pos? (:refused r))        (conj :refused)
-                        (seq (:reported r))        (conj :reported)
-                        (pos? (:weighed r))        (conj :weighed)
-                        (pos? (:stuck r))          (conj :stuck)))
-                    readings)]
-    (is (every? #(= 1 (count %)) doors)
-        (str "every ordering answers by exactly one door — " (pr-str (frequencies doors))))
-    (is (< 1 (count (distinct doors)))
-        (str "and the scenario reaches more than one of them — " (pr-str (frequencies doors))))))
+  (let [entry-points (mapv (fn [r]
+                             (cond-> #{}
+                               (pos? (:refused r))        (conj :refused)
+                               (seq (:reported r))        (conj :reported)
+                               (pos? (:weighed r))        (conj :weighed)
+                               (pos? (:stuck r))          (conj :stuck)))
+                           readings)]
+    (is (every? #(= 1 (count %)) entry-points)
+        (str "every ordering answers by exactly one entry point — " (pr-str (frequencies entry-points))))
+    (is (< 1 (count (distinct entry-points)))
+        (str "and the scenario reaches more than one of them — " (pr-str (frequencies entry-points))))))
+
+(deftest a-late-symmetric-mark-leaves-one-row-for-one-proposition
+  ;; `(symmetric P)` is the one mark whose effect is **canonicalization** rather than
+  ;; conviction: the entry point sorts a symmetric literal's arguments, so the two spellings of
+  ;; one pair store as one sentex.  A mark arriving after both spellings were written
+  ;; therefore leaves the KB holding *two* records for one proposition where a KB told the
+  ;; same things in the other order holds one — and the retraction of either then withdraws
+  ;; half a fact (vaelii#61).  The mark may land anywhere among the facts; what may not
+  ;; vary is what the KB stores and believes once it has.
+  (let [h   (atom nil)
+        ops [[#(reset! h (v/assert % '(bordersOn Spain France) 'CxUniverse))
+              #(v/assert % '(bordersOn France Spain) 'CxUniverse)]
+             [#(v/assert % '(symmetric bordersOn) 'CxUniverse)]
+             [#(v/assert % '(genl bordersOn near) 'CxUniverse)]]
+        observe
+        (fn [kb]
+          {:rows        (count (v/sentexes-matching kb '(bordersOn ?x ?y) 'CxUniverse))
+           ;; the two spellings are one proposition, so they are one handle
+           :one-handle? (= (v/handle-of kb '(bordersOn Spain France) 'CxUniverse)
+                           (v/handle-of kb '(bordersOn France Spain) 'CxUniverse))
+           :borders-sf  (v/ask? kb '(bordersOn Spain France) 'CxUniverse)
+           :borders-fs  (v/ask? kb '(bordersOn France Spain) 'CxUniverse)
+           ;; ...and the derived answers, which is where the second record hid: `near` is
+           ;; reached through `(genl bordersOn near)`, so a surviving twin answers both
+           :near-sf     (v/ask? kb '(near Spain France) 'CxUniverse)
+           :near-fs     (v/ask? kb '(near France Spain) 'CxUniverse)})
+        result (one-outcome-under! "late symmetric mark" ops observe)]
+    (testing "and the one outcome is the mark-first reading"
+      (is (= 1 (:rows result)) "one proposition, one record")
+      (is (true? (:one-handle? result)))
+      (is (every? true? ((juxt :borders-sf :borders-fs :near-sf :near-fs) result))
+          "both spellings hold, and both derived answers with them"))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-late-symmetric-mark-leaves-nothing-for-a-retraction-to-miss
+  ;; The issue's own sequence.  The retraction runs in `observe` rather than as a
+  ;; permuted op, because it names the handle the *first* assertion returned and what
+  ;; that handle denotes is the whole question: with the mark already in, it is the pair;
+  ;; retracted before the mark arrives it is one of two rows, and the KB legitimately
+  ;; keeps the other.  So the mark ranges over every position among the facts, the
+  ;; retraction stays after all of them, and every ordering must withdraw the proposition
+  ;; whole — including the two `near` answers derived through the predicate above it.
+  (let [h   (atom nil)
+        ops [[#(reset! h (v/assert % '(bordersOn Spain France) 'CxUniverse))
+              #(v/assert % '(bordersOn France Spain) 'CxUniverse)]
+             [#(v/assert % '(symmetric bordersOn) 'CxUniverse)]
+             [#(v/assert % '(genl bordersOn near) 'CxUniverse)]]
+        observe
+        (fn [kb]
+          (v/retract! kb @h)
+          {:rows       (count (v/sentexes-matching kb '(bordersOn ?x ?y) 'CxUniverse))
+           :borders-sf (v/ask? kb '(bordersOn Spain France) 'CxUniverse)
+           :borders-fs (v/ask? kb '(bordersOn France Spain) 'CxUniverse)
+           :near-sf    (v/ask? kb '(near Spain France) 'CxUniverse)
+           :near-fs    (v/ask? kb '(near France Spain) 'CxUniverse)})
+        result (one-outcome-under! "late symmetric mark, then a retraction" ops observe)]
+    (testing "and the one outcome is that the retraction reached all of it"
+      (is (= {:rows 0 :borders-sf false :borders-fs false :near-sf false :near-fs false}
+             result)))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest a-computed-context-edge-merges-in-every-ordering
+  ;; The calendar case, and the one where the edge nobody asserts is the whole question.
+  ;; `contextArgSubrelation` makes January a spec of its year *structurally*, so the
+  ;; `genlCx` edge is computed rather than written — and until vaelii#56 the producer
+  ;; that computes it ran the exception re-checks and none of the equality reconcilers a
+  ;; stated edge runs.  So which of two fillers of one functional slot the KB believed
+  ;; came down to whether the year's fact was written before January existed: four
+  ;; ingredients, twenty-four orderings, and the ones that mint January last merged
+  ;; nothing at all.
+  ;;
+  ;; The mark lives in the year rather than in CxUniverse because a reified `cx/` context
+  ;; is not wired under CxUniverse by anything — the declarations compute its whole ancestor set —
+  ;; so a mark left up there is invisible from the calendar and the scenario would be
+  ;; asking a different question.  `calendar-op` declares the two reify kinds ahead of
+  ;; each op: without them a calendar expression is not a context and the assert is
+  ;; refused, which makes them a precondition of the scenario rather than one of its
+  ;; arrivals.
+  (let [year  '(CxCalFn CxMonad (DatetimeFn "2000"))
+        month '(CxCalFn CxMonad (DatetimeFn "2000-01"))
+        calendar-op
+        (fn [f] (fn [kb]
+                  (v/assert kb '(context_denoting_function CxCalFn) 'CxUniverse)
+                  (v/assert kb '(unreifiable_function DatetimeFn) 'CxUniverse)
+                  (f kb)))
+        ops [(calendar-op #(v/assert % '(contextArgSubrelation CxCalFn 2 subintervalOf)
+                                     'CxUniverse))
+             (calendar-op #(v/assert % '(functionalInArg the_best 1) year))
+             (calendar-op #(v/assert % '(the_best LaMulanaTwo) year))
+             (calendar-op #(v/assert % '(the_best Silksong) month))]
+        observe
+        (fn [kb]
+          {:from-january (sort (map (comp str '?x) (v/ask kb '(the_best ?x) month)))
+           :from-year    (sort (map (comp str '?x) (v/ask kb '(the_best ?x) year)))
+           :merged?      (boolean (v/same-class? kb 'LaMulanaTwo 'Silksong))})
+        result (one-outcome! "a computed calendar genlCx edge" ops observe)]
+    (testing "and the one outcome is that the computed edge did the merge"
+      (is (true? (:merged? result)))
+      (is (= ["LaMulanaTwo"] (:from-january result))
+          "one filler from below, which is January inheriting the year and merging it")
+      (is (= ["LaMulanaTwo"] (:from-year result))
+          "and the year, which the merge is not visible from, keeps its own"))
+    (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-late-asymmetric-mark-is-accounted-for-in-every-ordering
   ;; `(asymmetric asBelow)` with both directions of one pair: 6 orderings, and the two
-  ;; that put the declaration last are the ones with no door left to refuse at — both
+  ;; that put the declaration last are the ones with no entry point left to refuse at — both
   ;; facts are already stored and believed when the mark lands, so the exposure pass is
   ;; the whole of what keeps `conflicts`, `contradictions` and `violations` from all
   ;; being empty over a pair the KB's own vocabulary forbids.
@@ -664,15 +767,15 @@
       (is (= 1 (:accounted invariant)))
       (is (zero? (:stuck invariant))
           "one side is turned away or the pair is named — never an irreducible conflict"))
-    (one-door-each! readings)
-    (testing "and the door the late mark takes is the ledger, with both facts standing"
+    (one-entry-point-each! readings)
+    (testing "and the entry point the late mark takes is the ledger, with both facts standing"
       (let [late (filterv #(= 2 (count (:believed %))) readings)]
         (is (= 2 (count late)) "two of the six put the mark last")
         (is (every? #(= [:asymmetric] (:reported %)) late))))
     (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-late-asymmetric-mark-leaves-the-same-beliefs-in-every-ordering
-  ;; The same three sentences at `:default`, where the door refuses nothing — an
+  ;; The same three sentences at `:default`, where the entry point refuses nothing — an
   ;; `asymmetric` violation refuses only against a known-true converse — so the whole
   ;; believed extent is identical across all 6 and joins the reading.  What remains for
   ;; arrival order to pick is the account: a represented dilemma when a fact arrived
@@ -685,7 +788,7 @@
       (is (= ["(asAside Aa Bb)" "(asAside Bb Aa)"] (:believed invariant)))
       (is (= 1 (:accounted invariant)))
       (is (zero? (:stuck invariant))))
-    (one-door-each! readings)
+    (one-entry-point-each! readings)
     (testing "nothing is refused — a default converse is weighed or reported, not turned away"
       (is (every? #(zero? (:refused %)) readings)))
     (tu/clear-kb! (tu/test-kb))))
@@ -704,7 +807,7 @@
     (testing "the clash is answered exactly once, whichever of the four arrived last"
       (is (= 1 (:accounted invariant)))
       (is (zero? (:stuck invariant))))
-    (one-door-each! readings)
+    (one-entry-point-each! readings)
     (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-late-anti-transitive-mark-is-accounted-for-in-every-ordering
@@ -719,7 +822,7 @@
     (testing "the chain is answered exactly once, whichever of the four arrived last"
       (is (= 1 (:accounted invariant)))
       (is (zero? (:stuck invariant))))
-    (one-door-each! readings)
+    (one-entry-point-each! readings)
     (testing "the six orderings that put the mark last name the chain in the ledger"
       (let [late (filterv #(= 3 (count (:believed %))) readings)]
         (is (= 6 (count late)))
@@ -737,30 +840,30 @@
     (testing "the slot is answered exactly once, whichever of the three arrived last"
       (is (= 1 (:accounted invariant)))
       (is (zero? (:stuck invariant))))
-    (one-door-each! readings)
+    (one-entry-point-each! readings)
     (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-late-mark-answers-the-way-a-late-disjointness-does
   ;; The precedent the choice above is made against, asserted rather than assumed: a late
   ;; `(disjoint A B)` over an already-clashing pair reports and leaves belief alone.  The
-  ;; two must agree door for door, or the KB is treating "the declaration came last"
+  ;; two must agree entry point for entry point, or the KB is treating "the declaration came last"
   ;; differently according to which declaration it is.
-  (let [marked (constraint-outcome! "late asymmetric mark, per door" :monotonic
+  (let [marked (constraint-outcome! "late asymmetric mark, per entry point" :monotonic
                                     ['(asymmetric asBeside) '(asBeside Aa Bb)
                                      '(asBeside Bb Aa)]
                                     '(asBeside ?x ?y))
-        separated (constraint-outcome! "late disjointness, per door" :monotonic
+        separated (constraint-outcome! "late disjointness, per entry point" :monotonic
                                        ['(disjoint tdogx tcatx) '(tdogx Rexx)
                                         '(tcatx Rexx)]
                                        '(?t Rexx))
-        doors (fn [{:keys [readings]}]
-                (frequencies (mapv #(-> % (select-keys [:refused :weighed :stuck])
-                                        (assoc :reported (count (:reported %))))
-                                   readings)))]
+        entry-points (fn [{:keys [readings]}]
+                       (frequencies (mapv #(-> % (select-keys [:refused :weighed :stuck])
+                                               (assoc :reported (count (:reported %))))
+                                          readings)))]
     (is (= (:invariant marked) (:invariant separated))
         "one account of the clash, whichever declaration arrived last")
-    (is (= (doors marked) (doors separated))
-        "and the same doors in the same proportions — only the entry kind differs")
+    (is (= (entry-points marked) (entry-points separated))
+        "and the same entry points in the same proportions — only the entry kind differs")
     (tu/clear-kb! (tu/test-kb))))
 
 ;; ---- retraction and revival ---------------------------------------------
@@ -815,7 +918,7 @@
   (tu/clear-kb! (tu/test-kb)))
 
 (deftest an-un-merge-that-owes-a-derivation-is-order-independent
-  ;; The same claim as the test above through the **equality** door, which reaches it by
+  ;; The same claim as the test above through the **equality** entry point, which reaches it by
   ;; a different route and has to: a merge displaces a spelling with no relabel behind
   ;; it, so the flip is in none of the window sets a revival is read off.  While the
   ;; merge stands the twin joins in the displaced spelling's place, so a partner arriving
@@ -912,7 +1015,7 @@
   ;; all land where a single assert would have put them, in every interleaving with the
   ;; member and the rule.
   ;;
-  ;; Both sides assert at the door's own class, because the class is deliberately not
+  ;; Both sides assert at the entry point's own class, because the class is deliberately not
   ;; inherited across a round trip (`a-re-assert-never-downgrades-a-premises-class`) and
   ;; a comparison against a `:monotonic` original would be reading that decision as a bug.
   (let [edge    #(v/assert % '(genl cfdog_t cfmammal_t) 'CxUniverse)
@@ -927,7 +1030,7 @@
         once    (one-outcome! "the edge asserted once" [edge member rule] observe)
         round   (one-outcome-under! "the edge round-tripped"
                                     [[edge drop-it edge] [member] [rule]] observe)]
-    (testing "the edge is load-bearing, so the comparison is not vacuous"
+    (testing "the edge is required, so the comparison is not vacuous"
       (is (true? (:genl once)))
       (is (contains? (:specs once) 'cfdog_t) "the closure fans the subtype in")
       (is (contains? (set (map :sentence (:records once))) '(cf_breathes CfRex))
@@ -1006,7 +1109,7 @@
 
 (deftest a-firing-that-sees-across-a-context-edge-is-order-independent
   ;; The same claim for the other closure, and the same gap.  Matching fans an
-  ;; antecedent up the *visibility* cone, so a `genlCx` edge changes which facts a
+  ;; antecedent up the *visibility* ancestor set, so a `genlCx` edge changes which facts a
   ;; stored rule can see — and the arriving datum is again the edge, so firing the rules
   ;; keyed on `genlCx` is not the same thing as re-joining the rules the edge just
   ;; gave a wider view.  Without `special/visibility-seeds` these four sentences derive
@@ -1062,7 +1165,7 @@
   ;; the other direction of the same edge, and the one that survives a fix taking only
   ;; the first: a rule stated *above* applies in every context that sees it, so wiring a
   ;; new context under it hands the rule that context's own facts and places
-  ;; the conclusion there.  Seeding is by fact, so it has to reach both cones.
+  ;; the conclusion there.  Seeding is by fact, so it has to reach both ancestor sets.
   (let [ops [#(v/assert % '(genlCx CxXMid CxUniverse) 'CxUniverse)
              #(v/assert % '(genlCx CxXLow CxXMid) 'CxUniverse)
              #(v/assert % '(x_fact_p XB) 'CxXLow)
@@ -1077,7 +1180,7 @@
 
 (defn- merged-spelling-observe
   "The reading a merge-across-a-context-edge scenario is judged by: the sentences the
-  KB actually answers with on `pred`, both spellings asked at the backward door, and
+  KB actually answers with on `pred`, both spellings asked at the backward entry point, and
   the partition itself.
 
   All three are needed and none of them alone is.  A sentex whose spelling a merge
@@ -1094,7 +1197,7 @@
 
 (deftest a-merge-above-a-context-edge-restates-the-facts-it-newly-reaches
   ;; An equality applies where it is **visible**, so which sentexes it restates is as
-  ;; much a question about the genlCx cone as about the closure — and the arriving datum
+  ;; much a question about the genlCx ancestor set as about the closure — and the arriving datum
   ;; is again the edge.  `(equals MTom MThomas)` in `CxMUp` cannot displace
   ;; `(m_fact_p MTom)` in `CxMLow` until `(genlCx CxMLow CxMUp)` says `CxMLow` can see it —
   ;; so without `special/migrate-under-context-edge` the two orderings that wire the
@@ -1134,7 +1237,7 @@
 ;;
 ;; The two tests above cover an `equals` that is already stored becoming newly visible.
 ;; These cover the sharper gap `special/equate-under-context-edge` closes: no `equals`
-;; exists anywhere until the widened cone makes two `functional` (or `anti_symmetric`)
+;; exists anywhere until the widened ancestor set makes two `functional` (or `anti_symmetric`)
 ;; fillers jointly visible for the first time — the mark, the two fillers and the
 ;; `genlCx` edge are the fourth arrival order of one merge, matching the three
 ;; `derive-functional-equalities` / `equate-existing` / `equate-under-edge` already own.
@@ -1189,7 +1292,7 @@
 (deftest an-antisymmetric-mark-derives-when-a-context-edge-arrives-last
   ;; The antisymmetric twin, over a converse pair instead of two fillers of one argument
   ;; — `relation_properties_test/an-antisymmetric-converse-derives-an-equality` is the
-  ;; same clash in one context; this is that clash split across the widened cone.  Same
+  ;; same clash in one context; this is that clash split across the widened ancestor set.  Same
   ;; scoping as the functional test above and for the identical reason: the converse in
   ;; the wider context (`CxAuUp`) arriving dead last hits the same pre-existing
   ;; fact-arrival gap, unrelated to this arm's own trigger.
@@ -1215,7 +1318,7 @@
   ;; that made the cut depend on handle-assignment order: the same three facts and two
   ;; edges, asserted in a different order, merged in one ordering and not another --
   ;; an outright order-independence violation, not only a completeness gap.  The fix
-  ;; (`context-edge-reader-cone`) scopes the walk to what the edge itself connects, so
+  ;; (`context-edge-reader-ancestors`) scopes the walk to what the edge itself connects, so
   ;; an unrelated marked predicate's own noise -- however much of it, and whichever
   ;; side of the merge's own ops it lands on -- must never change whether this merge
   ;; completes.  The budget is bound well below the noise's size so an unscoped walk
@@ -1390,7 +1493,7 @@
   ;; The super-predicate carries facts of its own beside the sub's, which is the
   ;; arrangement a real hierarchy is in and the one that makes the conclusion **set** the
   ;; claim rather than its count: a mirror taken where the pair does not call for one, or
-  ;; a super-predicate fact read as though it were symmetric, both read as an extra
+  ;; a super-predicate fact give the impression that it were symmetric, both read as an extra
   ;; conclusion rather than as nothing at all.  They arrive with the sub's fact as one op
   ;; — what the orderings are about is where the *declaration*, the edge and the rule fall
   ;; against the facts, not how the facts fall against each other.
@@ -1465,7 +1568,7 @@
   ;; `(gkinOf ?a ?b)` is the cheapest literal and leads — and a lead-position match is the
   ;; one place a symmetric fact's mirror was dropped, because both retrieval paths deduped
   ;; the mirror probe by **handle**: an all-variable pattern binds one stored fact twice
-  ;; and differently, and the second binding was read as a repeat of the first.
+  ;; and differently, and the second binding was are indistinguishable from a repeat of the first.
   ;;
   ;; It failed forward *and* backward, which is what says the defect was in the matcher
   ;; rather than in chaining: 48 of these 120 orderings derived nothing, and `prove` of

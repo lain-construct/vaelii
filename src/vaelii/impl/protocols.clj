@@ -7,7 +7,7 @@
   against a concrete backend.
 
   **Declarations only, no code.**  The fallbacks that go with the optional capabilities
-  — `count-sentexes`, `sentex-sink`, `hinting` and the rest — are next door in
+  — `count-sentexes`, `sentex-sink`, `hinting` and the rest — are in the adjacent namespace in
   `vaelii.impl.capabilities`, because `IndexStore` below is large enough that
   re-evaluating the form (as cloverage does, form by form, to instrument a namespace)
   overflows the JVM's 64 KB per-method bytecode limit.  This namespace is therefore
@@ -96,7 +96,7 @@
   `(count (sentex-ids store))` is how the engine asks *how many records is this*, and
   `(first (sentex-ids store))` is how it asks *is this store empty* — `open-kb` asks both
   before the KB has answered anything, and `import` asks the first again to report what it
-  loaded.  On a store whose enumeration is a read of its own state those cost nothing.  On
+  loaded.  On a store whose enumeration is a read of its own state those added no work.  On
   one whose enumeration is a **query** they cost the whole table: every handle over the
   wire and a roster built out of it, to answer with one number.
 
@@ -105,7 +105,7 @@
   and so read identically on a store that does not.
 
   There is no premise tally and no sentex-by-sentex sampling here: only the questions the
-  engine asks are on the seam, so an implementer knows every one of them is worth a
+  engine asks are on the protocol, so an implementer knows every one of them is worth a
   statement."
   (sentex-tally [store]
     "How many live sentexes, without building the roster.")
@@ -146,7 +146,7 @@
   and one whose `put-sentex` is already a map assoc does not — in which case a bulk
   loader runs `loop-sink`'s put-per-record loop and pays nothing for the capability.
 
-  The seam is a **sink and not a batched put**, and the difference is the handle.  A
+  The `RecordSink` protocol is a **sink and not a batched put**, and the difference is the handle.  A
   batched put returning handles makes its caller wait for a batch to land before it can do
   anything with any of it, and the import path's whole shape is that it indexes each
   record from the copy already in hand rather than reading it back (`import`'s
@@ -231,7 +231,7 @@
   ;; them.  The **fork decorator is the exception, and knowingly**: a key the fork has
   ;; written under is no longer inherited, so its count is `(count merged-members)` and
   ;; the base's set is materialized after all (docs/overlay.md).  A fork trades this op
-  ;; for the seam, on the nodes it writes.
+  ;; for the protocol, on the nodes it writes.
   (count-children [store prefix]   "How many child tokens sit under an interior prefix.")
   ;; secondary roots — the trie is ordered [pred args… ctx], so it can only narrow
   ;; left-to-right.  These give extent *and* cardinality from the other directions —

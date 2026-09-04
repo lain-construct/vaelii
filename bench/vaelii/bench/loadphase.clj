@@ -8,7 +8,7 @@
   one deferred settle.  What is left is the write path itself, and nothing said which
   part of it costs what.  This is the instrument that says.
 
-  **Method: a cumulative peel.**  The same corpus is loaded through the same door
+  **Method: a cumulative peel.**  The same corpus is loaded through the same entry point
   repeatedly, each run with one more phase stubbed out, from the outside in.  The
   difference between two consecutive runs is that phase's cost, and the deltas sum to
   the baseline by construction — so there is no unattributed residue to argue about.
@@ -19,11 +19,11 @@
   Every stub is a `with-redefs-fn` of a var the load path calls, so the un-stubbed
   phases run their real code — this measures the engine, not a model of it.  A peeled
   run stores less than a real one, which is the point; `verify!` is the run that checks
-  the unpeeled door still holds its contract on the same corpus.
+  the unpeeled entry point still holds its contract on the same corpus.
 
   **The index sub-split** is the measurement the count-maintenance suspect stands or
   falls on.  The trie counter at every prefix is a write per level per fact, and the
-  only honest way to price it is to make it free: a `KvBackend` decorator drops the
+  only defensible way to price it is to make it free: a `KvBackend` decorator drops the
   `:increment` ops out of every batch and leaves the rest alone.  A second decorator
   drops the whole batch, which prices the key-stream computation against the backend
   apply.  Both keep `index-sentex` running its real code.
@@ -151,7 +151,7 @@
    "special-predicate suite + violations"
    "JTMS node + premise mark"
    "P/¬P coincidence set"
-   "observation seams"
+   "observation call sites"
    "index write (key streams + backend)"
    "record store write"
    "canonicalization"

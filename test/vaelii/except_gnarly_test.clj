@@ -87,7 +87,7 @@
   ;; P and Q are each hidden at the base. CxLeft restores only P; CxRight restores
   ;; only Q. A static closure per context cannot answer this correctly: CxBottom may
   ;; prove the conjunction's consequence only while it inherits both restoration
-  ;; cones at once, and loses it again when either inheritance edge is withdrawn.
+  ;; ancestor sets at once, and loses it again when either inheritance edge is withdrawn.
   (tu/with-terms [p q r Item CxBase CxLeft CxRight CxBottom]
     (doseq [[sub super] [[CxBase 'CxWell]
                          [CxLeft CxBase]
@@ -186,7 +186,7 @@
 
 (tu/deftest-kb except-genlCx-link
   ;; A genlCx declaration is forced into CxUniverse, but its effect can be excepted
-  ;; from a concrete reader.  From that reader's cone it behaves as if retracted;
+  ;; from a concrete reader.  From that reader's ancestor set it behaves as if retracted;
   ;; an ancestor that cannot see the exception keeps the edge.  The ordinary genl
   ;; test below pins the degenerate declaration-and-except-in-one-context case.
   (tu/with-terms [shiny gold CxChild CxParent]

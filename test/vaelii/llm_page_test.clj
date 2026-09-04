@@ -153,7 +153,7 @@
   ;; the fact scan is the only tier that reads facts, so a predicate used with the term and
   ;; never declared is on the card because that scan reached it — and off the card
   ;; altogether when it did not, since no later tier looks for it.  A cut nobody is shown
-  ;; reads as the whole of the vocabulary.
+  ;; is indistinguishable from the whole of the vocabulary.
   (let [{:keys [ctx]} (world kb)]
     (tu/with-terms [Tux fedBy]
       (doseq [w (repeatedly 5 #(tu/fresh-term :individual :Who))]
@@ -332,7 +332,7 @@
               "the six recorded first, read out in content order"))))))
 
 (tu/deftest-kb a-page-shown-a-sample-is-told-it-is-one
-  ;; a bare count of what is on screen reads as the whole of what is stored, and the same
+  ;; a bare count of what is on screen is indistinguishable from the whole of what is stored, and the same
   ;; prompt asks the model not to repeat anything already there
   (let [{:keys [penguin likes ctx]} (world kb)]
     (doseq [s (mapv #(list likes % penguin)

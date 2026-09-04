@@ -69,7 +69,7 @@ namespace choice, and the orphan sweep below).
 
 The context slot is *not* on the sentence-reify walk — it is a separate argument to
 `assert` — so `maybe-reify-context` reifies it explicitly: on the write path (`assert`,
-minting) and on every read door (`ist-goal`, dedup-only, never minting). A query scoped to
+minting) and on every read entry point (`ist-goal`, dedup-only, never minting). A query scoped to
 `(CxTimeFn …)` therefore resolves to the same `cx/` constant the write minted and meets the
 facts stored there; a never-seen NAT context resolves to the `no-match` sentinel and the
 read is scoped to nothing, answering empty rather than minting a context to ask about.
@@ -99,6 +99,23 @@ Justified is the whole point: the edge belief-follows for free. Retract a contex
 and the ordinary JTMS relabel withdraws the edge and `sees?` flips. Nothing hunts it down,
 and the taxonomy's depth/SCC potential and witness support are the derivation path's, not a
 second mechanism ([contexts.md](contexts.md), the consumers).
+
+**A computed edge widens what a merge can see, exactly as a stated one does.** A `genlCx`
+edge is not only a visibility fact: it decides which sentexes an equality restates and
+which pairs a `functional` / `functionalInArg` / `anti_symmetric` mark can reconcile
+([equality.md](equality.md), the third and fourth arrival orders). Those three
+reconcilers were written out at the assert entry point and at the rule-conclusion entry point and at no
+third one, so a calendar edge posted the re-check triggers and ran no merge at all —
+whether two fillers of one functional slot merged came down to whether the year's fact was
+written before January existed (vaelii#56). The producer calls
+`special/reconcile-context-edge`, the one entry point all three paths share, on the
+**transition into belief**: after the justification, because the sweeps read the
+belief-filtered closure and a line earlier the edge supports nothing, and only on the
+transition, because this producer is idempotent and re-runs over every context of a
+declared function — an edge owes exactly one sweep in its life, and a second route to one
+already believed widens no ancestor set and owes none. What it merges is carried back out to
+`assert`, which gives it the same follow-through an asserted edge's merges get: the
+retired spellings reconciled, the twins chained, the violations reported, one settle.
 
 **Every arrival order converges.** Three things can arrive last, and each has an arm. A
 declaration arriving after the contexts sweeps them (`reconcile-function`); a context
@@ -171,7 +188,7 @@ constructor: see [What this does not cover](#what-this-does-not-cover).
 
 A context NAT is collected at the gate an object NAT is ([nat.md](nat.md), "Rename and
 remove") — `remove-orphaned-nats!` on the `retract!` / `edit!` sweep, over the region the
-teardown removed. What differs is the liveness question, because a `cx/` constant is
+teardown removed. The liveness question is what differs, because a `cx/` constant is
 somewhere sentexes *are* as well as something sentences name. It is orphaned when all
 three of these are empty:
 
@@ -221,7 +238,7 @@ the free in-memory reifiable gate, which a context function turns on.
 
 Nothing here can reach a context that is not a `cx/` constant. The three **query contexts**
 ([contexts.md](contexts.md)) are `Cx…` names for a way of reading, refused at every write
-door and never minted, so no `termOfUnit` maps one and the candidate set cannot hold one —
+entry point and never minted, so no `termOfUnit` maps one and the candidate set cannot hold one —
 a query holding one holds a symbol the sweep cannot name. An **agent or channel** context
 ([koinii.md](koinii.md)) is a `Cx…` name computed from an id, in the same position. In a
 **fork** the sweep runs through the ordinary `retract!`, which tombstones an inherited
@@ -235,7 +252,7 @@ was collected: the mint's dedup probe reads the `termOfUnit` map, the map is gon
 fresh constant is minted and every later occurrence of the expression finds that one. The
 KB that results is indistinguishable from one the sweep never touched — one constant per
 expression, the same computed edges, the same answers through the compound context at
-every read door.
+every read entry point.
 
 The `cx/` **symbol** and the **handle** are not part of that, and nothing may read them as
 though they were. A reified constant is opaque and minted per KB, handles are allocated in
@@ -269,7 +286,7 @@ which is the only spelling the map is keyed by.
   question's context arm — `orphan?`'s extent gate, `computed-genlCx-edge?` (the
   authorship test), and `constants-named-by`'s reading of a removed sentex's context slot.
 - `vaelii.impl.naming` — `context?` (the `cx/` namespace).
-- `vaelii.core` — the context-arg reify in `assert` and the read doors (`ist-goal`), the
+- `vaelii.core` — the context-arg reify in `assert` and the read entry points (`ist-goal`), the
   context-slot shape gate (`context-shape-problem`), the producer maintenance hook, its
   revival re-run on `retract!` / `edit!` (`context-nat/reconcile-revivals`), and
   `remove-orphaned-nats!`, which collects both kinds of constant at one gate.

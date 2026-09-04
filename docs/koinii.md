@@ -28,7 +28,7 @@ It is an **application, not part of the engine**, and the tree says so: koinii l
 `vaelii.impl` — every module is built on the public core API and the thin `vaelii.client`,
 exactly as an outside consumer would be (`public_api_test/koinii-reaches-into-no-impl`
 checks it). That is also why it is out of the engine's pinned rosters (the API golden, the
-SPI seams, the refusal-type roster): koinii's own development would otherwise churn the
+SPI protocols, the refusal-type roster): koinii's own development would otherwise churn the
 engine's compatibility contract. When koinii needs something the API does not publish, the
 answer is to publish it — `sort-by-content` is here for that reason — never to reach past
 it.
@@ -64,7 +64,7 @@ one.
   still online. Decoupled in time by construction: history that predates a subscription is
   recovered by *reading*, not by replay.
 
-The consequence worth stating plainly: **the conversation is in the graph, not in the
+The consequence, stated plainly: **the conversation is in the graph, not in the
 client.** Who spoke is the sentex's own context and `:creator`; what was said is its
 sentence. A client holds no conversation state a fresh reader could not reconstruct from the
 KB.
@@ -106,7 +106,7 @@ either medium. Only `subscribe` differs, because only the feed does.
 is mandatory, and the reason is exactly the writer's thread above: separate processes cannot
 share an in-process callback, and even if they could, one slow agent stalling the single
 writer is a failure the whole deployment feels. The single-writer daemon plus the wire feed
-is the shape that scales to N independent agents; the in-process medium is the shape that
+is the structure that scales to N independent agents; the in-process medium is the structure that
 keeps a single-process demo simple. Neither is a lesser version of the other — they are the
 two honest answers to "is this one process or many," and the `Medium` protocol is the one
 surface that lets everything else not care.
@@ -123,7 +123,7 @@ admin-only registry `CxRegistry`: the governed may not write the authority that 
 
 The boundary is checked at **both ends of the edge**. An agent's writes land in its own
 context; a *join* grafts that context under a coordination channel, which widens what the
-**parent** sees — every cone read of the parent returns the newcomer's claims from then on —
+**parent** sees — every ancestor set read of the parent returns the newcomer's claims from then on —
 so the parent is held to the same standard the destination is. The registry, the agent's own
 context, and any context already placed as an agent's own are refused
 (`:koinii/not-a-channel`). A placed context **says so in the KB**: `(agentContext CxAtlas
@@ -133,13 +133,13 @@ placed. It has to be written rather than inferred, because neither the spelling 
 lattice distinguishes the two — `CxAtlas` and `CxDeploy` are spelled alike, and a placement's
 `genlCx` edges are the ordinary wiring of any nested context, so reading the role off them
 would make admission depend on what else had landed and in which order. A context nothing has
-claimed is admissible: the door refuses what a placement told it, not what it could guess.
+claimed is admissible: the entry point refuses what a placement told it, not what it could guess.
 
 The **stamp** is fixed by the same id, and refused rather than bent: `channel/assert` stamps
 `:creator` the agent the handle names, and a caller passing a *different* `:creator` is
 refused (`:koinii/creator-mismatch`). Neither silent outcome is honest — honouring it lets an
 agent sign another's name, dropping it leaves a call that looks like it took — and ownership
-is load-bearing downstream, since `belief/disregard` will only withdraw a statement whose
+is required downstream, since `belief/disregard` will only withdraw a statement whose
 creator is the withdrawing agent. Passing the agent's own id is redundant and allowed.
 
 The auth **strength** is conditional on policy (decision D4):
@@ -150,7 +150,7 @@ The auth **strength** is conditional on policy (decision D4):
   proof, so it defends fat-fingers, not attackers.
 - **Proof-tier** — required the moment trust-resolve is enabled, because trust-weighting a
   spoofable identity is worse than no trust. `authenticate` verifies a credential through the
-  `verify-fn` seam (sign-at-ingest, an authenticating proxy, A2A AgentCards / DIDs) and
+  `verify-fn` extension point (sign-at-ingest, an authenticating proxy, A2A AgentCards / DIDs) and
   **refuses** an unverified request; a nil verifier fails *closed*.
 
 The registry itself carries three facts per agent — a membership mark (`agent`), a display
@@ -221,7 +221,7 @@ that is *resolved*, not disputed. Two error classes are kept distinct and never 
 
 The engine represents contradiction but answers it only whole-KB; koinii adds the
 **per-channel** view — "is there an open dispute *here*?" A dispute is observed by a context
-exactly where it can read **both** clashing sides, up the `genlCx` cone. So a clash between
+exactly where it can read **both** clashing sides, up the `genlCx` ancestor set. So a clash between
 Atlas's `P` and Boreas's `¬P` surfaces in the channel that sees both agent contexts and *not*
 in a sibling that sees only one — from a one-sided vantage there is no clash to see. The hot
 path (`disputed?` on a named sentence) is a scoped `argue`, which never computes whole-KB
@@ -292,11 +292,11 @@ disagreements by weighing spoofable identities.
 An open dispute does **not** block dependent reasoning — the KB keeps deriving and both sides
 stay believed. But a conclusion resting on a contested premise should be *visible as such*:
 `contested-premises` / `rests-on-contested?` are pure reads that surface the risk without
-hiding anything. Both resolve the conclusion **up the `genlCx` cone**, the scoping the
+hiding anything. Both resolve the conclusion **up the `genlCx` ancestor set**, the scoping the
 dispute reads and `ask?` already use: a channel's answer is usually placed in the agent
 context that holds its premises rather than in the channel, so a flag keyed on the reading
 context's own store would call a conclusion built on a disputed claim uncontested. Where
-several contexts in the cone hold the conclusion their support closures are unioned — a
+several contexts in the ancestor set hold the conclusion their support closures are unioned — a
 reader is trusting whichever derivation answered — and only believed ones count, since a
 defeated sentex holds up no answer. `contested-premises` reports its handles in **content
 order**: the support
@@ -350,7 +350,7 @@ The cursor an agent keeps ("the last feed position I processed") is deliberately
 (decision D7). A cursor in a KB context would be self-describing, but it would write to the
 shared truth on every poll — turning a read loop into a *write* loop through the single writer.
 A deployment backs the `CursorStore` with a file, a KV row, or the agent's own store; the
-in-memory atom is the default and the test seam.
+in-memory atom is the default, and the tests use it.
 
 Catch-up is **wire-only**: the ring, the cursor, and lag exist on the wire feed. An in-process
 medium has no ring to fall off, so a single-process agent needs none of this and the
@@ -441,7 +441,7 @@ Five ideas, each grounded on a primitive that ships:
   say different things about the peer: one is out of sync and the next pull fixes it, the
   other is sending garbage. Sentence grammar stays the engine's: the resolver asks
   `handle-of` and translates its typed refusal rather than keeping a copy of the grammar
-  that would drift from the door that decides.
+  that would drift from the entry point that decides.
 
 ## Design decisions
 
@@ -465,7 +465,7 @@ adding one, or to keep an honest limit over a convenient fiction.
 loads any of them, and none of them requires anything under `vaelii.impl`.
 
 - `vaelii.koinii.identity` — per-agent contexts, the write boundary, the admin registry,
-  the `authenticate` seam. KB: `resources/kb/koinii/CxRegistry.txt`.
+  the `authenticate` extension point. KB: `resources/kb/koinii/CxRegistry.txt`.
 - `vaelii.koinii.speech-acts` — the `CxSpeechActs` vocabulary and the origination /
   response acts. KB: `resources/kb/koinii/CxSpeechActs.txt`.
 - `vaelii.koinii.channel` — the coordination library: the `Medium` protocol (`wire` /

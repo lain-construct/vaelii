@@ -13,7 +13,7 @@
     the firing is swept, and the predicate fan never matches a rule sentence — so
     without the rule arm nothing re-derives what the except was hiding.
   * **Backward chaining.**  `provers/candidate-rules` drops a rule the visibility
-    hidden set hides from the asking context, so a goal in the cone cannot rebuild
+    hidden set hides from the asking context, so a goal in the ancestor set cannot rebuild
     through a hidden rule what forward chaining sweeps.
 
   Each test pins one arm: the sweep of an existing firing, the block of a late one,
@@ -46,21 +46,21 @@
       (testing "the rule fired before the except arrived"
         (is (seq (v/sentexes-matching kb (list flies Tweety) CxBird))))
       (v/assert kb (list 'except (sx/sentex-handle rh)) CxBird)
-      (testing "a conclusion resting on a rule the cone cannot see is swept"
+      (testing "a conclusion resting on a rule the ancestor set cannot see is swept"
         (is (empty? (v/sentexes-matching kb (list flies Tweety) CxBird))))
       (testing "and the backward chainer does not rebuild it through the hidden rule"
         (is (empty? (v/query kb (list flies Tweety) CxBird {:max-depth 2})))))))
 
 ;; ---- 2. blocking ---------------------------------------------------------
 ;; The placement-side twin: a firing that arrives after the except is never placed in
-;; the cone, for a hidden rule exactly as for a hidden antecedent.
+;; the ancestor set, for a hidden rule exactly as for a hidden antecedent.
 
 (tu/deftest-kb a-fact-arriving-after-the-rule-was-excepted-concludes-nothing
   (tu/with-terms [bird flies Opus CxBird]
     (let [rh (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) CxBird)]
       (v/assert kb (list 'except (sx/sentex-handle rh)) CxBird)
       (v/assert kb (list bird Opus) CxBird)
-      (testing "the hidden rule does not fire into the cone"
+      (testing "the hidden rule does not fire into the ancestor set"
         (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird)))))))
 
 ;; ---- 3. revival ----------------------------------------------------------

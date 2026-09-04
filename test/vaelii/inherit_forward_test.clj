@@ -7,7 +7,7 @@
   `(largerThan chihuahua maine_coon)`, and a rule over `largerThan` has to fire on it —
   or `sentexes-matching` reads one answer out of the fixpoint while `ask` re-derives
   another through `TransitiveInArgProver`, which is the same knowledge giving two answers
-  depending on which door the reader came in.
+  depending on which entry point the reader came in.
 
   What makes that possible is that an inherited claim, while it is not stored, was
   *read from* things that are: the claim that was stated, the declaration licensing the
@@ -50,7 +50,7 @@
 
 ;; ---- the disagreement itself ---------------------------------------------
 
-(tu/deftest-kb the-two-doors-give-the-same-answer
+(tu/deftest-kb the-two-entry-points-give-the-same-answer
   (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t
                   largerThan outweighs]
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
@@ -170,7 +170,7 @@
       (testing "the general claim stops firing for that pair, and nothing was retracted"
         (is (not (holds? kb (list outweighs chihuahua_t maine_coon_t))))
         (is (not (v/ask? kb (list outweighs chihuahua_t maine_coon_t) ctx))
-            "and the two doors still agree")
+            "and the two entry points still agree")
         (is (v/in? kb (v/handle-of kb (list typicallyLargerThan dog_t cat_t) ctx))
             "the general claim is undercut for one pair, not defeated"))
       (testing "the pairs it says nothing about are untouched"
@@ -250,7 +250,7 @@
         (is (= 9 (count (v/sentexes-matching kb (list outweighs '?x '?y) ctx))))))))
 
 (tu/deftest-kb a-declaration-derived-through-an-ist-consequent-invalidates-the-cache-too
-  ;; The same hole as the test above, reached through the `ist` door: a rule concluding
+  ;; The same hole as the test above, reached through the `ist` entry point: a rule concluding
   ;; `(ist Cx (transitiveInArg …))` places the declaration exactly as a bare consequent
   ;; does — `place-conseq` unwraps the frame — so the run's cached "no declarations
   ;; exist" has to be forgotten on the **placed** form and not on the functor the join
@@ -298,7 +298,7 @@
 (tu/deftest-kb a-context-argument-carries-a-firing-down-the-lattice
   ;; The relation can be the context hierarchy: preserved along `genlCx`, a claim
   ;; naming a wide context fires for the contexts below it, off the same cached closure
-  ;; the backward door walks (`inherit_test`).
+  ;; the backward entry point walks (`inherit_test`).
   (tu/with-terms [appliesIn noticed TheDecree CxWide CxNarrow]
     (v/with-deferred-settle kb
       (v/assert kb (list 'genlCx CxWide ctx) ctx)
@@ -306,13 +306,13 @@
       (v/assert kb (list 'transitiveInArg appliesIn 2 'genlCx) ctx))
     (v/assert kb (list appliesIn TheDecree CxWide) ctx)
     (v/assert kb (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c)) ctx)
-    (testing "the subcontext, by inheritance — and both doors agree on it"
+    (testing "the subcontext, by inheritance — and both entry points agree on it"
       (is (holds? kb (list noticed CxNarrow)))
       (is (v/ask? kb (list noticed CxNarrow) ctx)))
     (testing "the stated one, by the ordinary matcher"
       (is (holds? kb (list noticed CxWide)))
       (is (v/ask? kb (list noticed CxWide) ctx)))
-    (testing "and nothing upward, through either door"
+    (testing "and nothing upward, through either entry point"
       (is (not (holds? kb (list noticed ctx))))
       (is (not (v/ask? kb (list noticed ctx) ctx))))
     (testing "the firing rests on the edge it travelled"
@@ -323,12 +323,12 @@
       (is (holds? kb (list noticed CxNarrow))
           "and the edge arriving last reconnects and re-fires it"))))
 
-(tu/deftest-kb a-defeated-witness-with-a-surviving-route-keeps-the-doors-agreeing
+(tu/deftest-kb a-defeated-witness-with-a-surviving-route-keeps-the-entry-points-agreeing
   ;; `support-for` names one witness — a shortest path — and arbitration can defeat
   ;; that witness with no sentence arriving or leaving: the denial lands where it sees
   ;; nothing, and a lattice edge arriving later exposes the pair.  The firing has to
   ;; re-derive through the route the named witness did not travel, in the very settle
-  ;; that defeated it, or the fixpoint holds less than the backward door still proves.
+  ;; that defeated it, or the fixpoint holds less than the backward entry point still proves.
   (tu/with-terms [dog_t mid_t chi_t cat_t largerThan noted CxA CxB]
     (v/with-deferred-settle kb
       (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
@@ -351,7 +351,7 @@
                 surviving route in the settle that defeated its witness"
         (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse)
         (is (v/ask? kb (list largerThan chi_t cat_t) 'CxUniverse)
-            "the backward door still proves the claim through the long route")
+            "the backward entry point still proves the claim through the long route")
         (is (seq (v/sentexes-matching kb goal 'CxUniverse))
             "and the fixpoint holds it again, homed where the long route is visible")
         (is (v/ask? kb goal 'CxUniverse))
@@ -359,7 +359,7 @@
 
 (tu/deftest-kb the-mirror-licenses-a-firing-in-either-order
   ;; A symmetric predicate's stored claim states both orientations, so the mirror
-  ;; orientation licenses inheritance like the stored one — through the forward door as
+  ;; orientation licenses inheritance like the stored one — through the forward entry point as
   ;; much as the backward, whichever of the claim and the symmetry arrived first.  The
   ;; firing names the symmetric declaration it was read through, so withdrawing the
   ;; symmetry withdraws exactly what only the mirror licensed.
@@ -377,7 +377,7 @@
                      (list 'implies (list nearTo '?x '?y) (list seen '?x '?y))
                      (list 'symmetric nearTo)])]
           (v/assert kb s ctx))
-        (testing "the tuple only the mirror licenses, through both doors"
+        (testing "the tuple only the mirror licenses, through both entry points"
           (is (v/ask? kb (list nearTo chihuahua_t cat_t) ctx))
           (is (holds? kb (list seen chihuahua_t cat_t)))
           (is (v/ask? kb (list seen chihuahua_t cat_t) ctx)))
@@ -400,7 +400,7 @@
   ;; The JTMS half of `retracting-any-reason-withdraws-the-conclusion`: belief loss
   ;; without retraction.  Each reason in turn is defeated by a known-true contrary and
   ;; revived by that contrary's retraction, and the firing follows it out and back
-  ;; through both doors.
+  ;; through both entry points.
   (tu/with-terms [dog_t cat_t chihuahua_t maine_coon_t largerThan outweighs]
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl chihuahua_t dog_t) ctx)

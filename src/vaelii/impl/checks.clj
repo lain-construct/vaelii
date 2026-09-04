@@ -114,7 +114,7 @@
   not be more conservative, only wrong in one direction: `args-quoted-problem` read
   `value-kind` alone and so convicted **every** integer of failing
   `(quotedArg P n positive_integer)`, the declared type being *below* the kind rather
-  than above it (#55).  One reader, both doors."
+  than above it (#55).  One reader, both entry points."
   [x]
   (if (integer? x)
     (cond
@@ -139,6 +139,16 @@
     genlArg     (genlArg ?n ?type)
     quotedArg   (quotedArg ?n ?type)
     interArg (interArg ?n ?type ?m ?utype)})
+
+(def constraint-declaration-functors
+  "The argument constraints this namespace reads at the entry point, as a set — `declaration-
+  queries`' keys.
+
+  Public because it is one of the rosters that reads the `:argument-constraint` family
+  **as a family**, and `predicates/check-facets` holds those to enumerating exactly it.
+  A spelling in the family and not here is one the entry point cannot query for and so never
+  convicts; a spelling here and not in the family is one nothing declares."
+  (set (keys declaration-queries)))
 
 (defn- declaration-reader
   "A `kind -> [[handle bindings sentex] …]` reader for the argument constraints binding
@@ -194,13 +204,13 @@
 
   Public and spelled once, because a binding is described in more than one place and a
   reader carries the vocabulary from one description to the next.  Both of this
-  namespace's doors word it — a wrong-length sentence (`arity-problem`) and a declaration
+  namespace's entry points word it — a wrong-length sentence (`arity-problem`) and a declaration
   naming a position the length denies (`arg-position-problem`) — and
   `settle/report-arity-reach!` words the same binding for the facts one arriving late
   convicts.  \"is declared with\" is false of a predicate that declared nothing and took
   its length off a super, so the split is a claim about the KB rather than a phrasing: a
   reader told it goes looking for a declaration nobody wrote, and one binding wearing two
-  descriptions reads as two problems.  `door_and_report_test` is the roster that holds
+  descriptions reads as two problems.  `entry_point_and_report_test` is the roster that holds
   every reader's message to this clause."
   [pred via n]
   (str (if (= via pred) "is declared with " "takes ")
@@ -465,7 +475,7 @@
   but an **individual** can never acquire them (`wff/genl-problems` refuses `genl` of
   one), so a type-level position holding one is convicted rather than excused.  The
   test is \"outside the hierarchy *and* individual\", not \"individual\", because a
-  reified NAT reads as an individual by spelling and is minted with real `genl` edges from
+  reified NAT is indistinguishable from an individual by spelling and is minted with real `genl` edges from
   its `genlResult` declarations — one that reaches `thing` is judged like any type.
 
   **A deliberate global/scoped split inside one `cond`.**  The first floor asks what
@@ -638,7 +648,7 @@
   has an arity: a ternary `fatherOf` fact is a ternary `parentOf` tuple, which
   `(binary_predicate parentOf)` says does not exist.  So a sub-predicate the KB has said
   nothing about is held to what the predicates above it declare — the cheapest and least
-  contestable member of the descension family, since it convicts on the shape of the
+  contestable member of the descension family, since it convicts on the structure of the
   tuple rather than on anything the arguments happen to be.
 
   **Read only when `pred` declares nothing itself**, and that restriction is the whole of
@@ -731,7 +741,7 @@
 
   So **both** arms are content-ordered, exact matches first because the direct statement
   is the one the caller asked about.  The order key is the sentence *and its context*:
-  `res/matches-visible` fans over the whole `genlCx` cone, so one sentence stated in
+  `res/matches-visible` fans over the whole `genlCx` ancestor set, so one sentence stated in
   two visible contexts comes back as two exact matches, and a key on the sentence alone
   ties them — leaving the pick to enumeration order in precisely the arm that exists to
   take it away.  Never the handle, which is allocation order: two KBs given one op stream
@@ -842,7 +852,7 @@
 ;; **A specialization does not carry its own signature.**  A signature on the sub that
 ;; disagrees with the super is not a narrowing, it is a contradiction: `(genl fatherOf
 ;; parentOf)` beside `(binary_predicate parentOf)` and `(ternary_predicate fatherOf)` admits
-;; a ternary `fatherOf` fact that answers a `(parentOf ?a ?b ?c)` query the door refuses.
+;; a ternary `fatherOf` fact that answers a `(parentOf ?a ?b ?c)` query the entry point refuses.
 ;; Refusing the pair is also what keeps the arity *table* single-valued, which `(functional
 ;; arity)` needs: a conflicting declaration never lands, so no predicate has two lengths to
 ;; answer with and no two genl-related predicates disagree about one either.
@@ -851,7 +861,7 @@
 ;; arrives onto two declared predicates, the declaration when it arrives onto a predicate
 ;; a visible edge already relates to a differently declared one.  So the KB never enters
 ;; the inconsistent state, and which sentence is refused is the ordinary first-writer-wins
-;; every door refusal already has.
+;; every entry point refusal already has.
 ;;
 ;; **Through the closures on both sides**, because a predicate declaring nothing itself is
 ;; not a predicate binding nothing: it takes its supers' length (`inherited-arity`), and an
@@ -953,7 +963,7 @@
   between two declared ones hides the pair from a reader of the two endpoints' own
   declarations: `(genl fatherOf parentOf)` onto a binary `parentOf` and `(genl grandOf
   fatherOf)` from a ternary `grandOf` each stop on the side `fatherOf` says nothing about,
-  and the KB is left answering `(parentOf ?a ?b ?c)` with a tuple the door refuses — the
+  and the KB is left answering `(parentOf ?a ?b ?c)` with a tuple the entry point refuses — the
   state the comment above says this arm exists to prevent, reachable in 14 of the 24 orders
   those four sentences arrive in.  So the end that declares nothing is read through the
   closures instead, `inherited-arity` for a length above it and `descended-arity` for one
@@ -963,7 +973,7 @@
   the whole of what keeps this affordable.  A `genl` edge is the commonest vocabulary
   write there is, most of them run between collections, and neither end of those declares
   an arity — so the walk is skipped before it starts and the ordinary edge pays exactly
-  what it always did, two `own-arity` reads.  `taxonomy-depth` is the shape that makes the
+  what it always did, two `own-arity` reads.  `taxonomy-depth` is the structure that makes the
   gate necessary rather than merely thrifty: edges arriving down one chain give each new
   edge a super whose `genl` closure is every edge already asserted, so walking it per edge
   is quadratic in the chain, and the cell pins that edge at a flat cost 2000 deep.
@@ -999,7 +1009,7 @@
 
   Public for the reason `predicate-type-arities` is, and in its place: `settle`'s
   retroactive arity report triggers on an arriving declaration and has to recognise the
-  same ones this door does.  Reading the raw map there and the closure here is the drift
+  same ones this entry point does.  Reading the raw map there and the closure here is the drift
   its own docstring warns about, so the closure read is the shared one.
 
   **Read through the closure because the readers read through one.**  `membered-arity`
@@ -1187,7 +1197,7 @@
 ;; every other use of the predicate, and belief would depend on how many settles had run.
 ;;
 ;; The other two members of the family defeat a *fact* and leave the vocabulary standing,
-;; which is why they are stable.  So arity keeps the door refusal, and the retroactive half
+;; which is why they are stable.  So arity keeps the entry point refusal, and the retroactive half
 ;; is a **report** (`settle/report-arity-reach!`) rather than a decision: it names the facts
 ;; a declaration arriving late convicts, and moves no belief.  Do not promote it to a
 ;; nogood without first making the vocabulary read independent of the belief the nogood
@@ -1271,13 +1281,13 @@
   `:constraints` policy of its own overrides both — `kb/constraint-policies` names them
   and `arbitrating?` is the one read of either."
   ;; A var root, so it is read at namespace load and refuses there — `config`'s own
-  ;; docstring says why that is the right door for a `def` and the wrong one for a value
+  ;; docstring says why that is the right entry point for a `def` and the wrong one for a value
   ;; a worker reads.
   (config/arbitrate-constraints?))
 
 (defn arbitrating?
   "Does `kb` arbitrate a definitional clash against defeasible content rather than
-  refusing it at the door — and let a declaration reach back over stored content?
+  refusing it at the entry point — and let a declaration reach back over stored content?
 
   The KB's own `:constraints` policy decides when it has one (`kb/constraint-policies`
   names them); a KB that named none reads the process default, so
@@ -1471,7 +1481,7 @@
   sentence's own where it carries one and a **super-predicate** where the mark descends
   (`tax/props-over`).  Two `fatherOf` mothers for one child are two `parentOf` values,
   so `(functional parentOf)` convicts them; reading the mark off the exact functor made
-  that bypassable through the sub-predicate door while the *slot probe* already fanned
+  that bypassable through the sub-predicate entry point while the *slot probe* already fanned
   down the hierarchy, so which spelling arrived second decided whether the clash
   existed.
 
@@ -1577,7 +1587,7 @@
         ;; false and could not change the answer.  Deleted rather than left as an
         ;; unscoped read to be widened into: the derivation twin keeps the guard, where
         ;; it is live and scoped (`special/derive-functional-equalities`), and if this
-        ;; door ever admits a symbol clash it wants that same context-scoped read, not
+        ;; entry point ever admits a symbol clash it wants that same context-scoped read, not
         ;; the global one this was.
         :when (not (mergeable-values? v b))]
     {:type :functional :sentence sentence :existing v :new b :opposing-handle h
@@ -1672,7 +1682,7 @@
   would be symmetric rather than asymmetric.
 
   **The context that decides self is the sentence's own — `home` — and not the asker.**
-  The two are the same at the door and differ wherever `settle` asks a stored sentex's
+  The two are the same at the entry point and differ wherever `settle` asks a stored sentex's
   question from a *vantage* that sees more than its own context (`clash-vantages`).  Key
   self on the asker instead and the twin **stored in the vantage** is thrown away as
   though the candidate were it: `(P a a)` written in a general context and again in one
@@ -1928,7 +1938,7 @@
   `(irreflexive largerThan)` says `(P a a)` cannot hold, so a self tuple is contradictory
   the moment it is written — unlike `asymmetric`, which admits it (`asymmetry-problems`
   spells out why).  A lone tuple names no second sentex to weigh against, so this is a
-  **refusal** at the door and never an arbitrable nogood: `refuses-assert?` reads no
+  **refusal** at the entry point and never an arbitrable nogood: `refuses-assert?` reads no
   class here, and the derivation path drops a self tuple a rule concluded.
 
   The mark is read up the predicate hierarchy (`tax/props-over`), like the two clashes
@@ -1997,7 +2007,7 @@
   exactly as `functional-problems` leaves a symbol clash to `derive-functional-equalities`.
   What is left is the hard contradiction — `(P 1 2)` beside `(P 2 1)` under an
   antisymmetric `P` forces `1 = 2`, which no merge can make true — and, like a numeric
-  functional clash, it **refuses** at the door: this carries no arbitrable class, so
+  functional clash, it **refuses** at the entry point: this carries no arbitrable class, so
   `refuses-assert?` reads its default and says no.  A self tuple's arguments are equal, so
   it is admitted rather than refused."
   [kb sentence context]
@@ -2341,7 +2351,7 @@
 
   The retroactive report's probe (`settle/report-arity-reach!`).  A declaration arriving
   after the facts it convicts was never seen by the check that runs on the way in, so
-  the facts are re-asked here — the same `arity-problem` the door reads, so the two
+  the facts are re-asked here — the same `arity-problem` the entry point reads, so the two
   cannot drift about what a wrong arity is.
 
   Nothing else in the arm's family is asked: the sentence is stored, so whatever the
@@ -2368,8 +2378,8 @@
 
   `arity-violation`'s twin, one level up: that one asks whether a stored *fact* is the
   wrong length, this one whether a stored *declaration* names a position the length
-  leaves it without.  Both re-ask a door check of content already admitted, and both go
-  through the arm the door itself reads so the two cannot drift.
+  leaves it without.  Both re-ask an entry point check of content already admitted, and both go
+  through the arm the entry point itself reads so the two cannot drift.
 
   The reader is `vaelii.impl.quality`, not `settle`.  A declaration stranded by an arity
   that arrived later is **inert** — it constrains nothing, refuses nothing and mints
@@ -2381,10 +2391,10 @@
   with its predicate's `relation_kind`, and an arity arriving is not what makes that true,
   so asking it here would report a second finding under the first one's trigger.
 
-  Both of `interArg`'s positions are asked, as at the door, and the first that
+  Both of `interArg`'s positions are asked, as at the entry point, and the first that
   convicts is the answer.
 
-  Through `checked-sentence`, like the twin and like the door: a doubly negated
+  Through `checked-sentence`, like the twin and like the entry point: a doubly negated
   declaration is a declaration and is read as one, and a genuinely negative sentence keeps
   its `not`, which matches neither arm below.  A caller reading the record store hands in
   a sentence the constructor already stripped to its positive body, so the pass costs it
@@ -2433,7 +2443,7 @@
 
   **`context` is the asker and `home` is where the sentence lives**, and the two arms that
   tell a partner from the sentence *itself* read `home` (`asymmetry-problems` records
-  what keying that on the asker cost).  The three-argument form is the door's, where a
+  what keying that on the asker cost).  The three-argument form is the entry point's, where a
   sentence is asked about from the context it is being written into and the two are one;
   a caller asking a **stored** sentex's question from a vantage owes the four-argument
   form and its own `(:context s)`."
@@ -2520,7 +2530,7 @@
   runs the probe, the rest read the boolean it cached.
 
   **The thaw is the one the durable readers run** (`vaelii.impl.io.thaw`), not a bare
-  nippy one, so the front door and the file readers hold one opinion about what a leaf
+  nippy one, so the public entry point and the file readers hold one opinion about what a leaf
   may be.  A class only Java serialization round-trips is refused here rather than
   stored and then refused on the way back off disk — which is the same asymmetry, one
   restart later, that this check exists to close."
@@ -2623,24 +2633,48 @@
   is a cycle through negation whose settled state would depend on arrival order
   (docs/equality.md, \"Interactions — Stratification\").
 
-  The negative edge from a `different` antecedent runs to the three relations that
-  assert a merge, not to `different` itself — nothing ever concludes `different`, so
-  an edge keyed on it would reach no rule and find no cycle."
+  The negative edge from a `different` antecedent runs to every relation that can
+  *withdraw* it.  Three assert a merge.  The rest make a term an `indeterminate_term`,
+  whose members are exempt from the unique-name assumption, so asserting one withdraws a
+  `different` the same way an equality does (docs/predall.md, docs/equality.md).
+
+  Two names carry the indeterminacy half.  `indeterminate_term` is the category itself,
+  and a subkind of it needs no name here: `wff/rule-edges` fans every negative predicate
+  down its `specs-global` closure, so a rule concluding a `(vague_kind ?x)` declared under
+  the category is already reached through the category's own edge.  `genl` is the second,
+  and it is the over-approximation this check prefers: a rule concluding `genl` mints a
+  subkind the taxonomy does not hold yet, which no fan over the current closure can see.
+  It costs a refusal where a rule set reads `different` and concludes any `genl` whatever,
+  since the consequent's second argument is a variable at check time.  No shipped rule
+  reads `different`, so no KB the ontology builds pays for it.  A skolem's membership is
+  structural and no rule concludes one, so it needs no edge.
+
+  All of them run to the concluding relation rather than to `different` itself — nothing
+  ever concludes `different`, so an edge keyed on it would reach no rule and find no
+  cycle.
+
+  Refusing the cycle is half the answer and `rules/rechecked?` is the other.  A rule that
+  merely *reads* `different` closes no cycle and is stored, and the fact that withdraws its
+  guard can arrive at any time — so such a rule is registered in the re-check index and its
+  firing is re-decided when one does (docs/predall.md)."
   [antecedent-preds neg-query-preds]
   (concat neg-query-preds
-          (when (some #(= 'different %) antecedent-preds) kb/equality-predicates)))
+          (when (some #(= 'different %) antecedent-preds)
+            (concat kb/equality-predicates '[indeterminate_term genl]))))
 
 (defn- negative-edge-rules
   "Handles of every **stored** rule a negative edge leaves — the roster a walk that has
   no rule of its own to start from has to start at, and the gate on walking at all.
 
-  Two rosters, because a negative edge has two sources and only one of them is watched.
-  The re-check index's `:rules` holds a rule carrying an `exceptWhen`, an `(unknown S)`
-  antecedent, an aggregate or a closed-extent negative — everything registered for
-  re-checking. A `different` antecedent is a negative edge too (`negative-predicates`)
-  and is registered nowhere, since nothing about it needs re-checking: the antecedent
-  index is what names those rules, in one lookup under `different`, which is the key
-  `rules/antecedent-key` files them under.
+  Two rosters, because the re-check index is written when a rule is **indexed**.  Its
+  `:rules` holds a rule carrying an `exceptWhen`, an `(unknown S)` antecedent, an
+  aggregate, a closed-extent negative or a `different` antecedent — `rules/rechecked?`
+  is the gate, and a `different` one is registered there like the rest, since its firing
+  is re-decided when a merge or an indeterminacy withdraws the guard.  A rule stored by a
+  build that did not register it is still on the antecedent index, in one lookup under
+  `different`, which is the key `rules/antecedent-key` files it under.  That second
+  roster is what keeps the refusal right over an index written before the registration
+  existed and not yet rebuilt by `reindex`.
 
   Read `different` out and the roster under-approximates the graph — a cycle whose only
   negative edge is one rule's `different` passes through no watched rule, so no walk
@@ -2805,7 +2839,7 @@
 ;; antecedent binds through `(arg comment 2 string)` and a consequent places
 ;; into `(genl ?x ?string)` has to be a run of text and a type at the same time, and
 ;; text and a type are declared disjoint: no term is both, so every firing of that rule
-;; would conclude something the door refuses.  The rule is the mistake, and this is
+;; would conclude something the entry point refuses.  The rule is the mistake, and this is
 ;; where it is said.
 ;;
 ;; **A type-level position asks for a type, which is a `unary_predicate`.**  That is the
@@ -2976,10 +3010,10 @@
 
 (defn- check-variable-constraints!
   "Throw when a variable of rule `inner` carries two argument constraints no term can
-  satisfy together.  The value form is `variable-clash-problem`; this is the door's.
+  satisfy together.  The value form is `variable-clash-problem`; this is the entry point's.
 
   Private, unlike the cross-namespace rule checks beside it in `check-rule!`: every
-  door that stores a rule reaches this through that list, so there is no second caller
+  entry point that stores a rule reaches this through that list, so there is no second caller
   for a public name to serve."
   [kb inner context]
   (when-let [p (variable-clash-problem kb inner context)]
@@ -3007,7 +3041,7 @@
   which is the arrival order that whole check exists to keep out.  One list per KB, and
   a generator roster is a handful of rules.
 
-  **As stored, and a defeated generator is listed** — the door is the as-stored one on
+  **As stored, and a defeated generator is listed** — the entry point is the as-stored one on
   purpose.  What reads this is `generator-cycle`, a stratification refusal, and a cycle is
   a property of what the KB has *written*: a generator whose support is withdrawn is
   retained and revivable, so filtering it out would accept a program today and refuse it
@@ -3024,7 +3058,7 @@
 (defn- stamped-predicate
   "The predicate a generator eventually concludes — the **innermost** rule's, through
   however many levels of stamping stand between.  The levels in between conclude rules,
-  and `implies` is a key nothing reads as a fact; what reaches the fact store is the
+  and `implies` is a key nothing is indistinguishable from a fact; what reaches the fact store is the
   innermost conclusion, so that is the predicate a cycle can run through."
   [sentence]
   (rules/consequent-predicate (rules/innermost-rule sentence)))
@@ -3111,7 +3145,7 @@
   for a cycle through negation: the alternative is a KB whose size depends on how long
   the chainer was allowed to run.
 
-  Read by both storage doors through `check-rule!`, so a generator a *firing* stamps
+  Read by both storage entry points through `check-rule!`, so a generator a *firing* stamps
   owes exactly what one an author wrote owes — which is the whole of what makes nesting
   safe: the middle level is checked twice, once as a pattern and once as the rule it
   became."
@@ -3156,11 +3190,11 @@
 (defn check-rule!
   "Every pre-storage check a rule must pass, as a step that writes nothing.
 
-  **Two doors store a rule** and this is the list both read.  `core/assert` stores one
+  **Two entry points store a rule** and this is the list both read.  `core/assert` stores one
   an author wrote; a generator firing stores one the KB derived
-  (docs/generators.md).  What a rule has to *be* does not depend on which door it came
-  through, so a copy per door is the drift this exists to prevent — a check added at
-  the assert door that the mint never learned would let the fixpoint store what the
+  (docs/generators.md).  What a rule has to *be* does not depend on which entry point it came
+  through, so a copy per entry point is the drift this exists to prevent — a check added at
+  the assert entry point that the mint never learned would let the fixpoint store what the
   API refuses.
 
   Factored out of the assert path so `assert` can also run it over **all** the
@@ -3190,14 +3224,14 @@
     ;; An `or` the polycanonicalization can expand away is gone by the time a rule
     ;; reaches here — `assert` and the mint both store the *expansion*.  What is left is
     ;; the rule that could not be expanded: one over `rules/max-alternatives`, or one
-    ;; whose `or` sits where nothing expands it.  The assert door refuses it at the
+    ;; whose `or` sits where nothing expands it.  The assert entry point refuses it at the
     ;; shape guard, before the split is attempted; this is the same refusal on the
     ;; **mint** path, where the only guard is this list.
     (rules/check-disjunction! sentence)
     (rules/check-range-restricted (rules/antecedents inner) (rules/consequent inner))
     ;; The NAF-literal checks — closure, quantifier locality, the reduction slot, a
     ;; quantified or empty conjunction.  The sentex constructor runs these too, and runs
-    ;; them last, which is what covered both *storage* doors and left the **dry-run** door
+    ;; them last, which is what covered both *storage* entry points and left the **dry-run** entry point
     ;; blind: `core/check` predicts an assert without constructing a sentex, so a rule
     ;; whose `unknown` was open, whose binder escaped, or whose conjunction no evaluator
     ;; can answer checked clean and then threw.  Here it is answered before anything is
@@ -3225,7 +3259,7 @@
       (check-generator! kb sentence context))))
 
 (defn rule-violation
-  "`check-rule!` as a **value** in the shape the derivation path files — a
+  "`check-rule!` as a **value** in the form the derivation path files — a
   `{:violation :detail}` map, or nil when the rule stands.
 
   The mint's form of the same list, and the reason it is a value is the reason every

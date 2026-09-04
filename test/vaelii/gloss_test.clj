@@ -40,7 +40,7 @@
     (let [t (gloss/template "A physical part of a living thing (a wing, a heart).")]
       (is (empty? (:params t)))
       (is (str/starts-with? (:text t) "A physical part"))))
-  (testing "a signature naming a compound argument is read as a description, not parsed"
+  (testing "a signature naming a compound argument is are indistinguishable from a description, not parsed"
     ;; substituting into `(list …)` would need to know it is one argument, not three
     (let [t (gloss/template
              "(totalDuration (list ?i1 ?i2 …) ?duration) means that ?duration is the sum of the lengths.")]
@@ -120,7 +120,7 @@
 
 (tu/deftest-kb a-leading-term-keeps-its-own-spelling
   ;; upper-casing `siblingOf` into `SiblingOf` does not tidy a sentence, it renames a
-  ;; predicate into something that reads as an individual
+  ;; predicate into something that is indistinguishable from an individual
   (let [t (:text (gloss/text kb '(symmetric siblingOf)))]
     (is (str/starts-with? t "siblingOf"))
     (is (not (str/starts-with? t "SiblingOf")))))

@@ -60,7 +60,7 @@
   the randomized oracle catches all three as well.
 
   The supersession hand-off is the one mechanism here that **nothing below reaches**, and
-  the reason is worth stating rather than leaving as a gap.  Displacing a body normally
+  the reason matters rather than leaving as a gap.  Displacing a body normally
   *carries* its entry rather than dropping it: migration writes the twins on the
   representative's body, so nothing stores, removes or relabels on the displaced one, and
   the carried entry is filtered out on belief while it is displaced and simply becomes

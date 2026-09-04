@@ -7,7 +7,7 @@
   It is the format the shipped ontology is authored in (`resources/kb/`,
   `vaelii.impl.seed`), and this is where the writer for it lives, so a KB an author
   edited as text can be got back out of a store as text.  The three formats a KB moves
-  in are different questions and stay separate doors:
+  in are different questions and stay separate entry points:
 
   | | what it holds | who reads it |
   |---|---|---|
@@ -34,7 +34,7 @@
   there is nowhere in an s-expression for it to go, and a text KB that could not say it
   would round-trip a KB's monotonic premises down to defaults.  It is peeled by
   `load-entries!` below into `{:strength :monotonic}` and never reaches the store as a
-  functor.  `:default` is the door's own fallback and is written as nothing, which is why
+  functor.  `:default` is the entry point's own fallback and is written as nothing, which is why
   no shipped file carries a wrapper.
 
   **An `exceptWhen` states a strength per half**, because it asserts two things: the rule,
@@ -104,7 +104,7 @@
 
 (defn read-forms
   "Every form in the text KB file `source` (anything `io/reader` takes), in file order.
-  `clojure.edn`, so comments and blank lines cost nothing and no code can run."
+  `clojure.edn`, so comments and blank lines added no work and no code can run."
   [source]
   (with-open [r (PushbackReader. (io/reader source))]
     (let [eof (Object.)]
@@ -256,7 +256,7 @@
       (and exc? rule?) (->> (list sx/strength-wrapper)))))
 
 (defn- with-strength
-  "`form` under its strength wrapper, or bare at `:default` — the door's own fallback,
+  "`form` under its strength wrapper, or bare at `:default` — the entry point's own fallback,
   which is why no shipped file carries one."
   [form strength]
   (cond-> form (= :monotonic strength) (->> (list sx/strength-wrapper))))
@@ -333,13 +333,13 @@
 
 (def ^:private opt-keys
   "Every key the text writer reads."
-  #{:context :cone})
+  #{:context :ancestor-set})
 
 (defn- ensure-empty-dir!
   "`dir` as an empty directory, created when it does not exist.  A directory that
   already holds anything is **refused**: a second export over a first would leave the
   files the first wrote for contexts the second has nothing to say about, and a text KB
-  is read as a whole directory."
+  is are indistinguishable from a whole directory."
   ^File [dir]
   (let [^File d (io/file dir)]
     (when (.isFile d)
@@ -356,14 +356,14 @@
 
 (defn- selected-contexts
   "The contexts an export covers: every one with something to write, or the one
-  `:context` names, or the `genlCx` cone `:cone` names — `c` and every context it
+  `:context` names, or the `genlCx` ancestor set `:ancestor set` names — `c` and every context it
   **sees**, which is the slice a reload needs for `c`'s own content to mean what it
   meant."
-  [kb written {:keys [context cone]}]
+  [kb written {:keys [context ancestor-set]}]
   (cond
     context (filterv #{context} (keys written))
-    cone    (let [up (set (tax/context-up (:taxonomy kb) cone))]
-              (filterv up (keys written)))
+    ancestor-set    (let [up (set (tax/context-up (:taxonomy kb) ancestor-set))]
+                      (filterv up (keys written)))
     :else   (vec (keys written))))
 
 (defn- file-text
@@ -384,7 +384,7 @@
       {:contexts n :sentences n :skipped n :files [\"CxCore.txt\" …]
        :bytes n :elapsed-ms n :dir \"…\"}
 
-  `opts` narrows what is written: `{:context C}` for that one context's file, `{:cone C}`
+  `opts` narrows what is written: `{:context C}` for that one context's file, `{:ancestor set C}`
   for `C` and every context it sees.  Neither, and every context with a premise in it is
   written.  A key this fn does not read is refused (`:unknown-option`) — a misspelt
   narrowing writes the whole KB under a summary that looks right.

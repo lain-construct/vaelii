@@ -112,7 +112,7 @@ constraint checks**:
   unguarded and nothing says so;
 - **unreifiable NATs are left structural** — never minted.
 
-Reify-**before**-WFF is load-bearing. The raw compound `(FruitFn AppleTree)` in an
+Reify-**before**-WFF is required. The raw compound `(FruitFn AppleTree)` in an
 argument slot is not indexed, and `disjoint-problem` skips it — the term index never
 posts the raw NAT's constituents, which would pollute it (`sentex/index-terms` descends
 into ground compounds). The minted constant `K` carries the materialized `result`
@@ -230,7 +230,7 @@ spellings can otherwise reason with only that one.
 - **value → term.** A believed `(motherOf Muffet Mary)` reifies `(MotherFn Muffet)` to
   `Mary`. The expression names the object the KB already has a name for rather than
   minting a second one beside it, so the correspondence is a *computed* `rewriteOf`
-  target — the same seam, looked up through the predicate instead of declared per
+  target — the same protocol, looked up through the predicate instead of declared per
   expression. It is consulted before the dedup probe, because a real term outranks a
   placeholder.
 - **term → value.** When no value is known, the mint proceeds and the constant is
@@ -283,7 +283,7 @@ reified NAT-bearing forms are rebuilt.
 **A constant is never what a reader sees.** It is an implementation of term *identity*
 — a `nat/`-namespaced gensym is not a name anybody wrote — so a display layer resolves
 it, and `vaelii.core` carries the pair that lets one: `reified-term?`, a pure test on the
-reserved namespace that costs nothing on a KB that has minted none, and
+reserved namespace that adds no work on a KB that has minted none, and
 `term-expression`, **one hop** of the map. One hop rather than the whole expansion,
 because a caller rendering each term individually — linking it, colouring it — recurses
 and keeps every level addressable; `expand-expression` is the flat answer for a caller

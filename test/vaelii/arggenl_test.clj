@@ -288,7 +288,7 @@
       (is (v/assert kb (list rel a b (tu/tmp-ind)) 'CxUniverse)))))
 
 (tu/deftest-kb a-variableArity-predicate-takes-a-constraint-past-its-declared-length
-  ;; One release, so the door owes the same answer twice.  A predicate reading a chain of
+  ;; One release, so the entry point owes the same answer twice.  A predicate reading a chain of
   ;; any length has the arguments past its declared number, and a constraint on one of them
   ;; fires on exactly the tuples that reach it — so refusing the declaration while storing
   ;; the three-argument fact leaves the third argument untypeable in a KB that admits it.
@@ -341,7 +341,7 @@
 ;; argument ever be a type?), a **scoped** open-world floor (does the writer see
 ;; any evidence at all?), and the scoped subtype test.  The middle one is what
 ;; keeps a NAF check from convicting harder the less a context sees: an imported
-;; reified NAT's minting edges land in CxUniverse, and a writer whose cone does not
+;; reified NAT's minting edges land in CxUniverse, and a writer whose ancestor set does not
 ;; reach them must excuse, not convict.
 
 (tu/deftest-kb an-argument-whose-edges-are-out-of-sight-is-excused-not-convicted

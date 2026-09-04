@@ -1,12 +1,12 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.jtms-protocol
-  "The representation seam of the truth-maintenance system: the `Tms` protocol
+  "The representation boundary of the truth-maintenance system: the `Tms` protocol
   alone, with no implementation.
 
   It lives in its own namespace, apart from `vaelii.impl.jtms` (the reference
   network) and `vaelii.impl.dense-jtms` (the dense one), for two reasons.  Both
-  implementations depend on it and neither on the other, so the seam is the one
+  implementations depend on it and neither on the other, so the boundary is the one
   thing they share.  And it is large — forty-odd methods, each documented — which
   makes the generated protocol map big enough that re-evaluating the form (as
   cloverage does, form by form, to instrument a namespace) overflows the JVM's
@@ -20,7 +20,7 @@
   graph in bitmaps and primitive-keyed maps.  Selected per KB (`open-kb`'s `:tms` opt),
   dense by default since 0.9.0, and proven to answer identically by `jtms_dense_oracle_test`.
 
-  The seam is at the *representation*, not at the algorithm: both implementations
+  The boundary is at the *representation*, not at the algorithm: both implementations
   run the same least-fixpoint relabel over the same affected region, because that is
   the semantics, not an implementation detail.  What differs is where a node's
   premise flag, depth and adjacency live.
@@ -66,7 +66,7 @@
      comparison of labels alone would pass it.
 
   4. **No store, by construction.**  Every method here takes the network plus integers
-     and plain values.  Nothing in the seam can carry a record store, an index or a KB,
+     and plain values.  Nothing crossing the boundary can carry a record store, an index or a KB,
      and no implementation may acquire one.  Two things rest on that and neither is
      optional.  A node holds **no reference to the sentex it labels** — the network is
      always resident, so a strong reference would pin every record in RAM and defeat a
@@ -75,12 +75,12 @@
      representation, which is what makes locality a claim about all of them rather than
      about the one whose reads happen to be free — on a disk store that read would be a
      lock and a slot decode, on a server store a round trip, per in-region node per
-     worklist pop.  Gate: the shape of this protocol, plus both implementations' `ns`
+     worklist pop.  Gate: the structure of this protocol, plus both implementations' `ns`
      forms, which name no store.  A store-backed network would break the structural
      guarantee and inherit an obligation nothing here gates: it would owe a
      read-counting one of its own.
 
-  One claim is deliberately **not** on that list, because nothing at this seam can hold
+  One claim is deliberately **not** on that list, because nothing at this boundary can hold
   it: the cost of the in-region work itself.  Obligation 3 says a small region was asked
   for and obligation 4 says nothing was paid per boundary node, and neither says the
   small region was *cheap* — a structure whose every write rebuilds a whole container

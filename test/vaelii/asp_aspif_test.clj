@@ -4,7 +4,7 @@
   "The ASP lower layer: the ASPIF emitter, the atom table, and the backend
   facade.  No KB, no store — these namespaces know nothing about sentexes.
 
-  Two levels of assertion, deliberately.  The **wire format** is pinned literally,
+  Two levels of assertion.  The **wire format** is pinned literally,
   because ASPIF is an external contract with clingo and clasp: a silent encoding
   change is not a refactor, it is a different program, and a round-trip test alone
   would not localize the break.  The **semantics** are then checked by actually

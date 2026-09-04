@@ -5,7 +5,7 @@
   facts into a network, and reading entailments back out as prover solutions.
 
   `qcn` itself knows nothing about a KB: an algebra is a parameter and a network is a
-  value.  This namespace is the other half of that seam, and it is the *same* half for
+  value.  This namespace is the other half of that boundary, and it is the *same* half for
   every calculus, so it is written once here rather than three times over.  A **calculus**
   bundles what actually differs:
 
@@ -319,7 +319,7 @@
 
 ;; ---- which readers there are ---------------------------------------------
 ;; There is one network per **reader**, not one per context that holds a fact.  A
-;; reader sees the whole `genlCx` cone above it, so a context inheriting two
+;; reader sees the whole `genlCx` ancestor set above it, so a context inheriting two
 ;; contexts holds both their facts in one network and composes what neither
 ;; composes alone.  Both consumers of "the networks of this calculus" need that set:
 ;; forward chaining, which re-joins against each, and the prover answering a goal whose
@@ -498,7 +498,7 @@
   "`tighten`'s support-carrying twin, memoized in the calculus's own `:support-cache`.
 
   The key is **the network and its asserted support together**, where `tighten`'s is the
-  network alone.  That difference is load-bearing: retracting a fact and re-asserting the
+  network alone.  That difference is required: retracting a fact and re-asserting the
   same sentence yields the identical network at a *different handle*, so the network alone
   does not determine the support and a network-keyed entry would answer with the retracted
   handle.  Both keys are still functions of the believed facts, which is what makes either
@@ -645,7 +645,7 @@
 
 (defn- negated-literal
   "The literal a `(not (P a b))` goal negates, or nil for anything else.  A goal reaches a
-  prover in the shape the caller wrote it — `FactProver` hands `(not …)` straight to
+  prover in the form the caller wrote it — `FactProver` hands `(not …)` straight to
   `matches-visible`, which reads the `not` frame as the polarity of the pattern — so the
   same surface convention is read here rather than a second one being invented."
   [goal]
@@ -802,7 +802,7 @@
 ;; relation could not fire one: it has no handle, and a justification with no antecedent
 ;; is a conclusion nothing can withdraw.  Support closes that — an entailment names the
 ;; stored facts it rests on, and those are what the justification lists.  These three
-;; are the seam chaining reaches through; the wiring itself is `vaelii.impl.chain`.
+;; are the boundary chaining reaches through; the wiring itself is `vaelii.impl.chain`.
 
 (def ^:private registry-calculi
   "`registered-calculi`'s last answer as `[registry answer]`, held against the prover
@@ -885,11 +885,11 @@
   while looking as though it rested on the network.
 
   `pairs` narrows the enumeration to those pairs (`solve-goal`), which is what a re-join
-  over a delta passes.  It costs nothing here: a pair with no support was never going to
+  over a delta passes.  It adds no work here: a pair with no support was never going to
   be answered, and a pair whose support is what changed is in the delta by construction.
 
   `goal` is a **positive** literal `(P a b)`, where `solve-goal` takes either polarity.
-  That is the seam's shape rather than a shortcut: what a *refutation* rests on is the
+  That is the boundary's shape rather than a shortcut: what a *refutation* rests on is the
   whole network rather than a support list, so a negated antecedent is not answered by
   entailment at all and `chain/qualitative-antecedent` claims only the positive shape."
   ([calc kb goal context] (solve-with-support calc kb goal context nil))

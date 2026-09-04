@@ -68,7 +68,7 @@
   (reduce (fn [net [p q lo hi]] (stp/narrow net p q lo hi)) {} constraints))
 
 (defn- close-incrementally
-  "Close `constraints` one at a time, every step warm-started off the last — the shape a KB
+  "Close `constraints` one at a time, every step warm-started off the last — the form a KB
   reaches when facts arrive one by one.
 
   A step that comes back `:inconsistent` ends the fold, and that is the answer: constraints

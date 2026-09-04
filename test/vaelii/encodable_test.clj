@@ -5,7 +5,7 @@
   serializes nothing, so a value nippy cannot freeze — a function, an atom, an open
   stream — stores there and then throws at write time on the first on-disk backend:
   the same assert succeeds or fails by backend, which breaks the promise that every
-  backend reasons alike.  `checks/check-encodable` refuses it at the door instead, so a
+  backend reasons alike.  `checks/check-encodable` refuses it at the entry point instead, so a
   value stores in every backend or none.
 
   What *is* storable is everything a sentence is normally built from — the vocabulary
@@ -15,7 +15,7 @@
   vectors ≡ lists — a vector carries no distinct meaning yet, and Clojure `=` already
   treats `[a b]` and `(a b)` as one value), so it is found by the list spelling.
 
-  Both write doors that persist — `assert` (hence `assert-rule`, `assert-many`) and
+  Both write entry points that persist — `assert` (hence `assert-rule`, `assert-many`) and
   `assert-inert` — carry the guard, and `check` predicts it under the same `:type`."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
@@ -27,10 +27,10 @@
   (try {:answered (f)}
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
-(deftest a-non-serializable-arg-is-refused-at-the-door
+(deftest a-non-serializable-arg-is-refused-at-the-entry-point
   ;; The canonical "blows up" cases: a value with no nippy handler and no Serializable
   ;; fallback.  Refused as :not-encodable before anything is stored, so a good assert
-  ;; right after still works — the door is closed to the value, not wedged.
+  ;; right after still works — the entry point is closed to the value, not wedged.
   (tu/with-terms [holds Tom CxStory]
     (tu/with-cleared-kb [kb tu/fresh]
       (doseq [[label bad] {"a function" (fn [_] 1)
@@ -68,7 +68,7 @@
                                                  {:direction :forward}))))))))))
 
 (deftest assert-inert-refuses-a-non-serializable-value-too
-  ;; The other door that persists and indexes, guarded the same way.
+  ;; The other entry point that persists and indexes, guarded the same way.
   (tu/with-terms [holds Tom CxStory]
     (tu/with-cleared-kb [kb tu/fresh]
       (is (= :not-encodable

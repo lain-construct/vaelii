@@ -454,7 +454,7 @@
     ;; the report forward for a pair the window does not hold, so a silent arrival is a
     ;; report naming fewer reasons than the KB holds.  Noting one handle is O(1) where
     ;; polling every standing pair for its support count is O(standing) per settle — which
-    ;; `lein perf`'s `negation-arbitration` reads as a 19% worse growth ratio at 800
+    ;; `lein perf`'s `negation-arbitration` is indistinguishable from a 19% worse growth ratio at 800
     ;; standing dilemmas, against no measurable change for this.  `touched-in` takes it too,
     ;; or the window would read as "newly believed" — but only when this window has not
     ;; relabelled it already, since an earlier relabel's answer is the one that predates
@@ -644,7 +644,7 @@
         result
         (recur)))))
 
-;; ---- the representation seam --------------------------------------------
+;; ---- the representation protocol --------------------------------------------
 ;; The `Tms` protocol lives in `vaelii.impl.jtms-protocol` — both this reference
 ;; network and `vaelii.impl.dense-jtms` sit behind it, and it is too large to
 ;; instrument (scripts/coverage.sh).  Its methods are `:refer`red above; the
@@ -1061,7 +1061,7 @@
   would confer two different classes on conclusions already derived.  The antecedent half
   of `conferred-class` is already read live at labelling time, so this one scalar is the
   only stored copy — updated here, then relabelled through the full affected region,
-  since a class that rises can flip defeat decisions anywhere in the consumer cone."
+  since a class that rises can flip defeat decisions anywhere in the consumer ancestor set."
   [tms informant strength]
   (observe/note-change)
   (-restrength-informant tms informant strength)

@@ -263,7 +263,7 @@
   "`[answer sweep-count]` for one pass — how many full sweeps of every triple it made."
   [net ns algebra]
   ;; the same primitive signature `sweep` has (`[step ^long n changed]`), because its call
-  ;; site invokes it through `IFn$OLOO` — a varargs stand-in is not that interface and the
+  ;; site invokes it through `IFn$OLOO` — a varargs stand-in does not satisfy it and the
   ;; redef would fail on the first call rather than count it
   (let [calls (atom 0)
         real  @#'qcn/sweep]

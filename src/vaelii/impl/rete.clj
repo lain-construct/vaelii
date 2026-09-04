@@ -35,7 +35,7 @@
   finds*.  Everything else — the semi-naive agenda, the trigger match (`match1`),
   context placement, `exceptWhen` blocking, the definitional checks on the derivation
   path, justification dedup, functional-equality twins, the depth guard — is the
-  reference's, reached by binding one seam (`chain/*matcher*`) and calling
+  reference's, reached by binding one extension point (`chain/*matcher*`) and calling
   `chain/chain-all` unchanged.  So the network cannot diverge in *any* of those; it
   can only diverge in the match, and `rete-match-pattern` is written to return the
   **identical set** `res/match-pattern` returns — same belief filter, same

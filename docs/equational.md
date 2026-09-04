@@ -213,7 +213,7 @@ non-confluent set confluent), and AC-rewriting for permutative equations. See
 - `vaelii.impl.checks` — `check-ground` exempts a schematic equation from the
   non-ground refusal.
 - `vaelii.core` — `prepare-goal-for-read` (the `prove` / `query` normalization),
-  `recovered-supersessions` (the recover seam).
+  `recovered-supersessions` (the recover entry point).
 - Tests: `rewrite_test` (the pure algebra), `equational_test` (the integration:
   Part A, Part B, belief-following, termination, order-independence, KBO orientation,
   the four-path parity), `recovery_test` (durability).

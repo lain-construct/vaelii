@@ -32,7 +32,7 @@
   ;; the subset test below is relative, so it cannot see these two leak: `:preview`
   ;; stores nothing but applies its batch and rolls it back under the process's
   ;; single writer, and `:clear-caches` mutates process measurement state.  Neither
-  ;; ends in `!`, so the backstop cannot catch them either — the roster is the door.
+  ;; ends in `!`, so the backstop cannot catch them either — the roster is the entry point.
   (is (contains? tools/write-ops :preview))
   (is (contains? tools/write-ops :clear-caches)))
 
@@ -213,7 +213,7 @@
   ;; The `Throwable` catch is there because `coerce` reads a model's argument as EDN and a
   ;; deeply nested form overflows the reader's stack.  A `StackOverflowError` carries **no
   ;; message**, so the arm that exists to name the failure would hand the model an empty
-  ;; string — a refusal saying nothing, which reads as a tool that answered emptily rather
+  ;; string — a refusal saying nothing, which is indistinguishable from a tool that answered emptily rather
   ;; than as an argument to fix.
   (doseq [[label thrown expected]
           [["an Error with no message" (StackOverflowError.) "java.lang.StackOverflowError"]
@@ -809,7 +809,7 @@
   "What consulting the consent gate looks like in a source file: a **call** to
   `live-llm?` under any alias.
 
-  Anchored on the shape of a call — an open paren, then the name, then a delimiter — and
+  Anchored on the structure of a call — an open paren, then the name, then a delimiter — and
   not on the bare name, so this does not match the prose around it or its own failure
   messages.  A scanner that flags its own source is worse than no scanner, since the way
   to make it green is to stop saying what it checks.  The delimiter is a class rather
@@ -856,7 +856,7 @@
   A helper is what sits between a live test and the gate, so a test routing through one
   never mentions the gate in its own body and the check has to follow the call.  Following
   it is the whole point: proof of consent is a **path to `live-llm?`**, so a helper that
-  merely reads like a gated one proves nothing, and a bare provider constructor cannot be
+  merely is indistinguishable from a gated one proves nothing, and a bare provider constructor cannot be
   mistaken for the gate however it is named.  Closed to a fixpoint, so a helper two hops
   out counts too — and the hops cross files: `seed` carries in the names `test_util.clj`
   hoisted (`hoisted-consenting`), so a local helper calling one of *those* is reached by
@@ -880,13 +880,13 @@
   HTTP request the moment it is evaluated, so one in a test body is a dial-out however the
   result is used.
 
-  **The `provider` seam's three selecting entry points are here, not below.**  Each asks
+  **The `provider` extension point's three selecting entry points are here, not below.**  Each asks
   `provider/available?` before it builds anything, and for `:ollama` that probes the host
   — so on a machine whose `VAELII_LLM_PROVIDER` names a real backend, `(provider/provider)`
   with no kind dials, and `(provider/provider :ollama)` dials whatever the environment
   says.  `VAELII_LLM_PROVIDER` is configuration, never consent (the consent gate is
   `VAELII_LLM_LIVE`, read through `tu/live-llm?`), so a test reaching one of these pins a
-  `transport-seam` — which is what `the-stub-is-the-default-and-the-fallback` and
+  `transport-extension-point` — which is what `the-stub-is-the-default-and-the-fallback` and
   `a-backend-that-probes-available-and-then-throws-is-logged` already do."
   '#{vaelii.impl.llm.ollama/version
      vaelii.impl.llm.ollama/available?
@@ -948,10 +948,10 @@
                                  form)]
               s)))
 
-(def ^:private transport-seams
+(def ^:private transport-extension-points
   "Vars that stand between a roster call and the network.  A test pinning one has taken
   hold of the transport, so what sits above it is exercised rather than dialled —
-  `probe-client` *is* the client every Ollama probe sends on, and the `provider` seam
+  `probe-client` *is* the client every Ollama probe sends on, and the `provider` extension point
   decides whether a real backend is built at all."
   '#{vaelii.impl.llm.ollama/probe-client
      vaelii.impl.llm.provider/configured
@@ -965,10 +965,10 @@
   (constantly false)] …)` calls no host.
 
   Two soft edges, both soft in the same direction: towards a test that has visibly taken
-  hold of the seam rather than one that has not.  The binding is read at the granularity
+  hold of the extension point rather than one that has not.  The binding is read at the granularity
   of the whole **form** rather than of its scope, so a test that pins a var and also calls
   it outside the `with-redefs` still reads as neutralized.  And a pin on a
-  `transport-seam` excuses everything above it, which is evidence that the transport is
+  `transport-extension-point` excuses everything above it, which is evidence that the transport is
   the test's rather than proof that no packet leaves."
   [form]
   (set (mapcat (fn [[_ binds]] (re-seq #"[\w.?!*+<>=-]+/[\w.?!*+<>=-]+" binds))
@@ -983,17 +983,17 @@
   `propose-page`, carry no mark, consult no gate, and dial a host under `lein test`.
 
   A call whose var the form pins with `with-redefs` does not count, and neither does one
-  above a pinned `transport-seam`.  Nor does reaching through something this cannot see —
+  above a pinned `transport-extension-point`.  Nor does reaching through something this cannot see —
   a web route that resolves its own provider is indirection, and `web_propose_test` pins
   `configured` for that reason rather than relying on this."
   [form by-alias]
   (let [pinned  (pinned-in form)
-        seam?   (some (fn [v] (some pinned (spellings by-alias v))) transport-seams)
+        via-point?  (some (fn [v] (some pinned (spellings by-alias v))) transport-extension-points)
         live    (fn [vars] (remove pinned (calls-in form by-alias vars)))
         probes  (live probe-calls)
         builds  (live backend-constructors)
         drivers (seq (calls-in form by-alias turn-drivers))]
-    (if seam?
+    (if via-point?
       #{}
       (set (concat probes (when drivers builds))))))
 

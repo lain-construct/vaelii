@@ -41,7 +41,7 @@
   (let [recs     (:records kb)
         tms      (:tms kb)
         ;; a variable view-context means *any* context, exactly as `matches-visible`
-        ;; reads it — the up-closure of a variable is not a cone
+        ;; reads it — the up-closure of a variable is not an ancestor set
         visible? (if (sx/variable? ctx)
                    (constantly true)
                    (let [up (tax/context-up (:taxonomy kb) ctx)] #(contains? up %)))

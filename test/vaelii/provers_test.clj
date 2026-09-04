@@ -111,7 +111,7 @@
              (count (provers/registry kb)))))))
 
 (tu/deftest-kb rule-planning-costs-antecedents-by-the-registry-and-memoizes-it
-  ;; perf-review #10, and the seam under it (`provers/registry-est-override`).
+  ;; perf-review #10, and the extension point under it (`provers/registry-est-override`).
   ;;
   ;; A chainer whose **leaf is the registry** must cost its antecedents by the registry:
   ;; a conjunct a cached closure answers costs the closure, not the handful of stored

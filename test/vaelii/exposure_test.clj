@@ -89,7 +89,7 @@
           (is (every? #(= :disjoint (:violation %)) vs))
           ;; the new viewer is named among those the clash is visible from — the pass
           ;; is off for a rebuild, not off.  (W's sighting is re-filed alongside it:
-          ;; an exposure is an event, and the cone moved again.)
+          ;; an exposure is an event, and the ancestor set moved again.)
           (is (some #(contains? (get-in % [:detail :visible-from]) CxV) vs)))))))
 
 (tu/deftest-kb the-standing-question-is-answerable-on-demand
@@ -883,7 +883,7 @@
           "and the ledger does not also claim it"))))
 
 (tu/deftest-kb a-pair-both-writers-could-see-is-refused-not-reported
-  ;; The gap is cross-context only.  Written in one context the assert door sees the
+  ;; The gap is cross-context only.  Written in one context the assert entry point sees the
   ;; whole pair and refuses, which is what `:refuse` means — nothing reaches the ledger.
   (tu/with-terms [birthYear Tom]
     (v/assert kb (list 'functional birthYear) 'CxUniverse)
@@ -938,7 +938,7 @@
       (is (seq (filter (comp #{:functional} :violation) (v/violations kb)))))
     (testing "and the asymmetric partner, whose argument 1 is the other side's argument 2"
       ;; fresh subjects: a converse pair on Tom would also be a second filler of Tom's
-      ;; functional slot, and the door would refuse it before any of this ran
+      ;; functional slot, and the entry point would refuse it before any of this ran
       (v/clear-violations! kb)
       (v/assert kb (list ranks Pip Vic) CxA)
       (v/assert kb (list ranks Vic Pip) CxB)
@@ -949,7 +949,7 @@
   ;; whose halves are already stored and already believed becomes jointly visible without
   ;; either half being relabelled. Neither is in the moved region, so the `genlCx`
   ;; edge has to reach out to them — the same trigger `exposure-candidates` answers for
-  ;; disjointness, over the binary-fact parallel of `members-in-cone`.
+  ;; disjointness, over the binary-fact parallel of `members-in-ancestors`.
   (tu/with-terms [CxA CxB CxW birthYear Tom]
     (let [one (list birthYear Tom 1970)
           two (list birthYear Tom 1980)]
@@ -996,17 +996,17 @@
       (is (= edges-first edges-last)
           "the identical entry whichever half of the setup arrived last"))))
 
-(tu/deftest-kb an-edge-whose-cone-is-cut-short-says-so
+(tu/deftest-kb an-edge-whose-ancestor-set-is-cut-short-says-so
   ;; The trigger reaches out of the region, so it is budgeted like every other sweep —
   ;; and a bounded sweep that reads as full coverage is the failure all of them guard
   ;; against.
-  ;; Distinct subjects, so the cone is full of candidates and *none* of them pairs — the
+  ;; Distinct subjects, so the ancestor set is full of candidates and *none* of them pairs — the
   ;; entry filed can then only be the sweep's, not the "more pairs than I will file" one
   ;; the same kind also carries.
   ;;
   ;; **The zero-findings cut**, this pass's entry in `truncation-kind-tests`: both of the
   ;; entry's readings are empty of pairs, so nothing but the cut itself can say four of
-  ;; the six facts in the cone were never looked at.
+  ;; the six facts in the ancestor set were never looked at.
   (tu/with-terms [CxSrc CxW birthYear]
     (v/assert kb (list 'functional birthYear) 'CxUniverse)
     (v/assert kb (list 'genlCx CxSrc 'CxUniverse) 'CxUniverse)
@@ -1234,7 +1234,7 @@
   '{:exposure-truncated
     vaelii.exposure-test/a-sweep-that-convicts-nobody-still-stops-at-the-bound
     :constraint-exposure-truncated
-    vaelii.exposure-test/an-edge-whose-cone-is-cut-short-says-so
+    vaelii.exposure-test/an-edge-whose-ancestor-set-is-cut-short-says-so
     :arbitration-truncated
     vaelii.exposure-test/an-arbitration-sweep-that-decides-nothing-still-says-it-was-cut
     :arity-truncated
@@ -1295,7 +1295,7 @@
 ;;; ── the partner sweep's own bound ─────────────────────────────────────
 ;;
 ;; `partner-contexts` is the one bounded read in `settle` with no settle-wide budget to
-;; debit: it runs at the assert door as well as inside a pass, so there is no `left`
+;; debit: it runs at the assert entry point as well as inside a pass, so there is no `left`
 ;; volatile to thread through it.  Its unnarrowed arm — a `functionalInArg` mark whose
 ;; declared position is the whole tuple, leaving no single argument root to narrow by —
 ;; is a real extent sweep, and it shipped capped but silent.  A cut there costs a
@@ -1350,29 +1350,14 @@
 
 ;;; ── the mark rosters, which drifted once ──────────────────────────────
 
-(deftest every-functional-family-mark-is-in-both-of-settles-rosters
-  ;; #54.  A mark family reaches stored content through two rosters in `settle`, and they
-  ;; are separate because they answer different questions: `clash-declaration-kind` says
-  ;; what a declaration's arrival puts back in question, `trigger-functor-kind` says what
-  ;; shape the declaration is written in.  `functionalInArg` was in neither, having been
-  ;; kept out of `definitional-marks` — correctly, that one pairs a functor with the prop
-  ;; key it stores under and the generalized mark has none — and the exclusion silently
-  ;; carried into the two rosters derived beside it.  The mark enforced at the door and
-  ;; went unswept behind it.
-  ;;
-  ;; Behaviourally this is `functional_in_arg_test`'s three declaration-last rows; here it
-  ;; is stated over the rosters themselves, so a *fourth* spelling added tomorrow cannot
-  ;; pass by being wired into one of them.
-  (let [kinds  @#'settle/clash-declaration-kind
-        shapes @#'settle/trigger-functor-kind
-        family (conj @#'settle/definitional-mark-symbols 'functionalInArg)]
-    (is (contains? family 'functionalInArg)
-        "the roster under test reads the generalized mark at all")
-    (doseq [f family]
-      (is (= :predicate-marked (kinds f))
-          (str f " must implicate the facts beneath the predicate it names"))
-      (is (contains? #{:mark :mark-in-arg} (shapes f))
-          (str f " must be recognized as a trigger at the arity it is written in")))
-    (testing "and the two shapes are told apart by argument count, not by name"
-      (is (= :mark (shapes 'functional)))
-      (is (= :mark-in-arg (shapes 'functionalInArg))))))
+;; `every-functional-family-mark-is-in-both-of-settles-rosters` stood here and is gone.
+;; It asserted over `settle`'s two rosters what #54 broke: the generalized functional mark
+;; enrolled for the clash reach and not for the trigger, or the reverse.  Both rosters are
+;; read off `predicates` now, and `predicates/check-families` refuses at namespace load the
+;; two ways that declaration can be half-written — a family whose spellings disagree about
+;; what they sweep, and a term that sweeps and declares no shape for a trigger to recognize
+;; it at.  Driven against a deliberately broken table in `predicates_test`; the lane facets
+;; the same family has to agree about are `check-facets`, and the one move neither validator
+;; can refuse — a spelling dropped from the family outright — is pinned as a literal by
+;; `predicates_test/the-declaration-reconstructs-the-taxonomy-rosters`.  The behavioural
+;; half is `functional_in_arg_test`'s three declaration-last rows and stays where it is.

@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.observe
-  "The leaf seam the engine's mutation choke points notify **without a require cycle**.
+  "The leaf extension point the engine's mutation choke points notify **without a require cycle**.
   Two things ride on it, and they are independent: named observers of the stored fact
   set, and one counter saying that *something* changed.
 
@@ -89,7 +89,7 @@
   "A monotone counter bumped by every mutation that could move what a derived,
   resident structure computes.  An `AtomicLong` rather than an atom: the engine is
   single-writer, so this is an increment, not a compare-and-swap — and it sits on every
-  mutating `jtms` entry point, so it has to cost nothing at all."
+  mutating `jtms` entry point, so it has to added no work at all."
   (AtomicLong. 0))
 
 (defn note-change
@@ -411,7 +411,7 @@
   [& body]
   `(with-pin (binding [*reach-memo* (or *reach-memo* (atom {}))] ~@body)))
 
-;; ---- what this seam holds, declared -------------------------------------
+;; ---- what this extension point holds, declared -------------------------------------
 ;;
 ;; One resident cache a reader can count, and three that are bound for the length of a
 ;; step and garbage when it returns.  The three are registered all the same: a page

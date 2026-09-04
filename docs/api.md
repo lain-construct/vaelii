@@ -32,7 +32,7 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                               ; for :pg-disk-log, whose durable index is files on
                                               ; this host describing records on a server
                                               ; :naming and :constraints are this KB's two
-                                              ; front-door policies (docs/naming.md, nmtms.md)
+                                              ; entry-point policies (docs/naming.md, nmtms.md)
                                               ; :recover? is :auto (or true) / :warn / false —
                                               ; :auto is the default and anything else is
                                               ; refused (:unknown-option), since a value read
@@ -118,6 +118,14 @@ default-chain-opts                              ; the bounds a chain run takes w
 (exposed-clashes kb)                            ; the standing cross-context disjointness clashes, asked
                                                 ; of the whole KB — settle files what a change newly
                                                 ; exposes, this answers what the KB holds now
+(specified-violations kb pred indep dep ctx)     ; audit one predAllSpecified declaration: the instances of
+                                                ; `indep` with no DETERMINATE `dep` filler. Pass :first as a
+                                                ; sixth argument for the predSpecifiedAll twin. Reads only,
+                                                ; nothing filed; a skolem filler is indeterminate and an
+                                                ; author-written Exists placeholder is not (docs/predall.md)
+(all-specified-violations kb ctx)               ; every such declaration visible in ctx, audited at once —
+                                                ; {[functor pred indep dep] #{instances…}}, the ones that
+                                                ; hold omitted, so an empty map is a clean sweep
 (last-program kb)                              ; the last edge Program solved — the tie, before belief erased it
 (set-solver kb :asp)                           ; the real answer-set backend, by name (:stub is the default)
 (set-solver kb solver)                         ; or any vaelii.impl.solve/Solver value
@@ -126,7 +134,7 @@ default-chain-opts                              ; the bounds a chain run takes w
 ;; of the three QUERY CONTEXTS — names for a way of reading rather than a place
 ;; (docs/contexts.md).  Nothing is asserted into one and no genlCx edge may name one.
 ;;   CxEverything  every stored sentex, belief IGNORED — a syntactic read of the store
-;;   CxInference   only what one reader's genlCx cone sees over the WHOLE derivation,
+;;   CxInference   only what one reader's genlCx ancestor set sees over the WHOLE derivation,
 ;;                 that reader bound to ?ctx in the answer.  A variable context reads
 ;;                 the same way, so neither joins two facts no one context sees
 ;;   CxNothing     no fact at all: whatever the provers alone can compute
@@ -137,10 +145,10 @@ default-chain-opts                              ; the bounds a chain run takes w
 ;; Exception: a goal whose every literal is computed (different / evaluate / unknown)
 ;; names no context, so it is read whole-KB with no witness — a fanned (unknown X) would
 ;; be satisfied by the most ignorant reader in the KB.  A mixed goal needs no exception.
-;; A door that does not resolve one refuses it (:unsupported-context) rather than
+;; An entry point that does not resolve one refuses it (:unsupported-context) rather than
 ;; answering empty.
 (sentexes-matching kb sentence context)        ; believed literal match (context defaults to ?ctx)
-(query kb goal context opts)                   ; THE FRONT DOOR -> solutions.  No :max-depth and it
+(query kb goal context opts)                   ; THE PUBLIC ENTRY POINT -> solutions.  No :max-depth and it
 (query? kb goal context opts)                  ; expands no rule; a :max-depth and it is the node
                                                ; engine, bounded at that many rule rewrites.  There
                                                ; is no default depth — name the smallest that works
@@ -243,7 +251,7 @@ default-chain-opts                              ; the bounds a chain run takes w
 (export-text! kb dir opts?)                    ; write its PREMISES out as a text KB — one
                                                ; <Context>.txt per context, the format the shipped
                                                ; ontology is authored in; opts {:context C} or
-                                               ; {:cone C} to narrow.  Content-ordered and free of
+                                               ; {:ancestor set C} to narrow.  Content-ordered and free of
                                                ; anything about the run, so the same knowledge
                                                ; always writes the same bytes
 (load-text! kb path)                           ; read one back — a directory of Cx*.txt, or one
@@ -324,7 +332,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; :context adds :up :down :sentex-count, and
                                                ;   :computed-spec-of for a reified one
                                                ; Every declaration, grant and comment is read from
-                                               ; `context`'s genlCx UP-CONE, so two vantages give two
+                                               ; `context`'s genlCx ANCESTOR SET, so two vantages give two
                                                ; correct answers; `?ctx` (the default) reads every
                                                ; context.  Every list is a window with its size beside
                                                ; it — {:terms|:rows … :total :exact? :sorted?} —
@@ -442,7 +450,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; results and justifications of BOTH sides.  No opts
                                                 ; and it is `ask` (no rule expands); {:max-depth n} and
                                                 ; it is `query`.  There is no default depth here either
-                                                ; opts: `query-opt-keys`, checked at THIS door — a
+                                                ; opts: `query-opt-keys`, checked at THIS entry point — a
                                                 ; misspelt depth checked downstream is never checked at
                                                 ; all, and answers :unknown for a derivable sentence
                                                 ; :for-why / :against-why are `why`'s JTMS map, for a
@@ -484,7 +492,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; well-formed, pairwise-distinct premise load
 *write-unrecovered?*                            ; false: accept a write into a KB whose belief (or
                                                 ; index) was never built over the store it opened,
-                                                ; which the write doors otherwise refuse by name
+                                                ; which the write entry points otherwise refuse by name
                                                 ; (:unrecovered-kb).  Its docstring lists what
                                                 ; binding it gives up (docs/storage.md)
 *creator*                                       ; nil: the creator stamped into provenance when opts
@@ -506,7 +514,7 @@ expansion each will do**.  Pick by what you are asking, not by habit:
 
 | Reach for | When you want | Machinery | Returns |
 |-----------|---------------|-----------|---------|
-| **`query` / `query?`** | **the default** — one door, one dial: how deep to expand rules | no `:max-depth` and the registry answers alone; a `:max-depth` and the node engine expands rules that deep.  Either way a **conjunctive** join (vector goal) | binding maps `{?x v}` |
+| **`query` / `query?`** | **the default** — one entry point, one dial: how deep to expand rules | no `:max-depth` and the registry answers alone; a `:max-depth` and the node engine expands rules that deep.  Either way a **conjunctive** join (vector goal) | binding maps `{?x v}` |
 | `ask` / `ask?` | an answer from what the KB stores or has cached, at a cost that does not depend on the rule graph | the prover registry (facts, transitivity, disjointness, inverse/symmetric metadata, evaluable arithmetic, NAF, arg) — **no rule expansion** | binding maps `{?x v}` |
 | `sentexes-matching` | *stored, believed* literals matching a pattern — retrieval, not reasoning | belief-filtered index read; no inference, no subtype expansion | **sentex maps** |
 | `prove` / `provable?` | backward chaining with **no depth to pick**: it terminates on the data | the recursive chainer, facts + rules only; a **conjunctive** join (vector goal) | a vector of binding maps, **one per derivation** — equal maps repeat, so `distinct` for an answer set |
@@ -520,7 +528,7 @@ expansion each will do**.  Pick by what you are asking, not by habit:
 **Every read above takes an `(ist Ctx S)` goal**, asking `S` in `Ctx` with the named
 context winning over the `context` argument — the resolution `assert` makes, so the form
 means one thing on both sides of the KB.  So do `handle-of` and `why-not`'s sentence
-arity.  Retrieval answers the sentexes stored in `Ctx`; the reasoning doors answer from
+arity.  Retrieval answers the sentexes stored in `Ctx`; the reasoning entry points answer from
 everything `Ctx` inherits.  A wrong arity is refused `:shape`, and an `(ist …)` standing as
 a **conjunct** of a vector goal is refused `:not-well-formed` — a join's conjuncts share
 their bindings, so there is no per-literal context to honor; ask the whole conjunction in
@@ -569,13 +577,13 @@ admitted, and needs the sentences that *did* land to stay landed.  Rolling a bul
 back would also cost an audit entry per premise mark, on the one path whose whole reason
 for existing is that it is the fast one.  The depth potential is repaired on the way out
 even so, since nothing else would ever repair it and every later reachability read would
-pay for that.  **Where a batch must be all-or-nothing, use `edit!`** — the all-or-nothing door,
+pay for that.  **Where a batch must be all-or-nothing, use `edit!`** — the all-or-nothing entry point,
 and the one with a `:remove` half.
 
 **`bulk-assert-facts!`** is `assert-many` with the machinery a *trusted* corpus does not
 need turned off as well: the per-fact definitional checks (the `arg` store query
 above all), the dedup trie-walk, provenance, and forward chaining. What is left is the
-write path itself, and the door reports what it costs — `:on-progress` is handed
+write path itself, and the entry point reports what it costs — `:on-progress` is handed
 `{:phase :loading :done n :elapsed-ms ms :facts-per-sec r}` every 100,000 facts and
 `{:phase :done :total n …}` once the closing settle has run, so the last event is a rate
 for the whole load and is comparable between runs and between corpus sizes. Where that
@@ -614,7 +622,7 @@ and before the first teardown, and past that point the batch is committed.
 
 ## Three formats, and which question each answers
 
-A KB moves in three shapes, and they are separate doors because they answer different
+A KB moves in three shapes, and they are separate entry points because they answer different
 questions:
 
 | | what it holds | written by | read by |
@@ -632,20 +640,20 @@ the engine already reads.
 `export-text!` writes one `<Context>.txt` per context: **the file name is the context**,
 and a sentence for another one says so with `(ist Cx S)` as it would anywhere else. Each
 premise keeps its `:strength` — `:monotonic` as a `(set/monotonic S)` wrapper, `:default`
-as nothing, since that is the door's own fallback — and each rule its `set/*Rule` /
+as nothing, since that is the entry point's own fallback — and each rule its `set/*Rule` /
 `set/defaultRule` wrappers and its `exceptWhen`, so a reload yields the same canonical
 sentexes at the same strengths and the same beliefs. An `exceptWhen` is **two** premises
 at two strengths, and the wrapper's position says which: outside, it is the assertion's
 own option and reaches both halves; on the query, `(exceptWhen (set/monotonic Q) R)`, it
 is the exception's alone ([exceptions.md](exceptions.md)). `{:context C}` narrows to one file
-and `{:cone C}` to `C` plus every context it sees.
+and `{:ancestor set C}` to `C` plus every context it sees.
 
 **Premises only, and no handles.** A derived sentex is what the engine concluded, so
 writing it would store as a premise what the KB believes as a conclusion; chaining puts it
 back at load. A premise that names a sentex *by handle* — an `(except H)`, a
 `target_following_predicate` meta — has no text form at all and is counted in `:skipped`:
 the number is a fact about this store. For those, and for handle identity in general, the
-door is `export!`.
+entry point is `export!`.
 
 **Deterministic.** Forms are ordered by content and the text carries nothing about the run
 that wrote it, so two KBs holding the same knowledge write byte-identical files whatever
@@ -656,7 +664,7 @@ refused because content further down has not arrived yet is retried, and the con
 topology goes in first whatever order it arrived in — a firing with no placement context
 is *dropped* rather than refused, so a `genlCx` edge arriving after the fact it would have
 placed is the one thing retrying cannot fix. Every form goes through the ordinary write
-path, so the KB it lands in need not be empty. `lein cli load` is this door
+path, so the KB it lands in need not be empty. `lein cli load` is this entry point
 ([operations.md](operations.md)).
 
 ## Validating without writing
@@ -694,11 +702,12 @@ one).  Three further types are about the *request* rather than the
 knowledge: `:shape` (the context is not a symbol, the sentence is not an
 s-expression, or it is a **vector** — below), `:unknown-option` (a non-map `opts`, an `opts` key `assert` does not read, a
 `:strength` that is not an assertable class, or a `:direction` that is unknown, on a
-non-rule, or contradicting the wrapper the sentence already carries — below) and
+non-rule, or contradicting the wrapper the sentence already carries — below; `:mismatch`
+says which of those it was, and is on every `:unknown-option` the tree raises) and
 `:not-checkable` (a top-level
 `do/` imperative, which `check` will not run to find out what it does).  One more is
 about neither the request nor the knowledge but the **KB**: `:unrecovered-kb`, which
-every write door refuses before it reads the sentence at all, so `check` reports it
+every write entry point refuses before it reads the sentence at all, so `check` reports it
 alone and first — and not at all under `*write-unrecovered?*`, where `assert` lands the
 write.  The stages stop
 at the first that finds anything, since each later one reads the KB assuming the earlier
@@ -744,7 +753,7 @@ silent, a mutation that moved no belief is silent, and a goal whose truth is not
 of the moved region — a conjunction, an aggregate, `unknown`, `thereExists`, an evaluable,
 an `ist` — is **refused** (`:not-watchable`) rather than watched for nothing, and so is
 an `or`: no stored sentence unifies with a disjunction, so a watch on one would fire
-never.  The read doors refuse the same goal at the shape guard (`:shape`), a read
+never.  The read entry points refuse the same goal at the shape guard (`:shape`), a read
 normalizing to one conjunction rather than a union
 ([canonicalization.md](canonicalization.md)).  A listener
 runs after the settle, so it may write; one that throws loses its own event and nothing
@@ -763,10 +772,10 @@ context)` is that assembly, keyed by the term's own role — predicate, type, in
 context — so what comes back is shaped like what the term *is*.  The browser's term page
 renders exactly this and computes none of it a second time ([web.md](web.md)).
 
-Two properties are worth stating on their own.  **It is scoped**, and that is not a
+Two properties matter on their own.  **It is scoped**, and that is not a
 detail: an `arg` declaration, an `abducible_predicate` grant and a `comment` are each a
 policy of the context that states them, so `describe` reads them from the asking context's
-`genlCx` up-cone and two vantages give two different, both-correct answers.  A read that
+`genlCx` ancestor set and two vantages give two different, both-correct answers.  A read that
 answered from the whole KB would report a declaration to a reader for whom it does not
 bind, and nothing in the answer would say so.  And **every list is a window with its size
 beside it** — `{:terms :total :exact? :sorted?}` for terms, `{:rows …}` for maps — because
@@ -778,13 +787,13 @@ described as a **type**, since a type *is* a unary predicate and no spelling sep
 two ([naming.md](naming.md)).
 
 **`why-not` `{:nearest n}` — why doesn't my rule fire?**  `:not-stored` is the emptiest
-answer the door has, and it is the one that arrives when a rule was supposed to conclude
+answer the entry point has, and it is the one that arrives when a rule was supposed to conclude
 the goal: nothing is stored, so there is no handle, no support and no defeat to report.
 `{:nearest n}` runs a bounded backward search and reports the rules that came closest, each
 with the antecedents the KB *can* satisfy, the ones it cannot, and the bindings the goal
 forced on the rule.  `:missing` is the line to read — it is the fact nobody has asserted.
 
-It is **off by default** and that is deliberate: `why-not` is cheap enough to call in a
+It is **off by default** and that is deliberate: `why-not` is inexpensive enough to call in a
 loop over a conflict list, and a backward search per call is not.  The bounds are
 `:max-depth` (3) and `:max-ms` (2000), both overridable, and `:nearest-search` reports
 which of them bit — `:complete`, `:bounded`, `:timeout`, or `:refused` where the search
@@ -817,17 +826,17 @@ them; `why` is the read for the first and `provenance` for the second.
 
 ## Argument-shape contracts
 
-**A sentence is a list; a vector is a query's conjunction.**  Both doors are
+**A sentence is a list; a vector is a query's conjunction.**  Both entry points are
 `sequential?`, and only one of them means "one sentence": a vector goal is what `query`
-and `prove` spell a **join** with (above), so the two doors read the same brackets two
-different ways.  So the write door refuses a top-level vector (`:shape`), which is the
+and `prove` spell a **join** with (above), so the two entry points read the same brackets two
+different ways.  So the write entry point refuses a top-level vector (`:shape`), which is the
 one shape it could otherwise take and answer differently for — `[likes Tom Ann]` stored
 the sentence `(likes Tom Ann)` and handed back to `prove` asked for a three-goal join of
 `likes`, `Tom` and `Ann`, which is no solutions and no error.  `assert`, `check`,
 `check-edit` and `assert-inert` share the guard; nested vectors are untouched, since the
 reading that collides is the top-level one.  Write the list.
 
-**The read doors refuse it too**, and for the mirror reason: a door that answers a
+**The read entry points refuse it too**, and for the mirror reason: an entry point that answers a
 *single goal* has the same two readings of one bracket, so `[likes Tom Ann]` handed to
 `ask` asked about a three-goal join written where one sentence was meant, and answered
 nothing rather than saying so.  `ask`, `ask?`, `ask-within`, `sentexes-matching`,
@@ -835,7 +844,7 @@ nothing rather than saying so.  `ask`, `ask?`, `ask-within`, `sentexes-matching`
 `search-tree`, `compare-tacticians` and
 `abduce` refuse a top-level vector by name (`:shape`), carrying `:goal` — or `:conjunct`
 where the vector sits *inside* a conjunction, naming which element of the join it was.
-The doors that take a conjunction on purpose still take one; what is refused is a vector
+The entry points that take a conjunction on purpose still take one; what is refused is a vector
 where a sentence goes.
 
 **`assert-opt-keys`** is the roster of every key `assert` / `assert-rule` reads, and a
@@ -850,14 +859,14 @@ critic catches them before anything is written.  `why` holds its own `opts` to t
 standard: it reads `:max-depth` alone, and a non-map `opts`, an unknown key, or a
 `:max-depth` that is not a natural number is refused (`:unknown-option`).
 
-**`edit-batch-keys`** is the same answer for the other batch door: every key an `edit`
+**`edit-batch-keys`** is the same answer for the other batch entry point: every key an `edit`
 batch may carry, which is `#{:add :remove}` and is read by `edit`, `check-edit`,
 `preview` and `edit-with-consequences` alike — so the four cannot disagree about what a
 batch is.  Public for the reason `assert-opt-keys` is: a caller that can ask "is this a
 real key?" does not have to find out from a wrong answer.
 
-**Every door holds a roster, not just these two.**  An option map is a request, and a key
-a door does not read is a request it cannot honour — so it is refused rather than
+**Every entry point holds a roster, not just these two.**  An option map is a request, and a key
+an entry point does not read is a request it cannot honour — so it is refused rather than
 dropped, at `forward-chain`, the extent readers (`sentexes-in-context` /
 `-with-functor` / `-with-arg`), `query`, `search-tree`, `compare-tacticians`, `argue`,
 `preview`, `edit-with-consequences!`, `export!`,
@@ -866,31 +875,31 @@ roster exists to stop is not a crash but a *different answer*: `{:max-derivation
 `forward-chain` ran unbounded, `{:believed true}` at an extent reader answered the stored
 extent with defeated defaults in it, and an `open-kb` mount or durability key naming no
 axis opened a KB other than the one asked for.  Each of those is a plausible answer to a
-question nobody asked, which is the shape of failure hardest to notice from the outside.
+question nobody asked, which is the structure of failure hardest to notice from the outside.
 
 `query`'s roster is **`query-opt-keys`**: its own dial plus the node engine's keys, which
 is where everything but `:max-depth` and `:proof?` goes — and the engine reads what it
 knows and ignores the rest, so an open roster there would let `{:max-deph 3}` answer
 facts-only with nothing to say it had.
 
-**A roster is what its door reads, never a superset.**  The two debugger reads run
+**A roster is what its entry point reads, never a superset.**  The two debugger reads run
 `query`'s search in a fixed mode, so each holds its own: **`search-tree-opt-keys`**
-(`:max-depth :strategy :node-budget :max-ms`) drops the keys that door overwrites or never
+(`:max-depth :strategy :node-budget :max-ms`) drops the keys that entry point overwrites or never
 looks at, and **`compare-tacticians-opt-keys`** trades `:strategy` for `:tacticians`,
-because that door sets the ordering per row.  A roster wider than its door is a key
+because that entry point sets the ordering per row.  A roster wider than its entry point is a key
 accepted and then discarded — the same silent default a roster exists to refuse, one
 level in.
 
-The four backward-search doors read the same rule the other way.  **`prove-opt-keys`**
+The four backward-search entry points read the same rule the other way.  **`prove-opt-keys`**
 (`:max-ms :max-depth`) is what `prove` and `provable?` take; **`ask-opt-keys`**
-(`:max-ms`) is what `ask` and `ask?` take, and the missing `:max-depth` is the door
+(`:max-ms`) is what `ask` and `ask?` take, and the missing `:max-depth` is the entry point
 saying what it is — nothing in the prover registry expands a rule, so there is no
 transformation depth to bound there and a `:max-depth` would be accepted and never
 consulted.
 
 ### What an exhausted bound answers
 
-The two bounds on those doors are not the same kind of thing, and the answers differ
+The two bounds on those entry points are not the same kind of thing, and the answers differ
 because of it.
 
 `:max-depth` **prunes**: the space under the depth is genuinely exhausted, so what comes
@@ -899,8 +908,8 @@ complete answer to a smaller question, and `(provable? kb g ctx {:max-depth 2})`
 `false` means *no derivation within two rewrites*, which is a real thing to be told.
 
 `:max-ms` **suspends**: the search stops where it is, and what it has is a *prefix* of the
-answer set. So these doors refuse rather than return it — `:type :budget-exhausted`,
-carrying `:door`, the `:bound` it was given, the `:status` (`:timeout`) and `:elapsed-ms`.
+answer set. So these entry points refuse rather than return it — `:type :budget-exhausted`,
+carrying `:entry point`, the `:bound` it was given, the `:status` (`:timeout`) and `:elapsed-ms`.
 A prefix handed back as an answer set is indistinguishable from the whole of a KB that
 knows less, and on `ask?` / `provable?` it would be a `false` that means *we stopped
 looking* rather than *the KB does not say so*. A caller who wants the prefix asks through
@@ -908,7 +917,7 @@ looking* rather than *the KB does not say so*. A caller who wants the prefix ask
 exactly what it is, and `resume` continues from there.
 
 Everywhere a key off the roster is
-`:unknown-option`, and `check` reports what the writing door would throw.  The CLI keeps a roster of its own —
+`:unknown-option`, and `check` reports what the writing entry point would throw.  The CLI keeps a roster of its own —
 its `--` flags, refused the same way and for the same reason — since a command line is
 not an option map.
 

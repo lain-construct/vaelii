@@ -96,7 +96,7 @@
 (tu/deftest-kb without-the-genl-edge-the-same-two-rules-are-stratified
   ;; The control for the test above: identical rules, no genl edge, and the cycle
   ;; does not exist — so the refusal there is attributable to the subtype and not to
-  ;; the shape of the rules.
+  ;; the structure of the rules.
   (tu/with-terms [base flightless penguin p CxBird]
     (is (v/assert kb (except-rule (list flightless '?x) [(list base '?x)] (list p '?x))
                   CxBird))
@@ -124,7 +124,7 @@
 (tu/deftest-kb without-the-negation-the-same-two-rules-are-stratified
   ;; The control for the test above: the same shape written with a positive literal on
   ;; a predicate nothing else concludes, so there is no cycle to find and the refusal
-  ;; there is attributable to the negation rather than to the shape of the rules.
+  ;; there is attributable to the negation rather than to the structure of the rules.
   (tu/with-terms [birdy fliesNot grounded staysPut CxNeg]
     (is (v/assert kb (except-rule (list grounded '?x) [(list birdy '?x)] (list fliesNot '?x))
                   CxNeg))

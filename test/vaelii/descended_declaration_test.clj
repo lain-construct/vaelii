@@ -7,7 +7,7 @@
   That namespace pins the descension where it is *asserted*: an edge written by a
   caller, a mark read off a super, a refusal that names the declaration that convicted.
   Each test here is a place where the same descension has to happen and the ingredient
-  arrives by another door, or where reading it right is only visible in a count or a key:
+  arrives by another entry point, or where reading it right is only visible in a count or a key:
 
   * a declaration's **own** position check reads the arity the predicate *inherits*, so a
     sub-predicate that declares no length of its own has a position refused on its
@@ -93,7 +93,7 @@
 ;;
 ;; Every arrival-order case elsewhere **asserts** the edge, so the two descents the
 ;; conclusion path owes are unreachable from a test that writes one: a rule concluding
-;; `(genl ?x ?y)` is the only door to them, and nothing drove it.
+;; `(genl ?x ?y)` is the only entry point to them, and nothing drove it.
 
 (tu/deftest-kb a-derived-genl-edge-merges-the-fillers-under-a-mark-above-it
   ;; `equate-under-edge` on the derivation path.  The two fillers and the `functional`
@@ -258,7 +258,7 @@
   ;; The gate the case above had to work around.  `could-clash?` and `partner-contexts`
   ;; decide, per sentex, whether a binary fact can be half of a pair at all — and they
   ;; asked `has-prop?` of the exact functor while every check they gate asks `props-over`.
-  ;; So the descension the checks implement was invisible here: a pair the assert door
+  ;; So the descension the checks implement was invisible here: a pair the assert entry point
   ;; refuses in one context was never weighed across two, because the pass dropped both
   ;; halves before looking at them.  Nothing marks the sub-predicate now.
   (tu/with-terms [CxA CxB CxW aaYearOf zzBirthYearOf Tom]

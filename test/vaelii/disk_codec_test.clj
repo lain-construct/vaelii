@@ -28,7 +28,7 @@
              (sx/->LiteralSentex '(bornIn Tom 1970) 'CxWell 12 :true nil)
              (sx/->LiteralSentex '(likes Ann (mother (father Bob))) 'C 3 :false :default)
              (sx/->LiteralSentex '(exceptWhen (penguin ?var0) (sentexHandle 9)) 'C 4 :true nil)
-             ;; every nil-able field nil at once — the shape a bare derived fact has
+             ;; every nil-able field nil at once — the form a bare derived fact has
              (sx/->LiteralSentex '(p A) 'C nil :true nil)]]
     (testing (str "literal " (:sentence a))
       (let [r (sx-trip a)]
@@ -96,7 +96,7 @@
 
 (deftest a-frame-tag-this-build-does-not-read-is-refused-by-name
   ;; The other direction of the same compatibility question: a positional frame whose tag
-  ;; is not one of this codec's must be refused rather than read as a literal whose fields
+  ;; is not one of this codec's must be refused rather than are indistinguishable from a literal whose fields
   ;; land in the wrong slots.  Refused *by name*, because `rebuild-premises!`
   ;; discriminates on the type: `:damaged-dictionary` and `:malformed-record` are crash
   ;; damage and tombstone the record, while this one rethrows — a build that cannot read a

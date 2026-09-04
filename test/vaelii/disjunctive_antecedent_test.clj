@@ -349,23 +349,23 @@
         (is (re-find #"one exceptWhen per alternative" msg))))))
 
 ;; ---- 13. a goal is refused rather than expanded -------------------------
-;; DECISION: a rule is expanded once, at the write door; a goal would have to be
+;; DECISION: a rule is expanded once, at the write entry point; a goal would have to be
 ;; expanded at every read, and `goal-conjunction` normalizes to one conjunction that the
 ;; planner orders once and every engine walks as one.  Answering the union at `prove`
 ;; while `query-plan` and `abduce` refused it would make one spelling mean something
-;; different at each door, so every read door refuses it alike and names the rewrite.
+;; different at each entry point, so every read entry point refuses it alike and names the rewrite.
 
-(tu/deftest-kb a-disjunctive-goal-is-refused-at-every-read-door
+(tu/deftest-kb a-disjunctive-goal-is-refused-at-every-read-entry-point
   (tu/with-terms [dog cat Muffet CxPets]
     (let [goal (list 'or (list dog Muffet) (list cat Muffet))]
-      (doseq [[door f] [["ask"   #(v/ask kb goal CxPets)]
-                        ["prove" #(v/prove kb goal CxPets)]
-                        ["query" #(v/query kb goal CxPets)]
-                        ["matching" #(v/sentexes-matching kb goal CxPets)]]]
-        (testing door
+      (doseq [[entry-point f] [["ask"   #(v/ask kb goal CxPets)]
+                               ["prove" #(v/prove kb goal CxPets)]
+                               ["query" #(v/query kb goal CxPets)]
+                               ["matching" #(v/sentexes-matching kb goal CxPets)]]]
+        (testing entry-point
           (let [^clojure.lang.ExceptionInfo e
                 (try (f) nil (catch clojure.lang.ExceptionInfo ex ex))]
-            (is (some? e) (str door " accepted a disjunctive goal"))
+            (is (some? e) (str entry-point " accepted a disjunctive goal"))
             (is (= :shape (:type (ex-data e))))
             (is (re-find #"or cannot stand in a goal" (.getMessage e))))))
       (testing "a conjunct that disjoins is refused too"

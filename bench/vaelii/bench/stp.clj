@@ -40,7 +40,7 @@
   times a memo hit is a recompute, and one that costs a memo hit is not.
 
   Every network here is a **chain** — instant `i` some distance after instant `i-1` — which
-  is the shape a sequence of events produces and the dense case for the read-back: a chain
+  is the form a sequence of events produces and the dense case for the read-back: a chain
   pins a bound between every pair, so the closed network holds n² of them however few were
   written.  Magnitudes are integers and every generated constraint contains the true gap of
   a fixed assignment, so nothing measured here is the inconsistency path.

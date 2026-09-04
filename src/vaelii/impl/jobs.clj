@@ -255,7 +255,7 @@
                                                    (map? summary)        (assoc :summary summary)
                                                    (:result-url summary) (assoc :result-url (:result-url summary))))
                                         ;; the last reading a finished job took is the phase it
-                                        ;; finished *in*, which reads as though it stopped there.
+                                        ;; finished *in*, which gives the impression that it stopped there.
                                         ;; A failed or cancelled one keeps its last reading, since
                                         ;; where it got to is the whole of what it has to say
                                         (assoc-in [:progress :phase] :done))))
@@ -264,7 +264,7 @@
                                   :data (when (map? summary) summary)}))
                    (catch Throwable t
                      ;; an interrupt is what `cancel!` does to a job that writes nothing,
-                     ;; so it reads as a cancellation and not as a failure
+                     ;; so it is indistinguishable from a cancellation and not as a failure
                      (let [c? (cancelled? t)]
                        (update-job! id #(merge % {:status (if c? :cancelled :failed)
                                                   :finished (now)

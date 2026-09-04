@@ -146,10 +146,21 @@
 
   Which position: the subject is argument 1 throughout, and `inverse` names two
   predicates because either one's goals are answered from the other's facts.
-  `functional` is absent because it is read by the definitional checks and answers no
-  goal; `arity` and the decontextualization marks likewise.  `arg` / `genlArg` are
-  absent for the opposite reason — a membership they infer is *stored*, so it arrives
-  through the ordinary fact trigger."
+
+  Who is **absent**, in the three groups `predicates/check-facets` reads this roster
+  against — a declaration answering goals about the predicate at argument 1 posts by one
+  of the three routes or the rule refuses it at load:
+
+  * **Answers no goal**, so the rule never asks: `functional` is read by the definitional
+    checks and moves nothing a query says; `arity` and the decontextualization marks
+    likewise.  They carry no `:answers` facet.
+  * **Posts from its own arms** rather than through this shared path, which the
+    `:retriggers` facet says: `arg`, whose arms post the arg-type re-check, and
+    `closed_extent_predicate`.
+  * **Reaches an exception through an ordinary fact trigger**, so there is nothing left
+    for either route to post: `genlArg`, `quotedArg` and `interArg` — the rest of the
+    argument-constraint family — each licensing inferences that are themselves stored
+    sentexes.  Each records that in `:stops-short`, with its own version of the reason."
   '{transitive           [1]
     symmetric            [1]
     asymmetric           [1]
@@ -157,6 +168,17 @@
     inverse              [1 2]
     transitiveInArg        [1]
     transitiveInArgInverse [1]})
+
+(def recheck-subjects
+  "`declaration-subjects`' functors as a set — which declarations post to the exception
+  re-check queue through the shared path rather than from arms of their own.
+
+  Public because `predicates/check-facets` holds every declaration that answers goals
+  about a predicate to posting by one route or the other, and the two routes live in
+  different namespaces: a `:retriggers` facet says the arms do it, this says
+  `recheck-declaration` does.  A declaration in neither decides by arrival order, which
+  is what that rule refuses at load."
+  (set (keys declaration-subjects)))
 
 (defn- recheck-declaration
   "A declaration licensing an inference about some predicate arrived or left: queue
@@ -384,7 +406,7 @@
   splitting, and a schematic rewrite arriving.
 
   (A `genlCx` edge change does not come here: `recheck-genlCx-edge` narrows it
-  to the excepted rules whose firings live in the moved visibility cone, the context-keyed
+  to the excepted rules whose firings live in the moved visibility ancestor set, the context-keyed
   twin of `recheck-genl-edge`'s predicate keying.)
 
   There is no triggering *sentence* here — the whole blocking state is being rebuilt —
@@ -493,7 +515,7 @@
 
   One record read per rule carrying a negated condition, and none at all for a KB that
   has none — the same shape and the same gate `recheck-genlCx-edge` uses on its
-  own cone test."
+  own ancestor set test."
   [kb sub]
   (let [idx (:index kb)]
     (when-let [rules (seq (reads/watched-rules-on idx 'not))]
@@ -563,7 +585,7 @@
   rule that never fired, and skip it.  An `:overflow` record keeps no entries, so there
   is nothing to test and the only sound answer is yes.
 
-  The record is read as a bare KB field rather than through `chain`, which writes it and
+  The record is are indistinguishable from a bare KB field rather than through `chain`, which writes it and
   sits three layers above here."
   [kb rh hit?]
   (let [r (get @(:refused kb) rh)]
@@ -582,29 +604,29 @@
 
   Dependency narrowing, keyed on contexts (the twin of `recheck-genl-edge`'s predicate
   keying): iterate each excepted rule's firings — a cheap context lookup per firing, no
-  query — and queue the rule only when one lands in the affected cone.  The level-6
+  query — and queue the rule only when one lands in the affected ancestor set.  The level-6
   re-check queries in `settle` are then paid for the affected excepted rules alone, not
   all of them.  Guarded on the global exception-rule set, so a KB with no `exceptWhen`
   pays one set read and stops.
 
   Keyed on where a firing was **placed**, and a firing refused at derive time was never
-  placed — so the same cone test is asked of the rule's **recorded refusals**, whose
+  placed — so the same ancestor set test is asked of the rule's **recorded refusals**, whose
   entries name the placement context the refused conclusion would have had.  Without
   that half, a rule blocked every time it fired has no context to read here and a
-  widened cone that releases it reaches nothing.
+  widened ancestor set that releases it reaches nothing.
 
   **An aggregate rule is exempt from that narrowing**, because for it the reasoning
   above is false in one direction.  Every other re-check condition is a block, so the
-  thing a widened cone can change always has a firing to be found; an aggregate binds a
+  thing a widened ancestor set can change always has a firing to be found; an aggregate binds a
   **value**, and a census that rises licenses a firing that never existed.  There is no
-  placed conclusion to read a context off, so the cone test finds nothing and the rule
+  placed conclusion to read a context off, so the ancestor set test finds nothing and the rule
   is silently skipped — a count taken in `CxSub` before it inherited `CxUp`
   stays taken.  The same asymmetry `settle/aggregate-recheck-rules` exists for, met the
   same way: queue it and let the re-join decide.
 
   One record fetch per excepted rule for that exemption test, and then one per **firing**
-  for the cone test — `some` short-circuits on a hit, so a rule the edge does reach costs
-  the firings up to the first one in the cone, and a rule it reaches through none costs
+  for the ancestor set test — `some` short-circuits on a hit, so a rule the edge does reach costs
+  the firings up to the first one in the ancestor set, and a rule it reaches through none costs
   every firing the rule ever made.  That is the price of narrowing on placement rather
   than queueing wholesale, and it is paid on a `genlCx` edge alone."
   [kb sub]
@@ -612,17 +634,17 @@
         excepted (reads/watched-rules idx)]
     (when (seq excepted)
       (let [affected (tax/context-down (:taxonomy kb) sub)
-            in-cone? (fn [jid]
-                       (when-let [j (jtms/justification tms jid)]
-                         (when-let [csx (p/get-sentex (:records kb) (:consequence j))]
-                           (contains? affected (:context csx)))))]
+            in-ancestor-set? (fn [jid]
+                               (when-let [j (jtms/justification tms jid)]
+                                 (when-let [csx (p/get-sentex (:records kb) (:consequence j))]
+                                   (contains? affected (:context csx)))))]
         (doseq [rh excepted]
           (when (or (aggregate-rule? kb rh)
-                    (some in-cone? (jtms/dependents tms rh))
+                    (some in-ancestor-set? (jtms/dependents tms rh))
                     (refusals-reach? kb rh #(contains? affected (:pctx %))))
             (mark-recheck kb [rh] :all)))
         ;; A predicate preserved along `genlCx` reads that closure across its
-        ;; arguments, so the cone test above — which is about where a firing was
+        ;; arguments, so the ancestor set test above — which is about where a firing was
         ;; *placed* — cannot see it.
         (recheck-preserving-along kb 'genlCx)))))
 
@@ -723,7 +745,7 @@
 
   Both are kept here rather than derived on demand because both answer a question a
   `genlCx` edge asks and the index cannot: *which predicates could a seed usefully
-  have*, and *does this cone hold a rule at all*.  Maintained at the rule index/unindex
+  have*, and *does this ancestor set hold a rule at all*.  Maintained at the rule index/unindex
   choke points, beside `:opposed` at the store's, and rebuilt by `recover` because
   recovery replays rule indexing."
   [kb rule-sentex preds f]
@@ -785,7 +807,7 @@
   so there is nothing to narrow the firings by — and the rule owes a fresh **join** as
   well as a re-check, since the grant blocked nothing for the blocked set to notice and
   the firings it licenses are ones no justification exists for yet.  That is the same
-  asymmetry a widened `genlCx` cone takes `:all-rejoin` for.  The posting is left in place
+  asymmetry a widened `genlCx` ancestor set takes `:all-rejoin` for.  The posting is left in place
   when the grant leaves: a spurious re-check costs one query, and a missing one is a
   conclusion that should have been swept and wasn't."
   [kb pred]
@@ -857,7 +879,7 @@
 ;; ---- except: visibility removal blocks derivations too -------------------
 ;; A believed `(except (sentexHandle H))` in context C hides H from C and its
 ;; descendants — for reads *and* for derivation: a rule firing that used H as an
-;; antecedent and placed its conclusion in the cone rests on a fact that context can no
+;; antecedent and placed its conclusion in the ancestor set rests on a fact that context can no
 ;; longer see, so the conclusion is swept (`chain/justification-excepted?` reads the
 ;; hidden set).  The trigger below queues the rules of every firing that uses H, so a
 ;; late `except` arriving (or leaving) re-checks and sweeps (or revives) them.  It is
@@ -915,10 +937,10 @@
        (mark-recheck kb marked trigger)
        marked))))
 
-(defn recheck-except-cone
+(defn recheck-except-ancestors
   "A `genlCx` edge moved visibility for the contexts in `context-down(sub)`, which
   changes not only what an exceptWhen query sees (`recheck-genlCx-edge`) but also
-  which handles a believed `except` hides from a context in the cone — so a derivation
+  which handles a believed `except` hides from a context in the ancestor set — so a derivation
   it blocks or releases must be re-checked too.  Re-queues every `except`'s affected
   firings (`recheck-except`).  Gated on the `except` root, so a KB using no `except`
   pays one count and stops; excepts are rare, so re-queuing all of them on a rare edge
@@ -1332,7 +1354,7 @@
   are chaining seeds like any other new content.  nil when `sentence` is not an argument
   constraint.
 
-  Two of `interArg`'s three arrival orders are covered here and at the door; the third
+  Two of `interArg`'s three arrival orders are covered here and at the entry point; the third
   — the *trigger's* type arriving after both the fact and the declaration — is the
   family's documented open-world non-reach (docs/taxonomy.md, \"What each constraint does
   in each arrival order\"), and `arg` has it too from the other side.
@@ -1574,7 +1596,7 @@
         seen))))
 
 (defn- transitive-partner-functors
-  "The functors some rule reads as an antecedent BESIDE a `pred` one — the triggers a
+  "The functors some rule is indistinguishable from an antecedent BESIDE a `pred` one — the triggers a
   grown `pred` closure could newly join to.  Empty when no rule takes a `pred`
   antecedent at all, which is the gate that keeps an ordinary assert free."
   [kb pred]
@@ -1736,7 +1758,7 @@
   chaining seeds — the **context** twin of `subsumption-seeds`, and there for exactly
   the same reason.
 
-  Matching fans an antecedent up the visibility cone, so an edge arriving after both the
+  Matching fans an antecedent up the visibility ancestor set, so an edge arriving after both the
   rule and the facts changes which facts the rule can see: `(cFactP CA)` in
   `CxMid`, a rule in `CxLow`, then `(genlCx CxLow CxMid)`, and
   the rule should fire.  The semi-naive agenda never sees it — the arriving datum is the
@@ -1745,21 +1767,21 @@
   a conclusion in the orders that put the edge first and nothing in the others, which is
   the one thing belief may not depend on (docs/nmtms.md).
 
-  **Both cones, because an edge pairs rules and facts in two directions.**  It is not
+  **Both ancestor sets, because an edge pairs rules and facts in two directions.**  It is not
   only that a rule below can now see facts above: a rule stated *above* applies in every
   context that sees it, so the edge equally hands the general rule the specialized
   context's own facts, and places its conclusion there.  Seeding is by fact, so the seeds
-  are the believed sentexes of `super`'s **up**-cone — seeing `super` means seeing
-  everything `super` sees — together with those of `sub`'s **down**-cone, the contexts a
+  are the believed sentexes of `super`'s **up**-ancestor set — seeing `super` means seeing
+  everything `super` sees — together with those of `sub`'s **down**-ancestor set, the contexts a
   rule above is now inherited into.  Taking one and not the other fixes half the orders
-  and leaves the rest, which is worse than either: the shape that still fails is the
+  and leaves the rest, which is worse than either: the structure that still fails is the
   narrower one, and so the easier to mistake for correct.
 
-  **Enumerated from the rules, not from the cone**, and the difference is asymptotic
-  rather than a constant.  Walking the cone and keeping the facts some rule could match
-  costs one record fetch per sentex *in the cone* — so wiring N contexts under a
+  **Enumerated from the rules, not from the ancestor set**, and the difference is asymptotic
+  rather than a constant.  Walking the ancestor set and keeping the facts some rule could match
+  costs one record fetch per sentex *in the ancestor set* — so wiring N contexts under a
   `CxUniverse` holding K facts is O(N·K) where the KB without this is O(N+K), and
-  building a spindle D deep is O(D²) because each edge's up-cone is the whole chain
+  building a spindle D deep is O(D²) because each edge's ancestor set is the whole chain
   above it.  Measured: 3.9x on the first shape, 5x and climbing with depth on the
   second, and 1.8x on the starter load, which does wire contexts after filling them.
 
@@ -1767,23 +1789,23 @@
   rule takes as an antecedent, kept O(1) at the rule index/unindex choke points beside
   `:opposed`; this walks *those* predicates' extents — each fanned by `genl` the way the
   matcher fans it, `roster-antecedent-functors` — and keeps the facts whose context
-  is in the cone.  Cost is then proportional to the rule-relevant facts and independent
-  of how much ontology the cone holds — a KB with no rules pays one map read, a KB whose
+  is in the ancestor set.  Cost is then proportional to the rule-relevant facts and independent
+  of how much ontology the ancestor set holds — a KB with no rules pays one map read, a KB whose
   rule antecedents name no type with subtypes pays one extent read each (a closure over a
   predicate outside the hierarchy is the predicate), and the upper ontology sitting in
-  `CxUniverse` is not walked because almost none of it is a rule antecedent.  The cone is
-  a set membership per candidate, so it costs nothing to ask about both cones.
+  `CxUniverse` is not walked because almost none of it is a rule antecedent.  The ancestor set is
+  a set membership per candidate, so it adds no work to ask about both ancestor sets.
 
   **And each half is gated on the other holding a rule**, which is what makes the
   ordinary case free rather than merely cheap.  Seeding `super`'s facts is worth nothing
-  unless some rule sits in `sub`'s down-cone to newly see them, and seeding `sub`'s facts
-  nothing unless a rule sits in `super`'s up-cone to be inherited into it.  Wiring an
+  unless some rule sits in `sub`'s descendant set to newly see them, and seeding `sub`'s facts
+  nothing unless a rule sits in `super`'s ancestor set to be inherited into it.  Wiring an
   empty context under a full one — the commonest edge there is — holds no rule on the
   new side, so it seeds nothing at all, where without the gate it re-seeds the whole
   ontology above and re-joins rules that already fired on every fact of it.  That is the
   difference between 3.9x on the shape and 1.0x, and it is not the enumeration but the
   chaining the seeds provoke.  `:rule-contexts` answers it as a map read per context in
-  the cone, and contexts are few.
+  the ancestor set, and contexts are few.
 
   **Withdrawal needs no twin of this**, because dropping an edge *narrows* what a rule
   sees and a firing names the `genlCx` edges its placement saw its ingredients over
@@ -1794,11 +1816,11 @@
 
   **And on that path the gate does not apply**, which is the two-arity form.  The gate is
   sound for an arriving edge because an arriving edge is the *only* new reachability:
-  nothing can newly match except through it, so a cone holding no rule newly matches
+  nothing can newly match except through it, so an ancestor set holding no rule newly matches
   nothing.  A departing edge says nothing of the kind.  The firing being revived was
   placed where it could see the rule and the facts by whatever route it liked, and the
   route that went need not be the route either of them lay on — a placement seeing the
-  rule down one branch and the facts down another loses an edge whose two cones hold
+  rule down one branch and the facts down another loses an edge whose two ancestor sets hold
   neither.  Asking the gate there answers a question about the departed edge's own line
   and calls it a question about the firing, which is `resubsumption-seeds`'s stated
   reason for re-joining unconditionally: a missed revival is exactly the arrival-order
@@ -1818,12 +1840,12 @@
                ruled? @(:rule-contexts kb)
                up    (when (symbol? super) (tax/context-up tx super))
                down  (when (symbol? sub)   (tax/context-down tx sub))
-               cone (if gated?
-                      (cond-> #{}
-                        (some ruled? down) (into up)
-                        (some ruled? up)   (into down))
-                      (into (set up) down))]
-           (when (seq cone)
+               ancestor-set (if gated?
+                              (cond-> #{}
+                                (some ruled? down) (into up)
+                                (some ruled? up)   (into down))
+                              (into (set up) down))]
+           (when (seq ancestor-set)
              (into [] (comp (mapcat #(roster-antecedent-functors tx %))
                             (distinct)
                             (mapcat #(reads/as-stored-with-functor idx %))
@@ -1831,7 +1853,7 @@
                             (filter #(jtms/in? tms %))
                             (filter (fn [h]
                                       (when-let [s (p/get-sentex recs h)]
-                                        (contains? cone (:context s))))))
+                                        (contains? ancestor-set (:context s))))))
                    preds))))))))
 
 (def ^:private edge-functors
@@ -1854,7 +1876,7 @@
   of its supporters — the same edge asserted from a second context, or a second path
   around the one that went — and then the conclusion is still licensed and must come
   back.  So the facts the departed edge could have carried go back on the agenda and the
-  rules fire again over them: a `genl` edge's spec subtree, a `genlCx` edge's two cones.
+  rules fire again over them: a `genl` edge's spec subtree, a `genlCx` edge's two ancestor sets.
 
   Revival is a **re-derivation**, at a fresh handle, exactly as it is under
   `exceptWhen`: the sweep deleted the conclusion, so there is no label to flip back.
@@ -1868,7 +1890,7 @@
   edge: `specs` is what decides which facts could have subsumed through it, and reading
   it afterwards asks the shrunken hierarchy a question about the whole one — with
   `(genl dog mammal)` gone, `specs(mammal)` no longer names `dog`, whose facts are
-  exactly the ones that need re-joining.  The context cones are read at the same moment
+  exactly the ones that need re-joining.  The context ancestor sets are read at the same moment
   and are not sensitive to it, since removing `(genlCx sub super)` changes neither who
   reaches `sub` nor what `super` reaches; reading them early is the same answer, from
   the one place that has the records in hand.
@@ -2012,7 +2034,7 @@
      twin)
     (sx/canon (retarget-handle (kb/rewrite-term kb s reader) orig twin))))
 
-(defn- migrate-handle-metas
+(defn migrate-handle-metas
   "Carry every believed handle-naming meta of sentex `orig` onto its migrated twin `twin`.
 
   A meta and the sentex it names are **separate** sentexes linked by the handle —
@@ -2027,11 +2049,16 @@
   through `integrate-twin`, so the twin reaches every index arm the original did — the
   exception re-check, the `except` roster, the reply cascade.
 
-  `eqs` are the equality supporters that migrated the sentex — the meta twin exists
-  *because* the sentex did, so it rests on the same merge.  Rewrites read from `reader`, the
-  vantage the twin's own form was elected from (`migrate-into`), so a meta elects the
-  spellings its target does; the unscoped rewrite used the global election, which a merge
-  `reader` cannot see would diverge from — a twin mis-guarded, mis-hidden or mis-aimed."
+  `eqs` are the witnesses that migrated the sentex — the meta twin exists *because* the
+  sentex did, so it rests on the same merge.  Public because a `(symmetric P)` mark folding
+  two mirrored rows into one owes its doomed row's metas the same carry, and hands the
+  declaration itself as the single witness (`integrate/symmetrize-existing`): what raises a
+  twin differs between the two callers, what a stranded meta costs does not.
+
+  Rewrites read from `reader`, the vantage the twin's own form was elected from
+  (`migrate-into`), so a meta elects the spellings its target does; the unscoped rewrite
+  used the global election, which a merge `reader` cannot see would diverge from — a twin
+  mis-guarded, mis-hidden or mis-aimed."
   [kb orig twin eqs reader]
   (let [realign (varmap-realign (p/get-sentex (:records kb) twin))]
     (doseq [mh   (reads/as-stored-with-term (:index kb) (sx/sentex-handle orig))
@@ -2224,7 +2251,7 @@
   election differs**, not once per sentex.
 
   Returns `{:new [handles] :superseded [[datum reason]] :violations [v]}`.  Five things
-  are load-bearing:
+  are required:
 
   * **Re-canonicalized, not substituted.**  The twin is built by find-or-create from
     the rewritten *sentence*, so it goes back through the `sentex` constructor.  A
@@ -2357,7 +2384,7 @@
             :violations into (confluence-violations kb sentex handle lhs rhs))))
 
 (defn integrate-equality-sentex
-  "The three equality relations' add arm, whichever door the sentex came through, and
+  "The three equality relations' add arm, whichever entry point the sentex came through, and
   the whole of what one of them *means* to the derived state: the closure learns the
   edge and migration restates what the edge displaces.  Returns the migration result —
   `{:new :superseded :violations}` — which is why this is a named function rather than
@@ -2422,7 +2449,7 @@
   [restatements ctxs]
   (into #{} (comp (filter #(contains? ctxs (:context %))) (mapcat :terms)) restatements))
 
-(defn- cone-migration-candidates
+(defn- ancestor-migration-candidates
   "The stored sentexes naming one of `terms` whose context is in `ctxs` and which
   migration may restate — rewritable, and either believed or merely superseded, the
   same pair `migrate-class` admits and for its reason.  Keyed by handle, so a sentex
@@ -2438,12 +2465,12 @@
           terms)))
 
 (defn migrate-under-context-edge
-  "When a `(genlCx sub super)` edge arrives, restate the sentexes the widened cone newly
+  "When a `(genlCx sub super)` edge arrives, restate the sentexes the widened ancestor set newly
   exposes to a merge — the third arrival order of the same three ingredients, and the
   equality twin of `visibility-seeds`.
 
   An equality applies **where it is visible**, so which sentexes it restates is as much
-  a question about the `genlCx` cone as about the closure.  `migrate-class` covers the
+  a question about the `genlCx` ancestor set as about the closure.  `migrate-class` covers the
   merge arriving last and `migrate-sentex` on the assert path covers the fact arriving
   last; without this the *edge* arriving last leaves the record spelled the way a context
   that could not see the merge stored it, while every read from a context that now can
@@ -2454,19 +2481,19 @@
   only ever dropped or restated and a spelling starts being displaced when migration
   says so.
 
-  **Both cones, because an edge pairs facts and merges in two directions.**  The whole of
+  **Both ancestor sets, because an edge pairs facts and merges in two directions.**  The whole of
   the new reachability is that a reader in `context-down(sub)` now sees
   `context-up(super)`, so a triple of reader, fact and merge is new only if the reader
-  newly reached one of the two — which puts that one in `super`'s up-cone and the reader
-  in `sub`'s down-cone, whichever it was.  So there are two halves: a merge above meeting
+  newly reached one of the two — which puts that one in `super`'s ancestor set and the reader
+  in `sub`'s descendant set, whichever it was.  So there are two halves: a merge above meeting
   the facts the widened readers already saw, and a fact above meeting the merges they
   already saw.  Taking one and not the other fixes half the orders and leaves the rest.
 
-  **Enumerated from the merges, not from the cone**, for `visibility-seeds`' reason: the
+  **Enumerated from the merges, not from the ancestor set**, for `visibility-seeds`' reason: the
   candidates are the stored sentexes naming a term one of those merges displaces, and
   the inverted term index answers that in one lookup per term.  Cost is then proportional
   to the standing merges and to what they reach, and independent of how much ontology the
-  cone holds — a KB that has merged nothing pays one set-empty test, and each half is
+  ancestor set holds — a KB that has merged nothing pays one set-empty test, and each half is
   gated on the other side holding a merge the reader can see, so wiring a context under
   one whose merges it already inherits enumerates nothing.
 
@@ -2483,13 +2510,13 @@
         (let [above   (set (tax/context-up tx super))
               ;; every context a newly-widened reader can see: the readers are
               ;; `context-down(sub)`, and each reads the merges and the facts of its own
-              ;; up-cone.  Contexts are few, so this is a memoized closure read apiece.
+              ;; ancestor set.  Contexts are few, so this is a memoized closure read apiece.
               readers (into #{} (mapcat #(tax/context-up tx %)) (tax/context-down tx sub))
               rs      (believed-restatements kb)
               near    (restated-terms-in rs above)
               far     (restated-terms-in rs readers)
-              cands   (merge (when (seq near) (cone-migration-candidates kb near readers))
-                             (when (seq far)  (cone-migration-candidates kb far above)))]
+              cands   (merge (when (seq near) (ancestor-migration-candidates kb near readers))
+                             (when (seq far)  (ancestor-migration-candidates kb far above)))]
           (reduce (fn [acc sx] (merge-with into acc (migrate-sentex kb sx)))
                   {:new [] :superseded [] :violations []}
                   (vals cands)))))))
@@ -2762,7 +2789,7 @@
         ;; content-ordered, so which pair gets the explicit equality is a function of
         ;; what the KB says rather than of which filler was written first — it shows when
         ;; a standing merge among the fillers is later retracted.  **The whole triple is
-        ;; in the key**, the shape the antisymmetric twin below uses and for the same
+        ;; in the key**, the form the antisymmetric twin below uses and for the same
         ;; reason: `first-per-slot` dedups on `[handle value]`, so two handles can fill
         ;; the slot with one value, and a key holding the value alone would leave them
         ;; tied — the tie falling to `functional-clashes`' own order, which is a `for`
@@ -2855,7 +2882,7 @@
 
   **Idempotent for the reason `equate-existing` gives**, applied once per reader
   instead of once per direction: `derive-functional-equalities-in` itself skips a pair
-  `same-class-in?` already holds from that reader's own view, so a reader whose cone
+  `same-class-in?` already holds from that reader's own view, so a reader whose ancestor set
   overlaps another's — which every reader below `context` overlaps `context` on, since
   `context-down` always includes it — pays a repeated no-op read rather than a repeated
   merge.
@@ -2890,14 +2917,14 @@
 
 (defn- functional-family-declaration
   "The predicate `sentence` marks, when it is a functional-family declaration —
-  `(functional P)` or `(functionalInArg P n)` — else nil.  The one door the
+  `(functional P)` or `(functionalInArg P n)` — else nil.  The one entry point the
   declaration-arriving-last merge path opens through.
 
-  **The lane map, because this door has eaten a fix before.**  A mark family
+  **The lane map, because this entry point has eaten a fix before.**  A mark family
   lives in two lanes:
 
   * **Merges (this namespace):** fact-last → `derive-functional-equalities`;
-    declaration-last → `equate-existing`, through this door; `genl`-edge-last →
+    declaration-last → `equate-existing`, through this entry point; `genl`-edge-last →
     `equate-under-edge`; `genlCx`-edge-last → `equate-under-context-edge`.
   * **Clash exposure (`settle.clj`):** `clash-declaration-functors`, the
     discovery arms, the trigger case — reported via
@@ -2906,12 +2933,12 @@
   The 2026-08 `functionalInArg` gap sat exactly here: settle's lane was swept
   thoroughly while an exact-functor test in `equate-existing` quietly excluded
   the generalized declaration, and nothing named the exclusion.  So the spellings
-  are no longer written in each lane: `tax/functional-family-marks` is this door's
+  are no longer written in each lane: `tax/functional-family-marks` is this entry point's
   read of the declaration's `:family`, settle's rosters are that same entry's
   `:sweeps` and `:shape` read back, and `predicates/check-families` refuses at load
   a family whose spellings disagree about the sweep — so a new spelling reaches this
-  door and settle's rosters together rather than separately.  What stays here is the
-  arity, since this door is downstream of well-formedness and settle's triggers,
+  entry point and settle's rosters together rather than separately.  What stays here is the
+  arity, since this entry point is downstream of well-formedness and settle's triggers,
   coming off a moved region, are not."
   [sentence]
   (when (case (tax/functional-family-marks (nm/functor sentence))
@@ -2927,10 +2954,10 @@
 
   Stored rather than believed, and unfiltered where `equate-under-edge-via` filters — an
   equality derived off a defeated fact rests on that fact and is defeated with it, where
-  skipping it would leave the merge missing when the fact revives.  The two doors state
+  skipping it would leave the merge missing when the fact revives.  The two entry points state
   that reasoning once between them because they are one rule about one arrival order.
 
-  nil for a `pred` that is not a symbol, so a caller's door can hand over whatever its
+  nil for a `pred` that is not a symbol, so a caller's entry point can hand over whatever its
   declaration named without checking first."
   [kb pred derive]
   (when (symbol? pred)
@@ -2984,7 +3011,7 @@
   read — so a `genl` write into a KB declaring nothing of the family costs one map lookup
   and no traversal.
 
-  **Shared rather than written twice, because the two doors differ in nothing else.**
+  **Shared rather than written twice, because the two entry points differ in nothing else.**
   They answer one arrival order — the edge arriving last — for two mark families, and a
   fix to that order has to reach both or reach neither: vaelii#43 was exactly such a fix,
   applied to two copies by hand.  A family joins by passing its gate and its derive, which
@@ -3034,7 +3061,7 @@
   only mark was `(functionalInArg P n)` — the `genl` edge arriving last merged nothing
   where `(functional P)` in the same order merged, which is the arity-2 behaviour
   `functional_in_arg_test` exists to hold still.  Reading the shared predicate is what
-  keeps this door and `equate-under-context-edge` asking one question.
+  keeps this entry point and `equate-under-context-edge` asking one question.
 
   **What that does not buy is a smaller edge.**  `subsumption-seeds` walks the same spec
   subtree on the same edge and must — those facts really do become matchable — so a
@@ -3069,7 +3096,7 @@
   no more.  Both arguments must be plain symbols the partition can hold
   (`checks/mergeable-values?`); a self tuple, or a pair some visible merge already
   reconciles, is skipped.  A non-mergeable converse is the hard contradiction
-  `checks/antisymmetry-problems` refuses at the door instead."
+  `checks/antisymmetry-problems` refuses at the entry point instead."
   [kb sentence context handle]
   (let [tax (:taxonomy kb)]
     (when (seq (tax/props tax :anti-symmetric))
@@ -3160,9 +3187,9 @@
                          #(seq (tax/props % :anti-symmetric))
                          derive-antisymmetric-equalities))
 
-(defn- context-edge-reader-cone
+(defn- context-edge-reader-ancestors
   "Every context a `(genlCx sub super)` edge's widened readers can see, once the edge
-  has integrated — `context-down(sub)`'s own members' up-cones, unioned.  The exact
+  has integrated — `context-down(sub)`'s own members' ancestor sets, unioned.  The exact
   reachability `migrate-under-context-edge` computes for the same trigger (above): a
   merge's restatement and a functional/anti_symmetric clash are the same kind of event —
   a fact becoming newly visible to a reader — so the two share the reachability rule.
@@ -3171,22 +3198,22 @@
   is a member of `context-down(sub)` (that closure always includes its own root), so
   `context-up(sub)` is one of the sets this unions — and after the edge integrates it
   already reaches everything `context-up(super)` does, by transitivity.  What it adds
-  beyond that subset is every *other* reader whose cone also runs through `sub` — a
+  beyond that subset is every *other* reader whose ancestor set also runs through `sub` — a
   context wired under `sub` before this edge arrived gained the same new visibility
   the edge gives `sub` itself, and a candidate fact stored in *its* own pre-existing
-  cone can newly clash with something in `super`'s cone exactly as one stored in
-  `sub`'s own cone can."
+  ancestor set can newly clash with something in `super`'s ancestor set exactly as one stored in
+  `sub`'s own ancestor set can."
   [tax sub]
   (into #{} (mapcat #(tax/context-up tax %)) (tax/context-down tax sub)))
 
-(defn- stored-facts-in-cone
+(defn- stored-facts-in-ancestors
   "Stored, positive, non-rule sentexes across `contexts`, kept when `marked?` admits
-  them — the cone-scoped analogue of `subtree-sentexes`' spec-subtree walk, over
+  them — the ancestor-set-scoped analogue of `subtree-sentexes`' spec-subtree walk, over
   contexts instead of predicates, and lazy for the same reason: a budgeted caller
-  realizes only its prefix, and a context cycle can make a cone the whole graph.
+  realizes only its prefix, and a context cycle can make an ancestor set the whole graph.
 
-  Reimplemented here rather than sharing `vaelii.impl.settle`'s own cone walkers
-  (`believed-in-cone`, `constraint-facts-in-cone`), for two reasons.  `settle` already
+  Reimplemented here rather than sharing `vaelii.impl.settle`'s own ancestor set walkers
+  (`believed-in-ancestors`, `constraint-facts-in-ancestors`), for two reasons.  `settle` already
   requires `special`, so the reverse would be a namespace cycle.  And those are
   **belief**-filtered, where this deliberately is not, for `equate-existing`'s reason:
   an equality derived off a defeated fact rests on that fact and is defeated with it,
@@ -3205,7 +3232,7 @@
 
 (defn- budgeted-context-edge-candidates
   "Up to `tax/*exposure-instance-budget*` stored, positive, non-rule sentexes drawn from
-  the cone `(genlCx sub super)` widens, kept when `marked?` admits them — the shared
+  the ancestor set `(genlCx sub super)` widens, kept when `marked?` admits them — the shared
   shape `equate-under-context-edge` and `antisym-equate-under-context-edge` fold
   `derive-functional-equalities` / `derive-antisymmetric-equalities` over — as
   `[candidates cut-budget-or-nil]`.
@@ -3217,47 +3244,47 @@
   anything about the arriving edge, so on a KB past that size *every* subsequent
   `genlCx` edge paid the capped walk and risked a cut, including edges with nothing to
   do with the predicate that put the KB over the line.
-  `context-edge-reader-cone` fixes that: the candidate set is what this edge actually
+  `context-edge-reader-ancestors` fixes that: the candidate set is what this edge actually
   makes newly relevant, so an edge between two small, unrelated contexts costs what it
   actually touches, and an unrelated predicate's extent can no longer spend this edge's
   budget.
 
   **What it does not fix is the cut's own order-dependence, and that is stated here
-  rather than claimed away.**  `stored-facts-in-cone` enumerates
-  `reads/as-stored-in-context` per cone member, which is handle order, which is
-  assertion order; `take` selects a *prefix* of that.  So once a cone holds more
+  rather than claimed away.**  `stored-facts-in-ancestors` enumerates
+  `reads/as-stored-in-context` per ancestor set member, which is handle order, which is
+  assertion order; `take` selects a *prefix* of that.  So once an ancestor set holds more
   candidates than the budget, which merges this edge derives is still a function of when
   the facts arrived — the same content in a different order merging in one ordering and
   not the other, which is an order-independence residual and not merely a completeness
-  gap.  Sorting the cone to content order would remove it and is refused for the reason
+  gap.  Sorting the ancestor set to content order would remove it and is refused for the reason
   `tax/*exposure-instance-budget*` measures: the sort forces the whole extent, which is
-  the cost the cap exists to refuse, and a context cycle makes the cone the graph.  So
+  the cost the cap exists to refuse, and a context cycle makes the ancestor set the graph.  So
   the residual is left, and it is left **named** — the caller files
   `:context-edge-exposure-truncated` whenever the cut happens, so no reader has to infer
   from silence that the sweep was complete.  Below the cap, which is every KB that has
-  not put >`*exposure-instance-budget*` marked facts in one cone, the sweep is exact and
+  not put >`*exposure-instance-budget*` marked facts in one ancestor set, the sweep is exact and
   the invariant holds outright.
 
   **The cap still bounds the derive calls, not the enumeration itself.**  Unlike the
   eager `subtree-sentexes` an unscoped walk would have to accept in full,
-  `stored-facts-in-cone` is lazy, so `take` here genuinely stops the read early rather
+  `stored-facts-in-ancestors` is lazy, so `take` here genuinely stops the read early rather
   than merely capping what gets handed to `derive-functional-equalities` afterward —
   what remains bounded-but-real is `derive-functional-equalities` itself, since that
   function now sweeps every reader below its context, a closure read per candidate.  `constraint-exposure-context-edge` measures exactly this — 8x the facts
-  the cone holds must cost the same past the cap.
+  the ancestor set holds must cost the same past the cap.
 
   Sharing `*exposure-instance-budget*` with `vaelii.impl.settle`'s exposure passes
   rather than inventing a second knob: both are 'how much work will one genlCx edge's
   cross-context sweep spend', and a KB operator wants one dial for that, not two that
   can drift apart.
 
-  **The residual this leaves is narrower than `settle`'s own, and worth stating
+  **The residual this leaves is narrower than `settle`'s own, and stated here
   plainly.**  A pair `settle`'s exposure pass cuts short goes undecided *this settle*
   and is remembered in `:clashes` for the next one to re-examine — this cap has a
   narrower second chance than that, not none: because the candidate set is now scoped
-  to *this* edge's own cone, a merge it misses is not automatically retried by an
+  to *this* edge's own ancestor set, a merge it misses is not automatically retried by an
   unrelated later edge the way the unscoped draft accidentally allowed, but a *later*
-  `genlCx` edge widening the *same* cone further would re-walk it and could still
+  `genlCx` edge widening the *same* ancestor set further would re-walk it and could still
   reach the pair.  That is why the caller files a violation naming the cut rather than
   treating it as routine — it is closer to `:exposure-truncated`'s honesty than to a
   bound with a guaranteed safety net behind it."
@@ -3265,7 +3292,7 @@
   (let [tax    (:taxonomy kb)
         budget (max 0 (long tax/*exposure-instance-budget*))
         xs     (into [] (take (inc budget))
-                     (stored-facts-in-cone kb (context-edge-reader-cone tax sub) marked?))]
+                     (stored-facts-in-ancestors kb (context-edge-reader-ancestors tax sub) marked?))]
     (if (> (count xs) budget)
       [(subvec xs 0 budget) budget]
       [xs nil])))
@@ -3279,21 +3306,21 @@
    :detail    {:context sub :mark mark :budget budget
                :message (str "genlCx edge into " sub " bounded its " (name mark)
                              " merge sweep at " budget " instances; some pairs the"
-                             " widened cone newly makes jointly visible may go"
+                             " widened ancestor set newly makes jointly visible may go"
                              " unmerged for this edge")}})
 
 (defn- equate-under-context-edge-via
   "The body `equate-under-context-edge` and `antisym-equate-under-context-edge` share: a
-  `(genlCx sub super)` edge arriving over facts a widened cone newly makes jointly
+  `(genlCx sub super)` edge arriving over facts a widened ancestor set newly makes jointly
   visible, with each candidate handed back to the family's `derive` in its own context,
   and the budget's cut reported as `prop`'s truncation rather than swallowed.
 
-  `declares?` gates on the family being declared at all and `relevant?` narrows the cone
+  `declares?` gates on the family being declared at all and `relevant?` narrows the ancestor set
   sweep to the facts a mark of it could actually reach — the two places the families
   differ, beside the derive and the truncation key.
 
   **Shared for `equate-under-edge-via`'s reason**, and more sharply: this is the budgeted
-  door, so a copy that drifted would not merely miss merges but report a different
+  entry point, so a copy that drifted would not merely miss merges but report a different
   coverage story for the same cut."
   [kb sentence declares? relevant? derive prop]
   (when (= 'genlCx (nm/functor sentence))
@@ -3312,12 +3339,12 @@
 
 (defn equate-under-context-edge
   "When a `(genlCx sub super)` edge arrives, derive the equalities a `(functional …)`
-  mark already licenses over facts the widened cone newly makes jointly visible — the
+  mark already licenses over facts the widened ancestor set newly makes jointly visible — the
   fourth arrival order of the same three ingredients, and the context twin of
   `equate-under-edge`.
 
-  **The context twin of `equate-under-edge`'s shape, over a cone instead of a
-  subtree**: sweep the stored facts `context-edge-reader-cone` says this edge newly
+  **The context twin of `equate-under-edge`'s shape, over an ancestor set instead of a
+  subtree**: sweep the stored facts `context-edge-reader-ancestors` says this edge newly
   makes relevant, kept when `functional-mark-relevant?` admits their functor, and hand
   each back to `derive-functional-equalities` **at its own storage context**, exactly
   as `equate-under-edge` already does.  What makes that correct here is that
@@ -3335,16 +3362,16 @@
   sweep: a `genlCx` edge arriving *after* both facts are already stored changes no
   fact and fires no ordinary assert, so nothing else re-invokes `derive-functional-
   equalities` for either of them — this arm is what does, over the extent
-  `context-edge-reader-cone` names.  Gated identically to `equate-under-edge` at the
+  `context-edge-reader-ancestors` names.  Gated identically to `equate-under-edge` at the
   top: free for a KB that declares nothing functional and nothing functionalInArg,
-  decided before the cone is read.
+  decided before the ancestor set is read.
 
   **Budgeted, unlike `equate-under-edge`.**  A `genl` edge's own subtree is bounded by
   real vocabulary growth — the edge names the very predicate whose subtree is swept, so
   a big walk means a big subtree the edge itself accounts for.  A `genlCx` edge names
-  two *contexts*: `context-edge-reader-cone` scopes the walk to what this specific edge
+  two *contexts*: `context-edge-reader-ancestors` scopes the walk to what this specific edge
   makes relevant, so an edge between two small, unrelated contexts no longer costs a
-  KB-wide predicate's whole extent — but the cone itself can still be large (a small
+  KB-wide predicate's whole extent — but the ancestor set itself can still be large (a small
   edge into a context whose readers reach a genuinely huge, genuinely relevant store),
   so `budgeted-context-edge-candidates` still caps what reaches
   `derive-functional-equalities` at `tax/*exposure-instance-budget*` — the same knob
@@ -3380,7 +3407,7 @@
 
 (defn antisym-equate-under-context-edge
   "When a `(genlCx sub super)` edge arrives, derive the equalities an
-  `(anti_symmetric …)` mark already licenses over facts the widened cone newly makes
+  `(anti_symmetric …)` mark already licenses over facts the widened ancestor set newly makes
   jointly visible — the twin of `equate-under-context-edge`, over the antisymmetric
   merge and `anti-symmetric-mark-relevant?` in place of the functional one.  Same
   shape, same reasoning throughout — see `equate-under-context-edge`, including for why
@@ -3392,6 +3419,48 @@
    anti-symmetric-mark-relevant?
    derive-antisymmetric-equalities
    :anti-symmetric))
+
+(defn reconcile-context-edge
+  "Everything a `(genlCx sub super)` edge means for the **equality** closure, in one
+  call: the sentexes the widened ancestor set newly exposes to a standing merge
+  (`migrate-under-context-edge`), and the two merges the same widening newly licenses
+  (`equate-under-context-edge` for the functional family,
+  `antisym-equate-under-context-edge` for the antisymmetric one).  Returns the usual
+  `{:new :superseded :violations}`.  Safe on any sentence: each arm gates on the
+  `genlCx` functor itself, so a non-edge costs three functor reads and returns the
+  empty result.
+
+  **One function because a `genlCx` edge arrives by three entry points, and only two of them
+  remembered the list.**  An edge can be *asserted* (`core/assert-one`), *concluded* by
+  a rule (`chain/place-fact-conclusion`), or **computed** — materialized by the
+  structural producer off a `contextArgSubrelation` declaration with nobody asserting
+  anything (`context-nat/materialize-edge`).  The first two spelled the trio out
+  side by side and the third spelled none of it, so a calendar month→year edge posted
+  the exception re-checks and ran no merge at all: two fillers of one functional slot,
+  made jointly visible for the first time by that edge, stayed unmerged and
+  uncontradicted, and asserting a single *irrelevant* stated edge afterwards repaired
+  it (vaelii#56).  An entry point that has to remember a list is an entry point that forgets it — this
+  is the list, and it is the only thing a fourth entry point has to call.
+
+  **Not merged into the `genlCx` `:integrate` arm**, which would be the one place every
+  entry point already passes through, for a timing reason that is not incidental: the arm runs
+  from `integrate/sentex-added` and `derived-sentex-added` *before* the edge is
+  justified, so the edge is a node nothing supports, `tax/context-up` and
+  `tax/context-down` — belief-filtered like every closure here — have not widened yet,
+  and all three sweeps would enumerate the pre-edge ancestor set and find nothing.  Chaining
+  learned this first and says so at its own call site; the rule is the same one:
+  reconcile *after* the justification, never beside the integrate arm.
+
+  **nil when no arm did anything**, which is the shape each of them already returns and
+  the one the fixpoint's `mig` gate reads: a conclusion re-derived on every round of
+  every defaults pass must added no work rather than a little, so this collapses to nil
+  rather than to an empty accumulator."
+  [kb sentence]
+  (let [cme (migrate-under-context-edge kb sentence)
+        cfn (equate-under-context-edge kb sentence)
+        cax (antisym-equate-under-context-edge kb sentence)]
+    (when (or cme cfn cax)
+      (merge-with into {:new [] :superseded [] :violations []} cme cfn cax))))
 
 (defn- stored-declarations
   "Every **stored** sentex whose functor is `f`, believed or not.
@@ -3521,8 +3590,10 @@
   whose `:disintegrate` or `:rebuild` is missing (or any other partial triple) is
   exactly the mirrored-cond drift this table exists to end: the cache would fill on
   assert and leak on retract, or come back wrong after `recover`.  And an entry with
-  no arm at all, which is a typo.  Returns `entries` unchanged so it can wrap the
-  def."
+  no arm at all, which is a typo.  `:mismatch` says which — `:partial-cache-triple`
+  or `:no-arm` — the same discriminant every other `:bad-table-entry` in the tree
+  carries, so a caller reads one key rather than guessing from the message.  Returns
+  `entries` unchanged so it can wrap the def."
   [entries]
   (doseq [[f spec] entries]
     (let [cache-arms [:integrate :disintegrate :rebuild]
@@ -3532,16 +3603,17 @@
                              (str/join ", " (map name present)) " but not "
                              (str/join ", " (map name (remove (set present) cache-arms)))
                              " — an add arm without its removal and rebuild halves leaks")
-                        {:type    :bad-table-entry
-                         :functor f
-                         :present (set present)
-                         :missing (vec (remove (set present) cache-arms))})))
+                        {:type     :bad-table-entry
+                         :mismatch :partial-cache-triple
+                         :functor  f
+                         :present  (set present)
+                         :missing  (vec (remove (set present) cache-arms))})))
       (when-not (or (:wff spec) (seq present))
         (throw (ex-info (str "special-predicate table entry for " f " has no arm at all"
                              " — an entry carries a :wff arm, the cache triple"
                              " :integrate / :disintegrate / :rebuild, or both; it holds "
                              (pr-str (vec (sort (keys spec)))))
-                        {:type :bad-table-entry :functor f})))))
+                        {:type :bad-table-entry :mismatch :no-arm :functor f})))))
   entries)
 
 (defn- defn-wff-problems
@@ -3585,18 +3657,18 @@
                              (let [[_ a b] (:sentence sx)]
                                (tax/add-genlCx (:taxonomy kb) a b h (:context sx))
                                ;; visibility moved: re-check the excepted rules whose
-                               ;; firings live in the affected context cone
+                               ;; firings live in the affected context ancestor set
                                ;; (`context-down` of the edge's sub) — the context-keyed
                                ;; twin of recheck-genl-edge — and the `except`-blocked
                                ;; derivations the same move may have released or newly
                                ;; blocked
                                (recheck-genlCx-edge kb a)
-                               (recheck-except-cone kb)))
+                               (recheck-except-ancestors kb)))
              :disintegrate (fn [kb sx]
                              (let [[_ a b] (:sentence sx)]
                                (tax/del-genlCx! (:taxonomy kb) a b (:id sx))
                                (recheck-genlCx-edge kb a)
-                               (recheck-except-cone kb)))
+                               (recheck-except-ancestors kb)))
              :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
                              (tax/add-genlCx tax a b id ctx))
              :wff          wff/genlCx-problems}
@@ -3857,7 +3929,7 @@
     ;; ...and the query operators, never stored either, for the same reason: negation as
     ;; failure (docs/naf.md) and the five aggregates below, which are the same family and
     ;; take the same arm (docs/aggregate.md).  `forall` is sugar for a nested `unknown`
-    ;; and is desugared at the rule door, so nothing ever stores one either.
+    ;; and is desugared at the rule entry point, so nothing ever stores one either.
     'unknown        {:wff wff/naf-problems}
     'thereExists    {:wff wff/naf-problems}
     'forall         {:wff wff/naf-problems}}
@@ -3948,7 +4020,7 @@
   this table holds an entry for.  `rebuild-taxonomy` replays it top to bottom and a
   rebuild arm may read what an earlier one wrote (metatype membership reads the marks;
   nothing else is order-sensitive today, and keeping the assert path's traditional
-  order costs nothing), so the order is content and belongs with the other content.
+  order adds no work), so the order is content and belongs with the other content.
 
   This vector is *the* functor enumeration the four walks use: integrate,
   disintegrate, rebuild and wff all walk it, so a predicate declared and armed is added

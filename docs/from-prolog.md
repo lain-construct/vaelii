@@ -4,7 +4,7 @@
   negation, search — and the three habits that do something different here: capitalization,
   clause order, and what retraction reaches.
 - **Not here:** how backward chaining actually works, the two chainers and the query
-  planner behind them → [inference.md](inference.md); which of the query doors answers a
+  planner behind them → [inference.md](inference.md); which of the query entry points answers a
   goal, and what each costs → [levels.md](levels.md), [api.md](api.md).
 - **Assumes:** sentex, context, handle → [glossary.md](glossary.md).
 
@@ -29,7 +29,7 @@ means very nearly the opposite of what it means to you.
 | `forall/2` | `(forall ?y (implies Body Head))` | sugar for the nested NAF, and true on the empty domain |
 | `dif/2` | `(different A B)` | a prover, never assertible; the unique-name assumption is kept |
 | `p/2` | — | arity is not part of the name; `(arity p 2)` or `arg` declares it |
-| module | context | and a read sees up the `genlCx` cone |
+| module | context | and a read sees up the `genlCx` ancestor set |
 | EDB versus IDB | premise versus derived | both are sentexes; `premise?` tells them apart |
 | `findall/3` | `prove`, then `distinct` | one binding map per **derivation**, so equal maps repeat |
 
@@ -120,7 +120,7 @@ the scope Prolog gets from the clause body.
 
 `forall(B, H)` transfers as `(forall ?y (implies B H))`, and it is sugar for exactly the
 double negation Prolog implements it as — `(unknown (thereExists ?y (and B (unknown H))))`
-— so it is true on the empty domain, as `forall/2` is. The desugar happens at the door, so
+— so it is true on the empty domain, as `forall/2` is. The desugar happens at the entry point, so
 the stored rule shows the nested form.
 
 `(not S)` is a different thing again: a stored negative sentex with its own handle, which

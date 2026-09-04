@@ -74,7 +74,7 @@
 
   A chunk is its own compression window, so the dictionary can never fill past the chunk
   — and `LZMA2Options`'s default is a preset-6 8 MiB one, against a default 10,000-frame
-  chunk that measures about 1 MB.  Sizing it to the chunk costs nothing and saves the
+  chunk that measures about 1 MB.  Sizing it to the chunk adds no work and saves the
   difference: over a 34k-sentex dump's sentex stream the compressed bytes are **identical**
   from 8 MiB down to 1 MiB (245,816 either way, in the same time), while the encoder's
   working set falls from 93 MB to 12 MB.  This is that with headroom: a **2 MiB**
@@ -183,7 +183,7 @@
 
 (defn- thaw-until-eof
   "Realize every back-to-back nippy frame from `in` into a vector, stopping at EOF.
-  Caller holds the class-name door open (`thaw-chunk`)."
+  Caller holds the class-name check open (`thaw-chunk`)."
   [^DataInputStream in]
   (loop [acc (transient [])]
     (let [item (try (nippy/thaw-from-in! in) (catch EOFException _ ::eof))]
@@ -192,8 +192,8 @@
 (defn- thaw-chunk
   "Decompress + thaw one v6 chunk payload (`bs`) into a vector of frames.
 
-  Behind the class-name door (`vaelii.impl.io.thaw`): a stream file is untrusted input,
-  and a frame naming a class is refused before the name is resolved.  The door is opened
+  Behind the class-name check (`vaelii.impl.io.thaw`): a stream file is untrusted input,
+  and a frame naming a class is refused before the name is resolved.  The entry point is opened
   once per **chunk** rather than once per frame — a chunk is ten thousand frames by
   default, and the binding is the same one for all of them."
   [^bytes bs compression]

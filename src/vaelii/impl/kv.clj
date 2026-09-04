@@ -50,7 +50,7 @@
 
   Logical keys are structured vectors and set members are bare values; a backend
   turns those into whatever its store wants (an in-memory map uses them directly; the
-  on-disk backend nippy-frames them into its log).  The load-bearing ops are
+  on-disk backend nippy-frames them into its log).  The required ops are
   `kv-batch` (the whole index write for one sentex lands as one unit — one batched
   write) and `kv-intersect` (the multi-column narrowing `sentexes-with-args` needs, one
   set intersection rather than N fetch-and-filter reads).  A batch op is a vector
@@ -476,7 +476,7 @@
   ;; so a crash mid-batch persists a *prefix* — e.g. an argument-root posting whose
   ;; predicate never entered the slot roster, which under-answers the
   ;; predicate-agnostic reads while the trie and the scoped reads see the fact.  The
-  ;; record/index seam remains; `vaelii.impl.reindex` is the repair for both.
+  ;; record/index boundary remains; `vaelii.impl.reindex` is the repair for both.
   (index-sentex [_ sentex handle]
     (let [pth    (sx/path sentex)
           n      (count pth)
@@ -519,7 +519,7 @@
   ;; **And says so**, because the no-op is safe and not therefore right.  The caller is
   ;; `integrate/sentex-removed!`, which deletes the record on the next line whether or
   ;; not anything came out of the index: a genuine record/index divergence therefore
-  ;; leaves the trie handing out a handle whose record is gone, which reads as a
+  ;; leaves the trie handing out a handle whose record is gone, which is indistinguishable from a
   ;; corrupted store several operations later and nowhere near here.  Silence made that
   ;; indistinguishable from a caller retracting a handle twice.  `reindex` is the repair,
   ;; and the log is what tells somebody to run it.

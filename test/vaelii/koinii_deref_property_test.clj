@@ -7,7 +7,7 @@
   test.check properties over randomly generated assertions.
 
   Every fact is drawn from three SMALL fixed pools — camelCase predicates,
-  CapitalCamelCase individuals, Cx-prefixed contexts — so vaelii's naming door
+  CapitalCamelCase individuals, Cx-prefixed contexts — so vaelii's naming check
   never refuses a generated assertion, and so the same predicates/individuals
   recur across facts and structural collisions (same locator from two routes to
   one assertion, distinct locators from distinct assertions) are actually
@@ -37,7 +37,7 @@
     and every way of corrupting a marker on the wire is ANSWERED `:malformed` with the
     problem naming the part, never thrown out of the resolve path.
 
-  Cleanup is load-bearing: memory seats share a process-global store keyed by
+  Cleanup is required: memory seats share a process-global store keyed by
   `:space`, so every seat is opened on its OWN space (already cleared by
   `fresh-seat`) and cleared again in a `finally`.  A `:once` teardown wipes every
   space this namespace touched, so nothing leaks into a later namespace."

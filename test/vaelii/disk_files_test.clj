@@ -119,7 +119,7 @@
   (testing "the rank rides bits 2..3 without disturbing what the premise bit says"
     (doseq [rank [0 1 2]]
       (is (= true (f/slot-premise (f/premise-flags true rank)))
-          "a premise carrying any rank still reads as a premise")
+          "a premise carrying any rank still is indistinguishable from a premise")
       (is (= rank (f/slot-strength (f/premise-flags true rank)))
           "and the rank reads back exactly"))
     (is (= 0 (f/slot-strength (f/premise-flags false 2)))
@@ -198,7 +198,7 @@
 ;; prefix promises bytes that never landed: the session would append past it, and the
 ;; next dirty open's length walk would step from that prefix into the middle of a later
 ;; frame and truncate everything after it.  The failure is injected under the private
-;; write primitive, which is the one seam between the packed frame and the channel.
+;; write primitive, which is the one boundary between the packed frame and the channel.
 
 (defn- failing-after
   "A stand-in for `write-fully-at!` that lands the first `k` bytes of the buffer and
@@ -471,7 +471,7 @@
   ;;
   ;; The stalling channel is a `proxy` rather than a staged disk: a real `transferFrom`
   ;; returning 0 is a kernel condition no test can arrange, and the destination is the one
-  ;; seam where a stand-in answers exactly the two calls the copy makes.
+  ;; boundary where a stand-in answers exactly the two calls the copy makes.
   (with-tmp
     (fn [dir]
       (let [src     (str dir "/src.bin")

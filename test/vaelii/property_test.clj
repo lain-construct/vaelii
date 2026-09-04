@@ -99,7 +99,7 @@
    ;; ---- the chains that end where they began ----
    ;; A fact learned and forgotten.  While it stands it feeds the default and whatever
    ;; the default feeds, so the retraction has a cascade to sweep; afterwards the KB
-   ;; must read as though Sparrow was never mentioned, wherever the other operations
+   ;; must give the impression that Sparrow was never mentioned, wherever the other operations
    ;; landed between the two halves.
    [[:sparrow-is-a-bird
      #(v/assert % '(bird Sparrow) 'CxUniverse)]

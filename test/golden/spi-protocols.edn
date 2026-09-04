@@ -1,5 +1,5 @@
-;; Frozen extension seams — the method sets an out-of-tree implementer
-;; compiles against. One entry per protocol a doc names as a seam.
+;; Frozen extension points — the method sets an out-of-tree implementer
+;; compiles against. One entry per protocol a doc names as an extension point.
 ;; Regenerate: `lein regen-goldens`, and read vaelii.spi-surface-test's
 ;; docstring first — adding a method here is breaking too.
 {vaelii.impl.io.snapshot/SnapshotSink

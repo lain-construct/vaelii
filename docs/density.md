@@ -12,8 +12,8 @@
 `vaelii.impl.tokens`, `vaelii.impl.dense-jtms`, and the record-side work in
 `vaelii.impl.disk.*`.
 
-These exist because of a gap between the engine's *seams* and its data structures at
-corpus scale. The seams carry a large KB — the `LiteralSentex`/`RuleSentex` split, symbol interning,
+These exist because of a gap between the engine's *boundaries* and its data structures at
+corpus scale. The boundaries carry a large KB — the `LiteralSentex`/`RuleSentex` split, symbol interning,
 an index derived from the records and rebuildable by `reindex` — while the default
 structures are persistent Clojure collections holding boxed values, which measure
 ~1,973 B/fact of index (591.9 MB over 300k real facts, measured below). Each backend
@@ -232,7 +232,7 @@ list and break `sentex/subterm-mark?`. Content-keyed and first-writer-wins, so i
 stable; the id *value* depends on encounter order, which nothing above it reads, so a
 rebuild that interns in a different order yields an equal index.
 
-It keys tokens by **Clojure** equality, and that is load-bearing rather than tidy. The flat
+It keys tokens by **Clojure** equality, and that is required rather than tidy. The flat
 map it replaces keys its trie on a `PersistentHashMap`, where `(= 2 (int 2))` is true and a
 path carrying an `Integer` reaches a node stored under a `Long`; a `java.util.HashMap` keyed
 on the token says false, and the node is simply not found — one fewer answer, no error. The
@@ -293,7 +293,7 @@ structural for the same reason retained heap is — a count of what the code bui
 measurement of how fast the box ran it. So it is the read-path quantity that survives the
 caveat at the bottom of this page, and `lein bench-alloc` is the harness. The instrument is
 `getCurrentThreadAllocatedBytes` on `com.sun.management.ThreadMXBean`, differenced across a
-region bounded by two reads on one thread: no agent, no profiler, and no seam in the
+region bounded by two reads on one thread: no agent, no profiler, and no instrumentation in the
 engine. 20,000 Zipf-skewed binary facts, both layouts over one corpus, every answer set
 compared across the layouts before anything is measured — a walk that quietly found nothing
 allocates almost nothing and would otherwise report as a win.
@@ -319,7 +319,7 @@ frontier as one `(into [] (mapcat f) frontier)` per pattern level, measured at *
 per level over a one-node frontier, and on a narrowing walk that is the largest single
 term in the whole lookup.
 
-What is left is the layout, and it reads as a **marginal** rather than as a ratio. A ratio
+The layout is what is left, and it is read as a **marginal** rather than as a ratio. A ratio
 over `B/lookup` divides the shared frontier cost into both arms and reports a difference
 smaller than the one that exists — the trap `bench/vaelii/bench/perf.clj` names as a
 baseline already carrying the cost being measured, arriving here as a denominator instead
@@ -439,7 +439,7 @@ batches of 250,000, and measuring the copying implementation against the in-plac
   reference   11.6 µs/premise steady at  14.3  (persistent maps never have the problem)
 ```
 
-What holds the invariant is not copying: `relabel-region!` clears the region out of each
+The invariant is held not by copying: `relabel-region!` clears the region out of each
 live bitmap **in place** — the mutating `andNot` is a merge over the container lists and
 touches only the region's own — and each fixpoint accumulates straight back into it.
 That is worth ~56× over 3M premises (~388s against ~6.9s) and 6.5× even in the first
@@ -458,7 +458,7 @@ behind a `vaelii.impl.jtms-protocol/Tms` protocol, and the dense one coordinates
 `swap!` retry does — while point reads (`in?`, one per candidate on the match path) run
 **optimistically**, lock-free in the steady state and validated after the fact, and the
 O(nodes) iterating reads take a shared stamp. That gives the incidental reader — the web
-browser beside a REPL's writer, the shape the single-writer contract calls supported
+browser beside a REPL's writer, the form the single-writer contract calls supported
 (docs/storage.md) — the consistent view the reference's persistent map gives for free: a
 reader never observes a partially-applied relabel. The lock is not the trade the earlier
 unlocked design feared, either, because a bitmap probe under an optimistic stamp still
@@ -549,7 +549,7 @@ a fourth sample settles both. What follows is its output at the default size, ex
 to 100,000,000 facts against a 40 GB heap.
 
 `:disk-log`, at j/n 1.1 — the ratio [below](#at-corpus-scale-and-why-it-is-the-default-item-09)
-calls the shape a common-sense KB actually takes:
+calls the form a common-sense KB actually takes:
 
 | Structure | At 100M | Shape |
 |---|---|---|
@@ -566,7 +566,7 @@ calls the shape a common-sense KB actually takes:
 At j/n 0.5 the justification-sensitive rows fall — the JTMS to 11.07 GB, the premise set to
 4.22 GB — and the total to 306.21 GB. The index does not move with j/n.
 
-**The roster row is a bitmap, and reading it beside the premise row is the only honest way
+**The roster row is a bitmap, and reading it beside the premise row is the only defensible way
 to read either.** The live-handle sets are `Roaring64Bitmap`s over the strided runs
 `next-id` mints (`vaelii.impl.roster`, [storage.md](storage.md#the-enumerations-and-what-a-roster-costs)),
 which is what put a row that carried **9.47 GB** as a `PersistentHashSet<Long>` under 100
@@ -724,7 +724,7 @@ that holds the facts fixed and grows the vocabulary, which no bench here runs.
 
 ## Reading these numbers honestly
 
-Two caveats the measurements carry, both easy to drop and both load-bearing:
+Two caveats the measurements carry, both easy to drop and both required:
 
 - **A uniform sample of a corpus breaks locality.** Sample thinly enough and each term is
   seen about once, so a dictionary measured against the sample is corpus-sized while the

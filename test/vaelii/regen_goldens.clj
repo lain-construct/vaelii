@@ -24,7 +24,7 @@
 (def ^:private goldens
   "`[label regenerate-fn file]`, in the order they are written."
   [["public API surface" #(api-surface/regenerate-golden!)    "test/golden/api-surface.edn"]
-   ["extension seams"    #(spi/regenerate-golden!)            "test/golden/spi-protocols.edn"]
+   ["extension points"    #(spi/regenerate-golden!)            "test/golden/spi-protocols.edn"]
    ["config surface"     #(config-surface/regenerate-golden!) "test/golden/config-surface.edn"]])
 
 (defn -main [& _]

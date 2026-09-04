@@ -93,7 +93,7 @@
 (defn- round-trip
   "Build a KB with `build!`, export it as text into `dir`, load that into a second KB,
   and answer `[before after export-summary load-summary]` — the two `content` maps and
-  the two doors' reports.  Two KBs *sequentially*: nesting two `tu/fresh` would collide,
+  the two entry points' reports.  Two KBs *sequentially*: nesting two `tu/fresh` would collide,
   both taking the scratch store pair."
   [dir build!]
   (let [[before export] (tu/with-cleared-kb [kb tu/fresh]
@@ -271,10 +271,10 @@
       (is (= :naming (:type (ex-data e)))
           "the entry's own refusal, not a wrapper the retry loop invented"))))
 
-(deftest an-export-narrows-to-one-context-and-to-a-cone
+(deftest an-export-narrows-to-one-context-and-to-a-ancestor-set
   (tu/with-terms [dog cat CxUpper CxLower CxOther]
     (with-dirs* 3 "narrow"
-      (fn [whole one cone]
+      (fn [whole one ancestor-set]
         (let [build! (fn [kb]
                        (v/assert kb (list 'genlCx CxUpper 'CxUniverse) 'CxUniverse)
                        (v/assert kb (list 'genlCx CxLower CxUpper) 'CxUniverse)
@@ -286,10 +286,10 @@
             (build! kb)
             (let [all  (v/export-text! kb (.getPath ^File whole))
                   just (v/export-text! kb (.getPath ^File one) {:context CxLower})
-                  up   (v/export-text! kb (.getPath ^File cone) {:cone CxLower})]
+                  up   (v/export-text! kb (.getPath ^File ancestor-set) {:ancestor-set CxLower})]
               (testing ":context writes that one file"
                 (is (= [(str CxLower ".txt")] (:files just))))
-              (testing ":cone writes it and every context it sees"
+              (testing ":ancestor set writes it and every context it sees"
                 (is (contains? (set (:files up)) (str CxLower ".txt")))
                 (is (contains? (set (:files up)) (str CxUpper ".txt")))
                 (is (not (contains? (set (:files up)) (str CxOther ".txt")))))

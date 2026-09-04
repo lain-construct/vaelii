@@ -222,7 +222,7 @@
 ;; ---- the vocabulary card for a document ---------------------------------
 
 (defn declared-in
-  "Every predicate declared **in `context`'s cone**, as `[[predicate arity] …]` — its
+  "Every predicate declared **in `context`'s ancestor set**, as `[[predicate arity] …]` — its
   `unary_predicate` / `binary_predicate` / `ternary_predicate` memberships, read at that
   context so the answer is what a sentex filed there would be allowed to use.
 
@@ -232,23 +232,23 @@
   the card is **names and shapes**, never content — a predicate's declaration says it exists
   and takes two arguments, and says nothing about what is true of anything.
 
-  **Ordered nearest context first**, because that is where a cap has to cut.  The cone
+  **Ordered nearest context first**, because that is where a cap has to cut.  The ancestor set
   of a leaf context runs from the story it is about up to the vocabulary head, and a
   predicate the story's own theory declares is worth more to a reader of that story than
-  one `CxCore` declares — so the cone is sorted by how much each context sees, which
+  one `CxCore` declares — so the ancestor set is sorted by how much each context sees, which
   is largest at the leaf and smallest at the head.  Alphabetical within one context, so the
   order is a function of the taxonomy and never of arrival.
 
-  The cone is walked term by term because a read at a *ground* context is exact-context:
+  The ancestor set is walked term by term because a read at a *ground* context is exact-context:
   `sentexes-matching` at `CxLionMouse` answers about that context alone, and what the
   context *sees* is `context-up`, a cached closure lookup.  So this is one narrow read per
-  context in the cone."
+  context in the ancestor set."
   [kb context]
   (let [depth  #(- (count (v/context-up kb %)))
         ;; a context may be a NAT (`print-key`); a predicate is a symbol (`name-key`)
-        cone   (sort-by (juxt depth nm/print-key) (v/context-up kb context))]
+        ancestor-set   (sort-by (juxt depth nm/print-key) (v/context-up kb context))]
     (vec (distinct
-          (for [ctx cone
+          (for [ctx ancestor-set
                 [pred n] (sort-by (comp nm/name-key key) inventory/predicate-type-arities)
                 p (sort (for [{:keys [sentence]} (v/sentexes-matching kb (list pred '?p) ctx)]
                           (nth sentence 1)))]
@@ -272,7 +272,7 @@
      cannot see that name coins a synonym for it.
 
   The type block is the resolved types plus one step up the taxonomy, so `mouse` puts
-  `animal` on the card and the block reads as a hierarchy.
+  `animal` on the card and the block is indistinguishable from a hierarchy.
 
   **Cost is the vocabulary's, not the document's and not the KB's** — the same shape
   `vaelii.impl.llm.inventory/inventory` has, and the same reason: the taxonomy's node set,
@@ -293,7 +293,7 @@
          arities   (into (inventory/declared-arities kb) local)
          struct    (inventory/structural-terms kb)
          seed-set  (set seeds)
-         nearest   #(sort-by (partial inventory/specificity kb) %)
+         nearest   #(nm/sort-by-content-key (partial inventory/specificity kb) compare %)
          up        (for [t seeds :when (all-types t)
                          g (take max-genls (nearest (disj (set (v/genls kb t)) t)))]
                      g)

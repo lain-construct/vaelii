@@ -23,7 +23,7 @@ sentence, and that is the whole of what firing does.
 | a `not` conditional element | `(unknown S)` | ground and closed → [naf.md](naf.md) |
 | a `test` CE | an evaluable prover | measure comparison, equality, arithmetic → [quantity.md](quantity.md) |
 | salience | — | absent, deliberately |
-| module | context | and a read sees up the `genlCx` cone |
+| module | context | and a read sees up the `genlCx` ancestor set |
 | a fact-index `?f` | a handle | allocated in assertion order, and belief must never key on it |
 | `logical` support | a justification | not optional, and not per-rule |
 | the agenda | the agenda | the word survives; the conflict-resolution strategy does not |

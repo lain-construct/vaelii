@@ -13,7 +13,7 @@
   calls in `resolution.clj` with `clojure.core/mapcat` passed the whole suite.
 
   So these tests count side effects rather than results.  Each one instruments the
-  expensive call at a seam (`raw-match` = one trie probe per branch,
+  expensive call at a probe point (`raw-match` = one trie probe per branch,
   `provers/solve-goal-with` = one closure computation), consumes exactly **one**
   result, and asserts the count is far below what consuming all of them costs.
 
@@ -27,7 +27,7 @@
   under a thread binding realizes after that binding has popped, so a layer that hands
   one back loses the scope it was computed in.  `res/blind-seq` says what that costs
   when the binding is a flag; the last section here measures it where the binding is a
-  cache (`inherit/with-memo`), which is the shape that stays silent because the answers
+  cache (`inherit/with-memo`), which is the structure that stays silent because the answers
   are identical either way."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
@@ -124,7 +124,7 @@
 ;;
 ;; The two `lazy-mapcat`s nest: `matches-visible` maps over contexts, and each
 ;; context's `match-pattern` maps over subtypes.  An eager pair is quadratic, so this
-;; is the shape that shows what the laziness is actually worth — and it catches a
+;; is the structure that shows what the laziness is actually worth — and it catches a
 ;; regression in *either* call site, including one that only reintroduces eagerness
 ;; on the inner axis.
 
@@ -169,7 +169,7 @@
     (let [goal (list likes Anchor '?x)]
       (doseq [_ (range 60)]
         (v/assert kb (list likes Anchor (tu/tmp-ind "Kid")) CxStory {:chain? false}))
-      ;; jtms/in? runs once per posting entry the keep visits — the per-candidate seam.
+      ;; jtms/in? runs once per posting entry the keep visits — the per-candidate call site.
       ;; Pin the flag on: this test is about the set-algebra path (as the fan-out tests
       ;; above pin it off), independent of the global default.
       (binding [res/*hierarchical-retrieval* true]
@@ -211,7 +211,7 @@
 ;; answer alone if they suffice".  That claim is what makes the concession tolerable,
 ;; and nothing tested it: level 5 was tested for content only.
 ;;
-;; `provers/solve-goal-with` is the right seam because it is not itself lazy at the
+;; `provers/solve-goal-with` is the right probe point because it is not itself lazy at the
 ;; top — it filters for a complete prover and, finding one, calls its `solve`
 ;; directly.  So *reaching* it is already paying for the closure.
 
@@ -295,15 +295,15 @@
               (testing "and the results are all still there when asked for"
                 (is (= 40 (count (:results r))))))))))))
 
-;; ---- the budget door spends the stream one result at a time --------------
+;; ---- the budget entry point spends the stream one result at a time --------------
 ;;
 ;; `budget/collect` reads `rest` rather than `next` so a cap of n pulls exactly n, and
 ;; docs/anytime.md says so.  That claim rests on something the fn cannot check: `seq` on
 ;; a **chunked** source realizes thirty-two elements whatever the cap says, so a single
-;; `mapv` or a vector anywhere in the answer stream would make the door pay a chunk per
+;; `mapv` or a vector anywhere in the answer stream would make the entry point pay a chunk per
 ;; ask while still returning the right n.  `provers/project` ends in `distinct` (not
 ;; chunk-aware) and every layer under it walks its postings a result at a time, which is
-;; what makes the claim exact — measured here at the same per-candidate seam.
+;; what makes the claim exact — measured here at the same per-candidate call site.
 
 (tu/deftest-kb a-capped-ask-pays-for-the-cap-and-not-for-a-chunk
   (tu/with-terms [likes Anchor CxStory]
@@ -334,7 +334,7 @@
 ;; `undercut?` asks for one per *pair* of claims.  Nothing else can catch it — the
 ;; answers are identical, so every content test stays green.
 ;;
-;; The seam is `res/matches-visible`.  A reach over a **fact-relation** reads it once per
+;; The probe point is `res/matches-visible`.  A reach over a **fact-relation** reads it once per
 ;; node it walks (`inherit/fact-reach`), so a re-walked reach is visible as a read that a
 ;; memo hit would have skipped.  The measurement is the same drain run twice: once bare,
 ;; once inside an enclosing `with-memo`.  A layer that realized under its own memo makes

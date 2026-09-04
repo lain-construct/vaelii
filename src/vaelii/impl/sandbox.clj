@@ -35,7 +35,7 @@
 
   Promotion — moving something out of a sandbox into a context that outlives it — is
   deliberately not here.  A sandbox is a dead end, and a dead end that cannot be
-  half-escaped is easier to reason about than one with a door in it."
+  half-escaped is easier to reason about than one with an entry point in it."
   (:refer-clojure :exclude [reset!])
   (:require [clojure.string :as str]
             [vaelii.impl.access :as v]))
@@ -55,7 +55,7 @@
   The **whole** UUID rather than half of one.  A token names a sandbox that can be
   read and written, so guessing another session's is guessing its contents; 48 bits
   is thin the moment the browser is reachable by anyone but its operator, and the
-  extra 16 characters cost nothing."
+  extra 16 characters added no work."
   []
   (str/replace (str (java.util.UUID/randomUUID)) "-" ""))
 

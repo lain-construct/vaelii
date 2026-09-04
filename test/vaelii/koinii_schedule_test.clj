@@ -184,7 +184,7 @@
           cyra (ch/join (ch/local kb) 'CxSchedule 'AgentCyra)]
       (install-scheduling-rules! kb 'CxSchedule)
       ;; each teammate states their OWN unavailability (a claim in their own context, which
-      ;; the channel sees up the genlCx cone) — and between them every day is blocked
+      ;; the channel sees up the genlCx ancestor set) — and between them every day is blocked
       (ch/assert ada  (list 'unavailableOn 'AgentAda tue))   ; Ada out Tuesday
       (ch/assert bo   (list 'unavailableOn 'AgentBo  wed))   ; Bo out Wednesday
       (let [cyra-h (ch/assert cyra (list 'unavailableOn 'AgentCyra mon))]  ; Cyra out Monday

@@ -235,7 +235,7 @@
   version they are keyed in, and the fingerprint of the records they were derived from.
   A reader with either answer different discards them.  It is written **after** the
   entries, for the same reason `meta.edn` is written last: a half-written entry stream
-  with no `index.edn` beside it is read as a dump that simply has no index."
+  with no `index.edn` beside it is are indistinguishable from a dump that simply has no index."
   [^File d index fingerprint frame-opts]
   (let [idx-d (io/file d frames/index-dir)]
     (.mkdirs idx-d)
@@ -260,7 +260,7 @@
   `:xz` trades write speed for
   a materially smaller archive — compression is a stream wrapper around a whole chunk,
   orthogonal to the nippy encoding of the frames inside it).  `:on-progress` is called
-  with `{:phase :done :total}` — the shape a corpus reader's `load-dir!`,
+  with `{:phase :done :total}` — the form a corpus reader's `load-dir!`,
   `io.import/import-dump` and `io.generate/load-into` report, so
   `vaelii.impl.catalog` draws a bar from it — at every chunk boundary, in phase order
   `:sentexes`, `:justifications`, `:provenance`, `:index-entries`, `:meta`.  A callback

@@ -120,7 +120,7 @@
   (is (guard/host-allowed? guard/loopback-hosts {}))
   (is (guard/host-allowed? guard/loopback-hosts {:headers {}})))
 
-(deftest an-any-allowlist-is-the-open-door-it-says-it-is
+(deftest an-any-allowlist-is-the-open-entry-point-it-says-it-is
   ;; the non-loopback-bind branch: an operator who bound an address reaches the
   ;; server under a name only they know, so nothing is guessed at
   (is (guard/host-allowed? ::guard/any {:headers {"host" "evil.example.com"}})))

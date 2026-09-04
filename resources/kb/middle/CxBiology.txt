@@ -4,7 +4,7 @@
 ;; shared upper ontology via CxUniverse; CxWell sees it.
 ;;
 ;; Four of these rules are the same shape, deliberately: a default with its own
-;; exception. What differs is what the exception names, which is the thing worth
+;; exception. The exception's name is what differs, which is the thing worth
 ;; comparing. `penguin` is one awkward species; `fish` is a whole class, and reaches
 ;; every kind of fish ever added because matching fans an antecedent out over the
 ;; subtype closure; `dead` and `asleep` are states that change, so the same machinery
@@ -24,7 +24,7 @@
 
 ;; ---- awake until told otherwise ------------------------------------------
 ;; Sleep is what this theory is willing to assume. A proof that dead-ends on an animal
-;; not acting may hypothesize that it is asleep — the one explanation here cheap enough
+;; not acting may hypothesize that it is asleep — the one explanation here inexpensive enough
 ;; to be worth guessing, since an animal is asleep for part of every day and nothing
 ;; else follows from it. Nothing else is granted: an abducer that will assume anything
 ;; explains everything and is worth nothing, so each grant is a policy this context

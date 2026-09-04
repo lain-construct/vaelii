@@ -7,7 +7,7 @@
   The existing oracles compare stores: `dense_kv_oracle_test`,
   `columnar_index_oracle_test` and `dense_roots_oracle_test` each drive one index
   implementation and its reference through the same op stream and compare every
-  protocol read.  That proves the seam, but not that a *KB* built on one backend
+  protocol read.  That proves the protocol, but not that a *KB* built on one backend
   reasons like a KB built on another — the engine sits on top of matching, placement,
   chaining, belief and retraction, and a backend could satisfy the protocols while
   perturbing any of those.
@@ -24,6 +24,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
             [vaelii.test-util :as tu]))
 
@@ -154,6 +155,38 @@
              ((requiring-resolve 'vaelii.impl.disk.backend/close-dir!) dir)
              (doseq [f (reverse (file-seq (java.io.File. ^String dir)))]
                (.delete ^java.io.File f)))))))
+
+(def ^:private parity-exempt
+  "The `:backend` names this gate does not run, each with what covers it instead.  A
+  recorded exception rather than a shorter list: `kb/backend-names` is the roster, and a
+  backend added to it reaches this namespace as a failing test rather than as a session
+  nobody ran.
+
+  All four are exempt for one of two reasons, and neither is \"it would be slow\"."
+  {:disk-snapshot
+   (str "the image is an index representation over :disk records, and a first session on"
+        " a fresh directory builds the columnar store and reindexes — which is exactly"
+        " what :disk-columnar does here. The image adds the map-back on a LATER"
+        " open, which needs two sessions and a stamp to check, and that is"
+        " index_snapshot_test's whole subject.")
+   :sqlite      "an Apache-2.0 sibling adapter, not on this repository's classpath"
+   :pg-memory   "an Apache-2.0 sibling adapter, and it wants a server"
+   :pg-disk-log "an Apache-2.0 sibling adapter, and it wants a server"})
+
+(deftest every-backend-is-run-or-excused
+  ;; The roster is `kb/backend-names` and this gate covers part of it, so the part it does
+  ;; not cover has to be named. Without this, adding a backend is adding a name that opens
+  ;; — `check-backends!` sees to that — and reasons however it likes, because the test
+  ;; that says every backend answers alike would simply not be running it.
+  (let [run     (into #{} (map :backend) (backends))
+        roster  (set kb/backend-names)]
+    (is (= roster (into run (keys parity-exempt)))
+        (str "every name on kb/backend-names is either run here or in `parity-exempt`"
+             " with what covers it instead"))
+    (is (empty? (filter run (keys parity-exempt)))
+        "a backend cannot be both run and excused — the excuse describes nothing")
+    (is (empty? (remove roster (keys parity-exempt)))
+        "an excuse for a name that is not a backend has outlived what it excused")))
 
 (deftest every-backend-reasons-alike
   (let [bs        (backends)

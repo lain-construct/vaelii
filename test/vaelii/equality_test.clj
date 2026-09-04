@@ -989,3 +989,66 @@
   ;; the two equal, or a relation added to one and not the other rewrites the mentions of
   ;; the relation it forgot.
   (is (= kb/equality-predicates @#'res/equality-mention-heads)))
+
+;; ---- a `different` guard is order-independent ----------------------------
+
+(deftest a-different-guarded-firing-is-withdrawn-by-a-fact-that-arrives-after-it
+  ;; `different` is negation as failure over the equality closure and over the
+  ;; `indeterminate_term` category, so a fact arriving on either **withdraws** it.  It is
+  ;; not assertible and holds by the absence of a merge, so it names no handle a
+  ;; justification could carry and no `SupportingProver` support can reach it: the rule is
+  ;; registered in the re-check index (`rules/different-flip-predicates`) and the firing is
+  ;; re-decided in `chain/different-blocks?`.
+  ;;
+  ;; Both arrival orders are run against each flip source.  The same three sentences must
+  ;; settle to the same belief whichever way round they arrive, which is the order
+  ;; independence README.md lists as a property no code may break.
+  (doseq [[label flip!]
+          [["sameAs — a merge puts the two names in one class"
+            (fn [kb a b] (v/assert kb (list 'sameAs a b) 'CxUniverse))]
+           ["indeterminate_term — a member is exempt from the unique-name assumption"
+            (fn [kb a _] (v/assert kb (list 'indeterminate_term a) 'CxUniverse))]
+           ["a declared subkind of it — reached through the genls fan, not by name"
+            (fn [kb a _]
+              (tu/with-terms [vague_kind]
+                (v/assert kb (list 'genl vague_kind 'indeterminate_term) 'CxUniverse)
+                (v/assert kb (list vague_kind a) 'CxUniverse)))]]]
+    (testing label
+      (let [believed (doall
+                      (for [order [:guard-then-fact :fact-then-guard]]
+                        (tu/with-kb [kb]
+                          (tu/with-terms [pRel qRel Aa Bb]
+                            (v/assert kb (list 'binary_predicate pRel) 'CxUniverse)
+                            (v/assert kb (list 'binary_predicate qRel) 'CxUniverse)
+                            (when (= order :fact-then-guard) (flip! kb Aa Bb))
+                            (v/assert kb (list 'implies (list 'and (list pRel '?x '?y)
+                                                              (list 'different '?x '?y))
+                                               (list qRel '?x '?y))
+                                      'CxUniverse)
+                            (v/assert kb (list pRel Aa Bb) 'CxUniverse)
+                            (when (= order :guard-then-fact) (flip! kb Aa Bb))
+                            [(v/ask? kb (list 'different Aa Bb) 'CxUniverse)
+                             (v/ask? kb (list qRel Aa Bb) 'CxUniverse)]))))]
+        (is (apply = believed)
+            (str "the same knowledge in either order yields the same beliefs; got "
+                 (pr-str (vec believed))))
+        (is (= [false false] (first believed))
+            "and the answer is the one the guard licenses: no difference, no conclusion")))))
+
+(tu/deftest-kb a-different-guarded-firing-comes-back-when-the-withdrawing-fact-leaves
+  ;; The release direction, which the block alone does not give: retracting the fact that
+  ;; suspended the unique-name assumption restores the difference, and the firing it
+  ;; guarded is re-derived rather than left withdrawn.
+  (tu/with-terms [pRel qRel Aa Bb]
+    (v/assert kb (list 'binary_predicate pRel) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate qRel) 'CxUniverse)
+    (v/assert kb (list 'implies (list 'and (list pRel '?x '?y) (list 'different '?x '?y))
+                       (list qRel '?x '?y))
+              'CxUniverse)
+    (v/assert kb (list 'indeterminate_term Aa) 'CxUniverse)
+    (v/assert kb (list pRel Aa Bb) 'CxUniverse)
+    (is (not (v/ask? kb (list qRel Aa Bb) 'CxUniverse))
+        "exempt from the UNA, so the guard does not hold and nothing is concluded")
+    (v/retract! kb (v/handle-of kb (list 'indeterminate_term Aa) 'CxUniverse))
+    (is (v/ask? kb (list qRel Aa Bb) 'CxUniverse)
+        "and the conclusion arrives once the exemption goes, with no re-assertion")))

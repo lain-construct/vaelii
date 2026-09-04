@@ -76,7 +76,7 @@
                                                   (v/sentexes-matching kb (list (preds 0) '?a '?b)
                                                                        '?ctx))))]
         (v/assert kb (list 'except (list 'sentexHandle h)) (ctxs (rint r nctx)))))
-    ;; An equality merge, sometimes — and *deliberately shaped*, because the shape that
+    ;; An equality merge, sometimes — and *deliberately shaped*, because the structure that
     ;; makes the two strategies disagree is narrow and a uniform random draw does not find
     ;; it.  Supersession is per reader, so the divergence needs a fact stated ABOVE a merge
     ;; (stated earlier, so it is not rewritten on the way in) and a placement dragged to or

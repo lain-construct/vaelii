@@ -61,7 +61,7 @@
           (is (= #{beaten} (handles (:all-defeated q))))
           (is (= 1 (:all-defeated-count q))))
         (testing ":firings is every recorded firing, the defeated ones included — so it is
-                  not the live rules' share of them, and the report must not read as though
+                  not the live rules' share of them, and the report must not give the impression that
                   it were"
           (is (= 3 (:firings q))
               "two from the live rule, one from the rule whose conclusion is defeated"))
@@ -309,6 +309,33 @@
       (is (str/includes? md "No `genl` edge anywhere, so there is no root"))
       (is (not (str/includes? md "reach ``")) "and never an empty name in a code span"))))
 
+(deftest every-reading-gets-its-own-heading-in-roster-order
+  ;; What the load-time validator cannot see. It holds `readings` to `render-arms` — a row
+  ;; with nothing to render it, an arm on no row — but it never renders anything, so it
+  ;; cannot tell whether the heading a row declares is the heading the report actually
+  ;; writes, or whether one arm's body quietly carries a `##` of its own. That is the
+  ;; whole boundary between the roster and the page.
+  (let [readings @#'quality/readings
+        full     {:rules    {:total 1 :never [] :never-count 0 :all-defeated []
+                             :all-defeated-count 0 :fired 1 :firings 1 :truncated? false}
+                  :extents  {:predicates 1 :with-extent 1 :stored 1 :gini 0.0
+                             :buckets {0 1} :heaviest [['p 1]]}
+                  :chains   {:functors 1 :components 1 :cyclic 0 :largest 1 :rules 1
+                             :depths {0 1} :at-least {}}
+                  :taxonomy {:names 1 :edged 1 :root 'root_type :rooted 1 :islands 0}
+                  :declarations {:total 1 :stranded-count 0 :truncated? false :stranded []}
+                  :subsumption  {:total 1 :subsumed-count 0 :truncated? false :subsumed []}
+                  :clashes      {:total 1 :pair-count 0 :truncated? false :pairs []}}
+        md       (v/quality-report full)
+        headings (map #(subs % 3) (re-seq #"(?m)^## .*$" md))]
+    (is (= (map :title readings) headings)
+        "every reading writes its own title as a `##`, once, in the roster's order — and
+         no arm writes a second-level heading of its own")
+    (testing "and a reading left out of the map takes its heading with it"
+      (let [without (v/quality-report (dissoc full :subsumption))]
+        (is (= (remove #{"Rules another rule already covers"} (map :title readings))
+               (map #(subs % 3) (re-seq #"(?m)^## .*$" without))))))))
+
 (deftest a-map-that-is-not-a-report-is-refused-rather-than-rendered-as-zeros
   ;; a page of zeros and dashes is a report a caller who passed the wrong map cannot tell
   ;; from a report of an empty KB
@@ -319,7 +346,7 @@
 ;; ---- argument constraints that constrain nothing -------------------------
 ;;
 ;; `(arg parentOf 3 person)` is admitted while `parentOf` has no declared length, and
-;; goes inert when one arrives.  The door refuses the identical sentence a line later, so
+;; goes inert when one arrives.  The entry point refuses the identical sentence a line later, so
 ;; without this reading an author gets the silence `constraint-vocabulary-test` opens on:
 ;; a declaration that is enforced and one that enforces nothing look the same.
 ;;
@@ -366,7 +393,7 @@
       (is (= 2 (:arity e))))))
 
 (tu/deftest-kb a-variableArity-predicate-strands-none-of-its-declarations
-  ;; The census reads the door's own arm, so the release has to reach it here too.  A
+  ;; The census reads the entry point's own arm, so the release has to reach it here too.  A
   ;; predicate whose three-argument facts the same KB stores *has* a third argument, and
   ;; listing the declaration that types it puts a falsehood in the report: the rendered
   ;; line carries the refusal's own wording, so it says chainOf is declared with two
@@ -469,7 +496,7 @@
                                " the author meant,\nor to mark the predicate"
                                " `variable_arity` where its tuples really do reach that\n"
                                "far."))
-        "all three ways out, the third being the one the door itself releases on")
+        "all three ways out, the third being the one the entry point itself releases on")
     (testing "a census answer from before this reading existed still renders"
       ;; the shape test does not ask for the key, so an older stored report is readable
       ;; rather than refused
@@ -880,3 +907,40 @@
         (is (str/starts-with? old "# KB quality"))
         (is (not (str/includes? old "already covers")))
         (is (not (str/includes? old "Contradictions in waiting")))))))
+
+(deftest the-roster-validator-refuses-a-roster-and-arms-that-disagree
+  ;; `check-readings!` runs at this namespace's load, over one roster that agrees with its
+  ;; arms — so every branch it has taken is the one that throws nothing, and until
+  ;; something drives it over halves that disagree, "it refuses" is a claim about code
+  ;; that has never run.  The check it *cannot* see is the one above:
+  ;; `every-reading-gets-its-own-heading-in-roster-order` renders and reads the headings.
+  (let [check   @#'quality/check-readings!
+        arms    @#'quality/render-arms
+        rows    @#'quality/readings
+        refusal (fn [readings render-arms]
+                  (try (check readings render-arms) nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+    (testing "the live halves pass, which is what the namespace load asserts"
+      (is (= rows (check rows arms))))
+    (testing "a row with nothing to render it, which prints a heading over an empty section"
+      (let [data (refusal (conj rows {:key :ghost :title "Ghost"}) arms)]
+        (is (= :bad-table-entry (:type data)))
+        (is (= :unarmed-reading (:mismatch data)))
+        (is (= :ghost (:reading data)))))
+    (testing "an arm on no row, which `report`'s walk never reaches"
+      (is (= :unrostered-arm
+             (:mismatch (refusal rows (assoc arms :ghost (fn [_] "")))))))
+    (testing "a blank heading, which is a `##` over nothing"
+      (is (= :blank-title
+             (:mismatch (refusal (conj (vec (butlast rows))
+                                       (assoc (last rows) :title "  "))
+                                 arms)))))
+    (testing "two rows under one heading, where a reader cannot tell the sections apart"
+      (is (= :duplicate-title
+             (:mismatch (refusal (conj (vec (butlast rows))
+                                       (assoc (last rows) :title (:title (first rows))))
+                                 arms)))))
+    (testing "one key twice, where the second row renders under the first's title or not at all"
+      (is (= :duplicate-reading
+             (:mismatch (refusal (conj (vec rows) (assoc (first rows) :title "Twice"))
+                                 arms)))))))

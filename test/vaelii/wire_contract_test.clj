@@ -5,9 +5,9 @@
   answer is a status code *and* a plain `:type` keyword, the two halves
   `docs/operations.md` promises together.  Driven against `serve/app` directly —
   the handler is pure `request -> response`, so no socket — with one property over
-  the lot: `:ok` is false and `:type` is a non-nil keyword, whichever door refused.
+  the lot: `:ok` is false and `:type` is a non-nil keyword, whichever entry point refused.
 
-  Two handlers, because the 401 is the door in front of the others: `open-app` holds
+  Two handlers, because the 401 is the entry point in front of the others: `open-app` holds
   no token (every refusal below is reachable), `authed-app` holds one (the 401 is the
   only refusal reachable at all)."
   (:require [clojure.edn :as edn]
@@ -95,7 +95,7 @@
                       (op-body :poll [(:token (:result (post-raw handler edn-headers
                                                                  (op-body :watch []))))
                                       0 {:wait-ms 1e300}]))]
-           ;; the outermost door, and the only one whose refusal is deliberately
+           ;; the outermost entry point, and the only one whose refusal is deliberately
            ;; uninformative: same body for a missing, wrong or malformed credential
            ["no bearer token, to a daemon holding one" 401 :unauthorized
             (post-raw (authed-app kb) edn-headers
@@ -129,12 +129,12 @@
           (is (false? (:ok reply)) label)
           (is (keyword? (:type reply)) label))))))
 
-(tu/deftest-kb a-refusal-from-any-served-door-is-a-400
+(tu/deftest-kb a-refusal-from-any-served-entry-point-is-a-400
   ;; `client-error-types` is a roster written by hand, and its failure mode is quiet: a
-  ;; refusal type born at one door and never added to it answers **500**, which every
+  ;; refusal type born at one entry point and never added to it answers **500**, which every
   ;; reverse proxy and 5xx alarm between the caller and the daemon counts as a backend
   ;; fault — for a request the caller wrote.  `assert`'s own vocabulary is pinned above;
-  ;; these are the doors beside it, one refusal each, driven through the same handler.
+  ;; these are the entry points beside it, one refusal each, driven through the same handler.
   (tu/with-terms [before Alice atOrAbove dog Rex]
     (let [handler (open-app kb)
           op!     (fn [op args] (post-raw handler edn-headers (op-body op args)))
@@ -149,7 +149,7 @@
                 (op! :assert [(list before Alice Alice) 'CxUniverse])]
                ["a converse no equality could merge" :anti-symmetric
                 (op! :assert [(list atOrAbove 2 1) 'CxUniverse])]
-               ;; the read doors that do not resolve a query context refuse it rather
+               ;; the read entry points that do not resolve a query context refuse it rather
                ;; than answering empty (docs/contexts.md); over the wire that refusal is
                ;; the caller naming a reading this op does not offer
                ["a query context at a read that does not resolve one" :unsupported-context

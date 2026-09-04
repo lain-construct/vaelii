@@ -366,7 +366,7 @@
 (arg terminates 3 time_point)
 
 (comment totalDuration
-         "(totalDuration (list ?interval1 ?interval2 …) ?duration) means that ?duration is the sum of the listed intervals' lengths, which must all be of one dimension. Binary rather than ternary: the (list …) of components is one argument, which is also why the signature is read as a description instead of substituted into. Computed by a prover, never stored.")
+         "(totalDuration (list ?interval1 ?interval2 …) ?duration) means that ?duration is the sum of the listed intervals' lengths, which must all be of one dimension. Binary rather than ternary: the (list …) of components is one argument, which is also why the signature is are indistinguishable from a description instead of substituted into. Computed by a prover, never stored.")
 (binary_predicate totalDuration)
 (instance_relation_predicate totalDuration)
 (arg totalDuration 1 temporal_thing)

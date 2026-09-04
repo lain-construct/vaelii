@@ -62,7 +62,7 @@
 
 (tu/deftest-kb a-command-word-the-table-does-not-know-is-refused-with-the-table
   ;; The refusal is for a typo at the shell.  Dispatched as nothing it would exit 0
-  ;; having run no command — `asserr '(dog Muffet)' CxCli` reads as a stored fact to
+  ;; having run no command — `asserr '(dog Muffet)' CxCli` is indistinguishable from a stored fact to
   ;; whoever typed it — so the word comes back named, with the roster of the ones that
   ;; do exist for a shell to print.
   (let [e (is (thrown? clojure.lang.ExceptionInfo (cli/dispatch kb "frobnicate" [] {})))
@@ -285,9 +285,13 @@
     (let [e (try (cli/check-arity! "assert" ['(dog Rex)]) nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e) "a one-operand assert is refused")
-      (is (= :unknown-option (:type (ex-data e))))
-      (is (= {:cmd "assert" :given 1 :takes [2 2]}
-             (select-keys (ex-data e) [:cmd :given :takes])))
+      (is (= :bad-args (:type (ex-data e)))
+          "`:bad-args`, the keyword for an operation given the wrong number of arguments —
+           not `:unknown-option`, which would tell a caller a flag was bad when every flag
+           on the line may be one this command reads")
+      (is (= {:op "assert" :given 1 :takes [2 2]}
+             (select-keys (ex-data e) [:op :given :takes]))
+          "and `:op` is the word `serve` already names a wire call's operation with")
       (is (re-find #"assert takes 2 arguments, given 1" (ex-message e)))
       (is (re-find #"usage: assert" (ex-message e))
           "and the message carries the usage line")))

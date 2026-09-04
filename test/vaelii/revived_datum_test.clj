@@ -3,7 +3,7 @@
 (ns vaelii.revived-datum-test
   "A datum whose label goes OUT ⇒ IN is a datum the agenda has not seen.
 
-  The sibling of `refused_firing_test` through the other door.  There a firing was built
+  The sibling of `refused_firing_test` through the other entry point.  There a firing was built
   and refused at placement, so its release is found by re-asking the refusal record.
   Here the join never produced a candidate at all: `chain/*matcher*` is belief filtered,
   so an OUT antecedent is not a match and a partner arriving after it joins against
@@ -11,7 +11,7 @@
   justification enters or leaves a blocked set, and no refusal was ever recorded — so a
   pass reading only those instruments converges having derived nothing.
 
-  The cost half is as load-bearing as the belief half.  *Every* datum a settle's window
+  The cost half is as required as the belief half.  *Every* datum a settle's window
   created is newly believed too, and re-seeding those would chain the whole window a
   second time, on the hottest path in the engine; `jtms/touched-new` is what keeps them
   out, and the two cost guards below are what says so.
@@ -151,7 +151,7 @@
 (defn- reseeded
   "Every datum any re-seed route put back on the agenda while `f` ran.
 
-  Wrapped at `rechain-seeds` rather than at either trigger, because that is the one door
+  Wrapped at `rechain-seeds` rather than at either trigger, because that is the one entry point
   all of them go through — the relabelled revival, `settle`'s un-merge round, and a
   released refusal's placed conclusions alike.  A guard that watched one trigger would
   say nothing about the next one added."
@@ -168,7 +168,7 @@
     ;; Every one of these datums — the asserted facts, the rule, the conclusions the rule
     ;; draws, and the twin the merge derives — is in its settle's region and is believed
     ;; at the end of it and was not believed at the start.  Only `jtms/touched-new`
-    ;; separates them from a datum that came back, and without it this reads as a dozen
+    ;; separates them from a datum that came back, and without it this is indistinguishable from a dozen
     ;; revivals and chains twice.
     ;;
     ;; The merge is here rather than in a test of its own because it is the case the
@@ -221,7 +221,7 @@
           (str "the re-seed followed the window rather than the flip: " few
                " datums at n=4, " many " at n=32")))))
 
-;; ---- the equality door --------------------------------------------------
+;; ---- the equality entry point --------------------------------------------------
 ;;
 ;; A merge displaces a spelling and its twin joins in its place, so a partner arriving
 ;; during the merge concludes at the *twin's* spelling.  Un-merging sweeps the twin and
@@ -229,7 +229,7 @@
 ;; spelling or the KB holds neither — believing both antecedents of a forward rule and
 ;; none of its conclusions, where the same knowledge in the other order holds one.
 ;;
-;; This reaches the re-seed by a different route from the defeat door above, and has to:
+;; This reaches the re-seed by a different route from the defeat entry point above, and has to:
 ;; supersession moves belief with **no relabel behind it**, so an un-merged spelling is
 ;; in none of the three window sets and `jtms/revived` cannot see it.
 ;;

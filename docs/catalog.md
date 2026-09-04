@@ -170,12 +170,12 @@ question about the entries rather than about the writer.
 job ages out of the registry after an hour and its entry stays, which makes "reads its
 status" a claim with an end: from that point the entry answers from its own fields, so a
 load writes `:done` / `:cancelled` / `:failed` there as it finishes, from both of its ends.
-Two readers make that load-bearing rather than tidy — `write-blocked?` refuses a write to a
+Two readers make that required rather than tidy — `write-blocked?` refuses a write to a
 KB whose entry says `:running`, and `unload!` refuses `:still-stopping` — so an entry left
 holding the placeholder it registered with is a finished KB that is permanently unwritable
 and cannot be taken down, with nothing running and no job to point at.
 
-Progress comes back through the loaders' own `:on-progress` seam, which each of the three
+Progress comes back through the loaders' own `:on-progress` callback, which each of the three
 long loaders takes:
 
 | loader | phases | total |
@@ -203,7 +203,7 @@ one still does: opening a large on-disk store, whose record log is scanned befor
 is said. Nothing is released while a loader is still running — `unload!` says the entry is
 *still stopping* rather than clearing stores out from under a live writer.
 
-**Forward chaining reports through the same seam** (`chain`'s own `:on-progress`), which
+**Forward chaining reports through the same callback** (`chain`'s own `:on-progress`), which
 took a second reporting point to be worth anything: the agenda loop sees a run only
 *between* datums, and the rule datum that joins over a whole corpus is one datum that can
 hold the loop for a minute. So a firing reports too, and the
@@ -265,7 +265,7 @@ is — so nothing but that shared monitor orders them, and outside it an unload 
 export arriving together each pass their own check. If the release lands first the walk
 then dumps a KB that was emptied under it, and reports `{:ok true}` over a summary that
 reads exactly like a clean export. The entry is dropped inside the monitor too, so an
-export held at the door finds it gone rather than finding it released.
+export held at the entry point finds it gone rather than finding it released.
 
 The first two are retried after the thing holding the KB lets go. The third is the
 truth-telling one. A release can fail — an index that will not fsync, a component that
@@ -277,7 +277,7 @@ the caller reporting a clean unload over a directory that did not close. Unloadi
 retries the release.
 
 `unload!` takes `:run-in` for the same reason `export-entry!` does: the browser hands its
-write monitor, so a synchronous write already past the write doors drains before the stores
+write monitor, so a synchronous write already past the write entry points drains before the stores
 go rather than interleaving with the clear.
 
 ## And back out again
@@ -329,13 +329,13 @@ different kinds and keeps them visibly apart.
 `heap` is a **measurement** — `{:used :committed :max}` off the memory MX bean — and it
 belongs to the whole JVM: every loaded KB, the browser itself, and whatever garbage has
 not been collected yet, in one figure that cannot be attributed to anybody. `:used` drifts
-up between collections and drops without anything being freed, so it is the shape of a
+up between collections and drops without anything being freed, so it is the structure of a
 curve rather than a number to subtract KBs from.
 
 `footprint` is an **estimate** for one KB, and the only per-KB answer there is: the
 alternative is to unload it and diff the heap, which is not something a page may do to a
 KB somebody is reading. It multiplies the stored sentex count — one O(1) trie read, so
-this is cheap enough to run on a page that polls — by what a sentex measured per resident
+this is inexpensive enough to run on a page that polls — by what a sentex measured per resident
 component (`resident-bytes-per-sentex`, from the `lein bench-scale` sizing runs):
 ~1,549 B of index, ~279 B of records, ~101 B of truth-maintenance network (the dense
 default — 18 B/node + 166 B/justification; the reference map is ~467 B/sentex, ~3.8×

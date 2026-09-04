@@ -351,7 +351,7 @@
    ;; `set` below is only for a target that does not.
    :types     (delay (let [t (v/types kb)] (if (set? t) t (set t))))
    :fragment? (fragment-request? req)
-   ;; which scratch context this session writes to by default.  Naming it costs nothing
+   ;; which scratch context this session writes to by default.  Naming it adds no work
    ;; — `sandbox/context-of` reads a cookie — and the context itself is not created
    ;; until something is actually written to it.  Whether it *has* been is a KB read, so
    ;; it is a delay: a page that never mentions the sandbox never pays for it.
@@ -501,7 +501,7 @@
               "findable — the term pages, the extents, the raw index levels — but with no "
               "truth-maintenance network every " [:i "believed"] " answer is empty, and "
               "with no genl closures there is no type hierarchy, so the ontology page "
-              "reads as though the KB held nothing. "
+              "gives the impression that the KB held nothing. "
               (if loading?
                 "The load builds both at the end."
                 ;; Two different repairs, and the store knows which one applies: a KB
@@ -633,7 +633,7 @@
 (defn- term-text
   "The text of a term, for the places that take a string rather than an element — a
   page `<title>`, a tooltip, a graph node's label, a link's own text.  A reified term
-  reads as the expression it denotes, recursively, so it says the same thing there as in
+  is indistinguishable from the expression it denotes, recursively, so it says the same thing there as in
   the prose; a term that is itself a compound (an unreified structural NAT, a function term an
   imported ontology names a collection by) is walked for the same reason."
   ([view t] (term-text view t #{}))
@@ -889,7 +889,7 @@
 (defn- more-rows
   "The continuation sentinel that ends a capped list: a row which fetches the next page
   and **replaces itself** with it.  `revealed` is htmx's intersection trigger, so a tail
-  nobody scrolls to costs nothing; `click` is the same request for a reader who would
+  nobody scrolls to adds no work; `click` is the same request for a reader who would
   rather ask, and for a viewport too tall to scroll; Enter is that reader's keyboard.
 
   `row?` says the sentinel is ending a **grid** of selectable rows (`sx-list`), whose
@@ -1171,7 +1171,7 @@
    :not-watchable        "no feed"
    :context-escape       "wrong ctx"
    ;; the write side of the caveat banner's second condition: this KB's belief (or its
-   ;; derived index) was never built, so the door refused rather than storing unchecked
+   ;; derived index) was never built, so the entry point refused rather than storing unchecked
    :unrecovered-kb       "not recovered"
    :unrecovered-premise  "no sweep"
    ;; a `find-terms` regex whose backtracking blew the per-term step budget — not a
@@ -1418,7 +1418,7 @@
      ;; the commit would write.  Print vars bound off on the two that carry a form: both
      ;; are read back as EDN by `propose-line-post`, and an elided sentence — or an elided
      ;; context NAT — is legal EDN naming something else, so the round trip would
-     ;; re-derive the shape of a form the reader never saw
+     ;; re-derive the structure of a form the reader never saw
      (let [edn (fn [x] (binding [*print-length* nil *print-level* nil] (pr-str x)))]
        (list
         [:input {:type "hidden" :name "from" :value (edn from)}]
@@ -1864,7 +1864,7 @@
 
 (def ^:private callout-cap
   "How many consequences the callout names before it counts the rest.  Three is the
-  prompt's number and it is about attention, not cost: a wall of conclusions is read as a
+  prompt's number and it is about attention, not cost: a wall of conclusions is are indistinguishable from a
   log, and the point of the callout is that it is *not* one."
   3)
 
@@ -1886,7 +1886,8 @@
           ;; two supertypes the same distance up are ordered by something a reader can
           ;; account for rather than by where the closure set happens to hold them.  The
           ;; list is capped, so the tie decides which claims are shown
-          super (sort-by (juxt #(- (count (v/genls kb %))) print-key) (v/genls kb t))
+          super (nm/sort-by-content-key (juxt #(- (count (v/genls kb %))) print-key)
+                                        compare (v/genls kb t))
           :let  [claim (list super x)]
           :when (and (not= super t) (not= 'thing super) (not (stated claim)))]
       {:sentence claim :context (:context sx) :type t :individual x})))
@@ -1954,7 +1955,7 @@
   settle rather than settling per line.  A batch with any problem stores nothing, since a
   partial commit of a reviewed set is the outcome nobody chose.
 
-  **A remote target is refused here as it is at every other door on this path** — the
+  **A remote target is refused here as it is at every other entry point on this path** — the
   panel, the turn and the preview all say the proposal needs the KB in process.  This is
   the one that writes, and it is the one that must not be the exception: the
   report-only check is a KB read, so without an in-process KB it does not run, and the
@@ -2008,7 +2009,7 @@
 
 (def ^:private sortable-cap
   "How many rows a flat list will realize in order to sort them.  Alphabetical order is
-  worth reading and costs nothing at the size the shipped schema has; realizing an
+  worth reading and adds no work at the size the shipped schema has; realizing an
   imported ontology's every comment to show fifty of them is not worth it, so past this
   the list is in index order and says so."
   1000)
@@ -2299,7 +2300,7 @@
                     "Search from the header."]))))
             [:h2 "Types " [:span.muted "(genl, rooted at thing)"]]
             ;; the root is drawn open, as the context roots are: the heading names it, and
-            ;; a tree whose stated root is not on the page reads as a list of orphans
+            ;; a tree whose stated root is not on the page is indistinguishable from a list of orphans
             [:ul.tree [:li [:details {:open "open"}
                             [:summary (term-link view 'thing)]
                             [:ul.tree-kids (tree-rows view 'genl 'thing 0)]]]]
@@ -2895,7 +2896,7 @@
 (defn- ego-neighbours
   "One hop out from `t`: its believed binary neighbours, both directions, bounded.
 
-  Two reads, and the shape of the pattern is why two is enough.  `(?p T ?y)` leaves the
+  Two reads, and the structure of the pattern is why two is enough.  `(?p T ?y)` leaves the
   functor open, so the trie can narrow on nothing and would fan over every functor in the
   KB — but `T` is ground in argument position 1, and the predicate-agnostic read spans
   every functor — a union of the scoped roots over `[:argument-slot 1 T]` — so `query`
@@ -3819,8 +3820,8 @@
 
 (defn- relation-cell
   "One constraint: the base relations still possible between two nodes.  A singleton is
-  a pinned arrangement and reads as the one name; the whole universe is ignorance and
-  reads as a dot, because a matrix saying `unknown` in every cell is noise."
+  a pinned arrangement and is indistinguishable from the one name; the whole universe is ignorance and
+  is indistinguishable from a dot, because a matrix saying `unknown` in every cell is noise."
   [rels base]
   (let [n (count rels)]
     (cond
@@ -4436,7 +4437,7 @@
       :else                                  {:text (str "( " text ")")})))
 
 (defn- sandbox-note
-  "What a reset did, in the shape the assert form shows a message in.  A teardown is
+  "What a reset did, in the form the assert form shows a message in.  A teardown is
   worth reporting even when it is what was asked for: the number is the only evidence
   the sweep reached the conclusions as well as the premises."
   [{:keys [removed-sentexes removed-justifications]}]
@@ -5249,7 +5250,7 @@
 
 (defn- est-bytes
   "An estimated byte count, marked as one.  Everything the panel shows about a KB is an
-  estimate, and a figure that reads like a measurement is worse than no figure."
+  estimate, and a figure that is indistinguishable from a measurement is worse than no figure."
   [n]
   (when n [:span.est "≈ " (catalog/human-bytes n)]))
 
@@ -5831,7 +5832,7 @@
 
 (defn- choice-value
   "The keyword a `:choice` field's submitted value names, **refused** when the option does
-  not offer it (`:unknown-option`, the type every other option door throws).
+  not offer it (`:unknown-option`, the type every other option entry point throws).
 
   Both sides are read through `(comp keyword name)`, because a `:choices` entry spells its
   value either way — the dump's are keywords, the generator's and the corpus's are
@@ -5839,7 +5840,7 @@
   same `name`.  So the roster the page rendered and the roster checked here cannot be two
   rosters.
 
-  Refused rather than coerced, for `opts/check!`'s reason at every other option door: a
+  Refused rather than coerced, for `opts/check!`'s reason at every other option entry point: a
   keyword no reader's arm matches falls to that reader's own default, silently and at a
   setting nobody chose.  `:belief?` is the sharp case — its unmatched arm is the
   records-only load, which never opens the justification stream — and a load is the one
@@ -5853,7 +5854,7 @@
       (throw (ex-info (str "no such " (name key) ": " (pr-str raw) " — "
                            (or label (name key)) " offers "
                            (str/join ", " (map (comp name first) choices)))
-                      {:type :unknown-option :option key :value raw
+                      {:type :unknown-option :mismatch :bad-value :option key :value raw
                        :choices (mapv (comp keyword name first) choices)})))))
 
 (defn- option-params
@@ -5958,7 +5959,7 @@
 
   `CxEverything` / `CxInference` / `CxNothing` are readings rather than places
   (docs/contexts.md), and only the four reads that resolve one take them — the
-  levels and the plan above them go through doors that do not, so the engine refuses with
+  levels and the plan above them go through entry points that do not, so the engine refuses with
   `:unsupported-context` where this handler stack has no exception middleware to make a
   page of it.  That is a 500 on a value the page's *own* context box will send, which is
   why it is checked here rather than caught.
@@ -5985,7 +5986,7 @@
   on the two pages would be two promises."
   (str "a whole number of derivations, at least 1 — or leave it out to chain to a "
        "fixpoint. It is the one parameter whose absence is unbounded work, so a value "
-       "that does not read as a number is refused rather than dropped."))
+       "that does not are indistinguishable from a number is refused rather than dropped."))
 
 (def ^:private unreadable
   "What `param-long` and `param-strength` answer for a parameter that **was** given and is
@@ -6012,7 +6013,7 @@
   submitted, `unreadable` for a value the strength class does not name
   (`strength/assertable`, what `core/assert` and the CLI hold a caller to).
 
-  Read for *presence* alone — the shape a checkbox invites — any value at all asserts
+  Read for *presence* alone — the form a checkbox invites — any value at all asserts
   `{:strength :monotonic}`, `strength=default` included, which is the one value a reader
   could reasonably send meaning the opposite."
   [raw]
@@ -6036,7 +6037,7 @@
   (Object.))
 
 (defn- after-writes-drain
-  "Run `work` once any synchronous write already past the doors has finished — a
+  "Run `work` once any synchronous write already past the entry points has finished — a
   **barrier**, where `writing-job` gives a KB write the monitor's exclusion.
 
   An export walks the records and writes the *filesystem*, so what it cannot survive is
@@ -6044,7 +6045,7 @@
   duration from both sides: `exporting-kb?` is true from the moment the job is submitted,
   which is what `write-refusal` turns the content routes back on, and `unload!` makes its
   own `exporting-kb?` check under the catalog's start monitor.  What neither refuses is
-  the write that slipped past a door in the moment *before* the job was submitted, and
+  the write that slipped past an entry point in the moment *before* the job was submitted, and
   that is the one thing this waits for.
 
   Holding the monitor across the walk instead — which is what the route did, against a
@@ -6070,7 +6071,7 @@
   derived state is readable — with the banner saying what is missing — and unwritable for
   as long as it stays that way, which can be days: the definitional checks all read
   `jtms/in?`, so over an empty network they match nothing and pass, and the store keeps
-  what they would have refused.  The engine's own doors throw `:unrecovered-kb` for it, so
+  what they would have refused.  The engine's own entry points throw `:unrecovered-kb` for it, so
   this arm is not what makes the write fail; it is what makes it fail *on this page*.
 
   The refusal is a page, not an error status, for the reason `kbs-page` renders one: the
@@ -6125,7 +6126,7 @@
 
     ;; ...and the caveat banner's second condition, seen from this side.  The banner
     ;; explains an *answer*; this is the same state refusing a *write*, which the engine
-    ;; door would throw for (`:unrecovered-kb`) — refused here so it renders as the page
+    ;; entry point would throw for (`:unrecovered-kb`) — refused here so it renders as the page
     ;; the two refusals above render rather than as an exception htmx cannot swap.
     ;; Asked only of an in-process KB: an attached daemon has none of this to report,
     ;; exactly as `catalog/active-caveat` has nothing to say about one.
@@ -6241,7 +6242,7 @@
   (cond (nil? v) [] (sequential? v) (vec v) :else [v]))
 
 (def ^:private loopback
-  "The interface the browser binds unless told otherwise.  It is an operator tool with
+  "The network interface the browser binds unless told otherwise.  It is an operator tool with
   a write route (`POST /edit`) and no authentication, so it answers only the machine it
   runs on; exposing it is an explicit choice (`--listen`), and one that **requires**
   `VAELII_API_TOKEN` (`guard/require-token!`, and `-main` below).
@@ -6392,7 +6393,7 @@
                                      (cross-origin-refusal)))}]
          ;; the monitor goes in for the reason the export route hands one: unloading is a
          ;; registry write, but *releasing* is the end of a KB's stores, and a synchronous
-         ;; write already past the write doors has to drain before they go rather than
+         ;; write already past the write entry points has to drain before they go rather than
          ;; interleave with the clear
          ["/kbs/unload"   {:post (fn [req]
                                    (if (same-origin? req)
@@ -6483,7 +6484,7 @@
                                                  (get-in req [:query-params "section"])
                                                  (->offset (get-in req [:query-params "offset"]))))}]
          ;; the one page whose context box can send a value the engine refuses: the levels
-         ;; and the plan read through doors that do not resolve a query context, so
+         ;; and the plan read through entry points that do not resolve a query context, so
          ;; `CxEverything` typed into that box would leave `:unsupported-context` for Jetty
          ;; to answer as a 500.  Checked before the read, in the shape `bad-parameter`
          ;; answers a `?d=` that does not parse
@@ -6513,7 +6514,7 @@
                                     (network-page (view (current target) req)
                                                   (when (seq ctx) (->form ctx))
                                                   (when (seq calc) (keyword calc))))))}]
-         ;; the same refusal, since the continuation reads through the same doors.  A 400
+         ;; the same refusal, since the continuation reads through the same entry points.  A 400
          ;; rather than the empty fragment an unreadable goal gets: htmx swaps only a 2xx,
          ;; so the reader keeps the list they were scrolling instead of watching it blank
          ["/levels/rows" {:get (fn [req]
@@ -6645,7 +6646,7 @@
                                                     (level-of vw (get-in req [:params "level"]) ctx)))
                                     (frag [:p.muted "No term to propose about."])))
                                 (cross-origin-refusal)))}]
-         ;; one row, re-rendered on the shape the reader picked.  A read (it re-checks a
+         ;; one row, re-rendered on the form the reader picked.  A read (it re-checks a
          ;; sentence and writes nothing) but a POST, since it is the row's own form
          ;; posting itself back; origin-checked like its siblings.
          ["/propose/line" {:post (fn [req]
@@ -6677,7 +6678,7 @@
                                         ;; fields are zipped — a list posted with fewer
                                         ;; contexts than sentences would re-render the
                                         ;; shorter of them and drop the rest silently,
-                                        ;; which reads as a proposal that lost lines
+                                        ;; which is indistinguishable from a proposal that lost lines
                                         (if (and (= (count froms) (count ctxs))
                                                  (every? some? froms)
                                                  (every? symbol? ctxs))
@@ -6727,7 +6728,7 @@
       sandbox/wrap-session))
 
 (defn- with-host
-  "Wrap a built handler in the `Host` allowlist for the interface it is bound to.
+  "Wrap a built handler in the `Host` allowlist for the network interface it is bound to.
 
   It wraps **every** route rather than only the writes.  `same-origin?` guards a
   cross-site POST, but it folds under DNS rebinding — where the attacker's page is
@@ -6889,7 +6890,7 @@
 
   A flag missing its value, a non-numeric number, or a token this table does not know
   is refused (`:unknown-option`).  The stakes are not symmetric with a mere typo: a
-  truncated `--listen` read as a nil host would bind **every** interface with the Host
+  truncated `--listen` are indistinguishable from a nil host would bind **every** interface with the Host
   allowlist off — Jetty treats a nil host as the wildcard address — on a server whose
   write routes nothing authenticates, while logging the public-bind warning as though
   the operator had asked for it."
@@ -6898,14 +6899,14 @@
                (or v (throw (ex-info (str flag " needs a value and the line ends after it"
                                           " — write --listen <address>, --port <n>, or"
                                           " --attach <host> <port> [<webport>]")
-                                     {:type :unknown-option :flag flag}))))
+                                     {:type :unknown-option :mismatch :missing-value :flag flag}))))
         num  (fn [flag v]
                (let [v (need flag v)]
                  (try (Integer/parseInt ^String v)
                       (catch NumberFormatException _
                         (throw (ex-info (str flag " wants a number, got " (pr-str v)
                                              " — write " flag " <n>")
-                                        {:type :unknown-option :flag flag :value v}))))))]
+                                        {:type :unknown-option :mismatch :bad-value :flag flag :value v}))))))]
     (loop [[a & more] (seq args)
            opts       {:host loopback :port (default-port)}]
       (case a
@@ -6921,7 +6922,7 @@
         (throw (ex-info (str "unknown argument: " a " — the browser reads --listen"
                              " <address>, --port <n>, and --attach <host> <port>"
                              " [<webport>]")
-                        {:type :unknown-option :flag a}))))))
+                        {:type :unknown-option :mismatch :unknown-key :flag a}))))))
 
 ;; ---- the browser, inside a REPL -----------------------------------------
 ;;
@@ -6933,7 +6934,7 @@
 ;;
 ;; Both halves bind the **loopback interface**.  The browser has a write route and no
 ;; authentication, and an nREPL is arbitrary code execution by design — the pair on a
-;; reachable interface is a remote shell.  Exposing the browser stays the deliberate
+;; reachable network interface is a remote shell.  Exposing the browser stays the deliberate
 ;; `--listen` on `-main`; the REPL is not exposable from here at all.
 
 (defonce ^{:private true
@@ -6999,7 +7000,7 @@
   same, since `app` is written against the access facade (`v`), which dispatches each
   read to the local KB or the remote daemon.
 
-  The KB it reads and the interface it binds are independent axes: `--listen` says who
+  The KB it reads and the network interface it binds are independent axes: `--listen` says who
   may reach the browser, `--attach` says whose KB it shows.  The default is loopback,
   and what it binds decides what it requires — the daemon's rule, on the daemon's
   reasoning (`guard/require-token!`):
@@ -7034,7 +7035,7 @@
                             (when attach (str " → daemon " (first attach) ":" (second attach))))
                  :data (cond-> {:listen host :port port :entry entry
                                 ;; the same question the bind rule asks, so a
-                                ;; `--listen localhost` reads as the loopback bind it is
+                                ;; `--listen localhost` is indistinguishable from the loopback bind it is
                                 :exposed? (guard/public-bind? host)
                                 :kb-search-path (catalog/search-path)}
                          (not attach) (assoc :record-store (type (:records kb))

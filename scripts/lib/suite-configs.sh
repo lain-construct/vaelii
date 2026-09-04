@@ -57,7 +57,7 @@ SWEEP_ENVS=(
 # index.  Each index half already runs under RAM records in the list above, the records
 # half runs under `disk-log`, and what the pairing adds beyond those is the `reindex` on
 # open — the same rebuild whichever derived index it fills.  `mixed_backend_test` holds
-# that seam in an ordinary `lein test` and `backend_parity_test` runs its scripted
+# that protocol in an ordinary `lein test` and `backend_parity_test` runs its scripted
 # session on all three, so one of them stands for the composition here and the other two
 # are the cross-product for its own sake.
 #
@@ -66,7 +66,7 @@ SWEEP_ENVS=(
 # finishes in about two thirds of the full one's wall clock.
 #
 # `full` is what a release runs, and what to run when the change is to the record/index
-# seam itself.  Nothing is DROPPED here — a skipped configuration is named on the
+# protocol itself.  Nothing is DROPPED here — a skipped configuration is named on the
 # console every time, because a roster that quietly shrank is a matrix that means less
 # than the word does.
 ROUTINE_SKIP=(disk-dense disk-columnar)
@@ -228,7 +228,7 @@ config_wants_disk() {
 # that for as long as they have existed; what follows is the same claim, checked.  Any
 # other difference is a run that skipped something the others ran — a namespace that
 # failed to load, a `deftest` that stood aside without saying so, a switch that turned a
-# gate off — and every one of those reads as a green run.
+# gate off — and every one of those is indistinguishable from a green run.
 #
 # No configuration stands aside, and the table is empty by design.  Where an assertion
 # pins an artifact of one implementation — the columnar trie's absent `:fan`

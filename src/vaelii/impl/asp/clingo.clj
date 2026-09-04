@@ -248,7 +248,7 @@
   (or (mode-args mode)
       (throw (ex-info (str "unknown clingo mode: " (pr-str mode) " — want one of "
                            (pr-str (vec (sort (keys mode-args)))))
-                      {:type :unknown-option :mode mode :valid (keys mode-args)}))))
+                      {:type :unknown-option :mismatch :bad-value :mode mode :valid (keys mode-args)}))))
 
 (defn- finalize
   "Shared post-processing for the raw drain of either solve path — one-shot

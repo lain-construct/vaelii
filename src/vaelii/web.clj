@@ -14,7 +14,7 @@
 
 (defn handler
   "The ring handler for `target` — a KB, an access value, or a catalog holder —
-  behind the `Host` allowlist for the interface it will be served on (`:host`,
+  behind the `Host` allowlist for the network interface it will be served on (`:host`,
   default loopback).  Pure `request -> response`, so it is tested without a socket."
   ([target] (web/handler target))
   ([target opts] (web/handler target opts)))

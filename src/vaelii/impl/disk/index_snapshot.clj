@@ -46,7 +46,7 @@
   * `tokens.log` — the durable token dictionary the `int` edges cite, in
     `vaelii.impl.disk.tokens`' format (append-only, id = append position, content-keyed,
     first-writer-wins, never reused).  That module is reused rather than a second
-    dictionary format minted: persisting the trie's `int` edges is precisely the seam
+    dictionary format minted: persisting the trie's `int` edges is precisely the format
     `vaelii.impl.tokens` names as its durable variant.
 
   **One file per structure**, not one per section.  A structure is mapped or discarded as
@@ -199,7 +199,7 @@
 ;; floor are what keep that rare, and `docs/storage.md` states the trade rather than
 ;; leaving it to be discovered.
 ;;
-;; **The write door is the only path that reaches this**, and that scoping is the thing to
+;; **The write entry point is the only path that reaches this**, and that scoping is the thing to
 ;; know before diagnosing an image count.  `kb/create-sentex` asks `due?`; nothing else
 ;; does.  `reindex/index-one!` posts straight to `p/index-sentex`, and the importer's inline
 ;; bulk load goes through that same function — so a store filled by `reindex` or by an
@@ -218,7 +218,7 @@
   ;; second is what the interval floor is applied to.
   ;;
   ;; **Keyed canonically**, because the two sides reach it by different spellings of one
-  ;; directory: a save is handed the `:dir` opt as the caller wrote it, and the write door
+  ;; directory: a save is handed the `:dir` opt as the caller wrote it, and the write entry point
   ;; is handed the KB's own `dir`, which the disk backend has already resolved.  On macOS
   ;; that is `/var/…` against `/private/var/…` — two keys, so the cadence would read a
   ;; baseline nothing ever wrote and never fire.
@@ -563,7 +563,7 @@
       (let [t0    (System/nanoTime)
             stamp (stamp-fn)
             ;; **Freezing the live trie under an unconsumed lazy read is safe**, and it is
-            ;; worth saying so, because the write door reaches here mid-life while a caller
+            ;; worth noting so, because the write entry point reaches here mid-life while a caller
             ;; may be holding one: `core/sentexes-matching` promises a seq that is lazy over
             ;; live state, and asserting while walking one is the supported pattern
             ;; `forward-chain` is built on.  What makes it safe is that an index read is
@@ -657,7 +657,7 @@
   Ordered by what a reader needs told first, not by what is cheapest to ask: the record
   fingerprint runs ahead of the three truncation tests, and it is the expensive one — a
   sequential scan of the sentexes idx, where a truncation test is a `File.length`.  A
-  truncated image therefore pays that scan before being rejected.  It costs nothing that
+  truncated image therefore pays that scan before being rejected.  It adds no work that
   matters, since every rejection falls through to a rebuild that reads the records
   anyway, and the ordering buys a diagnosis that names the store rather than the file."
   [root m stamp-fn]

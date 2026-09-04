@@ -6,10 +6,10 @@
   A test utility that accepts a shape and quietly does something else with it is worse
   than one that throws, because what it breaks is the *evidence*: a test still runs, still
   passes, and no longer means what it says.  `with-kb` is the case that motivated this
-  namespace — its binding vector reads like a `let`'s and takes a symbol only, so an init
+  namespace — its binding vector is indistinguishable from a `let`'s and takes a symbol only, so an init
   form written there is refused at macroexpansion rather than dropped.
 
-  **No fixture here, deliberately.**  These tests are about the harness rather than about a
+  **No fixture here.**  These tests are about the harness rather than about a
   KB, and one of them calls `fresh` in the middle of a test — which is precisely what the
   `:each` net-neutrality fixture exists to catch, since a clear removes the content that
   fixture recorded its baseline against.  Adding no KB is what leaves the space as it was
@@ -48,7 +48,7 @@
     (is (seq? (macroexpand-1 '(vaelii.test-util/with-kb [k] :body))))
     (is (nil? (refusal '(vaelii.test-util/with-kb [k] :body)))))
   (testing "an init form is refused rather than silently dropped"
-    ;; The shape this exists for.  `(with-kb [k (fresh)] …)` reads as though it binds a
+    ;; The shape this exists for.  `(with-kb [k (fresh)] …)` gives the impression that it binds a
     ;; cleared KB and binds the fixture's instead — so a helper called twice in one test
     ;; runs its second arm over everything the first left, and a test comparing two
     ;; arrangements compares them against different baselines while still passing.

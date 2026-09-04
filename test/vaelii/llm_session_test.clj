@@ -43,7 +43,7 @@
      :h-cat (v/assert kb (list cat tom) ctx)}))
 
 (defn- answer
-  "A stub turn carrying `text` and stopping for `reason` — the shape a host hands back
+  "A stub turn carrying `text` and stopping for `reason` — the form a host hands back
   when it stopped generating for its own reasons rather than the model's."
   [reason text]
   {:stop-reason reason :model "vaelii-stub"
@@ -75,7 +75,7 @@
                                             :provider whole})]
         (is (= :ok (:status r')))
         (is (= [h-cat] (:remove (:batch r')))
-            "read as a finished answer, the row that never arrived is retracted")))))
+            "are indistinguishable from a finished answer, the row that never arrived is retracted")))))
 
 (tu/deftest-kb a-truncated-batch-turn-is-its-own-status
   (tu/with-terms [dog Muffet]
@@ -174,7 +174,7 @@
     (let [{:keys [error batch]} (session/parse-batch deep-open)]
       (is (some? error))
       (is (nil? batch) "and never an empty batch — a stack overflow carries no message,
-                        and a nil marker would have read as a map with neither key"))
+                        and a nil marker would have are indistinguishable from a map with neither key"))
     (is (some? (:error (session/parse-batch deep-form)))))
 
   (testing "the selection path's lines, in both shapes it reads"
@@ -195,7 +195,7 @@
           r (session/propose kb {:message "x" :provider p :max-repairs 1})]
       (is (= :unparseable (:status r))))))
 
-;; ---- applying a batch the door refuses part-way through -----------------
+;; ---- applying a batch the entry point refuses part-way through -----------------
 
 (tu/deftest-kb a-batch-the-engine-refuses-part-way-is-reported-not-thrown
   ;; `check-edit` grades each add against the KB **as it stands**, so two adds that are

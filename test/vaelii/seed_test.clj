@@ -12,7 +12,7 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (deftest the-kb-files-are-on-the-classpath
-  (testing "the vocabulary head reads as a non-empty list of sentences"
+  (testing "the vocabulary head is indistinguishable from a non-empty list of sentences"
     (let [ss (seed/read-sentences 'CxCore)]
       (is (seq ss))
       (is (every? seq? ss) "every form is an s-expression")))

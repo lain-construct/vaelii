@@ -330,7 +330,7 @@
   "Invalidate context-scoped derived reads after an except's effective belief moves.
 
   No edge or flat-cache entry is activated/deactivated here: an except is a hole in a
-  visibility cone, not a global retraction. The generation is carried in scoped memo
+  visibility ancestor set, not a global retraction. The generation is carried in scoped memo
   keys, so the next affected read recomputes while the unscoped cache stays hot."
   [tax]
   (swap! tax update :supporter-visibility-gen (fnil inc 0))
@@ -371,7 +371,7 @@
   **read-only** pass over a still taxonomy — the closing settle's clash detection, which
   reads `genls`/`specs` for millions of memberships while writing no edge.  The gen-stamped
   memo below is keyed on the relation's generation, and a whole-corpus settle bumps that
-  generation often enough that a recurring closure misses and is re-walked — the shape a
+  generation often enough that a recurring closure misses and is re-walked — the form a
   cold rebuild's clash pass spends its time in.  When this is bound, `closure-of` /
   `closure-of-vis` answer from it and populate it, so each closure is walked once for the
   pass; the pass owns the atom and drops it on the way out, and the generation cannot move
@@ -407,7 +407,7 @@
 ;;
 ;; A read asked from context K uses exactly the edges K can see — an edge counts
 ;; iff some believed supporter asserts it from a context in K's genlCx
-;; up-cone (`:edge-ctxs`), the same filter `matches-visible` applies to facts.
+;; ancestor set (`:edge-ctxs`), the same filter `matches-visible` applies to facts.
 ;; The genlCx closure itself is never filtered: visibility scoped by
 ;; visibility would be circular, and `forced_decontextualized_predicate` already
 ;; forces every genlCx edge universal.
@@ -446,7 +446,7 @@
 
 (defn- relation-filter-active?
   "Does a scoped read of `rel-key` need supporter-level exception filtering — is some
-  supporter of it, or of `genlCx` (whose holes move every reader's cone), the target of
+  supporter of it, or of `genlCx` (whose holes move every reader's ancestor set), the target of
   a stored `except`?
 
   The whole-KB gate above says an except exists *somewhere*; this one says it reaches
@@ -503,11 +503,11 @@
     (or (nil? supporter-context) (scope supporter-context))))
 
 (defn- effective-visible-ctxs
-  "`up(K) ∩ ctxs` for relation `rel-key` over the **exception-filtered** cone
+  "`up(K) ∩ ctxs` for relation `rel-key` over the **exception-filtered** ancestor set
   (`context-up`), or nil when every asserting context is visible — `visible-ctxs`'s
   answer for a reader some `except` reaches.  Interned in `:vis-index` under its own
   key, stamped on the visibility generation as well as the two edge generations, since
-  a hole opening or closing in the cone moves the set with no edge changing."
+  a hole opening or closing in the ancestor set moves the set with no edge changing."
   [tax t rel-key context]
   (let [rel  (get t rel-key)
         ctxs (:ctx-counts rel)]
@@ -536,9 +536,9 @@
   (when (scoped-context? context)
     (let [t   @tax
           ;; An exception on genlCx changes which assertion contexts an ordinary
-          ;; reader inherits.  genlCx itself must start from the raw cone to avoid
+          ;; reader inherits.  genlCx itself must start from the raw ancestor set to avoid
           ;; defining exception visibility in terms of itself; every other relation
-          ;; uses the effective cone.
+          ;; uses the effective ancestor set.
           active? (relation-filter-active? t rel-key)
           vis (cond
                 ;; genlCx declarations are forced into CxUniverse and therefore
@@ -590,7 +590,7 @@
 (def ^:dynamic *visible-neighbours-cache*
   "An optional atom holding a `{[dir-key vis n] neighbours}` map for a **read-only**
   pass (see `*closure-pass-cache*`).  The closure memo keys whole closures per
-  `(node, vis)`, so a shared upper cone is re-filtered under every distinct root
+  `(node, vis)`, so a shared upper ancestor set is re-filtered under every distinct root
   that walks through it — the cost the closure cache structurally cannot fold and
   the one this one does: each node's edges are context-filtered once per pass, not
   once per walk.  Bound and dropped by the pass, which holds the taxonomy still, so
@@ -762,7 +762,7 @@
 ;; asserting sentence, so today one handle names one `[kind key]` — but nothing in the
 ;; structure says so, and removal is per-(handle, key): a 1:1 index would have the first
 ;; `support-drop` take the handle out from under an entry the same sentex still supports,
-;; which reads as a stale cache rather than as a crash.  A set per handle costs the
+;; which is indistinguishable from a stale cache rather than from a crash.  A set per handle costs the
 ;; single-key case one small set and makes the index answer to `:cache-support`'s own
 ;; shape instead of to an invariant nothing states.
 ;;
@@ -782,7 +782,7 @@
 
 (defn- forget-handle-key
   "Drop `k` from `handle`'s reverse-index entry, and the handle itself once it supports
-  nothing — an empty set left behind would make the handle read as a live supporter and
+  nothing — an empty set left behind would make the handle are indistinguishable from a live supporter and
   keep it in the reconcile's scope for the life of the KB."
   [t handle k]
   (let [left (disj (get-in t [:cache-handle-keys handle] #{}) k)]
@@ -1167,7 +1167,7 @@
 (defn- activate
   "Bring [a b] into the active edge set: record the direct adjacency, the node set,
   and repair the depth potential.  A no-op when the edge is already active, so a
-  redundant re-assert costs nothing and leaves the read memo valid.
+  redundant re-assert adds no work and leaves the read memo valid.
 
   `wff` (assert path) and `special/wff-violation` (derivation path) both refuse a
   `genl` edge that would close a cycle before it reaches here; a `genlCx` cycle is
@@ -1374,7 +1374,7 @@
 (defn- ctx-count-inc
   "Count one more supporter asserting from `ctx`; a context appearing for the first
   time bumps `:ctxs-gen`.  nil (no recorded context) is not counted — it is not a
-  context a visibility cone could name."
+  context a visibility ancestor set could name."
   [rel ctx]
   (if (nil? ctx)
     rel
@@ -1607,7 +1607,7 @@
 ;; storing the representative rather than deriving it per read, and the bound is the
 ;; class rather than the relation.  **Deletion can split a class**, which union-find
 ;; cannot undo, so it rebuilds the affected class from its surviving believed edges —
-;; the same bound, the same shape as the cone-local `genl` deletion, never the whole
+;; the same bound, the same shape as the ancestor-set-local `genl` deletion, never the whole
 ;; relation.
 
 (defn- pair
@@ -1724,7 +1724,7 @@
 
 (defn- apply-edge
   "Reconcile one edge with what its believed supporters now say.  An edge whose state
-  did not move costs nothing — the common case for a settle that defeated nothing."
+  did not move adds no work — the common case for a settle that defeated nothing."
   [rel e]
   (let [want (edge-state rel e)
         have (when (contains? (:edges rel) e) (get (:edge-prefs rel) e #{}))]
@@ -1824,7 +1824,7 @@
 (defn scoped-class
   "`[members representative]` for `term` counting only the equality edges some
   supporter `visible?` admits — the equality analogue of the scoped closure reads,
-  and the shape a **context-scoped** rewrite needs.
+  and the form a **context-scoped** rewrite needs.
 
   It has to be recomputed rather than filtered out of the global partition, because
   dropping an edge can *split* a class: `A~B~C` with only `A~B` visible is the class
@@ -2152,7 +2152,7 @@
   Nothing in scope should name one — `support-drop` retires the handle and the dirty mark
   with the entry, and `forget-metatype` owes the same by hand — and the guard is what
   keeps the failure a no-op instead of an empty `:cache-ctxs` written back under a key no
-  sentex supports, which reads as an entry asserted from nowhere."
+  sentex supports, which is indistinguishable from an entry asserted from nowhere."
   [t believed? moved]
   (let [touched (moved-cache-keys t moved)]
     (if (empty? touched)
@@ -2298,7 +2298,7 @@
 
   Without exceptions, a context-set intersection is sufficient.  With exception
   filtering active, each supporter is checked individually: the exception-aware
-  context cone handles excepted genlCx links and the KB callback handles belief
+  context ancestor set handles excepted genlCx links and the KB callback handles belief
   plus exceptions targeting the declaration itself."
   [tax k context]
   (if-not (scoped-context? context)
@@ -2650,10 +2650,10 @@
               :monotonic path))))
 
 (def ^:dynamic *exposure-instance-budget*
-  "How many candidate instances one bounded cone/closure sweep will enumerate —
+  "How many candidate instances one bounded ancestor set/closure sweep will enumerate —
   `vaelii.impl.settle`'s exposure passes (a separating declaration, a metatype
   membership, a genl edge and a genlCx edge each implicate every instance below their
-  types or in their cone, and on a large corpus that is the extent, not the region) and
+  types or in their ancestor set, and on a large corpus that is the extent, not the region) and
   `vaelii.impl.special/equate-under-context-edge`'s eager merge-deriving twin, which
   spends it on the same genlCx trigger for the same reason: a small edge can make a
   large, already-stored extent jointly visible, and the walk that decides whether any
@@ -2665,14 +2665,14 @@
   **Where a cut can see arrival order, and why it is left there.**  What orders a sweep
   is the trigger level — `settle`'s moved region is walked in content order, which is
   affordable because a region is small.  Below that — the down-closure, the context
-  cone, the posting list of one type or predicate — nothing is sorted, and the reason is
+  ancestor set, the posting list of one type or predicate — nothing is sorted, and the reason is
   the same at every level: the enumerations are lazy so a budgeted consumer realizes
   only its prefix, and sorting to choose that prefix forces the whole extent, which is
   the cost the cap was added to refuse.
 
-  That is measured rather than assumed.  Sorting the context cone took
+  That is measured rather than assumed.  Sorting the context ancestor set took
   `retract-context-cycle-scaling` from 0.08 to 0.28 ms/op at 2048 contexts — a 3.4x
-  growth against a 2x bound — because a context cycle makes the cone the whole graph.
+  growth against a 2x bound — because a context cycle makes the ancestor set the whole graph.
   The check exists to say a retraction is flat in the graph it is not about, and a sort
   is exactly what stops it being.
 
@@ -2720,7 +2720,7 @@
   "Contexts that inherit from c, incl c, after context-visible genlCx exceptions.
 
   Reverse visibility has no single reader: every candidate descendant brings its own
-  exception cone.  So while some `except` targets a `genlCx` supporter
+  exception ancestor set.  So while some `except` targets a `genlCx` supporter
   (`relation-filter-active?`), the raw candidates are filtered by each candidate's own
   forward answer rather than by one static reverse scope — a filtered walk per
   candidate, which is why the answer is **memoized** per context, one level beside the
@@ -2770,7 +2770,7 @@
   "The member of `ctxs` that sees every other member, or nil.  When one exists it is a
   **maximal common descendant**: any common descendant sees every member, so it sees
   the found `k`, making `k` its ancestor-or-self.  A rule and its antecedent facts
-  sitting on one spine — nearly every forward firing — is answered here by |ctxs|²
+  sitting on one chain — nearly every forward firing — is answered here by |ctxs|²
   depth-pruned `sees?` probes, no closure read at all.
 
   It is *the* maximum unless two members see each other, in which case both qualify
@@ -2811,7 +2811,7 @@
   cycle's one name.
 
   A member `k` is struck out when some *other* candidate stands above it — an element of
-  `k`'s up-cone that is itself a candidate — unless that ancestor sees `k` back, since two
+  `k`'s ancestor set that is itself a candidate — unless that ancestor sees `k` back, since two
   mutually visible contexts are equally general and would otherwise strike each other out
   and empty the set.  `placement-rep` then names the survivor's group, so a cycle
   contributes one member rather than all of them.
@@ -2907,7 +2907,7 @@
   (maximal-in tax (set ctxs)))
 
 (defn common-descendant?
-  "Does any context see every member of `ctxs` — is the common-descendant set
+  "Does any context see every member of `ctxs` — is the common-descendant-set
   non-empty?  The boolean of `maximal-common-descendant-contexts`, for the callers
   that only ever ask existence (`settle`'s nogood pairing asks it of every opposed
   belief pair): the maximality filter never runs, the comparable case never reads a
@@ -2926,7 +2926,7 @@
   "`ctxs` closed under `maximal-common-descendant-contexts` of its pairs: every context
   where two or more of them meet, plus the members themselves.
 
-  The shape a reader enumeration needs.  Knowledge stated in several contexts is read
+  The form a reader enumeration needs.  Knowledge stated in several contexts is read
   by whoever inherits some combination of them, and *which* combination changes the
   answer — a qualitative network composes only the constraints one reader can see
   (docs/qcn.md), an equality election runs only over the edges one reader can see
@@ -2980,7 +2980,7 @@
 ;; `cache-install` / `cache-uninstall` refcount, and read by `exempt?` inside
 ;; `disjointness-test` as one map lookup behind the `genl-related?` guard.
 ;;
-;; The read is **global**, not scoped to the reader's cone: an exception *removes* a
+;; The read is **global**, not scoped to the reader's ancestor set: an exception *removes* a
 ;; clash, so a context-scoped exception would let a more-specific reader see fewer
 ;; clashes than the KB holds — the non-monotone direction `disjoint?` forbids.  The
 ;; sentex still carries a context and retracts / rebuilds normally; only its read is
@@ -3235,7 +3235,7 @@
   (let [{:keys [scoped? seps metas sibs pair-vis? member-vis?]} (separation-frame tax a context)]
     (if (and (empty? seps) (empty? metas) (empty? sibs))
       (constantly false)
-      ;; genl-relatedness is read **globally**, never through the reader's cone: the
+      ;; genl-relatedness is read **globally**, never through the reader's ancestor set: the
       ;; exception is the same one `wff/disjoint-problems` applies to an explicit pair,
       ;; and reading it scoped would let a descendant context that cannot see an
       ;; `(genl x y)` edge separate a pair the whole KB knows overlaps — a disjointness
@@ -3591,7 +3591,7 @@
   tuples is a clash among the super's: `(fatherOf a b)` beside `(fatherOf b a)` breaks
   `(asymmetric parentOf)`, and two `fatherOf` mothers for one child are two `parentOf`
   values against `(functional parentOf)`.  Read the mark off the exact functor and those
-  become bypassable through a sub-predicate door while the *converse probe* fans down the
+  become bypassable through a sub-predicate entry point while the *converse probe* fans down the
   same hierarchy, so which spelling arrived second would decide whether the pair is
   found.
 
@@ -3667,7 +3667,7 @@
 
   What a lane still owns for itself is what it does with the shape: `settle` also checks
   the argument *kinds* because its triggers come off a moved region and may be malformed,
-  where `special`'s door is downstream of well-formedness and checks only the arity.
+  where `special`'s entry point is downstream of well-formedness and checks only the arity.
 
   Not `:props`-keyed, and that is the point of the split from `settle`'s
   `definitional-marks`: `functional` stores under the `:functional` prop where
@@ -3820,11 +3820,11 @@
 
 (defn functional-family-declared?
   "Does the taxonomy carry a functional-family mark of **either** spelling — the global,
-  unscoped gate every merge door of that family opens on, before it reads any extent?
+  unscoped gate every merge entry point of that family opens on, before it reads any extent?
 
-  One predicate rather than the `or` written at each door, because the two spellings
+  One predicate rather than the `or` written at each entry point, because the two spellings
   store in different places (`props :functional` and the `:functional-in-arg` table) and
-  a door that asks only the first is closed to the generalized mark while reporting
+  an entry point that asks only the first is closed to the generalized mark while reporting
   itself as free-for-a-KB-that-declares-nothing.  That is not hypothetical: it is what
   `equate-under-edge` did, so a `genl` edge arriving last under `(functionalInArg P 2)`
   merged nothing where the same edge under `(functional P)` merged — the arity-2

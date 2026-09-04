@@ -6,7 +6,7 @@
 
   A conclusion is placed in the maximal contexts that see the rule, the antecedent facts
   and the taxonomy the match climbed — and every one of those sightings is a reachability
-  up the context cone, supported by an ordinary sentex somebody asserted and can take
+  up the context ancestor set, supported by an ordinary sentex somebody asserted and can take
   back.  A justification that named only the rule and the facts left the conclusion
   standing, and believed, in a context that could no longer see either of them: the same
   KB built without the edge derives nothing, so belief would be a function of arrival
@@ -200,7 +200,7 @@
   ;; the edge arriving last has to reach what is already stored (`visibility-seeds`) and
   ;; be named by what it licenses, or the same four sentences mean one thing in one order
   ;; and another in the other — which is the invariant the witnesses exist to keep.
-  ;; `ask` rather than a store read, because that is the door a caller uses.
+  ;; `ask` rather than a store read, because that is the entry point a caller uses.
   (letfn [(arm [edge-first?]
             (tu/with-terms [bird flies Tweety CxLow CxHigh]
               (v/assert kb (list 'genlCx CxHigh 'CxUniverse) 'CxUniverse)
@@ -321,11 +321,11 @@
           "with both routes gone the conclusion has nothing left to rest on"))))
 
 (tu/deftest-kb a-second-path-keeps-the-conclusion-where-the-rule-sits-off-the-edge
-  ;; the **meet** shape, and the one the spine above cannot reach.  There the departing
-  ;; edge lay on the line between the rule and the fact, so the rule was in its up-cone
+  ;; the **meet** shape, and the one the chain above cannot reach.  There the departing
+  ;; edge lay on the line between the rule and the fact, so the rule was in its ancestor set
   ;; and the seeding gate found it.  Here the placement sees the rule down one branch and
   ;; the fact down another, and the edge that goes is on neither: nothing that matters
-  ;; sits in either of its cones.  A gate reading only those two cones therefore seeds
+  ;; sits in either of its ancestor sets.  A gate reading only those two ancestor sets therefore seeds
   ;; nothing, and the revival a surviving route still licenses never happens — which is
   ;; the arrival-order dependence this whole file exists to remove, since the same KB
   ;; built without the direct edge derives the conclusion perfectly well.
@@ -350,7 +350,7 @@
           (is (not= before after)
               "as a re-derivation: the sweep took the record the named edge held up"))))))
 
-(tu/deftest-kb the-revival-a-removal-owes-is-not-gated-on-the-departing-edges-own-cones
+(tu/deftest-kb the-revival-a-removal-owes-is-not-gated-on-the-departing-edges-own-ancestor-sets
   ;; the control for the case above, stated as the rule rather than the shape: a KB that
   ;; never held the direct edge derives the same conclusion, so a KB that held it and
   ;; lost it must end in the same place.  Anything else makes belief a function of

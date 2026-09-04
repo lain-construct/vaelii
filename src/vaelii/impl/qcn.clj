@@ -21,7 +21,7 @@
   unrecorded pair is the universe.  So a network is a *value*, which is what lets a
   caller memoize an expensive pass on its content.
 
-  Sets are the interface and **bitmasks are the arithmetic**: a network is encoded into
+  Sets are the public representation and **bitmasks are the arithmetic**: a network is encoded into
   a flat array of masks for the duration of a pass and decoded back on the way out, so
   every caller keeps reasoning in relation sets while the cubic loop reasons in
   `bit-and`.  See \"bitmask relation sets\" below.
@@ -112,7 +112,7 @@
 
 (def ^:private decode-cache-limit 8192)
 
-;; The two table-driven operations, over masks.  An interface rather than a pair of
+;; The two table-driven operations, over masks.  A protocol rather than a pair of
 ;; closures so the calls in the tightening step are **primitive**: a Clojure function
 ;; taking and returning a long boxes both ways through `IFn.invoke`, which at one
 ;; composition per triple is the largest allocation left in a cubic loop — precisely what
@@ -179,7 +179,7 @@
     (when (> k max-base-relations)
       (throw (ex-info (str "relation algebra has " k " base relations; "
                            max-base-relations " is the most a constraint mask holds")
-                      {:type :unknown-option :base-relations k :limit max-base-relations})))
+                      {:type :unknown-option :mismatch :bad-value :base-relations k :limit max-base-relations})))
     (let [bit       (into {} (map-indexed (fn [i r] [r (bit-shift-left 1 i)])) rels)
           ;; a relation outside the universe contributes nothing: a network's constraints
           ;; are subsets of it by construction (a reader intersects into the universe),

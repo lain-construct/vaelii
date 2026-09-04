@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.query-test
-  "`query` — the front door — and its one dial.
+  "`query` — the public entry point — and its one dial.
 
   Everything here is about the *dial* and the *goal shape*, which is where the two ways
   to get this wrong live.  `query` takes the same two goal shapes `prove` takes (a
@@ -134,7 +134,7 @@
 (tu/deftest-kb a-key-query-does-not-read-is-refused-not-handed-to-the-engine
   ;; The node engine reads the keys it knows and ignores the rest, so an open roster here
   ;; would let `{:max-deph 3}` answer facts-only with nothing to say a rule was never
-  ;; expanded — the silent-default failure every other door refuses.  The roster is the
+  ;; expanded — the silent-default failure every other entry point refuses.  The roster is the
   ;; union of `query`'s own dial and the engine's, and it is public.
   (tu/with-terms [parentOf anc Ann Bob CxQ]
     (v/assert kb (list parentOf Ann Bob) CxQ)
@@ -189,11 +189,11 @@
         (testing "while a shallow one is a strict subset"
           (is (< (count (bounded 1)) (count proved))))))))
 
-(tu/deftest-kb each-debugger-door-rosters-what-it-actually-reads
-  ;; A roster wider than its door is the silent default one level in: `search-tree` runs
+(tu/deftest-kb each-debugger-entry-point-rosters-what-it-actually-reads
+  ;; A roster wider than its entry point is the silent default one level in: `search-tree` runs
   ;; under `:proof? true` and never reaches the portfolio path, and `compare-tacticians`
   ;; sets the ordering per row — so `query`'s roster handed to either accepts a key the
-  ;; door then overwrites.  `{:strategy :cost}` at `compare-tacticians` is the one that
+  ;; entry point then overwrites.  `{:strategy :cost}` at `compare-tacticians` is the one that
   ;; reads worst: taken, discarded, and four rows come back under the default orderings
   ;; as though the caller had named none.
   (tu/with-terms [parentOf anc Ann Bob CxDbg]
@@ -203,7 +203,7 @@
     (let [goal (list anc Ann '?z)
           data (fn [f opts] (try (f kb goal CxDbg opts) nil
                                  (catch clojure.lang.ExceptionInfo e (ex-data e))))]
-      (testing "the rosters are public and are what each door reads"
+      (testing "the rosters are public and are what each entry point reads"
         (is (= #{:max-depth :strategy :node-budget :max-ms} v/search-tree-opt-keys))
         (is (= #{:max-depth :tacticians :node-budget :max-ms} v/compare-tacticians-opt-keys)))
       (testing "search-tree refuses the keys it would overwrite or never read"

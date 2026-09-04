@@ -42,7 +42,7 @@
             [vaelii.koinii.dispute :as d]
             [vaelii.koinii.identity :as id]))
 
-;; ---- the policy seams the dispute module left to the caller --------------
+;; ---- the policy extension points the dispute module left to the caller --------------
 
 (def ^:dynamic *timeout-ms*
   "How long a dispute may stay live with no ruling before `sweep-stale` flags it (and
@@ -52,7 +52,7 @@
 
 (def ^:dynamic *notify-sink*
   "Where a newly-opened dispute is pushed: `(fn [dispute-entry] …)`, called once per
-  dispute as it transitions `open -> notified`.  This is the seam the channel's feed
+  dispute as it transitions `open -> notified`.  This is the extension point the channel's feed
   subscribers and a configured human sink wire into; nil ships no push (the
   lifecycle mark is still recorded, so nothing is lost — a later `notify-disputes` with a
   sink still finds it un-pushed only if the mark was cleared).  Idempotency does not live
@@ -285,7 +285,7 @@
   count of DISTINCT voters.  Matched anywhere (`?ctx`) because a ballot names the
   globally-unique claim handle — the same reason the dispute and channel recovery reads do; a channel
   read would miss ballots sitting in the voters' own contexts (`sentexes-matching` scopes
-  to a context's own sentexes, not the genlCx cone).
+  to a context's own sentexes, not the genlCx ancestor set).
 
   A voter who cast BOTH stances (without retracting the first, against `vote`'s contract)
   has SPOILED their ballot — counted on neither side — so one self-contradicting voter can
@@ -377,7 +377,7 @@
   silently misled.  A pure read: it changes no belief, unlike `quarantine`.  Returns the
   contested premise handles.
 
-  **Scoped to the CONE, on both sides.**  `S` is resolved the way `ctx` actually sees it —
+  **Scoped to the ANCESTOR SET, on both sides.**  `S` is resolved the way `ctx` actually sees it —
   every believed sentex of `S` in a context `ctx` sees (`v/sees?`) — which is the scoping
   `disputes-in` already reads a dispute at, and the scoping `ask?` answers a goal at.  An
   exact-context lookup would disagree with both, and disagree in the one direction a safety
@@ -387,7 +387,7 @@
   store, this would then answer 'nothing contested' for a conclusion built on a disputed
   claim — the false reassurance the whole read exists to prevent.
 
-  **Every visible derivation, not a chosen one.**  Where more than one context in the cone
+  **Every visible derivation, not a chosen one.**  Where more than one context in the ancestor set
   holds `S`, their support closures are UNIONED rather than one being picked.  A reader
   trusting `S` at `ctx` is trusting whichever derivation answered, so a premise any of them
   rests on is a premise the answer rests on.  The union is also what leaves no tie-break to
@@ -405,10 +405,10 @@
   on either would make this list a fact about how the KB was loaded.  The order is the
   premise's own `[sentence context]` (`v/sort-by-content`), which two KBs holding the
   same knowledge agree on whatever order they were built in.  The context in that key is
-  load-bearing rather than decoration: a union over the cone can hold one sentence asserted
+  required rather than decoration: a union over the ancestor set can hold one sentence asserted
   in two agents' contexts, and the sentence alone would not separate them."
   [kb S ctx]
-  ;; the cone filter runs before `disputes-in`, which computes whole-KB contradictions:
+  ;; the ancestor set filter runs before `disputes-in`, which computes whole-KB contradictions:
   ;; a conclusion `ctx` cannot see costs one index probe rather than that.
   (let [visible (filterv #(v/sees? kb ctx (:context %)) (v/sentexes-matching kb S '?ctx))]
     (if (seq visible)
@@ -421,7 +421,7 @@
 (defn rests-on-contested?
   "Does the conclusion `S`, as `ctx` sees it, rest on any premise that is currently disputed
   there?  The boolean over `contested-premises` — the flag a high-stakes reader checks before
-  trusting a derived answer, and it reads `S` up the genlCx cone for exactly that reason: an
+  trusting a derived answer, and it reads `S` up the genlCx ancestor set for exactly that reason: an
   answer `ask?` gives at `ctx` off a premise stored below it is the case a safety flag exists
   to catch, not the case it may miss."
   [kb S ctx]

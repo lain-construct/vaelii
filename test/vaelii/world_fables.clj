@@ -93,7 +93,7 @@
   states its moral.  A text that spelled the s-expressions out in words would score well
   and measure nothing.
 
-  What it *does* share with the formal version is vocabulary, and that is worth stating
+  What it *does* share with the formal version is vocabulary, and that matters
   plainly: the narrative predicates were named after the English words the fable uses
   (`spared`, `napped`, `prepared_for_winter`), so resolving a word to a term is easier here
   than it would be on arbitrary prose.  The score is a floor on the formalism, not a claim

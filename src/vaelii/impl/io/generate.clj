@@ -26,7 +26,7 @@
 
   `plan` is pure — the whole KB as data, nothing asserted.  `load-into` asserts it,
   reporting progress through an optional `:on-progress` callback (which may throw to
-  cancel the load, the seam `vaelii.impl.catalog` cancels on)."
+  cancel the load, the flag `vaelii.impl.catalog` cancels on)."
   (:require [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.rules :as rules]
@@ -139,7 +139,7 @@
             b))))
 
 (defn- antecedent-counts
-  "A distribution of antecedent counts peaking at `peak` — the shape a real rule corpus
+  "A distribution of antecedent counts peaking at `peak` — the form a real rule corpus
   has (a few one-antecedent rules, a mode at three or four, a thin tail)."
   [peak]
   (vec (mapcat (fn [[k w]] (repeat w (max 1 k)))
@@ -161,7 +161,7 @@
   observed.  (Within one stream the order is the seq's own and is fixed.)
 
   The offsets are the SplitMix64 mixing constants, written as the signed longs they are
-  (a positive hex literal that wide reads as a `BigInt`): distinct, odd and
+  (a positive hex literal that wide is indistinguishable from a `BigInt`): distinct, odd and
   high-entropy, so two streams of one plan and one stream of two adjacent seeds do not
   alias."
   {:memberships -7046029254386353131        ; 0x9E3779B97F4A7C15

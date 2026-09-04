@@ -274,27 +274,27 @@
           (is (= 3 (:max-results b)))
           (is (= 2 (:max-depth b)))
           (is (nil? (:max-term-growth b)) "unnamed is the default ceiling, not no ceiling")))
-      ;; ...and the public door reaches `prove-from` through that same translation rather
+      ;; ...and the public entry point reaches `prove-from` through that same translation rather
       ;; than through a bounds map of its own.  The bound is rostered, so `check-budget!`
-      ;; admits it — a door that then dropped it would answer under the shipped ceiling
+      ;; admits it — an entry point that then dropped it would answer under the shipped ceiling
       ;; with nothing to say the raise had not been read.
       ;; Under the shipped executor whatever the sweep installed: the claim is about the
       ;; DFS arm's translation, and the node engine takes neither this map nor this bound.
       (testing "prove-within carries it, and builds no bounds map of its own"
         (tu/with-shipped-config
           (is (empty? (:results (v/prove-within kb (list p A) CxRaise nil)))
-              "the shipped ceiling, through the public door")
+              "the shipped ceiling, through the public entry point")
           (is (= [{}] (:results (v/prove-within kb (list p A) CxRaise {:max-term-growth 20})))
               "and a raised one reaches the fact the bounds map already reaches"))))))
 
-;; ---- the plain doors under a bound ----------------------------------------
+;; ---- the plain entry points under a bound ----------------------------------------
 ;; `ask` / `ask?` / `prove` / `provable?` each take a trailing bound of their own, and the
 ;; two kinds of bound answer differently on purpose: a depth PRUNES, so the answer is the
 ;; whole of what that depth admits, while a clock SUSPENDS, so what the search holds is a
 ;; prefix — and a solution vector and a boolean have no room to say so.  These pin both
 ;; halves, and the second is what stops a deadline from reading as a KB that knows less.
 
-(tu/deftest-kb a-bound-it-runs-dry-inside-answers-what-the-unbounded-door-does
+(tu/deftest-kb a-bound-it-runs-dry-inside-answers-what-the-unbounded-entry-point-does
   (tu/with-terms [parentOf grandparentOf Tom Bob Ann Zed CxFam]
     (grandparent-kb kb parentOf grandparentOf Tom Bob Ann Zed CxFam)
     (let [goal (list grandparentOf Tom '?who)
@@ -329,21 +329,21 @@
   (tu/with-terms [p SuccFn A CxLoop]
     ;; a rule whose every expansion wraps one more term around its subgoal, so it asks a
     ;; fresh goal each time: a search that runs until a guard stops it rather than until
-    ;; the data does, which is what a bound on these doors is for
+    ;; the data does, which is what a bound on these entry points is for
     (v/assert-rule kb [(list p (list SuccFn '?x))] (list p '?x) CxLoop {:direction :backward})
     (v/assert kb (list p A) CxLoop)
     (let [goal (list p A)]
-      (doseq [[door run] [["prove"     #(v/prove kb goal CxLoop {:max-ms 0})]
-                          ["provable?" #(v/provable? kb goal CxLoop {:max-ms 0})]
-                          ["ask"       #(v/ask kb goal CxLoop {:max-ms 0})]
-                          ["ask?"      #(v/ask? kb goal CxLoop {:max-ms 0})]]]
+      (doseq [[entry-point run] [["prove"     #(v/prove kb goal CxLoop {:max-ms 0})]
+                                 ["provable?" #(v/provable? kb goal CxLoop {:max-ms 0})]
+                                 ["ask"       #(v/ask kb goal CxLoop {:max-ms 0})]
+                                 ["ask?"      #(v/ask? kb goal CxLoop {:max-ms 0})]]]
         (let [d (ex-data (is (thrown? clojure.lang.ExceptionInfo (run))))]
           (is (= :budget-exhausted (:type d))
-              (str door " refused rather than answering off a prefix"))
-          (is (= [door :timeout] [(:door d) (:status d)])
-              "naming the door that ran out and what stopped it"))))))
+              (str entry-point " refused rather than answering off a prefix"))
+          (is (= [entry-point :timeout] [(:entry-point d) (:status d)])
+              "naming the entry point that ran out and what stopped it"))))))
 
-(tu/deftest-kb each-bounded-door-reads-its-own-roster
+(tu/deftest-kb each-bounded-entry-point-reads-its-own-roster
   (tu/with-terms [dog Muffet CxRoster]
     (v/assert kb (list dog Muffet) CxRoster)
     (let [goal    (list dog '?x)
@@ -371,7 +371,7 @@
   ;; Every bound is optional, so a misspelt one is not missing — the run is simply
   ;; unbounded: `{:max-mss 100}` realizes the whole stream, which on an infinite
   ;; source never returns.  (`:max-cost` outside the tiers is the *value* check and
-  ;; stays `:unknown-option` at the prover door; this is the key check one level up.)
+  ;; stays `:unknown-option` at the prover entry point; this is the key check one level up.)
   (testing "collect refuses the typo before realizing anything"
     (let [pulled (atom 0)
           src    (map (fn [i] (swap! pulled inc) i) (range))
@@ -384,7 +384,7 @@
   (testing "a non-map budget is refused rather than read as unbounded"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
                           (budget/collect (range 5) :max-results))))
-  (testing "the five rostered bounds all pass at every door"
+  (testing "the five rostered bounds all pass at every entry point"
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [dog Muffet CxBudget]
         (v/assert kb (list dog Muffet) CxBudget)
@@ -394,11 +394,11 @@
         (is (= :complete (:status (v/prove-within kb (list dog '?x) CxBudget
                                                   {:max-results 10 :max-depth 3
                                                    :max-term-growth 40})))))))
-  (testing "and both anytime doors hold their budget to the roster"
+  (testing "and both anytime entry points hold their budget to the roster"
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [dog]
-        (doseq [door [#(v/ask-within kb (list dog '?x) {:max-result 1})
-                      #(v/prove-within kb (list dog '?x) {:max-result 1})]]
-          (let [e (is (thrown? clojure.lang.ExceptionInfo (door)))]
+        (doseq [entry-point [#(v/ask-within kb (list dog '?x) {:max-result 1})
+                             #(v/prove-within kb (list dog '?x) {:max-result 1})]]
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (entry-point)))]
             (is (= :unknown-option (:type (ex-data e))))
             (is (= [:max-result] (:unknown (ex-data e))))))))))

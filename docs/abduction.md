@@ -111,7 +111,7 @@ ratio of matches to dead ends it is not there at all.
    — cached in the taxonomy, belief-following, retractable — with one deliberate
    difference: it is **not** decontextualized.  Those are claims about a predicate that
    hold wherever it is mentioned; this is a **policy** of the context that grants it,
-   so it is read from the asking context's `genlCx` up-cone and one theory may be
+   so it is read from the asking context's `genlCx` ancestor set and one theory may be
    willing to assume a predicate that another, reading the same vocabulary, will not.
    The shipped schema grants exactly one: `CxBiology` declares `(abducible_predicate
    asleep)`, so *why is this animal not awake* is answerable and *why does it not fly*
@@ -198,11 +198,11 @@ teardown there is no such sentex, and a dangling integer would be worse than an 
 **Committing is deliberately the caller's.**  Abduction proposes: to keep a hypothesis,
 assert it in a context that outlives the scratch.  There is no promotion path, for the
 same reason the sandbox has none — a dead end that cannot be half-escaped is easier to
-reason about than one with a door in it.
+reason about than one with an entry point in it.
 
 ## What a hypothesis is, in the record
 
-An ordinary premise, and every part of that is load-bearing:
+An ordinary premise, and every part of that is required:
 
 | | |
 |---|---|
@@ -230,7 +230,7 @@ observer, the gate, `abducible_predicate`, provenance, the caps, the irredundanc
 * **Open (non-ground) hypotheses** — skolemization's territory (docs/skolem.md).
 * **Committing to base belief automatically.**  The caller decides.
 
-**Isolation is exact, not nearly so**, and it is worth saying why rather than only that.
+**Isolation is exact, not nearly so**, and note why rather than only that.
 Two things could in principle move a base handle, and neither can:
 
 * **Defeat** does not sweep.  A hypothesis contradicting a base default leaves it

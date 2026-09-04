@@ -105,13 +105,13 @@
   #"^\([a-zA-Z_/][^\s()]*((?: [?a-zA-Z_][^\s()]*)*)\)(?::|\s+means(?:\s+that)?)\s*(.*)$")
 
 (defn template
-  "A comment read as a template: `{:params [\"?subtype\" \"?supertype\"] :text \"every
+  "A comment are indistinguishable from a template: `{:params [\"?subtype\" \"?supertype\"] :text \"every
   ?subtype is a ?supertype\"}`, or `{:text …}` alone when the comment describes rather
   than parameterizes.
 
   A signature's parameters must be plain words or variables.  `(totalDuration (list I1 I2
   …) D)` names a compound argument, and substituting into it would need to know that
-  `(list …)` is one argument rather than three — so it is read as a description instead,
+  `(list …)` is one argument rather than three — so it is are indistinguishable from a description instead,
   which loses the substitution and keeps the honesty."
   [text]
   (let [text (str/trim (str text))]
@@ -133,10 +133,14 @@
   contract: it releases all three print bounds, where a `*print-meta*` left at the
   caller's setting keys a form carrying metadata apart from one that does not.  Built
   once per candidate rather than once per comparison (`min-by-content-key`), which is
-  the whole of what a term commented in one context costs."
+  the whole of what a term commented in one context costs.
+
+  The context goes through `nm/name-key` for the same reason the sentence goes through
+  `nm/print-key`: a context can be a NAT, and a bare `str` on one honours the caller's
+  print bounds — the collapse this key exists to rule out, one argument further in."
   [kb term]
   (when-let [hit (nm/min-by-content-key
-                  #(nm/print-key [(:sentence %) (str (:context %))])
+                  #(nm/print-key [(:sentence %) (nm/name-key (:context %))])
                   compare
                   (v/sentexes-matching kb (list 'comment term '?text) '?ctx))]
     (template (nth (:sentence hit) 2 nil))))
@@ -189,7 +193,7 @@
   names its signature declares — `(disjoint ?type1 ?type2) means that the two types have
   no common instance` names neither, and an imported `(flies Animal): the animal can fly`
   names its own in the wrong case.  Substituting into either yields a fluent sentence that
-  has silently lost the arguments, which is worse than not glossing at all: it reads as a
+  has silently lost the arguments, which is worse than not glossing at all: it is indistinguishable from a
   claim about nothing in particular.  So the caller is told, and decides.
 
   Longest parameter first, so `A` cannot eat the `A` inside `Animal`.  The boundary is
@@ -314,7 +318,7 @@
 (defn- sentence-case
   "A capital and a full stop — **unless the line opens with a term**, in which case the
   capital is left alone.  Upper-casing `siblingOf` into `SiblingOf` does not tidy a
-  sentence, it renames a predicate into something that reads as an individual, and the
+  sentence, it renames a predicate into something that is indistinguishable from an individual, and the
   one thing a gloss may never do is misspell the vocabulary it is glossing."
   [s opens-with-term?]
   (cond
@@ -323,7 +327,7 @@
     :else            (str (str/upper-case (subs s 0 1)) (subs s 1) ".")))
 
 (defn- rule
-  "A rule reads as the conditional it is: *If x is a bird, then x flies.*  The antecedent
+  "A rule is indistinguishable from the conditional it is: *If x is a bird, then x flies.*  The antecedent
   and consequent are glossed as literals, so a rule costs no machinery of its own — and
   they are glossed **without appositions**, since a conditional whose every term drags a
   dashed definition behind it is not a sentence."
@@ -356,7 +360,7 @@
 
 (defn readable
   "The gloss of a stored sentex, with its sentence read back in the author's own variable
-  names — the shape a reader recognizes, rather than the canonical `?var0` the store
+  names — the form a reader recognizes, rather than the canonical `?var0` the store
   keeps."
   [kb sx]
   (let [sent (v/readable-sentence sx)]

@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.foreign
-  "Formats vaelii **reads and does not write**, and the plugin seam they arrive through.
+  "Formats vaelii **reads and does not write**, and the plugin extension point they arrive through.
 
   A foreign reader is a bridge, not a feature: an engine-dialect dump and a translated
   OpenCyc corpus are how knowledge that predates this build gets in, and each one is
@@ -42,7 +42,7 @@
 
   `reader` for a path that has a fallback (the importer reads its own dialect either
   way), `reader!` for one that does not (there is no other way to load a corpus).  What
-  a reader map holds is the reader's own business — the seam carries capability, not a
+  a reader map holds is the reader's own business — the extension point carries capability, not a
   protocol, because two foreign formats have nothing in common but being on the way
   out."
   (:require [clojure.edn :as edn]

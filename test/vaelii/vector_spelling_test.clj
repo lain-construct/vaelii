@@ -1,11 +1,11 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.vector-spelling-test
-  "One spelling, one meaning: a top-level **vector is a conjunction** at every door.
+  "One spelling, one meaning: a top-level **vector is a conjunction** at every entry point.
 
   A vector is `sequential?`, so `sentex/canon` flattens `[likes Tom Ann]` to the list it
   looks like — while `query` and `prove` read a vector as a join over its members.  The
-  write door refuses the collision (`sentence-shape-problem`), and this pins the read
+  write entry point refuses the collision (`sentence-shape-problem`), and this pins the read
   side of it, which is where the same knowledge answered two ways:
 
     a sentence written as a vector   `ask` / `sentexes-matching` / `handle-of` said the
@@ -15,8 +15,8 @@
                                      a sentence nothing matches and answered **false**
 
   Neither raised.  Both directions are refused now, and the tests below are written as a
-  roster of doors rather than as one assertion each, because the defect was never in one
-  door — it was in two doors disagreeing, and a roster is what fails when the next door
+  roster of entry points rather than as one assertion each, because the defect was never in one
+  entry point — it was in two entry points disagreeing, and a roster is what fails when the in the adjacent namespace
   is added on one side only."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
@@ -28,35 +28,35 @@
   (try {:answered (let [r (f)] (if (seq? r) (vec r) r))}
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
-(deftest every-read-door-refuses-a-sentence-written-as-a-vector
+(deftest every-read-entry-point-refuses-a-sentence-written-as-a-vector
   ;; The fact is stored correctly, as a list.  What is asked is the vector spelling of
   ;; it — which `assert` refuses, so no KB can hold anything the spelling names, and a
-  ;; door that answered `true` for it was answering about a sentence nobody could write.
+  ;; entry point that answered `true` for it was answering about a sentence nobody could write.
   (tu/with-terms [likesY TomY AnnY CxStory]
     (tu/with-cleared-kb [kb tu/fresh]
       (v/assert kb (list likesY TomY AnnY) CxStory)
       (let [as-list   (list likesY TomY AnnY)
             as-vector [likesY TomY AnnY]
-            doors     {"ask?"              #(v/ask? kb as-vector CxStory)
-                       "ask"               #(v/ask kb as-vector CxStory)
-                       "ask-within"        #(v/ask-within kb as-vector CxStory {:max-ms 100})
-                       "sentexes-matching" #(v/sentexes-matching kb as-vector CxStory)
-                       "handle-of"         #(v/handle-of kb as-vector CxStory)
-                       "prove"             #(v/prove kb as-vector CxStory)
-                       "provable?"         #(v/provable? kb as-vector CxStory)
-                       "query"             #(v/query kb as-vector CxStory)
-                       "query?"            #(v/query? kb as-vector CxStory)
-                       "query-plan"        #(v/query-plan kb as-vector CxStory)
-                       "prove-within"      #(v/prove-within kb as-vector CxStory {:max-ms 100})}]
-        (testing "the fact is stored, and the list spelling reaches it at every door"
+            entry-points     {"ask?"              #(v/ask? kb as-vector CxStory)
+                              "ask"               #(v/ask kb as-vector CxStory)
+                              "ask-within"        #(v/ask-within kb as-vector CxStory {:max-ms 100})
+                              "sentexes-matching" #(v/sentexes-matching kb as-vector CxStory)
+                              "handle-of"         #(v/handle-of kb as-vector CxStory)
+                              "prove"             #(v/prove kb as-vector CxStory)
+                              "provable?"         #(v/provable? kb as-vector CxStory)
+                              "query"             #(v/query kb as-vector CxStory)
+                              "query?"            #(v/query? kb as-vector CxStory)
+                              "query-plan"        #(v/query-plan kb as-vector CxStory)
+                              "prove-within"      #(v/prove-within kb as-vector CxStory {:max-ms 100})}]
+        (testing "the fact is stored, and the list spelling reaches it at every entry point"
           (is (some? (v/handle-of kb as-list CxStory)))
           (is (v/ask? kb as-list CxStory))
           (is (= 1 (count (v/sentexes-matching kb as-list CxStory))))
           (is (seq (v/prove kb as-list CxStory)))
           (is (seq (v/query kb as-list CxStory))))
-        (testing "and every door refuses the vector spelling of it, with one :type"
-          (is (= (into {} (map (fn [[nm _]] [nm :shape])) doors)
-                 (into {} (map (fn [[nm f]] [nm (:type (refusal f))])) doors))))
+        (testing "and every entry point refuses the vector spelling of it, with one :type"
+          (is (= (into {} (map (fn [[nm _]] [nm :shape])) entry-points)
+                 (into {} (map (fn [[nm f]] [nm (:type (refusal f))])) entry-points))))
         (testing "the refusal names the spelling it refused and the list to write"
           (let [d (refusal #(v/ask? kb as-vector CxStory))
                 m (ex-message (try (v/ask? kb as-vector CxStory)
@@ -64,31 +64,31 @@
             (is (= as-vector (:goal d)))
             (is (.contains ^String m (pr-str as-list))
                 "the list spelling is in the message, not left to be guessed")))
-        (testing "the write door refuses the same spelling, so no door takes it"
+        (testing "the write entry point refuses the same spelling, so no entry point takes it"
           (is (= :shape (:type (refusal #(v/assert kb as-vector CxStory))))))))))
 
-(deftest a-conjunction-is-refused-by-the-doors-that-cannot-join
+(deftest a-conjunction-is-refused-by-the-entry-points-that-cannot-join
   ;; The other direction, and the sharper one: `[(bird ?x) (nests ?x)]` is a documented
   ;; goal — for `query` and `prove`.  Handed to `ask` it was canonicalized into a
   ;; sentence with two compound arguments, which nothing matches, and came back `false`:
-  ;; a wrong answer in the shape a caller is least likely to question.
+  ;; a wrong answer in the form a caller is least likely to question.
   (tu/with-terms [birdY nestsY RobinY CxStory]
     (tu/with-cleared-kb [kb tu/fresh]
       (v/assert kb (list birdY RobinY) CxStory)
       (v/assert kb (list nestsY RobinY) CxStory)
       (let [conj-goal [(list birdY '?x) (list nestsY '?x)]]
-        (testing "the doors that join answer it"
+        (testing "the entry points that join answer it"
           (is (seq (v/prove kb conj-goal CxStory)))
           (is (seq (v/query kb conj-goal CxStory)))
           (is (= 2 (count (v/query-plan kb conj-goal CxStory)))))
-        (testing "and the doors that cannot join refuse it rather than answering false"
+        (testing "and the entry points that cannot join refuse it rather than answering false"
           (doseq [[nm f] {"ask?"              #(v/ask? kb conj-goal CxStory)
                           "ask"               #(v/ask kb conj-goal CxStory)
                           "ask-within"        #(v/ask-within kb conj-goal CxStory {:max-ms 100})
                           "sentexes-matching" #(v/sentexes-matching kb conj-goal CxStory)
                           "handle-of"         #(v/handle-of kb conj-goal CxStory)}]
             (is (= :shape (:type (refusal f))) nm)))
-        (testing "and the refusal sends the caller to the doors that do join"
+        (testing "and the refusal sends the caller to the entry points that do join"
           (let [m (ex-message (try (v/ask? kb conj-goal CxStory)
                                    (catch clojure.lang.ExceptionInfo e e)))]
             (is (re-find #"`query`" m))
@@ -109,7 +109,7 @@
           "the empty conjunction still proves trivially")
       (is (= 1 (count (v/prove kb [(list birdY '?x) (list nestsY '?x)] CxStory)))
           "a one-solution join over two conjuncts")
-      (testing "a conjunct that is not a sentence is what the join door refuses"
+      (testing "a conjunct that is not a sentence is what the join entry point refuses"
         (let [d (refusal #(v/prove kb [(list birdY '?x) 'nestsY] CxStory))]
           (is (= :shape (:type d)))
           (is (= 'nestsY (:conjunct d)) "and it names the conjunct, not just the goal")))

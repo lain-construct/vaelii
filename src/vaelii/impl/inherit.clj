@@ -75,7 +75,7 @@
 
   Where the contradiction goes depends on how the contrary claim is spelled.  A converse
   under an `(asymmetric P)` is `checks/asymmetry-problem`'s, and known-true content
-  refuses it at the door.  A plain `(not (P a b))` needs no mark and is not refused: it is
+  refuses it at the entry point.  A plain `(not (P a b))` needs no mark and is not refused: it is
   admitted and paired with the inherited claim by `settle/preserving-nogoods`, whose
   members are the general claim and everything the reading rests on, so `decide-nogood`
   weighs the set and the weakest member decides (`clashing-claim` below,
@@ -522,7 +522,7 @@
               ;; `*print-length*` collapsing the key would decide an admission on the
               ;; order the retrieval happened to answer in
               (nm/min-by-content-key (juxt #(- (st/rank-of (:class %)))
-                                           #(str (:context %))
+                                           #(nm/name-key (:context %))
                                            #(nm/print-key (:sentence %)))
                                      compare
                                      cs)))))
@@ -969,7 +969,7 @@
   A **symmetric** predicate's claim is a statement of both orientations, and an open
   probe surfaces only the stored one — the mirror shares its handle, so the matcher's
   mirrored probe of an open pattern adds no second row.  Ground probes bake the
-  orientation into the pattern (which is how the backward door reads the mirror), so
+  orientation into the pattern (which is how the backward entry point reads the mirror), so
   the swap has to happen here: a tuple whose stored sentence's own functor is declared
   symmetric — the fan surfaces sub-predicates, and the matcher mirrors each fanned
   literal on *its* declaration — is also read backwards, kept where the pattern's

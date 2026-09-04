@@ -64,10 +64,10 @@
   **What this reaches, checked by breaking it.**  Disabling either arm of `could-clash?`,
   forgetting the remembered pairs, or skipping the retroactive sweep each turns these
   streams red.  One mechanism it cannot reach is the carry-forward's `moved?` predicate,
-  and the reason is worth stating rather than leaving as a gap: a pair whose member the
+  and the reason matters rather than leaving as a gap: a pair whose member the
   region holds is re-derived through the region anyway, and the fresh answer *overrides*
   the carried one, so within a single context `moved?` decides nothing that `stale?` and
-  that override do not already decide.  It earns its keep only by handing the untouched
+  that override do not already decide.  It pays for itself only by handing the untouched
   member back as a candidate — which matters exactly where conviction is one-sided, and
   that is the regime excluded above.  `lein perf`'s `clash-arbitration` check is what
   holds it from the other side, since carrying is what keeps a settle off the standing

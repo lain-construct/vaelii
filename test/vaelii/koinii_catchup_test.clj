@@ -5,7 +5,7 @@
   behind must reach the state it WOULD have reached had it never disconnected — the failure
   mode is silent loss, so these assert completeness, not just liveness.  Three cases, each
   on its own daemon (a fresh KB per test, so one test's queries never leak into another's
-  cone-aware snapshot):
+  ancestor-aware snapshot):
 
   - resume from a stored cursor while still in the ring — tail, no snapshot;
   - overflow past the ring — lag detected, snapshot recovers the full state;
@@ -121,7 +121,7 @@
     (-feed-poll [_ token cursor _opts] ((:poll script) token cursor))))
 
 (defn- recording-store
-  "A `CursorStore` over an atom, with `on-read` called at every `read-position` — the seam
+  "A `CursorStore` over an atom, with `on-read` called at every `read-position` — the extension poinace
   the interleaving test uses to hold two threads at the read that starts `sync!`."
   ([] (recording-store (fn [])))
   ([on-read]

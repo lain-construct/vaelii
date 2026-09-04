@@ -64,10 +64,10 @@
   what lets `(sense lex/fools_gold fools_gold-mineral)` say what it means — and lets
   `(genl abrasive-grit lex/abrasive_tool)` stand as an unsensified edge until a sense
   is crafted to replace it.
-- **A name the reader would not read back is refused.** A leading digit reads as a
+- **A name the reader would not read back is refused.** A leading digit parses as a
   malformed number (`134a-gas`), and a leading `'` is the quote macro, so
-  `'centaur'-mythical` reads as a list rather than a term. Both are escaped with a
-  leading underscore when minted — `_134a-gas` — which reads and says it was escaped.
+  `'centaur'-mythical` parses as a list rather than a term. Both are escaped with a
+  leading underscore when minted — `_134a-gas` — which parses and shows the escape.
 - **Overlap is expected.** A plain lowercase word (`dog`, `genl`, `likes`)
   satisfies both `predicate?` and `type-symbol?`. Role is disambiguated by
   position and arity, not the symbol alone — `genl` is a predicate in
@@ -173,14 +173,15 @@ violations wants to group, and a message embeds the literal, so it is unique per
 and counting messages counts records.
 
 **The throw is a reporting path, so it does not pay for a stack trace nobody prints.** A
-checked import counts what the front door refuses, which makes the refusal a hundred
+checked import counts what the public entry point refuses, which makes the refusal a
+hundred
 thousand calls in a load rather than an exceptional one — and most of what `ex-info`
 costs is materializing the trace so it can elide its own two stack frames, which is a cost
 that grows with the depth of the stack it is thrown from where a bare constructor's does
 not. `check!` builds the `ExceptionInfo` directly. Same class, same message, same
 `:type :naming` ex-data.
 
-### Whose invariants: the two doors
+### Whose invariants: the two policies
 
 How hard these are enforced is the **KB's** to say, not the build's. `open-kb`'s
 `:naming` selects the policy:
@@ -196,20 +197,22 @@ moved under it would hold two vocabularies with nothing recording which sentence
 under which. So a lenient loader and a strict editor can hold the *same store* at once,
 and neither has to win.
 
-`:constraints` is the other door of the same kind, over what a **definitional clash**
+`:constraints` is the other policy of the same kind, over what a **definitional clash**
 does rather than over how a symbol is spelled — `:refuse` or `:arbitrate`, on the KB as a
-plain value for the same reason ([nmtms.md](nmtms.md), "Which door the content came through").
+plain value for the same reason ([nmtms.md](nmtms.md), "Which entry point the content
+came through").
 
-What no setting moves is the role **reading**. `predicate?` and its three siblings answer
-the same way under every policy, so `:off` stores a name nothing can classify — `term-role`
-says nil, a `(Type Individual)` goal takes the general path rather than the shortcut —
-never one classified differently. That is the entire cost of opening the door, and it is
-why the check is worth keeping on wherever the content is hand-written.
+No setting moves the role **reading**. `predicate?` and its three siblings answer the
+same way under every policy, so `:off` stores a name nothing can classify: `term-role`
+returns nil and a `(Type Individual)` goal takes the general path rather than the
+shortcut. It never stores a name classified differently. That is the entire cost of
+relaxing the policy, and the reason to leave the check on wherever the content is
+hand-written.
 
 A **bulk** path is not on that list because it does not consult it: an import builds
 records directly through `res/kb-sentex` and never asks, which is what makes a corpus
-past what the door can check loadable at all. The two doors are reconciled by a **count**
-instead. Both import paths fold `nm/tally` as the frames go past — the one cheap moment,
+beyond what the checks accept loadable at all. The checked and bulk paths are reconciled
+by a **count** instead. Both import paths fold `nm/tally` as the frames go past — the one cheap moment,
 with each record already decoded — and a non-zero result is logged and returned in the
 summary as `{:checked n :refused n :by-class {…}}`, one line naming the fraction and the
 classes it splits into:
@@ -222,13 +225,13 @@ under :naming :strict
 ```
 
 A foreign dialect can disagree at every record — a naming convention the whole corpus was
-written under is one the door refuses uniformly, not occasionally — so the fraction is as
+written under is one the checks refuse uniformly, not occasionally — so the fraction is as
 likely to be 100% as it is to be small. The operator who chose the bulk path learns it
 then, rather than from a re-assertion that throws a year later. `lein bench-survey naming`
 is the same question asked exhaustively: every record, grouped by class, by frame and by
 *distinct spelling*, with candidate widenings priced against the corpus.
 
-**The door one over answers the same way.** A name is checked *outside* the constructor,
+**The adjacent check answers the same way.** A name is checked *outside* the constructor,
 so a record with a refused name still gets built and stored. The **structural** checks —
 NAF closure, quantifier locality, the aggregate reduction slots — run *inside* it, so
 when one of those fires there is no record at all. An import counts those in `:refused`
@@ -272,8 +275,8 @@ direction.
 
 ### Advice: the sentence that breaks no invariant and still means nothing
 
-A shape can be well-formed and still be a mistake, and the front door says so where it
-can name the repair. `(isa Muffet Dog)` breaks nothing — `isa` is a well-formed predicate
+A shape can be well-formed and still be a mistake, and `assert` says so where it can
+name the repair. `(isa Muffet Dog)` breaks nothing — `isa` is a well-formed predicate
 and both arguments well-formed individuals — so it stores a two-place relation nothing
 reads, and `(isa? kb 'Muffet 'Dog)` then answers false with nothing to search for.
 `nm/advice` reads *intent* where `problems` reads the invariants: it recognizes the
@@ -290,7 +293,8 @@ What it proposes:
 | `(isa Muffet PhysicalObject)` | `(physical_object Muffet)` — snake_case, not `physicalobject` |
 | `(isa Muffet <non-symbol>)` | the generic `(<type> <individual>)` form |
 
-**One entry, deliberately.** The bar for adding a second is in `advice`'s own docstring:
+**The table holds one entry.** The bar for adding a second is in `advice`'s own
+docstring:
 a shape somebody might legitimately mean stays out, because a warning on legitimate
 content is a warning an author learns to ignore.
 
@@ -333,6 +337,7 @@ word means adding its row here and its entry there, in the same commit.
 
 | Word | Stratum | Senses | Glossary entries |
 |------|---------|--------|------------------|
+| arm | machine | 1 | Arm |
 | asserted | knowledge | 1 | Asserted |
 | atomic | term, machine | 2 | Atomic (term); Atomic (storage) |
 | atomic formula | formula | 1 | Atomic formula |
@@ -342,7 +347,7 @@ word means adding its row here and its entry there, in the same commit.
 | context | knowledge | 3 | Context; Query context; Placement context |
 | denotational term | term | 1 | Denotational term |
 | derived | knowledge | 1 | Derived |
-| door | machine | 1 | Door |
+| entry point | machine | 1 | Entry point |
 | extent | machine | 1 | Extent |
 | formula | formula | 1 | Formula |
 | frame | machine | 1 | Frame |
@@ -350,11 +355,14 @@ word means adding its row here and its entry there, in the same commit.
 | inert | knowledge | 1 | Inert |
 | kind | term | 1 | Kind |
 | label | knowledge | 1 | Labeling |
+| lane | machine | 1 | Lane |
 | literal | formula | 1 | Literal |
 | pattern | formula | 1 | Pattern |
 | polarity | formula | 1 | Polarity |
 | record | machine | 1 | Record |
+| refusal | machine | 1 | Refusal |
 | region | knowledge, term | 2 | Region (relabel scope); Region (spatial) |
+| roster | machine | 2 | Roster; Term roster |
 | sentence | formula | 1 | Sentence |
 | sentex | knowledge | 1 | Sentex |
 | strength | knowledge | 1 | Strength |

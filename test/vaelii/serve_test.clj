@@ -156,7 +156,7 @@
           (is (= :bad-args (:type r))))))))
 
 (tu/deftest-kb a-fault-the-daemon-cannot-name-still-answers-with-a-type
-  ;; The floor under the one-vocabulary promise `docs/operations.md` makes.  A door that
+  ;; The floor under the one-vocabulary promise `docs/operations.md` makes.  An entry point that
   ;; fails for a reason nothing here classifies — a record store that will not answer, a
   ;; solver binary that is not on the host — must still hand a caller a keyword to catch
   ;; on: `:type nil` is the key present and useless, which is the one answer worse than
@@ -482,7 +482,7 @@
 ;; runs under the one monitor, so a read a caller sized holds every other request behind
 ;; it — and the two dials a caller sizes it with are `:max-depth` and `:max-ms`.  The
 ;; ceiling is applied in `serve/ops` rather than at this route, because the model's tool
-;; surface dispatches through the same table; the test below reads both doors.
+;; surface dispatches through the same table; the test below reads both entry points.
 
 (tu/deftest-kb a-bound-over-the-ceiling-is-refused-and-one-under-it-is-not
   (tu/with-terms [dog Muffet CxServe]
@@ -518,7 +518,7 @@
         (is (true? (:ok (post-op handler :sentexes-matching
                                  [(list dog '?x) CxServe]))))))))
 
-(tu/deftest-kb the-four-backward-search-doors-are-held-to-the-ceiling-too
+(tu/deftest-kb the-four-backward-search-entry-points-are-held-to-the-ceiling-too
   ;; `:ask`, `:ask?`, `:prove` and `:provable?` each take a bound now, and each runs on
   ;; the daemon's single write monitor — so a caller sizing one sizes every other
   ;; caller's wait.  What is different from `:query` is that a request may name no option
@@ -533,7 +533,7 @@
           (is (false? (:ok r)))
           (is (= :over-ceiling (:type r)))
           (is (= 400 (:status r)) "a caller's request, so a client error")))
-      (testing "and a depth past it, at the two doors that expand rules"
+      (testing "and a depth past it, at the two entry points that expand rules"
         (let [r (post-op handler :prove [(list dog '?x) CxServe
                                          {:max-depth (inc (config/max-query-depth))}])]
           (is (false? (:ok r)))
@@ -550,7 +550,7 @@
         (is (= [Muffet] (mapv #(get % '?x) (:result (post-op handler :prove
                                                              [(list dog '?x)]))))
             "including one that named no context either — the arguments in between are
-             filled with the door's own defaults, so the read is the ?ctx fan it would
+             filled with the entry point's own defaults, so the read is the ?ctx fan it would
              have been in process"))
       (testing "and a search that reaches its clock is a 400 rather than a run that
                 holds the writer while nobody waits for the answer"
@@ -562,7 +562,7 @@
 (tu/deftest-kb the-models-tool-surface-is-held-to-the-same-ceiling
   ;; `vaelii.impl.llm.tools` generates its schemas from `serve/ops` and calls back into
   ;; it, so a ceiling applied at the HTTP route would be a ceiling the model does not
-  ;; have — which is the door a prompt-injected model would find first.
+  ;; have — which is the entry point a prompt-injected model would find first.
   (tu/with-terms [dog Muffet]
     (v/assert kb (list dog Muffet) 'CxUniverse)
     (testing "a depth inside the ceiling answers"
@@ -671,7 +671,7 @@
               (is (clipped? (client/why conn h {:max-depth 1})))
               (is (not (clipped? (client/why conn h {:max-depth 32}))))
               (is (thrown? clojure.lang.ExceptionInfo (client/why conn h {:max-dpeth 32}))
-                  "and the daemon holds the opts to the same roster the in-process door
+                  "and the daemon holds the opts to the same roster the in-process entry point
                    does, rather than taking a default in silence")))
           (testing "a remote refusal surfaces as an ex-info carrying the daemon error"
             (is (thrown? clojure.lang.ExceptionInfo
@@ -680,7 +680,7 @@
                     keeping it promises"
             ;; kept because a caller outside this repo may hold it; `!` means
             ;; *irreversible* and an assertion is not, so the wrapper carrying one said
-            ;; the opposite of what the door does
+            ;; the opposite of what the entry point does
             #_{:clj-kondo/ignore [:deprecated-var]}
             (let [h (client/assert! conn (list penguin Tweety) CxWire)]
               (is (nat-int? h))
@@ -742,7 +742,7 @@
       (is (re-find #"needs an address" (ex-message e)))
       (is (re-find #"line ends after it" (ex-message e)))))
   (testing "and the next flag is not an address — it would bind an interface named
-            after a token, which is a Jetty failure rather than this door's refusal"
+            after a token, which is a Jetty failure rather than this entry point's refusal"
     (doseq [args [["--listen" "--port"] ["4200" "--listen" "--listen" "0.0.0.0"]]]
       (let [e (is (thrown? clojure.lang.ExceptionInfo (#'serve/listen-host args))
                   (pr-str args))]

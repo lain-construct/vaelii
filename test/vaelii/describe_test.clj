@@ -116,10 +116,10 @@
 (tu/deftest-kb a-context-is-described-by-what-it-sees-and-what-sees-it
   (let [d (v/describe kb 'CxKinship W)]
     (is (= :context (:role d)))
-    (testing "its up-cone holds the contexts it reads, reflexively"
+    (testing "its ancestor set holds the contexts it reads, reflexively"
       (is (contains? (set (:terms (:up d))) 'CxKinship))
       (is (contains? (set (:terms (:up d))) 'CxCore)))
-    (testing "its down-cone holds the contexts that read it"
+    (testing "its descendant set holds the contexts that read it"
       (is (contains? (set (:terms (:down d))) 'CxWell)))
     (testing "and how many sentexes hold in it"
       (is (pos? (:sentex-count d))))
@@ -142,7 +142,7 @@
     (is (= 2 (count (:arg-declarations (v/describe kb 'parentOf '?ctx)))))))
 
 (tu/deftest-kb a-grant-is-a-policy-of-the-context-that-gives-it
-  ;; `modal_predicate` and `abducible_predicate` are grants read up the genlCx cone, so a
+  ;; `modal_predicate` and `abducible_predicate` are grants read up the genlCx ancestor set, so a
   ;; predicate granted in one theory is not granted in a sibling.  Net-neutral: the
   ;; grant is asserted on a temporary in a temporary context and retracted with it.
   (tu/with-terms [thinks CxGrantA CxGrantB]

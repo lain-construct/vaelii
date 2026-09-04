@@ -41,7 +41,7 @@ choice rule, so it **never chains into belief** — asserting `(candidate Item)`
 derive `(color Item red)`. A solve is the only thing that consults it.
 
 **This is where a disjunctive conclusion lands.** `(implies <body> (or C1 C2))` is
-refused at the assert door, and the refusal points here: a disjunctive head says one of
+refused at the assert entry point, and the refusal points here: a disjunctive head says one of
 two things holds without saying which, and belief is a label on a stored sentex rather
 than on a set of them, so forward chaining has nothing to place. What it *is* is a
 choice, and a choice has a home — one `set/assumptionRule` per alternative, plus a
@@ -128,9 +128,9 @@ sentexes. So an inert `(not head)` sitting in a context that sees a believed `he
 (assert-inert kb '(color Item red) 'CxRedWorld)   ; stored, inspectable, never IN
 ```
 
-**A rule is refused here** (`:not-indexable`), and the reason is that this door does not
+**A rule is refused here** (`:not-indexable`), and the reason is that this entry point does not
 index one. A rule fires because `index-rule-sentex` posted its predicates, which happens
-where a rule sentex is *created* — the assert door's new branch, and the generator mint —
+where a rule sentex is *created* — the assert entry point's new branch, and the generator mint —
 so a rule stored inert would be unreachable by either chainer, and would stay unreachable
 after somebody asserted it, that assert resolving to the stored sentex and taking the
 branch that does not index. What it left was a rule `in?` called believed and no fact

@@ -84,7 +84,7 @@ sweep able to reach anything that was there before.
 **content** order — by sentence, then by context. Not by handle: a handle is allocated in
 assertion order, so ranking on one would make the reading a fact about how the KB was
 loaded rather than about what the batch means. `:max-results` caps both halves, which is
-what makes the order load-bearing rather than cosmetic — it decides *which* entries a
+what makes the order required rather than cosmetic — it decides *which* entries a
 caller is shown, so the same batch against the same knowledge must show the same ones.
 
 The **removed** half is the interesting one, and the one a naive implementation misses.
@@ -168,7 +168,7 @@ which is false for every stored handle when the network was never built — so w
 refusal it would answer that nothing would change while `edit!` on the same batch deleted
 the record. A dry run
 silent about exactly the operation that cannot be taken back is worse than no dry run, so
-the two doors refuse together.
+the two entry points refuse together.
 
 ## What moves anyway
 
@@ -201,7 +201,7 @@ restore-the-strength arms, the settle with the sweep back on, and the restoratio
 violations ledger, the program and the refusal record are all the same code and the same
 claim — the KB is as it was found.
 
-The two doors differ in **when** they roll back and in what they have to put back, not in
+The two entry points differ in **when** they roll back and in what they have to put back, not in
 how:
 
 | | `preview` | `edit!` |
@@ -271,7 +271,7 @@ The region also bounds the *reporting*: an entry is built for every datum in it,
 
 `opts` bounds the run: `:max-depth` / `:max-derivations` reach chaining, `:max-results`
 caps each half of the diff. `:bounded?` says one of them bit, so a partial answer never
-reads as a complete one.
+is indistinguishable from a complete one.
 
 ## The other direction: what a write *did* mean
 
@@ -309,7 +309,7 @@ batch moved, never to what is stored. A supersession flip, which changes reporte
 without moving a label, is folded into the before-labels by hand for the same reason
 `preview` folds it into the region.
 
-`settle/*touched-in-sink*` is the seam, the companion of `*touched-sink*`. Both TMS
+`settle/*touched-in-sink*` is the extension point, the companion of `*touched-sink*`. Both TMS
 representations implement `touched-in`, and since `jtms/snapshot` carries it, the
 randomized dense-vs-reference oracle (`jtms_dense_oracle_test`) compares it at every step
 of every run.

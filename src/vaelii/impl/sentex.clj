@@ -345,7 +345,7 @@
   rule wrappers above and for their reason: it states how the sentence is *asserted*
   rather than anything the sentence says, and never reaches the store as a functor.
 
-  Two doors read it, in two positions.  The **text KB format**
+  Two entry points read it, in two positions.  The **text KB format**
   (`vaelii.impl.io.text`) reads it around a whole form and hands `assert` a
   `{:strength :monotonic}`.  **`assert` itself** reads it around an `exceptWhen`'s
   *query*, where it states the **exception's** own class — the one thing an `opts`
@@ -367,11 +367,11 @@
 
 (defn- walk-exception-strength
   "`[form monotonic? problem]` — `form` with a `(set/monotonic …)` taken off every
-  `exceptWhen` query on its wrapper spine, whether one was there, and the `:shape`
+  `exceptWhen` query on its wrapper chain, whether one was there, and the `:shape`
   problem a malformed one is refused with.
 
   One walk answering three questions, because `check` wants the problem and `assert`
-  wants the peeled form, and a second traversal is a second reading of the spine to keep
+  wants the peeled form, and a second traversal is a second reading of the chain to keep
   in step.  Two `exceptWhen`s written together conjoin into **one** meta-sentex, so a
   wrapper on either query says the whole exception is known-true."
   [form]
@@ -406,7 +406,7 @@
 (defn exception-strength-problem
   "The `:shape` problem a malformed strength wrapper on an `exceptWhen` query is refused
   with, or nil.  A value for `check`, and the `ex-info` `peel-exception-strength` throws
-  — so the two doors refuse the same input in the same words, differing only in the
+  — so the two entry points refuse the same input in the same words, differing only in the
   delivery."
   [form]
   (nth (walk-exception-strength form) 2))
@@ -419,7 +419,7 @@
   at that strength and so is the meta-sentex carrying `Q`.  That says everything for
   three of the four rule×exception pairings and cannot say the fourth — a known-true
   exception on a default rule — which is what this reads instead.  Nothing below the
-  assert door sees the wrapper: the split, the naming checks and the store all read the
+  assert entry point sees the wrapper: the split, the naming checks and the store all read the
   sentence they always did.
 
   **Untouched when there is none**, rather than rebuilt identically, so a sentence with
@@ -612,9 +612,9 @@
 
 (defn implies?
   "Is `form` a rule form `(implies <ante> <conseq>)`?  Arity checked: an `implies` at
-  any other arity is never read as a rule — `rule-consequent` is an `nth`, so an
-  arity-4 form read as a rule would silently drop its tail.  `connective-problems`
-  refuses the malformed form at both doors before this question is asked."
+  any other arity is never are indistinguishable from a rule — `rule-consequent` is an `nth`, so an
+  arity-4 form are indistinguishable from a rule would silently drop its tail.  `connective-problems`
+  refuses the malformed form at both entry points before this question is asked."
   [form]
   (and (sequential? form) (= rule-functor (first form)) (= 3 (count form))))
 
@@ -645,7 +645,7 @@
 ;; (`rules/expand-antecedent`), exactly as a conjunctive consequent is split into one
 ;; rule per conjunct — so by the time anything is canonicalized, indexed or stored, the
 ;; `or` is gone and each alternative is an ordinary rule.  Nothing downstream of the
-;; assert door has to know the connective exists.  See docs/canonicalization.md.
+;; assert entry point has to know the connective exists.  See docs/canonicalization.md.
 
 (defn disjunction?
   "Is `form` a disjunction `(or <alternative> ...)`?  Arity is *not* checked here — an
@@ -1051,7 +1051,7 @@
   `forall` (`check-naf-closed`'s `:quantifier-not-local`), and every other variable in
   the body must be bound by an antecedent outside it (`:naf-not-closed`).  The
   desugared form is what the checks read and what `canonical-sentex` shows — the sugar
-  exists at the door and nowhere past it.
+  exists at the entry point and nowhere past it.
 
   A `forall` whose second argument is not an `(implies …)` is refused: there is nothing
   to negate the consequent of, and a universal over a bare literal is a claim about every
@@ -1074,7 +1074,7 @@
   "`rule-form` with every `(forall …)` antecedent replaced by the nested NAF it is
   (`desugar-forall-literal`), or the form unchanged when it carries none.
 
-  Applied at both doors a rule reaches — the sentex constructor and `rules/inner-rule`,
+  Applied at both entry points a rule reaches — the sentex constructor and `rules/inner-rule`,
   which every pre-storage check reads through — so range restriction, closure, the
   quantifier locality rule and the stratification graph all see the NAF form rather than
   the sugar.  A stored rule never holds a `forall`, so the gate is a `some` that
@@ -1295,7 +1295,7 @@
         (string? t)     1
         :else           2))
 
-;; Genuine in-file cycle, and the shape of the data: `cmp-term` on a compound descends to
+;; Genuine in-file cycle, and the structure of the data: `cmp-term` on a compound descends to
 ;; `cmp-seq`, which compares element-for-element with `cmp-term`.  Terms nest arbitrarily,
 ;; so no ordering of the two removes it.
 (declare cmp-term)
@@ -1423,7 +1423,7 @@
   "One conjunction in canonical order: conjuncts sorted blind to variable names,
   repeats dropped, a lone conjunct unwrapped.  Nil when there is nothing to rewrite
   (the form is not a conjunction, or is the empty one `check-naf-closed` refuses —
-  rewriting that would erase the shape the diagnostic names)."
+  rewriting that would erase the form the diagnostic names)."
   [body]
   (when (conjunction? body)
     (let [cs (vec (distinct (sort cmp-blind (conjuncts body))))]
@@ -1462,8 +1462,8 @@
 
 (defn- elim-double-not
   "Eliminate double negation from a literal: an even count of leading `not`s becomes the
-  bare body, an odd count one `not`.  The fact door does this through `peel-not`; the
-  rule door must too, or `(not (not (foo ?x)))` normalizes unchanged, keys under
+  bare body, an odd count one `not`.  The fact entry point does this through `peel-not`; the
+  rule entry point must too, or `(not (not (foo ?x)))` normalizes unchanged, keys under
   `[:not not]` (`rules/antecedent-key`), and — since a stored fact canonicalizes that
   key away to `(foo ?x)` — nothing ever triggers the rule, which is then silently inert."
   [form]
@@ -1857,7 +1857,7 @@
         [polarity body]  (peel-not inner)
         rule?            (implies? body)]
     (if rule?
-      (let [body       (desugar-forall-rule body)     ; forall is nested NAF, at the door
+      (let [body       (desugar-forall-rule body)     ; forall is nested NAF, at the entry point
             antes0     (rule-antecedents body)
             conseq-raw (rule-consequent body)
             ;; a head existential `(exists ?y C)` stores as its inner `C`: the marked
@@ -1871,7 +1871,7 @@
         ;; so a pure construction of a wrapped rule stores the bare rule alone.  NAF
         ;; antecedents still must be closed and their `thereExists` quantifiers local
         ;; before canonicalization — and a `forall` is desugared into the nested NAF it
-        ;; is before any of that runs, so the sugar exists at the door and nowhere past
+        ;; is before any of that runs, so the sugar exists at the entry point and nowhere past
         ;; it (`desugar-forall-rule`).
         (check-naf-closed antes0 conseq0 nil)
         (let [antes1 (desugar-there-exists antes0)      ; standalone thereExists -> body
@@ -1958,7 +1958,7 @@
   What such an author wants is for S to be **visible** where the rule is, and there are
   two ways to say that: `(decontextualized_predicate P)` takes every `(P ...)` into
   CxUniverse, which every context sees, and a `genlCx` edge puts Ctx in the
-  rule's own cone.  Under either the literal is written plainly, and belief no longer
+  rule's own ancestor set.  Under either the literal is written plainly, and belief no longer
   turns on a frame the matcher cannot honor."
   [role]
   (str "ist places a conclusion and reads nothing: an (ist Ctx S) "

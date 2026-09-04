@@ -215,7 +215,7 @@
       (parity kb [(list commutesTo '?h '?w) (list worksAt '?p '?w)] CxJn))))
 
 (tu/deftest-kb a-rule-used-twice-on-one-path-agrees
-  ;; the shape that made the DFS disagree with itself: every rule in the KB is spelled
+  ;; the structure that made the DFS disagree with itself: every rule in the KB is spelled
   ;; from one pool of canonical variable names, and a node merges many instances into
   ;; one substitution
   (tu/with-terms [parentOf anc CxRn]

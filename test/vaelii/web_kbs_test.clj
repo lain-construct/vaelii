@@ -135,7 +135,7 @@
 (deftest a-choice-the-option-does-not-offer-is-refused-rather-than-loaded
   ;; A `:choice` reaches `keyword` and then a reader's `case`, so a value nothing offers
   ;; takes that reader's own default in silence — at a setting nobody chose, on the one
-  ;; action here nobody watches finish.  Refused at the door instead, in the shape every
+  ;; action here nobody watches finish.  Refused at the entry point instead, in the shape every
   ;; other catalog refusal takes: a 200 carrying the note, since an error status is a
   ;; swap htmx never makes.
   (let [r (POST "/kbs/load" {"id" "generated" "types" "6" "individuals" "6" "facts" "6"
@@ -171,8 +171,8 @@
 
 (deftest a-write-lands-on-the-kb-its-refusal-judged-not-on-one-activated-under-it
   ;; `/kbs/activate` takes no monitor, and an entry still loading is activatable by
-  ;; design — so the holder can be re-pointed between a write door's refusal and its
-  ;; write.  The door derefs the holder once and hands that KB to both halves; this
+  ;; design — so the holder can be re-pointed between a write entry point's refusal and its
+  ;; write.  The entry point derefs the holder once and hands that KB to both halves; this
   ;; lands the switch exactly in the gap (the refusal's own `write-blocked?` read is
   ;; where it fires) and asks which KB took the fact.  Written through the second deref,
   ;; the fact lands on a KB the refusal never judged — one whose loader may be this
@@ -193,7 +193,7 @@
         (tu/clear-kb! other)))))
 
 (deftest a-refusal-names-the-kb-it-judged-not-the-one-activated-under-it
-  ;; The same gap, one step later.  A door that resolves the holder once and then renders
+  ;; The same gap, one step later.  An entry point that resolves the holder once and then renders
   ;; `(active-kb-name)` reports the refusal against whatever `/kbs/activate` pointed at
   ;; while the page was being built — which, on this path, is by construction the one KB
   ;; the refusal is not about.  Each arm lands the switch inside its own read.

@@ -115,7 +115,7 @@
 ;;; ── every family is classified ────────────────────────────────────────
 
 (deftest the-fixture-writes-every-declared-family-and-no-other
-  ;; The load-bearing half of this namespace: a family that exists but is declared
+  ;; The required half of this namespace: a family that exists but is declared
   ;; nowhere would otherwise be checked by nothing at all, and would take the fallback
   ;; in both dense backends without a single test noticing.
   (let [kb    (open-kb! :memory 82)

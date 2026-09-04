@@ -135,7 +135,7 @@
     (v/assert kb (list 'length A '(QuantityFn 120 Minute)) CxInner)
     (v/assert kb (list 'length B '(QuantityFn 30 Minute)) C)
     (testing "duplicates collapse once normalized, whether restated or reworded, so a
-              redundant fact does not read as a disagreement"
+              redundant fact does not are indistinguishable from a disagreement"
       (is (= '(QuantityFn 9000 Second)
              (bound kb (list 'totalDuration (list 'list A B) '?d)))))))
 
@@ -375,7 +375,7 @@
       (is (= '(QuantityIntervalFn 0 1800 Second)
              (bound kb (list 'overlapDuration A B '?d)))))))
 
-;; ---- the shape of the goal -----------------------------------------------
+;; ---- the structure of the goal -----------------------------------------------
 
 (tu/deftest-kb the-list-of-components-is-one-argument
   ;; the declared arity is what a stored sentence is held to, so it has to agree with the
@@ -385,7 +385,7 @@
   (tu/with-terms [A B]
     (v/assert kb (list 'length A '(QuantityFn 2 Hour)) C)
     (v/assert kb (list 'length B '(QuantityFn 30 Minute)) C)
-    (testing "a sentence in the shape the prover answers passes the arity check"
+    (testing "a sentence in the form the prover answers passes the arity check"
       (is (v/assert kb (list 'totalDuration (list 'list A B) '(QuantityFn 9000 Second)) C)))
     (testing "and spreading the components out does not — that would be arity three"
       (is (= :arity (try (v/assert kb (list 'totalDuration A B '(QuantityFn 9000 Second)) C)
@@ -430,7 +430,7 @@
 (tu/deftest-kb a-non-finite-magnitude-is-refused-not-stored
   ;; ##Inf and ##NaN are number?s, so an infinite bound stored cleanly — and then
   ;; every duration and metric goal in the context threw a raw NumberFormatException
-  ;; out of the magnitude arithmetic.  Both doors refuse it before storage; a
+  ;; out of the magnitude arithmetic.  Both entry points refuse it before storage; a
   ;; variable magnitude stays legal, since a rule antecedent binds it.
   (tu/with-terms [lengthOf IvA CxDur]
     (doseq [s [(list lengthOf IvA (list 'QuantityIntervalFn 0 ##Inf 'Second))

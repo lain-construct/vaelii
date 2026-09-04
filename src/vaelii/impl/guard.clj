@@ -294,11 +294,11 @@
                  (catch NumberFormatException _
                    (throw (ex-info (str "VAELII_MAX_BODY_BYTES is not a number: "
                                         (pr-str raw) " — want a byte count")
-                                   {:type :unknown-option :value raw}))))]
+                                   {:type :unknown-option :mismatch :bad-value :value raw}))))]
       (when-not (pos? n)
         (throw (ex-info (str "VAELII_MAX_BODY_BYTES must be positive, got " n
                              " — a zero or negative ceiling refuses every request")
-                        {:type :unknown-option :value raw})))
+                        {:type :unknown-option :mismatch :bad-value :value raw})))
       n)
     (* 16 1024 1024)))
 

@@ -51,6 +51,15 @@
   ;; rewrite alike.
   (atom {}))
 (defonce ^:private compaction-paused (atom false))
+(defonce ^:private compaction-stopped
+  ;; Set by `stop!` under `lifecycle`, cleared by the next `register!` under the same
+  ;; monitor.  Without it a tick already inside `submit-compaction!` when `stop!` ran
+  ;; read the executor atom `stop!` had just nil'd and built a **replacement** nobody
+  ;; holds a reference to — so `stop!`'s contract ("the schedulers are stopped") was
+  ;; false the moment it returned, and the new executor lived until JVM exit.  A flag
+  ;; rather than a non-nil tombstone in the executor atom, because the atom's nil is
+  ;; also what "not started yet" looks like and the two must stay distinguishable.
+  (atom false))
 
 ;; The monitor the three process-wide singletons above — the scheduler, the compaction
 ;; executor and the shutdown hook — are created and torn down under.  A check-then-act on
@@ -60,6 +69,16 @@
 ;; process.  One monitor rather than one apiece, because `register!` reaches two of the
 ;; three and `stop!` shuts two down, so what has to be serialized is the *set*.
 (defonce ^:private lifecycle (Object.))
+
+;; Notified whenever an id leaves `compaction-in-flight`; waited on by
+;; `await-compaction-quiescent!`.  Its own monitor rather than `lifecycle`: a waiter
+;; holds this one for the whole join, and holding `lifecycle` there would block every
+;; `register!` in the process behind one directory's close.
+(defonce ^:private ^Object quiescence (Object.))
+
+(defn- leave-flight! [id]
+  (swap! compaction-in-flight disj id)
+  (locking quiescence (.notifyAll quiescence)))
 
 (defn pause-compaction!
   "Suspend the daemon's background auto-compaction across every registered backend.
@@ -95,16 +114,23 @@
          (trove/log! {:level :error :msg (str "disk-durability close of " label " failed: "
                                               (.getMessage t))}))))
 
-(defn- ensure-compaction-executor! ^ExecutorService []
+(defn- ensure-compaction-executor!
+  "The compaction executor, built on first use — or **nil** once `stop!` has run and
+  before the next `register!`, which is the point: the tick that loses the race with
+  `stop!` gets here after the atom was nil'd, and must skip rather than build the
+  replacement that made `stop!` a lie.  Checked under `lifecycle`, the monitor `stop!`
+  sets the flag under, so the two cannot interleave."
+  ^ExecutorService []
   (or @compaction-executor
       (locking lifecycle
-        (or @compaction-executor
-            (let [ex (Executors/newSingleThreadExecutor
-                      (reify java.util.concurrent.ThreadFactory
-                        (newThread [_ r] (doto (Thread. r "disk-auto-compactor")
-                                           (.setDaemon true)))))]
-              (reset! compaction-executor ex)
-              ex)))))
+        (when-not @compaction-stopped
+          (or @compaction-executor
+              (let [ex (Executors/newSingleThreadExecutor
+                        (reify java.util.concurrent.ThreadFactory
+                          (newThread [_ r] (doto (Thread. r "disk-auto-compactor")
+                                             (.setDaemon true)))))]
+                (reset! compaction-executor ex)
+                ex))))))
 
 (defn- submit-compaction! [id label compact-fn ratio threshold]
   ;; The id goes in flight **before** the submit, so the tick three seconds from now
@@ -113,47 +139,65 @@
   ;; the probe and here, the task then never runs, its `finally` never clears the id, and
   ;; `maybe-compact!` skips a backend that is in flight — so that backend would go
   ;; un-compacted for the life of the process, over one rejected submit.
+  ;;
+  ;; Every path out of the in-flight set goes through `leave-flight!`, because the set is
+  ;; also what `await-compaction-quiescent!` waits on: an id dropped without the notify
+  ;; leaves a closing directory waiting out its whole timeout for a task that finished.
   (swap! compaction-in-flight conj id)
   (try
-    (.submit
-     (ensure-compaction-executor!)
-     ^Runnable
-     (fn []
-       (try
-         ;; The store can close between the tick that queued this and the executor
-         ;; reaching it — the executor is single-threaded, so a task waits behind
-         ;; every task before it, and `close-dir!` deregisters BEFORE closing the
-         ;; log.  This check honours that signal and skips the task with a log
-         ;; line saying why.
-         ;;
-         ;; It is the *early* skip, not the airtight one: it runs outside the
-         ;; store's own lock, so a close can still land between here and
-         ;; `compact!` acquiring it.  What closes that window is the store — the
-         ;; disk KV consults its closed flag after taking its lock
-         ;; (`vaelii.impl.disk.kv/compact!`), and the record store's compaction
-         ;; throws on its closed idx before any temp or marker is written.  A
-         ;; task already INSIDE `compact!` needs neither: it holds the store
-         ;; lock, which is exactly what `close!` blocks on.
-         (if-not (contains? @registry id)
-           (trove/log! {:level :debug
-                        :msg (str "disk-durability skipping the queued auto-compaction of "
-                                  label " — it closed before the queue reached it")})
-           (do
-             (trove/log! {:level :info
-                          :msg (format "disk-durability auto-compacting %s — dead ratio %.2f ≥ %.2f"
-                                       label ratio threshold)})
-             (compact-fn)))
-         (catch Throwable t
-           (trove/log! {:level :error :msg (str "disk-durability auto-compact of " label
-                                                " failed: " (.getMessage t))}))
-         (finally
-           ;; re-stamped at the *end* of the rewrite, so the floor is measured from
-           ;; when the backend was last left alone rather than from when the probe
-           ;; that queued this ran
-           (swap! last-compact-check-ms assoc id (System/currentTimeMillis))
-           (swap! compaction-in-flight disj id)))))
+    (if-let [ex (ensure-compaction-executor!)]
+      (.submit
+       ex
+       ^Runnable
+       (fn []
+         (try
+           ;; The store can close between the tick that queued this and the executor
+           ;; reaching it — the executor is single-threaded, so a task waits behind
+           ;; every task before it, and `close-dir!` deregisters BEFORE closing the
+           ;; log.  This check honours that signal and skips the task with a log
+           ;; line saying why.
+           ;;
+           ;; It is the *early* skip, not the airtight one: it runs outside the
+           ;; store's own lock, so a close can still land between here and
+           ;; `compact!` acquiring it.  What closes that window differs by store, and
+           ;; only one of the two closes it on its own.  The disk KV does: it holds
+           ;; its lock for the whole of `compact!` and consults its closed flag after
+           ;; taking it, so a task already inside it blocks the close rather than
+           ;; racing it.  **The record store does not**, and by design — its rewrite
+           ;; phase runs lock-free over a private read handle so an O(bytes) copy does
+           ;; not stall the kind's reads and writes, which means a task inside
+           ;; `compact!` holds no lock a `close!` blocks on and is still appending to
+           ;; `sentexes.log.compact` by name when the directory's OS lock is released.  What
+           ;; closes it for that store is the close itself: `backend/close-dir!`
+           ;; aborts the rewrite and then waits here, through
+           ;; `await-compaction-quiescent!`, before it releases the lock.
+           (if-not (contains? @registry id)
+             (trove/log! {:level :debug
+                          :msg (str "disk-durability skipping the queued auto-compaction of "
+                                    label " — it closed before the queue reached it")})
+             (do
+               (trove/log! {:level :info
+                            :msg (format "disk-durability auto-compacting %s — dead ratio %.2f ≥ %.2f"
+                                         label ratio threshold)})
+               (compact-fn)))
+           (catch Throwable t
+             (trove/log! {:level :error :msg (str "disk-durability auto-compact of " label
+                                                  " failed: " (.getMessage t))}))
+           (finally
+             ;; re-stamped at the *end* of the rewrite, so the floor is measured from
+             ;; when the backend was last left alone rather than from when the probe
+             ;; that queued this ran
+             (swap! last-compact-check-ms assoc id (System/currentTimeMillis))
+             (leave-flight! id)))))
+      ;; stopped between the probe and here: skip, and leave nothing in flight — the
+      ;; same bookkeeping the rejected submit below owes, for the same reason
+      (do (leave-flight! id)
+          (trove/log! {:level :debug
+                       :msg (str "disk-durability not queuing the auto-compaction of "
+                                 label " — the compaction executor is stopped")})
+          nil))
     (catch Throwable t
-      (swap! compaction-in-flight disj id)
+      (leave-flight! id)
       (trove/log! {:level :warn
                    :msg (str "disk-durability could not queue the auto-compaction of "
                              label ": " (.getMessage t))})
@@ -265,6 +309,10 @@
   (let [id (swap! next-id inc)]
     (swap! registry assoc id entry)
     (install-shutdown-hook!)
+    ;; under `lifecycle` for the reason `stop!` sets it there: a registration is a
+    ;; declaration that this process is using disk again, and it un-stops the compactor
+    ;; the same way it restarts the ticker below
+    (locking lifecycle (reset! compaction-stopped false))
     (start-scheduler! (config/disk-sync-ms))
     id))
 
@@ -273,12 +321,85 @@
   [id]
   (when id (swap! registry dissoc id)))
 
+(def ^:private quiesce-timeout-ms
+  "How long `await-compaction-quiescent!` waits before giving up and saying so.  Long
+  enough that no honest rewrite hits it — an aborted one stops at its next frame check
+  and a KV rewrite is bounded by the live key count — and short enough that a wedged
+  compactor does not hang a close forever.  Not a config knob: a caller that has to tune
+  this has a bug behind it, and the log line names which store."
+  30000)
+
+(defn await-compaction-quiescent!
+  "Block until none of `ids` has an auto-compaction in flight.  Returns true when they
+  are quiet, false on the timeout (logged, naming the ids that would not settle).
+
+  **What it is for.**  The compaction executor runs a rewrite on its own thread, and the
+  record store's rewrite phase deliberately holds no lock while it does — so a caller
+  that is about to hand the directory to somebody else (`backend/close-dir!`, before
+  `lock/release!`) cannot learn from any lock that the rewrite is done.  It has to ask
+  here.  Pair it with the store's own `abort-compaction!`: the abort is what makes the
+  wait short, this is what makes it correct.
+
+  Waiting on `compaction-in-flight` rather than on the executor itself, because the
+  executor is process-wide and one directory's close has no business joining another
+  directory's rewrite.  The set is read under the same monitor the notify takes, so a
+  task that finishes between the read and the wait cannot be missed.
+
+  **It gives up rather than throwing**, on the timeout and on an interrupt alike, and
+  both say so.  The caller is a close, and a close that threw here would unwind before
+  `lock/release!` — leaving the directory marked held for the life of the process over a
+  wait that did not finish, which is a worse version of the thing this exists to
+  prevent.  A false says the join is not a guarantee this time; the close carries on and
+  hands the directory over, and the log line is what an operator reads."
+  ([ids] (await-compaction-quiescent! ids quiesce-timeout-ms))
+  ([ids timeout-ms]
+   (let [ids (set (remove nil? ids))]
+     (if (empty? ids)
+       true
+       (let [deadline (+ (System/currentTimeMillis) (long timeout-ms))]
+         (locking quiescence
+           (loop []
+             (let [busy (filterv ids @compaction-in-flight)
+                   left (- deadline (System/currentTimeMillis))]
+               (cond
+                 (empty? busy) true
+                 (not (pos? left))
+                 (do (trove/log!
+                      {:level :error
+                       :msg (str "disk-durability waited " timeout-ms
+                                 "ms for the auto-compaction of " (pr-str busy)
+                                 " to finish and it has not — proceeding, so a rewrite"
+                                 " may still be writing this directory's temp files")})
+                     false)
+                 :else
+                 (let [interrupted (try (.wait quiescence left) nil
+                                        (catch InterruptedException e e))]
+                   (if interrupted
+                     ;; the flag goes back on the thread: swallowing an interrupt is
+                     ;; how a shutdown signal gets lost, and the caller above may have
+                     ;; its own reason to stop
+                     (do (.interrupt (Thread/currentThread))
+                         (trove/log!
+                          {:level :warn
+                           :msg (str "disk-durability was interrupted waiting for the"
+                                     " auto-compaction of " (pr-str busy)
+                                     " — proceeding without the join")})
+                         false)
+                     (recur))))))))))))
+
 (defn stop!
   "Stop the schedulers (REPL/test teardown).  Leaves the shutdown hook installed.  Under
   the same monitor the starts take, so a `register!` racing this either installs before it
-  or re-installs after it, never half-way through it."
+  or re-installs after it, never half-way through it.
+
+  The stopped flag is the half a `reset!` to nil cannot do: a tick already inside
+  `submit-compaction!` reads the nil'd atom, and without the flag it builds a
+  *replacement* executor — one nothing holds a reference to, so `stop!` returned having
+  stopped nothing.  Cleared by the next `register!`, which is what a REPL teardown
+  followed by a fresh open looks like."
   []
   (locking lifecycle
+    (reset! compaction-stopped true)
     (when-let [ex @scheduler]
       (.shutdown ^ScheduledExecutorService ex)
       (reset! scheduler nil))

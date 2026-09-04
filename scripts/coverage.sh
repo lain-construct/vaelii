@@ -92,7 +92,7 @@ CLOVERAGE_ARGS=(--no-colorize --selector "$SELECTOR")
 #      the whole algorithm — stays instrumented; the protocol carries no code to
 #      cover, so excluding only it loses nothing), and protocols (the 31-method
 #      `IndexStore`, split the same way: it declares and holds no code, while the
-#      capability fallbacks that go with the optional protocols are next door in
+#      capability fallbacks that go with the optional protocols are in the adjacent namespace in
 #      vaelii.impl.capabilities and stay measured).  Cloverage's
 #      `--exclude-call clojure.core/defprotocol` rescues neither — the form still
 #      compiles whole — so the split is the fix, not the flag.
@@ -125,7 +125,7 @@ done
 #
 # `order-independence-test` replays each scenario under every permutation of its
 # operation list — n! runs of the placement path per deftest, twelve of them. It is
-# cheap enough uninstrumented to carry no `^:slow` mark, and it is the single most
+# inexpensive enough uninstrumented to carry no `^:slow` mark, and it is the single most
 # instrumentation-amplified namespace in the suite: measured at 18+ minutes without
 # finishing, against ~3 minutes for the 105 namespaces before it.
 #
@@ -133,7 +133,7 @@ done
 # this is spelled as a negative lookahead. Set COVERAGE_TEST_SKIP empty to run
 # everything.
 #
-# The trailing `.*` is load-bearing: the regex is matched against the WHOLE
+# The trailing `.*` is required: the regex is matched against the WHOLE
 # namespace name, so a lookahead with nothing after it matches only the literal
 # `vaelii.` prefix and therefore selects no test namespaces at all. That failure is
 # silent and looks like success — the run finishes fast and reports a number (8.70%

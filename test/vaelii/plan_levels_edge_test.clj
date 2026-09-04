@@ -77,10 +77,10 @@
 ;; ---- :est-override ------------------------------------------------------
 
 (tu/deftest-kb est-override-replaces-the-index-model-when-a-caller-supplies-one
-  ;; The seam a chainer whose leaf is the registry uses, so a `genl` conjunct is costed by
+  ;; The extension point a chainer whose leaf is the registry uses, so a `genl` conjunct is costed by
   ;; the transitive closure rather than by stored edges (`provers/registry-est-override`,
   ;; and `provers_test` for it end to end).  Here it is driven straight at `plan/order`,
-  ;; because what needs pinning is the two branches of the seam itself: that an override
+  ;; because what needs pinning is the two branches of the extension point itself: that an override
   ;; is consulted and that ordering follows it, and that one declining falls back.
   (tu/with-terms [alpha beta Xx]
     (v/assert kb (list alpha Xx) 'CxNaturalWorld {:chain? false})

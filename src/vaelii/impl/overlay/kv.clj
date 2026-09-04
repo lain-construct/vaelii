@@ -13,7 +13,7 @@
   functor / argument roots, the rule index, the exception re-check index, the inverted
   term index and the term roster — in terms of this protocol and holds no state of its
   own, so one decorator here forks the entire index and the trie walker, the matcher, the
-  planner and the query layers above it are unchanged.  That is what the `KvBackend` seam
+  planner and the query layers above it are unchanged.  That is what the `KvBackend` protocol
   was extracted for.
 
   ## The merge model, per key
@@ -60,7 +60,7 @@
   counting through the merge cost 12.6 ms per call on a 100,000-handle root — a selectivity
   read, per conjunct, on a key the fork had never written to.  `kv-member?` is the same
   observation at member granularity: `exception-rule?` probes both sides rather than
-  merging, which is what keeps the firing-path gate O(1) across the seam.
+  merging, which is what keeps the firing-path gate O(1) across the `KvBackend` protocol.
 
   `kv-get` is the scalar/counter read and does **not** merge set values: an overlay value
   shadows the base's.  No key in the index is read both ways — the trie's counters are
@@ -103,7 +103,7 @@
 (defn- shadowed?
   "Is the base's value at `k` invisible — wholesale-cleared, or tombstoned?
 
-  The tombstone roster is **probed**, never materialized.  Every read on the seam asks
+  The tombstone roster is **probed**, never materialized.  Every read through the `KvBackend` protocol asks
   this — `inherited?` is on the path of every `kv-count` and `kv-members`, and
   `merged-member?` is what keeps the `exception-rule?` gate O(1) — so building the whole
   set of tombstoned keys to test one of them would put the fork's delete count on the
@@ -124,7 +124,7 @@
   answers nil for holds nothing — and because `kv-count` is defined on set keys only,
   while `[::removed K]` and the trie's counters share one keyspace.
 
-  This is the shape of nearly every key a fork touches: a fork inherits almost all of its
+  This is the structure of nearly every key a fork touches: a fork inherits almost all of its
   content and writes a little (docs/overlay.md), so this is the case that decides what a
   read on a fork costs.  Answering it lets `kv-count` be the base's own `kv-count` and
   `kv-members` the base's own set — against a `:dense` base, an O(1) `pcard` and one
@@ -262,7 +262,7 @@
   ;; When *every* key is inherited the merged view is the base's view key for key, so the
   ;; whole narrowing goes to the base and is done in whatever representation it holds —
   ;; which on a `:dense` base is the postings themselves rather than the sets they would
-  ;; make.  That is the shape of nearly every read on a fork (`inherited?`), and merging
+  ;; make.  That is the structure of nearly every read on a fork (`inherited?`), and merging
   ;; first would throw the representation away before the base ever saw the question.
   (kv-intersect [_ ks]
     (locking lock
@@ -294,7 +294,7 @@
   ;; values are merged (the contract says they arrive as Clojure sets, so this is the one
   ;; op at which merging a posting needs no knowledge of a backend's representation);
   ;; scalars shadow.  Both halves are realized, and the comment on the `concat` below
-  ;; says why laziness is not available here — so this is the one read on the seam that
+  ;; says why laziness is not available here — so this is the one read on the function that
   ;; costs a walk of the base, which is what a portable projection of a fork is worth.
   (kv-entries [_]
     (locking lock

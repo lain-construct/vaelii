@@ -97,7 +97,7 @@ stored; when a member arrives later, it triggers the already-indexed rule. The s
 knowledge yields the same beliefs whichever came first.
 
 The rule is stored in the `defn*` fact's own context, so it fires only on facts that
-context can see up the `genlCx` cone, and its conclusions land where the reasons meet. A
+context can see up the `genlCx` ancestor set, and its conclusions land where the reasons meet. A
 definition in one context does not reach a member stated in a sibling context it cannot
 see.
 
@@ -111,20 +111,20 @@ body and `(positive_integer 7)` does not arrive by forward chaining. Two provers
 registry answer the question where it is asked instead.
 
 **`DefnSufficientProver`** takes a ground unary goal `(Coll a)`, substitutes `a` for the
-member variable in the sufficient conditions `Coll`'s spec cone carries, and asks the
+member variable in the sufficient conditions `Coll`'s spec ancestor set carries, and asks the
 registry whether the condition holds — which *evaluates* the computed conjuncts. It runs
 at **level 6** ([levels.md](levels.md)), the registry with no rule expansion, so its
 reach matches the forward rule's rather than exceeding it; at `completeness` 50 it
 **augments** `FactProver` and the companion rule rather than replacing them, and a
 condition that is believed is answered by both paths and deduped by the union.
 
-- **It descends the spec cone.** `(Coll a)` is proved by `Coll`'s own sufficient or by a
+- **It descends the spec ancestor set.** `(Coll a)` is proved by `Coll`'s own sufficient or by a
   **spec**'s, a spec being below `Coll` on the `genl` edges so that its members are
   members. The walk uses the reflexive `tax/specs`, which folds the own-sufficient case
   into the same iteration.
-- **A failing necessary of a strict `genl` fast-fails first.** The strict-genl cone is
+- **A failing necessary of a strict `genl` fast-fails first.** The strict-genl ancestor set is
   walked most-general-first, so the broadest disqualifier is checked first and a rejected
-  query never evaluates the possibly-expensive sufficient at all. The cone is a
+  query never evaluates the possibly-expensive sufficient at all. The ancestor set is a
   set, so a defn reachable by two paths through a diamond is evaluated exactly once.
   `Coll`'s **own** necessary is excluded from that veto: a sufficient is authoritative,
   and a collection whose two halves disagree has the inconsistency documented rather than
@@ -138,7 +138,7 @@ condition that is believed is answered by both paths and deduped by the union.
 
 ## Open-world, and the one negative answer
 
-The reading is **open-world**, and where it stops is worth stating exactly. A `defn*`
+The reading is **open-world**, and where it stops matters exactly. A `defn*`
 relation licenses no closed-world membership completion: condition-*absence* concludes
 nothing, and no path treats a failure to prove membership as a disproof of it.
 
@@ -157,13 +157,13 @@ necessary is a disqualifier as well as an obligation, and
 flipped: member ↔ non-member, sufficient ↔ necessary, and the direction of the `genl`
 walk — the positive walk descends to a spec's sufficient, this one ascends to a genl's
 necessary. `(not (Coll a))` is proved by the first necessary that positively **fails**
-for `a` anywhere in `Coll`'s **reflexive** genl cone, a member satisfying every necessary
-at or above it. Reflexive, unlike the positive fast-fail's strict cone, because a
+for `a` anywhere in `Coll`'s **reflexive** genl ancestor set, a member satisfying every necessary
+at or above it. Reflexive, unlike the positive fast-fail's strict ancestor set, because a
 collection's own failing necessary is itself a sound negative witness.
 
 That is not negation as failure. The check is two-valued on the condition: the prover
 fires on a condition that is evaluably false, never merely because `(Coll a)` could not
-be proved, and a `Coll` with no necessary anywhere in its cone makes the prover
+be proved, and a `Coll` with no necessary anywhere in its ancestor set makes the prover
 inapplicable — so an absent proof is never mistaken for a disproof. Like the positive
 prover it takes a ground goal only, an open `(not (Coll ?x))` being a search over the
 domain's complement rather than a test, and at `completeness` 50 it augments a stored

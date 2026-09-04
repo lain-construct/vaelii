@@ -45,6 +45,18 @@
               in question — `sweep-kinds` below — or absent for a term whose retroactive
               half is not `settle`'s clash-exposure pass.  The `:reach` facet says that a
               term sweeps; this says *what*, for the one lane whose reaches have names.
+    :stops-short  facet -> prose: an implication of `facet-contract` this term does not
+              satisfy, and the reason.  Checked against the set that is actually owed, in
+              both directions, so the record can neither be missing nor go stale once the
+              term gains the facet.  A recorded exception, not a suppression: the rule
+              still holds over everything that does not carry one.
+    :opposing-read  prose, on every `:arbitrable` term and on the one that deliberately
+              is not: what the conviction's opposing side is **read through**, and
+              whether that read survives the nogood defeating either member.  Not
+              decidable from the declaration — `arity` names a second sentex exactly as
+              the four arbitrable marks do — so it is a stated claim rather than an
+              inferred one, which is what `checks.clj`'s comment above `arbitrable-kinds`
+              says today in a place no validator could read.
     :notes    prose, only where the term does something this vocabulary has no facet
               for.  A note is a **finding**, not a description: each one is a lane the
               facet vocabulary does not reach yet.
@@ -57,14 +69,26 @@
               decision**.  Written by the `inert` constructor, which sets the facet with
               it, so the class is never a second opinion about the facets.
 
-  **What is deliberately not here** is the arms themselves.
+  **What is deliberately not here** is the arms themselves — and, one step further out,
+  which *prover* answers a term's goals.  There is no `:answered-by`: `applicable?` is
+  per-prover logic over a goal's shape rather than a per-predicate fact, `add-prover`
+  registers provers with no entry here at all, and `provers/sole-prover` already asks the
+  coordination question a binding would be reaching for.  The argument in full is
+  `provers`' header, under \"Why a prover is not a predicate's property\"; the fact about
+  the *declaration* that does belong is the `:answers` facet below.
 
   **What reads this.**  `special/entries` joins the declarations to `special`'s arms;
   `taxonomy`'s three rosters (`closure-relations`, `arg-declaration-props`,
   `functional-family-marks`), `settle`'s clash-declaration and trigger rosters,
   `spec/::prop-kind` and `vocabulary/roster` are field reads.
+
+  **Two validators, two layers.**  `check-families` runs *here*, at this namespace's
+  load, over what one entry can say about another.  `check-facets` runs at `settle`'s,
+  because two of its rules read an arm that lives four layers up and a bottom namespace
+  cannot see whether an arm exists — it takes those facts as arguments rather than
+  requiring the layer that holds them.
   The rosters that have not moved yet are reconstructed from here by `predicates_test`
-  and asserted equal to the live one, which is the only honest proof that the population
+  and asserted equal to the live one, which is the only defensible proof that the population
   is right before a consumer switches over.  A roster that *has* moved is proved
   differently: its value becomes a literal in the test, since a reconstruction of a
   derived var proves the wiring and nothing about what it holds.
@@ -86,7 +110,7 @@
   subject to a symbol that is not an individual — a functor is a symbol.  An argument
   *constraint* (`arg-constraint-problems`, `arg-preserving-problems`) is looser on
   purpose: a function has argument positions exactly as a predicate does, a function is
-  CapitalCamelCase and so reads as an individual, and a relation may be denoted by a NAT
+  CapitalCamelCase and so is indistinguishable from an individual, and a relation may be denoted by a NAT
   rather than named.  Collapsing the two refuses the conventional spelling and waves the
   exotic one through."
   #{:predicate                ; a symbol that is not an individual — refused by nm/individual?
@@ -136,9 +160,54 @@
     :convicts                 ; a definitional check reads it and can convict stored content
     :inert})                  ; nothing reads it, and that is a decision — not an omission
 
+(def facet-contract
+  "What carrying a facet commits the declaration to — the closed vocabulary's own
+  contract, and what `check-facets` walks.  Keyed by facet, and the keys are `facets`
+  **exactly**: the validator refuses the pair if they diverge, so growing the vocabulary
+  is the one commit the `facets` docstring promises rather than a keyword whose meaning
+  its first user decides.
+
+    :implies  the facets carrying this one entails.  Each is a bug the repo has paid
+              for, stated as an implication rather than as a review item: `:convicts`
+              without `:reach` convicts at the entry point and misses everything stored before
+              it, permanently, in the declaration-last arrival order (#54);
+              `:arbitrable` without `:convicts` arbitrates a violation nothing raises;
+              `:derived` and `:migrates` without `:cached` name a derivation path for a
+              triple that does not exist; `:query-only` without `:answers` is a term
+              refused at the entry point and answered by nothing at all; `:retriggers` without
+              `:answers` posts a re-check for a goal no prover takes.
+    :lane?    is this a lane a mark **family** has to agree about.  The enforcement
+              lanes are: a family joined to one of them in one spelling and not another
+              fails silently in the arrival order that spelling was the only way into,
+              which is #52 and #54, one omission and two lanes.  So is `:answers`, for
+              the same reason seen from the query side — `provers/meta-constraint-shape`
+              is one table over the argument-constraint family, and a spelling missing
+              from it is answered from stored facts alone where its siblings are answered
+              up the `genl` closure.  `:retriggers` is not: a re-check posting is one line
+              inside one arm, aimed at what that arm's own conclusion changes.
+              `:query-only` and `:inert` are classifications of the whole term, which a
+              family read by anything at all cannot differ about.
+
+  An implication a term does not satisfy is not automatically a refusal: it is a
+  refusal *unless the entry records the exception*, in `:stops-short`.  Five entries carry
+  one today, over six facets: three terms convict with no reach, and three answer goals
+  about a predicate and post no re-check of their own.  Each reason is about the engine rather than about the
+  declaration, and the point of the field is that the reason is written where a validator
+  can hold it to being exactly the set that is owed."
+  {:cached     {:implies #{}                :lane? true}
+   :derived    {:implies #{:cached}         :lane? true}
+   :migrates   {:implies #{:cached}         :lane? true}
+   :arbitrable {:implies #{:convicts}       :lane? true}
+   :reach      {:implies #{}                :lane? true}
+   :convicts   {:implies #{:reach}          :lane? true}
+   :query-only {:implies #{:answers}        :lane? false}
+   :answers    {:implies #{}                :lane? true}
+   :retriggers {:implies #{:answers}        :lane? false}
+   :inert      {:implies #{}                :lane? false}})
+
 (def sweep-kinds
   "What a declaration arriving **after** the content it constrains puts back in question
-  — the reach `settle`'s clash-exposure pass runs for it, and so the shape of the split
+  — the reach `settle`'s clash-exposure pass runs for it, and so the structure of the split
   `settle/clash-declaration-kinds` is written as.
 
   A declaration is not its own candidate the way a fact is.  `(disjoint dog cat)` arriving
@@ -172,14 +241,14 @@
   each spelling carries it.  `tax/functional-family-marks` and
   `tax/arg-declaration-props` are this field read back.
 
-  **`:functional`** is acted on by the *merge* lane (`special`'s `equate-*` doors, where
+  **`:functional`** is acted on by the *merge* lane (`special`'s `equate-*` entry points, where
   two fillers of a functional slot are equated) and by the *clash exposure* lane
   (`settle`'s declaration reach and trigger rosters, where two unmergeable fillers are
   reported).  Both lanes have to recognize the same spellings, and neither fails loudly
   when it does not — the merge simply does not happen, or the clash simply is not
   reported, in the one arrival order that route was the only way into.  Enrolling
   `functionalInArg` by name in each place is what left #52 (the declaration-last merge
-  door held an exact-functor test) and #54 (the declaration arrived and swept nothing)
+  entry point held an exact-functor test) and #54 (the declaration arrived and swept nothing)
   open at the same time, in different lanes, from the same omission.  So a third
   spelling is added *here* and the lanes follow.
 
@@ -199,7 +268,7 @@
 ;;
 ;; Written rather than spelled out, for the reason `special/prop-entry` is: an entry a
 ;; couple of parameters *construct* has no way for its fields to disagree with each
-;; other, and the twenty-eight predicate marks below differ in exactly one keyword.
+;; other, and the twenty-two predicate marks `prop` builds differ in exactly one keyword.
 
 (defn- prop
   "A one-place predicate mark — `(F P)` — cached as taxonomy prop `kind`.
@@ -261,7 +330,7 @@
     notes (assoc :notes notes)))
 
 (defn- operator
-  "A query operator: refused at the door — the wff arm *is* the refusal — and answered
+  "A query operator: refused at the entry point — the wff arm *is* the refusal — and answered
   by a prover.  `docs/naf.md`, `docs/aggregate.md`."
   [shape & {:keys [notes]}]
   (cond-> {:shape   shape
@@ -350,8 +419,13 @@
                         "taxonomy/add-genlCx — the visibility closure a context read walks")]
 
      ;; ---- the separations ------------------------------------------------
-     ['disjoint (enforced (pair :disjoint :type :facets #{:reach :convicts :arbitrable}
-                                :sweeps :type-separating)
+     ['disjoint (enforced (assoc (pair :disjoint :type :facets #{:reach :convicts :arbitrable}
+                                       :sweeps :type-separating)
+                                 :opposing-read
+                                 (str "the nogood pairs the two memberships, and the (disjoint A B)"
+                                      " declaration the conviction is read through is not a member of"
+                                      " it — so whichever membership is defeated, the disjointness"
+                                      " table the next pass reads is the one that convicted."))
                           "taxonomy/add-disjoint, read by checks/disjoint-problems and arbitrated by settle")]
      ['disjoint_metatype
       (enforced (mark :disjoint-metatype :facets #{:reach :convicts}
@@ -380,25 +454,35 @@
                      " and a retract re-arms through settle's :sib-exc-dirty sweep"))]
 
      ;; ---- the definitional marks -----------------------------------------
-     ['transitive  (enforced (prop :transitive)
+     ['transitive  (enforced (prop :transitive :facets #{:answers})
                              (str "taxonomy prop :transitive — the generic closure prover; also a"
                                   " binary_predicate type. (transitive genl) is stored but inert"
                                   " (closure-relations), so genl stays queryable without routing to the"
                                   " generic prover"))]
-     ['symmetric   (enforced (prop :symmetric)
+     ['symmetric   (enforced (prop :symmetric :facets #{:answers})
                              (str "taxonomy prop :symmetric — canonical argument order, so both spellings"
                                   " are one sentex; also a binary_predicate type"))]
-     ['asymmetric  (enforced (prop :asymmetric :facets #{:reach :convicts :arbitrable}
-                                   :sweeps :predicate-marked)
+     ['asymmetric  (enforced (assoc (prop :asymmetric :facets #{:reach :convicts :arbitrable
+                                                                :answers}
+                                          :sweeps :predicate-marked)
+                                    :opposing-read
+                                    (str "the nogood pairs the tuple with its converse; the"
+                                         " (asymmetric P) mark is not a member of it, so defeating"
+                                         " either direction leaves the mark standing and the"
+                                         " conviction re-derivable."))
                              "checks/asymmetry-problem — a nogood against the converse; also a binary_predicate type")]
      ['reflexive   (enforced (prop :reflexive :facets #{:answers})
                              "taxonomy prop :reflexive — the reflexive prover; also a binary_predicate type")]
      ['functional  (enforced (assoc (prop :functional :facets #{:reach :convicts :arbitrable}
                                           :sweeps :predicate-marked)
                                     :family :functional
+                                    :opposing-read
+                                    (str "the nogood pairs the two fillers of the slot; the"
+                                         " (functional P) mark is not a member of it, so defeating"
+                                         " either filler leaves the mark standing.")
                                     :notes (str "acted on by two lanes that must recognize the"
                                                 " same spellings and neither of which fails"
-                                                " loudly: the *merge* door, where two fillers of"
+                                                " loudly: the *merge* entry point, where two fillers of"
                                                 " a functional slot are equated, and the *clash"
                                                 " exposure* pass, where two unmergeable fillers"
                                                 " are reported. Deriving an equality is not"
@@ -410,10 +494,10 @@
                                    :notes (str "convicts a *self* tuple (P a a), which names no other"
                                                " believed sentex — so it is neither :arbitrable nor"
                                                " swept: there is nothing for a late declaration to"
-                                               " weigh the fact against. A door refusal with no"
+                                               " weigh the fact against. An entry point refusal with no"
                                                " retroactive half."))
                              (str "checks/irreflexivity-problem — a self tuple (P a a) is refused at the"
-                                  " door; also a binary_predicate type"))]
+                                  " entry point; also a binary_predicate type"))]
      ['anti_symmetric (enforced (prop :anti-symmetric
                                       :notes (str "derives (equals a b) from a believed converse"
                                                   " rather than convicting either — so it merges"
@@ -422,11 +506,16 @@
                                 (str "checks/antisymmetry-problems, and"
                                      " special/derive-antisymmetric-equalities merging two symbols a believed"
                                      " converse forces equal; also a binary_predicate type"))]
-     ['anti_transitive (enforced (prop :anti-transitive :facets #{:reach :convicts :arbitrable}
-                                       :sweeps :predicate-marked
-                                       :notes (str "the one nogood whose members are three rather"
-                                                   " than two: it convicts the two-step chain and"
-                                                   " the direct step together."))
+     ['anti_transitive (enforced (assoc
+                                  (prop :anti-transitive :facets #{:reach :convicts :arbitrable}
+                                        :sweeps :predicate-marked
+                                        :notes (str "the one nogood whose members are three rather"
+                                                    " than two: it convicts the two-step chain and"
+                                                    " the direct step together."))
+                                  :opposing-read
+                                  (str "the nogood is the triple — the two-step chain and the direct"
+                                       " step — and the (anti_transitive P) mark is none of the three,"
+                                       " so whichever step is defeated the mark still reads."))
                                  (str "taxonomy prop :anti-transitive — checks/antitransitivity-problems"
                                       " convicts the two-step chain and the direct step together, as the one"
                                       " nogood whose members are three rather than two (settle/decide-nogood"
@@ -443,13 +532,24 @@
                         :checked false
                         :facets  #{:cached :derived :reach :convicts}
                         :family  nil
+                        :opposing-read
+                        (str "the negative answer, and the reason this term names a second sentex"
+                             " exactly as the four arbitrable marks do and is still not one of"
+                             " them: the sentex it names is the vocabulary entry the conviction is"
+                             " READ THROUGH — declared-arity answers from the taxonomy's arity"
+                             " table, which follows belief — so a nogood defeating the declaration"
+                             " would destroy its own premise. Measured: the declaration is defeated"
+                             " in the settle that admits the pair, revived by the next settle's"
+                             " clear-defeats! while the table it was uninstalled from is still"
+                             " empty, and with the table empty the clash is never re-derived. The"
+                             " comment above checks/arbitrable-kinds is the long form.")
                         :notes   (str "convicts and reaches, but is deliberately NOT :arbitrable:"
                                       " the arity table follows belief, so a nogood that defeated"
                                       " the declaration would destroy its own premise. Its"
                                       " retroactive half is settle/report-arity-reach! — a report"
                                       " that moves no belief — and :reach does not distinguish a"
                                       " sweep that decides from one that only names.")}
-                       (str "checks/arity-problem at the door, settle/report-arity-reach! over"
+                       (str "checks/arity-problem at the entry point, settle/report-arity-reach! over"
                             " content stored before it"))]
      ['functionalInArg {:shape   {:args [:predicate :position]}
                         :storage [:pred-position :functional-in-arg]
@@ -457,6 +557,10 @@
                         :facets  #{:cached :derived :reach :convicts :arbitrable}
                         :family  :functional
                         :sweeps  :predicate-marked
+                        :opposing-read
+                        (str "the same as functional's, read at the declared position: the nogood"
+                             " pairs the two fillers of [P n] and the (functionalInArg P n) mark is"
+                             " not a member of it.")
                         :notes   (str "read UP the predicate hierarchy and refuses tuples,"
                                       " where transitiveInArg — the same name shape — is"
                                       " read for the goal's own predicate and licenses"
@@ -553,24 +657,53 @@
                                         :facets #{:reach :convicts :answers})
                                   :shape  {:args [:relation :position :type]}
                                   :family :argument-constraint
+                                  :stops-short
+                                  {:retriggers
+                                   (str "both inferences it licenses arrive through an ordinary"
+                                        " fact trigger: the meta-level one under this functor,"
+                                        " a goal of this shape and the declaration answering it"
+                                        " sharing it, and the object-level one under"
+                                        " the minted membership's own. special/declaration-"
+                                        "subjects excludes it for that reason, and arg carries"
+                                        " :retriggers for a different one — its arms post the"
+                                        " arg-type re-check.")}
                                   :notes "the same one level up; entail-existing covers it too.")
                            "checks/genls-problem — the same, one level up")]
      ['quotedArg (enforced (assoc (prop :declares-quoted-arg :arg :relation
-                                        :facets #{:convicts})
+                                        :facets #{:convicts :answers})
                                   :shape  {:args [:relation :position :type]}
                                   :family :argument-constraint
-                                  :notes (str "the mention twin — and the one member of the family"
-                                              " entail-existing does NOT reach, so it convicts at"
-                                              " the door with no retroactive half of any kind."
-                                              " Whether that is the family's documented open-world"
-                                              " non-reach or a gap is open; the arrival orders are"
-                                              " what settle it."))
+                                  :stops-short
+                                  {:reach
+                                   (str "the family's reach is special/entail-existing, which MINTS"
+                                        " what a late declaration now says about stored tuples, and"
+                                        " a quotedArg says nothing that can be minted: the kind of"
+                                        " a written term is computed from the term, so there is no"
+                                        " membership to draw. Checked and never entailed, which is"
+                                        " docs/argtypes.md's own scope line and not an omission."
+                                        " A conviction reach — naming the stored tuples a late"
+                                        " quotedArg refuses — would be an arity-shaped report and"
+                                        " is a different mechanism from this facet's.")
+                                   :retriggers
+                                   (str "the goal and the declaration share a functor, so an"
+                                        " arriving (quotedArg P n T) posts its own re-check through"
+                                        " recheck-on-predicate; the genl edge that imports a"
+                                        " super's declaration is the other ingredient, and genl"
+                                        " carries :retriggers itself.")}
+                                  :notes (str "the mention twin: the family member read for a"
+                                              " *mentioned* argument rather than a used one."))
                            (str "checks/args-quoted-problem — the mention twin: types the argument as a"
-                                " term by its literal kind"))]
+                                " term by its literal kind; answered up the genl closure by"
+                                " provers/MetaConstraintProver, as its three siblings are"))]
      ['interArg  (enforced (assoc (prop :declares-inter-arg-isa :arg :relation
                                         :facets #{:reach :convicts :answers})
                                   :shape  {:args [:relation :position :type :position :type]}
                                   :family :argument-constraint
+                                  :stops-short
+                                  {:retriggers
+                                   (str "genlArg's reason, at the conditional form: each"
+                                        " inference it licenses is a stored sentex, and reaches"
+                                        " an exception through that sentex's own fact trigger.")}
                                   :notes (str "entail-existing reaches two of its three arrival"
                                               " orders; the third — the trigger's type arriving"
                                               " after both the fact and the declaration — is the"
@@ -616,7 +749,7 @@
      ['unknown     (operator {:args [:sentence]})]
      ['thereExists (operator {:args [:sentence]})]
      ['forall      (operator {:args [:term :sentence]}
-                             :notes "sugar for a nested unknown, desugared at the rule door.")]]
+                             :notes "sugar for a nested unknown, desugared at the rule entry point.")]]
 
     (map (fn [f] [f (enforced (operator {:args [:term :term :sentence]})
                               "the aggregate prover")])
@@ -666,7 +799,12 @@
     ;; design (docs/argtypes.md) — and no reader classifies a compound by its
     ;; shape, so `(quotedArg P n relation_application)` stores and convicts
     ;; nothing, and so does the `arg` form.  The vocabulary is one vocabulary and
-    ;; the classifier that would give it teeth does not exist.
+    ;; the classifier that would give it enforcement does not exist.
+    ;;
+    ;; `atomic_formula` and `non_atomic_term` are declared disjoint under
+    ;; `relation_application` and deliberately NOT declared covering: the KB has no
+    ;; vocabulary for stating that a pair of specs exhausts their parent, so a
+    ;; covering claim could only be made in prose and nothing would enforce it.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
          '[[relation_application "documentary: a relation applied to arguments, the shape atomic_formula and non_atomic_term share. No reader classifies a compound by its shape."]
            [denotational_term "documentary: the logic sense of term — an expression that denotes. Named so a declaration can say an argument is one; nothing reads it."]
@@ -715,17 +853,20 @@
      ['relation_kind     (enforced (collection :notes "a disjoint_metatype, so its two members separate each other.")
                                    "generic: a disjoint_metatype, so its two members separate each other")]
      ['instance_relation_predicate
-      (enforced (collection :facets #{:convicts}
-                            :notes (str "checks/declaration-problem refuses a genlArg on one at the"
-                                        " door, and nothing sweeps for one already stored. Unlike"
-                                        " every other :convicts term, what it convicts is a"
-                                        " *declaration* rather than a fact — so whether the two"
-                                        " arrival orders actually disagree is an open question, and"
-                                        " what settles it is running them."))
+      (enforced (assoc (collection :facets #{:convicts})
+                       :stops-short
+                       {:reach
+                        (str "checks/declaration-problem refuses a genlArg on one at the entry point, and"
+                             " nothing sweeps for a genlArg already stored when the membership"
+                             " arrives. Unlike every other :convicts term what it convicts is a"
+                             " *declaration* rather than a fact, so whether the two arrival orders"
+                             " actually disagree is an open question, and what settles it is"
+                             " running them.")})
                 "checks/declaration-problem — an genlArg on one is refused")]
      ['type_relation_predicate
-      (enforced (collection :facets #{:convicts}
-                            :notes "the same, refusing an arg instead, and open the same way.")
+      (enforced (assoc (collection :facets #{:convicts})
+                       :stops-short
+                       {:reach "the same, refusing an arg instead, and open the same way."})
                 "checks/declaration-problem — an arg on one is refused")]
      ['equivalence_relation
       (enforced (collection :notes (str "three CxCore rules derive (symmetric P), (transitive P)"
@@ -765,7 +906,7 @@
     [['lessThan    (enforced {:shape   {:args [] :variadic :term}
                               :storage [:none] :checked false :family nil
                               :facets  #{:answers}
-                              :notes   (str "variable arity: (lessThan 1 2 3) reads as the chain."
+                              :notes   (str "variable arity: (lessThan 1 2 3) is indistinguishable from the chain."
                                             " Computed by a prover, and merged out of a rule body"
                                             " by the chain collapse — but assertible, unlike the"
                                             " query operators, so not :query-only.")}
@@ -798,7 +939,7 @@
      ;; ---- placement and projection -----------------------------------------
      ['ist (enforced {:shape {:args [:context :sentence]} :storage [:none] :checked false
                       :family nil :facets #{}
-                      :notes "never stored: it names where the sentence goes, at the assert door."}
+                      :notes "never stored: it names where the sentence goes, at the assert entry point."}
                      "assert and rule placement — never stored, it names where the sentence goes")]
      ['believes (enforced {:shape {:args [:term :sentence]} :storage [:none] :checked false
                            :family nil :facets #{:answers}
@@ -892,7 +1033,108 @@
                           " design, so no regression reads its target.")}
              (str "the same pointing shape, truth-agnostic: it names a sentex neither"
                   " asserted true nor false, so it carries no provability obligation and no"
-                  " regression reads its target. Documentation only."))]])))
+                  " regression reads its target. Documentation only."))]
+
+     ;; ---- the predAll / predExists / predSpecified matrix ------------------
+     ;;
+     ;; Quantifier-family declarations (docs/predall.md).  The
+     ;; *Instance* and *Exists* relations are each declared beside a CxCore **rule
+     ;; generator** — a rule whose consequent is a rule — so their enforcement is generic
+     ;; forward chaining, keyed on nothing; like `equivalence_relation`, no arm reads the
+     ;; functor.  The *Specified* pair is an on-demand integrity audit reached through
+     ;; `vaelii.core/specified-violations`.
+     ['predAllInstance
+      (enforced {:shape {:args [:predicate :type :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "enforced by the generic chain, not by name: the CxCore"
+                             " generator beside the declaration stamps the concrete rule"
+                             " when the holes ground.")}
+                (str "generic rule generator (docs/generators.md): the CxCore generator"
+                     " beside it stamps (implies (?indep ?x) (?pred ?x ?fixed)) — chain"
+                     " inference concludes the fixed filler for every member"))]
+     ['predInstanceAll
+      (enforced {:shape {:args [:predicate :term :type]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the argument-swapped twin of predAllInstance, same generic chain."}
+                (str "generic rule generator: the CxCore generator stamps (implies (?dep ?y)"
+                     " (?pred ?fixed ?y)), the argument-swapped twin"))]
+     ['predAllExists
+      (inert {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "the whole Exists class is inferentially inert by ruling —"
+                          " a stored record plus a sanctioned per-cell placeholder"
+                          " functor for authors, nothing derived.")}
+             (str "an inert record: every ?indep member bears ?pred to some ?dep member,"
+                  " stated and stored, inferred from by nothing. (PredAllExistsFn ?pred"
+                  " ?indep ?dep) is the sanctioned placeholder an author may use for the"
+                  " unnamed filler."))]
+     ['predExistsAll
+      (inert {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes "the argument-swapped twin of predAllExists, inert like the class."}
+             (str "an inert record, the argument-swapped twin: some ?dep member bears"
+                  " ?pred to every ?indep member. (PredExistsAllFn ?pred ?dep ?indep) is"
+                  " its sanctioned placeholder."))]
+     ['predExistsInstance
+      (inert {:shape {:args [:predicate :type :term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "a pure existential — no universal to range over — expressible"
+                          " precisely because the class stamps nothing.")}
+             (str "an inert record: some ?indep member bears ?pred to the fixed filler."
+                  " (PredExistsInstanceFn ?pred ?indep ?fixed) is its sanctioned"
+                  " placeholder."))]
+     ['predInstanceExists
+      (inert {:shape {:args [:predicate :term :type]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes "the argument-swapped twin of predExistsInstance."}
+             (str "an inert record: the fixed subject bears ?pred to some ?dep member."
+                  " (PredInstanceExistsFn ?pred ?fixed ?dep) is its sanctioned"
+                  " placeholder."))]
+     ['predAllSpecified
+      (enforced {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "an on-demand audit, not a stored constraint: nothing fires on"
+                             " assert, and the read is a function a caller invokes.")}
+                (str "vaelii.core/specified-violations — the on-demand integrity"
+                     " audit reads the declaration and returns the instances of ?indep with"
+                     " no determinate filler; stamps no rule"))]
+     ['predSpecifiedAll
+      (enforced {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the argument-swapped twin, auditing ?pred's first position."}
+                (str "vaelii.core/specified-violations with :first — audits ?pred's"
+                     " first position, the argument-swapped twin"))]
+     ['PredAllExistsFn
+      (enforced (collection :notes (str "a function constant, never a sentence functor; its"
+                                        " unreifiable_function mark keeps a ground"
+                                        " application a structural NAT. The engine never"
+                                        " asserts it — uses are the author's."))
+                (str "the predAllExists placeholder function; unreifiable_function keeps its"
+                     " application a structural NAT — per-cell and full-arg, an ontological"
+                     " marker rather than a skolem witness, and determinate for the"
+                     " predAllSpecified audit when an author uses it"))]
+     ['PredExistsAllFn
+      (enforced (collection :notes "the predExistsAll twin of PredAllExistsFn.")
+                (str "the predExistsAll placeholder function; unreifiable_function,"
+                     " per-cell and full-arg, distinct from the other Exists cells'"
+                     " placeholders"))]
+     ['PredExistsInstanceFn
+      (enforced (collection :notes "the predExistsInstance twin of PredAllExistsFn.")
+                (str "the predExistsInstance placeholder function; unreifiable_function,"
+                     " per-cell and full-arg, distinct from the other Exists cells'"
+                     " placeholders"))]
+     ['PredInstanceExistsFn
+      (enforced (collection :notes "the predInstanceExists twin of PredAllExistsFn.")
+                (str "the predInstanceExists placeholder function; unreifiable_function,"
+                     " per-cell and full-arg, distinct from the other Exists cells'"
+                     " placeholders"))]
+     ['indeterminate_term
+      (enforced (collection :notes (str "an extensible determinacy category: skolem is the"
+                                        " built-in first member, a future kind joins by"
+                                        " genl."))
+                (str "one implementation behind both the predAllSpecified audit and the"
+                     " different prover's identity exemption — a filler that is a member"
+                     " is not determinate and is exempt from the unique-name assumption"))]])))
 
 (defn- check-families
   "Refuse at load a declaration whose family or whose sweep is half-written, which is the
@@ -933,6 +1175,224 @@
                            " lane that recognizes a declaration recognizes it at the arity"
                            " it is written in, and there is none to read")
                       {:type :bad-table-entry :mismatch :sweeps :functor term}))))
+  entries)
+
+(def ^:private lane-facets
+  "The facets `facet-contract` marks as lanes a mark family moves through together."
+  (into #{} (comp (filter (comp :lane? val)) (map key)) facet-contract))
+
+(defn- family-lanes
+  "Family -> the lane facets *some* spelling of it carries — what every other spelling
+  is then held to, or has to record stopping short of."
+  [entries]
+  (reduce (fn [m [_ spec]]
+            (if-let [fam (:family spec)]
+              (update m fam (fnil into #{}) (filter lane-facets (:facets spec)))
+              m))
+          {} entries))
+
+(defn- recheck-subject?
+  "Does this entry answer goals **about a predicate** — the form a declaration has when
+  it moves what a level-6 query says about a predicate other than itself?
+
+  Argument 1, and only argument 1, exactly as `special/declaration-subjects` reads it: the
+  subject of a declaration is written first throughout, and `inverse` names two only
+  because either one's goals are answered from the other's facts.  A query operator answers
+  goals of its own functor and moves nothing about a predicate, so it is not this."
+  [spec]
+  (and (contains? (:facets spec) :answers)
+       (contains? #{:predicate :relation} (first (:args (:shape spec))))))
+
+(defn- owed-facets
+  "Facet -> `[rule reason]` for every facet this entry is committed to and does not carry
+  — the three rules whose remedy is the same: carry it, or record stopping short of it."
+  [term spec lanes recheck-subjects]
+  (let [fs (:facets spec)]
+    (cond-> (into {}
+                  (for [f  (sort fs)
+                        i  (sort (:implies (get facet-contract f)))
+                        :when (not (contains? fs i))]
+                    [i [:implication (str "the :" (name f) " facet implies it")]]))
+      (:family spec)
+      (into (for [l (sort (get lanes (:family spec))) :when (not (contains? fs l))]
+              [l [:family-lane (str "another spelling of the " (:family spec)
+                                    " family carries it, and a family joined to a lane in"
+                                    " one spelling and not another fails silently in the"
+                                    " other")]]))
+
+      (and (recheck-subject? spec)
+           (not (contains? fs :retriggers))
+           (not (contains? recheck-subjects term)))
+      (assoc :retriggers
+             [:recheck (str "it answers goals about the predicate at argument 1, and posts"
+                            " to the exception re-check queue neither through its own arms"
+                            " nor through special/declaration-subjects — so the firings that"
+                            " predate it keep a conclusion the firings after it drop")]))))
+
+(defn check-facets
+  "Refuse at load a declaration whose facets do not add up — the **cross-layer** half of
+  `check-families`, and the one that turns wiring a new predicate into both lanes of a
+  family from a review item into a build failure.
+
+`above` carries what the layers above this one enumerate, because this namespace is the
+  bottom one: a namespace holding both the declarations and the arms could only sit at the
+  *top* of the stack, where `taxonomy` and `wff` could not read it.  So the facts that live
+  above arrive as arguments, and the validator is **called** from `settle`'s namespace
+  load, which is the first place every facet's arm is visible.  `check-families` stays at
+  this namespace's load, where what it checks is one entry against another and nothing
+  above is needed.
+
+  * `:recheck-subjects` — the functors that post exception re-checks through the shared
+    path (`special/declaration-subjects`) rather than from an arm of their own.
+  * `:family-rosters` — `family -> {roster-name functors}`, the rosters that read a mark
+    family **as a family**.  Each must enumerate exactly that family.
+
+  Eight rules, eleven `:mismatch` values:
+
+  * `facet-contract` and `facets` enumerate different keywords.  A facet with no row is
+    one whose meaning its first user decided.
+  * a field value outside its closed vocabulary — a facet, a storage kind, a family, a
+    sweep kind, an argument kind.
+  * `:cached` and a `:none` storage, or a storage and no `:cached`.  The two say the same
+    thing and cannot disagree.
+  * a `:sweeps` without the `:reach` facet.  What a declaration puts back in question is
+    the reach; a kind without the facet says the sweep runs and nothing sweeps.
+  * an `:arbitrable` term with no `:opposing-read` prose.  The third conjunct of
+    arbitrability — that the read the conviction is made through does not depend on the
+    belief the nogood moves — is not decidable from data, so the honest encoding is a
+    required claim.  `arity` carries the same field with the negative answer, which is
+    why it names a second sentex and is still not arbitrable.
+  * an `:inert` term carrying another facet or a storage.  The `inert` constructor makes
+    that unwritable; this is what says the constructor is still the only way in.
+  * a roster that reads a family as a family and enumerates something else.  This is the
+    `:enumeration` rule of `special/check-declarations` at the family level, and it is the
+    one rule here with **no** `:stops-short` escape: where a facet is a claim that an
+    entry can answer for in prose, a roster is a set sitting in another namespace, and two
+    enumerations of one fact do not get to disagree.  `quotedArg` is why it exists — the
+    entry point read it up `res/constraining-predicates` with its three siblings while
+    `provers/meta-constraint-shape` had no row for it, so one declaration meant one thing
+    to `assert` and another to `ask`.  The lane rule below caught that and offered a
+    record; a record is the wrong answer to two rosters disagreeing.
+  * a facet the entry is **committed to** and does not carry, by one of three rules —
+    `:implication` (`facet-contract`), `:family-lane` (a sibling spelling carries it) or
+    `:recheck` (it answers goals about a predicate and posts no re-check) — unless the
+    entry records the exception in `:stops-short`.  The record is held to being *exactly*
+    the owed set, in both directions, so it can neither be missing nor go stale.
+
+  **What no rule can refuse** is a spelling dropped from its family outright: membership
+  is a stated fact, as `:inert` is, and every rule above is about spellings that *are*
+  enrolled agreeing with each other.  `predicates_test` pins `tax/functional-family-marks`
+  as a literal for exactly that move.
+
+  Rule 1 of the registry — `:cached` implies the whole integrate / disintegrate / rebuild
+  triple — is **not** here.  It is `special/check-entries`, at the arm layer, where the
+  arms are visible and a `special` load proves it on its own; duplicating it here would
+  move the arm check to the top of the stack for nothing.
+
+  O(declarations), no KB, no I/O, no reflection: `check-entries` is the budget.  Returns
+  `entries` unchanged so it can wrap a def."
+  [entries {:keys [recheck-subjects family-rosters]}]
+  (let [refuse (fn [mismatch msg data]
+                 (throw (ex-info msg (merge {:type :bad-table-entry :mismatch mismatch}
+                                            data))))]
+    (when-not (= (set (keys facet-contract)) facets)
+      (refuse :contract
+              (str "facet-contract and facets enumerate different keywords: "
+                   (pr-str (vec (sort (remove facets (keys facet-contract)))))
+                   " has a row and is no facet, "
+                   (pr-str (vec (sort (remove (set (keys facet-contract)) facets))))
+                   " is a facet with no row — a facet with no row is one whose meaning its"
+                   " first user decided")
+              {:contract (set (keys facet-contract)) :facets facets}))
+    (doseq [[fam rosters] (sort-by key family-rosters)
+            :let              [spellings (into #{} (comp (filter #(= fam (:family (second %))))
+                                                         (map first))
+                                               entries)]
+            [roster functors] (sort-by key rosters)
+            :when             (not= spellings functors)]
+      (refuse :family-roster
+              (str roster " reads the " fam " family as a family and enumerates "
+                   (pr-str (vec (sort functors))) " where the declarations say "
+                   (pr-str (vec (sort spellings)))
+                   " — a spelling one of them holds and the other does not is one fact"
+                   " written twice, and the half that is missing fails silently in"
+                   " whichever lane that roster is")
+              {:family fam :roster roster :roster-holds functors :declared spellings}))
+    (let [lanes (family-lanes entries)]
+      (doseq [[term spec] entries
+              :let        [fs (:facets spec)
+                           [skind] (:storage spec)
+                           {:keys [args optional variadic]} (:shape spec)]]
+        (doseq [[field bad] [[:facets (vec (sort (remove facets fs)))]
+                             [:storage (vec (remove storage-kinds [skind]))]
+                             [:family (vec (remove mark-families (keep identity [(:family spec)])))]
+                             [:sweeps (vec (remove sweep-kinds (keep identity [(:sweeps spec)])))]
+                             [:shape (vec (sort (remove argument-kinds
+                                                        (concat args optional
+                                                                (when variadic [variadic])))))]]
+                :when       (seq bad)]
+          (refuse :vocabulary
+                  (str term "'s :" (name field) " holds " (pr-str bad)
+                       ", which the closed vocabulary does not name — an open field is a"
+                       " roster again, with the same drift and none of the checking")
+                  {:functor term :field field :outside bad}))
+
+        (when (not= (contains? fs :cached) (not= :none skind))
+          (refuse :storage
+                  (str term " is declared " (if (contains? fs :cached) "" "un") "cached and"
+                       " names " (if (= :none skind) "no storage" (str "the storage " (pr-str (:storage spec))))
+                       " — the facet and the storage kind say the same thing and cannot"
+                       " disagree")
+                  {:functor term :facets fs :storage (:storage spec)}))
+
+        (when (and (:sweeps spec) (not (contains? fs :reach)))
+          (refuse :sweep-reach
+                  (str term " sweeps " (:sweeps spec) " and does not carry :reach — the"
+                       " kind says where the reach goes and the facet says there is one,"
+                       " so a kind without the facet claims a sweep that reaches nothing")
+                  {:functor term :sweeps (:sweeps spec)}))
+
+        (when (and (contains? fs :arbitrable) (not (:opposing-read spec)))
+          (refuse :arbitrable
+                  (str term " is arbitrable and does not say what its conviction's opposing"
+                       " side is read through — a nogood whose read follows the belief it"
+                       " moves destroys its own premise, which is not decidable from this"
+                       " table and so has to be claimed on the entry")
+                  {:functor term}))
+
+        (when (contains? fs :inert)
+          (when-not (and (= #{:inert} fs) (= :none skind) (:inert spec))
+            (refuse :inert
+                    (str term " is classified inert and carries " (pr-str (vec (sort fs)))
+                         " with storage " (pr-str (:storage spec))
+                         " — inert means nothing reads it, so it is written by the `inert`"
+                         " constructor, which sets the facet with the prose and leaves no"
+                         " room for a second opinion")
+                    {:functor term :facets fs :storage (:storage spec)})))
+
+        (let [owed     (owed-facets term spec lanes recheck-subjects)
+              recorded (:stops-short spec)]
+          (doseq [[f [rule reason]] (sort-by key owed)
+                  :when             (not (contains? recorded f))]
+            (refuse rule
+                    (str term " owes the :" (name f) " facet — " reason
+                         " — and neither carries it nor records stopping short of it in"
+                         " :stops-short")
+                    {:functor term :facet f}))
+          (doseq [[f why] (sort-by key recorded)]
+            (when-not (contains? owed f)
+              (refuse :stops-short
+                      (str term " records stopping short of :" (name f) " and is owed no"
+                           " such facet" (if (contains? fs f)
+                                           " — it carries it"
+                                           " — no rule asks for it")
+                           ", so the record has gone stale and says nothing")
+                      {:functor term :facet f}))
+            (when-not (and (string? why) (seq why))
+              (refuse :stops-short
+                      (str term "'s :stops-short entry for :" (name f) " carries no reason,"
+                           " and an exception with no reason is a suppression")
+                      {:functor term :facet f})))))))
   entries)
 
 (def table
@@ -1051,7 +1511,7 @@
   (by-facet :derived))
 
 (def query-only
-  "Every term refused at the assert door and answered by a prover instead."
+  "Every term refused at the assert entry point and answered by a prover instead."
   (by-facet :query-only))
 
 (def checked

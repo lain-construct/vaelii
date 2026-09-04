@@ -62,7 +62,7 @@
   ;; and an argument may be any encodable value.  So the precedence is asked about
   ;; things `compare` refuses: a compound, a collection, a vector whose elements are of
   ;; mixed classes.  It must answer all of them, because `orient` is reached from the
-  ;; assert door and a comparison that throws there refuses an equation by exception
+  ;; assert entry point and a comparison that throws there refuses an equation by exception
   ;; instead of by returning nil.
   (testing "a compound root"
     (is (= '[((g ?x) a) ((f ?x) a)] (rw/orient '((f ?x) a) '((g ?x) a))))

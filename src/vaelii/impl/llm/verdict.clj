@@ -112,7 +112,7 @@
                 (:alternatives correction))))
 
 (defn chosen-verdict
-  "The verdict of the shape a reviewer has settled on, judged **in light of where it came
+  "The verdict of the form a reviewer has settled on, judged **in light of where it came
   from**: `:problems` and `:coined` are of the chosen sentence, because that is the one
   that would be stored, while `:correction` is the one that produced the choice.
 

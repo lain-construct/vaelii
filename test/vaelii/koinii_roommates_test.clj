@@ -219,7 +219,7 @@
                   (ch/justify ben 'MyAllergy nope-h)
                   ;; ── 8-10. the compromise thread: Ciel asks, Ava offers, Ben rebuts ──
                   (let [q-hypo (ch/pose-query ciel 'CouldWeGetHypoallergenic)]
-                    (ch/assert ava (list 'hypoallergenicBreed 'Poodle))
+                    (ch/assert ava (list 'hypoallergenic_breed 'Poodle))
                     (ch/answer ava 'PoodlesAreHypoallergenic q-hypo)
                     (ch/justify ben 'DanderStillSheds nope-h))  ; the compromise doesn't cure it
                   (testing "the clash still stands — a floated compromise changed no belief"

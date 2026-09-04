@@ -55,7 +55,7 @@
   (let [warm (first (filter #(= '(warm_blooded Ann) (:sentence %)) (derived-claims kb)))]
     (is (some? warm))
     (is (= ["Ann is a human"] (:givens warm)))
-    (testing "the line reads as a situation and a claim"
+    (testing "the line is indistinguishable from a situation and a claim"
       (is (str/starts-with? (oracle/line warm) (str "[" (:index warm) "] Given: Ann is a human.")))
       (is (str/includes? (oracle/line warm) "Claim: Ann holds its own body temperature")))
     (testing "the rule it fired through is not in the line — that would ask about validity"
@@ -128,7 +128,7 @@
             to is not evidence about anything"
     (is (= {} (oracle/parse-verdicts (stub/verdicts-text [[9 :true]]) 3)))
     (is (= {} (oracle/parse-verdicts (stub/verdicts-text [[-1 :true]]) 3))))
-  (testing "a word outside the enum reads as a shrug rather than an exception"
+  (testing "a word outside the enum is indistinguishable from a shrug rather than an exception"
     (is (= :unsure (:verdict (get (oracle/parse-verdicts
                                    "{\"verdicts\":[{\"item\":0,\"verdict\":\"probably\"}]}" 2)
                                   0)))))

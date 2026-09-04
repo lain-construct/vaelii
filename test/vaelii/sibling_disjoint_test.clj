@@ -12,7 +12,7 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- assert-outcome
-  "`:ok`, or the `:type` of the refusal — so a case reads as a value rather than the
+  "`:ok`, or the `:type` of the refusal — so a case is indistinguishable from a value rather than the
   presence or absence of a throw."
   [kb sentence context]
   (try (v/assert kb sentence context) :ok
@@ -66,9 +66,9 @@
 
 (deftest the-mark-reaches-back-over-memberships-stored-before-it
   ;; Order independence, under the arbitrating policy (the one that lets a declaration
-  ;; reach back — the refusing default handles the reverse order at the door instead).
+  ;; reach back — the refusing default handles the reverse order at the entry point instead).
   ;; With the mark asserted last, both memberships are stored and believed before
-  ;; anything separates them, so the settle's retroactive sweep — not the door — is what
+  ;; anything separates them, so the settle's retroactive sweep — not the entry point — is what
   ;; must convict the pair the mark newly separates.  A default/default clash is a
   ;; represented dilemma.
   (binding [checks/*arbitrate-constraints?* true]
@@ -112,7 +112,7 @@
 (tu/deftest-kb a-general-context-may-hold-what-a-specific-siblingdisjoint-forbids
   ;; the mark lives in a specific context; a sibling above it that cannot see the mark is
   ;; not constrained, and the clash a general write creates for the specific context is
-  ;; reported by the exposure ledger rather than refused at the general door
+  ;; reported by the exposure ledger rather than refused at the general entry point
   (tu/with-terms [CxA CxC col t1 t2 Pip]
     (v/assert kb (list 'genl t1 col) 'CxUniverse)
     (v/assert kb (list 'genl t2 col) 'CxUniverse)
@@ -259,7 +259,7 @@
       (is (v/assert kb (list a x) 'CxUniverse)))))
 
 ;; Order independence under the arbitrating policy, where the pair is weighed rather than
-;; refused at the door and a default/default clash is a represented dilemma.  Both
+;; refused at the entry point and a default/default clash is a represented dilemma.  Both
 ;; directions must land on the same belief.  Two `deftest`s, not two `with-kb` arms of one:
 ;; the arms share the fixture KB, so the second would read the first's contradictions.
 
@@ -304,7 +304,7 @@
       (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException a Fido) 'CxUniverse))))
     (testing "the wrong arity is refused"
       ;; :naming rather than :not-well-formed — a camelCase functor at arity 1 is a unary
-      ;; predicate wearing a relation's spelling, and the naming door is upstream of `wff`
+      ;; predicate wearing a relation's spelling, and the naming check is upstream of `wff`
       (is (= :naming (assert-outcome kb (list 'siblingDisjointException a) 'CxUniverse))))
     (testing "a self-pair is refused"
       (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException a a) 'CxUniverse))))))

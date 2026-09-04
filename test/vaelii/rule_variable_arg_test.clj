@@ -179,18 +179,18 @@
       (is (= '[non_negative_integer unary_predicate] (:expected (first ps))))))
   (testing "symbol carries no disjointness, a name being how a predicate is written"
     ;; the deliberate absence, and the one that has to be pinned: `(disjoint symbol
-    ;; predicate)` would read as a use-level claim and be false of every predicate name,
+    ;; predicate)` would are indistinguishable from a use-level claim and be false of every predicate name,
     ;; so a variable asked for a symbol at one end and a kind at the other is admissible
     (let [p (tu/tmp-pred)]
       (v/assert kb (list 'arg p 1 'symbol) 'CxUniverse)
       (is (= [] (v/check kb (list 'implies (list p '?x) (list 'genl '?x 'thing))
                          'CxUniverse))))))
 
-;; ---- the other door: a rule nobody typed ---------------------------------
+;; ---- the other entry point: a rule nobody typed ---------------------------------
 ;; `check-rule!` is read from two places.  The author's `assert` throws it, which is
 ;; every test above; a mint reads the same list as a **value** (`checks/rule-violation`)
 ;; and drops what it cannot admit, because an exception escaping a firing would leave
-;; the fixpoint half computed.  Both mint doors are here: a generator's fill, and a
+;; the fixpoint half computed.  Both mint entry points are here: a generator's fill, and a
 ;; `defn*` fact's companion rule.
 
 (defn- mentioning
@@ -231,7 +231,7 @@
         (is (re-find #"^\?" (name (:variable (:detail (first vs))))))))))
 
 (tu/deftest-kb a-defn-companion-rule-that-clashes-is-dropped-and-recorded
-  ;; the second mint door: `defnSufficient` names a membership at both ends, so the two
+  ;; the second mint entry point: `defnSufficient` names a membership at both ends, so the two
   ;; argument declarations meet on the `?x` the companion rule carries between them
   (let [[a b] (disjoint-pair kb)
         coll (tu/tmp-pred) cond' (tu/tmp-pred)]

@@ -22,8 +22,8 @@ with forward/backward inference and JTMS truth maintenance.
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.15.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.15.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.16.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.16.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh
@@ -42,7 +42,7 @@ CapitalCamelCase.
 (def kb (v/open-kb {}))                            ; in-memory records + index
                                                    ; {:backend :disk-log :dir "/path"} to persist
 
-;; a read sees what its context sees, up the genlCx cone — so say that the
+;; a read sees what its context sees, up the genlCx ancestor set — so say that the
 ;; world context reads the general one, or the rules below are invisible from it
 (v/assert kb '(genlCx CxNaturalWorld CxUniverse) 'CxUniverse)
 
@@ -96,7 +96,7 @@ Four properties hold everywhere:
   content, never on a handle.
 - **Locality** — no operation recomputes the whole graph; a relabel is scoped to the
   affected region with the rest held fixed.
-- **Context scoping** — a read sees what its context sees, up the `genlCx` cone:
+- **Context scoping** — a read sees what its context sees, up the `genlCx` ancestor set:
   facts, rules, taxonomy edges and definitional checks alike.
 - **Belief filtering** — a stored sentex is not a believed one. Matching, the taxonomy
   closures and the cached relations all follow belief. The index holds only what is

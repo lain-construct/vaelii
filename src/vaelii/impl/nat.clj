@@ -36,7 +36,7 @@
   `retract!` sweep).
 
   Reads the store, the taxonomy and belief directly (nat <- kb); reaches assertion only
-  through the seam above."
+  through the fns above."
   (:require [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
@@ -272,7 +272,7 @@
 
   The scoped arity reads through `res/matches-visible` rather than a literal match at one
   context.  A result declaration lives in `CxUniverse` and is asked about from wherever
-  the sentence is being written, so the read walks the `genlCx` cone exactly as every
+  the sentence is being written, so the read walks the `genlCx` ancestor set exactly as every
   other declaration read does."
   ([kb pred head]
    (->> (kb/sentexes-matching kb (list pred head '?t) '?ctx)
@@ -356,7 +356,7 @@
   an argument root: the declarations number one per reified function and so are few,
   where the position-2 argument roots hold every fact ever asserted about `P` — and this is
   asked once per assert, which is the last place to make a cost a function of the
-  corpus.  Belief is filtered at the **door** rather than through `kb/sentexes-matching`:
+  corpus.  Belief is filtered at the **entry point** rather than through `kb/sentexes-matching`:
   the declaration has two legal arities, and a pattern query would need one probe per
   arity to see both."
   [kb match?]

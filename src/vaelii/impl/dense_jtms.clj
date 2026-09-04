@@ -905,7 +905,7 @@
               (Int2ObjectOpenHashMap.) (Int2ObjectOpenHashMap.) ; supports conseqs
               (rb)                                             ; jids
               (Int2IntOpenHashMap.)                            ; j-conseq
-              ;; an absent informant reads as the marker, never as handle 0
+              ;; an absent informant is indistinguishable from the marker, never as handle 0
               (doto (Int2IntOpenHashMap.) (.defaultReturnValue no-informant))
               (Int2ObjectOpenHashMap.) (Int2ObjectOpenHashMap.) (Int2ObjectOpenHashMap.)
               (rb)                                             ; j-mono

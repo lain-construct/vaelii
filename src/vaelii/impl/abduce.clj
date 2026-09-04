@@ -62,7 +62,7 @@
   {:max-hypotheses 8
    :max-depth      8})
 
-;; ---- the seam: handed down, not reached up for ---------------------------
+;; ---- the operation map: handed down, not reached up for ---------------------------
 ;; Everything abduction needs from outside itself arrives in one `ops` map, and nothing
 ;; in this namespace names `vaelii.core`:
 ;;
@@ -74,10 +74,10 @@
 ;; One map rather than a function per dependency because they travel together to the same
 ;; places: every stage that writes also searches, so threading them apart put the same two
 ;; arguments side by side through five signatures.  `run` adds `:rules` — `:rules-fn`
-;; bound to this run's scratch context — so the stages below it take the seam alone.
+;; bound to this run's scratch context — so the stages below it take the operation map alone.
 ;;
 ;; Handing them down works here and would not for `vaelii.impl.nat` or
-;; `vaelii.impl.skolem`, and the difference is worth stating: abduction is only ever
+;; `vaelii.impl.skolem`, and the difference matters: abduction is only ever
 ;; entered from the public API, so `vaelii.core` is the *sole* caller of the two entry
 ;; points that write.  There is no recursion to break and so nothing to resolve at
 ;; runtime — where a NAT mint is reached from inside the chaining fixpoint the assert path
@@ -284,7 +284,7 @@
 
   Content order again, so which of two mutually-redundant hypotheses survives is decided
   by the sentences and not by the order they were minted in.  A re-minted hypothesis gets
-  a fresh handle, which costs nothing: the whole context is scratch."
+  a fresh handle, which adds no work: the whole context is scratch."
   [kb goals actx goal minted ops]
   (reduce
    (fn [kept sentence]
@@ -311,8 +311,8 @@
 (defn run
   "Prove `goals` in `context`, hypothesizing what the proof needs and cannot find.
 
-  `ops` is the seam — `{:rules-fn f :assert f :edit f}`, everything abduction needs from
-  the layer above it and does not name (see \"the seam\" above).  `goals` is the vector
+  `ops` is the operation map — `{:rules-fn f :assert f :edit f}`, everything abduction needs from
+  the layer above it and does not name (see \"the operation map\" above).  `goals` is the vector
   form the DFS takes.
 
   Answers
@@ -350,7 +350,7 @@
         cap   (:max-hypotheses opts)
         for-  (if (= 1 (count goals)) (first goals) (vec goals))
         actx  (open kb context ops)
-        ;; the candidate chooser bound to this run's scratch context, added to the seam so
+        ;; the candidate chooser bound to this run's scratch context, added to the operation map so
         ;; every stage below takes `ops` alone and nothing threads a function beside it
         ops   (assoc ops :rules (fn [g] ((:rules-fn ops) kb g actx)))]
     (try

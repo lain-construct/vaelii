@@ -16,7 +16,7 @@
   different questions and are not interchangeable:
 
   - **`est-matches`** is a sound *upper bound* on how many facts one literal matches.
-    Its one-sided guarantee is load-bearing — an estimate of 1 is a **proof** that a
+    Its one-sided guarantee is required — an estimate of 1 is a **proof** that a
     literal matches at most once, and therefore cannot fan the plan out — and that
     proof is what the placement rules below rest on.  It says nothing usable about
     how two literals combine: maxima of products do not factor.
@@ -45,8 +45,8 @@
 
   Every one of those counts **spans all contexts**, since the trie key ends with the
   context and no prefix the walk builds reaches past the arguments.  A read is scoped to
-  one context and the `genlCx` cone above it, so the counts are an over-estimate by
-  a sentence's context multiplicity — which leaves `est-matches` sound (a cone is a
+  one context and the `genlCx` ancestor set above it, so the counts are an over-estimate by
+  a sentence's context multiplicity — which leaves `est-matches` sound (an ancestor set is a
   subset of what is stored, so the bound can only be too large) and puts the error on
   `est-rows`'s `:rows` alone, `:distinct` sitting a level above the contexts.  A ground
   literal is clamped to one row and never sees it.  `docs/inference.md` states the size
@@ -99,7 +99,7 @@
   - **A block that cannot multiply runs first.**  `est-matches` bounds each literal
     from above, so a block whose literals each bound to 1 is *proved* to match at most
     once: it can only prune, never fan out, and belongs wherever it is cheapest, which
-    is first.  The case that makes this load-bearing is the **ground** literal —
+    is first.  The case that makes this required is the **ground** literal —
     `(dog Bob)` once a rule's bindings are substituted in, the shape both chaining
     paths hand the planner.  It has no variables, so it is a block of its own with
     nothing to share; held back, a false one costs the entire join to reach a test
@@ -136,7 +136,7 @@
   allocation stay, and only the store traffic under them collapses.  That is the number
   the section below is written against.
 
-  It is made cheap **by construction** rather than cached: for the shape that costs, the
+  It is made cheap **by construction** rather than cached: for the structure that costs, the
   argument a bare open variable, the general walk is provably `count-at [t']` per subtype
   and `fan-of-roots` reads exactly that (see the section above it).  That halves the fan
   — 13.2% of a forward chaining run at 364 subtypes down to 6.8% (`lein bench-hotreads`)
@@ -354,7 +354,7 @@
 ;; taxonomy generation so the closure's *fetch* is O(1); what is not O(1) is the fan over
 ;; it, and `order` asks for it once per pick, per plan, per firing attempt.
 ;;
-;; For the shape that actually costs — `(animal ?x)`, the argument a bare free variable —
+;; For the structure that actually costs — `(animal ?x)`, the argument a bare free variable —
 ;; the general walk is provably a long way round to one number.  `sx/key-stream` of
 ;; `(t' ?x)` is two tokens: the functor, which is known and extends the prefix, and the
 ;; variable, which is not a value and stops the walk.  So `prefix-estimate` returns
@@ -373,7 +373,7 @@
 
   A variable the plan has already **bound** satisfies the equality too — the walk stops on
   a bound token exactly as on a free one — and is excluded here all the same: widening the
-  fast path is a cost decision, and this predicate is written to name the shape the
+  fast path is a cost decision, and this predicate is written to name the form the
   direct read was measured on rather than every shape it would also answer."
   [term bound]
   (and (sx/variable? term)
@@ -734,7 +734,7 @@
   `anchor-vars` fused into a single **anchored** one.
 
   The split is structural: read off the conjunction, exact, and costing nothing,
-  which is why it is made here rather than left to an estimate.  What it buys is the
+  which is why it is made here rather than left to an estimate.  It gives the
   claim the cost model most needs and least deserves to be trusted with — that no
   ordering *inside* one component changes what another component costs — so the
   estimate is only ever asked to compare within a block, or to rank two whole blocks
@@ -1018,7 +1018,7 @@
   `:recursive?` mark the operational pins.  **`:isolated?` marks a cartesian factor
   that was held to the back** for being one — read it as the answer to \"why is this
   last\", not as a structural property of the literal.  Without it a selective one
-  reads as a small number sitting last, which looks like the planner erred; it is the
+  is indistinguishable from a small number sitting last, which looks like the planner erred; it is the
   one position the estimate beside it does not account for.  A literal sharing no
   variable but matching at most once is *not* flagged, because it is not held back,
   and neither is one whose block the ranking put first.

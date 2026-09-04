@@ -24,7 +24,7 @@
   the same sources would answer.**  That is the reading that licenses running alone,
   and it is a claim a prover is competent to make about itself.
 
-  The tempting alternative — *nothing else can answer this goal* — is a claim about a
+  One alternative to avoid — *nothing else can answer this goal* — is a claim about a
   predicate, and it stops being true the moment a KB adds a second way to reach that
   predicate.  Whether such a way exists is not a question any one prover can answer,
   because it is about the sources it does **not** read.  So the engine asks it, once
@@ -36,7 +36,42 @@
   A computed prover normally earns the claim it makes: the closure provers are built
   out of the very facts `FactProver` would return and out of the derivations a rule
   contributes, and a calculus reads both into its network — converse and composition
-  included — before entailing anything."
+  included — before entailing anything.
+
+  ## Why a prover is not a predicate's property
+
+  Nothing here is declared per predicate, and the registry is deliberately unreachable
+  from `vaelii.impl.predicates` — which holds what is *said* about each term of the
+  engine's grammar, and holds nothing about who answers a goal.  It is the completeness
+  argument above, one level down: a claim about *a predicate* is not a claim any single
+  component is competent to make.  Three reasons, and they are why binding provers to
+  predicates in the declaration is the wrong shape rather than the missing half.
+
+  * **`applicable?` reads a goal's shape, not a predicate's name.**  `EvaluableProver`
+    reads the arguments in front of it; `QuantityProver` reads a unit table first;
+    `ArgTypeProver` answers a goal on any predicate carrying a declared argument type.
+    None of the three is \"predicate P is answered by prover X\", so none of them has an
+    entry to write.
+  * **`add-prover` is public API**, and it registers a prover with no declaration entry
+    at all.  Nine ship in-tree opt-in — `space`, `interval`, `stp`, `duration`, `sign`,
+    `orientation`, `relative`, `calendar`, `distance`, each documenting its own
+    registration — and third-party ones are the point of the extension.  A framework
+    requiring an entry either breaks those or grows an escape hatch that makes the entry
+    advisory, and an advisory entry is a roster again: the thing `predicates` exists to
+    stop being.
+  * **`sole-prover` already answers the coordination question** a per-predicate binding
+    would be reaching for, and answers it better.  A prover declares a constant about its
+    own sources, and the engine asks once per goal whether anything shadows it.  That is
+    a question about the KB, which moves when the KB does, rather than about the
+    vocabulary, which does not.
+
+  What the *declaration* carries is narrower, and is a fact about the declaration rather
+  than about any prover: the `:answers` facet, meaning this term's arrival moves what a
+  level-6 query says about some predicate — which is what obliges it to post an exception
+  re-check, by its own arms or through `special/declaration-subjects`
+  (`predicates/check-facets`).  That is the line the four functor rosters in this file sit
+  on either side of, and it is the same line each time: a prover's **shape** table stays
+  with the prover, and its **enrolment** is the declaration's."
   (:require [vaelii.impl.caches :as caches]
             [vaelii.impl.datetime :as datetime]
             [vaelii.impl.inherit :as inherit]
@@ -93,7 +128,7 @@
   in front of the rules carrying a `support-functors` antecedent, re-joined in full
   (`chain/rejoin-in-full`), exactly as a `(symmetric P)` declaration is.
 
-  Two obligations on an implementer, and both are what makes the seam sound:
+  Two obligations on an implementer, and both are what makes the protocol sound:
 
   * **`solve-with-support` answers exactly what `solve` answers.**  The bindings are the
     same solutions in the same order; only the support rides alongside.  A prover whose
@@ -281,7 +316,11 @@
 
 (def transitive-predicates
   "The relations the cached-closure `TransitivityProver` answers — genl / genlCx, held
-  out of the generic per-predicate transitive machinery.  Defined once in the taxonomy."
+  out of the generic per-predicate transitive machinery.  Defined once in the taxonomy.
+
+  Not enrolled in the declaration, because it already is: `tax/closure-relations` is the
+  entries whose `:storage` is `[:edge …]`, and `predicates_test` pins the two equal.  An
+  alias where the prover reads it, over a second enumeration to keep in step."
   tax/closure-relations)
 
 (defn- trans-fns [kb pred context]
@@ -471,7 +510,7 @@
   forward firing (`SupportingProver`, below), and what it rests on is the edges it crossed
   — which live nowhere but here, one hop at a time.  Every spelling of a hop is kept
   rather than one chosen, because choosing would key the firing's justification on which
-  spelling arrived first; the seam permits exactly this over-approximation and forbids the
+  spelling arrived first; the protocol permits exactly this over-approximation and forbids the
   omission.
 
   Read with `matches-visible`'s `cached?` false, which is the whole of the walk's
@@ -536,7 +575,7 @@
 
   **One pass over the graph, not one closure per source.**  Asking `reaches?` per source
   walks that source's whole reach to fail, so an acyclic chain of *n* nodes costs O(n²) to
-  answer nothing — the shape a temporal or part-of chain actually has, and the shape this
+  answer nothing — the form a temporal or part-of chain actually has, and the shape this
   arm is most often asked about.  A node lies on a cycle exactly when its strongly
   connected component has more than one member, or when it has a self-edge, so Tarjan
   answers every source at once in O(V+E).
@@ -730,7 +769,7 @@
   "The handles of the chain `support-parents` recorded from its root to `node`, or nil
   when nothing reached `node`.
 
-  Every hop contributes every handle that records it, which is the seam's sanctioned
+  Every hop contributes every handle that records it, which is the `SupportingProver` protocol's sanctioned
   over-approximation: a hop written both as `(P x y)` and as an inverse `(Q y x)` is
   licensed by either, and naming only one would decide the justification by arrival order.
 
@@ -823,7 +862,7 @@
   ;; readers that would take a fixed set ask the taxonomy instead —
   ;; `chain/transitive-antecedent?` for which antecedent the join solves by walking, and
   ;; `chain/transitive-rejoin-rules` for which rules an arriving edge owes a re-join.  What
-  ;; the seam *does* carry is `solve-with-support`, which is reached through
+  ;; the protocol *does* carry is `solve-with-support`, which is reached through
   ;; `solve-goal-with-support`'s `satisfies?` and needs no roster at all.
   (support-functors [_] #{})
   (support-sources  [_] #{})
@@ -949,7 +988,7 @@
 (def evaluable-predicates
   "Predicates a prover computes from its ground arguments rather than looks up.
   `lessThan` / `greaterThan` are the **variable arity** arithmetic comparisons —
-  `(lessThan 1 2 3)` reads as the chain 1 < 2 < 3; `greaterThan` is folded to `lessThan`
+  `(lessThan 1 2 3)` is indistinguishable from the chain 1 < 2 < 3; `greaterThan` is folded to `lessThan`
   when *stored* (see `vaelii.impl.sentex`), but a caller may still ask it directly, so both
   are answered here.
 
@@ -959,7 +998,12 @@
   CxCore (`positive_integer` …) be defined by `defnSufficient` / `defnNecessary` conditions
   built on `(integer ?x)` and resolved **by evaluation** at query time, at zero storage
   cost, rather than by a forward rule that never fires because the computed condition is
-  never a believed fact (docs/defns.md)."
+  never a believed fact (docs/defns.md).
+
+  A prover's own source list, and it stays one: the set is what `EvaluableProver` reads
+  its arguments *as*, not a claim about what any predicate is answered by.  The
+  declaration's half is the `:answers` facet each of the three carries, pinned against
+  this set by `predicates_test`."
   '#{lessThan greaterThan integer})
 
 (defrecord EvaluableProver []                    ; arithmetic comparison + EDN-kind check
@@ -989,6 +1033,54 @@
 
 ;; ---- different: the unique-name assumption over the equality closure ----
 
+;; The identity exemption for `indeterminate_term` members: the UNA is
+;; suspended for an indeterminate term — a term that stands for some object without pinning
+;; down which — so `(different indeterminate X)` is NOT provable against a determinate `X`
+;; until a `rewriteOf`/merge pins it (at which point `rep` lifts the exemption).  Gated on
+;; the extensible category, with the skolem constant its built-in first member: a skolem's
+;; membership is never a stored fact, so it is read off its `SkolemFn` `termOfUnit`
+;; expression, while a further kind added with `(genl NewKind indeterminate_term)` is picked
+;; up through ordinary membership.  `indeterminate-term?` below is public because the
+;; `predAllSpecified` audit reads the same category and calls it: `vaelii.impl.predall`
+;; sits *above* this namespace, so the two share one implementation rather than agreeing
+;; by inspection.
+(defn- reified-nat-symbol? [term]
+  ;; a reified constant — a symbol in a reserved reified namespace; the cheap gate before
+  ;; the skolem `termOfUnit` read.  Master: `nat/reified-namespaces` (#{"nat" "cx"}) —
+  ;; copied because the provers layer cannot require nat without a cycle through kb; if
+  ;; the reserved set ever grows, this copy must move with it.
+  (and (symbol? term) (contains? #{"nat" "cx"} (namespace term))))
+
+(defn- skolem-indeterminate? [kb term context]
+  (and (reified-nat-symbol? term)
+       (boolean
+        ;; 'SkolemFn is skolem/skolem-function's value, copied for the same cycle reason
+        (some (fn [[_ b]] (let [e (get b '?e)]
+                            (and (sequential? e) (= 'SkolemFn (first e)))))
+              (res/matches-visible kb (list 'termOfUnit term '?e) context)))))
+
+(defn- category-indeterminate? [kb term context]
+  ;; a believed member of `indeterminate_term` or of any collection that genl-reaches it,
+  ;; in ONE indexed point-read: `res/matches-visible` fans the functor over its genl-spec
+  ;; closure, so a stored `(vague_kind term)` under `(genl vague_kind indeterminate_term)`
+  ;; matches the `indeterminate_term` pattern already.  A membership scan beside this read
+  ;; would decide nothing it does not and would walk every sentex naming the term on the
+  ;; negative answer, which is the common one.
+  (boolean (seq (res/matches-visible kb (list 'indeterminate_term term) context))))
+
+(defn indeterminate-term?
+  "Is `term` an unpinned **indeterminate term** in `context` — a skolem constant (the
+  built-in first member, read off its `SkolemFn` minting expression) or a believed member
+  of the extensible `indeterminate_term` category, subkinds included?
+
+  Public because `vaelii.impl.predall`'s `predAllSpecified` audit asks the same question
+  of a filler and calls this rather than reimplementing it.  Two readers agreeing by
+  inspection is what let the audit call a term indeterminate while `different` treated it
+  as a determinate name, so there is one implementation and the answers cannot diverge."
+  [kb term context]
+  (or (skolem-indeterminate? kb term context)
+      (category-indeterminate? kb term context)))
+
 (defn- pairwise-distinct?
   "Do no two of `args` share an equivalence class?  A term is trivially in its own
   class, so `(different A A)` fails on the `=` arm without consulting the closure at
@@ -1001,14 +1093,28 @@
   Compound arguments normalize **recursively** (`res/representative-term`), which is what
   makes the answer congruence-consistent: the closure is keyed by symbol, so a flat
   lookup on `(QuantityFn 5 Kilogram)` returns it unchanged and would report it different
-  from `(QuantityFn 5 Kg)` with `(sameAs Kilogram Kg)` believed."
+  from `(QuantityFn 5 Kg)` with `(sameAs Kilogram Kg)` believed.
+
+  The UNA is **suspended** when any argument is an unpinned `indeterminate_term`: an
+  indeterminate term is not provably different from anything until a merge pins it, so the
+  whole difference goal is left unprovable (`rep` self-equal witnesses the unpinned state —
+  a `rewriteOf`/`equals` merge moves `rep` off the term and restores the UNA).
+
+  The exemption is read **after** the pairwise check.  The two conjuncts commute, so the
+  order is a cost decision rather than a semantic one: a goal that already fails on a
+  repeat pays no `indeterminate_term` read at all.  `(different A A)` measures 14.6 us/op
+  against 19.4 for the other order, over a KB holding CxCore and no indeterminate term;
+  a goal whose arguments do differ measures the same either way, since it reads every
+  argument in both orders."
   [kb context args]
-  (let [vis (res/visible-supporter-fn kb context)
-        rep #(res/representative-term kb vis %)
-        v   (vec args)]
-    (every? (fn [[a b]] (not (or (= a b) (= (rep a) (rep b)))))
-            (for [i (range (count v)), j (range (inc i) (count v))]
-              [(nth v i) (nth v j)]))))
+  (let [vis     (res/visible-supporter-fn kb context)
+        rep     #(res/representative-term kb vis %)
+        v       (vec args)
+        exempt? (fn [t] (and (= (rep t) t) (indeterminate-term? kb t context)))]
+    (and (every? (fn [[a b]] (not (or (= a b) (= (rep a) (rep b)))))
+                 (for [i (range (count v)), j (range (inc i) (count v))]
+                   [(nth v i) (nth v j)]))
+         (not-any? exempt? v))))
 
 (defrecord DifferentProver []
   Prover
@@ -1027,7 +1133,7 @@
   ;; Authoritative.  `different` is not assertible at all (`wff` refuses it), so the
   ;; superset claim holds against an empty field rather than against content this
   ;; happens to absorb — and `sole-prover` guards it like any other claimant anyway,
-  ;; which for a shape nothing can state costs nothing.
+  ;; which for a shape nothing can state adds no work.
   (completeness [_ _ _ _] 100)
   (solve [_ kb goal context]
     (if (pairwise-distinct? kb context (rest goal)) [{}] [])))
@@ -1299,7 +1405,7 @@
   the rest of the engine takes for a reading stated twice over —
   `duration/interval-length-with-support` on two lengths, `stp/endpoints-of` on two
   starts: a disagreement is declined, not
-  adjudicated.  Restating one declaration in several contexts of the cone is not a
+  adjudicated.  Restating one declaration in several contexts of the ancestor set is not a
   disagreement; the matches carry the same bindings and collapse to one.
 
   `ks` is a vector because a `conversionFactor` names a base **and** a factor, and the two
@@ -1324,7 +1430,18 @@
 (def unit-table-predicates
   "The two predicates a measure is normalized through — what `normalize-quantity` reads,
   and therefore what a conclusion drawn from a measure comparison rests on besides the
-  facts that bound the measures."
+  facts that bound the measures.
+
+  A prover's own source list, and the one place a prover's answer has to be reconciled
+  with *stored facts* — so the tempting move is a `:support-source` field on the
+  declaration, telling a KB author these rows are required.  It stays here, for two
+  reasons that are the same ones the header gives.  Neither predicate is grammar:
+  CxCore's own test for belonging is subject matter, and `dimensionOf` is named there as
+  the example that fails it — both live in `kb/upper/CxMeasure.txt`, where their
+  `comment` sentexes already say they are read by the quantity provers.  And the reading
+  that matters is **live**: `support-source-preds` asks the registry, so a prover
+  arriving through `add-prover` contributes its sources and a declaration field would be
+  blind to it."
   '#{dimensionOf conversionFactor})
 
 (defn normalize-quantity-with-support
@@ -1642,7 +1759,7 @@
 
 (defn closed-extent?
   "Is `pred`'s believed extent declared **complete** as read from `context` — is
-  `(closed_extent_predicate pred)` visible up its `genlCx` cone?
+  `(closed_extent_predicate pred)` visible up its `genlCx` ancestor set?
 
   Scoped, like `abducible_predicate` and `modal_predicate` and for their reason: this is a
   *policy* of the context that grants it, not a claim about the predicate that holds
@@ -1704,7 +1821,7 @@
 ;; **Positive membership descends to a spec's sufficient.**  `(Coll a)` is provable
 ;; when `Coll`'s own defnSufficient passes OR a **spec**'s does — a spec is more specific,
 ;; below `Coll` on the genl edges (`(genl spec Coll)`), and its members are `Coll`s.  So
-;; the walk descends the spec cone (`tax/specs`, which is reflexive — it includes `Coll`
+;; the walk descends the spec ancestor set (`tax/specs`, which is reflexive — it includes `Coll`
 ;; itself, folding the own-sufficient and the spec-sufficient cases into one iteration).
 ;;
 ;; A passing sufficient admits even against a failing OWN necessary — sufficient is
@@ -1740,7 +1857,7 @@
    kb (sx/conjuncts (res/substitute cond {sx/defn-member-var member})) {} context))
 
 (defn- spec-sufficient-conditions
-  "Every defnSufficient condition in `coll`'s spec cone (reflexive `tax/specs`), lazily —
+  "Every defnSufficient condition in `coll`'s spec ancestor set (reflexive `tax/specs`), lazily —
   `coll`'s own and every spec's, the descent the positive walk admits on."
   [kb coll context]
   (mapcat #(defn-conditions kb 'defnSufficient % context)
@@ -1756,11 +1873,11 @@
 
 (defn- genl-necessary-fails?
   "Does some necessary of a **strict** genl of `coll` fail for `member` — the positive
-  query's fast-fail?  Walks the strict-genl cone most-general-first and stops at the first
+  query's fast-fail?  Walks the strict-genl ancestor set most-general-first and stops at the first
   failing necessary (the broadest disqualifier), so a consistent KB rejects without
   evaluating the sides or the (possibly expensive) sufficient.
   **Strict** (excludes `coll` itself): a collection's own necessary does not veto its own
-  sufficient — sufficient is authoritative — and the cone is a set, so a defn reachable
+  sufficient — sufficient is authoritative — and the ancestor set is a set, so a defn reachable
   by two genl paths (a diamond's apex) is checked exactly once.  Sound only on a consistent
   KB: on an inconsistent one the negation prover records
   the ¬member half and this merely declines to admit."
@@ -1775,7 +1892,7 @@
 
 (defrecord DefnSufficientProver []
   Prover
-  ;; A ground unary membership goal `(Coll a)` for a `Coll` whose spec cone carries a
+  ;; A ground unary membership goal `(Coll a)` for a `Coll` whose spec ancestor set carries a
   ;; visible defnSufficient.  Ground because the condition is evaluated against the member:
   ;; an open `(Coll ?x)` would ask a computed condition to *enumerate* its members, which a
   ;; sufficient built from `integer` / `lessThan` cannot do (the infinite-extent generator
@@ -1813,12 +1930,12 @@
 ;; genl's (member ⇒ every necessary up the chain, so a failed one anywhere at-or-above
 ;; proves ¬member).  This is NOT closed-world negation-as-failure: it never fires merely
 ;; because `(Coll x)` cannot be proved; it fires only on a necessary that positively FAILS
-;; (two-valued — the condition is evaluably false).  A `Coll` with no necessary in its cone
+;; (two-valued — the condition is evaluably false).  A `Coll` with no necessary in its ancestor set
 ;; makes this prover inapplicable, so absence of a proof is never mistaken for a disproof.
 
-(defn- cone-necessary-conditions
-  "Every defnNecessary condition in `coll`'s **reflexive** genl cone (`tax/genls`), lazily
-  — `coll`'s own and every genl's.  Reflexive (unlike the positive fast-fail's strict cone)
+(defn- ancestor-necessary-conditions
+  "Every defnNecessary condition in `coll`'s **reflexive** genl ancestor set (`tax/genls`), lazily
+  — `coll`'s own and every genl's.  Reflexive (unlike the positive fast-fail's strict ancestor set)
   because a collection's own failing necessary is itself a sound negative witness."
   [kb coll context]
   (mapcat #(defn-conditions kb 'defnNecessary % context)
@@ -1826,7 +1943,7 @@
 
 (defrecord DefnNecessaryNegationProver []
   Prover
-  ;; A ground `(not (Coll x))` for a `Coll` whose reflexive genl cone carries a visible
+  ;; A ground `(not (Coll x))` for a `Coll` whose reflexive genl ancestor set carries a visible
   ;; defnNecessary.  Ground, for the positive walk's reason: an open `(not (Coll ?x))` is a
   ;; search over the domain's complement, not a test.
   (applicable? [_ kb goal context]
@@ -1836,7 +1953,7 @@
            (and (= 1 (count (rest lit)))
                 (ground? lit)
                 (not (contains? *defn-stack* (first lit)))
-                (boolean (seq (take 1 (cone-necessary-conditions kb (first lit) context))))))))
+                (boolean (seq (take 1 (ancestor-necessary-conditions kb (first lit) context))))))))
   (est-bindings [_ _ _ _] 1)                    ; a ground test: ¬member holds or it does not
   (cost         [_ _ _ _] :compute)             ; a bounded level-6 subquery, at worst a closure
   ;; Augments a stored `(not (Coll x))` (FactProver) and `ClosedExtentProver` rather than
@@ -1847,9 +1964,9 @@
           coll   (first lit)
           member (second lit)]
       (binding [*defn-stack* (conj *defn-stack* coll)]
-        ;; ¬member is proved by the first necessary that fails anywhere in the cone.
+        ;; ¬member is proved by the first necessary that fails anywhere in the ancestor set.
         (if (some (fn [c] (not (condition-holds? kb c member context)))
-                  (cone-necessary-conditions kb coll context))
+                  (ancestor-necessary-conditions kb coll context))
           [{}]
           [])))))
 
@@ -1872,7 +1989,7 @@
 ;; `thereExists`'s rule applied to a variable that is counted rather than witnessed.
 ;;
 ;; **Bind or check.**  A variable `?n` takes the computed value; a bound one is
-;; compared against it, so an aggregate reads as a test as readily as a computation
+;; compared against it, so an aggregate is indistinguishable from a test as readily as a computation
 ;; (`EvaluateProver` makes the same pair).  The check arm is what lets a *firing* be
 ;; re-verified against the count it rested on, which is how an aggregate antecedent is
 ;; maintained (docs/aggregate.md).
@@ -2122,7 +2239,7 @@
   ;; the belief lives).  The inner bindings are over `P`'s variables, which are exactly
   ;; the outer goal's arg-2 variables, so they project straight back out.
   ;;
-  ;; `P` arrives in the spelling the caller wrote: the read doors normalize the whole
+  ;; `P` arrives in the spelling the caller wrote: the read entry points normalize the whole
   ;; goal, and this position is held opaque to that (`res/representative-term`), since
   ;; the asker's merges are not the agent's.  So the normalization owed it happens here,
   ;; against the **agent's** partition — which is the ordinary rule that the reader is
@@ -2247,10 +2364,45 @@
   (covariant — a stored subtype answers its supertypes) and those that reach DOWN
   (contravariant — a stored supertype answers its subtypes).  Only `interArg`'s
   trigger is contravariant; its target and the unconditional `arg`/`genlArg` type are
-  covariant."
+  covariant.
+
+  **The whole `:argument-constraint` family, `quotedArg` included.**  Which predicates'
+  declarations speak for a tuple is `res/constraining-predicates`, and
+  `checks/declaration-reader` already asks it for all four — so a `quotedArg` on a
+  super-predicate refuses a sub-predicate's tuple at the entry point.  Leaving the mention twin
+  out here made `ask` disagree with that entry point about one declaration, which is the exact
+  gap this table was written to close for the other three: `(quotedArg pAge 1 integer)`
+  is entailed by a stored `(quotedArg pAge 1 positive_integer)`, the term written there
+  being held to the narrower kind, and the covariance is `arg`'s for `arg`'s reason — a
+  declared type at or below the queried one satisfies the query.
+
+  Answering `quotedArg` is **not** entailing it.  Nothing is minted from a `quotedArg`
+  and nothing can be: the kind of a written term is computed from the term, so there is
+  no membership to draw (docs/argtypes.md, \"The quoted twin\").  This table is about
+  which stored declarations *answer a goal*, which is a different question and the one
+  all four share.
+
+  The one roster in this file that sits on both sides of the line: the **variance** is
+  this prover's own reading of a declaration it answers, and stays beside the prover
+  reading it; the **key set** is enrolment, and is `meta-constraint-functors`, held to the
+  `:argument-constraint` family by `predicates/check-facets`'s `:family-roster` rule.  A
+  spelling in the family and not in the keys is one declaration meaning one thing to
+  `assert` and another to `ask`."
   '{arg      {:pred 1 :fixed [2] :types-up [3]}
     genlArg     {:pred 1 :fixed [2] :types-up [3]}
+    quotedArg   {:pred 1 :fixed [2] :types-up [3]}
     interArg {:pred 1 :fixed [2 4] :types-up [5] :types-down [3]}})
+
+(def meta-constraint-functors
+  "The argument constraints this prover answers along the `genl` closure, as a set —
+  `meta-constraint-shape`'s keys.
+
+  Public because it is the second roster that reads the `:argument-constraint` family
+  **as a family**, and `predicates/check-facets` holds it and `checks/constraint-
+  declaration-functors` to enumerating exactly it.  A spelling the entry point reads up
+  `res/constraining-predicates` and this table omits is one declaration meaning one thing
+  to `assert` and another to `ask` — which is what happened to `quotedArg`."
+  (set (keys meta-constraint-shape)))
 
 (defn- meta-generalizes?
   "Does a stored declaration on `goal`'s predicate or a super-predicate answer `goal`
@@ -2278,7 +2430,7 @@
              (res/matches-visible kb probe context))))
         (res/constraining-predicates kb k qp context))))))
 
-(defrecord MetaConstraintProver []   ; (arg/genlArg/interArg P n T …) up the genl closure
+(defrecord MetaConstraintProver []   ; (arg/genlArg/quotedArg/interArg P n T …) up the genl closure
   Prover
   (applicable? [_ _ goal _]
     (and (sequential? goal)
@@ -2304,7 +2456,7 @@
   matching what forward chaining does before placing the conclusion.
 
   A rule the asking context cannot see is not a candidate (`res/rule-visible-from?`):
-  a rule is a sentex, inherited by the ordinary `genlCx` up-cone like everything
+  a rule is a sentex, inherited by the ordinary `genlCx` ancestor set like everything
   else.  Nor is a rule the KB no longer believes (`res/rule-believed?`) — the
   consequent index posts on storage, so belief is asked of the record here exactly as
   forward chaining asks it of a trigger.  Nor is one a believed visibility `except`
@@ -2455,7 +2607,7 @@
 
   `qcn-kb/reader-contexts` written for a prover that is not a calculus, and the same
   argument holds it: a reading is what a **reader** sees, and a reader sees the whole
-  `genlCx` cone above it — so a context inheriting two contexts closes a metric network
+  `genlCx` ancestor set above it — so a context inheriting two contexts closes a metric network
   neither closes alone, and that entailment exists for no other reader.  Answering the
   goal at a *wildcard* context instead would read every context's facts into one reading,
   which is not any reader's, and would license a firing on facts no context sees together.
@@ -2485,7 +2637,7 @@
 
   One function rather than two copies, for `applicable-provers`' reason — the two must
   agree about *which* prover answers a goal, and a copied dispatch is two things to keep
-  agreeing.  What differs between the callers is only the shape of an answer, which is
+  agreeing.  What differs between the callers is only the structure of an answer, which is
   exactly what `run` carries."
   [kb provers goal context run]
   (let [applicable (applicable-provers kb provers goal context)
@@ -2528,7 +2680,7 @@
   `SupportingProver`, and an **empty** support otherwise.
 
   Empty is the honest answer for a prover that reads nothing stored — `EvaluableProver`
-  compares two numbers, `EvaluateProver` computes one — and the seam's contract is what
+  compares two numbers, `EvaluateProver` computes one — and the `Prover` protocol's contract is what
   makes it honest rather than merely convenient: a prover whose answer *does* move with
   the store implements the protocol, so a prover that does not implement it is one whose
   answer no retraction can invalidate."
@@ -2695,7 +2847,7 @@
   "Does `except` — a rule's `exceptWhen` query, a vector of literals — hold under
   `bindings`, evaluated in `context`?
 
-  Three properties make this cheap, and each is load-bearing:
+  Three properties make this cheap, and each is required:
 
   * **Closed.**  Every exception variable is bound by an antecedent (enforced in the
     `sentex` constructor), so substitution leaves a *ground* question and the conjuncts
@@ -2807,7 +2959,7 @@
     (let [ceiling (or (cost-rank max-cost)
                       (throw (ex-info (str "no such cost tier: " (pr-str max-cost)
                                            " — want one of " (pr-str cost-tiers))
-                                      {:type :unknown-option :max-cost max-cost
+                                      {:type :unknown-option :mismatch :bad-value :max-cost max-cost
                                        :known cost-tiers})))]
       (filterv (fn [p]
                  (or (<= (goal-cost-rank p kb goal context) ceiling)
@@ -2835,7 +2987,7 @@
 
   Applicable is not the same as consulted.  When one prover may answer the goal alone
   every other applicable prover is *shadowed*: reported, never invoked, contributing
-  nothing.  A plan that listed them without saying so reads as a union that is not
+  nothing.  A plan that listed them without saying so is indistinguishable from a union that is not
   happening.  So each entry carries `:runs?`, and a shadowed one carries
   `:shadowed-by` naming the prover that displaced it.
 

@@ -73,7 +73,7 @@ join re-walks in the search step's memo. A cache earns its eviction where the qu
 repeat; a scan is the read where they do not.
 
 It is the *probe* that opts out, not the walk: the seed read a `(P ?x ?x)` condensation
-takes is one extent literal, asked through the ordinary cached door, because one literal
+takes is one extent literal, asked through the ordinary cached entry point, because one literal
 asked once is not a scan.
 
 ## Reading them

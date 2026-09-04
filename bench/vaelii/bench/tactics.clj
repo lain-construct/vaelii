@@ -6,7 +6,7 @@
   `:cost` baseline, and then measures the only thing an ordering can change.
 
   **An exhaustive search expands the same node set under every ordering.**  That is the
-  whole content of the completeness invariant, and it has a consequence worth stating
+  whole content of the completeness invariant, and it has a consequence stated here
   before any number below is read: on a query driven dry, every tactician does identical
   work and their wall-clocks differ by noise plus the estimate's own overhead.  An
   ordering pays only under a **bound** — time to the first K answers, or answers within a
@@ -224,7 +224,7 @@
     {:kb kb :goal (list (step 0) '?x '?y) :depth (inc (long chain))}))
 
 (defn- engine-ttfa
-  "Time to the **first** answer, through the public bounded door — the measurement a
+  "Time to the **first** answer, through the public bounded entry point — the measurement a
   consumer that stops at one answer actually pays.  `nil` opts is the DFS's own order."
   [kb goal depth engine opts]
   (lc/clear-cache kb)
@@ -330,7 +330,7 @@
 
 (defn- needle-runs
   "Every engine the needle is asked of.  The DFS and `ask` are the other two backward
-  chainers, measured through the same public bounded door, because time-to-first-answer
+  chainers, measured through the same public bounded entry point, because time-to-first-answer
   is a claim about *engines* and not only about orderings."
   []
   (-> [{:label :prove-dfs :engine :dfs}

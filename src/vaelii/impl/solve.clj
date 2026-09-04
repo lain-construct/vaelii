@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.solve
-  "The seam to an external solver (ultimately an ASP/clingo backend) for assigning
+  "The `Solver` protocol for an external solver (ultimately an ASP/clingo backend) for assigning
   truth at the *edges* — the defeasible nodes that a set of soft, prioritized
   contradictions leaves genuinely undecided.
 
@@ -21,7 +21,7 @@
     the same beliefs.
 
   A `Program` is a self-contained description a backend renders to ASP.  This namespace
-  holds the seam and one deterministic local solver behind it; the answer-set backend is
+  holds the protocol and one deterministic local solver behind it; the answer-set backend is
   `vaelii.impl.asp.edge/edge-solver`, installed with `core/set-solver` (docs/asp.md)."
   (:require [clojure.set :as set]
             [vaelii.impl.naming :as nm]))

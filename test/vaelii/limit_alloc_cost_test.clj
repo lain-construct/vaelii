@@ -30,7 +30,7 @@
   `bench/vaelii/bench/alloc.clj`'s argument for measuring trie walks in bytes instead of
   milliseconds, and the same instrument answers here:
   `com.sun.management.ThreadMXBean/getCurrentThreadAllocatedBytes`, exact to the byte
-  across a region bounded by two reads on one thread, needing no agent and no seam in the
+  across a region bounded by two reads on one thread, needing no agent and no instrumentation in the
   engine.  That harness is on the `:bench` source path, which `lein test` does not carry,
   so the few lines below are the instrument and not a copy of its analysis; the reasoning
   it records about escape analysis, warm-up and what the counter cannot see is the

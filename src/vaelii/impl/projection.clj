@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.projection
   "Relation algebras built as **two independent projections onto the one-dimensional
-  point algebra** — the shape the cardinal directions (`vaelii.impl.orientation`) and the
+  point algebra** — the form the cardinal directions (`vaelii.impl.orientation`) and the
   relative frame (`vaelii.impl.relative`) both have.
 
   Each names nine base relations, and each of the nine is a pair of coordinates on two

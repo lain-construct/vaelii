@@ -14,7 +14,7 @@
 
     - **triples** — n(n-1)(n-2), the structural cost of one full sweep. Exact, trusted,
       and the floor for either implementation.
-    - **pass wall-clock**, queue and naive — the fixpoint over a network the shape a KB
+    - **pass wall-clock**, queue and naive — the fixpoint over a network the form a KB
       actually produces. Indicative rather than trusted (JIT, GC, contention), but the
       *ratio* between the two, and between node counts, survives noise.
     - **KB read** — `qcn-kb/network`, one belief-filtered read per predicate of the

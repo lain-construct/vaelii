@@ -12,7 +12,7 @@
 
 A pluggable language model that reads a KB through its own tools and answers with a
 **proposed edit batch**. It never writes. The batch is the exact shape
-`vaelii.core/edit!` takes, which is also the shape the browser's textarea editor
+`vaelii.core/edit!` takes, which is also the form the browser's textarea editor
 already produces — so a proposal lands in the existing editor as a reviewable diff,
 adding no write path and no trust boundary.
 
@@ -20,7 +20,7 @@ Everything lives under `vaelii.impl.llm.*`. Like `web` / `serve` / `cli`, it is 
 application over the engine, not part of it; it is not in `vaelii.core`.
 
 ```
-protocol.clj   the Provider seam: complete / stream, and the neutral request+response
+protocol.clj   the `Provider` protocol: complete / stream, and the neutral request+response
 provider.clj   which backend a turn runs against — lazily resolved, stub by default
 stub.clj       the default provider — deterministic, offline, scriptable
 anthropic.clj  the Messages API backend, raw HTTP over java.net.http + cheshire
@@ -70,7 +70,7 @@ ordinary person would agree. The trust runs the other way — nothing a verdict 
 reach the store, and a disagreement is a line in a report. [commonsense.md](commonsense.md)
 is the argument for it and the measurement against `phi4:14b`, control group included.
 
-## The four load-bearing ideas
+## The four required ideas
 
 ### 1. `serve/ops` is already a tool registry
 
@@ -103,7 +103,7 @@ is `opts/check!`'s rule one level out. The nested shapes are where it bites: `qu
 takes `(goal)`, `(goal, context)`, `(goal, context, opts)`, so a call giving goal and
 `opts` and no context satisfies the *first* — and passing it on would run the read
 facts-only with the depth discarded, which is indistinguishable from a goal no rule can
-reach. The refusal names the shape the input selected and the shapes the op has, so the
+reach. The refusal names the form the input selected and the shapes the op has, so the
 next call supplies the argument in between.
 
 **Writes are excluded structurally.** `tools/write-ops` names every mutating op, and
@@ -117,7 +117,7 @@ rather than at its HTTP route, so a tool call naming a bound past one is refused
 `:over-ceiling` and comes back as the `{:ok false :error …}` a `tool_result` carries
 ([operations.md](operations.md)). A model reading a KB through a prompt it did not write
 is the caller most likely to name an expensive depth, and a ceiling only the wire had
-would be the door it found first.
+would be the entry point it found first.
 
 ### 2. The KB documents itself, so the prompt is generated from it
 
@@ -288,7 +288,7 @@ Two things about where it comes from, both measured and both counter-intuitive:
 
 The card is bounded, not complete. An inventory renders 204 terms — 120 relations, 80 type
 names and the four structural ones — and `:dropped` counts all three of its cuts, because a
-card that cuts silently reads as the whole vocabulary. Both count bounds are stated as a
+card that cuts silently is indistinguishable from the whole vocabulary. Both count bounds are stated as a
 number left out (`:relations` 22 here, `:types` 1), and `:unscanned` is the third: the stored
 **facts** `:max-scan` never read, which the relation block states as *"this card did not
 read N further facts about this term; a relation used only there is not listed above."*
@@ -396,7 +396,7 @@ Every read of a model's output catches **`Throwable`**, not `Exception`: a deepl
 form overflows the reader's stack, and an unreadable answer is the ordinary outcome these
 arms exist to report rather than one that should leave the loop. A parse failure is named
 by its exception class where the failure carries no message, since a `StackOverflowError`
-carries none and a nil marker reads as an empty batch — a crash that looks like a model
+carries none and a nil marker is indistinguishable from an empty batch — a crash that looks like a model
 proposing nothing.
 
 `:status` is one of `:ok`, `:invalid`, `:unparseable`, `:refused`, `:truncated`,
@@ -474,7 +474,7 @@ has no tools section and it cannot emit a tool call at all.
    byte-identical.
 3. **The reader's instruction**, last, so it is the newest thing in the window.
 
-Sub-predicates are the load-bearing part of the card. "State this more specifically" is
+Sub-predicates are the part that decides it of the card. "State this more specifically" is
 unanswerable unless `fatherOf` is visible under `parentOf`.
 
 The system prompt closes with a **worked example** — two selected lines and an
@@ -729,7 +729,7 @@ Either way the answer says which it is: the heading over the block reads `40`, `
 or `40 of more than 137` where the scan bound bit, and `propose-page` lifts the same two
 out as `:page-found` and `:page-truncated?` so the reviewer reading those 40 lines is told
 what the model was told. The prompt asks the model not to repeat anything already stored,
-and that instruction is only honest if a sample says it is one.
+and that instruction is only defensible if a sample says it is one.
 
 Two things are deliberately not sent:
 
@@ -835,7 +835,7 @@ socket, and neither should happen because a namespace was required.
 ### The stub is the default
 
 `vaelii.impl.llm.stub/provider` stands where `vaelii.impl.solve/local-solver` stands:
-the deterministic default that makes the seam usable before, and without, a real
+the deterministic default that makes the LLM provider usable before, and without, a real
 backend. `lein test` runs the whole pipeline against it — no API key, no socket, **no
 model call** — and a deployment with no credential degrades to a provider that proposes
 nothing rather than to an exception.
@@ -897,7 +897,7 @@ no official Anthropic SDK for Clojure, and the repo already carries both halves 
 to reach the vaelii daemon — so this adds **no dependency**. It mirrors that
 namespace's style: an explicit connection handle, no global state.
 
-Request details that are load-bearing:
+Request details that are required:
 
 - Default model `claude-opus-5`.
 - `temperature` / `top_p` / `top_k` are rejected by this model family and are never
@@ -998,7 +998,7 @@ seconds and every client is built on it, whatever `:timeout-ms` a caller allowed
 bound different things: a turn may legitimately run for minutes — a cold 14B load, a
 high-effort answer — while a connection either completes in well under a second or is not
 going to. Handed the turn's budget, `connectTimeout` makes a host that never answers the
-SYN cost five minutes on Ollama and ten on the Messages API, which is the shape of a hang
+SYN cost five minutes on Ollama and ten on the Messages API, which is the structure of a hang
 rather than of a refusal. A probe that wants to fail faster still can: the request's own
 `.timeout` bounds the exchange, connection included, so `ollama/version` keeps its
 two-second gate.

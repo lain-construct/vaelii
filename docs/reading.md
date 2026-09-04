@@ -137,7 +137,7 @@ line: a resolved synonym belongs to the equality partition, not to the reader.
 ### The card is three relevance tiers
 
 `text/document-inventory` builds `inventory`'s own shape, so `inventory/render` writes it
-unchanged. What differs is the seeding, and the order matters because it is where a token
+unchanged. The seeding is what differs, and the order matters because it is where a token
 cap cuts:
 
 1. **What the document's words resolved to** — the vocabulary the text demonstrably wants.
@@ -149,15 +149,15 @@ Tier 3 exists because a document rarely spells a predicate the way the KB does. 
 repay the kindness* does not resolve `repaidKindness`; a reader who cannot see that name
 coins a synonym for it, and the claim joins nothing. `text/declared-in` reads the
 `unary_predicate` / `binary_predicate` / `ternary_predicate` memberships **scoped to the target
-context's cone** — which is the right scope on its merits, since a candidate filed in one
-context may reuse exactly the vocabulary that context sees — and orders the cone by how much
+context's ancestor set** — which is the right scope on its merits, since a candidate filed in one
+context may reuse exactly the vocabulary that context sees — and orders the ancestor set by how much
 each context sees, largest first. So a cap drops `CxCore`'s plumbing before it drops
 the story's own predicates.
 
 What tier 3 puts on the card is **names and shapes**. A declaration says a predicate exists
 and takes two arguments; it says nothing about what is true of anything.
 
-## The span, and what it buys
+## The span, and what it provides
 
 `text/segments` cuts the document at a run of `.`/`!`/`?` followed by whitespace or the end.
 Crude, and deliberately so: an abbreviation splits a segment in two, which costs a narrower
@@ -227,7 +227,7 @@ reads rather than hidden in where the line goes.
 Beside that, `:corrections` reports entries that **passed** the critic and are still the
 wrong shape — `(believed person)` states a one-place claim of a type symbol where the KB's
 idiom quantifies over its instances. Nothing rejects it and nothing will; `correct.clj` is
-the only thing that catches it, and this is the second place it earns its keep.
+the only thing that catches it, and this is the second place it pays for itself.
 
 ## The review queue
 
@@ -261,7 +261,7 @@ the scorer's opinion.
 
 Two filters on what counts as gold:
 
-- **Its own context**, not the cone above it. A story context sees the whole upper ontology
+- **Its own context**, not the ancestor set above it. A story context sees the whole upper ontology
   through `genlCx`, and scoring a reader of one fable against the shipped schema would
   measure a recall it was never asked for.
 - **Premises only.** `(repaidKindness MouseA LionA)` is forward-chained, and so are the
@@ -361,7 +361,7 @@ budget, and `selection/budget-problem` refuses it with the numbers rather than l
 Ollama silently drop the front of the request.
 
 So the card cap is not a tuning knob, it is what makes a small window usable — and it is
-where the three relevance tiers earn their keep, because a cap cuts from the bottom: the
+where the three relevance tiers pay for themselves, because a cap cuts from the bottom: the
 context's least-targeted vocabulary goes first and the words the document actually
 spelled stay.
 
@@ -398,7 +398,7 @@ not already decided the story was about the boy.
 `(implies (liar ?x) (not (believed ?x)))` where the gold joins two conditions,
 `(and (liar ?x) (cries_wolf ?x))`. It also wrote the joined version — both, from one
 sentence — so the pair costs a precision point for the loose one and gains the recall for
-the tight one. What it never produced is the *positive* default it is the exception to,
+the tight one. It never produced the *positive* default it is the exception to,
 `(implies (cries_wolf ?x) (believed ?x))`: the prose says "a cry is believed by default,
 except from a liar", and the reader took the exception and dropped the rule.
 

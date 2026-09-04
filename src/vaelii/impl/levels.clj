@@ -222,7 +222,7 @@
   this isolates what genlCx alone contributes.  A variable context already means
   'any context', so there is nothing to add.
 
-  Reading up the cone is also what *creates* a retired spelling, which is why the
+  Reading up the ancestor set is also what *creates* a retired spelling, which is why the
   reader-scoped filter belongs to this level rather than the one above.  A fact stated
   above an equality merge is believed where it lives — its own context was told nothing
   — while a context below the merge sees both it and the twin migration placed there,

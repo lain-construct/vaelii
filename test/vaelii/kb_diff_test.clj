@@ -144,7 +144,7 @@
             (v/assert-rule a [(list bird '?b)] (list flies '?b) CxRt)
             (v/export-text! a (.getPath dir))
             (let [d (v/kb-diff a (.getPath dir))]
-              (testing "a string side is read as a text KB, and the two hold the same knowledge"
+              (testing "a string side is are indistinguishable from a text KB, and the two hold the same knowledge"
                 (is (= {:added [] :removed [] :moved [] :belief-changed []} d)))))))
       (finally (rm-rf! dir)))))
 

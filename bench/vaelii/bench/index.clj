@@ -20,7 +20,7 @@
   A projection comparison has a hole that this shape of harness inherits in a worse
   form, and `index_dump_test` already names it: **a layout that quietly falls back to a
   coarser access path answers identically and is merely slower.**  Read as a duration
-  that is a fair loss; read as a path it is a misconfiguration.  So the access-path
+  that is a fair loss; are indistinguishable from a path it is a misconfiguration.  So the access-path
   report is printed **first**, before any number that could be mistaken for a verdict,
   and a layout whose path histogram diverges from the reference's is called out by name.
   `vaelii.impl.profile`'s `:goals` tally is where it comes from — keyed by shape *and*
@@ -47,24 +47,24 @@
     pins the exact operation counts, and `lein bench-profile`, which reads them out over
     a whole corpus.  Deriving a second write number here would be a second answer to a
     settled question.
-  * **Allocations per lookup** is `vaelii.bench.alloc`.  The seam is deliberate: that
+  * **Allocations per lookup** is `vaelii.bench.alloc`.  The choice of instrument is deliberate: that
     namespace drives the same arms by reaching `#'vaelii.bench.index/layouts` and
     `#'vaelii.bench.index/open-layout!`, so the two harnesses compare the same layouts
     over the same corpora rather than two spellings of them.
 
-  ## The columnar arm reads as a KB that never touches its trie
+  ## The columnar arm is indistinguishable from a KB that never touches its trie
 
   This matters more here than anywhere else in the repo, so it is handled explicitly
   rather than noted.  **Only the `:goals` tally is index-independent** (docs/profile.md):
   it is taken above the index, in `resolution`.  `:reads`, `:fan`, `:writes` and
-  `:retracts` are `KvIndexStore`'s seams, and the columnar store's trie is native — its
+  `:retracts` are `KvIndexStore`'s methods, and the columnar store's trie is native — its
   `lookup` and its three count probes report no read and no fan, and its writes bypass
   `KvIndexStore` entirely.
 
   So comparing a columnar layout against a flat-map one on `:reads` would report a
   fabricated result: the columnar arm would look like an index nobody reads.  Every
-  layout carries a `:kv-seams?` flag, the read table prints **`n/a  (native trie — no
-  KvIndexStore seam)`** rather than `0` for a layout that has none, and the access-path
+  layout carries a `:kv-index-store?` flag, the read table prints **`n/a  (native trie — no
+  `KvIndexStore`)`** rather than `0` for a layout that has none, and the access-path
   and answer-set reports — which are index-independent — are the ones that span all of
   them.  A zero and an absence are different readings and are printed differently.
 
@@ -101,7 +101,7 @@
   timings are interleaved by group, not by layout**: measuring every group of layout A
   before any group of layout B puts tens of seconds between the two readings a ratio is
   taken over, so drift over the run — heap growth as each layout's KB stays resident, a
-  background process, thermal throttling — lands on the layout axis and reads as a layout
+  background process, thermal throttling — lands on the layout axis and is indistinguishable from a layout
   difference.  Group by group, the compared readings are seconds apart.
 
   **Build wall-clock is the least trustworthy number here** and is labelled so in its own
@@ -126,7 +126,7 @@
     to the write path is invisible to a read-only workload, and every workload here is
     read-only.  Build time is the only write reading, and it is one number for a whole
     corpus rather than a per-family count: `assert_cost_test` is the instrument for that.
-  * **What the context cone costs.**  Every probe is asked at `?ctx`, so the
+  * **What the context ancestor set costs.**  Every probe is asked at `?ctx`, so the
     `genlCx` up-closure is never walked.  A layout question about the context level
     is not answered by these numbers.
   * **Allocations, objects and bytes on the walk.**  Retrieval time is wall-clock, and
@@ -237,37 +237,37 @@
 ;; would be quoting the reference's.  Sharing the KB is also what makes it the sharper
 ;; experiment: the stored index is held byte-identical and only the path varies.
 ;;
-;; `:kv-seams?` is the columnar caveat made data.  False means the four
+;; `:kv-index-store?` is the columnar caveat made data.  False means the four
 ;; `KvIndexStore` tallies do not fire for this layout, so a zero from them is an absence
 ;; and not a reading.
 
 (def ^:private layouts
-  [{:id :kv :axis :physical :kv-seams? true
+  [{:id :kv :axis :physical :kv-index-store? true
     :label "kv-trie (shipped)"
     :opts {:backend :memory}
     :note "the flat-map KvIndexStore — the reference every other row is a ratio against"}
-   {:id :dense :axis :physical :kv-seams? true
+   {:id :dense :axis :physical :kv-index-store? true
     :label "dense postings"
     :opts {:backend :memory-dense}
     :note "same families, sorted int[] postings instead of boxed handle sets"}
-   {:id :columnar :axis :physical :kv-seams? false
+   {:id :columnar :axis :physical :kv-index-store? false
     :label "columnar trie"
     :opts {:backend :memory-columnar}
-    :note "a native CSR trie over an int dictionary — no KvIndexStore seam on the trie"}
-   {:id :deep-terms :axis :physical :kv-seams? true
+    :note "a native CSR trie over an int dictionary — no `KvIndexStore` implementation on the trie"}
+   {:id :deep-terms :axis :physical :kv-index-store? true
     :label "kv-trie, term floor 0"
     :opts {:backend :memory}
     :bindings {:min-indexed-depth 0}
     :note "every literal earns its own whole-compound term key — a strictly larger key set"}
-   {:id :no-arg-roots :axis :access :kv-seams? true :shares :kv
+   {:id :no-arg-roots :axis :access :kv-index-store? true :shares :kv
     :label "no argument roots"
     :bindings {:arg-roots false}
     :note "a ground argument after an open one falls back to a leading-variable trie fan"}
-   {:id :no-structural :axis :access :kv-seams? true :shares :kv
+   {:id :no-structural :axis :access :kv-index-store? true :shares :kv
     :label "no structural narrowing"
     :bindings {:structural false}
     :note "a compound argument is answered by the functor extent, the looser superset"}
-   {:id :fan-out :axis :access :kv-seams? true :shares :kv
+   {:id :fan-out :axis :access :kv-index-store? true :shares :kv
     :label "reference fan-out"
     :bindings {:hierarchical false}
     :note "the |specs| x |context-up| product instead of the set-algebra retrieval"}])
@@ -590,13 +590,13 @@
                    (name reference-id))))
 
 (defn- read-report
-  "Index reads by family — and the one table where a layout without `KvIndexStore` seams
+  "Index reads by family — and the one table where a layout without a `KvIndexStore`
   must not be printed as a zero.  `n/a` is an absence and `0` is a reading, and the whole
   point of the distinction is that the columnar arm would otherwise look like an index
   nobody touches."
   [rows]
   (banner "INDEX READS BY FAMILY — and where the instrument cannot see")
-  (println "  Only :goals (above) is index-independent.  These are KvIndexStore's seams, so")
+  (println "  Only :goals (above) is index-independent.  These are `KvIndexStore`'s methods, so")
   (println "  a layout whose trie is native reports n/a rather than 0 — see docs/profile.md.")
   (let [ids (mapv first rows)]
     (println)
@@ -607,7 +607,7 @@
       (println (format "    %-18s %s" (name f)
                        (str/join " " (map (fn [[_ r]]
                                             (format "%14s"
-                                                    (if (:kv-seams? r)
+                                                    (if (:kv-index-store? r)
                                                       (format "%,d" (long (get (:reads r) f 0)))
                                                       "n/a")))
                                           rows)))))
@@ -615,19 +615,19 @@
     (println (format "    %-18s %s" "trie walks"
                      (str/join " " (map (fn [[_ r]]
                                           (format "%14s"
-                                                  (if (:kv-seams? r)
+                                                  (if (:kv-index-store? r)
                                                     (format "%,d" (:calls (:fan r)))
                                                     "n/a")))
                                         rows))))
     (println (format "    %-18s %s" "node probes"
                      (str/join " " (map (fn [[_ r]]
                                           (format "%14s"
-                                                  (if (:kv-seams? r)
+                                                  (if (:kv-index-store? r)
                                                     (format "%,d" (:visits (:fan r)))
                                                     "n/a")))
                                         rows))))
     (println)
-    (println "    n/a = a native trie with no KvIndexStore seam.  Its flat families do tally,")
+    (println "    n/a = a native trie with no `KvIndexStore`.  Its flat families do tally,")
     (println "    delegating to an embedded KvIndexStore, so a mixed row is the honest reading:")
     (println "    the flat numbers are real and the trie ones are not there to be read.")))
 
@@ -696,7 +696,7 @@
     (binding [lc/*enabled* false]
       (let [n   (long (v/sentex-count kb))
             fps (mapv #(fingerprint kb %) groups)]
-        (merge (select-keys layout [:axis :kv-seams? :note])
+        (merge (select-keys layout [:axis :kv-index-store? :note])
                (path-tally kb groups)
                {:build-ms build-ms
                 :sentexes n
@@ -713,7 +713,7 @@
   makes about warming: measuring every group of layout A before any group of layout B
   puts tens of seconds between the two readings a ratio is taken over, so any drift over
   the run — heap growth as each layout's KB stays resident, a background process, thermal
-  throttling — lands on the *layout* axis and is read as a layout difference.  Taken
+  throttling — lands on the *layout* axis and is are indistinguishable from a layout difference.  Taken
   group by group, the readings a ratio compares are seconds apart and the drift is
   common to all of them.
 
@@ -810,7 +810,7 @@
       (println "    one.  test/vaelii/assert_cost_test.clj pins the per-family assert cost.")
       (println "  * allocations and bytes on the walk — vaelii.bench.alloc, which drives these")
       (println "    same layouts through #'vaelii.bench.index/layouts.")
-      (println "  * the context cone: every probe is asked at ?ctx, so nothing here walks the")
+      (println "  * the context ancestor set: every probe is asked at ?ctx, so nothing here walks the")
       (println "    genlCx up-closure.")
       (println "  * a family this workload never reads.  The term index and the term roster are")
       (println "    read by terms / find-terms / find-sentexes and by no reasoning at all, so a")

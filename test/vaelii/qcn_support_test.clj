@@ -39,7 +39,7 @@
   {:universe universe :identity #{:eq} :compose compose-sets :converse converse-set})
 
 (defn- net
-  "A network plus its asserted support, from `[i j rels handle]` entries — the shape a
+  "A network plus its asserted support, from `[i j rels handle]` entries — the form a
   reader produces."
   [& entries]
   (reduce (fn [[n s] [i j rels h]]

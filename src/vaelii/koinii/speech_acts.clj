@@ -3,7 +3,7 @@
 (ns vaelii.koinii.speech-acts
   "Koinii speech-acts: the small vocabulary of moves agents make, as
   sentexes in the KB.  A move is not an out-of-band message but knowledge — queryable,
-  retractable, auditable like any other fact — and the SHAPE of the move carries the
+  retractable, auditable like any other fact — and the FORM of the move carries the
   layer's headline property (koinii design D1 / D5).
 
   Two kinds of move, one split (`koinii.md`, *Reply is an assertion*):

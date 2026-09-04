@@ -286,6 +286,13 @@
   [conn handle m]
   (c/add-provenance conn handle m))
 
+(defn all-specified-violations
+  "Audit every `predAllSpecified` and `predSpecifiedAll` declaration visible in `context`,
+  and return `{[functor pred indep dep] #{violating-instances…}}` — the declarations that
+  hold are omitted, so an empty map is a clean sweep."
+  [conn context]
+  (c/all-specified-violations conn context))
+
 (defn argue
   "Four-valued epistemic status of a ground assertion."
   ([conn asent context] (c/argue conn asent context))
@@ -626,8 +633,8 @@
   ([conn term context] (c/representative conn term context)))
 
 (defn same-class?
-  "Do `a` and `b` denote the same thing? The complement of a provable `(different a b)`:
-  distinct symbols denote distinct individuals until an equality sentex says otherwise."
+  "Do `a` and `b` denote the same thing? Distinct symbols denote distinct individuals until
+  an equality sentex says otherwise."
   ([conn a b] (c/same-class? conn a b))
   ([conn a b context] (c/same-class? conn a b context)))
 
@@ -672,6 +679,13 @@
   "Instrumentation for the `exceptWhen` fixpoint in `settle`."
   [conn]
   (c/settle-stats conn))
+
+(defn specified-violations
+  "The instances of `indep` that break a `(predAllSpecified pred indep dep)` integrity
+  requirement in `context`: every member x of `indep` for which no believed `(pred x y)`
+  carries a **determinate** filler y in `dep`."
+  ([conn pred indep dep context] (c/specified-violations conn pred indep dep context))
+  ([conn pred indep dep context arg-pos] (c/specified-violations conn pred indep dep context arg-pos)))
 
 (defn supporting-justifications
   "Justifications that conclude `handle` (its supporting justifications), in **content**

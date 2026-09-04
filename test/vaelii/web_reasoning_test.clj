@@ -4,7 +4,7 @@
   "`/reasoning` — the gallery of worked examples.
 
   The page's whole claim is that it is *computed*, so these tests attack the two ways a
-  gallery like this normally lies. It must **cost nothing to look at**: every read-only
+  gallery like this normally lies. It must **added no work to look at**: every read-only
   card is answered on render, so rendering the page has to leave the KB byte-identical.
   And it must **name what it reasons from**: each card links the stored sentexes behind
   its verdict, and a card whose sentexes are absent has to say so instead of answering.

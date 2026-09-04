@@ -4,7 +4,7 @@
   "What a `RecordStore` may answer its three enumerations with, and what a caller may do
   with the answer.
 
-  The seam says **a `java.util.Set` of handles**, not an `IPersistentSet` — so a store
+  The protocol says **a `java.util.Set` of handles**, not an `IPersistentSet` — so a store
   whose roster is a table's worth of them can answer a compressed one
   (`vaelii.impl.roster`) instead of a `PersistentHashSet<Long>` at 48–75 bytes a handle.
   That licence is only worth having if the engine cannot tell, and this is where core

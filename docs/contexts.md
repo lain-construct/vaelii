@@ -152,7 +152,7 @@ contexts it inherits — but not the other way around.
 ## The query contexts: reading modes wearing a context's spelling
 
 Three `Cx…` symbols stand where a context stands and name a **way of reading** rather than
-a place. They are resolved at the read door (`core/read-in-context`) and never reach the
+a place. They are resolved at the read entry point (`core/read-in-context`) and never reach the
 engine; the write side refuses them at `assert` and in the `genlCx` slots, so nothing is
 stored in one and nothing wires one into the lattice.
 
@@ -191,7 +191,7 @@ answer at all, and the `unknown` is then evaluated at those readers and nowhere 
 `[(p ?x) (unknown (q ?x))]` reads "a reader that sees p and does not know q", which is what
 it should.
 
-**Why they must not leak past the door.** All three are `Cx…` CapitalCamelCase, so
+**Why they must not leak past the entry point.** All three are `Cx…` CapitalCamelCase, so
 `nm/context?` calls them contexts and `sx/variable?` does not. Reaching the engine, one
 would be read by every unscoped-path test as an ordinary *concrete* context the taxonomy
 has never heard of — up-closure itself alone — and the read would answer **empty** rather
@@ -209,7 +209,7 @@ whichever literal the plan ordered last. Projection hides that at `query`, which
 has been invisible rather than wrong.
 
 `CxInference` is that reading made joint: an answer survives only if some one reader's
-`genlCx` cone covers the whole derivation, and the reader that covered it comes back
+`genlCx` ancestor set covers the whole derivation, and the reader that covered it comes back
 **beside** the bindings, under the keyword `:context` (`vantage/witness-key`) — the same
 place rows two and three of the table above put it. `CxInference` is a constant and names
 no variable, so there is nothing for the witness to bind; write the context as a variable
@@ -273,7 +273,7 @@ subsumption over a *defeated* `genl` edge stays invisible under it. The reading 
 "what does the store spell", not "what would the store spell with the TMS switched off".
 
 Two implementation notes that are easy to get wrong and silent when you do. The flag is a
-dynamic var, so a plain `binding` around a read door would be popped before the lazy seq
+dynamic var, so a plain `binding` around a read entry point would be popped before the lazy seq
 realized and the flag would simply not take (`res/blind-seq` re-establishes it per
 realization step). And it belongs in **every** cache key on the path, because a blind read
 asks the same question at the same wildcard context as an ordinary one and moves no clock
@@ -290,7 +290,7 @@ intersection of the facts' + rule's `context-down` closures. This can be several
 (incomparable maxima) or none (no common view ⇒ no justification). A universal rule
 firing on specific facts lands its conclusion in the specific context — unless the
 consequent is an `(ist Ctx S)` form, which directs it into `Ctx` explicitly (below) — a
-**query context** excepted, which is refused there as at every other write door, so the
+**query context** excepted, which is refused there as at every other write entry point, so the
 firing drops its conclusion rather than storing into a way of reading.
 
 The placement's own sightings are **antecedents of the firing**: the `genlCx` edges the
@@ -345,16 +345,16 @@ The removal is **total**, not just for reads:
 - **Reads.** `res/matches-visible` and `sentexes-matching` drop a handle hidden from the
   view context — the believed excepts visible from there, resolved through `context-up`.
 - **Derivations.** A rule firing that used `H` as an antecedent and placed its
-  conclusion in the cone rests on a fact that context can no longer see, so the
+  conclusion in the ancestor set rests on a fact that context can no longer see, so the
   conclusion is **blocked and swept** — the derivation-side twin of `exceptWhen`, run
   through the same block/sweep/revive machinery (`chain/justification-excepted?` and
   `place-conseq` ask per placement). A firing that arrives *after* the
-  except is never placed in the cone; a late except sweeps what already fired; and
+  except is never placed in the ancestor set; a late except sweeps what already fired; and
   retracting the except **re-derives** what it was hiding. A conclusion placed *above*
-  the cone (a context that does not see the except) is untouched.
+  the ancestor set (a context that does not see the except) is untouched.
 - **Rules.** `H` may itself be a rule — a firing rests on its rule exactly as it
   rests on its facts (the rule handle is in the stored justification), so excepting a
-  rule sweeps its conclusions from the cone, blocks late firings there, and revives
+  rule sweeps its conclusions from the ancestor set, blocks late firings there, and revives
   them when the except is retracted (`special/recheck-except` re-chains a rule
   target on departure). The backward chainers honor the same removal:
   `provers/candidate-rules` drops a rule the asking context cannot see, so `query`
@@ -372,7 +372,7 @@ line `:opposed` draws.
 
 Callers with particular handles in hand — a firing's two or three antecedents, or matches
 arriving one at a time — take `res/hidden-fn`, a predicate over one view context, rather
-than `res/excepted-handles`, which materializes every handle hidden anywhere in the cone.
+than `res/excepted-handles`, which materializes every handle hidden anywhere in the ancestor set.
 The set costs one pass over the reader's excepts however few handles will be asked about;
 the predicate costs a lookup per question, and the questions are bounded by the answer set
 while the excepts are not. On a chaining run over a KB with 1,000 excepts the difference
@@ -380,7 +380,7 @@ is 16× the whole run (`lein bench-hotreads`).
 
 The re-check triggers are the except arriving or leaving (`special/recheck-except`,
 keyed on the handle it names rather than a predicate) and any `genlCx` edge change
-(`special/recheck-except-cone` — a visibility move changes which contexts see the
+(`special/recheck-except-ancestors` — a visibility move changes which contexts see the
 excepting context, hence what each hides).
 
 ## ist: find or create in a context
@@ -409,10 +409,10 @@ and `find-sentexes` take no context and ask *which* contexts hold a sentence, so
 is not a question they have, and `isa?` / `genls` take a context but a **term** rather
 than a sentence.
 
-Each door answers at its own notion of a context, and the two families differ:
+Each entry point answers at its own notion of a context, and the two families differ:
 `sentexes-matching` is an exact-context retrieval, so it returns the sentexes stored in
-`Ctx`, while the reasoning doors answer from everything `Ctx` inherits. Both are "in
-`Ctx`" — a fact `Ctx` inherits is true in `Ctx` — so the difference is the doors', not
+`Ctx`, while the reasoning entry points answer from everything `Ctx` inherits. Both are "in
+`Ctx`" — a fact `Ctx` inherits is true in `Ctx` — so the difference is the entry points', not
 `ist`'s.
 
 Two shapes are refused rather than answered empty, since a read reporting nothing looks
@@ -435,7 +435,7 @@ announces itself, and a guard that passes everything does not.
 The reading a rule wants is that `S` be **visible** where it is stated, which is what the
 two mechanisms below this section say — `(decontextualized_predicate P)` takes every
 `(P ...)` into CxUniverse, which every context sees, and a `genlCx` edge puts
-`Ctx` in the rule's own cone. Under either the premise is written plainly, and it is the
+`Ctx` in the rule's own ancestor set. Under either the premise is written plainly, and it is the
 `genlCx` topology rather than a per-rule annotation that decides what is readable
 from where. `sentex/ist-read-problem` carries the refusal and names both.
 
@@ -482,7 +482,7 @@ in code, so the rule is never indexed or fired; it only records the intent. The
 declaration is ordinary predicate metadata, read back with
 `(has-prop? kb :decontextualized pred)`.
 
-**The mark itself is read globally, not through the asserting fact's cone.** A
+**The mark itself is read globally, not through the asserting fact's ancestor set.** A
 `(decontextualized_predicate P)` stated *anywhere* lifts every `(P ...)` in the KB,
 including facts stated in contexts that cannot see the declaration. That is
 deliberate (`special/deduce-lifts` says so at the read): the lift decides the
@@ -610,7 +610,7 @@ constraints, comments, and type memberships are visible everywhere.
 
 The `genl` closure reads are scoped the same way (docs/taxonomy.md): `genls` /
 `specs` / `genl?` / `disjoint?` take a context, and a read asked from K walks only
-the edges some believed supporter asserts from K's cone.  The **`genlCx`
+the edges some believed supporter asserts from K's ancestor set.  The **`genlCx`
 closure itself stays global, as a stated exception** — visibility scoped by
 visibility would be circular, `forced_decontextualized_predicate` already forces
 every `genlCx` edge universal, and the scoped reads' interning is keyed on
@@ -664,7 +664,7 @@ just as well when the feature is broken outright.
   contexts to `maximal-common-descendant-contexts` beside the rule's and the facts'.
   Every placement that comes back sees every named edge by construction — the scoping
   guarantee is structural rather than a filter — and the witness joins the antecedent
-  list, so the conclusion goes when the edge does. Both halves are load-bearing: a
+  list, so the conclusion goes when the edge does. Both halves are required: a
   placement decided by re-deriving reachability that the justification does not then
   record leaves the conclusion standing on nothing once the edge is retracted. The
   join itself stays global (which facts exist is not
@@ -736,28 +736,28 @@ just as well when the feature is broken outright.
 
   **A `genlCx` edge owes the same debt through the other closure**, and
   `special/visibility-seeds` is the twin that pays it. Matching fans an antecedent up the
-  *visibility* cone, so an edge arriving after both the rule and the facts changes which
+  *visibility* ancestor set, so an edge arriving after both the rule and the facts changes which
   facts the rule can see — and again the arriving datum is the edge, so firing the rules
   keyed on `genlCx` is not the same thing as re-joining the rules the edge just gave
   a wider view.
 
-  It seeds **both** cones, because an edge pairs rules and facts in two directions. A
+  It seeds **both** ancestor sets, because an edge pairs rules and facts in two directions. A
   rule below can now see facts above; and a rule stated *above* is inherited into the
   context newly wired under it, so the edge equally hands the general rule the
   context's own facts and places the conclusion there. Seeding is by fact, so the
-  seeds are the believed sentexes of `super`'s up-cone together with those of `sub`'s
-  down-cone.
+  seeds are the believed sentexes of `super`'s ancestor set together with those of `sub`'s
+  descendant set.
 
   **It is enumerated from the rules, and each half is gated on the other holding one.**
-  Both are about cost, and the cost is asymptotic rather than constant. Walking the cone
-  and keeping the facts a rule could match is a record fetch per sentex *in the cone*, so
+  Both are about cost, and the cost is asymptotic rather than constant. Walking the ancestor set
+  and keeping the facts a rule could match is a record fetch per sentex *in the ancestor set*, so
   wiring N contexts under a `CxUniverse` holding K facts is O(N·K) against
-  O(N+K) without it, and a spindle D deep is O(D²) because each edge's up-cone is the
+  O(N+K) without it, and a spindle D deep is O(D²) because each edge's ancestor set is the
   whole chain above. Two ref-counted rosters maintained at the rule index/unindex choke
   points — `:rule-antecedents`, the predicates some rule takes as an antecedent, and
   `:rule-contexts`, the contexts rules are stated in, both beside `:opposed` and both
   replayed by `recover` — turn it around: walk those predicates' extents, keep what falls
-  in the cone, and skip a half entirely when the other side holds no rule to benefit.
+  in the ancestor set, and skip a half entirely when the other side holds no rule to benefit.
   Wiring an *empty* context under a full one is the commonest edge there is and now
   seeds nothing, where the ungated version re-seeded the whole ontology above it and
   re-joined rules that had already fired on every fact of it. Measured on the starter
@@ -777,7 +777,7 @@ just as well when the feature is broken outright.
   firing names the edges its placement was seen over, so the dependency-directed sweep
   already collects a conclusion whose antecedent stopped being visible. Revival is the
   half that does, and it is the same function read the other way —
-  `special/resubsumption-seeds` puts a removed `genlCx` edge's two cones back on the
+  `special/resubsumption-seeds` puts a removed `genlCx` edge's two ancestor sets back on the
   agenda beside a removed `genl` edge's spec subtree, because a sighting can outlive the
   edge that witnessed it when the contexts are wired together a second way.
 
@@ -790,10 +790,10 @@ just as well when the feature is broken outright.
   `visibility-seeds` is called in the **ungated** arity it keeps for this caller: the
   rule-holding gate two paragraphs up is skipped on purpose, not inherited. That gate is
   sound for an *arriving* edge because an arriving edge is the only new reachability there
-  is — nothing can newly match except through it, so a cone holding no rule newly matches
+  is — nothing can newly match except through it, so an ancestor set holding no rule newly matches
   nothing. A departing edge says nothing of the kind. The firing being revived saw the
   rule down whichever branch it liked and the facts down another, and neither branch need
-  be the one that went, so an edge whose own two cones hold no rule is precisely the case
+  be the one that went, so an edge whose own two ancestor sets hold no rule is precisely the case
   that would lose a firing a surviving route still licenses. Whether the reachability
   really survived is `place-conseq`'s question, answered from the taxonomy as it stands
   after the removal, and a gate here guessing it from the departing edge alone would miss

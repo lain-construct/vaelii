@@ -8,7 +8,7 @@
   provoked `log!` — which runs the real installed backend rather than a stand-in for
   it.  Three properties are worth the test and all three are here: the level decides
   what arrives, an illegal level is refused *without* moving the dial (a bad argument
-  that left the process silent would be the failure mode with teeth), and opening a KB
+  that left the process silent would be the failure mode with enforcement), and opening a KB
   installs nothing at all — the library-shape invariant a later convenience is most
   likely to break.
 

@@ -47,7 +47,7 @@
 (defn kv-backend-of
   "The `KvBackend` an `IndexStore` is written over, or nil when it is not written over one
   at all.  A `KvIndexStore` holds it as `:backend`; a native index (the columnar one) has
-  no such seam and answers nil."
+  no such protocol and answers nil."
   [index-store]
   (let [b (:backend index-store)]
     (when (and b (satisfies? kv/KvBackend b)) b)))
@@ -74,7 +74,8 @@
     :disk   (disk/overlay-meta-for (disk/disk-dir opts))
     (throw (ex-info (str "no overlay bookkeeping for record backend " (pr-str kind)
                          " — a fork's own records are :memory or :disk")
-                    {:type :unknown-backend :records kind}))))
+                    {:type :unknown-backend :mismatch :illegal-position
+                     :axis :records :kind kind :records kind}))))
 
 (defn forked?
   "Is either half of this `{:records :index}` store pair already a **fork's own**?

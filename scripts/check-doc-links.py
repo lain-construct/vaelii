@@ -52,7 +52,7 @@ def slugify(heading):
     """GitHub's heading -> fragment rule.
 
     Lowercase, drop everything that is not a word character, a space or a hyphen,
-    then replace EACH space with a hyphen. That last word is load-bearing: a run of
+    then replace EACH space with a hyphen. That last word is required: a run of
     spaces becomes a run of hyphens, so `## Phase 3 — the dense TMS` (whose em-dash
     is dropped between two spaces) is `phase-3--the-dense-tms` with a DOUBLE hyphen.
     Collapsing runs instead reports every such heading as a dead anchor, which is

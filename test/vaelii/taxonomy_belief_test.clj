@@ -72,7 +72,7 @@
                (tax/edge-contexts (:taxonomy kb) :genl [sub_t super_t])))))))
 
 (tu/deftest-kb retracting-the-last-believed-supporter-of-a-shared-edge-drops-it
-  ;; The retract twin of the test above, and the shape a belief-blind writer gets wrong on
+  ;; The retract twin of the test above, and the form a belief-blind writer gets wrong on
   ;; its own.  `del-edge` runs on the retract path with no `believed?` in hand: it sees a
   ;; surviving supporter, keeps the edge, and recomputes its contexts from every
   ;; *recorded* one — so between the write and the settle the edge reads as live, asserted
@@ -82,7 +82,7 @@
   ;; does.  (What puts the edge in the reconcile's scope is `refresh-relation`'s `:dirty`;
   ;; it is not what makes *this* test pass, since the retraction's own region turns out to
   ;; name the surviving supporter anyway.  The synthetic driver in `taxonomy_test` is
-  ;; where `:dirty` is load-bearing, because it passes the honest flip set rather than
+  ;; where `:dirty` is required, because it passes the honest flip set rather than
   ;; `jtms/touched`'s superset.)
   (tu/with-terms [sub_t super_t Ind1 CxA CxB]
     (v/assert kb (list 'genl sub_t super_t) CxA)

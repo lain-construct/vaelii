@@ -347,7 +347,7 @@
     (is (seq (v/sentexes-matching kb (list fatherOf Tom Ann) ctx)) "the rewrite landed")
     (is (nil? (v/sentex kb h-parent)) "and the original was retracted")))
 
-;; ---- the provider seam --------------------------------------------------
+;; ---- the provider extension point --------------------------------------------------
 
 (tu/deftest-kb the-stub-is-the-default-and-the-fallback
   ;; **This opens no socket, on any machine.**  `(provider/provider)` with no kind reads
@@ -391,7 +391,7 @@
                                             nil)]
                    (f))
                  @logged)]
-    (testing "every seam that builds one logs it, and hands back the stub anyway"
+    (testing "every provider that builds one logs it, and hands back the stub anyway"
       (doseq [[what build] [["provider" #(provider/provider :ollama)]
                             ["generation-provider" #(provider/generation-provider :ollama)]]]
         (let [lines (run! (fn []

@@ -199,7 +199,7 @@
   unscoped listener while this registry stored `CxDeploy` and `subscriptions` reported
   it back — the daemon naming a scope it is not applying.  Scoping is the goal's
   (`core/watch` refuses a goal without one for the mirror-image reason), so a context
-  arriving alone is a request this door cannot honour rather than one to drop.
+  arriving alone is a request this entry point cannot honour rather than one to drop.
 
   The entry lands in the registry **before** the listener is registered, so an event
   fired between the two has somewhere to go; a refused goal takes the entry back out
@@ -278,7 +278,7 @@
     (when-not (nat-int? w)
       (throw (ex-info (str "poll :wait-ms must be a whole number of milliseconds,"
                            " got " (pr-str w))
-                      {:type :unknown-option :options (vec (sort poll-opt-keys))})))))
+                      {:type :unknown-option :mismatch :bad-value :options (vec (sort poll-opt-keys))})))))
 
 (defn- park
   "Hold the calling thread until this subscription has an event past `cursor`, the
@@ -293,7 +293,7 @@
   **An interrupt ends the park the way the deadline does**, and puts itself back.  A
   parked poll holds a server thread, so it is exactly what a shutting-down container
   interrupts — and `.wait` clears the flag on its way out, so letting the exception
-  travel would answer a 500 for a request the caller reads as a feed stopping, and would
+  travel would answer a 500 for a request the caller is indistinguishable from a feed stopping, and would
   lose the interrupt for whoever owns the thread.  Returning instead answers the events
   it has, which is what a wait that ran out answers too."
   [reg token cursor ^Object sig deadline]

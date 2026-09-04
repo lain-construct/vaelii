@@ -2,7 +2,7 @@
 
 - **Covers:** how, with the opt-in toggle on, an `arg` / `genlArg` / `interArg`
   declaration also mints the type it constrains as a derived, justified, retractable sentex.
-- **Not here:** `arg` / `genlArg` read as a constraint that rejects a wrongly-typed
+- **Not here:** `arg` / `genlArg` are indistinguishable from a constraint that rejects a wrongly-typed
   argument (the default, toggle-off reading) → [taxonomy.md](taxonomy.md); `transitiveInArg`,
   which carries a stated claim rather than a declared type across an argument →
   [inherit.md](inherit.md).
@@ -10,7 +10,7 @@
 
 `(arg parentOf 1 animal)` says the first argument of `parentOf` is an animal. Assert
 `(parentOf Fred Mary)` and the KB checks that claim against what it knows about `Fred` —
-and when it knows nothing, **passes and stores nothing**. The declaration is read as a
+and when it knows nothing, **passes and stores nothing**. The declaration is are indistinguishable from a
 constraint to test, never as a fact to derive.
 
 This is the other reading: the declaration also *entails* what it constrains, and the
@@ -287,7 +287,7 @@ either backwards inverts the constraint: demand the trigger's absence and every 
 argument fires it, excuse the target's absence and it never convicts anybody.
 
 **One arrival order is not covered, and it is the family's, not this constraint's.** The
-fact and the declaration each reach the other (at the door, and through
+fact and the declaration each reach the other (at the entry point, and through
 `special/entail-existing`), but the *trigger's type* arriving third does not reach back:
 `(eats Rex Chunk)` and the declaration both stored, then `(carnivore Rex)`, and the
 entailment is not drawn — nor is the violation reported, had `Chunk` been a `grass`.
@@ -312,6 +312,15 @@ imported constraint on a domain collection never convicts a value it cannot judg
 decides at all, rather than every non-symbol being exempt:
 [defenses.md](defenses.md#a-value-is-typed-by-its-kind-and-the-openness-moves-to-the-declared-type).
 
+**Checked and never entailed is not the same as read literally.** Whose declarations speak
+for a tuple is one question for all four spellings — `res/constraining-predicates`, the
+predicate's own and every super-predicate the asking context can see — so a `quotedArg` on
+`pAgeOf` refuses a `pInfantAgeOf` tuple at the entry point. `provers/MetaConstraintProver`
+answers `quotedArg` along that same closure, position 1 descending the predicate and
+position 3 widening up the type, exactly as it answers the other three; the alternative was
+one declaration meaning one thing to `assert` and another to `ask`. What stays out is the
+*entailment*: answering a goal draws nothing, and there is still nothing to mint.
+
 **One vocabulary, not two.** `string`, `number`, `integer`, `keyword`, `boolean`,
 `character` and `symbol` name the EDN kinds a value can carry — one per leaf
 kind, deliberately complete — and both declarations read them. Beside them sit the
@@ -329,7 +338,7 @@ and is the trap this page already warns about one paragraph down, arrived at fro
 other direction: `positive_integer` is *inside* the syntactic lattice, being below
 `integer`, so the open-world escape does not apply to it — the check compared the
 value's bare kind upward against the declared type, and refused every integer
-written in such a position. One reader, both doors. A string value denotes itself, so
+written in such a position. One reader, both entry points. A string value denotes itself, so
 `(arg comment 2 string)` and `(quotedArg p n string)` ask two questions of one set — what
 the argument denotes, and what is written there. A parallel domain spelling would buy
 nothing and cost a trap: `quotedArg` reads a type outside the syntactic lattice
@@ -344,10 +353,12 @@ no disjointness: a use-level claim about it would be false of every predicate na
 ## Scope
 
 **In:** `arg`, `genlArg` and `interArg`, both directions, justified and retractable;
-the local/inherited rule; the toggle.
+the local/inherited rule; the toggle; and the closure reading of all four spellings on the
+query surface, which is neither direction of the entailment.
 
 **Out:** entailing `quotedArg`, which is checked and never entailed (above), there being
-nothing to mint about a term that already is what it is; `(ListOfType T)` element typing, which stays
+nothing to mint about a term that already is what it is — it is *answered* along the `genl`
+closure with the other three, which is a different question; `(ListOfType T)` element typing, which stays
 disjoint-check-only so a `(ListOfType thing)` slot refuses nothing and sprays nothing;
 making `checks` write, for the sequencing reason above; and a dry-run mode, since
 `preview` has its own machinery and the two are not wired together.

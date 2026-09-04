@@ -47,11 +47,11 @@ Level 1 is candidate retrieval, not matching: it intersects the context root wit
 the functor root and does **not** look at arguments. Both roots carry O(1)
 cardinality, so it drives from whichever is smaller.
 
-Level 3's fan-out up the `genlCx` cone is also what *creates* a retired spelling,
+Level 3's fan-out up the `genlCx` ancestor set is also what *creates* a retired spelling,
 so the reader-scoped filter that drops one belongs to it: a fact stated above an
 equality merge is believed where it lives — its own context was told nothing — while a
 context below the merge sees both it and the twin migration placed there. Reading up
-the cone without `res/without-retired` would hand one fact back twice, under two names
+the ancestor set without `res/without-retired` would hand one fact back twice, under two names
 the reader knows denote one thing ([equality.md](equality.md)). That is an artifact of
 the fan-out rather than something the fan-out found.
 
@@ -116,7 +116,7 @@ two halves fill do not line up: a stored match carries the sentence it was store
 its bindings and the context it was **asked** in. So for any fact inherited from a
 general context — every taxonomy fact a story context reads — the closure's re-derived
 copy agrees with the stored match on neither field, and a dedup keyed on either would
-call one answer two. What identifies an answer is the **goal seen through the
+call one answer two. An answer is identified by the **goal seen through the
 bindings**, and that is what the fold keys on: a derived answer a stored result already
 carries is dropped, so the surviving result is the one with provenance. The fold is
 **one-way** — two stored matches carrying one answer are two *facts*, and level 5 is
@@ -158,7 +158,7 @@ sources I read would answer for this goal*. The closure is built from the very e
 level 4 reads, so it contains them; it hands back a derived answer rather than a stored
 one.
 
-What stops that claim from over-reaching is not the prover but the **engine**.
+That claim is stopped from over-reaching not by the prover but by the **engine**.
 `provers/sole-prover` asks `provers/shadowing-channels` whether this KB could reach the
 goal by a route no computed prover reads — an `(transitiveInArg P n R)` declaration
 (`:preserving`), a rule concluding the goal's predicate or a spec of it (`:rules`), a

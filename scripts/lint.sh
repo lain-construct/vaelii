@@ -20,6 +20,8 @@
 #                 header of scripts/check-reflection.sh for why the split exists
 #   - unused      a public var under impl/ that nothing references, against
 #                 scripts/unused-publics-baseline.txt
+#   - prose       metaphor and aphorism where a mechanism has a name, against the
+#                 per-file budget in scripts/prose-baseline.txt (CONTRIBUTING §3.9)
 #
 #   lein lint               # the clean report
 #   VERBOSE=1 lein lint     # also dump each check's full output, pass or fail
@@ -27,7 +29,7 @@
 #
 # The granular `lein lint-glossary` / `lint-versions` / `lint-links` /
 # `lint-drift` / `lint-kondo` / `lint-cljfmt` / `lint-shellcheck` /
-# `lint-reflect` / `lint-unused` aliases run a single check
+# `lint-reflect` / `lint-unused` / `lint-prose` aliases run a single check
 # for a quick one-off.
 set -uo pipefail   # NOT -e: every check must run even after one fails.
 
@@ -80,6 +82,7 @@ summary() {
     shellcheck) s="scripts clean" ;;
     reflect)    s="$(grep -oE 'no reflection warnings.*' "$o" | head -1)" ;;
     unused)     s="$(grep -oE '[0-9]+ known[^.]*' "$o" | head -1)" ;;
+    prose)      s="$(grep -oE '[0-9]+ of [0-9]+ allowed, [0-9]+ files remaining' "$o" | head -1)" ;;
   esac
   echo "${s:-ok}"
 }
@@ -150,7 +153,7 @@ check() {
 # and flags what an older one passes, which is a green squash arriving on
 # staging with five errors waiting for it.
 #
-# A NOTE and never a failure, deliberately.  The pin moves whenever the workflow
+# A NOTE and never a failure.  The pin moves whenever the workflow
 # is edited, and a package manager can lag it for weeks — brew was four months
 # behind the pin at one point, so there was a window where no `brew install`
 # could satisfy a hard check.  Refusing to run the linter at all during that
@@ -187,6 +190,7 @@ check cljfmt     -- lein cljfmt check
 check shellcheck -- bash scripts/lint-shellcheck.sh
 check reflect    -- bash scripts/check-reflection.sh
 check unused     -- python3 scripts/check-unused-publics.py
+check prose      -- python3 scripts/check-prose.py
 
 total=$((pass + fail))
 if [[ $fail -eq 0 ]]; then

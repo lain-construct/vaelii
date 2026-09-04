@@ -56,19 +56,19 @@
   ## What it does not catch
 
   - **Work that is not an index operation.**  Computation, allocation, a record-store
-    read, a taxonomy walk.  The seams are on `IndexStore`, so a constant added between two
+    read, a taxonomy walk.  The counted calls are `IndexStore`'s, so a constant added between two
     of them is invisible here.
   - **A more expensive version of the same operation.**  One `sentexes-with-arg` counts
     once whether it returns four handles or four million.  `lein perf`'s
     `intersect-selectivity` is the check that holds *that*, and this gate does not
     subsume it.
-  - **A retraction cost read as a per-retraction constant.**  `unindex-sentex!` reports
+  - **A retraction cost are indistinguishable from a per-retraction constant.**  `unindex-sentex!` reports
     what it cost (`:retracts`, docs/profile.md), so a teardown is budgeted the same way —
     except `:dead`, the trie nodes a removal emptied, which is decided by what else is
     still stored under the same prefix rather than by the sentex.  It is exact for a
     fixed corpus torn down in a fixed order, which is what a workload is, and it is not a
     figure another corpus reproduces.  So a moved `:dead` is read against the workload
-    that produced it: change `n` or the shape of the facts and it moves for that reason
+    that produced it: change `n` or the structure of the facts and it moves for that reason
     alone, where every other family scales with `n`.
   - **A store that is not `KvIndexStore`.**  The columnar index walks its own trie and
     reports nothing, which is why the KB below is pinned to `:backend :memory` instead of
@@ -104,7 +104,7 @@
   "The KB every workload runs on: in-RAM, its own space, the reference TMS.
 
   Pinned rather than inherited, and each half has its own reason.  The **backend**,
-  because the seams live in `KvIndexStore` and the columnar store has none — inheriting
+  because the counted calls live in `KvIndexStore` and the columnar store has none — inheriting
   `VAELII_TEST_BACKEND` would make this gate read near-zero on the two columnar runs and
   pass by measuring nothing.  The **TMS**, because a budget is a claim about one
   configuration and `VAELII_TEST_TMS=dense` is a different one.  Derived from
@@ -174,7 +174,7 @@
 
 (defn- declared
   "A fact of a predicate carrying an `arg` declaration at both positions, over
-  individuals that already hold the type.  **The shape of the historical regression**: the
+  individuals that already hold the type.  **The historical regression's form**: the
   argument-constraint checks are the reads `assert` names as its dominant per-fact cost,
   so a fourth declaration kind read unconditionally lands here first."
   []
@@ -275,7 +275,7 @@
   "An `(arity P 2)` declaration over a predicate carrying `declaration-relatives`
   super-predicates.
 
-  The door refuses a declaration that disagrees with what the predicates above or below it
+  The entry point refuses a declaration that disagrees with what the predicates above or below it
   are declared with, so an arity arriving iterates `genls(P) ∪ specs(P)` and asks each
   relative for its own length.  The `(arity P n)` table answers that as a map read for a
   relative it names and says nothing about one it does not — and the second spelling, the
@@ -309,7 +309,7 @@
 ;; `:dead` is why: how many trie nodes a removal empties is decided by what else is still
 ;; stored under the same prefix, so the number below is a property of *this corpus torn
 ;; down in this order* and not of a fact of this shape.  Every other family is decided by
-;; the sentex and reads like an assert budget.
+;; the sentex and is indistinguishable from an assert budget.
 
 (def ^:private nat-population
   "Reified NATs standing in the KB for the two NAT workloads.  Its own knob rather than
@@ -460,7 +460,7 @@
    ;; **One membership read per assert above `plain`, and it is the arity descension's.**
    ;; `acm_t` declares no arity of its own and sits under `thing`, so `inherited-arity`
    ;; asks what `thing` is declared with: the `(arity P n)` table answers that as a map
-   ;; read and costs nothing, and the predicate-type membership — the second spelling,
+   ;; read and adds no work, and the predicate-type membership — the second spelling,
    ;; which a KB loaded without CxCore's rules is the only one to have — costs the
    ;; retrieval counted here. It is paid per **super the table says nothing about**, so
    ;; it is proportional to hierarchy depth on a predicate that declares no arity, and
@@ -575,7 +575,7 @@
               :functor-root 1200 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 101 :slots 101}}
 
-   ;; **One retrieval per relative the arity table does not name**, which is what the door
+   ;; **One retrieval per relative the arity table does not name**, which is what the entry point
    ;; costs an arity declaration, and `declaration-relatives` is the number to read it
    ;; against.  Measured at both: four relatives cost 1000 `:argument-root` and 1000
    ;; `:argument-slot`, two cost 800 and 800, so the per-relative term is **one of each per
@@ -847,7 +847,7 @@
           "so the smaller unarmed run out-walks the larger armed one — the skip is what closes the gap"))))
 
 (deftest instrument-is-silent-when-off
-  ;; The budgets above are only meaningful if the seams cost nothing when nobody is
+  ;; The budgets above are only meaningful if the protocols added no work when nobody is
   ;; collecting — a gate on an instrument that is always running measures the instrument.
   (testing "a workload outside `start`/`stop` records nothing"
     (is (false? (prof/profiling?)))

@@ -72,7 +72,7 @@
 (defn- chain-of
   "A depth-`n` linear derivation: premise 0, then justification 2000+i concludes i+1
   from i, so node n rests on a chain of n justifications.  The region a root change
-  relabels is the whole chain — the shape that exercises depth."
+  relabels is the whole chain — the structure that exercises depth."
   ([n] (chain-of n :default))
   ([n strength]
    (let [tms (jtms/create-tms)]
@@ -281,7 +281,7 @@
     (jtms/ensure-node tms 5 9)
     (is (= 3 (jtms/depth tms 5)) "a deeper one does not raise it back")))
 
-;; ---- the same claim at the seam, on both representations ---------------
+;; ---- the same claim at the protocol, on both representations ---------------
 ;;
 ;; Everything above instruments `relabel-region*`, which is the reference network's own
 ;; fixpoint — so it says nothing about the network the engine actually ships.  The dense
@@ -290,7 +290,7 @@
 ;; not the window: a dense operation that widened its region back to the whole graph
 ;; answers identically and is invisible there.
 ;;
-;; `touched` is the instrument that works at the seam — it is on the protocol, both
+;; `touched` is the instrument that works at the protocol — it is on the protocol, both
 ;; implementations maintain it, and it is what `preview`, the consequence report and the
 ;; change feed read (docs/preview.md, docs/feed.md).  What locality claims about it is
 ;; not a constant but a *shape*: the window of an operation on one pair does not grow
@@ -320,7 +320,7 @@
 
 (defn- flat-across-sizes
   "The window size `op` produces at each of `sizes`, as a vector — so a failure prints
-  the shape that grew rather than just that one number was wrong."
+  the structure that grew rather than just that one number was wrong."
   [make op]
   (mapv (fn [n] (let [tms (fan-on make n)] (count (window-of tms #(op tms))))) sizes))
 
@@ -362,7 +362,7 @@
   ;; noted as touched anyway (docs/defenses.md, "The touched window is a superset, not
   ;; the flip set").  Both halves are needed and both are checked here.
   ;;
-  ;; It is worth a seam-level test because the failure is backend-specific and shows up
+  ;; It is worth a protocol-level test because the failure is backend-specific and shows up
   ;; far away: `settle/record-clashes!` republishes a standing clash's supporting
   ;; justifications for the pairs the window holds and carries the report forward for
   ;; the rest, so a silently-arriving witness is a `contradictions` entry naming fewer
@@ -387,7 +387,7 @@
 (deftest neither-representation-names-the-store-protocols
   ;; Obligation 4 of the `Tms` docstring, and the reason locality's per-boundary-node
   ;; cost is a claim about every representation rather than about the reference's
-  ;; happens-to-be-free reads: the seam passes the network plus integers and plain
+  ;; happens-to-be-free reads: the protocol passes the network plus integers and plain
   ;; values, so no implementation of it can turn a boundary read into a lock and a slot
   ;; decode, or into a round trip.
   ;;

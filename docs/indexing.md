@@ -48,9 +48,9 @@ set size, so a count cannot drift from its extent.
 implement it — `kv/apply-op` and the transient twin a bulk load takes — both stop at 0,
 and so does every backend that counts for itself, because the disk store replays its WAL
 through the same fold and a floor on one side alone would make a reopened index disagree
-with the one that wrote it. It costs nothing (the fold has the new value in hand) and
+with the one that wrote it. It adds no work (the fold has the new value in hand) and
 changes no decision on the ordinary path, where a retraction reads the reply to find the
-nodes that emptied and asks `<= 0`. What it removes is a negative `[:trie :count prefix]`,
+nodes that emptied and asks `<= 0`. It removes a negative `[:trie :count prefix]`,
 which `plan/prefix-estimate` divides by: not a wrong estimate but a meaningless one.
 
 **The retraction is gated, the assert is not, and the asymmetry is the threat model.**
@@ -82,7 +82,7 @@ a conclusion whose support was withdrawn and a spelling an equality retired, bec
 three are revivable and belief lives in the JTMS. That is not an omission to work around —
 half the engine wants the stored reading — but it does mean every read of a posting carries
 a question, so the reads are not made against `vaelii.impl.protocols` directly. They go
-through `vaelii.impl.reads`, whose door names say which answer the caller wanted:
+through `vaelii.impl.reads`, whose entry point names say which answer the caller wanted:
 `as-stored-…` and `stored-count-…` take the index store, `believed-…` takes the KB.
 `lein lint`'s **E16** rosters the implementers — this namespace, `columnar`, the disk
 snapshot, `kb` and `resolution`, and the dump — and fails a raw read anywhere else
@@ -265,7 +265,7 @@ drift from its extent — the trie needs explicit counters only because a *prefi
 count aggregates the leaves beneath it. A rule contributes only its context; its
 predicates live in the rule index below.
 
-**The argument roots are the one family with a second seam.** `[:argument-root pred pos
+**The argument roots are the one family with a second boundary.** `[:argument-root pred pos
 term]` is the only four-element key, so a probe through a flat `key → set` map conses that
 vector at the call site and pays a vector `equals` per read; and the family is
 *hierarchical* — `pos → term → pred → handles` — while the reads a settle leans on ask for
@@ -466,7 +466,7 @@ per edge and stops, and each then narrows from it. `special/recheck-genl-edge` k
 the predicate — the roster sliced by `[:exception-index pe]` for each `pe` in
 `genls(super)`, the up-closure being exactly where a spec closure moved — and
 `special/recheck-genlCx-edge` keys on the context, walking the roster and queueing a rule
-only where one of its firings was placed in the cone the edge widened. The roster is
+only where one of its firings was placed in the ancestor set the edge widened. The roster is
 taken **whole** only where nothing can narrow it: `special/recheck-every-exception`, which
 `recover` takes because a restart leaves no edge or fact to key on and every exception
 must be re-decided from scratch.
@@ -610,10 +610,10 @@ backend:
 (p/index-load    index entries)  ; install them into an EMPTY index, in this backend's own shape
 ```
 
-Two consequences worth stating. An index written by one backend loads into another —
+Two consequences follow. An index written by one backend loads into another —
 `index_dump_test` builds one KB and asserts all four project the *same set*, which is
 also the check that catches a dense backend that has quietly stopped posting a family.
-What it deliberately cannot catch is a family a dense backend still holds but holds
+It deliberately cannot catch a family a dense backend still holds but holds
 *boxed*: the projection is the same either way, so how densely a backend stores a family
 is `dense_routing_test`'s question, not this
 one's ([density.md](density.md)).

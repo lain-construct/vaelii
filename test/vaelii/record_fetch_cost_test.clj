@@ -98,7 +98,7 @@
   exact leaf is empty and the answer is nil with **no record read at all**.  Asked as a
   *match* instead, the variable is a wildcard: the walk returns all `n` ground handles and
   the caller then reads a record apiece to find that none of them is this sentence.  That
-  is the shape of the fix, and `n` is what this budget reads if it comes back."
+  is the structure of the fix, and `n` is what this budget reads if it comes back."
   []
   (let [kb (fresh)]
     (dotimes [i n] (v/assert kb (list 'rfCand (ind "RfC" i) 'RfVal) 'CxPerf {}))
@@ -227,7 +227,7 @@
                "wildcard read is back (" (:fetches narrow) " -> " (:fetches wide) ")")))))
 
 (deftest the-instrument-counts-nothing-when-off
-  ;; The budgets are only meaningful if the seam costs nothing when nobody is collecting.
+  ;; The budgets are only meaningful if the call sites add no work when nobody is collecting.
   (testing "a workload outside `start`/`stop` records no fetch"
     (is (false? (prof/profiling?)))
     ((ground-assert))

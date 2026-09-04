@@ -76,7 +76,7 @@
 #
 # Each stage streams to its own log, tailable while it goes.  On the console a
 # stage is ONE chunk — its command, then its verdict, then its detail, printed
-# together when it finishes and set off by a blank line — so a stage reads as a
+# together when it finishes and set off by a blank line — so a stage is indistinguishable from a
 # block with its context attached rather than a header at the top and a result
 # far below.  A failing stage prints the tail of its log inline; the whole log is
 # always on disk.
@@ -470,7 +470,7 @@ run_stage () {                 # run_stage <name> <blurb> <cmd...>
 # The reflection ratchet's other half.  `scripts/check-reflection.sh` compiles src and
 # bench; the **test tree** is compiled by `lein test` itself under the same
 # `*warn-on-reflection*`, so its warnings are already in this stage's log and reading
-# them costs nothing.  Compiling the test tree in the lint pass instead would take it
+# them adds no work.  Compiling the test tree in the lint pass instead would take it
 # from 8 seconds to 74.  The split is stated in that script's header, and this is the
 # half it names — the incident the whole ratchet exists for happened in `test/`.
 check_test_reflection () {
@@ -577,7 +577,7 @@ fi
 # a gate you run ten times while developing must not fail on every hot-path edit.
 #
 # The set is the hot core `perf.clj` + `assert_cost_test` actually measure, not every
-# source (the interface, io, and domain-reasoner namespaces are left out on purpose).
+# source (the public API, io, and domain-reasoner namespaces are left out on purpose).
 # Edit it here when the hot surface moves.
 PERF_SENSITIVE_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(provers|resolution|inherit|chain|settle|jtms|dense_jtms|caches|taxonomy|nat|context_nat|solve|plan|tactics|rules|rete|strength|levels|special|wiring|checks|violations|abduce|sentex|wff|kb|memory|observe|reindex|literal_cache|tokens|columnar|kv|dense_kv|dense_roots|rewrite)\.clj$|^src/vaelii/impl/disk/'
 

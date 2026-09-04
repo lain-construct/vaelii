@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
-(ns vaelii.door-and-report-test
-  "One fact, one wording: a definitional check's **door** and its **retroactive reader**
+(ns vaelii.entry-point-and-report-test
+  "One fact, one wording: a definitional check's **entry point** and its **retroactive reader**
   describe the same KB the same way.
 
   Several checks exist twice — once refusing content as it arrives, once reading back over
@@ -10,7 +10,7 @@
   to debug: both messages are true statements about the same knowledge, so a reader who
   meets one and greps for the other finds nothing, and a reader who meets both concludes
   there are two problems.  The measured case is `arity`, where an inherited length reads as
-  `fatherOf takes 2 arguments through parentOf` and the door that credited `fatherOf` with
+  `fatherOf takes 2 arguments through parentOf` and the entry point that credited `fatherOf` with
   a declaration of its own sent an author looking for a sentence nobody wrote.
 
   So this is a **roster** rather than one assertion each, on `vector-spelling-test`'s
@@ -24,7 +24,7 @@
   What the two halves must agree on is the vocabulary a reader carries from one to the
   other: the **predicate or term blamed**, whether the constraint was **inherited** or
   declared outright, and **which stored sentex convicted**.  What they may differ on is
-  said row by row, because the difference is real rather than sloppy: a door refuses one
+  said row by row, because the difference is real rather than sloppy: an entry point refuses one
   arriving sentence and names one reason, where a reader swept an extent and names a
   count, and a nogood names a pair in which neither side is the newcomer."
   (:require [clojure.string :as str]
@@ -35,7 +35,7 @@
 
 ;; ---- reading the two halves ---------------------------------------------
 
-(defn- door
+(defn- entry-point
   "What a writer meets: the first problem `sentence` draws from a KB `setup` wrote, plus
   `:against` — the **sentence** its `:opposing-handle` names.
 
@@ -51,7 +51,7 @@
 (defn- reported
   "The `violations` entries of kind `k` a KB `setup` writes, each as its `:detail` with
   `:against` resolved from `:declared-after` where the kind carries one — the same
-  handle-to-sentence step `door` takes, for the same reason."
+  handle-to-sentence step `entry point` takes, for the same reason."
   [setup k]
   (tu/with-cleared-kb [kb tu/fresh]
     (setup kb)
@@ -70,7 +70,7 @@
 
 (defn- arbitrating-fresh
   "An empty KB under `:constraints :arbitrate` — the policy the three arbitrable kinds
-  reach back under, where `:refuse` leaves an identical pair to the door."
+  reach back under, where `:refuse` leaves an identical pair to the entry point."
   []
   (doto (v/open-kb (assoc tu/scratch-space :constraints :arbitrate)) (tu/clear-kb!)))
 
@@ -81,7 +81,7 @@
 ;; through a super-predicate's, so each half has a predicate, an inheritance and a
 ;; declaration to name, and each is its own chance to name it differently.
 
-(deftest the-arity-door-and-its-report-word-one-binding-the-same-way
+(deftest the-arity-entry-point-and-its-report-word-one-binding-the-same-way
   (tu/with-terms [parentOf fatherOf A B C]
     (let [declaration (list 'binary_predicate parentOf)
           edge        (list 'genl fatherOf parentOf)]
@@ -99,10 +99,10 @@
                 :fact        (list fatherOf A B C)
                 :ingredients [edge declaration]}]]
         (testing binding
-          (let [d  (door (apply writing ingredients) fact 'CxUniverse)
+          (let [d  (entry-point (apply writing ingredients) fact 'CxUniverse)
                 rs (reported (apply writing fact ingredients) :arity)
                 r  (first rs)]
-            (is (= :arity (:type d)) "the door refuses the fact")
+            (is (= :arity (:type d)) "the entry point refuses the fact")
             (is (= 1 (count rs))     "and the other order files one finding")
             (testing "both blame the predicate the fact is of"
               (is (= pred (:predicate d) (:predicate r))))
@@ -122,12 +122,12 @@
                 ;; for a sentence nobody wrote
                 (is (not (str/includes? (:message d) "is declared with")) (:message d))
                 (is (not (str/includes? (:message r) "is declared with")) (:message r))))
-            ;; the door refuses **one** sentence, so it names that sentence's length; the
+            ;; the entry point refuses **one** sentence, so it names that sentence's length; the
             ;; report swept the predicate's extent, so it names how many facts disagreed.
             ;; Neither statement is available to the other half, and asserting a similarity
             ;; here would be asserting one that is not there.
             (testing "where the two legitimately differ, and why"
-              (is (= 3 (:actual d)) "the door names the length of the sentence it refused")
+              (is (= 3 (:actual d)) "the entry point names the length of the sentence it refused")
               (is (nil? (:count d)))
               (is (= 1 (:count r))  "the report names the size of the sweep's finding")
               (is (nil? (:actual r))))))))))
@@ -135,7 +135,7 @@
 ;; ---- disjointness: every trigger, one exposure --------------------------
 ;;
 ;; Four rows of the table share one retroactive reader (`settle/expose-clashes!`) and one
-;; door (`checks/disjoint-problems`), and each row is a different sentence arriving last:
+;; entry point (`checks/disjoint-problems`), and each row is a different sentence arriving last:
 ;; the separation itself, a metatype declaring its members pairwise separate, a term
 ;; joining such a metatype, a `genl` edge closing a separation over content already
 ;; stored, and a `genlCx` edge putting two contexts' memberships in one reader's sight.
@@ -173,17 +173,17 @@
       (doseq [{:keys [trigger ground closing facts]} rows]
         (testing (str trigger " arriving last")
           (let [[[held held-ctx] [arriving arriving-ctx]] facts
-                d (door (fn [kb]
-                          (doseq [s (concat ground [closing])] (v/assert kb s 'CxUniverse))
-                          (v/assert kb held held-ctx))
-                        arriving arriving-ctx)
+                d (entry-point (fn [kb]
+                                 (doseq [s (concat ground [closing])] (v/assert kb s 'CxUniverse))
+                                 (v/assert kb held held-ctx))
+                               arriving arriving-ctx)
                 r (first (reported (fn [kb]
                                      (doseq [s ground] (v/assert kb s 'CxUniverse))
                                      (v/assert kb held held-ctx)
                                      (v/assert kb arriving arriving-ctx)
                                      (v/assert kb closing 'CxUniverse))
                                    :disjoint))]
-            (is (= :disjoint (:type d)) "the door refuses the second membership")
+            (is (= :disjoint (:type d)) "the entry point refuses the second membership")
             (is (some? r)               "and the other order exposes the pair")
             (testing "both name the term the two memberships are about"
               (is (= Rex (:term r)))
@@ -192,7 +192,7 @@
               (is (= (set [(first held) (first arriving)])
                      (set (:types d))
                      (set (map first (:held r))))))
-            ;; the door names the membership it refused *against* by handle; the exposure
+            ;; the entry point names the membership it refused *against* by handle; the exposure
             ;; names both by `[type context]`, which with `:term` reconstructs each
             ;; sentence.  Neither half can borrow the other's spelling — a pair exposed by
             ;; a declaration has no newcomer, so there is nothing for it to call opposing.
@@ -209,9 +209,9 @@
 ;;
 ;; The other two arbitrable kinds, and the rows where the retroactive half is a **decision**
 ;; rather than a report: under `:arbitrate` a declaration reaching back over stored facts
-;; hands `settle` a nogood, re-derived by calling the very check the door calls.  So the
+;; hands `settle` a nogood, re-derived by calling the very check the entry point calls.  So the
 ;; vocabulary cannot drift — there is one check — and what the roster pins instead is that
-;; the pair the nogood names is the two sentences the door named, since a nogood carries no
+;; the pair the nogood names is the two sentences the entry point named, since a nogood carries no
 ;; message at all and a reader matching one against the other has only the sentences.
 ;;
 ;; Both rows put the mark on a **super-predicate**, which is this family's version of an
@@ -229,7 +229,7 @@
   [kb]
   (concat (v/contradictions kb) (v/conflicts kb)))
 
-(deftest a-descended-mark-weighs-the-pair-the-door-refuses-in-every-arrival-order
+(deftest a-descended-mark-weighs-the-pair-the-entry-point-refuses-in-every-arrival-order
   (doseq [{:keys [kind mark edge held arriving strength via]}
           (tu/with-terms [parentOf fatherOf Kid A B]
             [{:kind     :functional
@@ -240,8 +240,8 @@
               :arriving (list fatherOf Kid 1990)}
              ;; known-true, because `:asymmetric` reads the opposing claim's defeat class
              ;; at **both** halves: a defeasible converse is weighed rather than refused, so
-             ;; a door row written at `:default` would be comparing a refusal against a
-             ;; pair that the door deliberately declines to make one
+             ;; an entry point row written at `:default` would be comparing a refusal against a
+             ;; pair that the entry point deliberately declines to make one
              {:kind     :asymmetric
               :mark     (list 'asymmetric parentOf)
               :edge     (list 'genl fatherOf parentOf)
@@ -250,11 +250,11 @@
               :arriving (list fatherOf B A)}])]
     (testing (name kind)
       (let [ingredient {:mark mark :edge edge}
-            d (door (fn [kb]
-                      (doseq [s [edge mark]] (v/assert kb s 'CxUniverse))
-                      (v/assert kb held 'CxUniverse {:strength strength}))
-                    arriving 'CxUniverse)]
-        (is (= kind (:type d)) "the door refuses the second fact")
+            d (entry-point (fn [kb]
+                             (doseq [s [edge mark]] (v/assert kb s 'CxUniverse))
+                             (v/assert kb held 'CxUniverse {:strength strength}))
+                           arriving 'CxUniverse)]
+        (is (= kind (:type d)) "the entry point refuses the second fact")
         (testing "and blames the predicate carrying the mark, not the fact's functor"
           (is (= via (:pred d)))
           (is (= held (:against d))))
@@ -269,7 +269,7 @@
                       (first (standing-pairs kb)))]
               (is (= kind (:kind c)) "the pair is weighed, and as the same kind")
               (is (= #{held arriving} (set (map :sentence (:sides c))))
-                  "and it is the pair the door named")
+                  "and it is the pair the entry point named")
               ;; A refusal has a newcomer and a message about it.  A nogood has two
               ;; believed sentexes and no newcomer — deciding it by which arrived last is
               ;; the arrival-order dependence the JTMS exists to refuse — so it carries the
@@ -279,10 +279,10 @@
                 (is (nil? (:message c)))
                 (is (= 2 (count (:sides c))))))))))))
 
-(deftest a-cross-context-clash-is-exposed-in-the-doors-vocabulary
+(deftest a-cross-context-clash-is-exposed-in-the-entry-points-vocabulary
   ;; The **other** retroactive reader for these two kinds, and the one that runs under
   ;; `:refuse`: two facts each admissible where written, put in one reader's sight by a
-  ;; `genlCx` edge.  It re-derives through `checks/arbitrable-violations` — the door's own
+  ;; `genlCx` edge.  It re-derives through `checks/arbitrable-violations` — the entry point's own
   ;; check — and then writes a message of its own, which is where a wording can drift even
   ;; where the finding cannot.
   (doseq [{:keys [kind mark held arriving strength via]}
@@ -295,10 +295,10 @@
               :held (list parentOf A B) :arriving (list parentOf B A)}])]
     (testing (name kind)
       (tu/with-terms [CxLeft CxRight]
-        (let [d (door (fn [kb]
-                        (v/assert kb mark 'CxUniverse)
-                        (v/assert kb held 'CxUniverse {:strength strength}))
-                      arriving 'CxUniverse)
+        (let [d (entry-point (fn [kb]
+                               (v/assert kb mark 'CxUniverse)
+                               (v/assert kb held 'CxUniverse {:strength strength}))
+                             arriving 'CxUniverse)
               r (tu/with-cleared-kb [kb tu/fresh]
                   (doseq [s [(list 'genlCx CxLeft 'CxUniverse)
                              (list 'genlCx CxRight 'CxUniverse)
@@ -308,7 +308,7 @@
                   (v/assert kb arriving CxRight {:strength strength})
                   (v/assert kb (list 'genlCx CxLeft CxRight) 'CxUniverse)
                   (:detail (first (filter #(= kind (:violation %)) (v/violations kb)))))]
-          (is (= kind (:type d)) "the door refuses the second fact")
+          (is (= kind (:type d)) "the entry point refuses the second fact")
           (is (some? r)          "and the split-context order exposes the pair")
           (testing "both name the predicate the declaration is on"
             (is (= via (:pred d) (:pred r))))
@@ -372,15 +372,15 @@
             (is (= type (:type (first (v/check kb next 'CxUniverse))))
                 "while the identical claim one line later is refused")))))))
 
-(deftest a-stranded-declaration-is-a-census-finding-and-the-census-says-what-the-door-says
+(deftest a-stranded-declaration-is-a-census-finding-and-the-census-says-what-the-entry-point-says
   ;; The other documented absence, and the one whose retroactive half lives somewhere else
   ;; entirely.  `(arg fatherOf 3 person)` is admitted while nothing binds `fatherOf`'s
   ;; length; when a length arrives the declaration constrains a position the predicate
-  ;; provably lacks, and the door refuses the identical sentence one line later.  It is not
+  ;; provably lacks, and the entry point refuses the identical sentence one line later.  It is not
   ;; refused retroactively — that would make the binding's arrival order decide — and not
   ;; filed in the ledger either, because a stranded declaration is inert and reads the same
   ;; an hour later, so there is no *newly* for a settle to report.  `kb-quality` names it,
-  ;; and this is the row that keeps the census reading in the door's vocabulary.
+  ;; and this is the row that keeps the census reading in the entry point's vocabulary.
   (tu/with-terms [parentOf fatherOf a_type]
     (tu/with-cleared-kb [kb tu/fresh]
       (doseq [s [(list 'genl a_type 'thing)
@@ -391,7 +391,7 @@
       (is (empty? (v/violations kb)) "the settle files nothing")
       (let [e (first (:stranded (:declarations (v/kb-quality kb))))
             d (first (v/check kb (list 'arg fatherOf 3 a_type) 'CxUniverse))]
-        (is (= :arg-position (:type d)) "the door refuses the identical sentence")
+        (is (= :arg-position (:type d)) "the entry point refuses the identical sentence")
         (testing "and the census names the same predicate, position and binding"
           (is (= fatherOf (:predicate e) (:predicate d)))
           (is (= 3 (:position e) (:position d)))
@@ -400,7 +400,7 @@
               "the length came through the super, and both halves say so"))))))
 
 (deftest two-declared-arities-across-one-edge-read-the-same-whichever-arrives-last
-  ;; The row of the table whose two halves are **both** doors: there is no order in which
+  ;; The row of the table whose two halves are **both** entry points: there is no order in which
   ;; the pair means anything, so the arriving sentence is refused whichever it is.  The
   ;; message is therefore a fact about the pair rather than about the arrival, and this is
   ;; what fails if one arm ever starts describing the sentence in front of it instead.
@@ -411,11 +411,11 @@
                          (for [last-in [:edge :sub]]
                            [last-in
                             (:message
-                             (door (fn [kb]
-                                     (v/assert kb (list 'arity parentOf 2) 'CxUniverse)
-                                     (doseq [k [:edge :sub] :when (not= k last-in)]
-                                       (v/assert kb (sentence k) 'CxUniverse)))
-                                   (sentence last-in) 'CxUniverse))]))]
+                             (entry-point (fn [kb]
+                                            (v/assert kb (list 'arity parentOf 2) 'CxUniverse)
+                                            (doseq [k [:edge :sub] :when (not= k last-in)]
+                                              (v/assert kb (sentence k) 'CxUniverse)))
+                                          (sentence last-in) 'CxUniverse))]))]
       (is (= (:edge messages) (:sub messages))
           "one pair, one description, whichever half of it arrived")
       (is (str/includes? (:edge messages) (str "3 arguments declared of " fatherOf)))
@@ -425,9 +425,9 @@
 
 (deftest one-clause-words-an-arity-binding-for-every-reader-of-it
   ;; Three readers describe a binding, and the rows above pin that they agree.  This pins
-  ;; *how*: `checks/arity-binding-clause` is the wording, the door and the settle's
+  ;; *how*: `checks/arity-binding-clause` is the wording, the entry point and the settle's
   ;; retroactive report each carry it, and `kb-quality`'s stranded-declaration census
-  ;; carries the door's own message rather than writing a second one.  A copy of a rule
+  ;; carries the entry point's own message rather than writing a second one.  A copy of a rule
   ;; that says "is declared with" of a declaration and "takes … through" of an inheritance
   ;; is a chance for one binding to acquire two descriptions, which is what this namespace
   ;; is about.
@@ -439,11 +439,11 @@
       (is (= "is declared with 1 argument"
              (checks/arity-binding-clause parentOf parentOf 1))
           "the plural agrees with the number, in one place rather than three")
-      (testing "the door"
+      (testing "the entry point"
         (is (str/includes?
-             (:message (door (writing (list 'binary_predicate parentOf)
-                                      (list 'genl fatherOf parentOf))
-                             (list fatherOf A B C) 'CxUniverse))
+             (:message (entry-point (writing (list 'binary_predicate parentOf)
+                                             (list 'genl fatherOf parentOf))
+                                    (list fatherOf A B C) 'CxUniverse))
              inherited)))
       (testing "the retroactive report"
         (is (str/includes?
@@ -452,7 +452,7 @@
                                                  (list 'genl fatherOf parentOf))
                                         :arity)))
              inherited)))
-      (testing "and the census, which carries the door's message unaltered"
+      (testing "and the census, which carries the entry point's message unaltered"
         (tu/with-cleared-kb [kb tu/fresh]
           (doseq [s [(list 'genl a_type 'thing)
                      (list 'arg fatherOf 3 a_type)

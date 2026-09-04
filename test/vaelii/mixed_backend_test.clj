@@ -7,15 +7,22 @@
   The claim under test is that the index need not be persisted at all: it is a function
   of the records, `reindex` recomputes every entry of it, and a KB that recomputes it on
   open answers exactly as one that read it back off disk.  So the tests here are about
-  the *seam* rather than about either store: what the two axes resolve to, that a
+  the *protocol* rather than about either store: what the two axes resolve to, that a
   records-only open writes no index, that reopening rebuilds, and that the rebuild
   happens before the recovery that reads it.
 
   Engine-level parity across every mode is `backend_parity_test`'s job (it runs the same
-  scripted session on all seven), and the thorough gate is the whole suite under
-  `VAELII_TEST_BACKEND=disk-memory` / `=disk-dense` / `=disk-columnar`."
+  scripted session on every name `kb/backend-names` carries, or says what covers the one
+  it skips), and the thorough gate is the whole suite under
+  `VAELII_TEST_BACKEND=disk-memory` / `=disk-dense` / `=disk-columnar`.
+
+  The **roster's other two readers** are pinned at the bottom of this namespace: the
+  suite's configuration list, which is bash, and docs/storage.md's table, which is prose.
+  Neither can be reached from `kb`'s own load-time validator, and a backend missing from
+  either ships untested or undocumented without a single test going red."
   (:require [clojure.java.io :as io]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str]
+            [clojure.test :refer [are deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.disk.lock :as lock]
@@ -113,14 +120,56 @@
       (is (instance? vaelii.impl.memory.MemoryKvBackend (:backend (:index kb)))
           ":index :memory won over :memory-columnar's columnar half"))))
 
+(defn- refusal
+  "The `ex-data` of the refusal `f` raises, or nil."
+  [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
 (deftest an-unknown-selection-names-the-axis-it-belongs-to
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown KB backend"
                         (v/open-kb {:backend :nonesuch})))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown record backend .* :memory, :disk, :sqlite or :pg"
                         (v/open-kb {:records :nonesuch :index :memory})))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                        #"unknown index backend .* :memory, :dense, :columnar, :snapshot, or :disk-log"
+                        #"unknown index backend .* :memory, :dense, :columnar, :snapshot or :disk-log"
                         (v/open-kb {:records :memory :index :nonesuch}))))
+
+(deftest a-backend-refusal-names-the-axis-and-the-kind-under-fixed-keys
+  ;; Eleven throws share `:unknown-backend`, and which key held the offending value used
+  ;; to be the axis's own name — so a caller read four keys to find the one that was
+  ;; there, and had to know all four.  `:axis` and `:kind` are on every throw;
+  ;; `:mismatch` says which kind of wrong it is, so a fallback can tell a name nothing
+  ;; implements from a pairing that is refused on purpose.
+  (testing "a name nothing implements, on each of the four axes"
+    (are [opts axis kind] (= {:mismatch :unknown-name :axis axis :kind kind}
+                             (select-keys (refusal #(v/open-kb opts)) [:mismatch :axis :kind]))
+      {:backend :nonesuch}                  :backend :nonesuch
+      {:records :nonesuch :index :memory}   :records :nonesuch
+      {:records :memory :index :nonesuch}   :index   :nonesuch
+      {:backend :memory :tms :nonesuch}     :tms     :nonesuch))
+  (testing "a reserved spelling, which names the pairing to take instead"
+    (is (= {:mismatch :reserved-name :axis :backend :kind :disk :instead :disk-log}
+           (select-keys (refusal #(v/open-kb {:backend :disk}))
+                        [:mismatch :axis :kind :instead]))))
+  (testing "and a pairing both halves of which are legal apart"
+    (is (= {:mismatch :illegal-pair :axis :index :kind :disk-log}
+           (select-keys (refusal #(v/open-kb {:records :memory :index :disk-log}))
+                        [:mismatch :axis :kind])))))
+
+(deftest a-legal-backend-whose-adapter-is-absent-is-not-an-unknown-one
+  ;; `:sqlite` and `:pg` records live in Apache-2.0 siblings the SSPL engine does not
+  ;; depend on, so selecting one without the sibling on the classpath refused as
+  ;; `:unknown-backend` — and a caller catching that to fall back on `:memory` did the
+  ;; wrong thing twice over: the name is legal, and the fix is a coordinate in the
+  ;; project rather than a different backend.
+  (are [opts records coord]
+       (= {:type :missing-adapter :records records :coordinate coord}
+          (select-keys (refusal #(v/open-kb opts)) [:type :records :coordinate]))
+    {:backend :sqlite}                    :sqlite "com.vaelii/sqlite"
+    {:backend :pg-memory :pg "jdbc:postgresql://h/d"} :pg "com.vaelii/postgres")
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"com\.vaelii/sqlite"
+                        (v/open-kb {:backend :sqlite}))
+      "and the message names the coordinate to add"))
 
 (deftest one-number-names-both-of-a-KBs-stores
   ;; The index is a function of the records, so the two are shared or separate as one
@@ -305,7 +354,7 @@
 (deftest the-pg-axis-needs-a-database-named
   ;; `:pg` is the one axis whose store is not derivable from the KB's own options: a
   ;; directory falls out of `:space`, a database does not.  Both halves of that are
-  ;; refused at the door rather than discovered from a KB whose records went somewhere
+  ;; refused at the entry point rather than discovered from a KB whose records went somewhere
   ;; nobody named.
   (testing ":pg records with no :pg opt"
     (let [e (is (thrown-with-msg? clojure.lang.ExceptionInfo #"needs :pg to name a database"
@@ -502,7 +551,7 @@
     (is (= (space :sqlite {:dir "/tmp/one"}) (space :sqlite {:dir "/tmp/one" :space 7})))))
 
 (deftest a-fork-cannot-put-its-own-records-on-a-server
-  ;; Refused at the door, and the reason is what a later refusal would cost: `open-kb`
+  ;; Refused at the entry point, and the reason is what a later refusal would cost: `open-kb`
   ;; builds a fork's own record store (a live pool) and its index half (which takes the
   ;; directory's exclusive lock) before the overlay bookkeeping is asked for, and a throw
   ;; after that returns no KB — so neither is closeable and the directory is unopenable for
@@ -517,3 +566,112 @@
       (is (not (lock/held? (backend/canonical-dir dir)))
           "and nothing took the directory's lock on the way out")
       (finally (rm-rf! dir)))))
+
+;; ---- the roster's readers outside this process ---------------------------
+
+(def ^:private suite-config-file "scripts/lib/suite-configs.sh")
+(def ^:private storage-doc "docs/storage.md")
+
+(defn- suite-backends
+  "The `ALL_BACKENDS` array of `scripts/lib/suite-configs.sh`, as keywords.  Read out of
+  the file rather than duplicated here: that file calls itself \"one table, three
+  readers\", and a fourth copy in a test would be the drift it was written against."
+  []
+  (let [body (second (re-find #"(?s)ALL_BACKENDS=\(([^)]*)\)" (slurp suite-config-file)))]
+    (into #{} (map keyword) (str/split (str/trim body) #"\s+"))))
+
+(def ^:private unswept
+  "Backends `ALL_BACKENDS` leaves out, and why.  All three for one reason, stated once
+  per name so a name cannot inherit another's excuse."
+  {:sqlite      "the com.vaelii/sqlite adapter is an Apache-2.0 sibling and is not on this repository's classpath, so no configuration here can select it"
+   :pg-memory   "the com.vaelii/postgres adapter is an Apache-2.0 sibling, and it wants a server the suite does not stand up"
+   :pg-disk-log "the com.vaelii/postgres adapter is an Apache-2.0 sibling, and it wants a server the suite does not stand up"})
+
+(deftest every-backend-is-swept-or-excused
+  ;; `test-backends.sh`, `test-sweeps.sh` and `test-matrix.sh` all read one bash array, so
+  ;; the roster has one place to be wrong in — and it is in another language, which is
+  ;; exactly why nothing in the engine notices when it goes short.  A backend added to
+  ;; `kb/backend-modes` and not to that array runs under no configuration at all: the
+  ;; matrix goes green on fifteen rows that never touched it.
+  (let [swept  (suite-backends)
+        roster (set kb/backend-names)]
+    (is (= roster (into swept (keys unswept)))
+        (str suite-config-file "'s ALL_BACKENDS plus `unswept` must be exactly"
+             " kb/backend-names"))
+    (is (empty? (filter swept (keys unswept)))
+        "a backend cannot be both swept and excused")
+    (is (empty? (remove roster (keys unswept)))
+        "an excuse for a name that is not a backend has outlived what it excused")))
+
+(defn- documented-backends
+  "The `:backend` column of docs/storage.md's backend table, as keywords.  Scoped to the
+  rows under that table's header, so the file's several other tables — the throughput
+  figures name `:sqlite` and `:pg-memory` too — are not read as claims about which
+  backends exist."
+  []
+  (->> (str/split-lines (slurp storage-doc))
+       (drop-while #(not (re-find #"^\|\s*`:backend`" %)))
+       rest
+       (take-while #(str/starts-with? % "|"))
+       (keep #(second (re-find #"^\|\s*`:([a-z-]+)`" %)))
+       (into #{} (map keyword))))
+
+(deftest every-backend-has-a-row-in-the-table
+  ;; The table is how a caller finds out a pairing exists at all — `:records` / `:index`
+  ;; are for overriding a half, and the names are what say which halves go together.  A
+  ;; backend with no row is one nobody can be told about, and the omission reads from
+  ;; inside as a complete table.
+  (is (= (set kb/backend-names) (documented-backends))
+      (str storage-doc "'s backend table must have one row per name on"
+           " kb/backend-names, and no row for a name that is not one")))
+
+;; ---- and the validator that joins the two halves ------------------------
+
+(deftest the-backend-validator-refuses-a-half-declared-table
+  ;; `check-backends!` runs at `kb`'s load, over one set of tables that agree — so every
+  ;; branch it has taken is the one that throws nothing.  Its whole argument is that its
+  ;; rules are about backends the suite does not have; that argument also means nothing
+  ;; here has ever seen one of them fire, and a rule that cannot fire reads from inside
+  ;; exactly like a table with nothing wrong.  These drive it over tables that ARE wrong.
+  (let [check   @#'kb/check-backends!
+        tables  @#'kb/backend-tables
+        refusal (fn [m] (try (check (merge tables m)) nil
+                             (catch clojure.lang.ExceptionInfo e (ex-data e))))
+        arm     (fn [& _] nil)]
+    (testing "the live tables pass, which is what the namespace load asserts"
+      (is (nil? (check tables))))
+    (testing "an axis declared with nothing to open it"
+      (let [data (refusal {:record-axes (assoc (:record-axes tables) :tape {:durable? true})})]
+        (is (= :bad-table-entry (:type data)))
+        (is (= :unarmed-axis (:mismatch data)))
+        (is (= :tape (:axis data)))))
+    (testing "an arm for an axis no row declares, which reads nil for every field"
+      (is (= :undeclared-arm
+             (:mismatch (refusal {:record-arms (assoc (:record-arms tables) :tape arm)})))))
+    (testing "two record axes claiming the image, which one fingerprint cannot stamp"
+      (is (= :image-axis
+             (:mismatch (refusal {:record-axes (assoc-in (:record-axes tables)
+                                                         [:sqlite :image?] true)})))))
+    (testing "the `:snapshot` prose drifting from the `:image?` gate it describes"
+      (is (= :pairs-with
+             (:mismatch (refusal {:index-axes (assoc-in (:index-axes tables)
+                                                        [:snapshot :pairs-with] #{:pg})})))))
+    (testing "the `:disk-log` prose drifting from the record axes that take a persisted index"
+      (is (= :pairs-with
+             (:mismatch (refusal {:index-axes (assoc-in (:index-axes tables)
+                                                        [:disk-log :pairs-with] #{:disk})})))))
+    (testing "a name for an axis nothing declares, which refuses at the first open"
+      (is (= :unknown-axis
+             (:mismatch (refusal {:backend-modes (assoc (:backend-modes tables)
+                                                        :tape-memory {:records :tape :index :memory})})))))
+    (testing "a name for a pair the gates reject, where the refusal never mentions the name"
+      (is (= :illegal-pair
+             (:mismatch (refusal {:backend-modes (assoc (:backend-modes tables)
+                                                        :ram-snapshot {:records :memory :index :snapshot})})))))
+    (testing "a reserved name whose remedy is a second refusal"
+      (is (= :reserved-name
+             (:mismatch (refusal {:reserved-backend-names
+                                  (assoc (:reserved-backend-names tables) :tape :tape-log)})))))
+    (testing "a legal pair over the core axes with no name, which no caller can be told about"
+      (is (= :unnamed-pair
+             (:mismatch (refusal {:backend-modes (dissoc (:backend-modes tables) :disk-columnar)})))))))

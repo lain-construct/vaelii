@@ -128,7 +128,7 @@ answer it.
 ### Where the barrier sits, and what it covers
 
 Congruence opacity lives in the one walk both migration and query go through
-(`res/representative-term`), not at the read door. That is what keeps the two in step: a
+(`res/representative-term`), not at the read entry point. That is what keeps the two in step: a
 merge migrates a stored `(believes A P)` no more than it rewrites the question, so the
 belief stays retrievable under the spelling it was asserted in rather than under one only
 the merge produces. `res/without-retired` reads the same walk, so a quoted spelling is not

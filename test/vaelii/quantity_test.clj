@@ -171,7 +171,7 @@
     (v/assert kb '(dimensionOf Gram Mass) C)
     (v/assert kb '(conversionFactor Gram Kilogram 0.001) C)
     (v/assert kb '(conversionFactor Gram Kilogram 0.001) CxInner)
-    (testing "restating a factor in a context of the cone is not a disagreement — the
+    (testing "restating a factor in a context of the ancestor set is not a disagreement — the
               matches carry the same bindings and collapse to one"
       (is (= '[Mass 0.001 Kilogram] (factor-of kb 'Gram)))
       (is (= '[Mass 0.001 Kilogram]

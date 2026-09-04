@@ -31,7 +31,7 @@
   A section written to one sink loads from another, the same property `p/index-entries` /
   `p/index-load` already give the index across backends.
 
-  **The seam has out-of-tree implementations, so it is a published shape and not a private
+  **The protocol has out-of-tree implementations, so it is a published shape and not a private
   one.**  `vaelii-postgres` (`vaelii.postgres.snapshot/pg-sink` / `pg-source`) and
   `vaelii-sqlite` (`vaelii.sqlite.snapshot/sqlite-sink` / `sqlite-source`) each implement
   both protocols and drive them through `save-index!` / `load-index!`, and both suites
@@ -59,7 +59,7 @@
   * `:records-differ`  — the manifest's records stamp is not the store's now (a different
                          KB, or the same one after a write);
   * `:entries-truncated` — a section is short or unreadable, caught while installing (a torn
-                         nippy chunk reads as a clean EOF, so truncation shows only as a
+                         nippy chunk is indistinguishable from a clean EOF, so truncation shows only as a
                          frame count below what the manifest recorded).
 
   There is no `:byte-order` class here, though `index-snapshot` has one: that image writes
@@ -88,7 +88,7 @@
   "The section name the index's `[key value]` projection is written under."
   "index")
 
-;;; ── the sink seam ──────────────────────────────────────────────────────
+;;; ── the sink protocol ──────────────────────────────────────────────────────
 
 (defprotocol SnapshotSink
   "Where a snapshot's bytes go — a directory, a database, memory.  Two ops: stream a
@@ -146,7 +146,7 @@
   section is a property of *this* target — a directory of files, where the manifest and
   the sections are separate objects with a window between them.  A sink whose commit is
   one transactional write has no such window and needs no such step, and `save-index!`
-  sits above the seam and writes through whichever sink it is handed.  Moving the step up
+  sits above the protocol and writes through whichever sink it is handed.  Moving the step up
   would mean a third protocol op every out-of-tree implementer had to grow, to say
   something two of the three targets have nothing to say about."
   ([root] (file-sink root {}))
@@ -180,7 +180,7 @@
   ;; one object that is both sink and source over one atom, so a test writes and reads the
   ;; same image without a file — and, more than a convenience, the second target that keeps
   ;; the file sink honest: a section written here loads there and vice versa, which is the
-  ;; portability the seam exists to give.
+  ;; portability the protocol exists to give.
   SnapshotSink
   (write-section! [_ name frames]
     (let [v (vec frames)]                       ; a memory image holds its frames, by nature
@@ -243,7 +243,7 @@
   one draws its own truncation and platform classes from the files it maps and does not
   come through here.  The image is a cache, so any non-nil reason discards the whole of
   it and the caller rebuilds.  `:entries-truncated` is not decided
-  here — a nippy stream's truncation reads as a clean EOF, so it can only be caught while
+  here — a nippy stream's truncation is indistinguishable from a clean EOF, so it can only be caught while
   the section is installed, against the count the manifest recorded."
   [m stamp]
   (cond

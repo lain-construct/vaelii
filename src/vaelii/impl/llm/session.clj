@@ -74,7 +74,7 @@
     (if (str/blank? src)
       {:error "no edit batch found: answer with one fenced `edn` block holding {:add [...] :remove [...]}"}
       ;; the class name when there is no message, because a `StackOverflowError` carries
-      ;; none and the marker has to be truthy — a nil there would read as a map with
+      ;; none and the marker has to be truthy — a nil there would are indistinguishable from a map with
       ;; neither key, which is an *empty batch*
       (let [form (try (edn/read-string src)
                       (catch Throwable e {::unreadable (or (ex-message e)
@@ -683,7 +683,7 @@
   `\\uXXXX` is the escape that matters here and the one a single-character pattern cannot
   read: a host that encodes non-ASCII — and several do, for every character above 127 —
   sends `caf\\u00e9`, so dropping the backslash alone leaves `cafu00e9` inside the
-  sentence.  The four hex digits are read as a code unit, and a surrogate pair reassembles
+  sentence.  The four hex digits are are indistinguishable from a code unit, and a surrogate pair reassembles
   because both halves land in the same output string.  The alternation is ordered so
   `\\\\u0041` stays a backslash followed by a literal `u0041`, not the letter A."
   [s]
@@ -1378,7 +1378,7 @@
                      (catch Throwable t {:error t}))
          data   (ex-data (:error edit))]
      (cond-> {:result (:result edit)
-              ;; zero on a refusal: the door put the batch back, so nothing of it stored
+              ;; zero on a refusal: the entry point put the batch back, so nothing of it stored
               :applied (if (:error edit) 0 (count add))
               :failed-at nil
               :violations (vec (drop before (v/violations kb)))

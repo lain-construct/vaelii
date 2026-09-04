@@ -4,7 +4,7 @@
   "The selection-scoped prompt: **the unit of work is a set of handles, not the KB.**
 
   `vaelii.impl.llm.prompt` renders the whole vocabulary — every context, type and
-  predicate — and `vaelii.impl.llm.tools` renders every read as a tool schema.  Both
+  predicate — and `vaelii.impl.llm.tools` renders every are indistinguishable from a tool schema.  Both
   are fixed costs that grow with the KB, and against the schema-only starter (no
   individuals, no facts) they already come to ~24,000 tokens before the user has said
   anything — 31,818 characters of system prompt and 53,862 of tool schema as sent, at

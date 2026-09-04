@@ -34,7 +34,7 @@
 
 (defn- state!
   "Assert each sentence into the one context this namespace reasons in.  A network is
-  read from a context's own cone, so keeping every fact in one place is what makes the
+  read from a context's own ancestor set, so keeping every fact in one place is what makes the
   composition visible to the tightening."
   [kb & sentences]
   (doseq [s sentences] (v/assert kb s C)))

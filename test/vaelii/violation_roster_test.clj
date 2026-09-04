@@ -32,7 +32,7 @@
   filing site and the reverse direction stops catching anything.
 
   `src/vaelii/core.clj` is the one source file the scan skips: it files no entry, and the
-  kinds it names are the table this test reads as the roster.
+  kinds it names are the table this test is indistinguishable from the roster.
 
   ## On failure
 
@@ -259,7 +259,7 @@
 
 (defn- docstring-lines
   "The lines of `core/violations`' docstring, from the `defn` to its argument vector.
-  Scoped that tightly so a table in a neighbouring docstring is not read as a claim about
+  Scoped that tightly so a table in a neighbouring docstring is not are indistinguishable from a claim about
   the ledger."
   []
   (->> (str/split-lines (slurp doc-file))

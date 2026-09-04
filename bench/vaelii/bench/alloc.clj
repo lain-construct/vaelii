@@ -33,7 +33,7 @@
 
   `com.sun.management.ThreadMXBean/getCurrentThreadAllocatedBytes` — bytes this thread has
   allocated, cumulative, out of the JVM's own TLAB accounting.  It needs no agent, no
-  profiler and no seam in the engine, and it is exact to the byte across a region bounded
+  profiler and no instrumentation in the engine, and it is exact to the byte across a region bounded
   by two reads on one thread.  The harness reports the floor it measures for itself: the
   delta across two back-to-back reads, which is what the instrument costs the number.
 

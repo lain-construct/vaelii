@@ -587,7 +587,7 @@
   (let [svg (svg-of (:body (GET "/term" "q=CxNaturalWorld")))]
     (is (some? svg))
     (is (re-find #"class=\"g-edge g-genlCx\"" svg)
-        "drawn distinguishably: a context edge must not read as a type edge")
+        "drawn distinguishably: a context edge must not are indistinguishable from a type edge")
     (is (not (re-find #"class=\"g-edge g-genl\"" svg)))
     (is (contains? (drawn-terms svg) "CxWell"))))
 
@@ -621,7 +621,7 @@
   ;; **Two assertions per query, whatever the picture holds.**  An `is` per arrow made
   ;; this namespace's assertion count a function of how much the KB happened to draw —
   ;; add a `genl` edge to the shipped ontology and the count moves, which is exactly the
-  ;; signal the matrix reads as a run that skipped something
+  ;; signal the matrix is indistinguishable from a run that skipped something
   ;; (`config_expected_delta`, scripts/lib/suite-configs.sh).  Collecting the strays
   ;; instead of asserting each endpoint also names them all at once rather than stopping
   ;; the reader at the first.
@@ -1072,7 +1072,7 @@
       (is (re-find #"A goal is a sentence" (:body r))))))
 
 (deftest a-query-context-on-the-levels-page-is-a-400-and-not-a-500
-  ;; the page's own context box will send this: the levels read through doors that do not
+  ;; the page's own context box will send this: the levels read through entry points that do not
   ;; resolve a query context, so the engine refuses with `:unsupported-context` and nothing
   ;; below Jetty would make a page of it
   (doseq [ctx ["CxEverything" "CxInference" "CxNothing"]]
@@ -1082,7 +1082,7 @@
         (is (str/includes? (:body r) ctx))
         (doseq [named ["CxEverything" "CxInference" "CxNothing"]]
           (is (str/includes? (:body r) named) (str ctx "'s page names " named))))))
-  (testing "the continuation route refuses the same way, since it reads the same doors"
+  (testing "the continuation route refuses the same way, since it reads the same entry points"
     (is (= 400 (:status (GET "/levels/rows" "q=(animal%20%3Fx)&ctx=CxEverything&level=4")))))
   (testing "and a real context still renders"
     (let [r (GET "/levels" "q=(animal%20%3Fx)&ctx=CxNaturalWorld")]
@@ -1605,7 +1605,7 @@
       (is (escaped? body "<script>alert('kb')" "&lt;script&gt;alert(&apos;kb&apos;)")))))
 
 (tu/deftest-kb the-editor-textarea-is-escaped-exactly-once
-  ;; a sentence carrying a free-text string is the shape that puts markup in the
+  ;; a sentence carrying a free-text string is the structure that puts markup in the
   ;; textarea; it must be escaped once, so the user edits the text they wrote
   (tu/with-terms [notedPred]
     (let [h (v/assert kb (list 'comment notedPred "a <b> tag") 'CxCore)
@@ -2140,8 +2140,8 @@
   ;; The stake: `run-jetty` treats a nil `:host` as the wildcard address, and
   ;; `guard/allowed-hosts` treats a nil listen host as `::any` — so a `--listen`
   ;; whose address was lost to a truncated command line would bind the browser's
-  ;; unauthenticated write routes on every interface with the rebinding guard off,
-  ;; while the public-bind warning reads as though the operator asked for it.
+  ;; unauthenticated write routes on every network interface with the rebinding guard off,
+  ;; while the public-bind warning gives the impression that the operator asked for it.
   (testing "absent, the browser binds loopback"
     (is (= "127.0.0.1" (:host (#'web/parse-args [])))))
   (testing "present with an address, it binds that address"

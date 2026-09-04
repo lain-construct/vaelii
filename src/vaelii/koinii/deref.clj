@@ -70,7 +70,7 @@
     never that the marker's payload should be believed.  Resolution is scoped to BELIEF
     for the reason the commit is: a record the seat stores but does not believe is no part
     of what it holds, so `dereference` and `resolve-by-locator` decline it exactly as
-    `inclusion-proof` declines to prove it.  Both doors also **fail closed on a malformed
+    `inclusion-proof` declines to prove it.  Both entry points also **fail closed on a malformed
     payload**, as `verify-inclusion` does on a malformed proof: a marker that is not a
     map, whose `:locator` is not this format, or whose sentence the engine declines to be
     asked about is ANSWERED `:malformed` rather than allowed to throw the engine's
@@ -211,7 +211,7 @@
 
 (def ^:private locator-re
   "A well-formed locator string: the algorithm tag then the digest body.  Built from
-  `locator-prefix` and `sha256-hex-re` so the format has ONE source — the doors that read
+  `locator-prefix` and `sha256-hex-re` so the format has ONE source — the entry points that read
   a locator off an untrusted transport must accept exactly what `content-locator` mints,
   and a second spelling of the pattern is a second thing to keep in step."
   (re-pattern (str locator-prefix sha256-hex-re)))
@@ -220,7 +220,7 @@
   "Is `x` the self-describing locator string this module specifies — `\"sha256:\"` then 64
   lowercase hex?
 
-  The one shape test the untrusted doors can make on their OWN authority, because the
+  The one shape test the untrusted entry points can make on their OWN authority, because the
   locator format is this module's (the module docstring specifies it), unlike a sentence,
   whose grammar belongs to the engine.  So `dereference` and `resolve-by-locator` check it
   themselves and fail closed, exactly as `verify-inclusion` checks a proof's siblings."
@@ -520,7 +520,7 @@
 
       {:locator <sha256:hex>  :sentence <asserted form>  :context <ctx>  :seat <claimed>}
 
-  The `:locator` is the load-bearing part; `:sentence` / `:context` are a lookup payload
+  The `:locator` is the part that decides it; `:sentence` / `:context` are a lookup payload
   the receiver does NOT trust for meaning (it resolves against its own KB and rehashes
   what it finds), and `:seat` is the *claimed* asserter — the real one comes off the
   resolved sentex's provenance.  Throws if `handle` names no record."
@@ -560,7 +560,7 @@
   Exactly three commitments, and no more: it is a **map**; its `:locator` is the string
   format this module specifies (`locator-string?`); and it carries **both halves of the
   lookup payload**, `:sentence` and `:context`, since a marker with no sentence is not a
-  marker but a bare locator, which `resolve-by-locator` is the door for.  What is *in*
+  marker but a bare locator, which `resolve-by-locator` is the entry point for.  What is *in*
   those two keys is not judged here — that is the engine's grammar, and `handle-lookup`
   asks the engine rather than copying it.
 
@@ -593,14 +593,14 @@
   `:sentence` is untrusted transport data and has to be judged before the seat acts on it
   — but the grammar of a sentence is the ENGINE's, and a copy of it in this module would
   drift from the one that actually decides.  `v/check` is the public validate-without-
-  writing door (`docs/api.md`), and it is the wrong door for *this* question twice over:
+  writing entry point (`docs/api.md`), and it is the wrong entry point for *this* question twice over:
   it runs `assert`'s whole pipeline — naming, groundness, the definitional constraints —
   against the CURRENT KB, so a sentence stored before an `argIsa` was declared would fail
   it while the seat genuinely holds and believes that record, and refusing to dereference
   a record the seat has is a worse answer than the throw this closes; and it re-reads the
   taxonomy on every marker, which the resolution then reads again.
 
-  So ask the door the resolution actually goes through and let its typed refusal be the
+  So ask the entry point the resolution actually goes through and let its typed refusal be the
   answer: `handle-of` either consents to the question or it does not, and where it
   consents its nil stands unedited as \"I do not hold that\".  Nothing a seat can STORE
   trips the refusal — a bare disjunction is not assertable and a rule's `or` is
@@ -648,7 +648,7 @@
     locator is self-verifying (rehash the *resolved* canonical form and compare), and it
     is the marker's payload, not the KB, that is rejected.
 
-  So the marker is never load-bearing: meaning, attribution and (via `why-marker`) proof
+  So the marker is never required: meaning, attribution and (via `why-marker`) proof
   all come from what this seat's KB actually holds."
   [kb marker]
   (if-let [problem (marker-problem marker)]
@@ -685,7 +685,7 @@
 
 (defn why-marker
   "Dereference `marker` and, when it resolves, attach the proof `v/why` builds for it —
-  the seam a cross-seat proof-identity layer grows into.  The marker names WHAT to
+  the extension point a cross-seat proof-identity layer grows into.  The marker names WHAT to
   prove by content; the proof itself is the seat's own, drawn from its own justification
   graph.  Returns the `dereference` map, with `:why` added on success."
   [kb marker]

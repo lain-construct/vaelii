@@ -25,7 +25,7 @@
   while a connection either completes in well under a second or is not going to.  Handing
   the turn's budget to `connectTimeout` makes an unreachable host cost the whole turn —
   five minutes on Ollama, ten on the Messages API — for a host that never answered the
-  SYN, which is the shape of a hang rather than of a refusal.
+  SYN, which is the structure of a hang rather than of a refusal.
 
   Five seconds is far above any healthy handshake, the remote API's TLS one included, and
   far below every turn budget here.  A probe that wants to fail faster still can: the

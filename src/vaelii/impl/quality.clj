@@ -1,8 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.quality
-  "Seven readings about the **knowledge**, where the rest of the instrumentation reads the
-  engine: which rules never fire, how skewed the predicate extents are, how deep the rule
+  "Readings about the **knowledge**, where the rest of the instrumentation reads the
+  engine — `readings` below is the roster, and what each one asks is: which rules never fire, how skewed the predicate extents are, how deep the rule
   graph's chains reach, how much of the taxonomy is connected to anything, which argument
   declarations name a position their predicate does not have, which rules another rule
   already covers, and which rule pairs would contradict each other if both fired.
@@ -116,7 +116,7 @@
   predicate — the skew reading is about how the *knowledge* is shaped, not about what
   survived the last settle.  The rule postings are as-stored for a sharper reason: what
   `firing-census` sorts them into is *never fired* and *fired with every conclusion
-  defeated*, so a believed door would drop from the census exactly the rules the report
+  defeated*, so a believed entry point would drop from the census exactly the rules the report
   exists to name, and the two counts beside them would come back zero on the KB with the
   most to answer for."
   [kb progress!]
@@ -391,7 +391,7 @@
   rather than either fraction on its own.
 
   Reachability is **reflexive**, as `genls` is: the root reaches itself, so `:rooted`
-  counts it and `:islands` is exactly the edged types outside the root's cone."
+  counts it and `:islands` is exactly the edged types outside the root's ancestor set."
   [kb pass progress!]
   (let [taxo  (:taxonomy kb)
         nodes (tax/types taxo)
@@ -413,10 +413,10 @@
 ;; `checks/declared-arity` reads, and the declaration is left constraining a position the
 ;; predicate provably does not have.  It is not refused: refusing it would make the
 ;; *binding's* arrival order decide what the KB holds.  It simply stops meaning anything,
-;; while the door refuses the identical sentence one line later.
+;; while the entry point refuses the identical sentence one line later.
 ;;
 ;; A `variable_arity` predicate is the case where the length is not the last word, and the
-;; door's arm releases it: such a predicate reads a tuple of any length from its declared
+;; entry point's arm releases it: such a predicate reads a tuple of any length from its declared
 ;; arity upward, so a position past that length is one its tuples really do reach.  Nothing
 ;; of its is listed here, however high the position, because nothing of its is stranded.
 ;;
@@ -868,7 +868,7 @@
 
   The `:functional` arm is `tax/functional-family-declared?` rather than the `or` written
   out here, because that question — does the taxonomy hold a functional mark of *either*
-  spelling — is asked by every door of the family (`special`'s three `equate-*` lanes as
+  spelling — is asked by every entry point of the family (`special`'s three `equate-*` lanes as
   well as this pass), and spelling it per caller is what #52, #54 and #56 each were: one
   reader of a two-spelling family that had only learned one.  A third spelling joins the
   roster there and reaches all of them."
@@ -1035,7 +1035,7 @@
         (:antecedent v)))
 
 (defn- exception-names-other?
-  "Does `a`'s `exceptWhen` name a predicate `b` is about?  That is the shape a stated
+  "Does `a`'s `exceptWhen` name a predicate `b` is about?  That is the form a stated
   exception has — \"birds fly, unless penguins\" beside \"penguins do not fly\" — and it is
   why such a pair is reported as `:excepted` rather than hidden: a reader wants to see
   which clashes are already handled, not to be told there are none."
@@ -1098,7 +1098,7 @@
 (defn- clash-partners
   "The rules worth asking `consequent-clash` about beside `a`.
 
-  The **negation fan is global** and the pair is decided scoped, which is the shape a
+  The **negation fan is global** and the pair is decided scoped, which is the form a
   candidate read has everywhere in the engine: the vantage a clash is asked from is a
   common descendant of the two rules' contexts and belongs to neither of them, so fanning
   from either would drop a pair the context that can see both would find.  An
@@ -1176,14 +1176,63 @@
 
 ;; ---- the report ----------------------------------------------------------
 
+;; ---- the readings, as a roster -------------------------------------------
+
+(def ^:private readings
+  "One row per reading, in the order the report prints them — the data half, holding what
+  a reading is *called* and never what renders it.  The arms are `render-arms`, below the
+  helpers they need, and `check-readings!` joins the two at load.
+
+    :key    what `census` answers under, and what `report` reads.
+    :title  the `##` heading, so a section cannot be headed one thing here and another
+            where it is written.
+    :shape  the sub-key whose presence says a map really is a census answer, or absent for
+            a reading the shape test does not ask about.  A reading gains a `:shape` only
+            when a census map without it is no longer a census map, which is a decision
+            about stored reports rather than about the reading — see `check-report-shape!`.
+
+  Everything downstream is read off this: `census` is refused a key with no row
+  (`reading-map`), `report` walks it, and the shape test is the `:shape` column.  Written
+  out, the three would be the same seven names in three places, and the failure that
+  leaves is the quiet one — a reading `census` answers and `report` has no section for
+  renders as *absence*, which reads exactly like a KB with nothing to report."
+  [{:key :rules        :title "Rules that never fire"                        :shape :total}
+   {:key :extents      :title "Predicate extent skew"                        :shape :predicates}
+   {:key :chains       :title "Chain depth over the rule graph"              :shape :rules}
+   {:key :taxonomy     :title "Taxonomy coverage"                            :shape :names}
+   {:key :declarations :title "Argument constraints that constrain nothing"}
+   {:key :subsumption  :title "Rules another rule already covers"}
+   {:key :clashes      :title "Contradictions in waiting"}])
+
+(def ^:private reading-keys (into #{} (map :key) readings))
+
+(defn- reading-map
+  "The census answer, held to the roster: a reading with no row is refused here rather
+  than dropped by `report`, and a row `census` does not answer is refused rather than
+  rendering as a section that is simply never there.
+
+  `opts/check!`'s argument at the other end of the same namespace — a key nothing reads is
+  not a key — and the reason it runs here rather than at load is that `census` builds its
+  map in a `let` whose *order* is part of what it answers (the phases an `:on-progress`
+  caller sees), so the map literal is written out and cannot be folded from the roster."
+  [m]
+  (let [given (set (keys m))]
+    (when-not (= reading-keys given)
+      (throw (ex-info (str "kb-quality answered " (pr-str (vec (sort given)))
+                           " and the readings are " (pr-str (vec (sort reading-keys)))
+                           " — a reading with no row renders as an absent section, which"
+                           " is indistinguishable from a KB with nothing to report.")
+                      {:type :bad-table-entry :mismatch :reading
+                       :answered (vec (sort given)) :declared (vec (sort reading-keys))}))))
+  m)
+
 (defn census
-  "The seven readings as one map — `{:rules … :extents … :chains … :taxonomy …
-  :declarations … :subsumption … :clashes …}`.  `vaelii.core/kb-quality` is the door and
-  documents the options."
+  "The readings as one map, keyed by `readings`' `:key` and held to that roster on the way
+  out (`reading-map`).  `vaelii.core/kb-quality` is the entry point and documents the options."
   [kb {:keys [limit on-progress]}]
   ;; sequenced in a `let` rather than left to a map literal's argument order: the phases a
   ;; caller watching `:on-progress` sees are part of what this answers, and an evaluation
-  ;; order is not something to read off the shape of a literal
+  ;; order is not something to read off the structure of a literal
   (let [limit     (or limit default-limit)
         progress! (or on-progress (fn [_] nil))
         pass      (vocabulary-pass kb progress!)
@@ -1198,8 +1247,9 @@
         views     (rule-views kb handles progress!)
         subsumed  (subsumed-rules kb views limit progress!)
         clashes   (rule-clashes kb views limit progress!)]
-    {:rules rules :extents extents :chains chains :taxonomy taxonomy
-     :declarations decls :subsumption subsumed :clashes clashes}))
+    (reading-map
+     {:rules rules :extents extents :chains chains :taxonomy taxonomy
+      :declarations decls :subsumption subsumed :clashes clashes})))
 
 ;; ---- the same map, as prose ----------------------------------------------
 ;; A separate function over the report rather than a second traversal of the KB, so
@@ -1216,143 +1266,237 @@
                           (str "- `" handle "` `" (pr-str sentence) "` in `" context "`")))
          "\n")))
 
-(defn report
-  "The `census` map as Markdown — the seven readings in the order an author reads them,
-  the counts first and the lists after.  A map that is not a `census` answer is refused
-  (`:not-a-report`) rather than rendered as a page of zeros, which is what a caller passing
-  the wrong map would otherwise be handed and believe.
+;; Each arm renders its reading's **body** and nothing else: the `##` heading is
+;; `readings`' `:title`, written once by `report`, so a section cannot be headed one thing
+;; in the roster and another where it is emitted.  Every body ends in exactly one newline,
+;; which is what puts a blank line before the next heading and what makes the sections
+;; composable in any subset.
 
-  `:declarations`, `:subsumption` and `:clashes` are **not** in the shape test, and that is
-  deliberate: a census answer from before one of those readings existed is still a census
-  answer, and refusing to render one would turn a stored report into an unreadable one.
-  Each section is written when its key is there and omitted when it is not, and a listed
-  declaration's reason line is the `:message` the census carries rather than a second
-  derivation of it — which would be the same sentence written twice, free to drift on
-  either side."
-  [{:keys [rules extents chains taxonomy declarations subsumption clashes] :as quality}]
-  (when-not (and (map? quality) (:total rules) (:predicates extents)
-                 (:rules chains) (:names taxonomy))
-    (throw (ex-info (str "not a kb-quality report — want the map `kb-quality` answers, with"
-                         " :rules / :extents / :chains / :taxonomy; got "
-                         (if (map? quality)
-                           (pr-str (vec (sort (keys quality))))
-                           (pr-str (type quality))))
-                    {:type :not-a-report :keys (when (map? quality) (vec (sort (keys quality))))})))
-  (str
-   "# KB quality\n\n"
-   "## Rules that never fire\n\n"
-   (commas (:total rules)) " rules — **" (commas (:never-count rules)) " never fired** ("
-   (pct (:never-count rules) (:total rules)) "), " (commas (:all-defeated-count rules))
-   " fired with every conclusion defeated, " (commas (:fired rules))
-   " live; " (commas (:firings rules)) " recorded firings in all.\n\n"
-   "A firing is a **currently supported** one: a rule whose conclusions have since been\n"
-   "retracted has no live justification and is counted as never fired.\n"
-   (rule-lines "### Never fired" (:never rules))
-   (rule-lines "### Fired, every conclusion defeated" (:all-defeated rules))
-   (when (:truncated? rules)
-     (str "\nThe lists are capped; the counts above are not.\n"))
-   "\n## Predicate extent skew\n\n"
-   (commas (:predicates extents)) " predicates, " (commas (:with-extent extents))
-   " with an extent, " (commas (:stored extents)) " stored facts, Gini "
-   (format "%.4f" (:gini extents)) ".\n\n"
-   "| extent | predicates |\n|---|---|\n"
-   (str/join "\n" (for [[k n] (sort (:buckets extents))]
-                    (str "| 10^" k " | " (commas n) " |")))
-   "\n\n### The heaviest\n\n"
-   (str/join "\n" (for [[pred n] (:heaviest extents)]
-                    (str "- `" pred "` — " (commas n))))
-   "\n\n## Chain depth over the rule graph\n\n"
-   (commas (:functors chains)) " functors in " (commas (:components chains))
-   " components (" (commas (:cyclic chains)) " cyclic, largest " (commas (:largest chains))
-   "), over " (commas (:rules chains)) " rules.\n\n"
-   "| depth | rules | at least |\n|---|---|---|\n"
-   (str/join "\n" (for [[d n] (sort (:depths chains))]
-                    (str "| " d " | " (commas n) " | "
-                         (if-let [f (get (:at-least chains) d)]
-                           (format "%.1f%%" (* 100.0 f))
-                           "100.0%")
-                         " |")))
-   "\n\n## Taxonomy coverage\n\n"
-   (commas (:names taxonomy)) " type names — " (commas (:edged taxonomy))
-   " carry a `genl` edge (" (pct (:edged taxonomy) (:names taxonomy)) ")"
-   (if-let [root (:root taxonomy)]
-     (str ", " (commas (:rooted taxonomy)) " reach `" root "` ("
-          (pct (:rooted taxonomy) (:names taxonomy)) ").\n\n"
-          "Edged but not reaching the root: " (commas (:islands taxonomy))
-          " — the types sitting in disconnected islands, and the gap between the two\n"
-          "fractions above is the finding rather than either one of them.\n")
-     ;; no edge anywhere means no root to report against, which is a different statement
-     ;; from a root nothing reaches — and an empty code span is neither
-     ".\n\nNo `genl` edge anywhere, so there is no root to measure reach against.\n")
-   (when declarations
-     (str "\n## Argument constraints that constrain nothing\n\n"
-          (commas (:total declarations)) " argument declaration"
-          (when (not= 1 (:total declarations)) "s") " — **"
-          (commas (:stranded-count declarations))
-          (if (= 1 (:stranded-count declarations))
-            " names a position its predicate does not have"
-            " name a position their predicate does not have")
-          "** (" (pct (:stranded-count declarations) (:total declarations)) ").\n\n"
-          "Such a declaration is admitted while the predicate has no declared length and\n"
-          "goes inert when one arrives, so it reads as enforced while enforcing nothing.\n"
-          "It is a finding rather than an error: nothing is wrong with the KB's belief,\n"
-          "and the fix is to correct the position, to declare the arity the author meant,\n"
-          "or to mark the predicate `variable_arity` where its tuples really do reach that\n"
-          "far.\n"
-          (when (seq (:stranded declarations))
-            (str "\n"
-                 (str/join "\n"
-                           (for [{:keys [sentence context message]} (:stranded declarations)]
-                             (str "- `" (pr-str sentence) "` in `" context "`"
-                                  (when message (str " — " message)))))
-                 "\n"))
-          (when (:truncated? declarations)
-            "\nThe list is capped; the count above is not.\n")))
-   (when subsumption
-     (str "\n## Rules another rule already covers\n\n"
-          (commas (:total subsumption)) " rules — **"
-          (commas (:subsumed-count subsumption))
-          (if (= 1 (:subsumed-count subsumption))
-            " is covered by another"
-            " are covered by another")
-          "** (" (pct (:subsumed-count subsumption) (:total subsumption)) ").\n\n"
-          "A covering rule fires wherever the covered one does and concludes at least as\n"
-          "much, so the covered rule adds nothing the KB would not have had.  An exact\n"
-          "duplicate cannot appear here — two rules alike up to variable names or\n"
-          "antecedent order are one handle — so each of these is either a redundancy or a\n"
-          "deliberate specialization, and which one it is lives in what the author meant\n"
-          "rather than in what the KB holds.\n"
-          (when (seq (:subsumed subsumption))
-            (str "\n"
-                 (str/join "\n"
-                           (for [{:keys [subsumed by substitution context sentence
-                                         by-sentence]} (:subsumed subsumption)]
-                             (str "- `" subsumed "` `" (pr-str sentence) "` in `" context
-                                  "` — covered by `" by "` `" (pr-str by-sentence)
-                                  "` under `" (pr-str substitution) "`")))
-                 "\n"))
-          (when (:truncated? subsumption)
-            "\nThe list is capped; the count above is not.\n")))
-   (when clashes
-     (str "\n## Contradictions in waiting\n\n"
-          (commas (:total clashes)) " rules — **" (commas (:pair-count clashes))
-          (if (= 1 (:pair-count clashes)) " pair" " pairs")
-          " would clash if both fired**.\n\n"
-          "One substitution makes the two conclusions incompatible and nothing in the two\n"
-          "antecedent sets shallowly rules out both holding.  No inference is run and no\n"
-          "fact is consulted: this is what the rules say about each other, not what the KB\n"
-          "believes.  A pair marked **excepted** is the intended shape — one of the two\n"
-          "carries an `exceptWhen` naming the other's case, so the clash is already stated\n"
-          "as an exception rather than left to arbitration.\n"
-          (when (seq (:pairs clashes))
-            (str "\n"
-                 (str/join "\n"
-                           (for [{hs :rules :keys [kind context sentences excepted]}
-                                 (:pairs clashes)]
-                             (str "- " (name kind) " in `" context "`: `" (first hs)
-                                  "` `" (pr-str (first sentences)) "` against `"
-                                  (second hs) "` `" (pr-str (second sentences)) "`"
-                                  (when excepted " — excepted"))))
-                 "\n"))
-          (when (:truncated? clashes)
-            "\nThe list is capped; the count above is not.\n")))))
+(defn- render-rules [r]
+  (str (commas (:total r)) " rules — **" (commas (:never-count r)) " never fired** ("
+       (pct (:never-count r) (:total r)) "), " (commas (:all-defeated-count r))
+       " fired with every conclusion defeated, " (commas (:fired r))
+       " live; " (commas (:firings r)) " recorded firings in all.\n\n"
+       "A firing is a **currently supported** one: a rule whose conclusions have since been\n"
+       "retracted has no live justification and is counted as never fired.\n"
+       (rule-lines "### Never fired" (:never r))
+       (rule-lines "### Fired, every conclusion defeated" (:all-defeated r))
+       (when (:truncated? r)
+         "\nThe lists are capped; the counts above are not.\n")))
+
+(defn- render-extents [e]
+  (str (commas (:predicates e)) " predicates, " (commas (:with-extent e))
+       " with an extent, " (commas (:stored e)) " stored facts, Gini "
+       (format "%.4f" (:gini e)) ".\n\n"
+       "| extent | predicates |\n|---|---|\n"
+       (str/join "\n" (for [[k n] (sort (:buckets e))]
+                        (str "| 10^" k " | " (commas n) " |")))
+       "\n\n### The heaviest\n\n"
+       (str/join "\n" (for [[pred n] (:heaviest e)]
+                        (str "- `" pred "` — " (commas n))))
+       "\n"))
+
+(defn- render-chains [c]
+  (str (commas (:functors c)) " functors in " (commas (:components c))
+       " components (" (commas (:cyclic c)) " cyclic, largest " (commas (:largest c))
+       "), over " (commas (:rules c)) " rules.\n\n"
+       "| depth | rules | at least |\n|---|---|---|\n"
+       (str/join "\n" (for [[d n] (sort (:depths c))]
+                        (str "| " d " | " (commas n) " | "
+                             (if-let [f (get (:at-least c) d)]
+                               (format "%.1f%%" (* 100.0 f))
+                               "100.0%")
+                             " |")))
+       "\n"))
+
+(defn- render-taxonomy [t]
+  (str (commas (:names t)) " type names — " (commas (:edged t))
+       " carry a `genl` edge (" (pct (:edged t) (:names t)) ")"
+       (if-let [root (:root t)]
+         (str ", " (commas (:rooted t)) " reach `" root "` ("
+              (pct (:rooted t) (:names t)) ").\n\n"
+              "Edged but not reaching the root: " (commas (:islands t))
+              " — the types sitting in disconnected islands, and the gap between the two\n"
+              "fractions above is the finding rather than either one of them.\n")
+         ;; no edge anywhere means no root to report against, which is a different statement
+         ;; from a root nothing reaches — and an empty code span is neither
+         ".\n\nNo `genl` edge anywhere, so there is no root to measure reach against.\n")))
+
+(defn- render-declarations [d]
+  (str (commas (:total d)) " argument declaration"
+       (when (not= 1 (:total d)) "s") " — **"
+       (commas (:stranded-count d))
+       (if (= 1 (:stranded-count d))
+         " names a position its predicate does not have"
+         " name a position their predicate does not have")
+       "** (" (pct (:stranded-count d) (:total d)) ").\n\n"
+       "Such a declaration is admitted while the predicate has no declared length and\n"
+       "goes inert when one arrives, so it reads as enforced while enforcing nothing.\n"
+       "It is a finding rather than an error: nothing is wrong with the KB's belief,\n"
+       "and the fix is to correct the position, to declare the arity the author meant,\n"
+       "or to mark the predicate `variable_arity` where its tuples really do reach that\n"
+       "far.\n"
+       (when (seq (:stranded d))
+         (str "\n"
+              (str/join "\n"
+                        (for [{:keys [sentence context message]} (:stranded d)]
+                          (str "- `" (pr-str sentence) "` in `" context "`"
+                               (when message (str " — " message)))))
+              "\n"))
+       (when (:truncated? d)
+         "\nThe list is capped; the count above is not.\n")))
+
+(defn- render-subsumption [s]
+  (str (commas (:total s)) " rules — **"
+       (commas (:subsumed-count s))
+       (if (= 1 (:subsumed-count s))
+         " is covered by another"
+         " are covered by another")
+       "** (" (pct (:subsumed-count s) (:total s)) ").\n\n"
+       "A covering rule fires wherever the covered one does and concludes at least as\n"
+       "much, so the covered rule adds nothing the KB would not have had.  An exact\n"
+       "duplicate cannot appear here — two rules alike up to variable names or\n"
+       "antecedent order are one handle — so each of these is either a redundancy or a\n"
+       "deliberate specialization, and which one it is lives in what the author meant\n"
+       "rather than in what the KB holds.\n"
+       (when (seq (:subsumed s))
+         (str "\n"
+              (str/join "\n"
+                        (for [{:keys [subsumed by substitution context sentence
+                                      by-sentence]} (:subsumed s)]
+                          (str "- `" subsumed "` `" (pr-str sentence) "` in `" context
+                               "` — covered by `" by "` `" (pr-str by-sentence)
+                               "` under `" (pr-str substitution) "`")))
+              "\n"))
+       (when (:truncated? s)
+         "\nThe list is capped; the count above is not.\n")))
+
+(defn- render-clashes [c]
+  (str (commas (:total c)) " rules — **" (commas (:pair-count c))
+       (if (= 1 (:pair-count c)) " pair" " pairs")
+       " would clash if both fired**.\n\n"
+       "One substitution makes the two conclusions incompatible and nothing in the two\n"
+       "antecedent sets shallowly rules out both holding.  No inference is run and no\n"
+       "fact is consulted: this is what the rules say about each other, not what the KB\n"
+       "believes.  A pair marked **excepted** is the intended shape — one of the two\n"
+       "carries an `exceptWhen` naming the other's case, so the clash is already stated\n"
+       "as an exception rather than left to arbitration.\n"
+       (when (seq (:pairs c))
+         (str "\n"
+              (str/join "\n"
+                        (for [{hs :rules :keys [kind context sentences excepted]}
+                              (:pairs c)]
+                          (str "- " (name kind) " in `" context "`: `" (first hs)
+                               "` `" (pr-str (first sentences)) "` against `"
+                               (second hs) "` `" (pr-str (second sentences)) "`"
+                               (when excepted " — excepted"))))
+              "\n"))
+       (when (:truncated? c)
+         "\nThe list is capped; the count above is not.\n")))
+
+(def ^:private render-arms
+  "The arms half of `readings`: reading key -> `(fn [sub-map] body)`."
+  {:rules        render-rules
+   :extents      render-extents
+   :chains       render-chains
+   :taxonomy     render-taxonomy
+   :declarations render-declarations
+   :subsumption  render-subsumption
+   :clashes      render-clashes})
+
+(defn- check-readings!
+  "Refuse at load a roster and a set of arms that do not agree.
+
+  A reading with a row and no arm would print a heading over nothing; an arm with no row
+  would never be reached, since `report` walks the roster.  Neither is visible from a test
+  that renders a KB, because both are about a reading the suite does not have — which is
+  every reading on the day it is added.
+
+  **Takes both halves**, rather than reading the two vars beside it, so a test can drive
+  it over halves that disagree.  A validator called only by its own namespace's load has
+  run every branch it will ever run against a table that passes, and nothing then says it
+  would refuse: a `remove` written the wrong way round reads exactly like a roster with
+  nothing wrong.  Returns the roster, as `predicates/check-families` does.
+
+  Refuses under `:bad-table-entry` discriminated by `:mismatch`, as
+  `predicates/check-families`, `config/check-switches!` and `kb/check-backends!` do."
+  [readings render-arms]
+  (let [keys-of (into #{} (map :key) readings)]
+    (doseq [k (sort (remove render-arms keys-of))]
+      (throw (ex-info (str "reading " k " is on `readings` and has no arm in `render-arms`"
+                           " — `report` would write its heading over an empty section.")
+                      {:type :bad-table-entry :mismatch :unarmed-reading :reading k})))
+    (doseq [k (sort (remove keys-of (keys render-arms)))]
+      (throw (ex-info (str "`render-arms` renders " k ", which is on no row of `readings`"
+                           " — `report` walks the roster, so the arm is never reached and"
+                           " the reading has no title, no place in the order and no say in"
+                           " the shape test.")
+                      {:type :bad-table-entry :mismatch :unrostered-arm :reading k})))
+    (doseq [{:keys [key title]} readings]
+      (when (str/blank? title)
+        (throw (ex-info (str "reading " key " has no title, and `report` writes the title as"
+                             " the section's heading — a blank one is a `##` over nothing.")
+                        {:type :bad-table-entry :mismatch :blank-title :reading key}))))
+    (let [dupes (into #{} (comp (filter (fn [[_ v]] (< 1 (count v)))) (map key))
+                      (group-by :title readings))]
+      (when (seq dupes)
+        (throw (ex-info (str "two readings share a heading: " (pr-str (vec (sort dupes)))
+                             " — a reader cannot tell which section they are looking at, and"
+                             " a search for the heading finds the wrong one.")
+                        {:type :bad-table-entry :mismatch :duplicate-title :titles dupes}))))
+    (when-not (= (count readings) (count keys-of))
+      (throw (ex-info (str "`readings` names a key twice — " (pr-str (mapv :key readings))
+                           " — and the second row would be rendered under the first's"
+                           " title, or not at all.")
+                      {:type :bad-table-entry :mismatch :duplicate-reading
+                       :keys (mapv :key readings)}))))
+  readings)
+
+(check-readings! readings render-arms)
+
+(defn- check-report-shape!
+  "Refuse a map that is not a census answer, naming the readings whose presence says it is.
+
+  A page of zeros and dashes is what a caller who passed the wrong map would otherwise be
+  handed, and it is indistinguishable from a report of an empty KB.
+
+  The test asks only for the readings carrying a `:shape`, and the three without one are
+  the point rather than an oversight: **a census answer from before a reading existed is
+  still a census answer**, and refusing to render one would turn a stored report into an
+  unreadable one.  So a new reading is added without a `:shape`, and gains one only if
+  there comes a day when a map lacking it is no longer a report."
+  [quality]
+  (let [shaped (filterv :shape readings)]
+    (when-not (and (map? quality)
+                   (every? (fn [{:keys [key shape]}] (get-in quality [key shape])) shaped))
+      (throw (ex-info (str "not a kb-quality report — want the map `kb-quality` answers,"
+                           " with " (str/join " / " (map (comp str :key) shaped)) "; got "
+                           (if (map? quality)
+                             (pr-str (vec (sort (keys quality))))
+                             (pr-str (type quality))))
+                      {:type :not-a-report
+                       :keys (when (map? quality) (vec (sort (keys quality))))})))))
+
+(defn report
+  "The `census` map as Markdown — the readings in `readings`' order, each under its own
+  `:title`, the counts first and the lists after.  A map that is not a census answer is
+  refused (`:not-a-report`); which readings decide that is `check-report-shape!`.
+
+  A section is written when its key is there and omitted when it is not, so a stored
+  answer from before a reading existed still renders.  The roster is what makes the
+  omission a *decision*: a key `census` answers reaches this walk or is refused at
+  `census` (`reading-map`), and a row with nothing to render it fails the build
+  (`check-readings!`).  Neither was true when the sections were written out — a reading
+  with no section rendered as absence, which reads exactly like a KB with nothing to
+  report.
+
+  A listed declaration's reason line is the `:message` the census carries rather than a
+  second derivation of it, which would be the same sentence written twice, free to drift
+  on either side."
+  [quality]
+  (check-report-shape! quality)
+  (apply str "# KB quality\n"
+         (for [{:keys [key title]} readings
+               :let                [m (get quality key)]
+               :when               m]
+           (str "\n## " title "\n\n" ((render-arms key) m)))))

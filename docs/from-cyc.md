@@ -17,7 +17,7 @@ third column is the one to read.
 
 | in Cyc | here | what changes |
 |---|---|---|
-| `Mt` | context | a sentex is in exactly one, and reads see up the `genlCx` cone → [contexts.md](contexts.md) |
+| `Mt` | context | a sentex is in exactly one, and reads see up the `genlCx` ancestor set → [contexts.md](contexts.md) |
 | `genlMt` | `genlCx` | cached and recomputed on edge change, not derived by a rule |
 | assertion | sentex | a sentence *plus* the context it holds in; the pair is the unit |
 | constant | symbol | the role is read off the spelling, and `assert` refuses one that breaks it |
@@ -85,7 +85,7 @@ be decided → [solving.md](solving.md).
 | `unk` | `unknown` | negation as failure, ground-only, evaluated at level 6 and storing nothing. A conjunctive argument is joined, so its conjuncts may share a quantifier's variable, and `forall` is sugar for the nested case → [naf.md](naf.md) |
 | — | `(contradictions kb)` | no Cyc equivalent: the pairs that coexist, ordered by content |
 | `assertedMoreSpecifically` | — | no equivalent. Specificity is behavioral: a stated specific claim undercuts an inherited general one, so nothing is derived to arbitrate → [inherit.md](inherit.md) |
-| `completeExtentEnumerable` | `(closed_extent_predicate P)` | a **counterpart**, not a translation. Both say a predicate's extent is complete, and three things differ: it is **belief-following** (a defeated or retracted member leaves the extent) rather than a claim about what is stored; it is **context-scoped**, read from the asking context's `genlCx` up-cone, so one theory may close what a sibling reading the same predicate leaves open; and the extent it closes is what level 6 derives, so a member reachable only by backward chaining is not in it. Closure stays choosable per goal as well, by `unknown` / `thereExists` / `forall` → [naf.md](naf.md) |
+| `completeExtentEnumerable` | `(closed_extent_predicate P)` | a **counterpart**, not a translation. Both say a predicate's extent is complete, and three things differ: it is **belief-following** (a defeated or retracted member leaves the extent) rather than a claim about what is stored; it is **context-scoped**, read from the asking context's `genlCx` ancestor set, so one theory may close what a sibling reading the same predicate leaves open; and the extent it closes is what level 6 derives, so a member reachable only by backward chaining is not in it. Closure stays choosable per goal as well, by `unknown` / `thereExists` / `forall` → [naf.md](naf.md) |
 | `notAssertible` | — | no equivalent |
 
 Binary mutual exclusion is written as the two rules, and `(not S)` is a stored sentex
@@ -124,7 +124,7 @@ The content constraints above are a separate stage. `check` runs both.
 | `CoreCycLMt` | `CxCore` | the spindle head: the vocabulary code interprets |
 | `UniversalVocabularyMt` / `BaseKB` | `CxUniverse` | the mid anchor, and where a decontextualized claim lands |
 | `CurrentWorldDataCollectorMt` | `CxWell` | the collector — sees the whole shipped ontology |
-| `InferencePSC` | `CxInference` | a **reading**, not a place: what one reader's cone sees whole |
+| `InferencePSC` | `CxInference` | a **reading**, not a place: what one reader's ancestor set sees whole |
 | `EverythingPSC` | `CxEverything` | likewise, and blind to belief — a syntactic read of the store |
 
 Those last two rows are the ones that catch people. Both spell like contexts and neither
@@ -186,7 +186,7 @@ KB rather than to the engine.
 | rename | — |
 
 `prove` returns one binding map per **derivation**, so equal maps repeat; `distinct` if
-you wanted a set. Which door answers what, and what each costs, is
+you wanted a set. Which entry point answers what, and what each costs, is
 [levels.md](levels.md).
 
 ## Truth maintenance
@@ -267,7 +267,7 @@ declared separately → [inherit.md](inherit.md).
 ## What you gain
 
 - `fork` — a private writable overlay over a shared frozen base → [overlay.md](overlay.md)
-- An ASP solver behind the contradiction seam, `(v/set-solver kb :asp)` → [asp.md](asp.md)
+- An ASP solver behind the `Solver` protocol, `(v/set-solver kb :asp)` → [asp.md](asp.md)
 - Six qualitative relation algebras, plus metric time → [qcn.md](qcn.md), [stp.md](stp.md)
 - Export and import of a whole KB → [storage.md](storage.md)
 - A browser over terms, sentexes and justifications → [web.md](web.md)

@@ -209,7 +209,7 @@
                 "and is matched by a pattern the daemon grounds"))
           (testing "the CLI cannot take a directory the daemon owns"
             ;; docs/operations.md: "The CLI with `--dir` takes the same lock, so it and a
-            ;; daemon cannot own one directory at once."  The door is the CLI's own, so
+            ;; daemon cannot own one directory at once."  The entry point is the CLI's own, so
             ;; what is checked is the refusal an operator actually meets.
             (let [e (try (cli/open-kb-from {:dir dir})
                          nil
@@ -223,7 +223,7 @@
 ;;
 ;; `llm_test` holds the same shape for `^:llm`, and for the same reason: a mark is a
 ;; promise, and a promise nothing checks is kept until the first time it is not.  Here
-;; the promise is load-bearing twice over — an unmarked test forks JVMs inside `lein
+;; the promise is required twice over — an unmarked test forks JVMs inside `lein
 ;; gate`, and a marked one nothing names never runs at all — so both directions are
 ;; checked: every forking test carries the mark, and the marked set is a roster.
 ;;

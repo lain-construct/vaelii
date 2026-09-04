@@ -178,7 +178,7 @@
     (is (empty? (nm/problems '(livesIn Tweety Antarctica) 'CxWell)))
     (is (empty? (nm/problems '(between A B C) 'CxWell))))
   (testing "an implausible *unary* name is still a well-formed type name — this check is"
-    ;; about the shape of a name, never about whether the vocabulary wants it
+    ;; about the structure of a name, never about whether the vocabulary wants it
     (is (empty? (nm/problems '(implies (penguin ?x) (has_black_and_white_feathers ?x))
                              'CxWell)))))
 
@@ -286,7 +286,7 @@
 (deftest the-naming-policy-belongs-to-the-kb
   ;; The conventions are how *this* KB reads a role off a spelling, so a KB holding a
   ;; corpus that spells its names differently is not malformed — it is a KB whose front
-  ;; door is set differently.  Neither has to win, and both can be open at once.
+  ;; entry point is set differently.  Neither has to win, and both can be open at once.
   (testing ":strict is the default, and refuses with a :naming type"
     (tu/with-cleared-kb [kb (kb-with :strict)]
       (is (= :strict (:naming kb)))
@@ -315,7 +315,7 @@
            (:type (try (v/open-kb (assoc tu/scratch-space :naming :lenient))
                        (catch clojure.lang.ExceptionInfo e (ex-data e))))))))
 
-(deftest two-doors-over-one-store-disagree-and-both-are-right
+(deftest two-entry-points-over-one-store-disagree-and-both-are-right
   ;; The policy travels with the KB, not with the records, so a lenient loader and a
   ;; strict editor can hold the same store at once — which is the whole point of it
   ;; being per-KB rather than a property of the build.
@@ -331,7 +331,7 @@
 (deftest a-policy-moves-what-is-refused-never-how-a-role-is-read
   ;; The one cost of `:off`, stated as a test so it cannot be forgotten: the KB stores a
   ;; name it *cannot classify*, rather than classifying it differently.  Nothing
-  ;; downstream starts reading `Baby_Penguin` as an individual because the door was open.
+  ;; downstream starts reading `Baby_Penguin` as an individual because the entry point was open.
   (is (nil? (v/term-role 'Baby_Penguin)))
   (is (= :individual (v/term-role 'BabyPenguin)))
   (is (not (nm/individual? 'Baby_Penguin)))
@@ -341,9 +341,9 @@
     (is (empty? (nm/blocking-problems :warn misnamed 'CxWell)))
     (is (empty? (nm/blocking-problems :off  misnamed 'CxWell)))))
 
-(deftest the-other-door-counts-what-it-does-not-check
+(deftest the-other-entry-point-counts-what-it-does-not-check
   ;; A bulk path stores what `assert` refuses — that is what it is for — so the two
-  ;; doors are reconciled by a count rather than by a check.
+  ;; entry points are reconciled by a count rather than by a check.
   (let [t (-> nm/empty-tally
               (nm/tally '(dog Muffet) 'CxWell)
               (nm/tally misnamed 'CxWell)
@@ -353,7 +353,7 @@
     (is (= {:argument 1 :functor 1 :context-name 1} (:by-class t)))
     (is (re-find #"2 of 3 records" (nm/tally-line t)))
     (is (re-find #"66\.7%" (nm/tally-line t))))
-  (testing "and says nothing at all when the corpus and the front door agree"
+  (testing "and says nothing at all when the corpus and the public entry point agree"
     (is (nil? (nm/tally-line (nm/tally nm/empty-tally '(dog Muffet) 'CxWell))))))
 
 (deftest a-refused-exceptWhen-leaves-no-bare-rule-behind
@@ -379,7 +379,7 @@
   ;; as a two-place relation nothing reads.  The reader then asks `(isa? kb 'Muffet
   ;; 'Dog)`, gets false, and has no error to search for.  docs/naming.md calls this
   ;; out by name and CxCore.txt says never to write it; neither is in front of
-  ;; someone typing, so the front door says it.
+  ;; someone typing, so the public entry point says it.
   (testing "the shape is advised against, and the advice names the right spelling"
     (let [{:keys [id message]} (nm/advice '(isa Muffet Dog))]
       (is (= ::nm/isa-is-not-how-membership-is-written id))
@@ -474,7 +474,7 @@
                               'CxUniverse)))))
 
 (deftest a-name-the-reader-would-not-read-back-is-refused
-  (testing "a leading digit reads as a malformed number, not a symbol"
+  (testing "a leading digit is indistinguishable from a malformed number, not a symbol"
     (is (thrown? Exception (read-string "134a-gas")))
     (is (nil? (v/term-role (symbol "134a-gas")))))
   (testing "and the escaped spelling reads, and is a sense"
@@ -530,7 +530,7 @@
       (is (re-find #"camelCase as livesIn" m)))))
 
 (deftest a-lexeme-functor-is-refused-as-an-ex-info-not-a-crash
-  ;; The front door's contract is that every refusal is an `ex-info` carrying a `:type`
+  ;; The public entry point's contract is that every refusal is an `ex-info` carrying a `:type`
   ;; a caller can discriminate on.  A class with no `message` arm breaks it below the
   ;; level `assert` can catch, so the refusal arrives as an `IllegalArgumentException`
   ;; naming a `case` — true about the code, and no help to whoever wrote the sentence.

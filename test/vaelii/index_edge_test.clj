@@ -208,7 +208,7 @@
 (tu/deftest-kb the-argument-root-canonicalizes-a-compound-term
   ;; `arg-key` runs the term through `sx/canon` before freezing.  Every other argument
   ;; root test passes an atomic symbol, where `canon` is the identity — so deleting it
-  ;; costs nothing there.  A COMPOUND term is where it bites: a LazySeq and a
+  ;; adds no work there.  A COMPOUND term is where it bites: a LazySeq and a
   ;; PersistentList are `=` but freeze to different nippy bytes, so the lookup key
   ;; would miss the stored one and return the empty set.  No error, no exception —
   ;; the fact is simply invisible from that root.

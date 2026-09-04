@@ -703,7 +703,7 @@
                        (list all_kids_asleep '?p))]
       (is (= (:sentence (v/canonical-sentex kb sugar 'CxWell))
              (:sentence (v/canonical-sentex kb nested 'CxWell)))
-          "the sugar exists at the door and nowhere past it")
+          "the sugar exists at the entry point and nowhere past it")
       (is (= (v/assert kb sugar 'CxWell) (v/assert kb nested 'CxWell))
           "so the two are one rule, to one handle"))))
 

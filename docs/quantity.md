@@ -46,7 +46,7 @@ them from any asking context. That is not only convenience: a quantity compariso
 **rule antecedent** is a deferred literal, and the forward join asks the registry at the
 wildcard `'?ctx` where a backward search asks at its goal's context
 ([inference.md](inference.md)). So a unit table split across contexts reads whole
-forward and per-cone backward, and one stated where every reader sees it is the one
+forward and per-ancestor-set backward, and one stated where every reader sees it is the one
 arrangement under which the two agree.
 
 **Three dimensions ship filled in.** `resources/kb/upper/CxMeasure.txt` states Length in
@@ -76,7 +76,7 @@ shipped ones to converting direct-to-base within one dimension.
 ### A declaration the KB disagrees with itself about
 
 Both reads take the binding every believed, visible match **agrees** on. Restating one
-declaration in several contexts of the cone is not a disagreement — the matches carry the
+declaration in several contexts of the ancestor set is not a disagreement — the matches carry the
 same bindings and collapse to one. Two declarations that differ are: the unit then falls
 back to being its own dimension and its own base, exactly as an undeclared unit does, and
 compares only against itself.

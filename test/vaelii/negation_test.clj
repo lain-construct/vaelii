@@ -62,7 +62,7 @@
 ;; `negation-nogoods` enumerates the negated bodies and gates each on whether a
 ;; positive is *stored* for it, before doing the belief/visibility pairing.  These
 ;; pin the two things that gate could get wrong: it must not miss a real clash, and
-;; a negation with no positive twin must cost nothing yet still be believed.
+;; a negation with no positive twin must added no work yet still be believed.
 
 (tu/deftest-kb an-unpaired-negation-forms-no-nogood
   (let [swims (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) c (tu/tmp-ind)]

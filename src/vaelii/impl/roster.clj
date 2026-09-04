@@ -25,7 +25,7 @@
 
   Not an `IPersistentSet`.  `conj`, `disj` and `clojure.set` need one, so a caller wanting
   those converts with `(set roster)` — which is the 4.5 GB, paid at the call site that
-  asked for it rather than by every store on every enumeration.  What the seam promises is
+  asked for it rather than by every store on every enumeration.  The protocol promises
   membership, iteration, cardinality and ordering, which is what every caller in the
   engine uses.
 
@@ -40,7 +40,7 @@
   costs 48–75 bytes a handle — **9.47 GB at 100M records** and the second-largest resident
   row in the engine (`docs/density.md`).
 
-  **It synchronizes nothing, deliberately.**  A `Roaring64Bitmap` is mutable and not
+  **It synchronizes nothing.**  A `Roaring64Bitmap` is mutable and not
   thread-safe, so every call here needs a monitor around it — and the monitor is the
   caller's, because the caller already has one.  The disk store mutates its live set under
   the owning kind's lock, in the same acquisition as the file write the set is a claim

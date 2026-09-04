@@ -21,7 +21,7 @@
 
 - **A sentence is not knowledge until it has a context.** The unit is a *sentex* —
   sentence plus context — every sentex is in exactly one, and a read sees up the `genlCx`
-  cone from wherever it asks → [contexts.md](contexts.md)
+  ancestor set from wherever it asks → [contexts.md](contexts.md)
 - **A symbol's role is read off its spelling**, and `assert` refuses a sentence that
   breaks the convention: `parentOf` a predicate, `Fido` an individual, `physical_object` a
   type, `CxCore` a context → [naming.md](naming.md)

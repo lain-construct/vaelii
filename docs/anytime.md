@@ -91,7 +91,7 @@ is the complement that keeps *per-solution* latency bounded — see below.
  :resume     <fn | nil>}  ; nil iff :complete; else (budget -> partial result)
 ```
 
-`:complete` is the load-bearing one and it is exact: it is reported only when the
+`:complete` is the required one and it is exact: it is reported only when the
 source was pulled and ended. The other two are the honest negation of that rather than
 a claim that work remains — `collect` stops *before* pulling past its bound, since
 deciding whether a tail exists means realizing one more element than the cap allows.
@@ -100,7 +100,7 @@ continuation, and driving that continuation yields `:complete` with no results. 
 is one extra step, never a wrong answer, and it is the price of a cap that reads
 exactly *n*.
 
-**The plain doors take a bound too, and answer differently.** `ask`, `ask?`, `prove` and
+**The plain entry points take a bound too, and answer differently.** `ask`, `ask?`, `prove` and
 `provable?` each take a trailing option map — `{:max-ms n}` at the first two,
 `{:max-ms n :max-depth n}` at the last two ([api.md](api.md)) — and what a reached
 `:max-ms` gets there is a refusal, `:type :budget-exhausted`, rather than the prefix. A
@@ -250,7 +250,7 @@ exactly like a KB that was never told.
 The budget is a thin, testable layer over machinery that is lazy underneath it — which
 is why it is small.
 
-What a budget bounds is the *search*: how long it runs, how many results it collects,
+A budget bounds the *search*: how long it runs, how many results it collects,
 how deep it goes. It does not allocate effort **between** proof branches — no estimate
 decides which branch deserves the remaining time — so a budget spent on an unproductive
 branch is spent.

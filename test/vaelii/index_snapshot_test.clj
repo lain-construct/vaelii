@@ -40,7 +40,7 @@
 
 (defn- copy-tree!
   "Copy every regular file of `from` into a fresh `to` — how a test takes an image aside
-  and puts it back, which is the only honest way to produce a *stale* one."
+  and puts it back, which is the only defensible way to produce a *stale* one."
   [^String from ^String to]
   (rm-rf! to)
   (.mkdirs (File. to))
@@ -429,7 +429,7 @@
   ;; once the live index has drifted far enough from the one on disk.
   ;;
   ;; The interval floor is dropped to zero rather than waited out, and the threshold left
-  ;; at its default: what this checks is that the drift trigger fires from the write door
+  ;; at its default: what this checks is that the drift trigger fires from the write entry point
   ;; on the writer's thread, not how long the floor is.
   (with-properties {"vaelii.disk.compact-min-interval-ms" "0"}
     (fn []
@@ -441,7 +441,7 @@
                 "a fresh directory holds no image, and nothing has closed")
             (build! kb)
             (is (.exists (meta-file dir))
-                "the write door wrote one: drift from an absent image is total")
+                "the write entry point wrote one: drift from an absent image is total")
             ;; and it describes the records, which is the only thing that makes it worth
             ;; having — a mid-life image stamped against a store that has moved on is one
             ;; the next open discards
@@ -536,8 +536,8 @@
 (deftest a-refresh-that-throws-costs-the-image-and-not-the-write
   ;; By the time the refresh runs the sentex is durably stored and indexed, and the image
   ;; is a cache of derived state — so a failure to write one must not fail the assert, and
-  ;; must not skip the observation seams that run after it (`observe/notify-add`, the
-  ;; incremental matcher's alpha-memory door, which would otherwise be permanently behind
+  ;; must not skip the observation call sites that run after it (`observe/notify-add`, the
+  ;; incremental matcher's alpha-memory entry point, which would otherwise be permanently behind
   ;; the store).  The image on disk is left exactly as it was.
   (with-snapshot-dir
     (fn [dir]
@@ -604,7 +604,7 @@
   "Walk a lazy `sentexes-matching` seq to its end, asserting a fresh fact per element, and
   return the `[context sentence]` pairs it yielded.
 
-  Every step of the walk therefore crosses the whole write door, the image refresh
+  Every step of the walk therefore crosses the whole write entry point, the image refresh
   included — which is the point: `save!` freezes the live trie into CSR in place, and this
   is what does it under an unconsumed tail.  The asserted facts are a unary type, so they
   land in the trie and the roots without joining the pattern being walked."
@@ -785,7 +785,7 @@
   ;; The fallback blob carries the slot roster — the predicates present at a
   ;; `(pos, term)`, which the agnostic argument reads descend through — so a thaw that
   ;; comes back torn has to condemn the image.  A default of the empty value would open an
-  ;; index answering `#{}` to every `sentexes-with-arg`, which reads as a KB that holds
+  ;; index answering `#{}` to every `sentexes-with-arg`, which is indistinguishable from a KB that holds
   ;; nothing at any position.
   (with-snapshot-dir
     (fn [dir]
@@ -814,13 +814,13 @@
 (deftest a-dictionary-that-reloads-short-of-its-log-condemns-the-image
   ;; The mapped edges cite durable token ids, and an id is the log position it was written
   ;; at — so a dictionary that comes back holding fewer entries than the log has shifted
-  ;; every id past the gap, and each edge still reads as a perfectly legal int.  The count
+  ;; every id past the gap, and each edge still is indistinguishable from a perfectly legal int.  The count
   ;; is the only witness there is, which is why it is compared rather than assumed.
   ;;
   ;; The disagreement is staged at the dictionary, because the thing that shifts a
   ;; numbering in practice is a Clojure-equal pair of frames, and that one is named and
   ;; repaired a layer earlier (below) before this check can see it.  A `reify` delegating
-  ;; to a real dictionary is what a protocol seam takes: a redef of `token-count` is a
+  ;; to a real dictionary is what a protocol change takes: a redef of `token-count` is a
   ;; var no protocol call reads.
   (with-snapshot-dir
     (fn [dir]

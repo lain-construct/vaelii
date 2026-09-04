@@ -31,7 +31,7 @@
 
 (def ^:private defaults
   {:types        4000
-   :branching    2        ; deep, the shape that makes a genl closure long
+   :branching    2        ; deep, the structure that makes a genl closure long
    :individuals  2000
    :memberships  3        ; types each individual already holds
    :predicates   20

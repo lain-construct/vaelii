@@ -251,7 +251,7 @@
     (testing "while the ordinary form still folds"
       (is (= '(lessThan 3 5) (:sentence (sx/sentex '(greaterThan 5 3) 'CxA))))))
   (testing "two dotted lessThans do not merge into one variable-arity literal"
-    ;; the shape that *would* merge: the tail of the first is the head of the second,
+    ;; the structure that *would* merge: the tail of the first is the head of the second,
     ;; which is exactly the (a<b)+(b<c) test `collapse-comparison-chains` looks for.
     ;; Splicing them yields (lessThan ?a . ?r . ?s) — a literal with two rest markers,
     ;; which nothing can ever match.
@@ -268,7 +268,7 @@
 ;; ---- symmetric arguments: only a *ground* literal is reordered -----------
 
 (deftest a-partially-ground-symmetric-literal-keeps-its-argument-order
-  ;; `every? ground-term?` is load-bearing.  A literal holding a variable is a pattern
+  ;; `every? ground-term?` is required.  A literal holding a variable is a pattern
   ;; — a query, or an antecedent about to be matched — and variables sort last, so
   ;; sorting one would move its ground argument into slot 1 and stop it matching the
   ;; stored fact.  Asserted on the constructed sentex on purpose: `res/raw-match`
@@ -335,7 +335,7 @@
 ;; ---- the lexical last resort actually resolves something ----------------
 
 (tu/deftest-kb constants-break-a-tie-lexically
-  ;; `cmp-term` / `cmp-blind` end with (compare (str a) (str b)).  It reads like a
+  ;; `cmp-term` / `cmp-blind` end with (compare (str a) (str b)).  It is indistinguishable from a
   ;; defensive default, and reducing it to 0 compiles, passes every structural test,
   ;; and turns two literals differing only in a ground constant into a *tie group* —
   ;; handing their order back to the author and breaking dedup.

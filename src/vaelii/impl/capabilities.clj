@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.capabilities
-  "The callers' door to the **optional** storage capabilities: one function per
+  "The callers' entry point to the **optional** storage capabilities: one function per
   capability that uses it when the store has it and falls back to the plain
   `RecordStore` op when it does not.
 
@@ -13,10 +13,10 @@
   carries no code to cover; these fallbacks do, and here they stay measured.
   `vaelii.impl.jtms-protocol` is split from `vaelii.impl.jtms` for the same reason.
 
-  Each door is the same shape: `satisfies?` the capability, take its op, else the
+  Each entry point is the same shape: `satisfies?` the capability, take its op, else the
   loop it replaces.  A caller therefore never branches on a capability, and a store
   without one reads exactly as it did before the capability existed.  `hinting` and
-  `recovery-hint-chunk` are not doors but the chunking a prefetch door is used
+  `recovery-hint-chunk` are not entry points but the chunking a prefetch entry point is used
   through, which is why they sit here beside it."
   (:require [vaelii.impl.protocols :as p]))
 

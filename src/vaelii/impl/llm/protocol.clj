@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.llm.protocol
-  "The pluggable-model seam: one protocol, two methods, and a provider-neutral
+  "The pluggable-model extension point: one protocol, two methods, and a provider-neutral
   request/response shape.
 
   Mirrors `vaelii.impl.solve/Solver` — a protocol plus a deterministic stub as the
@@ -9,7 +9,7 @@
   suite, and a build with no API key and no network, run the whole pipeline against
   `vaelii.impl.llm.stub` and never open a socket.
 
-  **The shapes are the seam.**  A provider takes a `request` map and answers a
+  **The shapes are the contract.**  A provider takes a `request` map and answers a
   `response` map; neither mentions HTTP, JSON, or any vendor field, so the session
   loop (`vaelii.impl.llm.session`) is written once and runs against either provider.
 

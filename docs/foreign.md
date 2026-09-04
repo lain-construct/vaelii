@@ -25,7 +25,7 @@ bridge is a **separate artifact** that teaches it a format when it is on the cla
 `vaelii-foreign` is the one we publish. Retiring a bridge is dropping a dependency; there
 is no file here to delete and none to change when one arrives.
 
-## The seam
+## The extension point
 
 `vaelii.impl.foreign` is the whole of it. A caller asks by kind and gets a map of
 functions, or nil:
@@ -54,7 +54,7 @@ One resource, `vaelii/foreign.edn`, mapping kind to the var holding its reader m
 
 Every copy of that resource on the classpath is read and merged, so a build reads the
 union of the bridges it was given and several plugins compose without knowing about each
-other. Three properties make that a seam rather than a coupling:
+other. Three properties make that an extension point rather than a coupling:
 
 * **It is data.** A manifest is edn, so a plugin declares a name and can never run code
   — the same reason the shipped ontology is text ([storage.md](storage.md)).
@@ -91,11 +91,11 @@ to the one command you prefix. The other route is `scripts/link-checkouts.sh`, w
 `checkouts/vaelii-foreign` and resolves the readers from live source, so a change in the
 plugin is visible here without an install in between.
 
-They differ in blast radius, and the link's is worth stating: Leiningen puts a checkout on
+They differ in blast radius, and the link's matters: Leiningen puts a checkout on
 **every** command's classpath, so a linked build discovers five formats where a shipped
 build discovers none. A foreign read that works here may be the link rather than the code.
 The suite is not what that endangers — its absence claims read this repo's source tree and
-the seam rather than the classpath, and it is green either way — but a repl, the browser
+the extension point rather than the classpath, and it is green either way — but a repl, the browser
 and your own sense of what a bare build does are.
 
 That profile is one step of a longer route. The whole of it — how the reader reaches the
@@ -117,8 +117,8 @@ Two callers, and neither holds more than a resolve:
 ## What this repo promises
 
 `foreign_contract_test` reads the source tree rather than a KB, and pins the half a build
-with no plugin can prove: no reader here, no manifest here, no file outside the seam
-naming one, no compile-time reference in the seam — and an absent reader refused by name.
+with no plugin can prove: no reader here, no manifest here, no file outside the extension point
+naming one, no compile-time reference in the extension point — and an absent reader refused by name.
 It also puts a manifest on the classpath and takes it away again, so discovery itself is
 tested without a plugin installed. The complement — with a plugin present, every format
 it declares is found, and each reader offers the keys these call sites reach for — is a

@@ -29,7 +29,7 @@
     times the closing settle scanned the corpus.
   - **A — justification order.**  Steps 3+4 (load + relabel) rerun with the justification
     ids in `sort`ed order against hash order.  If sorting alone collapses the cost, the
-    fix for [08] is three characters, not a protocol seam.
+    fix for [08] is three characters, not a protocol change.
   - **C — supersession over an equality closure.**  `recovered-supersessions` binds over
     equality *edges* while using the endpoint, so a class of k re-enters `equiv-class` k
     times: `Σ kᵢ²` at fixed total membership, invisible until a KB declares equalities.

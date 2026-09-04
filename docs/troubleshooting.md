@@ -23,12 +23,12 @@ fix. The mechanism stays in the subsystem's own page and is linked, never restat
 | [Facts I never asserted](#facts-i-never-asserted-or-facts-i-did-and-cannot-find) | two KBs on one in-RAM space |
 | [Both `P` and `not P` are believed](#both-p-and-not-p-are-believed) | `:default` strength on something known true |
 | [`assert` refused it](#assert-refused-it) | a naming invariant — the `:type` says which |
-| [My batch half-landed](#my-batch-half-landed) | it no longer can — `edit!` is all-or-nothing; the other batch doors are not |
+| [My batch half-landed](#my-batch-half-landed) | it no longer can — `edit!` is all-or-nothing; the other batch entry points are not |
 | [An `arg` constraint never convicts](#an-arg-constraint-never-convicts) | the argument's type is outside the hierarchy |
 | [`prove` returns more than I count](#prove-returns-more-solutions-than-there-are-answers) | one solution per derivation, not per answer |
 | [`do/label` refuses to re-run](#dolabel-refuses-to-re-run) | a previous run's labeling context has been written into, or has lost its marker |
 | [A foreign KB will not load](#a-foreign-kb-will-not-load) | no reader on the classpath |
-| [`open-kb` refuses an unknown backend](#open-kb-refuses-an-unknown-backend) | a `:backend`, `:records`, `:index` or `:tms` opt names something the storage layer doesn't implement |
+| [`open-kb` refuses an unknown backend](#open-kb-refuses-an-unknown-backend) | a `:backend`, `:records`, `:index` or `:tms` opt names something the storage layer doesn't implement — `:axis` says which |
 | [The disk KB will not open](#the-disk-kb-will-not-open) | another process holds the lock |
 | [The daemon exits 2](#the-daemon-exits-2-without-serving) | `--listen` names an address and no token is set |
 | [Every call to the daemon is refused](#every-call-to-the-daemon-is-refused) | the client presents no token, or a different one |
@@ -54,14 +54,14 @@ supertypes, what it is disjoint from, how many instances are stored and — the 
 answers "what may I say about a dog?" — `:predicates-for-type`, the predicates whose
 argument declarations admit it.  Ask about an individual and you get its asserted types
 and the predicates it appears under with a count each; about a context, its two `genlCx`
-cones and how many sentexes hold in it.
+ancestor sets and how many sentexes hold in it.
 
 **The context argument is not decoration.**  An `arg` declaration, an
 `abducible_predicate` grant and a `comment` are each a policy of the context that states
-them, so `describe` reads them up that context's `genlCx` cone: `(describe kb 'parentOf
+them, so `describe` reads them up that context's `genlCx` ancestor set: `(describe kb 'parentOf
 'CxCore)` reports no declaration at all, because `CxCore` sits *above* the one that binds
 `parentOf`, and a reader there is genuinely unconstrained.  If a declaration you expected
-is absent, that is the first thing to check — it is the same cone `assert` consults when
+is absent, that is the first thing to check — it is the same ancestor set `assert` consults when
 it decides whether to refuse ([contexts.md](contexts.md), [argtypes.md](argtypes.md)).
 
 `lein cli describe <term> [--context C]` is the same read from a shell.
@@ -73,7 +73,7 @@ it decides whether to refuse ([contexts.md](contexts.md), [argtypes.md](argtypes
 the order they are worth ruling out.
 
 **The reading context does not see the fact.** A read sees what its context sees, up the
-`genlCx` cone — so a fact in `CxNaturalWorld` is invisible from
+`genlCx` ancestor set — so a fact in `CxNaturalWorld` is invisible from
 `CxUniverse` unless an edge says otherwise, and the direction matters:
 `(genlCx CxNaturalWorld CxUniverse)` says the *natural world* context reads
 the *universe* one, not the reverse. Confirm by asking with no context filter and seeing
@@ -101,7 +101,7 @@ back on. `(v/sentex-count kb)` reading non-zero while queries answer nothing is 
 
 **The membership was written the way another system spells it.** `(isa Muffet Dog)` stores a
 two-place predicate named `isa`, which nothing reads; types here are unary, so membership
-is `(dog Muffet)` and the hierarchy is `genl`. The front door logs this once per process,
+is `(dog Muffet)` and the hierarchy is `genl`. The public entry point logs this once per process,
 and `docs/naming.md` states the convention. [naming.md](naming.md).
 
 Past those: `ask` answers from what is stored or cached and **never expands rules**, so a
@@ -209,14 +209,14 @@ without storing anything, and answers with the identical problem.
 |---|---|
 | `:naming` | a symbol's spelling does not match its role — [naming.md](naming.md) |
 | `:not-ground` | a fact with a variable in it; write a universal as a rule |
-| `:shape` | not an s-expression at all — a string, `nil`, a map, a bare symbol — or a **vector**, which is a query's conjunction.  Refused at the read doors as well as the write ones, carrying `:goal` or `:conjunct` ([api.md](api.md)) |
+| `:shape` | not an s-expression at all — a string, `nil`, a map, a bare symbol — or a **vector**, which is a query's conjunction.  Refused at the read entry points as well as the write ones, carrying `:goal` or `:conjunct` ([api.md](api.md)) |
 | `:not-well-formed` | a malformed connective frame, such as a bare `(implies)` — or an `or` somewhere the polycanonicalization cannot expand it away: a conclusion, a closed-query body, an `exceptWhen` query, under `not` ([canonicalization.md](canonicalization.md)) |
 | `:not-range-restricted` | a rule variable in the consequent that no antecedent binds — asked per alternative of a disjunctive antecedent, and the message names the disjunct |
 | `:disjunction-too-wide` | a disjunctive antecedent over the 16-alternative cap; the message names the count — [canonicalization.md](canonicalization.md) |
 | `:arg-type` / `:arg-genl` | an `arg` / `genlArg` constraint convicted it — [argtypes.md](argtypes.md) |
 | `:arg-variable` | a **rule** variable two argument constraints demand disjoint types of — [taxonomy.md](taxonomy.md) |
 | `:disjoint` / `:functional` / `:asymmetric` | a definitional clash — [exceptions.md](exceptions.md) |
-| `:unknown-option` | an option key nothing reads, or a non-map `opts` |
+| `:unknown-option` | an option key nothing reads, or a non-map `opts` — `:mismatch` says which |
 
 The one worth knowing in advance: **snake_case means arity 1.** An underscored functor
 names a type, and a type is a one-place predicate, so `(lives_in ?x cold_place)` is refused
@@ -250,7 +250,7 @@ counter**, which never reissues a number ([preview.md](preview.md) says the same
 preview), and the `chain-stats` / `settle-stats` counters, which record work that genuinely
 ran.
 
-**The other batch doors are not transactions.** `with-deferred-settle`, `assert-many` and
+**The other batch entry points are not transactions.** `with-deferred-settle`, `assert-many` and
 `bulk-assert-facts!` leave what was already stored in place with belief unsettled — the
 documented state, and what `seed/load-sentences`' order-insensitive retry is built on.
 Settle by hand, or re-run; or use `edit!` where the batch must be all-or-nothing
@@ -288,7 +288,7 @@ others. `(namesObject NsA PathA ObjOne)` and `(namesObject NsA PathB ObjTwo)` di
 argument 2 and are two slots, not one — nothing is owed. Check the determinant before the
 declaration.
 
-**Or the mark is not on the last argument.** The assert door checks every shape
+**Or the mark is not on the last argument.** The assert entry point checks every shape
 correctly. What is narrower is *cross-context* discovery: the pass finds a pair's far half
 by reading one argument root, and its candidate gate asks only whether some mark
 constrains the tuple's **final** position. A declaration whose `n` is below the arity —
@@ -303,7 +303,7 @@ files `:partner-sweep-truncated` rather than going quiet. Arity 2 is the one tha
 single root and takes the same narrow path `functional` does.
 
 Same context, or a vantage that already sees both halves when the second arrives, is the
-door's business and is checked.
+entry point's business and is checked.
 
 [taxonomy.md](taxonomy.md) has the shape table; [equality.md](equality.md) has the merge
 rule and the four arrival orders.
@@ -350,7 +350,7 @@ a reader on the classpath, which ships as a separate artifact. A found KB is sti
 saying so — so the card appears and the load reports `this build does not read
 cyc-corpus`. That message means the reader is absent, not that the KB is bad.
 
-The route to a reader, and what each load costs, is [kbs.md](kbs.md); the seam it plugs
+The route to a reader, and what each load costs, is [kbs.md](kbs.md); the extension point it plugs
 into is [foreign.md](foreign.md). Two things about the development tree specifically:
 `lein install` in the sibling installs the sibling's *own* current version, so it satisfies
 the `:with-foreign` pin only when the two versions agree — `lein lint`'s versions check
@@ -362,16 +362,19 @@ classpath, so a foreign read that works may be the link rather than the code.
 Eleven throws share `:type :unknown-backend` — ten in `open-kb` itself and one in the
 overlay's bookkeeping store, which `open-kb` reaches when mounting a fork. All eleven are
 raised while building, and `open-kb` returns no KB value when it throws, so there is
-nothing half-built to close. The other key in `ex-data` says which opt was wrong:
+nothing half-built to close.
 
-| `ex-data` carries | What was wrong |
-|---|---|
-| `:backend` | the `:backend` sugar names nothing in the table — [storage.md](storage.md#backend-selection-two-independent-axes) lists the twelve legal names |
-| `:records` **and** `:index` together | the axes resolved to a durable index over records it cannot be derived from — the `:disk-log` index over `:memory`, which empties at JVM exit, or over `:sqlite`, whose file survives but whose lifecycle the index does not share; or the `:snapshot` image over anything but `:disk`, whose slot fingerprint is the stamp it is checked against |
-| `:records` alone | the `:records` opt names a kind nothing implements — `:memory`, `:disk`, `:sqlite` or `:pg` |
-| `:index` alone | the `:index` opt names a kind nothing implements — `:memory`, `:dense`, `:columnar`, `:snapshot` or `:disk-log` |
-| `:tms` alone | the `:tms` opt names a kind nothing implements — `:reference` or `:dense` |
-| `:backend` or `:index` **with** `:instead` | a reserved spelling — `:disk`, `:pg-disk`, or `{:index :disk}` — and the pairing to take in its place |
+**Three keys are on every one of them.** `:axis` says which axis the selection was read
+on — `:backend`, `:records`, `:index` or `:tms`; `:kind` is what was named there; and
+`:mismatch` says which kind of wrong it is, which is what decides whether a fallback is
+even the right response:
+
+| `:mismatch` | What was wrong | Also carries |
+|---|---|---|
+| `:unknown-name` | the axis names a kind nothing implements — the `:backend` sugar is not in the table ([storage.md](storage.md#backend-selection-two-independent-axes) lists the twelve legal names), or `:records` / `:index` / `:tms` names no implementation | |
+| `:reserved-name` | a spelling refused on purpose — `:disk`, `:pg-disk`, `{:index :disk}` — because it reads as both halves out of core, which no pairing here is | `:instead`, the pairing to take |
+| `:illegal-pair` | both halves are legal apart and not together: the `:disk-log` index over records it cannot be derived from, or the `:snapshot` image over anything but `:disk`, whose slot fingerprint is the stamp it is checked against | `:records` and `:index`, the pair as resolved |
+| `:illegal-position` | a legal record kind somewhere it is not written for — `:pg` as a fork's **own** writable half, which keeps tombstones and released premise marks beside its records | `:half` |
 
 `(v/open-kb {:backend :bogus})` throws `unknown KB backend :bogus — want one of […], or
 the :records / :index opts`; `(v/open-kb {:records :memory :index :disk-log})` throws `the
@@ -379,20 +382,16 @@ the :records / :index opts`; `(v/open-kb {:records :memory :index :disk-log})` t
 `:records`, `:index` or `:tms` kind names itself the same way (`unknown record backend
 …`, `unknown index backend …`, `unknown TMS …`).
 
-`:disk` and `:pg-disk` are the two names `open-kb` refuses with a *pairing* rather than a
-list: they read as both halves out of core, which no pairing here is, so each refusal
-names `:disk-log` / `:pg-disk-log` and says what the log buys (durability, not
-residency). Both spellings refuse — the `:backend` sugar and `{:index :disk}`.
+A `:pg` KB can still be the frozen base of a fork ([overlay.md](overlay.md)); it is only
+the writable half that is refused.
 
-Two of the ten are not about a name at all. `:sqlite` and `:pg` records live in the
+**A missing adapter is not one of these.** `:sqlite` and `:pg` records live in the
 **Apache-2.0 sibling adapters**, resolved lazily so the SSPL engine loads no JDBC driver
-unless a KB selects one — so a legal `:backend :sqlite` or `:pg-memory` with the sibling
-off the classpath throws here, naming the coordinate to add (`com.vaelii/sqlite`,
-`com.vaelii/postgres`) rather than a bare `FileNotFoundException` from the resolve. The
-tenth carries `:records :pg` **and** `:half :overlay`: a fork's own writable half keeps
-tombstones and released premise marks beside its records, which is written for `:memory`
-and `:disk` and not for a server. A `:pg` KB can still be the frozen base
-([overlay.md](overlay.md)).
+unless a KB selects one — and a legal `:backend :sqlite` or `:pg-memory` with the sibling
+off the classpath is a missing *dependency*, not a name the engine does not know. It
+throws `:type :missing-adapter` carrying `:records` and the `:coordinate` to add
+(`com.vaelii/sqlite`, `com.vaelii/postgres`), so a caller falling back on `:memory` for an
+unknown backend does not silently do it for a backend it could have had.
 
 The `:pg` opts have their own refusals, under `:type :unknown-option` rather than
 `:unknown-backend`, because the backend named is legal and what it was handed is not:
@@ -505,7 +504,7 @@ so one vocabulary reads both.
 | `:asymmetric` | a definitional clash with a predicate declared `asymmetric` | [exceptions.md](exceptions.md) |
 | `:bad-algebra` | a two-axis projection table does not cover all nine `[x y]` pairs exactly once | [space.md](space.md) |
 | `:bad-arg` | a `foreign/register` argument is the wrong kind of thing — the kind must be a keyword, the reader a namespace-qualified symbol | [foreign.md](foreign.md) |
-| `:bad-args` | an op arrived over the wire with the wrong number of arguments, or with a non-sequential `:args` | [operations.md](operations.md) |
+| `:bad-args` | an operation was given the wrong number of arguments — an op over the wire, or a CLI command; `:op` names it either way | [operations.md](operations.md) |
 | `:bad-batch` | a bulk `:batch` size that is not a positive number of records | [storage.md](storage.md) |
 | `:bad-cursor` | a feed cursor that is not a whole number, or is ahead of what the subscription has delivered | [feed.md](feed.md) |
 | `:bad-foreign-manifest` | a plugin's manifest is not EDN, is not a map, or holds an entry that is not `:kind ns/reader` | [foreign.md](foreign.md) |
@@ -515,7 +514,7 @@ so one vocabulary reads both.
 | `:bad-registrant` | a durability registrant's key, value or `:phase` is not one the close sequence reads | [storage.md](storage.md) |
 | `:bad-reply` | the daemon's reply does not read as EDN, or is not a map | [operations.md](operations.md) |
 | `:bad-snapshot` | an index snapshot file's magic number is not this engine's — the index rebuilds from the records, which are untouched | [storage.md](storage.md) |
-| `:bad-table-entry` | a declaration is half-written, refused at namespace load: the special-predicate table holds an entry with a partial cache triple or no arm at all, or its arms disagree with what `vaelii.impl.predicates` declares about the functor, or a mark family's spellings disagree about what they sweep, or a sweep names a reach `settle` has no arm for (`:mismatch` says which) | [predicates.md](predicates.md) |
+| `:bad-table-entry` | a roster and the arms that answer to it do not agree, refused at namespace load: a declaration with a partial cache triple or no arm at all, arms that disagree with what `vaelii.impl.predicates` declares about the functor, a mark family whose spellings disagree about what they sweep, a sweep naming a reach `settle` has no arm for, a switch reader with no row, a backend axis nothing opens, a quality reading nothing renders. `:mismatch` says which. Unlike the other discriminants here, this vocabulary is read by whoever is looking at a failed build rather than branched on by a caller, so the message is the remedy and the words are pinned in `type_contract_test` rather than listed in this row | [predicates.md](predicates.md) |
 | `:base-is-overlay` | a fork's own half and its base name one store, so the fork would write its own base | [overlay.md](overlay.md) |
 | `:body-too-large` | a request body over `VAELII_MAX_BODY_BYTES` | [operations.md](operations.md) |
 | `:budget-exhausted` | a bounded `ask` / `ask?` / `prove` / `provable?` hit its `:max-ms` before the search ran dry, so what it held was a prefix rather than an answer | [anytime.md](anytime.md) |
@@ -555,10 +554,13 @@ so one vocabulary reads both.
 | `:malformed-manifest` | a `meta.edn` / `format.edn` / `catalog.edn` the EDN reader cannot parse — cut mid-form, or never EDN | [storage.md](storage.md) |
 | `:malformed-record` | a tokenized record body holds a code this codec does not write | [storage.md](storage.md) |
 | `:manifest-too-large` | a manifest file longer than the bound the reader allows; a manifest is a handful of keys | [storage.md](storage.md) |
+| `:missing-adapter` | a **legal** `:sqlite` or `:pg` records axis whose Apache-2.0 sibling is not on the classpath — `:coordinate` names the dependency to add, and the backend is not the thing to change | [storage.md](storage.md) |
 | `:missing-resource` | a KB file, ontology layer or text KB is not where it was looked for | [kbs.md](kbs.md) |
 | `:naf-justification` | a dump names a justification with a non-empty `:out` slot, which is reserved and empty here | [naf.md](naf.md) |
 | `:naf-not-closed` | an `unknown` antecedent or an aggregate census reads a variable nothing else in the rule binds | [naf.md](naf.md) |
 | `:naming` | a symbol's spelling does not match its role — see [`assert` refused it](#assert-refused-it) | [naming.md](naming.md) |
+| `:nippy-version-moved` | the nippy on the classpath is not the release the class-name check was written against; re-read its three attachment points, then move `thaw/pinned-nippy-version` | [defenses.md](defenses.md) |
+| `:nippy-version-unreadable` | nippy's own Maven descriptor could not be read, so the class-name check cannot say which release it is guarding | [defenses.md](defenses.md) |
 | `:no-base` | an `:overlay` backend was opened with neither `:base` nor `:base-stores` | [overlay.md](overlay.md) |
 | `:no-depth-bound` | the node engine was asked a goal with no `:max-depth` and no `*max-depth*` binding | [inference.md](inference.md) |
 | `:no-destination` | an export was asked for with a blank destination directory | [catalog.md](catalog.md) |
@@ -604,14 +606,14 @@ so one vocabulary reads both.
 | `:unauthorized` | the token presented is not the one the daemon holds — see [Every call to the daemon is refused](#every-call-to-the-daemon-is-refused) | [operations.md](operations.md) |
 | `:unbound-deferred` | a computed antecedent reached the join with an input no earlier antecedent bound | [generators.md](generators.md) |
 | `:unforkable-index` | a `:columnar` index cannot be forked, since its trie is not written over a KV backend | [overlay.md](overlay.md) |
-| `:unknown-backend` | a `:backend`, `:records`, `:index` or `:tms` opt names nothing — see [`open-kb` refuses an unknown backend](#open-kb-refuses-an-unknown-backend) | [storage.md](storage.md) |
+| `:unknown-backend` | a backend selection the storage layer refuses; `:axis` says which axis, `:kind` what was named, `:mismatch` which kind of wrong (`:unknown-name`, `:reserved-name`, `:illegal-pair`, `:illegal-position`) — see [`open-kb` refuses an unknown backend](#open-kb-refuses-an-unknown-backend) | [storage.md](storage.md) |
 | `:unknown-command` | the CLI was given a word that is not one of its commands | [api.md](api.md) |
 | `:unknown-entry` | an operation named a loaded KB the catalog does not hold | [catalog.md](catalog.md) |
 | `:unknown-frame` | a record frame tag or an index write op this build does not read | [storage.md](storage.md) |
 | `:unknown-framing` | a dump's `:framing` is not one this build reads | [storage.md](storage.md) |
 | `:unknown-handle` | no sentex is stored under the handle | [api.md](api.md) |
 | `:unknown-op` | the daemon has no op by that name | [operations.md](operations.md) |
-| `:unknown-option` | an option key nothing reads, a non-map `opts`, or an option value outside its domain | [api.md](api.md) |
+| `:unknown-option` | an option an entry point will not take, `:mismatch` saying how: `:unknown-key`, `:bad-value`, `:missing-value`, `:not-a-map`, `:missing-companion` or `:conflict` | [api.md](api.md) |
 | `:unknown-source` | the catalog has no KB source by that id, or the source names a kind nothing loads | [catalog.md](catalog.md) |
 | `:unknown-subscription` | the feed token names no subscription — it was dropped, timed out, or belongs to another daemon | [feed.md](feed.md) |
 | `:unknown-tactician` | a strategy names a tactician the ordering table does not hold | [inference.md](inference.md) |

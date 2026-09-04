@@ -136,7 +136,7 @@ namespace is [`docs/namespaces.md`](docs/namespaces.md).
 **application** built on those six ([`docs/koinii.md`](docs/koinii.md)), so it lives at
 `src/vaelii/koinii/` rather than under `impl/` and requires nothing from there — the same
 test pins that. It is not a seventh public namespace: the engine's rosters (the API
-golden, the SPI seams, the refusal types) exclude it, because freezing an app's surface
+golden, the SPI interfaces, the refusal types) exclude it, because freezing an app's surface
 there would put its development inside the engine's compatibility contract. What koinii
 needs and the API lacks gets published in `vaelii.core`, never reached around.
 
@@ -153,7 +153,7 @@ tests look more paranoid than a unit test needs to be.
   one answer. [`docs/nmtms.md`](docs/nmtms.md)
 - **Locality.** No operation recomputes the whole graph; a relabel is scoped to the
   affected region with the rest held fixed.
-- **Context scoping.** A read sees what its context sees, up the `genlCx` cone —
+- **Context scoping.** A read sees what its context sees, up the `genlCx` ancestor set —
   facts, rules, taxonomy edges and the definitional checks alike.
   [`docs/contexts.md`](docs/contexts.md)
 - **Belief filtering.** A stored sentex is not a believed one. Matching, the taxonomy
@@ -259,7 +259,7 @@ the code does — well-named identifiers do that — and do not reference the cu
 Where this engine already has a word, use it rather than the word another system uses
 for the same idea. A sentex holds in a **context**, never a *microtheory*; a non-atomic
 term is a **NAT**, **reified** or **structural**, never a *NART* or a *NAUT*. Those are
-Cyc's coinages, and prose that reaches for them reads as though they were ours — which
+Cyc's coinages, and prose that reaches for them gives the impression that they were ours — which
 misleads a reader who then goes looking for them, and, for a term that appears nowhere
 in the general knowledge-representation literature, implies a provenance nobody claimed.
 
@@ -292,7 +292,7 @@ classification. Four classes, and every entry's `*Class:*` line spells one of th
    claim is the whole justification for the lighter treatment.
 3. **Additive** — a `:type` where none was, a new option key, a new op in the
    daemon's allowlist. Neither label; any release may carry it.
-4. **Fix** — the engine does what it already says it does, at a door where the two
+4. **Fix** — the engine does what it already says it does, at an entry point where the two
    disagree: a doc, a docstring, a refusal message or an invariant states one thing
    and the code answers another, and the code moves to the statement. The contract
    holds still, so a caller written against what the engine documents is the caller
@@ -310,7 +310,7 @@ deployment script that set it keeps setting it and stops being obeyed — so it 
 `test/golden/config-surface.edn` and its row in `docs/operations.md` in the same commit.
 Adding one is Additive and owes the same golden and the same row.
 
-**The published API and the extension seams are pinned the same way.** Every public var
+**The published API and the extension points are pinned the same way.** Every public var
 of the six public namespaces is frozen with its arglists in
 `test/golden/api-surface.edn`, and the protocols a doc invites an out-of-tree
 implementation of — the storage contracts, `KvBackend`, `Solver`, `Prover`, `Provider` —
@@ -321,7 +321,7 @@ by whoever hit the break, and the additions — the way a surface actually grows
 never be read by anyone. `lein regen-goldens` rewrites all three, and the diff belongs
 in the same commit as the change that caused it, where a reviewer sees the two together.
 
-Adding a **method to an existing seam** is class 1 rather than Additive, and it is the
+Adding a **method to an existing interface** is class 1 rather than Additive, and it is the
 case people misfile: an implementer that satisfied the protocol yesterday satisfies it
 in part today, and finds out at the call site. Prefer a new protocol advertised beside
 the old one.
@@ -388,7 +388,7 @@ Three process rules follow:
   tokens off the unreleased section and greps every sibling checkout on the
   machine for each, printing the hits with file and line. It is a **release
   step**, not a gate: it reads other repositories, and which of them are cloned
-  is not a fact about this tree, so a missing sibling is named and costs nothing
+  is not a fact about this tree, so a missing sibling is named and adds no work
   and the run exits 0 whatever it finds. Every hit gets a verdict in the release
   notes — fixed in the sibling, filed against the sibling, or a non-issue with
   the sentence saying why. **Absence of hits is not proof**: the check greps
@@ -399,6 +399,80 @@ Three process rules follow:
   and a red sibling, found by whoever pulls next — which is how the 0.5.0
   `open-kb` option rename reached `vaelii-foreign`'s test scaffolding and a
   downstream harness's benchmark cells.
+
+### 3.9 Compacting a released changelog section
+
+When a release stops being the current one, its entries are stripped to the shape every
+older section in [`CHANGELOG.md`](CHANGELOG.md) already uses: the entry's first sentence,
+then `*Class:*` / `*Breaks:*` / `*Migration:*` and the doc links. The mechanism paragraph
+goes, because §8's rule puts a mechanism in the `docs/` page that owns the subsystem,
+where it keeps being true.
+
+Before dropping a paragraph, check that every argument in it has a home. Mechanism belongs
+in the subsystem page; a rejected alternative, or a choice a reader would question, belongs
+in [`docs/defenses.md`](docs/defenses.md) under a stable heading the subsystem page links
+to. An argument recorded nowhere else is the one thing compaction must not lose.
+
+### 3.10 Prose style: literal technical language
+
+Every comment, docstring, doc page and test name states what the code does, in literal
+technical language. A reader who knows [`docs/glossary.md`](docs/glossary.md) decodes a
+sentence on one pass, with no inference about what a metaphor stands for or what a
+pronoun points at. Eight rules:
+
+1. **Name the subject in every sentence.** No `it`, `that`, `this` or `the same` whose
+   referent is a preceding clause rather than a noun already written down.
+2. **No pseudo-cleft.** Not "What holds the wrap to the library is a version pin."
+   Write "A version pin holds the wrap to the nippy release it was written against."
+3. **No verbless sentence and no fragment.** Every sentence has a subject and a finite
+   verb. Not "Two ways to be wrong, and they are not the same one." Write "This throws
+   for two distinct reasons."
+4. **No metaphor for a mechanism.** Name the mechanism:
+
+   | Metaphor | What it actually is |
+   |---|---|
+   | door, at an API | entry point, write entry point, read entry point |
+   | door, at a guard | check, allowlist check, refusal |
+   | the front door | the public API entry point |
+   | cone, up-cone | ancestor set, upward closure |
+   | teeth, spine, the ground moves | what enforces it, the chain, the dependency moves |
+
+   `seam` named five different things, so it has five replacements. Pick the one that
+   says what is there, and name the thing itself where you can:
+
+   | What it actually is | Write |
+   |---|---|
+   | a `defprotocol` a backend, prover or solver implements | **the `RecordStore` protocol**, `KvIndexStore`'s methods |
+   | a place an out-of-tree implementer plugs in — the foreign plugin manifest, `set-solver`, `add-evaluatable`, a `*dynamic-var*` hook | **extension point** |
+   | `vaelii.core` and the five shims | **the public API** |
+   | one namespace's public vars, where that is not the API | **the public surface of `vaelii.impl.x`** |
+   | a layering cut between two namespaces that nothing plugs into | **boundary** |
+   | the point the profiler tallies at | **call site** |
+
+   `interface` stays for one thing: a **network** interface, the thing `--listen` binds.
+   A KB modelling convention is a **pattern**, and gets named — "the `exceptWhen`
+   pattern", never "the exception interface".
+
+5. **Mechanism first, reason second.** State what the code does, then why.
+6. **One claim per sentence.** At most one em-dash, and no second claim chained onto the
+   first with a subordinate clause.
+7. **Use the glossary term or a plain noun.** No coined synonym for a term that already
+   has an entry, and no new coinage without one.
+8. **No evaluative adjective without a number behind it** — load-bearing, honest, cheap,
+   loud, worth writing down, earns its keep, the tempting alternative. Where the claim
+   is quantitative, cite the test or bench that measures it (§8).
+
+**`lein lint`'s `prose` check** (`scripts/check-prose.py`) enforces the mechanical part:
+P1 banned metaphors, P2 banned rhetoric, P3 pseudo-cleft. It reads against
+`scripts/prose-baseline.txt`, a per-file budget that only shrinks — a file absent from
+the baseline is pinned at zero, so new and rewritten files are clean by default. The
+sentence-form rules are held by review. This section states the rule, so it quotes the
+banned tokens in order to ban them and is exempt by name, the arrangement §3.6 and §3.7
+already use.
+
+The tree is at zero today, so `scripts/prose-baseline.txt` holds no entries and any hit
+fails. The file stays because the ratchet is how a batch of new prose lands without
+blocking on rewriting all of it at once.
 
 ## 4. Adding things
 
@@ -613,9 +687,12 @@ remote shell. See [`.github/SECURITY.md`](.github/SECURITY.md).
 - **Commit style** is Conventional Commits: `type(scope): subject`, with the scope
   optional. The types in use are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`,
   `style`, `build`, `bench`, `chore`, `deps`. Examples from `git log`:
-  - `fix(settle): three ways a settle answered from what it had already published`
-  - `perf(checks): a declaration read nothing declares is a tax on every write`
-  - `docs(kbs): the route from a fresh clone to each of the four loadable KBs`
+  - `fix(settle): recompute the touched window instead of reusing the published one`
+  - `perf(checks): skip the declaration read when the predicate declares nothing`
+  - `docs(kbs): document loading each of the four KBs from a fresh clone`
+
+  A subject says what changed, literally. It is not an aphorism about the change
+  (§3.10).
 - **Sign off every commit** with `git commit -s`. This appends the `Signed-off-by:`
   trailer required by the [DCO](DCO); the DCO app blocks unsigned pull requests from
   merging. See §9.4.

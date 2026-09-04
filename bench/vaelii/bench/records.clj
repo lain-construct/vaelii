@@ -83,7 +83,7 @@
 (def ^:private body-keys [:sentence :context :antecedent :consequent :varmap])
 
 (defn- dense-twin
-  "`rec` with every s-expression field replaced by its encoded body — the shape a dense
+  "`rec` with every s-expression field replaced by its encoded body — the form a dense
   record store would freeze.  `enc` turns the int sequence into the stored value."
   [dict enc rec]
   (reduce (fn [r k]

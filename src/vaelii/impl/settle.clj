@@ -34,6 +34,60 @@
             [vaelii.impl.taxonomy :as tax :refer [*exposure-instance-budget*]]
             [vaelii.impl.violations :as violations]))
 
+;; ---- the facet contract -------------------------------------------------
+;;
+;; The facets a declaration carries span four layers — `taxonomy` caches, `wff` checks,
+;; `checks` convicts, this namespace sweeps and arbitrates — so the first place all of
+;; them are visible is here, and this is where the validator runs.  It cannot run at
+;; `predicates`' own load: two of its rules ask whether an arm exists, and a namespace
+;; that sits below `taxonomy` and `wff` by construction cannot see one.  So the facts
+;; that live above arrive as arguments and the call site is the top of the stack.
+;;
+;; Two validators, two layers.  `special/check-entries` sees the arms and
+;; not the facets; this sees the facets and not the arm bodies.  Merging them would put
+;; the arm check up here, where a `special` load would no longer prove anything on its
+;; own.
+
+(def facet-check-inputs
+  "The cross-layer facts `predicates/check-facets` cannot read for itself, as the one
+  value both readers take them from.
+
+  **A var and not an argument written inline**, because there are two readers and they
+  have to agree: this call site and `predicates_test`, which drives the same validator
+  over deliberately broken rosters.  A copy in the test is a second spelling of the
+  arguments the engine actually checks — the defect the validator exists to refuse, in
+  the validator's own wiring — and a rule the test's copy still satisfies after this map
+  has gained a roster is a rule nothing holds the engine to.
+
+  * `:recheck-subjects` — the functors posting exception re-checks through the shared
+    path (`special/declaration-subjects`) rather than from an arm of their own.
+  * `:family-rosters` — `family -> {roster-name functors}`, the rosters that read a mark
+    family **as a family**.  Its reach is this map: a roster that reads one and is not
+    named here is one the rule does not cover, which is why
+    `a-roster-that-enumerates-a-family-is-named-here` reads the loaded tree for any var
+    that enumerates a family and holds it to appearing on this map or being recorded as
+    derived from the declarations."
+  {:recheck-subjects special/recheck-subjects
+   :family-rosters   {:argument-constraint
+                      {'checks/constraint-declaration-functors
+                       checks/constraint-declaration-functors
+                       'provers/meta-constraint-functors
+                       provers/meta-constraint-functors}}})
+
+(def checked-entries
+  "`predicates/entries`, having passed the facet contract at this namespace's load.
+
+  The point is the **throw**: it runs once, in every process that reaches this layer —
+  including the one that recovers a store from disk, where a half-wired declaration
+  would otherwise come back as a silently different KB.
+
+  Bound rather than called bare, because a bare call is a line that can be deleted with
+  nothing going red.  Every other validator in the tree wraps the def of the table it
+  checks and so cannot be dropped without dropping the table; this one cannot, since the
+  table is a layer down.  The var is what a test reads to prove the check runs here, on
+  the live inputs, rather than only in the test that drives it."
+  (pr/check-facets pr/entries facet-check-inputs))
+
 ;; ---- belief settling: soft, prioritized contradictions ------------------
 ;; After chaining, `settle` relabels the TMS and resolves contradictions.  A
 ;; contradiction is a *nogood* — a set of believed sentexes that cannot all hold.
@@ -143,7 +197,7 @@
   region member per round, on a settle whose region is the whole KB when it is a
   rebuild's.  `:seen` holds the previous round's `touched` *value*, never a copy — the
   reference store hands out its own set and the dense one materializes one per read, so
-  keeping it costs nothing a read did not already pay.
+  keeping it adds no work a read did not already pay.
 
   `region` is the round's `touched`, a delay: the pass reads it once and shares it, and
   a KB with nothing opposed never forces it here."
@@ -237,7 +291,7 @@
   decided: un-merging revives a spelling whose pair is then found by the next settle, and
   that one-settle lag is the same one the reconcile below accepts.
 
-  **A narrow window, and `negation_oracle_test` does not reach it** — worth saying rather
+  **A narrow window, and `negation_oracle_test` does not reach it** — worth noting rather
   than leaving as an apparent redundancy.  Displacing a body normally *carries* its entry
   rather than dropping it: migration writes the twins on the representative's body, so
   nothing stores, removes or relabels on the displaced one, and the stale entry sits there
@@ -296,7 +350,7 @@
   is live — a member defeated later in this settle leaves it standing — so
   `resolve-contradictions` filters on belief before deciding anything.
 
-  **A genlCx edge is the third input, and it is narrowed by the cone rather than by
+  **A genlCx edge is the third input, and it is narrowed by the ancestor set rather than by
   a counter.**  Joint visibility is read through that closure, so a new context edge can
   make a pair visible that no handle of either side went near — the region and `:dirty`
   between them cannot see it, and neither knows the body.  What decides it is
@@ -628,7 +682,7 @@
   loop diffs across a pass to catch a *belief* flip on one.  Gated on the functor
   count, so a KB using no `except` pays one index read.
 
-  Through the **believed** door, since belief is the whole of the filter: what the diff
+  Through the **believed** entry point, since belief is the whole of the filter: what the diff
   is about is which `except`s hold, and a defeated one hides nothing."
   [kb]
   (if (pos? (reads/stored-count-with-functor (:index kb) sx/except-functor))
@@ -701,7 +755,7 @@
 
   **The `:contested` branch is reachable only from a nogood a custom `decide-nogood`
   contests.** The built-in decision reports a default/default tie as a `:dilemma`
-  instead of handing it to the edge solver.  The branch is kept because the solver seam
+  instead of handing it to the edge solver.  The branch is kept because the `Solver` protocol
   is public — `set-solver` takes any implementation, and `last-program` /
   `asp.edge/classify` are written against this shape.
 
@@ -859,7 +913,7 @@
   "The settle's violation reports, in arrival order — `ranked` is what puts a reading in
   content order, and every reader owes it.
 
-  The door rather than the slot, because the two readings and the memo behind them live
+  The entry point rather than the slot, because the two readings and the memo behind them live
   in **one** atom (`:clash-readings`): they are one publication, and a reader taking them
   off separate atoms could land between two writes and read one settle's conflicts beside
   another's contradictions."
@@ -906,7 +960,7 @@
 
   **All three land in one write.**  The memo and the two readings are derived from one
   pass and describe one settle, and `core/conflicts` / `core/contradictions` are read
-  doors a thread beside the writer may call at any moment — so they share the
+  entry points a thread beside the writer may call at any moment — so they share the
   `:clash-readings` atom rather than sitting in three, and no reader can land between two
   of them."
   [kb violated dilemmas touched]
@@ -1008,7 +1062,7 @@
     s))
 
 (defn- literal-shape
-  "`[predicate {argument -> count}]` of a flat literal — the shape a stored fact must
+  "`[predicate {argument -> count}]` of a flat literal — the form a stored fact must
   have for level 6 to answer that literal from it — or **nil** when the literal is not
   flat and ground, which is exactly when no shape test can be trusted.
 
@@ -1258,7 +1312,7 @@
   True everywhere except inside `core/preview`, which has to hand the KB back exactly
   as it found it: the sweep is the one settle effect a rollback cannot undo at the same
   handles, since putting a deleted conclusion back means deriving it again and a
-  re-derivation lands on a fresh handle.  Suppressing it costs nothing semantically —
+  re-derivation lands on a fresh handle.  Suppressing it adds no work semantically —
   a swept datum is already OUT and ungroundable, so leaving it stored moves no label
   and it still matches nothing.  The rollback runs with the sweep back **on**, which is
   what collects a conclusion the preview's own removals brought into being."
@@ -1520,7 +1574,7 @@
 
 ;; ---- exposure: the clash no single writer could see ----------------------
 ;;
-;; The definitional checks are scoped to the writer's own cone, so two memberships
+;; The definitional checks are scoped to the writer's own ancestor set, so two memberships
 ;; each admissible where stated can still be a real contradiction: some context
 ;; sees both of them *and* a disjointness separating their types.  Seeing a clash
 ;; and being blamed for one are different questions — the writer is refused only on
@@ -1553,14 +1607,14 @@
         (filter #(jtms/in? (:tms kb) (:id %)))
         (filter #(= :positive (:polarity %)))))
 
-(defn- believed-in-cone
-  "The believed, positive sentexes stored across `contexts` — the shape every cone sweep
+(defn- believed-in-ancestors
+  "The believed, positive sentexes stored across `contexts` — the shape every ancestor set sweep
   in this namespace walks, and the reason they are one function: four passes ask it of a
   `context-up` or a `context-down` closure and differ only in what they read off each
   sentex.
 
-  **Lazy, and left in the cone's own order**, which is what the budgeted consumers above
-  it need: a context cycle makes the cone the whole graph, so nothing here may be realized
+  **Lazy, and left in the ancestor set's own order**, which is what the budgeted consumers above
+  it need: a context cycle makes the ancestor set the whole graph, so nothing here may be realized
   or sorted before its first element comes out (`instances-below` carries the
   measurement).  A non-symbol names no context the index is keyed by and is dropped."
   [kb contexts]
@@ -1639,7 +1693,7 @@
   But whether any witness can succeed is answerable without enumerating one.  A
   context K sees a complete derivation exactly when the *scoped* `disjoint? t1 t2 K`
   holds: the scoped read walks only edges some believed supporter asserts from K's
-  cone, so it is true precisely when some genl path to each separated type, and the
+  ancestor set, so it is true precisely when some genl path to each separated type, and the
   separating declaration, are all visible from K.  So the gate is `∃K ∈
   common-descendants(c1, c2)` proving it — the same predicate the enumeration is
   looking for, computed off the cached closures.
@@ -1821,7 +1875,7 @@
   **The closure is not sorted, and the laziness is the reason.**  A budgeted consumer
   takes a prefix, so sorting to order that prefix would force the whole down-closure
   before the first term came out — which is the cost the budget exists to refuse, and
-  it is measured: the same sort over `members-in-cone`'s cone took
+  it is measured: the same sort over `members-in-ancestors`'s ancestor set took
   `retract-context-cycle-scaling` from 0.08 to 0.28 ms/op at 2048 contexts, against a
   claim that a retraction is flat in the graph it is not about.  What orders the sweep
   is one level up, over the moved region, where the set is small enough to sort
@@ -1846,15 +1900,15 @@
                      (symbol? (second (:sentence s))))]
       (second (:sentence s)))))
 
-(defn- members-in-cone
+(defn- members-in-ancestors
   "The membership terms stored in the contexts `sub` now sees — the candidates a
   genlCx edge's visibility move can newly put in joint sight.  Lazy, for the
-  same budgeted consumer — and left in the cone's own order for the reason
-  `instances-below` records, which was measured here: a context cycle makes the cone the
+  same budgeted consumer — and left in the ancestor set's own order for the reason
+  `instances-below` records, which was measured here: a context cycle makes the ancestor set the
   whole graph, so sorting it before the first term came out cost
   `retract-context-cycle-scaling` a 3.4x growth against a 2x bound."
   [kb sub]
-  (for [s     (believed-in-cone kb (tax/context-up (:taxonomy kb) sub))
+  (for [s     (believed-in-ancestors kb (tax/context-up (:taxonomy kb) sub))
         :let  [sen (:sentence s)]
         :when (and (sequential? sen) (= 2 (count sen))
                    (symbol? (first sen)) (symbol? (second sen)))]
@@ -2058,7 +2112,7 @@
 
       genlCx
       (let [[_ sub _] sen]
-        {:enumerate (members-in-cone kb sub)
+        {:enumerate (members-in-ancestors kb sub)
          :keep?     #(pairable? kb %)
          :roots     :all})
 
@@ -2078,10 +2132,10 @@
 ;; Disjointness, functionality, asymmetry and anti-transitivity each convict by naming
 ;; **further believed sentexes** — one for the first three, the two chain steps for the
 ;; last — which is a nogood in exactly the sense `negation-nogoods` produces one.  So
-;; they are arbitrated here rather than refused at the door or dropped at the firing:
+;; they are arbitrated here rather than refused at the entry point or dropped at the firing:
 ;; the weaker side is defeated, an equal defeasible pair is a represented dilemma, and
 ;; an equal known-true pair is the irreducible clash `conflicts` reports.  One theory of
-;; contradiction, whichever door the content came through (docs/nmtms.md).
+;; contradiction, whichever entry point the content came through (docs/nmtms.md).
 ;;
 ;; Discovery is **a function of current state, never an accumulation of past ones**, and
 ;; that is what makes it order-independent.  A pair is found by re-running the
@@ -2112,7 +2166,7 @@
 ;; at (`trigger-functor-kind`, from `:shape`).  All three are answered on the term's own
 ;; entry in `predicates`, and are read back here rather than restated: a functor that
 ;; answers one and not another is #54, where the generalized functional mark was enforced
-;; at the door and swept nothing behind it.  Everything else here is derived from these.
+;; at the entry point and swept nothing behind it.  Everything else here is derived from these.
 
 (def ^:private definitional-marks
   "The tuple marks every clash-detection pass in this namespace treats as
@@ -2147,7 +2201,7 @@
   "`definitional-marks`' declaration-functor spelling, as a set — what a sentence's own
   functor is compared against, and what `clash-declaration-kinds` is held to at load: a
   mark this roster pairs and that roster does not sweep is a declaration enforced at the
-  door and unswept behind it, which is #54 arriving at a fourth spelling."
+  entry point and unswept behind it, which is #54 arriving at a fourth spelling."
   (into #{} (map first) definitional-marks))
 
 (def ^:private definitional-mark-keywords
@@ -2157,7 +2211,7 @@
 
 (def ^:private clash-declaration-kinds
   "Which reach `declaration-reach` runs for a declaration, as one map from the kind to
-  the functors that have it — **the shape of the split is part of the roster**.  A
+  the functors that have it — **the structure of the split is part of the roster**.  A
   functor is a clash declaration by carrying a `:sweeps` kind on its own declaration, so
   enrolling one and leaving `declaration-reach` with no arm for it is not a state this
   can be in: the grouping refuses at load a kind the `case` below has no arm for.
@@ -2196,7 +2250,7 @@
                            (pr-str (set/difference definitional-mark-symbols
                                                    (:predicate-marked by-kind)))
                            " pairs a prop keyword in definitional-marks and carries no"
-                           " :predicate-marked sweep, so it would convict at the door and"
+                           " :predicate-marked sweep, so it would convict at the entry point and"
                            " reach nothing stored before it")
                       {:type :bad-table-entry :mismatch :reach
                        :missing (set/difference definitional-mark-symbols
@@ -2213,7 +2267,7 @@
   **Clash exposure only.**  The *merge* half of a mark family lives in
   `special.clj`'s `equate-*` lane, behind `functional-family-declaration` --
   joining this vocabulary does not join that one, and a family wired into one
-  lane alone fails silently in the other (the lane map is on that door)."
+  lane alone fails silently in the other (the lane map is on that entry point)."
   (into #{} cat (vals clash-declaration-kinds)))
 
 (def ^:private clash-declaration-kind
@@ -2280,7 +2334,7 @@
   predicate.  Every pass that answers those two kinds gates on this same question, and
   gating one of them on the exact functor made it blind to the descension the checks
   implement: a pair whose only mark sat on a super-predicate was dropped before any check
-  could see it, so a clash the assert door refuses was never weighed or reported.
+  could see it, so a clash the assert entry point refuses was never weighed or reported.
 
   **Asked from the marked end, because the askers are per trigger.**  `f` is convictable
   iff some marked predicate sits at or above it; `specs` and `genls` are reflexive and
@@ -2310,13 +2364,13 @@
   fact, pays nothing.  The taxonomy does not move inside a pass — every asker reads — so
   one answer serves all of them, and the next pass builds its own.
 
-  **Lazy rather than hybrid, deliberately.**  Building costs the marked roster's
+  **Lazy rather than hybrid.**  Building costs the marked roster's
   descendants, which on a real KB is the roster: the shipped ontology declares ten
   predicates between `CxCore` and `kb/upper/`, and not one of them has a sub-predicate.
   Asking upward costs `genls(f)` per asker.  So the crossover sits near one asker, and
   what this loses on is a pass carrying a single trigger under a mark near the root of a
   wide hierarchy.
-  Sizing both and picking — the way the `genlCx` cone's two ends are sized — would win that
+  Sizing both and picking — the way the `genlCx` ancestor set's two ends are sized — would win that
   back and cost a threshold, and there is no measurement yet saying it is worth one."
   nil)
 
@@ -2387,7 +2441,7 @@
   Two triggers land here and the mark is what both are about: the **declaration** naming
   `pred`, and a `(genl pred super)` edge carrying a mark standing on `super` down to a
   subtree that never held one.  Both are the retroactive half of what `marks-above?`
-  already gives the door, which reads every mark above a fact's own functor."
+  already gives the entry point, which reads every mark above a fact's own functor."
   [kb pred]
   (mapcat #(predicate-sentexes kb %) (predicate-subtree kb pred)))
 
@@ -2405,7 +2459,7 @@
   which is how the checks read it), so what the declaration implicates is the facts of
   the whole spec subtree beneath the predicate it names (`subtree-facts`).  Reading the
   named predicate's own extent instead is reading the one thing a general spelling is
-  usually empty of, and it descends nothing while the door descends everything —
+  usually empty of, and it descends nothing while the entry point descends everything —
   `checks/functional-clashes` and `checks/asymmetry-problems`
   convict a `fatherOf` pair under `(functional parentOf)` whichever spelling arrives last.
   **And a pair this sweep does not reach is missed permanently rather than late**: the
@@ -2422,7 +2476,7 @@
   The budget in `left` bounds the **enumeration** and is debited by what this trigger
   spends of it (`take-budgeted`) — never by the survivors.  Budgeting survivors instead
   would make a `keep?` that rejects everything walk the whole extent looking for one,
-  which is precisely the shape a large ontology is mostly made of.  The `genl` arm's two
+  which is precisely the form a large ontology is mostly made of.  The `genl` arm's two
   reaches share that one volatile, so the membership half spends first and the predicate
   half reads what is left with no arithmetic between them.
 
@@ -2682,7 +2736,7 @@
   a sibling separation reads the closure past the two members' own names, which is why
   `clash-nogoods` re-derives sibling pairs whenever an edge moves at all.
 
-  The **exceptions** are here so an exception arriving or leaving reads as a vocabulary
+  The **exceptions** are here so an exception arriving or leaving is indistinguishable from a vocabulary
   move: asserting one releases a standing clash and retracting one re-arms a pair that was
   *ever* a clash, both by `stale?` re-deriving every known pair.  What it does not cover is
   a pair the exception spared *ab initio* — never a clash, so never in the known set — and
@@ -2781,7 +2835,7 @@
   cross-context rows use.  Above arity 2 it is *composite*, several positions taken
   together.  Both are admitted here and for one reason: neither is a single argument
   root, so the narrow `believed-at-arg` reads `could-clash?`, `partner-contexts` and
-  `constraint-facts-in-cone` make cannot find a partner, and the candidate has to reach
+  `constraint-facts-in-ancestors` make cannot find a partner, and the candidate has to reach
   an extent sweep instead.  Arity 2 is the case that *is* a single root — position 1 is
   the whole determinant — which is why `partner-contexts` excludes it here and folds it
   in beside `functional`, whose shape it shares.
@@ -2828,7 +2882,7 @@
   * a **binary fact** whose predicate is declared `functional`, `asymmetric` or
     `anti_transitive`, all three O(1) property reads (`marks-above?`).
   * a fact of **any other arity** whose predicate carries a `functionalInArg` mark on
-    its **last** argument (`marked-at-final-arg?`) — the unary case already reads as the
+    its **last** argument (`marked-at-final-arg?`) — the unary case already is indistinguishable from the
     first shape when its one argument is a symbol, so this arm is what a numeric filler
     (`(p 1)`, unmergeable) or an arity above 1 still needs.
 
@@ -2855,7 +2909,7 @@
   nil — the notice channel for the one bounded read in this namespace that has no
   settle-wide budget to debit.
 
-  Nil by default, and that is the door's binding: `clash-askers` runs `partner-contexts`
+  Nil by default, and that is the entry point's binding: `clash-askers` runs `partner-contexts`
   on every assert under a mark, where there is no ledger open to file into and the write
   is answering about its own sentence.  A pass that *does* report — `expose-constraint-
   clashes!` — binds a volatile for the duration and drains it into
@@ -2923,7 +2977,7 @@
         ;; (`(functionalInArg P 1)` on a unary predicate — every believed tuple is then
         ;; automatically comparable to every other, since there is no key left to differ
         ;; on) and more than one when `k` is above 2 — a *composite* key no single
-        ;; argument root narrows by, a different candidate rule `constraint-facts-in-cone`
+        ;; argument root narrows by, a different candidate rule `constraint-facts-in-ancestors`
         ;; and `could-clash?` do not make either (`checks/functional-clashes` already
         ;; opens `n=k` correctly; it is only this settle-time discovery that has not
         ;; caught up).  Declared at exactly `2` is neither of those — a lone leftover
@@ -2944,12 +2998,12 @@
         ;; exposure check into an O(extent) read, repeated per assert into an
         ;; O(extent²) load.  Capped at `tax/*exposure-instance-budget*` locally rather
         ;; than through `take-budgeted`'s shared settle-wide volatile — this caller has
-        ;; no settle-wide budget passed in to share, and runs at the door as well as
+        ;; no settle-wide budget passed in to share, and runs at the entry point as well as
         ;; inside a pass.  A cut can miss naming a partner context, so the vantage that
         ;; would have seen the pair is never asked; and because the prefix is stable, a
         ;; later settle re-reads the same one rather than reaching past it.  So it is
         ;; reported: `note-partner-cut!` files through `*partner-cut*` when a pass has
-        ;; bound one, and costs a nil read at the door, where there is no ledger to file
+        ;; bound one, and costs a nil read at the entry point, where there is no ledger to file
         ;; into and the assert is answering about its own sentence anyway.
         det-budget (max 0 (long tax/*exposure-instance-budget*))
         det-facts  (into [] (take (inc det-budget))
@@ -3402,7 +3456,7 @@
   ingredient kind: a membership focuses its own term on its type — exact and
   unbudgeted; a separating declaration, metatype membership, or genl edge focuses
   the instances below its types on those types; a genlCx edge focuses the
-  moved cone's memberships on everything.  The extent-sweeping routes draw on one
+  moved ancestor set's memberships on everything.  The extent-sweeping routes draw on one
   shared instance budget, and a trigger whose sweep is cut short is returned in
   `:truncated`."
   [kb touched]
@@ -3542,13 +3596,13 @@
 ;;
 ;; The pass above answers `disjoint` and only `disjoint`.  The three tuple marks have the
 ;; same two holes and this is their reporting path.  **Across a visibility edge**: the
-;; assert door is scoped to the writer's own cone, so it sees one half and refuses
+;; assert entry point is scoped to the writer's own ancestor set, so it sees one half and refuses
 ;; nothing, and under `:refuse` `clash-askers` withholds the vantages that would see the
 ;; pair whole — a `functional` slot filled either side of a `genlCx` edge, or an
 ;; `asymmetric` claim written across one, is believed and unmentioned under the strictest
 ;; policy, which is the one chosen precisely to let nothing through.  **And behind a late
 ;; mark**: `(asymmetric P)` arriving after `(P a b)` and `(P b a)` convicts a pair whose
-;; halves the door admitted one at a time, because at neither write was there a mark to
+;; halves the entry point admitted one at a time, because at neither write was there a mark to
 ;; read.
 ;;
 ;; **The late mark is exposed, not refused and not arbitrated**, and the reason is that
@@ -3574,25 +3628,25 @@
 ;; *arbitrated*, and belief is untouched.  A pair this settle did arbitrate is excluded on
 ;; the same grounds `exposed-clashes-for-term` excludes one — decided is not exposed.
 ;; What is order-independent is therefore that the clash is *accounted for* — refused at
-;; the door, weighed into `contradictions`, or named here — and never that every arrival
+;; the entry point, weighed into `contradictions`, or named here — and never that every arrival
 ;; order picks the same account, which is a thing only the policy decides.
 ;;
 ;; **Under `:arbitrate` none of it runs**, and there it would be wrong to: the vantages
 ;; are asked there and the declaration's sweep runs there, so the pair is weighed rather
 ;; than reported, and reporting it here as well would have two mechanisms claim one clash.
 
-(defn- constraint-facts-in-cone
+(defn- constraint-facts-in-ancestors
   "The believed binary facts of a predicate one of the three tuple marks reaches, stored
   in the contexts `sub` now sees — the candidates a `genlCx` edge's visibility move
   can newly put in joint sight.
 
-  The exact parallel of `members-in-cone`, which answers the same question for the
+  The exact parallel of `members-in-ancestors`, which answers the same question for the
   disjointness pass, and lazy for the same budgeted consumer: a context cycle makes the
-  cone the whole graph, so nothing here may be realized or sorted before its first
+  ancestor set the whole graph, so nothing here may be realized or sorted before its first
   element comes out."
   [kb sub]
   (let [tax (:taxonomy kb)]
-    (for [s     (believed-in-cone kb (tax/context-up tax sub))
+    (for [s     (believed-in-ancestors kb (tax/context-up tax sub))
           :let  [sen (:sentence s)]
           :when (and (sequential? sen)
                      (let [f (nm/functor sen)
@@ -3611,7 +3665,7 @@
   one-hash-lookup-per-functor cost `trigger?` was written for.
 
   **The population is two reads and a reason.**  A trigger of this pass is either an edge
-  that brings binary facts into a cone a mark already stands over — the `:edge` storage
+  that brings binary facts into an ancestor set a mark already stands over — the `:edge` storage
   kind, which is `genl` and `genlCx` and nothing else — or a mark that now stands over a
   subtree, which is `:predicate-marked`.  That is why this is not `clash-declaration-kinds`
   read a second time: that roster groups by reach and holds three type-separating functors
@@ -3624,7 +3678,7 @@
   recognized at an arity its own arguments contradict, and `predicates/check-families`
   refuses at load a family spelling that carries a sweep and no shape to be recognized by
   — or that sweeps where its siblings do not, which is what keeps this lane and
-  `special`'s merge door reading the same spellings now that neither reads the other's
+  `special`'s merge entry point reading the same spellings now that neither reads the other's
   roster.  The sweep past this gate reads the marked predicate as argument 1 of the trigger
   (`[x y]`, then `subtree-facts` of `x`), which is the same position in both mark shapes,
   so the widened roster needs no arm of its own there either."
@@ -3649,8 +3703,8 @@
   neither is relabelled, so neither is in the region, and reporting the same knowledge
   only when the ingredient happened to arrive first is the arrival-order dependence this
   whole pass exists to remove. `(genlCx w c)` moves **visibility**: a pair already stored
-  and already believed becomes jointly visible, and what it implicates is the cone's facts
-  (`constraint-facts-in-cone`, the parallel of the `members-in-cone` the disjointness
+  and already believed becomes jointly visible, and what it implicates is the ancestor set's facts
+  (`constraint-facts-in-ancestors`, the parallel of the `members-in-ancestors` the disjointness
   pass reads through `declaration-reach`'s own `genlCx` arm). `(genl sub super)` moves the
   **mark**: a standing `(functional super)` descends to a subtree that never carried one,
   so a pair of `sub` facts either side of a visibility edge starts clashing without any
@@ -3663,7 +3717,7 @@
   a `props-over` read and nothing more. All three spend the same
   `*exposure-instance-budget*`, and the triggers are ordered, unlike the region walk,
   because a budgeted enumeration's *prefix* is what the cap decides and that may not
-  depend on the order a region or a cone came back in.
+  depend on the order a region or an ancestor set came back in.
 
   **And the mark itself, which is the third trigger and the same reach as the second.**
   `(functional P)`, `(asymmetric P)`, `(anti_transitive P)` or `(functionalInArg P n)`
@@ -3671,7 +3725,7 @@
   convicts moves nothing but the mark, so both halves of every pair beneath `P` sit
   outside the region — the declaration's own arrival order deciding whether the KB says
   anything at all, which is the objection `docs/nmtms.md` opens with and the one the
-  disjointness pass answers with `declaration-reach`. What it implicates is what a `genl`
+  disjointness pass answers with `declaration-reach`. It implicates what a `genl`
   edge carrying the same mark down implicates, `subtree-facts` of the predicate it names,
   so the two share one arm: a mark stands above its own predicate, `marks-above?` is
   therefore true of it, and the reach is the subtree either way.  `functionalInArg` is
@@ -3726,7 +3780,7 @@
                          (fn [e]
                            (let [sen   (:sentence e)
                                  [x y] (nm/args sen)
-                                 ;; each trigger reads its own end: the cone the newly
+                                 ;; each trigger reads its own end: the ancestor set the newly
                                  ;; seeing context reaches, or the subtree the mark
                                  ;; reaches — newly descended to under a `genl` edge,
                                  ;; newly declared over under the mark's own sentence.
@@ -3734,24 +3788,24 @@
                                  ;; spends nothing; a mark is above its own predicate, so
                                  ;; the same guard passes it through.
                                  ends  (if (= 'genlCx (nm/functor sen))
-                                         (constraint-facts-in-cone kb y)
+                                         (constraint-facts-in-ancestors kb y)
                                          (when (marks-above? tax x)
                                            (subtree-facts kb x)))
                                  [taken cut?] (take-budgeted left ends)]
                              (when cut? (vswap! unswept conj sen))
                              taken)))
                         triggers)]
-    ;; the cone reader filters to a marked binary fact itself; the subtree reader hands
+    ;; the ancestor set reader filters to a marked binary fact itself; the subtree reader hands
     ;; back whatever the predicates hold, so both are put through the region's own test
     (let [reached (filterv declared? swept)]
       {:candidates (into (filterv declared? region) reached)
-       ;; **Which candidates the door's own answer is stale for**, and therefore have to
+       ;; **Which candidates the entry point's own answer is stale for**, and therefore have to
        ;; be asked from their own context as well as from the vantages.  A candidate in
-       ;; the region was checked at its own door on the way in and needs no second
+       ;; the region was checked at its own entry point on the way in and needs no second
        ;; asking there — which is what keeps an ordinary write at the region and one
        ;; `clash-vantages` read.  A candidate a trigger *reached* was checked before the
        ;; ingredient existed: no mark stood over its predicate, or its own context did
-       ;; not yet see the other half.  Its own context is precisely the vantage the door
+       ;; not yet see the other half.  Its own context is precisely the vantage the entry point
        ;; would use today, and leaving it out is what makes a same-context pair beneath a
        ;; late mark reportable from nowhere at all.
        :stale      (into #{} (map :id) reached)
@@ -3762,7 +3816,7 @@
   across a visibility edge, or beneath a mark that reached back over it — one entry per
   handle set, as a **function of that set's content alone**.
 
-  Each is re-derived by asking the very check the assert door asks
+  Each is re-derived by asking the very check the assert entry point asks
   (`checks/arbitrable-violations`), from the vantages `clash-vantages` names — the same
   two reads `clash-askers` makes under `:arbitrate`, asked here for a report instead of
   for a nogood.  So the discovery cannot drift from the refusal, and widening the
@@ -3772,9 +3826,9 @@
   **A `stale` candidate is asked from its own context too**, and only a stale one.  The
   vantages are the contexts *beyond* a sentex's own (`clash-vantages` drops it), which is
   right for a candidate the region holds: that one was asked from its own context at the
-  door, and asking again every settle would re-run a check whose answer has not moved.  A
+  entry point, and asking again every settle would re-run a check whose answer has not moved.  A
   candidate a trigger **reached** is the opposite case — the mark over its predicate, or
-  what its context sees, arrived after the door answered — so its own context is the one
+  what its context sees, arrived after the entry point answered — so its own context is the one
   vantage that matters and the only one a same-context pair beneath a late mark has.
   Which is which is `constraint-exposure-candidates`' `:stale`.
 
@@ -3801,7 +3855,7 @@
         found
         (for [s      candidates
               ;; contexts are symbols — bare sort is the same order.  The sentex's own
-              ;; context leads when the door's answer for it is stale, so the vantages
+              ;; context leads when the entry point's answer for it is stale, so the vantages
               ;; keep the order they were in.
               asker  (cond->> (sort (clash-vantages kb s))
                        (contains? stale (:id s)) (cons (:context s)))
@@ -3924,12 +3978,12 @@
   vantage it never asked from, so the pairs it costs are *invisible* to the counts above
   rather than visible and unreported.  It comes from `partner-contexts`' unnarrowed
   `functionalInArg` determinant sweep — the one bounded read with no settle-wide budget
-  to debit, since it runs at the assert door too — through the `*partner-cut*` volatile
-  bound here for the pass's duration.  The door leaves that binding nil and pays a nil
+  to debit, since it runs at the assert entry point too — through the `*partner-cut*` volatile
+  bound here for the pass's duration.  The entry point leaves that binding nil and pays a nil
   read.
 
   **Two bounds in one entry, which is why it is built here rather than by `cut-notice`.**
-  The cone sweep is bounded like every other and fires off its cut; the pair cap is a
+  The ancestor set sweep is bounded like every other and fires off its cut; the pair cap is a
   bound on what one pass will *file* and fires with nothing swept short at all, carrying
   a `:pairs` / `:filed` reading no sweep has.  Putting it through the shared builder
   would mean rewording the message a reader already reads, for a shape that says one
@@ -4029,11 +4083,11 @@
   leaves `super` held to what it always was.
 
   **A fourth sentence supplies a binding and names no predicate**, which is why it is
-  answered next door rather than by another arm here: all three of these are read *from a
+  answered in the adjacent namespace rather than by another arm here: all three of these are read *from a
   context*, so a `genlCx` edge rebinds by moving what a fact's own vantage can see, and
   the predicates it reaches are a sweep's answer rather than anything its two arguments
   spell.  This is one of the two functions that sweep for them
-  (`arity-bindings-above-context` reads it of the cone the edge opened)."
+  (`arity-bindings-above-context` reads it of the ancestor set the edge opened)."
   [kb sen context]
   (let [f (nm/functor sen)
         as (rest sen)]
@@ -4042,7 +4096,7 @@
                       (= 'genl f)  (when (= 2 (count as)) (first as))
                       ;; through the closure, `checks/membership-arity`'s reason: a
                       ;; membership spelled with a `genl` of `binary_predicate` declares a
-                      ;; length the door reads, so a trigger matching the three literal
+                      ;; length the entry point reads, so a trigger matching the three literal
                       ;; functors would leave the facts it convicts unreported
                       (= 1 (count as)) (when (checks/membership-arity kb f context)
                                          (first as)))]
@@ -4057,9 +4111,9 @@
 ;; general: a fresh context joining the root is nothing below and the whole vocabulary
 ;; above, and a root context gaining a parent is the reverse, and an ontology writes both.
 
-(defn- cone-extent
+(defn- ancestor-extent
   "How many sentexes are stored across `contexts` — one `count-in-context` apiece, which
-  is an O(1) read, so a cone can be sized without walking it.  Stored rather than
+  is an O(1) read, so an ancestor set can be sized without walking it.  Stored rather than
   believed, and whatever the sentences are: this only picks which end to enumerate, so a
   miscount costs a worse choice of end and never an answer."
   [kb contexts]
@@ -4077,13 +4131,13 @@
   The functors are roots and not candidates: the spec expansion and the per-fact check
   beneath them decide.
 
-  Left in the cone's own order, for the reason `members-in-cone` records: a context cycle
-  makes the cone the whole graph, so nothing here may be sorted before its first element
+  Left in the ancestor set's own order, for the reason `members-in-ancestors` records: a context cycle
+  makes the ancestor set the whole graph, so nothing here may be sorted before its first element
   comes out.  The functors are a set by the time they are roots and the sweep beneath them
   is content-ordered, so what a cut prefix costs is coverage and never a different reading
   of the same coverage."
   [kb sub]
-  (for [s     (believed-in-cone kb (tax/context-down (:taxonomy kb) sub))
+  (for [s     (believed-in-ancestors kb (tax/context-down (:taxonomy kb) sub))
         :let  [sen (:sentence s)
                f   (when (sequential? sen) (nm/functor sen))]
         :when (symbol? f)]
@@ -4095,11 +4149,11 @@
   but which end it walks.  Lazy, and unsorted, for that one's reasons.
 
   Every spelling `arity-bound-by` reads, because all three become visible together: the
-  cone the edge opened carries the declarations *and* the `genl` edges that inherit one,
-  and an edge revealing only the second binds a predicate no declaration in the cone
+  ancestor set the edge opened carries the declarations *and* the `genl` edges that inherit one,
+  and an edge revealing only the second binds a predicate no declaration in the ancestor set
   names."
   [kb super]
-  (for [s     (believed-in-cone kb (tax/context-up (:taxonomy kb) super))
+  (for [s     (believed-in-ancestors kb (tax/context-up (:taxonomy kb) super))
         :let  [sen  (:sentence s)
                pred (when (sequential? sen) (arity-bound-by kb sen (:context s)))]
         :when pred]
@@ -4154,7 +4208,7 @@
   context edge's own reach supplies them for the one that names neither, the spec
   expansion below covers the declaration landing on a super, and together they make the
   finding a fact about the KB rather than about the order it was written in — which is
-  what the door already achieves by reading the same `declared-arity` whichever sentence
+  what the entry point already achieves by reading the same `declared-arity` whichever sentence
   arrives.
 
   Reports and decides nothing.  The facts stay stored and believed, exactly as they were;
@@ -4195,7 +4249,7 @@
   nothing, and then every predicate after it takes a budget of zero, examines nothing and
   has nothing to hang the flag on — so a wrong-arity fact one of them holds would be
   neither refused nor reported, and nothing would say a predicate went unlooked-at.  A
-  context edge whose cone the budget cut is the same reading one ingredient earlier:
+  context edge whose ancestor set the budget cut is the same reading one ingredient earlier:
   predicates nobody looked *for*.  That is
   the failure `cut-notice` exists to refuse, so both are collected and filed as a single
   `:arity-truncated` entry off the cut, **whether or not anything was found**.
@@ -4203,7 +4257,7 @@
   **Two bounds in one entry, which is why it is built here rather than by `cut-notice`**,
   and `expose-constraint-clashes!` gives the same reason for the same shape.  The two
   readings count different units — predicates whose facts went unswept, and `genlCx`
-  edges whose cone did, which is one ingredient earlier and so a `:edges` /
+  edges whose ancestor set did, which is one ingredient earlier and so a `:edges` /
   `:edge-sample` pair no single-unit entry carries — and the message names whichever of
   them fired.  `cut-notice`'s rule is what both halves obey: read off the cut, never off
   the findings.
@@ -4221,13 +4275,13 @@
           ;; the predicates the budget cut short — content-ordered by construction, since
           ;; `preds` is and the sweep folds over it in that order
           unswept (volatile! [])
-          ;; ...and the context edges whose cone it cut short, which is the same reading
+          ;; ...and the context edges whose ancestor set it cut short, which is the same reading
           ;; one ingredient earlier: predicates the pass never got as far as naming
           unreached (volatile! [])
           believed (into [] (believed-xf kb) touched)
           named (into #{} (keep #(arity-bound-by kb (:sentence %) (:context %))) believed)
           ;; the ingredient that names no predicate.  Content order over the edges,
-          ;; because a budget running out mid-region decides which cones were walked at
+          ;; because a budget running out mid-region decides which ancestor sets were walked at
           ;; all, and that may not depend on the handle order the region came back in
           edges (content-order
                  (filterv (fn [s]
@@ -4244,11 +4298,11 @@
                          ;; the smaller end, sized off `count-in-context` so choosing
                          ;; costs no walk — and a function of stored content, so two
                          ;; arrival orders reaching one KB choose alike
-                         ends        (if (<= (cone-extent kb (tax/context-down tax sub))
-                                             (cone-extent kb (tax/context-up tax super)))
+                         ends        (if (<= (ancestor-extent kb (tax/context-down tax sub))
+                                             (ancestor-extent kb (tax/context-up tax super)))
                                        (predicates-below-context kb sub)
                                        (arity-bindings-above-context kb super))
-                         ;; the same volatile the sweep below spends, so a cone that took
+                         ;; the same volatile the sweep below spends, so an ancestor set that took
                          ;; the budget leaves the predicates it named nothing to sweep
                          ;; with — one bound over both halves of the pass
                          [taken cut?] (take-budgeted left ends)]
@@ -4333,7 +4387,7 @@
                                            ;; "declared with" is false of a predicate that
                                            ;; declared nothing and took its length off a
                                            ;; super, so the two cases are worded apart —
-                                           ;; by the clause `checks`' own doors word it
+                                           ;; by the clause `checks`' own entry points word it
                                            ;; with, this being its third reader
                                            (str "arity declared after the facts: " pred
                                                 " "
@@ -4700,7 +4754,7 @@
                 ex-before  (believed-excepts kb)
                 {:keys [violated dilemmas rejoin region]} (resolve-contradictions kb ngs region)
                 ;; a resolution that defeated (or revived) a visibility except flipped
-                ;; what its cone can see — queue the same re-check its arrival or
+                ;; what its ancestor set can see — queue the same re-check its arrival or
                 ;; departure queues, and carry the marked rules to the re-chain, since a
                 ;; reveal moves no blocked justification for the drain to notice
                 flips  (into flips
@@ -4779,7 +4833,7 @@
 
 (def ^:private max-unmerge-rounds
   "How many times `settle` re-seeds an un-merge and settles again before it gives up and
-  says so.  Two is the shape of every real case — one settle discovers the un-merge, the
+  says so.  Two is the structure of every real case — one settle discovers the un-merge, the
   next derives from it and finds nothing further to give back — and the bound is here for
   the same reason `max-settle-passes` is: a round that keeps producing work is a bug, and
   what this buys is that it reports one instead of hanging the writer."

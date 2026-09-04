@@ -61,7 +61,7 @@
              (into {} (map (fn [[k v]] [(get vm k k) v])) '{?var0 Tom, ?var1 Rex}))))))
 
 (deftest a-caller-writing-the-canonical-names-produces-a-permutation
-  ;; The case that makes one-pass renaming load-bearing rather than fastidious: a query
+  ;; The case that makes one-pass renaming required rather than fastidious: a query
   ;; spelled with the engine's own canonical names, crossed over.
   (let [[canon vm] (sx/canonical-conjunction '[(anc ?var1 ?var0)])]
     (is (= '[(anc ?var0 ?var1)] canon))

@@ -12,7 +12,7 @@
   answering differently on that backend.
 
   The two properties beyond equivalence: it is **immutable**, so the concurrent readers a
-  networked store exists to have need no coordination; and `(set roster)` is the door back
+  networked store exists to have need no coordination; and `(set roster)` is the entry point back
   to an `IPersistentSet`, which is what a caller wanting `conj` / `disj` / `clojure.set`
   goes through.
 
@@ -28,12 +28,12 @@
 
 (def ^:private ids
   ;; a near-contiguous run with holes, which is what assertion-order minting plus
-  ;; retraction leaves behind — and the shape the representation is chosen for
+  ;; retraction leaves behind — and the form the representation is chosen for
   (into [] (remove #(zero? (mod % 7))) (range 1 2001)))
 
 (defn- fresh [] (roster/roster ids))
 
-;; ---- a roster reads as the set it replaces -------------------------------
+;; ---- a roster is indistinguishable from the set it replaces -------------------------------
 
 (deftest every-read-the-engine-makes-agrees-with-the-set
   (let [r (fresh)
@@ -81,7 +81,7 @@
              (.hashCode ^Object r))
           "and it hashes as a java.util.Set, so it is usable as one"))))
 
-(deftest the-door-back-to-a-persistent-set-is-open
+(deftest the-entry-point-back-to-a-persistent-set-is-open
   (let [r (fresh)]
     (is (set? (set r)) "`set` converts, which is what a caller needing conj/disj does")
     (is (= (set ids) (set r)))

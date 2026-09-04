@@ -123,7 +123,7 @@
       (is (nil? (v/sentex kb eh)) "recover does not resurrect the cascaded endorsement")
       (is (v/has-prop? kb :target-following 'endorses) "and the mark itself survives recover"))))
 
-;; ---- the batch door cascades too ---------------------------------------
+;; ---- the batch entry point cascades too ---------------------------------------
 
 (tu/deftest-kb the-cascade-fires-through-edit!
   (let [c (ctx! kb)]

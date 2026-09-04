@@ -280,7 +280,7 @@
     (let [before (content kb)
           r      (v/preview kb {:add [[(list dog Rex) CxStory]]} {:max-results 1})]
       (is (= 1 (count (:believed-added r))))
-      (is (true? (:bounded? r)) "a capped answer must not read as a complete one")
+      (is (true? (:bounded? r)) "a capped answer must not are indistinguishable from a complete one")
       (is (= before (content kb))))))
 
 (tu/deftest-kb an-unbounded-run-says-it-was-unbounded
@@ -288,7 +288,7 @@
     (is (false? (:bounded? (v/preview kb {:add [[(list dog Rex) CxStory]]}))))))
 
 (tu/deftest-kb the-cap-takes-the-content-first-entries-not-the-first-stored
-  ;; The cap is what makes the diff's order load-bearing: it decides *which* entries the
+  ;; The cap is what makes the diff's order required: it decides *which* entries the
   ;; caller sees, and the browser's proposal panel caps at 50.  Ranked by handle — which
   ;; is assertion order — the same batch against the same knowledge would show a
   ;; different sample depending on how the KB was loaded.
@@ -466,7 +466,7 @@
 
 ;; ---- the opts roster ------------------------------------------------------
 
-(tu/deftest-kb a-consequence-door-option-nothing-reads-is-refused
+(tu/deftest-kb a-consequence-entry-point-option-nothing-reads-is-refused
   ;; Every key `preview` and `edit-with-consequences` read is a bound, so the
   ;; silent-default failure is a cap silently off: `{:max-result 5}` reads as no key at
   ;; all, the diff comes back uncapped, and `:bounded?` says false as though the whole
@@ -484,25 +484,25 @@
                              (v/edit-with-consequences! kb batch {:max-depth 3})))]
           (is (= :unknown-option (:type (ex-data e))))
           (is (= [:max-depth] (:unknown (ex-data e))))))
-      (testing "a cap that is not a positive integer is refused at both doors"
+      (testing "a cap that is not a positive integer is refused at both entry points"
         ;; The roster's failure one level in: `:max-results` is read, so the roster
-        ;; passes — and both doors guard the cap with `pos-int?`, so a string or a zero
+        ;; passes — and both entry points guard the cap with `pos-int?`, so a string or a zero
         ;; reads as **no cap at all** and the diff comes back whole with `:bounded?`
         ;; false, which is exactly the silent default the roster refuses a typo for.
         (doseq [[label bad] [["a string" "1"] ["zero" 0] ["a negative" -1]]
-                door        [#(v/preview kb batch {:max-results bad})
-                             #(v/edit-with-consequences! kb batch {:max-results bad})]]
-          (let [e (is (thrown? clojure.lang.ExceptionInfo (door)) label)]
+                entry-point        [#(v/preview kb batch {:max-results bad})
+                                    #(v/edit-with-consequences! kb batch {:max-results bad})]]
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (entry-point)) label)]
             (is (= :unknown-option (:type (ex-data e))) label)
             (is (= bad (:limit (ex-data e))) label)
             (is (re-find #"positive integer" (ex-message e)) label))))
-      (testing "a non-map opts is refused at both doors"
+      (testing "a non-map opts is refused at both entry points"
         ;; The keyword is the point — the refusal is what this asserts — so the
         ;; type mismatch clj-kondo sees is the test's subject, not a defect.
         #_{:clj-kondo/ignore [:type-mismatch]}
-        (doseq [door [#(v/preview kb batch :max-results)
-                      #(v/edit-with-consequences! kb batch :max-results)]]
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map" (door)))))
+        (doseq [entry-point [#(v/preview kb batch :max-results)
+                             #(v/edit-with-consequences! kb batch :max-results)]]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map" (entry-point)))))
       (testing "the rostered keys still run"
         (is (map? (v/preview kb batch {:max-depth 2 :max-derivations 10
                                        :max-results 1})))

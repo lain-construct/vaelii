@@ -89,7 +89,7 @@
 (defn- observed-by?
   "Does `ctx` observe the clash `entry` — i.e. can it read BOTH clashing sides?  A
   contradiction is visible exactly where both its sentences are readable, up the
-  `genlCx` cone (`sees?`).  So a clash between `(ist CxAtlas P)` and `(ist CxBoreas ¬P)`
+  `genlCx` ancestor set (`sees?`).  So a clash between `(ist CxAtlas P)` and `(ist CxBoreas ¬P)`
   surfaces in the channel `CxDeploy` (which sees both agent contexts) and NOT in a
   sibling that sees only one — from a one-sided vantage there is no clash to see, and
   `argue` from there returns `:true`, not `:contradiction`.  Both-sides is what keeps the

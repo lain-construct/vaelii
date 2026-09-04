@@ -21,8 +21,8 @@
   votes); the snapshot is the source of truth, and every catch-up path ends reconciled
   against it or against a live tail.
 
-  **Snapshot reads through the CONE.**  A channel sees its agents' own-context sentexes up
-  the `genlCx` cone; `sentexes-matching` does NOT walk the cone (it scopes to a context's
+  **Snapshot reads through the ANCESTOR SET.**  A channel sees its agents' own-context sentexes up
+  the `genlCx` ancestor set; `sentexes-matching` does NOT walk the ancestor set (it scopes to a context's
   own sentexes) but `query` does — so the snapshot is `channel/query`, whose solution set is
   the same view the standing-query feed delivers.
 
@@ -70,13 +70,13 @@
   (write-position! [_ p] (reset! a p) p))
 
 (defn atom-store
-  "An in-memory `CursorStore` over an atom — the default and the test seam.  A durable
+  "An in-memory `CursorStore` over an atom — the default and the test extension point.  A durable
   deployment supplies its own (a file, a KV row); the cursor is small (`{:token :cursor}`)
   and written once per processed batch."
   []
   (->AtomStore (atom nil)))
 
-;; ---- the snapshot half: a cone-aware re-read of current state ------------
+;; ---- the snapshot half: an ancestor-aware re-read of current state ------------
 
 (defn- ground
   "Substitute a solution's `bindings` into `goal`, reproducing the concrete sentence the
@@ -89,7 +89,7 @@
 
 (defn snapshot
   "The SNAPSHOT half of CDC: the channel's current truth for `goal` in `context`, as a SET
-  of sentences.  A cone-aware re-read (`channel/query`), authoritative over the incomplete
+  of sentences.  An ancestor-aware re-read (`channel/query`), authoritative over the incomplete
   incremental stream — it reflects retractions the feed drops.  State, NOT order: it
   recovers current beliefs, not the sequence they arrived in (carry the cursor ordinal if
   order matters — D7)."

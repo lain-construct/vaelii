@@ -104,7 +104,7 @@
       (is (contains? (set (v/contexts kb)) km))
       (is (= [(list 'genlCx km ky)]
              (map :sentence (v/sentexes-matching kb (list 'genlCx km ky) 'CxUniverse)))))
-    (testing "a fact in the year is visible from the month (inheritance up the cone)"
+    (testing "a fact in the year is visible from the month (inheritance up the ancestor set)"
       (is (= [{'?h 'NewYear}] (v/ask kb '(holiday ?h) month))))
     (testing "a fact in the month is NOT visible from the year"
       (is (empty? (v/ask kb '(weather ?w) year))))))
@@ -172,7 +172,7 @@
     (testing "reviving the declaration rebuilds the computed edge, before any further assert"
       (is (v/sees? kb km ky) "the month now sees the year")
       (is (= [{'?h 'NewYear}] (v/ask kb '(holiday ?h) month))
-          "and a fact in the year is visible from the month up the cone"))))
+          "and a fact in the year is visible from the month up the ancestor set"))))
 
 ;; ---- Finding #2: a Cx*Fn in ARGUMENT position does not alias the context ----
 
@@ -272,7 +272,7 @@
 ;; ---- a declared position the function does not have ----------------------
 
 (tu/deftest-kb a-subrelation-position-past-the-arity-orders-nothing-and-throws-nothing
-  ;; Nothing at the assert door ties a declaration's `pos` to the arity of the function
+  ;; Nothing at the assert entry point ties a declaration's `pos` to the arity of the function
   ;; it names, so a wide one is storable.  The producer runs on the assert maintenance
   ;; path, so masking that position blind would throw out of an unrelated assert; a
   ;; position that does not index the expression simply names no sibling group.

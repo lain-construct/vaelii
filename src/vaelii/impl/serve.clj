@@ -119,13 +119,13 @@
   A read that expands rules runs on the daemon's **single write monitor**, so its cost
   is not the caller's alone: every other request queues behind it.  The two dials a
   caller sets are the two ceilings — `:max-ms` (`config/max-query-ms`) and `:max-depth`
-  (`config/max-query-depth`) — and this table says which door reads which, because the
+  (`config/max-query-depth`) — and this table says which entry point reads which, because the
   option rosters differ (`query-opt-keys` has no `:max-ms` to fill in, `search-tree`'s
   has both, an anytime budget map is `:max-ms` and takes no default of its own).
 
-  **A door with no bound of its own is not on it**, which is a fact about the door rather
+  **An entry point with no bound of its own is not on it**, which is a fact about the entry point rather
   than a category: `:sentexes-matching` has no dial to raise, so there is nothing to
-  clamp. The four backward-search doors do have one (`core/ask-opt-keys`,
+  clamp. The four backward-search entry points do have one (`core/ask-opt-keys`,
   `core/prove-opt-keys`), and are held to the ceiling like the rest — `:ask` and `:ask?`
   to the clock alone, since nothing in the prover registry expands a rule."
   {:query              #{:max-depth}
@@ -147,15 +147,15 @@
   arguments to fill in between what they sent and the map.
 
   A `:max-depth` op needs nothing here: absent there is a *smaller* question than the
-  ceiling — no rule expansion at `query`'s door, the shipped guard at `prove-within`'s —
+  ceiling — no rule expansion at `query`'s entry point, the shipped guard at `prove-within`'s —
   so a call with no map is already inside the bound. Absent `:max-ms` is the opposite: it
   is **no clock**, and an unbounded backward search on the daemon's single write monitor
   is the exposure the ceiling exists for. So a short call to one of these is padded out to
   the arity that has a map, with `vaelii.core`'s own default for each argument in
   between, and `under-ceiling` then fills the clock in.
 
-  Only the four search doors, and only their one intervening argument — the context,
-  whose default is `?ctx` at each of them. A door added here owes the same reading of its
+  Only the four search entry points, and only their one intervening argument — the context,
+  whose default is `?ctx` at each of them. An entry point added here owes the same reading of its
   own arglists."
   {:ask       ['?ctx]
    :ask?      ['?ctx]
@@ -193,7 +193,7 @@
   the daemon already gives every other read.
 
   An absent `:max-depth` is left alone: absent is not unbounded there, it is the
-  no-rule-expansion answer at `query`'s door and the shipped guard at `prove-within`'s,
+  no-rule-expansion answer at `query`'s entry point and the shipped guard at `prove-within`'s,
   both of which are *smaller* questions than the ceiling rather than larger ones."
   [op ks opts]
   (reduce
@@ -221,11 +221,11 @@
   Wrapped **in the table** rather than at the HTTP route, because the table is what two
   callers dispatch through: `POST /op` and the model's generated tool set
   (`vaelii.impl.llm.tools`, which builds its schemas from this map and calls back into
-  it).  A ceiling applied at one of those doors would be a ceiling the other does not
+  it).  A ceiling applied at one of those entry points would be a ceiling the other does not
   have.
 
   For a `clock-fill` op the args are padded first, so a caller who sent no option map
-  still gets one to be clamped: absent means *no clock* at those doors, and no clock is
+  still gets one to be clamped: absent means *no clock* at those entry points, and no clock is
   the exposure rather than a smaller question."
   [op f]
   (if-let [ks (search-bounds op)]
@@ -316,6 +316,12 @@
     ;; rather than accumulated — the read an imported KB needs, since a load rebuilds
     ;; belief rather than changing it and nothing is newly anything to report
     :exposed-clashes (op v/exposed-clashes)
+    ;; the predAllSpecified integrity audit, one declaration or every visible one.  Read
+    ;; only and filed nowhere, like the two above, so a remote caller asks for it rather
+    ;; than reading an accumulated ledger.  Its own cost is one read per member of the
+    ;; audited collection, which is the caller's to spend (docs/predall.md)
+    :specified-violations     (op v/specified-violations)
+    :all-specified-violations (op v/all-specified-violations)
     ;; how a goal would be answered: the provers bearing on it with their estimates, or
     ;; for a conjunction the join order and the counts behind it
     :query-plan   (op v/query-plan)
@@ -395,7 +401,7 @@
     :ask-within   (op (without-resume v/ask-within))
     :prove-within (op (without-resume v/prove-within))
     ;; the taxonomy and context questions the browser's own reads left short: the genl
-    ;; test between two *types*, the genlCx cone both ways, and the visibility question
+    ;; test between two *types*, the genlCx ancestor set both ways, and the visibility question
     ;; behind every scoped read (docs/taxonomy.md, docs/contexts.md)
     :genl?        (op v/genl?)
     :context-up   (op v/context-up)
@@ -518,7 +524,7 @@
   (walk/postwalk (fn [y] (if (record? y) (into {} y) y)) x))
 
 (def ^:private client-error-types
-  "The engine's request-refusal vocabulary — every `:type` the doors throw at input a
+  "The engine's request-refusal vocabulary — every `:type` the entry points throw at input a
   caller shaped wrong, answered **400** like the daemon's own seven.  A snake_case
   predicate or a misspelt option is the client's mistake: answered 500, it would
   count as a backend fault at every reverse proxy and 5xx alarm between the caller
@@ -547,7 +553,7 @@
     :not-a-report
     ;; a query context (`CxEverything` / `CxInference` / `CxNothing`) handed to a read
     ;; that does not resolve one — `:why-not`, `:lookup`, `:query-plan`, `:search-tree`
-    ;; and the rest.  The caller named a reading this door does not offer, which is the
+    ;; and the rest.  The caller named a reading this entry point does not offer, which is the
     ;; same class of mistake as naming an option it does not read
     :unsupported-context
     ;; a `:find-terms` regex whose backtracking blew the per-term step budget — the
@@ -688,7 +694,7 @@
   set.  A daemon only its token-holder can probe is one no container orchestrator, load
   balancer or shell script can watch, and `{:ok true}` tells a caller nothing it did not
   already know by connecting.  Stated here because an unauthenticated route inside an
-  authenticated daemon reads as an oversight to delete: this one is a decision."
+  authenticated daemon is indistinguishable from an oversight to delete: this one is a decision."
   #{"/health"})
 
 (defn- wrap-bearer-auth
@@ -717,7 +723,7 @@
   50)
 
 (def ^:private loopback
-  "The interface the daemon binds unless told otherwise.  `POST /op` is the **write**
+  "The network interface the daemon binds unless told otherwise.  `POST /op` is the **write**
   route of the single writer, so it answers only the machine it runs on; exposing it is
   an explicit choice (`--listen`), not the default.  The same rule the browser holds to
   (`vaelii.impl.web`), and the more important of the two — the browser edits a KB, and
@@ -801,8 +807,8 @@
   believing the daemon is reachable when only this machine can see it.
 
   **The next flag is not an address either.**  `--listen --whatever` otherwise binds an
-  interface literally named `--whatever`, which is a Jetty failure naming a token rather
-  than the refusal this door owes — the same reading `impl.cli`'s `--dir --starter`
+  network interface literally named `--whatever`, which is a Jetty failure naming a token rather
+  than the refusal this entry point owes — the same reading `impl.cli`'s `--dir --starter`
   refuses, and the more consequential of the two, since this flag publishes the KB's only
   writer."
   [args]
@@ -815,7 +821,7 @@
                                (if v (str "the next word is the flag " v)
                                    "the line ends after it")
                                " — write --listen <address> (e.g. --listen 0.0.0.0)")
-                          {:type :unknown-option :flag "--listen"}))))
+                          {:type :unknown-option :mismatch :missing-value :flag "--listen"}))))
       loopback)))
 
 (defn- positional-args
@@ -835,7 +841,7 @@
                                                              " and a store directory and"
                                                              " nothing else: <port>"
                                                              " [<dir>] [--listen <address>]")
-                                                        {:type :unknown-option :arg (nth pos 2)}))
+                                                        {:type :unknown-option :mismatch :unknown-key :arg (nth pos 2)}))
                                         pos)
       (= "--listen" a)                (recur (rest more) pos)   ; value read by listen-host
       (.startsWith ^String a "--")    (throw (ex-info (str "unknown flag: " a " — the"
@@ -843,7 +849,7 @@
                                                            " <address>, and takes a port"
                                                            " and a store directory as"
                                                            " positionals")
-                                                      {:type :unknown-option :flag a}))
+                                                      {:type :unknown-option :mismatch :unknown-key :flag a}))
       :else                           (recur more (conj pos a)))))
 
 (def ^:private public-bind?

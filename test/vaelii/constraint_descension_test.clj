@@ -6,9 +6,9 @@
   `(genl fatherOf parentOf)` says every `fatherOf` tuple **is** a `parentOf` tuple, and a
   tuple set only narrows going down — so `(arg parentOf 1 person)` is a claim about
   `fatherOf`'s first argument too.  Reading a declaration off the exact functor made the
-  refusal *door-dependent*: the ill-typed claim was refused under the general spelling,
+  refusal *entry-point-dependent*: the ill-typed claim was refused under the general spelling,
   admitted under the specialized one, and then answered every general-spelling query
-  through the matcher's own fan.  Every test here is a pair of doors that must agree.
+  through the matcher's own fan.  Every test here is a pair of entry points that must agree.
 
   The line this must not cross is the other direction: a **generative** property —
   `transitiveInArg`, `transitive`, `symmetric`, `reflexive` — is a claim about a relation
@@ -27,7 +27,7 @@
 
 (defmacro with-entailing
   "Run the body with assertive argument types on — off by default, so the minting half
-  of every door-parity pair binds it."
+  of every entry-point-parity pair binds it."
   [& body]
   `(binding [checks/*assertive-arg-types?* true] ~@body))
 
@@ -52,13 +52,13 @@
 
 (defn- believed?
   "Is `sentence` a **stored, believed** sentex in `ctx`?  Deliberately not `ask` — the
-  minting half of a door pair is about a record existing, which a prover's answer is
+  minting half of an entry point pair is about a record existing, which a prover's answer is
   not."
   [kb sentence ctx]
   (let [h (v/handle-of kb sentence ctx)]
     (boolean (and h (v/in? kb h)))))
 
-;; ---- door parity: the refusal ------------------------------------------
+;; ---- entry point parity: the refusal ------------------------------------------
 
 (tu/deftest-kb both-spellings-of-one-ill-typed-claim-are-refused
   ;; The headline.  Without the descension the second assert stores a fact that answers
@@ -110,7 +110,7 @@
         (is (v/assert kb (list gnawsOn Nobody Chunk) 'CxUniverse)
             "an untyped eater leaves the conditional dormant")))))
 
-;; ---- door parity: the entailment ---------------------------------------
+;; ---- entry point parity: the entailment ---------------------------------------
 
 (tu/deftest-kb both-spellings-mint-and-the-edge-is-named-in-the-support
   (tu/with-terms [person parentOf fatherOf Fred Ann Mary]
@@ -177,7 +177,7 @@
   ;; and a sweep would have to decide whether silence about a stored argument's type is
   ;; a violation or merely silence (docs/taxonomy.md, "What each constraint does in each
   ;; arrival order").  The descension inherits that verbatim rather than answering the
-  ;; question through a side door: the edge arriving last is the family's third
+  ;; question through a side entry point: the edge arriving last is the family's third
   ;; ingredient, and it neither throws nor unstores.
   (tu/with-terms [person rock parentOf fatherOf TheRock1 Mary]
     (a-type kb person 'CxUniverse)
@@ -285,25 +285,25 @@
       (is (= (v/handle-of kb (list 'binary_predicate parentOf) 'CxUniverse)
              (:opposing-handle (first (v/check kb (list fatherOf A B C) 'CxUniverse))))))))
 
-(tu/deftest-kb the-door-and-the-report-word-one-binding-the-same-way
+(tu/deftest-kb the-entry-point-and-the-report-word-one-binding-the-same-way
   ;; The two halves describe the same fact about the same KB, so a length read off a
   ;; super must read as inherited at both, and one declared of the predicate itself must
   ;; read as declared at both.  They were split: the report said "takes 2 arguments
-  ;; through parentOf" while the door said "is declared with 2 arguments, declared of
-  ;; parentOf" — one binding, two descriptions, and the door's credited a declaration
+  ;; through parentOf" while the entry point said "is declared with 2 arguments, declared of
+  ;; parentOf" — one binding, two descriptions, and the entry point's credited a declaration
   ;; `fatherOf` never carried.
-  (letfn [(door [kb sen] (:message (first (v/check kb sen 'CxUniverse))))]
+  (letfn [(entry-point [kb sen] (:message (first (v/check kb sen 'CxUniverse))))]
     (testing "inherited: both say takes … through"
       (tu/with-terms [parentOf fatherOf A B C]
         (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
         (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
         (is (re-find (re-pattern (str "takes 2 arguments through " parentOf))
-                     (door kb (list fatherOf A B C))))))
+                     (entry-point kb (list fatherOf A B C))))))
     (testing "declared of itself: both say is declared with, and name no via"
       (tu/with-neutral-kb [kb tu/isolated-fresh]
         (tu/with-terms [parentOf A B C]
           (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
-          (let [m (door kb (list parentOf A B C))]
+          (let [m (entry-point kb (list parentOf A B C))]
             (is (re-find #"is declared with 2 arguments" m))
             (is (not (re-find #"through" m))
                 "nothing to credit, so no clause crediting it")))))))
@@ -380,7 +380,7 @@
 
 (tu/deftest-kb every-arrival-order-of-an-arity-clash-leaves-the-pair-agreeing
   ;; Storage may differ by arrival order — the sentence refused is whichever arrived onto
-  ;; a KB the rest of the pair was already in, which is the first-writer-wins every door
+  ;; a KB the rest of the pair was already in, which is the first-writer-wins every entry point
   ;; refusal has.  What may *not* differ is the state that leaves: in all 24 orders of the
   ;; edge, the two declarations and a tuple, the KB never ends up holding two genl-related
   ;; predicates declared at different lengths, and never answers two arities for one
@@ -393,7 +393,7 @@
                     :sub-declaration   #(v/assert kb (list 'ternary_predicate fatherOf) 'CxUniverse)
                     :tuple             #(v/assert kb (list fatherOf A B C) 'CxUniverse)}]
           (doseq [s order] (ex-type (step s)))
-          ;; Read through the door, not off the `arity` table.  A `binary_predicate`
+          ;; Read through the entry point, not off the `arity` table.  A `binary_predicate`
           ;; membership is the *other* spelling of a declaration and populates no table
           ;; without CxCore's derivation rules, so `(ask (arity P ?n))` answers `()` here
           ;; in every order — a comparison of two empty seqs, true by arithmetic, under
@@ -441,7 +441,7 @@
             (is (some #{:arity} types)
                 (str "one of the two edges is refused, " (name label)
                      " — got " (pr-str types))))
-          (testing "and the chain the refusal broke answers nothing the door would refuse"
+          (testing "and the chain the refusal broke answers nothing the entry point would refuse"
             (when (v/ask? kb (list 'genl grandOf parentOf) 'CxUniverse)
               (ex-type #(v/assert kb (list grandOf A B C) 'CxUniverse))
               (is (= (empty? (v/check kb (list parentOf A B C) 'CxUniverse))
@@ -726,7 +726,7 @@
 
 ;; ---- the retroactive report descends too --------------------------------
 ;;
-;; The door reads `declared-arity`, so it refuses a wrong-arity sentence whether the
+;; The entry point reads `declared-arity`, so it refuses a wrong-arity sentence whether the
 ;; length was declared of the predicate or inherited from a super.  The **retroactive**
 ;; half — `settle/report-arity-reach!`, the finding filed for facts stored before
 ;; anything existed to refuse them — read only its own trigger's predicate, so it went
@@ -742,7 +742,7 @@
 
 (tu/deftest-kb an-edge-arriving-last-reports-the-facts-it-newly-convicts
   ;; The third ingredient.  `fatherOf` is bound to no length while the tuple is written,
-  ;; so the door cannot refuse it; the edge is what makes it wrong, and before this the
+  ;; so the entry point cannot refuse it; the edge is what makes it wrong, and before this the
   ;; edge filed nothing — leaving the fact stored, believed and unmentioned while the
   ;; very next assert of the same shape was refused.
   (tu/with-terms [parentOf fatherOf A B C]
@@ -835,17 +835,17 @@
 ;; ---- and the ingredient that names no predicate at all -------------------
 ;;
 ;; A binding is read **from a context**: `checks/declared-arity` filters the arity table
-;; by the reader's `genlCx` cone and reads the predicate-type membership through a
+;; by the reader's `genlCx` ancestor set and reads the predicate-type membership through a
 ;; context-scoped reader.  So a `genlCx` edge rebinds a predicate exactly as a `genl` edge
 ;; does — the same three ingredients with a fourth deciding who can see them — and the
-;; door answers it for free, because the door reads `declared-arity` whichever sentence
+;; entry point answers it for free, because the entry point reads `declared-arity` whichever sentence
 ;; arrives.  The retroactive half cannot: a context edge names two contexts and no
 ;; predicate, so what it convicts has to be worked out from its two ends.  The order the
-;; door cannot cover is the fact stored where nothing binds it, with the edge that binds
+;; entry point cannot cover is the fact stored where nothing binds it, with the edge that binds
 ;; it arriving last.
 
 (tu/deftest-kb a-context-edge-arriving-last-reports-the-facts-it-newly-convicts
-  ;; The declaration is out of sight while the tuple is written, so the door cannot
+  ;; The declaration is out of sight while the tuple is written, so the entry point cannot
   ;; refuse it; the visibility edge is what makes it wrong.
   (tu/with-terms [CxUp CxDown parentOf A B C]
     (v/assert kb (list 'genlCx CxUp 'CxUniverse) 'CxUniverse)
@@ -863,7 +863,7 @@
 (tu/deftest-kb a-context-edge-that-reveals-an-inherited-length-reports-too
   ;; The other half of the same fourth ingredient: what the edge brings into sight is the
   ;; `genl` edge the length is inherited *through*, and the convicted predicate is named
-  ;; by nothing in the cone above — only by the fact itself.
+  ;; by nothing in the ancestor set above — only by the fact itself.
   (tu/with-terms [CxUp CxDown parentOf fatherOf A B C]
     (v/assert kb (list 'genlCx CxUp 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'binary_predicate parentOf) CxUp)
@@ -875,8 +875,8 @@
       (is (some? e) "the finding is about the predicate whose facts are wrong")
       (is (= parentOf (:via e)) "and the length was read off the super, through the edge"))))
 
-(tu/deftest-kb a-context-edge-arriving-first-refuses-at-the-door
-  ;; The control: the same three sentences in the order the door can see.  Refused *or*
+(tu/deftest-kb a-context-edge-arriving-first-refuses-at-the-entry-point
+  ;; The control: the same three sentences in the order the entry point can see.  Refused *or*
   ;; reported is the property, and this is the refused side of it — the pair above is the
   ;; reported one, so a reader meets both halves of the asymmetry in one place.
   (tu/with-terms [CxUp CxDown parentOf A B C]
@@ -884,7 +884,7 @@
     (v/assert kb (list 'binary_predicate parentOf) CxUp)
     (v/assert kb (list 'genlCx CxDown CxUp) 'CxUniverse)
     (is (= :arity (ex-type #(v/assert kb (list parentOf A B C) CxDown)))
-        "the door reads the declaration through the visibility edge")
+        "the entry point reads the declaration through the visibility edge")
     (is (empty? (arity-findings kb))
         "and nothing was stored for the report to name")))
 
@@ -914,7 +914,7 @@
 (tu/deftest-kb a-context-edge-is-swept-from-whichever-end-is-smaller
   ;; The reach has two ends and either one answers, so the pass walks the smaller: the
   ;; facts below `sub`, or the bindings above `super`.  Here the first is the whole loaded
-  ;; KB and the second is one sentence, which is the shape the shipped ontology writes —
+  ;; KB and the second is one sentence, which is the form the shipped ontology writes —
   ;; `(genlCx CxUniverse CxMeasure)` attaches a root context to a vocabulary.
   (tu/with-terms [CxVocab parentOf A B C]
     (v/assert kb (list 'binary_predicate parentOf) CxVocab)
@@ -927,8 +927,8 @@
       (is (= [(list parentOf A B C)] (:sample e))))))
 
 (tu/deftest-kb a-context-edge-over-a-predicate-nobody-declared-files-nothing
-  ;; `genlCx` is written once per context in any KB, so the arm must cost nothing where
-  ;; there is no length in the cone it opened.
+  ;; `genlCx` is written once per context in any KB, so the arm must added no work where
+  ;; there is no length in the ancestor set it opened.
   (tu/with-terms [CxUp CxDown parentOf A B C]
     (v/assert kb (list 'genlCx CxUp 'CxUniverse) 'CxUniverse)
     (v/assert kb (list parentOf A B C) CxDown)
@@ -985,7 +985,7 @@
 
 (tu/deftest-kb the-budget-running-out-on-a-context-edge-is-still-said-out-loud
   ;; The **fourth ingredient's** own cut, and the same silence one step earlier: a
-  ;; `genlCx` edge names no predicate, so a budget spent inside the cone it opened leaves
+  ;; `genlCx` edge names no predicate, so a budget spent inside the ancestor set it opened leaves
   ;; predicates the pass never got as far as naming.  None of them reaches `preds`, so no
   ;; sweep runs, nothing convicts, and the only thing that can say the pass was bounded
   ;; is the edge cut itself.
@@ -1008,7 +1008,7 @@
         (is (some? t) "and the pass says a context edge went unswept rather than nothing")
         (is (= 1 (get-in t [:detail :edges])))
         (is (= [(list 'genlCx CxDown CxVocab)] (get-in t [:detail :edge-sample]))
-            "naming the edge whose cone it did not finish")
+            "naming the edge whose ancestor set it did not finish")
         (is (zero? (get-in t [:detail :predicates]))
             "and no predicate sweep was cut, there being none to run")
         (is (= 2 (get-in t [:detail :budget])))
@@ -1017,7 +1017,7 @@
           "and a cut is not the cap: nothing convicted, so nothing overflowed it"))))
 
 (tu/deftest-kb a-stored-wrong-arity-fact-is-reported-or-the-cut-is
-  ;; The property the pass owes, stated over both sides of the budget: a fact the door
+  ;; The property the pass owes, stated over both sides of the budget: a fact the entry point
   ;; could not have refused is named, or the reader is told the sweep did not reach it.
   ;; Never neither.
   (doseq [budget [4 4096]]
@@ -1127,12 +1127,12 @@
 
 ;; ---- and the retroactive halves of the other two marks ------------------
 ;;
-;; `functional` and `asymmetric` convict at the door through every mark **above** a
+;; `functional` and `asymmetric` convict at the entry point through every mark **above** a
 ;; fact's own functor, which is what the two sections higher up pin: whichever spelling
 ;; arrives second is refused.  Each also has a **retroactive** half — the deciding one
 ;; under `:arbitrate` (`settle/declaration-implicates`) and the reporting one under
 ;; `:refuse` (`settle/constraint-exposure-candidates`) — and each of those has to descend
-;; too, or the mark descends at the door and nowhere else and the same knowledge lands on
+;; too, or the mark descends at the entry point and nowhere else and the same knowledge lands on
 ;; a dilemma or on two coexisting claims according to which sentence was written first.
 ;; Reading the extent of the predicate the declaration named is what does not descend: a
 ;; general spelling usually holds no facts of its own, so that reading is silent in
@@ -1140,7 +1140,7 @@
 ;; and the `genl` edge landing last.
 ;;
 ;; The `:refuse` half is `exposure-test`'s, since it is cross-context by construction —
-;; the door sees a same-context pair whole and refuses it.  This is the deciding half.
+;; the entry point sees a same-context pair whole and refuses it.  This is the deciding half.
 
 (defn- kinds
   "The kinds of the represented contradictions, in report order."
@@ -1190,7 +1190,7 @@
       (is (= [:asymmetric] (kinds kb))))))
 
 (tu/deftest-kb an-edge-under-no-marked-predicate-arbitrates-nothing
-  ;; `genl` is the commonest edge in any KB, so the arm must cost nothing where there is
+  ;; `genl` is the commonest edge in any KB, so the arm must added no work where there is
   ;; no mark above the edge to carry down — and must not start convicting a pair that
   ;; nothing declares anything about.
   (binding [checks/*arbitrate-constraints?* true]
@@ -1201,7 +1201,7 @@
       (v/assert kb (list 'genl birthYearOf measureOf) 'CxUniverse)
       (is (empty? (kinds kb)) "nothing marked is above either end of the edge"))))
 
-(tu/deftest-kb a-descended-mark-answers-the-same-as-an-undescended-one-and-as-the-door
+(tu/deftest-kb a-descended-mark-answers-the-same-as-an-undescended-one-and-as-the-entry-point
   ;; The three arrangements that always worked, beside the one that did not — so the
   ;; asymmetry being gone is readable in one place rather than inferable from a passing
   ;; test elsewhere.  One KB shape four times, differing only in where the mark sits and
@@ -1220,7 +1220,7 @@
         (is (= [:functional] (run [f1 f2 flat]))
             "flat: the mark on the facts' own predicate")
         (is (= [:functional] (run [decl edge f1 f2]))
-            "the door, which read the mark up the hierarchy all along")
+            "the entry point, which read the mark up the hierarchy all along")
         (is (= [:functional] (run [f1 f2 edge decl]))
             "the sweep, with the declaration last")
         (is (= [:functional] (run [decl f1 f2 edge]))

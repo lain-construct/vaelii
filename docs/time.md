@@ -356,7 +356,7 @@ says when ([quantity.md](quantity.md)), and a fluent is what that would take.
 `(startOf I P)` and `(endOf I P)` name an interval's two bounding instants. They are what
 lets a metric constraint stated over instants narrow an Allen relation between intervals, and
 what lets `overlapDuration` compute a real overlap instead of a bound. Both directions of
-that seam live in [stp.md](stp.md), and it runs one way only: metric narrows qualitative.
+that boundary lives in [stp.md](stp.md), and it runs one way only: metric narrows qualitative.
 
 The narrowing is **wired**, not offered: the interval algebra declares it as its calculus's
 second reader ([qcn.md](qcn.md), "A network can have a second reader"), so a KB that writes
@@ -368,7 +368,7 @@ only calculus of the six with a narrowing; the other five read stored facts alon
 
 ### The calendar clock
 
-The seam above runs on facts. For a **calendar** term it runs on arithmetic instead:
+The machinery above runs on facts. For a **calendar** term it runs on arithmetic instead:
 `(YearFn 2000)` says which year it is, and a year has a first moment whatever anybody
 wrote down. `vaelii.impl.calendar` is the prover that reads them, registered by name like
 every other reasoner here (`add-reasoner kb :calendar`) and answering three families:
@@ -404,7 +404,7 @@ name a smallest tick before it can name anything, so the end of a year would mov
 somebody read the clock more finely, and the two terms above would be a second apart
 instead of identical. Half-open needs no tick.
 
-What follows from it is the one thing to read before writing a rule over calendar terms:
+One thing follows from it, and read it before writing a rule over calendar terms:
 **consecutive calendar terms `meet`, they are not `before`.** Allen's `before` is strict
 and requires a gap, and there is no gap between 1999 and 2000.
 
@@ -438,8 +438,8 @@ so a computed endpoint is not a belief, needs no retraction, and leaves no orpha
 NAT sweep ([nat.md](nat.md)). The prover implements `Prover` and *not*
 `SupportingProver`, which is the exact claim that its answer reads nothing stored and no
 retraction can invalidate it ([inference.md](inference.md), "What a computed answer rests
-on"). So `why` has no handle to show and is not the door: a computed relation is explained
-by `query … {:proof? true}`, where it reads as a `:leaf`, and by this page — the term and
+on"). So `why` has no handle to show and is not the entry point: a computed relation is explained
+by `query … {:proof? true}`, where it is indistinguishable from a `:leaf`, and by this page — the term and
 the convention are the whole of what it rests on. Order independence and locality are
 free for the same reason: there is no state to accumulate and nothing to relabel.
 

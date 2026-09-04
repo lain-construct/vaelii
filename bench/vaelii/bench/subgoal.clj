@@ -62,7 +62,7 @@
   (:import [java.util ArrayList]
            [java.util.concurrent.atomic AtomicLong]))
 
-;; ---- the seam ------------------------------------------------------------
+;; ---- the extension point ------------------------------------------------------------
 ;; One wrapper around the registry's dispatch, installed once, doing whichever of the two
 ;; jobs is switched on.  `solve-goal-with` rather than `solve-goal`, because it is the
 ;; single choke point: `solve-goal` passes the whole registry, `ask-capped` passes a

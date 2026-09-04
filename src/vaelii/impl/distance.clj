@@ -190,7 +190,7 @@
   still possible between a and b are a *subset* of P's denotation, so a derived predicate
   is entailed by more networks than a base one, and the base predicates are the singletons.
 
-  The three derived ones each name a contiguous *range* of the chain, which is the shape a
+  The three derived ones each name a contiguous *range* of the chain, which is the form a
   question about a scale actually takes: no further than near, at least far, and any
   distance at all above zero.  `atSomeDistanceFrom` is the complement of the identity, so
   it holds of no thing and itself."

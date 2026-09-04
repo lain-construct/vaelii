@@ -254,10 +254,10 @@
 
 (tu/deftest-kb except-blocks-a-derivation-that-rests-on-the-hidden-fact
   ;; `except` removes visibility for derivation as well as reads: a rule firing that
-  ;; used the hidden fact as an antecedent and placed its conclusion in the cone rests
+  ;; used the hidden fact as an antecedent and placed its conclusion in the ancestor set rests
   ;; on a fact that context can no longer see, so the conclusion is swept — and revived
   ;; when the except is retracted.  A conclusion the except does not reach (placed above
-  ;; its cone) is untouched.
+  ;; its ancestor set) is untouched.
   (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm") cm (tu/tmp-ctx "Cm")
         shiny (tu/tmp-pred) sparkles (tu/tmp-pred) gold (tu/tmp-ind)]
     (v/assert kb (list 'genlCx gp 'CxWell) 'CxUniverse {:strength :monotonic})
@@ -269,12 +269,12 @@
       (testing "the derivation stands before any except"
         (is (seq (v/sentexes-matching kb (list sparkles gold) cm))))
       (let [eh (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})]
-        (testing "the except hides the antecedent from the cone, so the conclusion is swept"
+        (testing "the except hides the antecedent from the ancestor set, so the conclusion is swept"
           (is (empty? (v/sentexes-matching kb (list sparkles gold) cm))
               "the derivation resting on the now-invisible fact is gone")
           (is (nil? (v/handle-of kb (list sparkles gold) cm))
               "swept, not merely disbelieved — the derivation was deleted"))
-        (testing "and the antecedent itself is still there above the except's cone"
+        (testing "and the antecedent itself is still there above the except's ancestor set"
           (is (v/ask? kb (list shiny gold) gp)))
         (testing "retracting the except re-derives the conclusion"
           (v/retract! kb eh)
@@ -316,7 +316,7 @@
       ;; the rule arrives *after* the except; its conclusion in cm would rest on the
       ;; hidden fact, so it is never placed there
       (v/assert kb (list 'implies (list shiny '?x) (list sparkles '?x)) cm)
-      (testing "no conclusion is placed in the cone"
+      (testing "no conclusion is placed in the ancestor set"
         (is (empty? (v/sentexes-matching kb (list sparkles gold) cm)))
         (is (nil? (v/handle-of kb (list sparkles gold) cm)))))))
 

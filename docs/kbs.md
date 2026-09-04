@@ -3,7 +3,7 @@
 - **Covers:** which of the four loadable knowledge bases to pick, and the exact commands to
   load each — from the shipped starter through a durable OpenCyc store.
 - **Not here:** the loading mechanism itself (sources, search path, progress, cancellation) →
-  [catalog.md](catalog.md); the foreign-reader plugin seam → [foreign.md](foreign.md).
+  [catalog.md](catalog.md); the foreign-reader plugin extension point → [foreign.md](foreign.md).
 - **Assumes:** sentex, context, `recover` → [glossary.md](glossary.md).
 
 Four knowledge bases you can load, and the route to each is a different length: two ship
@@ -18,7 +18,7 @@ OpenCyc reader is in this repo. This page is the **sequence**, and what each ste
 | KB | comes from | to first load | once loaded |
 |---|---|---|---|
 | Starter ontology | the classpath | seconds | ~1,879 sentexes |
-| Core vocabulary | the classpath | seconds | ~475 sentexes |
+| Core vocabulary | the classpath | seconds | ~535 sentexes |
 | cyc-tiny | a test fixture in the plugin | one dependency, then seconds | 8,181 sentexes |
 | OpenCyc 4.0 | a distribution you supply | a conversion, then ~10 minutes | ~1.2M sentexes |
 
@@ -163,7 +163,7 @@ lein cli load /tmp/mykb --dir /tmp/store            # and back in, through asser
 ```
 
 In process it is `(v/export-text! kb dir)` and `(v/load-text! kb dir)`; `{:context C}` or
-`{:cone C}` narrows the export to one file or to one context and everything it sees
+`{:ancestor set C}` narrows the export to one file or to one context and everything it sees
 ([api.md](api.md)).
 
 **Two wrappers say how a sentence was asserted rather than what it says.**
@@ -209,7 +209,7 @@ Four failures, each of which reads as something other than its cause:
 
 * [catalog.md](catalog.md) — sources, the search path, load progress and cancellation,
   what a loaded KB costs to hold, and switching which one the pages read.
-* [foreign.md](foreign.md) — the plugin seam: one edn manifest, resolved on use, and what
+* [foreign.md](foreign.md) — the plugin extension point: one edn manifest, resolved on use, and what
   this repo promises about carrying no reader.
 * [operations.md](operations.md) — the same KBs from the CLI and the daemon instead.
 * [vaelii-foreign](https://github.com/vaelii/vaelii-foreign) — the plugin, and

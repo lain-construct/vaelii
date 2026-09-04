@@ -44,7 +44,7 @@ system relabels the affected region after every mutation. Nothing re-grounds bec
 nothing was ground.
 
 What that buys is incrementality: asserting a fact costs the region it touches, not the
-program. What it costs is that whole-program reasoning is not automatically available —
+program. It costs whole-program reasoning, which is not automatically available —
 you ask for it, over a bounded region, and only where a contradiction actually needs
 deciding.
 
@@ -70,7 +70,7 @@ decided, and it is opt-in per KB:
 (v/set-solver kb :asp)          ; the default is a greedy stub that decides nothing
 ```
 
-The consequence worth stating plainly: a plain rebuttal with neither side naming the
+The consequence, stated plainly: a plain rebuttal with neither side naming the
 other's case — a Nixon diamond — builds no program at all, so classification over it
 answers empty sets. That shape is exactly the one a solve cannot be demonstrated with.
 
@@ -145,7 +145,7 @@ under reordering. Atom ids are allocated in content order, never in handle order
 clingo runs **in-process** through raw JNA — no JNI, no generated bindings — and clasp
 runs as a subprocess taking ASPIF on stdin. Which one answers is chosen by program byte
 size (`VAELII_CLINGO_MAX_BYTES`, default 3000), and either can be forced. With no backend
-reachable the seam degrades to the stub rather than failing. Install with
+reachable, the `Solver` degrades to the stub rather than failing. Install with
 `brew install clingo`; the test profile is `lein with-profile +with-clingo test`.
 
 `(v/last-program kb)` hands back the last program solved, which is the thing to read when

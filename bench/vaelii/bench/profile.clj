@@ -17,7 +17,7 @@
     itself.
   * **The interactive arm** is the one an engine profile forgets.  Every arm above is
     reasoning, and no reasoning calls `terms`, `find-terms` or `find-sentexes` — so
-    without this one the term roster and the term index read zero, which reads as a
+    without this one the term roster and the term index read zero, which is indistinguishable from a
     family nobody uses and means a family no *reasoner* uses.
   * **The churn arm** retracts a sample and puts it back, which is the only way
     `unindex-sentex!` runs at all.  It prices the retraction tax, which is not the assert
@@ -389,7 +389,7 @@
 (defn- probe-pattern
   "`fact` with every position the adornment calls open replaced by a fresh variable, or
   nil when a position it wants *bound* holds a term the roots do not key (a number, a
-  string).  Refusing those keeps the requested pattern and the shape the profiler
+  string).  Refusing those keeps the requested pattern and the form the profiler
   observes the same thing: `(comment ?x \"…\")` is asked as `fb` and arrives as `fn`,
   and a row that mixes the two attributes one shape's fan to another."
   [fact ad]
@@ -656,7 +656,7 @@
   putting the root type under `thing` disconnects every type from the root, so `isa?`
   changes for every individual and the affected region is the graph.  Both are ordinary,
   and a mean over a sample holding one of each is the second divided by the sample size,
-  wearing the shape of a typical cost.  So the report is median, p95 and max, and it names
+  wearing the structure of a typical cost.  So the report is median, p95 and max, and it names
   the pairs at the top."
   '#{genl genlCx})
 
@@ -935,7 +935,7 @@
         ;; front of the id space rather than a spread of it, and the split makes each
         ;; sample's size a property of the corpus's mix until it is re-spread
         ix-sxs   (stride limit ix)
-        ;; half the index sample rather than a quarter: this one is read as a
+        ;; half the index sample rather than a quarter: this one is are indistinguishable from a
         ;; distribution, and its own spread runs to hundreds of times its median, so a
         ;; dozen readings put a p95 on the largest of them and call it a percentile
         tax-sxs  (stride (max 20 (quot limit 2)) tax)]

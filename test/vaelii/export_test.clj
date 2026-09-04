@@ -299,7 +299,7 @@
 (deftest provenance-can-be-declined-and-what-is-left-is-a-whole-kb
   ;; Provenance is an open per-handle map with no size bound of its own, so it can
   ;; dominate the records it annotates — 57% of the converted engine KB's dump.  Declining
-  ;; it must therefore be possible, and must cost nothing but the annotation: the same
+  ;; it must therefore be possible, and must added no work but the annotation: the same
   ;; records, the same justifications, and a dump that still imports.
   (tu/with-neutral-kb [kb tu/fresh]
     (let [t (fresh-terms)]

@@ -296,7 +296,7 @@
 (tu/deftest-kb a-functional-equality-is-derived-across-two-genlcx-edges-from-below
   ;; The literal shape from GitHub issue #43's own repro: two contexts blind to each
   ;; other, each holding one of two clashing `functional` fillers, and a third context
-  ;; wired under **both** -- not one edge widening a single existing cone (the
+  ;; wired under **both** -- not one edge widening a single existing ancestor set (the
   ;; order-independence suite covers that shape), but two separate edges whose union is
   ;; what first makes the pair jointly visible.  `special/equate-under-context-edge`'s
   ;; `readers` binding has to fold the contribution of both edges together: after only
@@ -428,12 +428,12 @@
 
 (tu/deftest-kb deprecated-scopes-like-the-three-class-reads-beside-it
   ;; `representative` / `same-class?` / `equiv-class` each take a context; without one
-  ;; `deprecated?` reports a retirement no reader outside the merge's cone can see, and
+  ;; `deprecated?` reports a retirement no reader outside the merge's ancestor set can see, and
   ;; the four reads of one partition disagree about one context.
   (tu/with-terms [Alpha17 Bravo17 CxMid CxLeaf]
     (nested! kb CxMid CxLeaf)
     (v/assert kb (list 'rewriteOf Alpha17 Bravo17) CxLeaf)
-    (testing "the merge's own cone sees the retirement"
+    (testing "the merge's own ancestor set sees the retirement"
       (is (v/deprecated? kb Bravo17 CxLeaf))
       (is (= Alpha17 (v/representative kb Bravo17 CxLeaf))))
     (testing "a context above it does not"
@@ -594,13 +594,13 @@
 
 (tu/deftest-kb every-read-taking-a-sentence-and-a-context-takes-an-ist
   ;; The rule is the whole surface, so the test is the whole surface: a reader should
-  ;; not have to learn which door happens to have been wired.
+  ;; not have to learn which entry point happens to have been wired.
   (tu/with-terms [litP19 Item CxA CxB]
     (siblings! kb CxA CxB)
     (v/assert kb (list litP19 Item) CxA)
     (let [ist   (list 'ist CxA (list litP19 '?x))
           ist-g (list 'ist CxA (list litP19 Item))]
-      (testing "the retrieval and reasoning doors"
+      (testing "the retrieval and reasoning entry points"
         (is (seq (v/sentexes-matching kb ist CxB)))
         (is (some? (v/handle-of kb ist-g CxB)))
         (is (seq (v/ask kb ist CxB)))
@@ -610,7 +610,7 @@
         (is (seq (v/query kb ist CxB)))
         (is (v/query? kb ist-g CxB))
         (is (some? (v/query-plan kb ist CxB))))
-      (testing "the anytime doors"
+      (testing "the anytime entry points"
         (is (seq (:results (v/ask-within kb ist CxB {:max-results 1}))))
         (is (seq (:results (v/prove-within kb ist CxB {:max-results 1})))))
       (testing "the level diagnostics"
@@ -622,9 +622,9 @@
           (is (= :not-stored (:reason r)))
           (is (= CxA (:context r))))))))
 
-(tu/deftest-kb an-ist-read-answers-at-each-doors-own-notion-of-a-context
+(tu/deftest-kb an-ist-read-answers-at-each-entry-points-own-notion-of-a-context
   ;; The two families disagree, and the disagreement is theirs rather than ist's:
-  ;; `sentexes-matching` is an exact-context retrieval, while the reasoning doors answer
+  ;; `sentexes-matching` is an exact-context retrieval, while the reasoning entry points answer
   ;; from everything the context inherits.  `(ist A S)` means "in A" under both readings
   ;; — a fact A inherits *is* true in A — so it is pinned rather than reconciled.
   (tu/with-terms [seenP20 Near Far CxA CxB]
@@ -641,7 +641,7 @@
   ;; Both would otherwise report nothing, which reads exactly like a true negative.
   (tu/with-terms [shapeP21 Item CxA]
     (v/assert kb (list shapeP21 Item) CxA)
-    (testing "a wrong arity is assert's own :shape, on every read door"
+    (testing "a wrong arity is assert's own :shape, on every read entry point"
       (doseq [bad [(list 'ist CxA)
                    (list 'ist CxA (list shapeP21 '?x) 'junk)]]
         (doseq [[label f] {"sentexes-matching" #(v/sentexes-matching kb bad 'CxUniverse)

@@ -57,7 +57,7 @@
 (arg dead 1 living_thing)
 
 (comment eats
-         "(eats ?animal ?food) means that ?animal takes ?food as nourishment. Both arguments are individuals — a particular animal and a particular food — and the fact says nothing about when or how often, there being no time argument to say it with. What a whole kind eats is a different sentence: state it of the kind, and declare (transitiveInArg eats 1 genl) if it should reach that kind's members.")
+         "(eats ?animal ?food) means that ?animal takes ?food as nourishment. Both arguments are individuals — a particular animal and a particular food — and the fact says nothing about when or how often, there being no time argument to say it with. A whole kind's diet is a different sentence: state it of the kind, and declare (transitiveInArg eats 1 genl) if it should reach that kind's members.")
 (binary_predicate eats)
 (instance_relation_predicate eats)
 (arg eats 1 animal)

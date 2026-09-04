@@ -258,7 +258,7 @@
       (tax/del-genl! t 'x 'y 1)
       (is (agrees? t :genl))
       (is (empty? (tax/types t)))))                     ; not merely isolated — gone
-  (testing "inserting into the middle of a chain rewires both cones"
+  (testing "inserting into the middle of a chain rewires both ancestor sets"
     (let [t (tax/create-taxonomy)]
       (tax/add-genl t 'a 'b 1) (tax/add-genl t 'c 'd 2)
       (tax/add-genl t 'b 'c 3)                          ; joins the two chains
@@ -379,7 +379,7 @@
     (tax/add-genlCx t 'CxUniversalVocabulary 'CxBaseKB 2)
     (tax/add-genlCx t 'CxSomeTheory 'CxBaseKB 3)
     (tax/restore-depths t)
-    (testing "the cycle is mutual visibility, and it composes with the rest of the cone"
+    (testing "the cycle is mutual visibility, and it composes with the rest of the ancestor set"
       (is (tax/sees? t 'CxBaseKB 'CxUniversalVocabulary))
       (is (tax/sees? t 'CxUniversalVocabulary 'CxBaseKB))
       (is (tax/sees? t 'CxSomeTheory 'CxUniversalVocabulary))
@@ -489,7 +489,7 @@
       (tax/del-genl! t 'c 'd 2)
       (is (= {} (counts)))
       (is (= (+ 2 g0) (cgen)) "the last supporter of a context leaving bumps")
-      (testing "nil is never counted — it is not a context a cone could name"
+      (testing "nil is never counted — it is not a context an ancestor set could name"
         (tax/add-genl t 'a 'b 3)
         (is (= {} (counts)))))))
 
@@ -550,7 +550,7 @@
 (deftest the-handle-index-is-the-exact-reverse-of-support
   ;; `:handle-edge` is what scopes the belief reconcile to the moved region, and it is
   ;; only sound while it is *exact*: a supporter missing from it is an edge a settle
-  ;; would skip, which reads as a stale closure and not as a crash.  A handle asserts
+  ;; would skip, which is indistinguishable from a stale closure and not as a crash.  A handle asserts
   ;; one edge, so the index is the transpose of `:support` after every edit — including
   ;; the two that are easy to get wrong, a shared edge losing one of its supporters and
   ;; a supporter re-asserting an edge it already holds.
@@ -667,7 +667,7 @@
 (def ^:private flat-decls
   "A pool of flat-cache declarations, deliberately overlapping: the driver below draws
   from it with repeats, so an entry routinely carries two or three supporters.  That is
-  the shape the belief-blind writers read as a superset, and the only shape `:cache-dirty`
+  the form the belief-blind writers are indistinguishable from a superset, and the only shape `:cache-dirty`
   is about — a single-supporter entry is exact without it."
   '[[:disjoint d_a d_b]
     [:disjoint d_a d_c]
@@ -1183,7 +1183,7 @@
 
 ;; ---- schematic rewrite rules: content order, memoized on the rule set -----
 ;;
-;; The order `rewrite-rules` hands back is load-bearing — normalization tries rules in
+;; The order `rewrite-rules` hands back is required — normalization tries rules in
 ;; it at each redex, so two rules that could rewrite one term must be ordered by content
 ;; or the stored normal form would depend on which equation arrived first.  Memoizing
 ;; that order is what keeps a `query` from re-sorting it per call, so the tests below ask

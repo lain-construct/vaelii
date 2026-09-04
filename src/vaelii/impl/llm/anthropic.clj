@@ -4,7 +4,7 @@
   "The real backend: the Anthropic Messages API over raw HTTP.
 
   There is no official Anthropic SDK for Clojure, so raw HTTP is the supported path —
-  and it costs nothing here, because the repo already carries both halves: `cheshire`
+  and it adds no work here, because the repo already carries both halves: `cheshire`
   for JSON and JDK `java.net.http`, which `vaelii.impl.client` already speaks to the
   vaelii daemon.  This namespace mirrors that one: an explicit connection handle, no
   global state, **no new dependency**.
@@ -12,7 +12,7 @@
   Reached only when a caller installs it (`vaelii.impl.llm.stub` is the default), so a
   build with no credential and no network never loads a socket.
 
-  Request shape notes, because several of them are load-bearing:
+  Request shape notes, because several of them are required:
 
   * **`temperature` / `top_p` / `top_k` are rejected** on this model family — they are
     never sent, and steering happens in the prompt instead.

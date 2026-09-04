@@ -68,7 +68,7 @@
   "A year is one to four digits — ISO 8601's four-digit calendar year, with the
   zero-padding treated as optional the way every field after it is.
 
-  The width is the bound, and it is load-bearing twice.  It is what refuses
+  The width is the bound, and it is required twice.  It is what refuses
   `\"20260821\"`, the **basic** ISO format: without a width the separator-less date reads
   as the year 20,260,821, so `\"20260821\"` and `\"2026-08-21\"` would name unrelated
   intervals while looking like the same day, and only one of them would nest under

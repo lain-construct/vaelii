@@ -108,7 +108,7 @@
     ;; A second rule derives the exception for every individual, so every firing is
     ;; blocked and swept.  Re-chaining the blocked rule after each pass re-joins it
     ;; over every fact asserted so far — quadratic — while re-chaining only what the
-    ;; pass *released* costs nothing, because this pass released nothing.
+    ;; pass *released* adds no work, because this pass released nothing.
     (let [cost (fn [n]
                  (tu/with-cleared-kb [kb tu/isolated-fresh]
                    (excepted-rule! kb)
@@ -126,7 +126,7 @@
 ;;
 ;; The filter above decides, from memory alone, whether a triggering fact could have
 ;; flipped a firing's exception.  These two are the cases where the cheap answer is
-;; the wrong one, and both are load-bearing: a missed re-check is a conclusion that
+;; the wrong one, and both are required: a missed re-check is a conclusion that
 ;; should have been swept and wasn't, which is a wrong answer, while a spurious one
 ;; is a wasted query.
 
@@ -165,12 +165,12 @@
       (is (empty? (v/sentexes-matching kb '(xflies Tweety) '?ctx))
           "the edge makes the exception hold, and the conclusion is swept"))))
 
-(deftest a-genlCx-edge-rechecks-only-the-exceptions-in-its-cone
-  (testing "a genlCx edge outside every excepted rule's placement cone re-checks
+(deftest a-genlCx-edge-rechecks-only-the-exceptions-in-its-ancestor-set
+  (testing "a genlCx edge outside every excepted rule's placement ancestor set re-checks
             none of them, instead of the whole excepted-rule roster"
     ;; A genlCx edge changes what contexts *see*, so it can flip an exception —
     ;; but only one evaluated in a context the edge's `sub` reaches (`context-down`).
-    ;; An edge in an unrelated context cone re-checks nothing, where the old blanket
+    ;; An edge in an unrelated context ancestor set re-checks nothing, where the old blanket
     ;; re-checked every fired excepted rule.  Counted, not timed: the blanket's cost is
     ;; one level-6 query per fired excepted rule, the narrowing's is none.
     (let [cost (fn [n-rules]
@@ -184,7 +184,7 @@
                                                 (list 'implies (list 'and (list p '?x)) (list s '?x))))
                                  ctx)
                        (v/assert kb (list p (symbol (str "CI" i))) ctx)))
-                   ;; a fresh genlCx edge whose cone (context-down of its sub) does
+                   ;; a fresh genlCx edge whose ancestor set (context-down of its sub) does
                    ;; not reach `ctx`, so no fired exception is in it
                    (counting-evaluations
                     #(v/assert kb '(genlCx CxFarSub CxFarSuper)
@@ -192,8 +192,8 @@
           few  (cost 5)
           many (cost 20)]
       (is (= 0 few many)
-          (str "an out-of-cone genlCx edge re-checked exceptions instead of "
-               "narrowing to its cone: " few " (5 rules) / " many " (20 rules)")))))
+          (str "an out-of-ancestor-set genlCx edge re-checked exceptions instead of "
+               "narrowing to its ancestor set: " few " (5 rules) / " many " (20 rules)")))))
 
 (deftest a-released-exception-is-still-re-derived
   (testing "retracting what the exception rested on brings the conclusion back"
@@ -328,7 +328,7 @@
 ;; **up**-closure of the conjunct's own predicate, and an edge `[sub super]` moves that
 ;; closure for exactly the predicates at or below `sub`.  So the keying is the edge's
 ;; subtype closure — the contravariant twin of the supertype walk beside it.  The two
-;; tests are the two halves of that claim: outside the moved closure it costs nothing,
+;; tests are the two halves of that claim: outside the moved closure it adds no work,
 ;; inside it the rule is still queued.
 
 (defn- negated-exception-cost
@@ -794,7 +794,7 @@
 (deftest every-arrival-order-of-a-merge-reaches-one-belief
   (testing "the firing's own binding is the retired spelling"
     ;; `(mskip MOne)` is asserted under the retired spelling and canonicalized at the
-    ;; door, the rule binds `?x` to `MOne`, and the exception has to be asked under the
+    ;; entry point, the rule binds `?x` to `MOne`, and the exception has to be asked under the
     ;; representative wherever the merge lands in the order.
     (one-belief! "a bound term"
                  {:rule  #(merge-rule! %)
@@ -856,9 +856,9 @@
           "the same trigger re-checked every firing because each bound a merged term"))))
 
 (deftest a-genlCx-edge-retakes-a-census-with-no-firing-to-key-on
-  (testing "an aggregate rule is exempt from the placement-cone narrowing"
+  (testing "an aggregate rule is exempt from the placement-ancestor-set narrowing"
     ;; The narrowing above reads where a rule's firings were *placed*, which is sound for
-    ;; every condition that blocks: what a widened cone can change always has a firing to
+    ;; every condition that blocks: what a widened ancestor set can change always has a firing to
     ;; be found.  An aggregate binds a value, so a census that rises licenses a firing
     ;; that never existed — there is no placed conclusion to read a context off, and the
     ;; rule is skipped unless it is waved through.

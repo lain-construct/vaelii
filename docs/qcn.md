@@ -72,7 +72,7 @@ mutually independent: no shared predicate, and no network ever sees another calc
 facts.
 
 The split is two namespaces, not one. `vaelii.impl.qcn` is the algorithm and knows
-nothing about a KB. `vaelii.impl.qcn-kb` is the *other* half of the seam — reading
+nothing about a KB. `vaelii.impl.qcn-kb` is the *other* half of the boundary — reading
 believed facts in, reading entailments back out — and it is the same half for every
 calculus, so it is written once. A **calculus** is what actually differs:
 
@@ -210,7 +210,7 @@ the same saving the queue makes *after* a sweep, made before one.
 What the estimate cannot see is how much the network will turn out to narrow: a sparse
 input can still close to a dense output, and then draining costs more than sweeping. So the
 first drain is **budgeted** at one sweep's worth of pops and gives up rather than run away.
-Giving up costs nothing that was earned — the array only ever narrows, and the fixpoint
+Giving up adds no work that was earned — the array only ever narrows, and the fixpoint
 below the network it started from is unique — so the sweep route simply finishes from
 there. The two outcomes are exactly the two shapes: the containment tree closes with **no
 sweep at all**, the total order bails and sweeps, and `qcn_queue_test` pins both by
@@ -307,7 +307,7 @@ the bitmask representation below is worth **31×** on it.
 
 ### Bitmasks, not sets
 
-Relation sets are the *interface* — what a calculus writes, what a caller reads, what
+Relation sets are the *public representation* — what a calculus writes, what a caller reads, what
 every example above is stated in. They are not the arithmetic. A pass does exactly three
 things to a constraint: intersect it, compose it with another, take its converse. An
 algebra has a handful of base relations — eight for RCC-8, thirteen for Allen, the widest
@@ -375,12 +375,12 @@ because what it removes is allocation. Every `pinned` count is identical, which 
 check that matters: the representation changed, the answers did not.
 
 Two things the measurements settled rather than assumed. Composition and converse are a
-**primitive interface** (`IRelationOps`) rather than a pair of closures, because a Clojure
+**primitive protocol** (`IRelationOps`) rather than a pair of closures, because a Clojure
 function taking and returning a long boxes both ways through `IFn.invoke` — worth 1.42× on
 the dense shape, where constraint sets are large and nearly every triple composes. And the
 triple *walk* was tried the same way and **left as an ordinary closure**: boxing three loop
 indices per visit measured as nothing at all, the JIT having already dealt with it, so the
-interface would have been machinery bought for no return.
+protocol would have been machinery bought for no return.
 
 **Soundness.** Path consistency is sound, and decides each of these algebras over its
 maximal tractable subclass. On the full language it can leave a network path-consistent
@@ -390,7 +390,7 @@ and `exceptWhen` take.
 
 ## What every algebra does with it
 
-The six provers are line-for-line the same shape, so the pattern is worth stating once.
+The six provers are line-for-line the same shape, so the pattern matters once.
 
 **Reading in.** One `res/matches-visible` per predicate of the calculus — belief- and
 context-filtered, so a defeated or invisible fact never reaches the network. Each
@@ -480,7 +480,7 @@ not in what is left. The soundness runs one way only: **a refutation is real, an
 failure to refute is still "not provable", never "provably true".** All four goal shapes
 behave identically under either polarity.
 
-A negative goal reaches the prover in the shape the caller wrote it, `(not (P a b))` —
+A negative goal reaches the prover in the form the caller wrote it, `(not (P a b))` —
 the same surface convention `FactProver` hands to `matches-visible`, which reads the `not`
 frame as the pattern's polarity.
 
@@ -516,7 +516,7 @@ while no forward rule ever fires on it, and an unsatisfiable network still licen
 conclusion it drew before.
 
 The negative half of the read is fetched differently from the positive half, for an index
-reason worth stating. A negative fact's trie key carries its whole body as a single token
+reason stated here. A negative fact's trie key carries its whole body as a single token
 (`[:false (P a b) ctx]`), so the trie answers a *ground* negative lookup and nothing else
 — an open `(not (P ?a ?b))` compares the token `(P ?0 ?1)` against `(P A B)` and matches
 nothing. The **functor root** indexes either polarity under the positive body's functor,
@@ -562,13 +562,13 @@ asserted support]`, which is what order-independence needs: the same believed fa
 the same handles however they were asserted. It is not additionally stable across engine
 versions, and nothing should be built on a particular witness.
 
-What is guaranteed is the direction a caller needs: every handle named is a sentex really
+The direction a caller needs is guaranteed: every handle named is a sentex really
 read into this network, and the reported set is enough to have produced the relation on
 its own.
 
 The pass is memoized in the calculus's own `:support-cache`, keyed on the network **and
 its asserted support** — where `tighten`'s key is the network alone. That difference is
-load-bearing: retracting a fact and re-asserting the same sentence yields the identical
+required: retracting a fact and re-asserting the same sentence yields the identical
 network at a different handle, so the network alone does not determine the support.
 
 Which pair is blamed for an inconsistency only *composition* finds depends on which one
@@ -642,7 +642,7 @@ Two bulk operations bump it by hand, because they move a whole store without pas
 either choke point: `core/clear!` and `reindex/reindex`.
 
 Between them those cover what a network is a function of: which sentexes exist, which of
-them are believed, and the `genlCx` cone and `genl` spec fan the read looks through.
+them are believed, and the `genlCx` ancestor set and `genl` spec fan the read looks through.
 So an unmoved clock says rebuilding would produce the identical map.
 
 The clock is deliberately **coarse** — it says only that something moved, never what, and
@@ -723,7 +723,7 @@ does not store the entailment; it contributes the **handles the entailment rests
 `chain/solve-qualitative` answers a qualitative antecedent by entailment and hands back
 `support` as the firing's antecedent handles, so the conclusion is withdrawn when any
 fact behind the entailment goes — the same contract an ordinarily matched antecedent has.
-Nothing is materialized, so the O(n²) relations a network entails cost nothing until a
+Nothing is materialized, so the O(n²) relations a network entails added no work until a
 rule asks for one.
 
 Three things follow, and each needed its own wiring:
@@ -743,7 +743,7 @@ Three things follow, and each needed its own wiring:
 - **An unsatisfiable network withdraws what it licensed**, and the justification's
   antecedents cannot say so. Adding a constraint only ever *narrows* what is possible, and
   narrowing makes a positive entailment more likely rather than less — so an entailment is
-  never lost by learning more. What is lost is the right to use it, when the facts turn out
+  never lost by learning more. The right to use it is what is lost, when the facts turn out
   unsatisfiable: the supporting facts are all still believed, and some *other* fact made
   the theory impossible. So such a firing is **blocked**, exactly as an `exceptWhen`-excepted
   one is (`chain/entailment-withdrawn?`, queued by `special/recheck-on-qualitative`), which
@@ -760,7 +760,7 @@ having been recorded in advance.
 
 There is one network per **reader**, not one per context that holds a fact, and the
 difference is the whole of `qcn-kb/reader-contexts`. A reader sees the entire
-`genlCx` cone above it, so a context inheriting two contexts holds both their
+`genlCx` ancestor set above it, so a context inheriting two contexts holds both their
 facts in one network and composes what neither composes alone — `(ntpp A B)` in one and
 `(ntpp B D)` in the other entail `A ⊏ D` for that reader and for nobody else. `ask` has
 always answered there, because a query is asked *from* a context; a re-join has to be told
@@ -827,7 +827,7 @@ unmoved one. So the join runs once per qualitative antecedent, each time with a 
 one narrowed — the delta rule, `Δ(A ⋈ B) = (ΔA ⋈ B) ∪ (A ⋈ ΔB)` — and the overlap
 re-derives conclusions the TMS dedups.
 
-What the narrowing does change is the **number of justifications**, and only downward. A
+The narrowing does change the **number of justifications**, and only downward. A
 full re-join would record a fresh witness for a conclusion every time the support-carrying
 pass happened to pick a different one, so a conclusion would accumulate alternate supports
 as a side effect of redundant joining; the narrowed join records a subset of them. Belief
@@ -848,7 +848,7 @@ pairs and an arrival answers at most 26 of them. And one grows a chain split acr
 contexts a fact at a time, since the contexts a delta is taken for and the contexts
 the join runs against have to be the same set.
 
-Over the seam as a whole the guard is an **order oracle**, because every failure here is a
+Over the protocol as a whole the guard is an **order oracle**, because every failure here is a
 missing answer rather than a wrong one, and a KB that is merely less informative than it
 should be reads as correct against anything except another order of the same content. So a
 rule, four facts of mixed polarity, two contexts and the context below both are
@@ -905,7 +905,7 @@ answering them without a cold pass needs a support that is a function of the clo
 rather than of the propagation history, which is a different algorithm and an open one.
 
 **Which shape a KB has decides all of this**, and the chain above is the worst one. The
-same load over the branching-3 containment tree — the shape a mereology KB really produces,
+same load over the branching-3 containment tree — the form a mereology KB really produces,
 where only pairs sharing an ancestor line compose:
 
 | regions | no prover | prover, no rule | prover + rule | deferred chaining |

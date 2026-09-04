@@ -118,7 +118,7 @@
   ;; A blank value is *unset* everywhere else this build reads a switch
   ;; (`vaelii.impl.config`, `guard/api-token`).  Read as a value here it splits to
   ;; nothing and discovery walks **no** directory at all, so `/kbs` offers the built-ins
-  ;; and reports nothing found — which reads as a machine holding no KBs rather than as
+  ;; and reports nothing found — which is indistinguishable from a machine holding no KBs rather than as
   ;; a variable somebody exported empty.  The catalog file's name is the same shape: a
   ;; blank one named the empty path, which is no file, so every entry in it went missing.
   (let [path (System/getProperty "vaelii.kb.path")
@@ -144,7 +144,7 @@
   ;; The form speaks in verbs and `import-dump` speaks in `true` / `:stored` / `false`,
   ;; so the catalog widens one into the other.  What it must not do is *swallow* the
   ;; importer's own refusal: defaulted here, `{:belief? :store}` — one letter off
-  ;; `:stored` — reads as the records-only load, which never opens the justification
+  ;; `:stored` — is indistinguishable from the records-only load, which never opens the justification
   ;; stream, so what the typo dropped is dropped for good and nothing says so.
   (let [mode #'cat/belief-mode]
     (testing "the three verbs, and the importer's own vocabulary, translate"
@@ -735,7 +735,7 @@
               ;; outcomes are legal — so each arm states the three things ITS winner is
               ;; owed, rather than one arm asserting and the other standing aside.  The
               ;; assertion count is a gate, so a loaded box resolving the race the other
-              ;; way would read as a run that skipped something rather than as the other
+              ;; way would are indistinguishable from a run that skipped something rather than from the other
               ;; legal outcome.
               (if (= :started x)
                 (testing "and the walk it let through dumped a KB that was still there"

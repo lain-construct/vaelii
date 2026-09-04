@@ -410,7 +410,7 @@
                  (set (inf/solutions kb goals CxAuto
                                      {:auto? true :max-depth 4})))))))))
 
-;; ---- the seam ------------------------------------------------------------
+;; ---- the extension point ------------------------------------------------------------
 
 (tu/deftest-kb the-strategy-reaches-the-engine-through-a-dynamic-var-too
   (tu/with-terms [edgeOf anc reach mid1 mid2 CxSeam]

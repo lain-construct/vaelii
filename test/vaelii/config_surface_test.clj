@@ -65,7 +65,8 @@
             [clojure.pprint :as pprint]
             [clojure.set :as set]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]])
+            [clojure.test :refer [deftest is testing]]
+            [vaelii.impl.config :as config])
   (:import [java.io File]))
 
 (def ^:private golden-file "test/golden/config-surface.edn")
@@ -247,6 +248,39 @@
                " — if that is deliberate it has a domain, and this test is describing a"
                " reader that no longer exists")))))
 
+;; ---- and the roster the engine reads it through -------------------------
+
+(deftest the-roster-names-only-switches-the-build-reads
+  ;; `config/switches` is the other half of this pin.  The golden says which names the
+  ;; tree reads; the roster says which ones `check!` walks — and the roster is what makes
+  ;; a reader without a `check!` line a load failure (`check-switches!`).  Neither can see
+  ;; the other: `check-switches!` runs at namespace load and cannot read files, and the
+  ;; scan reads `(prop-bool "…")` forms rather than the roster's plain strings.  So a row
+  ;; naming a switch that no reader reads — a typo in a `:names` vector, or a name kept
+  ;; after its reader stopped reading it — passes load and every open, and `check!` calls
+  ;; a reader that checks something else.  This is the assertion that catches it.
+  (let [scanned (set (keys (surface-sites)))
+        ghosts  (remove scanned config/switch-names)]
+    (is (empty? ghosts)
+        (str "config/switches names " (pr-str (vec ghosts)) ", which no reader in the"
+             " tree reads. A `:names` entry is a claim about what its `:reader` reads;"
+             " fix the spelling, or drop the name with the reader that stopped reading"
+             " it."))))
+
+(deftest every-switch-config-reads-is-on-the-roster
+  ;; The converse, over this namespace alone.  `check-switches!` proves every *reader* has
+  ;; a row; nothing there proves the row's names are all of what the reader reads, because
+  ;; a var carries no record of the strings inside it.  Scanning `config.clj` does: every
+  ;; name it reads is one `check!` must reach, and a second name added to a reader — as
+  ;; `asp-solver` has, property first and environment variable second — without being
+  ;; added to its row is a spelling that is never checked and silently wins or loses to
+  ;; the one that is.
+  (let [in-config (set (keys (sites-in clj-forms (io/file "src/vaelii/impl/config.clj"))))
+        missing   (remove (set config/switch-names) in-config)]
+    (is (empty? missing)
+        (str "vaelii.impl.config reads " (pr-str (vec (sort missing))) " and no row on"
+             " `config/switches` names it, so `check!` never reads it at the open."))))
+
 ;; ---- and the table that describes it ------------------------------------
 
 (def ^:private unpinned
@@ -295,7 +329,7 @@
 
 (defn- config-section
   "The lines of `docs/operations.md` under the configuration heading, up to the next
-  `##`.  Scoped to that section so the interface table at the top of the file, and any
+  `##`.  Scoped to that section so the option table at the top of the file, and any
   other table added later, are not read as claims about switches."
   []
   (->> (str/split-lines (slurp doc-file))
@@ -352,7 +386,7 @@
   ;; line 5800; the switch is named at or below it". An exact `file:5800` was checked
   ;; exactly, and every one of them broke the moment anything above it was edited: a
   ;; comment added six screens up failed this test with a diff that had nothing to do
-  ;; with configuration, and the fix was always to retype a number nobody reads as a
+  ;; with configuration, and the fix was always to retype a number nobody is indistinguishable from a
   ;; number.
   ;;
   ;; The floor is checked against the file's **first** mention of the switch, not
@@ -401,3 +435,49 @@
     (is (zero? (mod (parse-long (str/replace n #"\+$" "")) 10))
         (str nm ": the floor " cite " is not rounded — round it down to a multiple of 10"
              " so an edit above it has somewhere to go"))))
+
+;; ---- and the validator that holds the roster to it ----------------------
+
+(deftest the-roster-validator-refuses-a-half-wired-roster
+  ;; What a load-time validator does not otherwise prove.  `check-switches!` runs once,
+  ;; over one table, in a namespace that loads — so every branch it has ever taken is the
+  ;; one that throws nothing, and a `remove` written the wrong way round reads exactly
+  ;; like a roster with nothing wrong.  These drive it over tables that ARE wrong, which
+  ;; is the only way to learn that it would say so.
+  (let [check   @#'config/check-switches!
+        refusal (fn [switches exempt publics]
+                  (try (check switches exempt publics) nil
+                       (catch clojure.lang.ExceptionInfo e (ex-data e))))
+        row     (fn [reader & {:keys [names read-at] :or {read-at :open}}]
+                  {:names (or names ["vaelii.test.name"]) :reader reader :read-at read-at})]
+    (testing "the live tables pass, which is what the namespace load asserts"
+      (is (= config/switches
+             (check config/switches @#'config/not-a-switch-reader
+                    (set (keys (ns-publics 'vaelii.impl.config)))))))
+    (testing "a public var that is neither on the roster nor excused"
+      ;; the rule the table exists for, and the one the old `:arglists` scan could not
+      ;; state: `some-var` here stands for a switch read at the root of a `def`, which
+      ;; carries no arglists and so was invisible to the scan while being exactly the
+      ;; read `check!` would never make
+      (let [data (refusal [] {} '#{some-var})]
+        (is (= :bad-table-entry (:type data)))
+        (is (= :unrostered-reader (:mismatch data)))
+        (is (= 'some-var (:reader data)))))
+    (testing "an exemption for something that is no longer public here"
+      (is (= :stale-exemption (:mismatch (refusal [] '{gone "why"} #{})))))
+    (testing "a var both rostered and excused, which is one of the two wrong about it"
+      (is (= :exempt-and-rostered
+             (:mismatch (refusal [(row #'clojure.core/inc)] '{inc "why"} '#{inc})))))
+    (testing "an exemption with no reason, which is a suppression spelled longer"
+      (is (= :blank-exemption (:mismatch (refusal [] '{inc ""} '#{inc}))))
+      (is (= :blank-exemption (:mismatch (refusal [] '{inc nil} '#{inc})))))
+    (testing "a row naming no switch, which `check!` calls and `switch-names` omits"
+      (is (= :no-names
+             (:mismatch (refusal [(row #'clojure.core/inc :names [])] {} '#{inc})))))
+    (testing "a row reading at an entry point outside the vocabulary"
+      (is (= :read-at
+             (:mismatch (refusal [(row #'clojure.core/inc :read-at :sometimes)] {} '#{inc})))))
+    (testing "two rows claiming one name, where which reader wins is the walk order"
+      (is (= :duplicate-name
+             (:mismatch (refusal [(row #'clojure.core/inc) (row #'clojure.core/dec)]
+                                 {} '#{inc dec})))))))

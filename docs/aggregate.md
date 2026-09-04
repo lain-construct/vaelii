@@ -42,7 +42,7 @@ Exactly one answer or none. Never a stream: a reduction has a value or it does n
 ## Bind or check
 
 A variable `?n` takes the computed value; a **bound** `?n` is compared against it, so
-`(agg/count 2 ?v (scoreOf Team ?v))` reads as a test. `EvaluateProver` makes the
+`(agg/count 2 ?v (scoreOf Team ?v))` is indistinguishable from a test. `EvaluateProver` makes the
 same pair, and this is not merely symmetry — the check arm is what lets a *firing* be
 re-verified against the count it rested on, which is the whole of maintenance below.
 
@@ -208,7 +208,7 @@ cached closures — `genl`, or a `(transitive ancestorOf)` walked by
 actually made of. What a level-6 body cannot see is a relation reachable **only** by
 backward chaining: a `set/backwardRule`'s conclusions.
 
-`cost` is `:compute`, not `:lookup`, and that is a claim with teeth: a reduction must
+`cost` is `:compute`, not `:lookup`, and that is a claim with enforcement: a reduction must
 exhaust the body before it has any answer at all, which is precisely what the tier
 names, so a `{:max-cost :lookup}` budget **drops** the prover and `:compute` admits
 it. `completeness` is `100` — an aggregate is not assertible, so nothing else can hold
@@ -414,7 +414,7 @@ concludes never reaches the store.
 
 ## Where it plugs in
 
-| seam | what it contributes |
+| protocol | what it contributes |
 |------|---------------------|
 | `provers/default-provers` | one `AggregateProver` beside `->UnknownProver` / `->ThereExistsProver` |
 | `provers/conjunction-solutions` | the joined evaluator the census body runs through, shared with `unknown` / `thereExists` / `exceptWhen` |

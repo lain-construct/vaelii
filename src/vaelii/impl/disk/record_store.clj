@@ -50,7 +50,7 @@
   Crash-safety rests on the write ordering (append the frame, then point the slot at it)
   and on `files`' crash-safe compaction.  Where it stops is the slot itself: 24 bytes do
   not divide a page, so a crash can leave one spliced from two writes, and a splice still
-  pointing inside the log reads as a thaw failure on that handle rather than being caught
+  pointing inside the log is indistinguishable from a thaw failure on that handle rather than being caught
   here (`f/validate-idx-tail!` says what it does and does not cover).
 
   The tail is located from the frame *lengths*
@@ -363,7 +363,7 @@
   "A `RecordSink` over kind `kind-key` of `store`, landing `batch` records per pair of
   writes.
 
-  **`:premises? false` is not honoured here, deliberately.**  This store's `put-sentex`
+  **`:premises? false` is not honoured here.**  This store's `put-sentex`
   rosters a premise from the record's own `:strength` whatever a caller does next — the
   strength rides the idx slot's flags so the next open reads the premise set off the slot
   walk — so a sink that dropped the mark would leave a store the loop it replaces would
@@ -427,7 +427,7 @@
       (store! (:sentexes kinds) id rec (some? (:strength rec)))
       (when (:strength rec) (swap! premises conj id))
       id))
-  ;; Tallied by kind (`vaelii.impl.profile`), the same seam the RAM store carries, and
+  ;; Tallied by kind (`vaelii.impl.profile`), the same call sites the RAM store carries, and
   ;; this is the store the number is *about*: a miss here is a positional slot read, a
   ;; positional frame read and a nippy thaw, where an index read is a map lookup.  On the
   ;; protocol method rather than inside `fetch`, so the two stores count the same events —
@@ -645,7 +645,7 @@
   a blob behind the counter is behind only on handles that were minted and never stored.
 
   **This runs on the durability daemon's thread**, and the counter it reads is bumped by
-  the writer's.  A counter that moves between the read and the blob write costs nothing —
+  the writer's.  A counter that moves between the read and the blob write adds no work —
   a blob one handle behind is what the paragraph above is about — but a `clear-records!`
   landing there costs the wipe: the blob would be stamped with the pre-wipe high-water
   mark and `synced-seq` would agree with it.  So the three that move together move under
@@ -890,6 +890,66 @@
           (catch Throwable t (f/close! tlog) (throw t))))
       (catch Throwable t (f/close! rlog) (throw t)))))
 
+(def ^:private abort-check-frames
+  "How often the lock-free rewrite re-reads the abort flag: every Nth frame.  One atom
+  deref against a read + thaw + re-freeze + write would be lost in the noise at every
+  frame, but the loop is the one place in the store that runs to gigabytes and the
+  stride adds no work to have.  Small enough that an abort is honoured in milliseconds,
+  which is what a close waiting on it is entitled to."
+  256)
+
+(defonce ^{:doc "A thunk run once inside `compact-kind!`'s rewrite phase — after the
+  snapshot, before the first frame is copied — with the kind map as its argument.  Nil
+  in ordinary operation, and nothing in the engine ever sets it.
+
+  It exists because the window this store's lifecycle turns on is *between* the snapshot
+  and the reconcile, and it is a window a test cannot reach by sleeping: a rewrite of a
+  test-sized log is over in microseconds, so \"close the directory while a rewrite is
+  open\" reproduces by luck or not at all.  A barrier here holds the rewrite at exactly
+  that point, so the handshake can be asserted rather than hoped for."}
+  rewrite-barrier
+  (atom nil))
+
+(defn abort-compaction!
+  "Tell an auto-compaction of `store` to abandon its rewrite: set `:aborted` on every
+  kind, under the kind lock every other write of that atom takes.  Idempotent.  Called
+  by `backend/close-dir!`, which is closing the store, so nothing here is written for a
+  store that goes on being used.
+
+  **What it reaches, and what it deliberately does not.**  A rewrite still copying
+  frames sees the flag at its next check (`abort-check-frames`) and stops there; one
+  that has reached the reconcile discards its temps, exactly as `clear-records!`'s abort
+  does.  A rewrite **past its commit marker** is not reachable — and that is the answer,
+  not a gap.  The reconcile reads the flag under the kind lock and holds that lock until
+  the install is done, so an abort lands either before the read or after the install,
+  never between; and a marker on disk is a rewrite the *next open* would finish off the
+  marker anyway (`recover-compaction!`).  A wipe supersedes such an install because the
+  wipe destroys what it would install; a close does not, so the close lets it finish now
+  rather than handing the next opener a half-installed directory.
+
+  **An abort of a rewrite that has not started yet sticks**, which is the difference
+  between this and `clear-records!`'s abort and the reason it is written separately.  The
+  compaction executor's task checks the durability registry and only *then* calls in
+  here, so a close can take the kind lock in the gap between that check and the
+  compaction's own snapshot — find `:compacting` nil, mark nothing, and leave the rewrite
+  that starts a moment later believing nobody objected.  The wipe can shrug at that (it
+  has already truncated the files the rewrite reads); a close cannot, because the whole
+  of what it is waiting for is that rewrite.  So the flag is written whether or not one is
+  running, and the snapshot carries an existing one across rather than clearing it.  The
+  wipe keeps the `when c` form for the mirror-image reason: its store goes on living, and
+  a flag left set on one would make `:compacting` non-nil forever, with every later
+  `store!` folding an id into a `:touched` set nothing will ever read.
+
+  It does **not** wait.  The join belongs to the caller that is about to give the
+  directory away — `backend/close-dir!`, through
+  `durability/await-compaction-quiescent!` — because this store holds no lock during the
+  rewrite for a closer to block on."
+  [{:keys [kinds]}]
+  (doseq [k (vals kinds)]
+    (locking (:lock k)
+      (swap! (:compacting k) #(assoc (or % {:touched #{}}) :aborted true))))
+  nil)
+
 (defn- compact-kind!
   "Rewrite kind `k`'s log with only its live frames, preserving slot ids, crash-safely
   — **copy-on-write**, so the O(live) record rewrite does not stall the kind's reads
@@ -908,8 +968,10 @@
   Crash-safety is unchanged: the marker is written only after every live-file read the
   reconcile needs has succeeded, so a crash (or a `close!`) before it leaves the
   complete originals authoritative and the temps discarded, and one after it replays
-  the fsynced temps.  A `clear-records!` that lands mid-rewrite sets `:aborted`, and the
-  reconcile discards the temps rather than resurrecting the wiped state.
+  the fsynced temps.  A `clear-records!` or a `close-dir!` that lands mid-rewrite sets
+  `:aborted` (`abort-compaction!`): the copy loop stops at its next check and the
+  reconcile discards the temps, rather than resurrecting the wiped state or leaving a
+  half-written temp under a directory another process has just been handed.
 
   **A slot whose frame the log cannot give back is dropped, not carried.**  It is what a
   truncated tail leaves under a slot the truncation did not reach, and a rewrite that
@@ -928,7 +990,13 @@
                    (let [live (java.util.ArrayList.)]
                      (f/scan-idx! (:idx k)
                                   (fn [id off len flags] (.add live [id off len flags])))
-                     (reset! (:compacting k) {:touched #{} :aborted false})
+                     ;; `swap!`, not a `reset!` to false: an `abort-compaction!` that
+                     ;; got the kind lock before this did found nothing to mark and
+                     ;; left the flag standing for whoever started next — which is this
+                     ;; rewrite.  Clearing it here would spend a close's whole join on
+                     ;; a rewrite that was told not to bother.
+                     (swap! (:compacting k)
+                            (fn [c] {:touched #{} :aborted (boolean (:aborted c))}))
                      (vec live)))
         [rlog tlog tidx] (open-compaction-handles! (:log-path k) log-tmp idx-tmp)
         ;; the commit point, read by the failure path — see its comment
@@ -973,18 +1041,37 @@
       ;; length: `read-record` would read the 4-byte header back off the log to learn a
       ;; number the slot recorded, doubling the positional reads of a walk that is
       ;; O(live records) by construction.
-      (doseq [[id off len flags] snapshot]
-        (if-let [rec (f/read-record-sized rlog off len)]
-          (let [[noff plen] (f/append-record-sized! tlog rec)]
-            (f/write-slot! tidx id noff plen flags 0))
-          (drop-slot! tidx id)))
+      (when-let [barrier @rewrite-barrier] (barrier k))
+      ;; A `loop` rather than the `doseq` this was, for the abort check: a close of the
+      ;; directory (`abort-compaction!`) has to be able to stop an O(bytes) copy without
+      ;; waiting it out, and the reconcile below reads the same flag and discards the
+      ;; temps — so stopping here needs no unwinding of its own, and no sentinel throw
+      ;; the caller would have to tell apart from a real failure.
+      (loop [todo (seq snapshot) n 0]
+        (when (and todo
+                   (or (pos? (rem n abort-check-frames))
+                       (not (:aborted @(:compacting k)))))
+          (let [[id off len flags] (first todo)]
+            (if-let [rec (f/read-record-sized rlog off len)]
+              (let [[noff plen] (f/append-record-sized! tlog rec)]
+                (f/write-slot! tidx id noff plen flags 0))
+              (drop-slot! tidx id))
+            (recur (next todo) (inc n)))))
       (f/close! rlog)
       ;; reconcile + swap (brief lock)
       (locking (:lock k)
         (let [{:keys [touched aborted]} @(:compacting k)]
           (if aborted
             (do (f/close! tlog) (f/close! tidx)
-                (f/delete-compact-temps! marker temps))
+                (f/delete-compact-temps! marker temps)
+                ;; said out loud, because from the outside an abandoned rewrite and a
+                ;; rewrite that found nothing to reclaim look identical — the log is
+                ;; the same size either way
+                (trove/log! {:level :info :id ::compaction-aborted
+                             :msg (str "disk record store: the compaction of "
+                                       (:log-path k) " was abandoned (the store was"
+                                       " wiped or closed under it) — the originals"
+                                       " stand and the temps are gone")}))
             (do
               ;; fold in everything stored/killed during the rewrite: copy the current
               ;; frame of a still-live id, tombstone one that is gone.

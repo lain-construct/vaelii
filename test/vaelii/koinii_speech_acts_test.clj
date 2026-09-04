@@ -6,7 +6,7 @@
   `target_following_predicate` so retracting a target cascades to its replies.  One
   deftest per 'How to verify' bullet: a round-trip conversation recoverable as data,
   endorsement surviving first-writer-wins, a dispute surfacing in `contradictions`, and
-  — the load-bearing check — the cascade, modeled on `target_following_meta_test`."
+  — the required check — the cascade, modeled on `target_following_meta_test`."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
@@ -113,7 +113,7 @@
       (is (nil? (v/sentex kb ph)) "the claim is gone")
       (is (nil? (v/sentex kb jh)) "and its justification cascaded with it"))))
 
-;; ---- verify (4): THE CASCADE (the load-bearing check) --------------------
+;; ---- verify (4): THE CASCADE (the required check) --------------------
 
 (tu/deftest-kb the-cascade-tears-down-reply-edges-and-the-mark-is-what-does-it
   (doseq [a '[AgentAtlas AgentBoreas AgentCiel AgentDelta]]

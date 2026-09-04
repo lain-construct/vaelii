@@ -227,6 +227,37 @@
   [sentex]
   (boolean (seq (naf-antecedents sentex))))
 
+(def different-flip-predicates
+  "The predicates a fact can arrive on that flips a `(different …)` antecedent.
+
+  `different` is negation as failure over two things: the equality closure, and the
+  `indeterminate_term` category whose members are exempt from the unique-name assumption.
+  A merge makes a difference stop holding, and pinning an indeterminate term makes one
+  start — so a rule reading `different` owes a re-check on both, in both directions.
+
+  A subkind of the category needs no entry: `special/recheck-on-predicate` fans an
+  arriving fact's predicate up its `genls-global` closure, so a `(vague_kind Foggy)`
+  declared under the category reaches a rule registered on `indeterminate_term` alone.
+  `genl` is here because the edge itself is what makes a kind indeterminate, and a skolem
+  is not, because a skolem's membership is minted rather than asserted and no fact ever
+  arrives on it.
+
+  The same set `checks/negative-predicates` runs the stratification edge to, because the
+  question is the same one: what can withdraw a difference."
+  '#{rewriteOf sameAs equals indeterminate_term genl})
+
+(defn different-antecedents
+  "The `(different …)` antecedent literals of a stored rule — its unique-name conditions,
+  which read the equality closure and the `indeterminate_term` category rather than a fact
+  the justification names."
+  [sentex]
+  (filter #(= 'different (nm/functor %)) (antecedents (:sentence sentex))))
+
+(defn has-different?
+  "Does this rule carry a `(different …)` antecedent?"
+  [sentex]
+  (boolean (seq (different-antecedents sentex))))
+
 (defn watched-literals
   "The literals a re-check must actually watch for the query literal `q` — the frames
   peeled off until what is left is something a *fact* can carry.
@@ -365,7 +396,7 @@
 ;; in force is a taxonomy read the callers pass in.
 
 (defn negative-literal?
-  "Is `a` a `(not (P …))` literal with a flat, symbol-headed body — the shape a closed
+  "Is `a` a `(not (P …))` literal with a flat, symbol-headed body — the form a closed
   extent can be read over?"
   [a]
   (and (sequential? a) (= 2 (count a)) (= 'not (first a))
@@ -441,24 +472,31 @@
 (defn recheck-predicates
   "The predicates whose change must re-check this rule for its **own** re-check
   conditions — the predicates its `unknown` antecedents and its **aggregate** bodies
-  mention.  A closed-extent negative antecedent adds its own
+  mention, plus `different-flip-predicates` where it reads `different`.  A closed-extent
+  negative antecedent adds its own
   (`closed-extent-predicates-of`), separately, because whether it is one is a taxonomy
   read rather than a property of the sentence.  (An exceptWhen exception is a separate meta-sentex, registered under its
   rule by the meta-sentex's own indexing; it is not read off the rule.)  The key set
   the `[:exception-index …]` index posts a rule under when it is indexed.
 
-  The two kinds are one key set because they are one problem: both read what the KB
-  believes at firing time rather than a fact the justification names, so both need a
-  fact arriving on those predicates to bring the firing back for re-decision."
+  The three kinds are one key set because they are one problem: each reads what the KB
+  believes at firing time rather than a fact the justification names, so each needs a
+  fact arriving on those predicates to bring the firing back for re-decision.  A
+  `different` antecedent is the case with nothing to name at all — it holds by the
+  *absence* of a merge, so no support handle exists for a justification to carry and the
+  re-check is the only instrument that can withdraw the firing (docs/predall.md)."
   [sentex]
-  (distinct (concat (naf-predicates sentex) (aggregate-predicates sentex))))
+  (distinct (concat (naf-predicates sentex)
+                    (aggregate-predicates sentex)
+                    (when (has-different? sentex) different-flip-predicates))))
 
 (defn rechecked?
-  "Does this rule carry a re-check condition of its **own** — an `unknown` antecedent
-  or an aggregate?  The gate on registering it in the re-check index; an exceptWhen
-  exception is registered by its own meta-sentex and is not read off the rule."
+  "Does this rule carry a re-check condition of its **own** — an `unknown` antecedent, an
+  aggregate, or a `different` antecedent?  The gate on registering it in the re-check
+  index; an exceptWhen exception is registered by its own meta-sentex and is not read off
+  the rule."
   [sentex]
-  (or (has-naf? sentex) (has-aggregate? sentex)))
+  (or (has-naf? sentex) (has-aggregate? sentex) (has-different? sentex)))
 
 ;; ---- what the join cannot do, and the placement can ----------------------
 ;; An aggregate is evaluated per **placement context**, not in the join, because a
@@ -582,7 +620,7 @@
 ;; `or` never reaches the record.  `(implies (or A B) C)` is stored as the two rules
 ;; `(implies A C)` and `(implies B C)`, each an ordinary rule sentex with its own
 ;; handle, its own justifications and its own retraction — so nothing downstream of the
-;; assert door has to know the connective exists.  The two splits compose: a rule that
+;; assert entry point has to know the connective exists.  The two splits compose: a rule that
 ;; disjoins its antecedent *and* conjoins its consequent stores the **product**
 ;; (`expand-rule`).  See docs/canonicalization.md.
 
@@ -898,8 +936,8 @@
 ;; `or` earns its place by *disappearing* (`expand-antecedent`), so the refusals below
 ;; are the positions from which it cannot: a place where nothing would expand it, or a
 ;; width at which expanding it is the wrong storage.  Every one is a pure read of the
-;; sentence, which is why they are reported at the shape door — before the KB is read
-;; at all, by both storage doors and by `core/check` alike.
+;; sentence, which is why they are reported at the shape entry point — before the KB is read
+;; at all, by both storage entry points and by `core/check` alike.
 
 (defn- some-disjunction
   "The first `or` anywhere in `form`, or nil."
@@ -1107,7 +1145,7 @@
 
 (defn check-disjunction!
   "Throw the first `disjunction-problems` refusal, or return nil.  The throwing form both
-  storage doors read: `core/check-sentence-shape!` runs it before anything is stored, and
+  storage entry points read: `core/check-sentence-shape!` runs it before anything is stored, and
   `checks/check-rule!` runs it again over what is about to be stored — which is where a
   rule the cap refused, and so never expanded, is caught on the mint path."
   [sentence]
@@ -1167,7 +1205,7 @@
   engine cannot key.
 
   **The split, and why it falls where it does.**  The rule index is keyed by predicate,
-  and a variable names none.  For a *consequent* that costs nothing the range check does
+  and a variable names none.  For a *consequent* that adds no work the range check does
   not already buy: every consequent variable is antecedent-bound
   (`check-range-restricted`), so a rule concluding `(?p ?y ?x)` fires forward through its
   *concrete* antecedent with `?p` already ground, and the `var-consequent-key` catch-all

@@ -229,7 +229,7 @@ fires, so no pair exists. Where two claims at equal defeat class really do contr
 each other — `(typicallyLargerThan dog cat)` beside a directly-stated
 `(typicallyLargerThan cat dog)` — the pair is a **nogood** like any other, and `settle`
 reports it in `(contradictions kb)` with `:kind :asymmetric`. See
-[nmtms.md](nmtms.md), "Which door the content came through".
+[nmtms.md](nmtms.md), "Which entry point the content came through".
 
 Same vocabulary, same declarations. Known-true content is the fixed background, so
 contradicting it is an error; a `:default` generality is something a more specific
@@ -286,7 +286,7 @@ already runs on:
 
 The middle two rows are one rule read twice, and the rule is the one a firing's strength
 already follows: **a reading is capped by its weakest link.** A `:monotonic` claim carried
-by a `:default` declaration draws a `:default` conclusion through the forward door (below),
+by a `:default` declaration draws a `:default` conclusion through the forward entry point (below),
 and it wins no argument a `:default` claim would lose through this one either. So a KB
 whose taxonomy edges and declarations are ordinary defaults — which the shipped ontology's
 are — gets the dilemma: what the engine has no grounds to choose between is *which* of the
@@ -376,7 +376,7 @@ and ~21 µs, and the difference is the declared predicate's own read.
 ## Forward chaining on a claim nobody stored
 
 A forward rule's antecedents are matched against stored facts, and an inherited claim is
-not one. So the two doors into the same knowledge answered differently: `ask` reached
+not one. So the two entry points into the same knowledge answered differently: `ask` reached
 `(largerThan chihuahua maine_coon)` through the prover above, while the fixpoint fired
 `(implies (largerThan ?x ?y) (outweighs ?x ?y))` on the claims that were written and on
 nothing else, and `sentexes-matching` read that back. The engine treats a
@@ -459,7 +459,7 @@ travel or is withdrawn by its own re-check. The closures are refreshed at the sa
 `jtms/touched` the same way) — otherwise the rest of the settle walks a closure still
 holding the defeated edge, and the next defeat round's nogoods read belief as it was.
 
-**A mirrored antecedent licenses the forward door too, and the firing says so.** A claim
+**A mirrored antecedent licenses the forward entry point too, and the firing says so.** A claim
 whose stored orientation is not the tuple it was read at came through the symmetric
 mirror, and that reading rests on a `(symmetric …)` declaration exactly as a fact-relation
 reach rests on `(transitive R)` — so the justification names it, and retracting the

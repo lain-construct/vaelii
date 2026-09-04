@@ -86,12 +86,12 @@
   Cheap scratch space is also, for now, the only lever.  Running the sweep wider does
   not work twice over: on macOS `F_FULLFSYNC` flushes the whole device cache, so
   concurrent flushes queue at the device rather than overlapping and four workers
-  against APFS measured 0.96× one — and where scratch space *is* cheap enough for
+  against APFS measured 0.96× one — and where scratch space *is* inexpensive enough for
   concurrency to pay (2.7× measured on a RAM disk), it makes a green run print at
   `:error`.  `sweep` says what that line is and what it would take to collect the rest.
 
   Point this at a tmpfs and the exhaustive sweep goes from ten minutes to under two:
-  `/dev/shm` on Linux, which is what `deep.yml` uses and costs nothing to arrange; on
+  `/dev/shm` on Linux, which is what `deep.yml` uses and adds no work to arrange; on
   macOS a RAM disk is a two-line `hdiutil`/`diskutil` incantation, so a local run
   without it simply pays the ten minutes."
   (some-> (System/getenv "VAELII_TEST_TMPDIR") str/trim not-empty))

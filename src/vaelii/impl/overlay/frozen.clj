@@ -6,7 +6,7 @@
 
   A base shared by N forks is only shared if nothing can write it, and the honest way to
   guarantee that is structurally rather than by review: an overlay composes over one of
-  these, so a write path that forgot to divert fails loudly at the seam instead of
+  these, so a write path that forgot to divert fails loudly at the boundary instead of
   silently mutating what every other fork is reading.  That is invariant 1 of
   docs/overlay.md, held by construction.
 

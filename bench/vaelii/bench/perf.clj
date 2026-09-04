@@ -34,7 +34,7 @@
   baseline large enough to already carry the cost being measured divides that cost out of
   the answer: `clash-arbitration` at 100 vs 800 could not tell a healthy engine from one
   re-deriving every standing pair, because 100 pairs' worth of the per-pair cost was
-  sitting in the denominator.  Both failures read as a *comfortable pass*.  So when
+  sitting in the denominator.  Both failures are indistinguishable from a *comfortable pass*.  So when
   adding a check, pick the small size to be a size at which the thing being measured has
   barely started.
 
@@ -232,19 +232,19 @@
 
   The edge is the one trigger the cross-context constraint report reaches *out* of the
   moved region for: visibility moved, so a pair already stored becomes jointly visible
-  without either half being relabelled. Reaching out means walking the cone, and a cone
+  without either half being relabelled. Reaching out means walking the ancestor set, and an ancestor set
   is unbounded — a context cycle makes it the whole graph — so the walk is lazy and
   spends `*exposure-instance-budget*`.
 
   **The claim is flatness past the cap, and the cap is bound small here to reach it.**
-  Below the cap the walk is proportional to the cone and deliberately so: that is what
-  the budget is *for*, and `members-in-cone` has cost the disjointness pass the same
-  shape since it was written. What must hold is that the cap is a cap — 8x the facts
+  Below the cap the walk is proportional to the ancestor set and deliberately so: that is what
+  the budget is *for*, and `members-in-ancestors` has cost the disjointness pass the same
+  shape since it was written. The cap has to remain a cap — 8x the facts
   behind one edge costs the same once both sides are past it. Measured against the
-  default 4096 the reading is the cone and not the cap (5.42x at 250 → 2000), which is
+  default 4096 the reading is the ancestor set and not the cap (5.42x at 250 → 2000), which is
   the check answering a different question rather than a regression.
 
-  Distinct subjects, so nothing in the cone pairs: this measures the reach, not the
+  Distinct subjects, so nothing in the ancestor set pairs: this measures the reach, not the
   reporting."
   [n]
   (binding [tax/*exposure-instance-budget* 100]
@@ -318,13 +318,13 @@
   [n]
   (binding [tax/*exposure-instance-budget* 100]
     (let [kb (fresh-kb)]
-      (v/assert kb '(functionalInArg pEmptyDet 1) 'CxPerf {:strength :monotonic})
+      (v/assert kb '(functionalInArg p_empty_det 1) 'CxPerf {:strength :monotonic})
       (v/with-deferred-settle kb
         (dotimes [i n]
-          (v/assert kb (list 'pEmptyDet i) (symbol (str "CxPed" i)) {})))
+          (v/assert kb (list 'p_empty_det i) (symbol (str "CxPed" i)) {})))
       (doall
        (for [i (range 100)]
-         (nanos (v/assert kb (list 'pEmptyDet (+ 1000000 i)) (symbol (str "CxPedT" i))
+         (nanos (v/assert kb (list 'p_empty_det (+ 1000000 i)) (symbol (str "CxPedT" i))
                           {})))))))
 
 (defn- defeasible-load
@@ -363,7 +363,7 @@
   Two shapes break it and neither breaks a test, because both are merely slow — deciding
   which edges are active by recomputing the believed-supporter set of every edge in the
   relation, and gating that scan by walking every supporter to ask whether any moved.
-  Both read as a flip that tracks the vocabulary; the fix is a reverse index off the
+  Both are indistinguishable from a flip that tracks the vocabulary; the fix is a reverse index off the
   moved handles, and only a load says which one is in.
 
   The edges are wide rather than deep (every type straight under `thing`) so the build
@@ -396,7 +396,7 @@
   every entry in the map, and gating that scan by walking every supporter to ask whether
   any moved.  The **gate** is the one this check is really about — most settles move no
   declaration at all, so a miss that walks the whole supporter set is a cost every settle
-  pays to learn it had nothing to do.  Both read as a flip that tracks the vocabulary; the
+  pays to learn it had nothing to do.  Both are indistinguishable from a flip that tracks the vocabulary; the
   fix is a reverse index off the moved handles, and only a load says which one is in.
 
   Each pair is over types of its own, so nothing is a subtype of anything and no instance
@@ -751,7 +751,7 @@
   at position 2 — which is one `kv-intersect` over the two scoped argument roots,
   `[:argument-root pint 1 PIA]` ∩ `[:argument-root pint 2 PIB]`.  A single bound
   argument intersects nothing (the scoped root is one hash lookup), so two bound
-  positions are the shape that exercises `kv-intersect`.
+  positions are the structure that exercises `kv-intersect`.
 
   The answer is a property of the rare side: four entries, each tested against the hot
   posting.  A backend that materializes both roots into Clojure sets before intersecting
@@ -791,7 +791,7 @@
   planned is identical at both sizes — so this ratio sees it and nothing else here
   does.
 
-  The relations are 1:1 chains beside a small disconnected one, which is the shape that
+  The relations are 1:1 chains beside a small disconnected one, which is the structure that
   makes the planner do all of its work: three blocks to rank, a cartesian factor to
   place, and a distinct-value count read at every literal."
   [n]
@@ -829,10 +829,10 @@
   makes any sweep at all visible as growth rather than hiding inside a report."
   [n]
   (let [kb (fresh-kb)]
-    (v/assert kb '(arity p_reach 2) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(arity pReach 2) 'CxPerf {:strength :monotonic})
     (doall
      (for [i (range n)]
-       (nanos (v/assert kb (list 'p_reach (symbol (str "PR" i)) 'PRval) 'CxPerf {}))))))
+       (nanos (v/assert kb (list 'pReach (symbol (str "PR" i)) 'PRval) 'CxPerf {}))))))
 
 (defn- feed-listener-scaling
   "n asserts on a KB with two change-feed listeners attached — one plain, one a standing
@@ -842,12 +842,12 @@
   settle relabelled** and never to what is stored.  Two plausible implementations break
   that and neither breaks a test: snapshotting the believed set and diffing it is O(KB)
   per write, and answering a standing query by re-running its goal makes every mutation
-  cost a query per listener.  Both read as a per-assert cost that grows with the load,
+  cost a query per listener.  Both are indistinguishable from a per-assert cost that grows with the load,
   which is what this separates from a per-region one.
 
   The listeners discard their events on purpose — what is being measured is the engine's
   cost of *producing* one, not a consumer's cost of handling it.  A standing query is
-  included because it is the shape that would re-run something: it has to filter the
+  included because it is the structure that would re-run something: it has to filter the
   region rather than ask the KB again, and only a load says which it did."
   [n]
   (let [kb (fresh-kb)]
@@ -947,7 +947,7 @@
   for the life of one census, so a super met by the first declaration costs the other 255
   a map hit.  A change that throws that memo away pays a retrieval per super per
   declaration and this ratio cannot see it — that is `assert-cost-test`'s subject, on the
-  door's own copy of the same walk.  What the bound separates is a walk of the supers from
+  entry point's own copy of the same walk.  What the bound separates is a walk of the supers from
   a walk of each super's own ancestry."
   [n]
   (let [kb (fresh-kb)]
@@ -1222,7 +1222,7 @@
   `sub`, and the bindings above `super`.  It sizes both off `count-in-context` and
   enumerates the smaller.
 
-  **The choice is load-bearing and picking wrong is silent**, which is what earns it a
+  **The choice is required and picking wrong is silent**, which is what earns it a
   check.  The shipped ontology writes `(genlCx CxUniverse CxMeasure)` and seven more like
   it: everything sees `CxUniverse`, so the below end of that edge is the whole KB and the
   above end is one file's vocabulary.  A pass that always took the end below would answer
@@ -1382,7 +1382,7 @@
   (let [kb (fresh-kb)]
     (v/with-deferred-settle kb
       (doseq [i (range n)
-              :let [h (v/assert kb (list 'pvDecoy (symbol (str "PVD" i))) 'CxPerf
+              :let [h (v/assert kb (list 'pv_decoy (symbol (str "PVD" i))) 'CxPerf
                                 {:strength :monotonic})]]
         (v/assert kb (list 'except (sx/sentex-handle h)) 'CxPerf
                   {:strength :monotonic})))
@@ -1460,7 +1460,7 @@
         above (mapv #(symbol (str "PiAbove" %)) (range inherit-chain-depth))]
     (v/with-deferred-settle kb
       (v/assert kb '(transitive piPartOf) 'CxPerf {:strength :monotonic})
-      (v/assert kb '(transitiveInArg piNeedsWork 1 piPartOf) 'CxPerf {:strength :monotonic})
+      (v/assert kb '(transitiveInArg pi_needs_work 1 piPartOf) 'CxPerf {:strength :monotonic})
       ;; the shared chain every claim-holder's reach runs up
       (doseq [[a b] (partition 2 1 above)]
         (v/assert kb (list 'piPartOf a b) 'CxPerf {}))
@@ -1468,8 +1468,8 @@
               :let [o (symbol (str "PiWhole" i))]]
         (v/assert kb (list 'piPartOf base o) 'CxPerf {})
         (v/assert kb (list 'piPartOf o (first above)) 'CxPerf {})
-        (v/assert kb (list 'piNeedsWork o) 'CxPerf {})))
-    (let [goal (list 'piNeedsWork base)]
+        (v/assert kb (list 'pi_needs_work o) 'CxPerf {})))
+    (let [goal (list 'pi_needs_work base)]
       (doall (for [_ (range 60)]
                (nanos (v/ask? kb goal 'CxPerf)))))))
 
@@ -1524,7 +1524,7 @@
 (defn- metric-closure-warm-start
   "A chain of n instants, closed, and then 25 more instants arriving one constraint at a
   time with the gap back to the head of the chain read after each — a timeline being
-  loaded, which is the shape that puts a closure in front of every fact.
+  loaded, which is the structure that puts a closure in front of every fact.
 
   **Pure data, and deliberately.**  `stp/close-state-from` knows nothing about a KB, so
   what this measures is the algorithm and not the belief read in front of it; that the
@@ -1616,7 +1616,7 @@
   ;; makes an assert free of what is standing.  What the gate defends is that the per-pair
   ;; term stays **bookkeeping** rather than a re-derivation of the checks, and the
   ;; measured separation says it does: 9.5x with both memos in place, 12.3x with the
-  ;; report memo removed, 46.5x with the carry-forward removed as well — the shape that
+  ;; report memo removed, 46.5x with the carry-forward removed as well — the structure that
   ;; actually shipped.  15x catches that with three times over on the big one.
   ;;
   ;; The baseline is 25 rather than 100 because it has to be a size at which almost
@@ -1718,7 +1718,7 @@
    ;; Ω(standing) is the honest floor (a settle republishes the whole set), the baseline is
    ;; small enough that almost nothing is standing at it, and the bound separates
    ;; bookkeeping-per-pair from re-derivation-per-pair.  Re-deriving every standing pair
-   ;; per settle round measured 38.9x here — the shape that shipped, and the one `:opposed`
+   ;; per settle round measured 38.9x here — the structure that shipped, and the one `:opposed`
    ;; was believed to have removed.  It removed a different one: the *scan of every stored
    ;; negation*, which is the commoner workload and is what `negation-load` below still
    ;; holds flat.  Neither check subsumes the other, and only both together say the pass is
@@ -1840,7 +1840,7 @@
    ;; about what sits above the floor.  Healthy it reads **7.56x and 7.71x** on full runs and 7.14x
    ;; alone, and the vocabulary is fixed at both sizes, so 97% of the reading is the walk
    ;; itself: the same KB with the declarations left out costs 0.051 ms against 1.756 at
-   ;; n=250.  Below it, the shape the arity table exists to replace — `checks/tabled-arity`
+   ;; n=250.  Below it, the form the arity table exists to replace — `checks/tabled-arity`
    ;; answered off the index rather than off the taxonomy, a walk of the argument-1 posting
    ;; these very declarations fill, so a census of n costs n² — reads **59.62x**,
    ;; implemented and measured on a full run rather than supposed.  15x is about twice the
@@ -1938,7 +1938,7 @@
    ;; Eight is a size at which the re-derivation has barely started.
    ;;
    ;; **These two bounds are set from a full run, not from an isolated one, and the gap is
-   ;; large enough to be worth stating.**  Everything here is Ω(standing) by construction,
+   ;; large enough to be stated here.**  Everything here is Ω(standing) by construction,
    ;; so the reading is `a + b·n` and the *ratio* is decided by how big the fixed term `a`
    ;; is at the baseline — which is JIT warmth, and by the twentieth check of a run the
    ;; JVM is much warmer than it is on `--only`.  The large reading barely moves (it is
@@ -2088,7 +2088,7 @@
    ;; **The bound is 175x, and here is what it was read off.**  Two healthy full-run
    ;; readings, 85.4x and 80.9x, against a floor near 66x — so the honest reading sits
    ;; about 1.25x above the floor and the spread between runs is a few percent.  Below it,
-   ;; the shape the claim rules out: `contradictions` filtering the standing set by cross
+   ;; the form the claim rules out: `contradictions` filtering the standing set by cross
    ;; product before ranking it reads **937.8x**, which is the square arriving exactly
    ;; where the paragraph below says it does.  175x is 2.05x above the worse healthy
    ;; reading and 5.4x below the defective one, which is the same slack the arbitration
@@ -2155,7 +2155,7 @@
    ;; construction — one log frame and one idx slot per record, one packed append for a
    ;; whole WAL batch — so nothing about it is entitled to grow with what the log already
    ;; holds, and the header's warning about a warmer baseline in the full run barely
-   ;; applies to a reading with no n-dependent term in it.  Below it, the shape the check
+   ;; applies to a reading with no n-dependent term in it.  Below it, the form the check
    ;; exists to catch: the index WAL logging the resulting **value** instead of the op, so
    ;; an `:add-to-set` frame carries the grown set rather than the one added member and a
    ;; linear load writes a quadratic number of bytes.  Implemented against this very
@@ -2209,7 +2209,7 @@
    ;; in the instant count whatever route it takes and no memo makes it flat — what the gate
    ;; defends is that the route is a **relaxation** and not a fresh cubic pass.  At 8x the
    ;; instants it reads 12.6x-13.4x over three full runs, and 99.5x with the same check
-   ;; driving `stp/close-state` instead, which is the shape the bound exists to catch.
+   ;; driving `stp/close-state` instead, which is the form the bound exists to catch.
    ;; 35x sits between, and the absolute readings say it louder: 1.9 ms an arrival
    ;; against 101 ms.
    {:name      :metric-closure-warm-start

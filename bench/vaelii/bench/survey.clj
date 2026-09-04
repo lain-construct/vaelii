@@ -19,7 +19,7 @@
   what the int[]-vs-Roaring call turns on.
 
   `naming` is a different audit over the same scan: what fraction of the corpus the
-  **front door** would refuse, by class and by spelling (`naming-audit`, below).
+  **public entry point** would refuse, by class and by spelling (`naming-audit`, below).
 
   Run: `lein bench-survey [sample-n] [/path/to/sentexes.log]` (sample defaults to
   300000).  The store defaults to `VAELII_SURVEY_STORE`, else `~/.vaelii/kbs/store`;
@@ -189,7 +189,7 @@
                        (second (read-frame log (:offset slot))))]
             (recur (+ id step) (if rec (classify rec tally) tally))))))))
 
-;; ---- naming audit (what would the front door refuse?) --------------------
+;; ---- naming audit (what would the public entry point refuse?) --------------------
 ;;
 ;; The dump path builds records directly and never calls `assert`, so the corpus is in
 ;; the store holding spellings the naming invariants refuse.  This scans every record and
@@ -205,7 +205,7 @@
   "The widenings worth pricing, each a whole set of four conventions.
 
   Ordered by what they **cost**, not by what they rescue.  Admitting a character to a
-  role's alphabet costs nothing structural: the four roles are told apart by their initial
+  role's alphabet adds no work structural: the four roles are told apart by their initial
   case, and no separator moves that.  Dropping the `Cx` *prefix* is a different kind
   of change — that prefix is the only thing distinguishing a context from an individual —
   so it is priced last and on its own."
@@ -297,7 +297,7 @@
         pct #(* 100.0 (/ (double %1) (double (max 1 %2))))]
     (println (format "\n══ naming audit ══ (%.1fs)  records %,d | unthawable %,d"
                      (/ elapsed 1000.0) records bad))
-    (println (format "  records the front door would REFUSE : %,d  (%.2f%% of %,d)"
+    (println (format "  records the public entry point would REFUSE : %,d  (%.2f%% of %,d)"
                      offending (pct offending records) records))
     (println (format "  violations in them                 : %,d" problems))
     (println "\n  by class:")

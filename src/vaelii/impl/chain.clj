@@ -13,6 +13,7 @@
   (:require [taoensso.trove :as trove]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.inherit :as inherit]
+            [vaelii.impl.integrate :as integrate]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
@@ -64,7 +65,7 @@
   so a non-trigger antecedent with a leading variable — `(parentOf ?x Pi)` — is a
   hash lookup rather than a full functor scan.  The *set* it returns is identical
   (proven by the rete oracle), so every downstream behaviour is the reference's; only
-  the candidate lookup changes.  This is the sole seam the incremental matcher needs,
+  the candidate lookup changes.  This is the sole extension point the incremental matcher needs,
   because the trigger match (`match1`) is already selective and everything else —
   placement, exceptions, the definitional checks, justification dedup — is reused
   verbatim.  See docs/inference.md, \"Incremental rule matching\".
@@ -73,7 +74,7 @@
   argument **and a functor with sub-predicates** is read through
   `res/matches-hierarchical` instead (`join-matches`) — the same set by an argument
   lead rather than a trie walk per sub-predicate.  Binding this var to anything else
-  switches that off, so the seam's caller sees every non-trigger antecedent."
+  switches that off, so the extension point's caller sees every non-trigger antecedent."
   res/match-pattern)
 
 (def ^:dynamic *suppress-duplicate-firings*
@@ -135,7 +136,7 @@
   "Does `except` — a rule's exception, a vector of literals — hold under `bindings`,
   evaluated in `pctx`, the context the conclusion would be placed in?
 
-  Three properties make this cheap, and each is load-bearing:
+  Three properties make this cheap, and each is required:
 
   * **Closed.**  Every exception variable is bound by an antecedent (enforced in the
     `sentex` constructor), so substitution leaves a *ground* question.  The conjuncts
@@ -185,6 +186,30 @@
   independently requires `S` absent, so one derivable `S` withdraws the conclusion."
   [kb naf-antes bindings pctx]
   (boolean (some #(unknown-inner-holds? kb % bindings pctx) naf-antes)))
+
+(defn different-blocks?
+  "Is a firing blocked because one of its `(different …)` antecedents no longer holds
+  under `bindings`?  Block-if-**any**, for `naf-blocks?`' reason: each one independently
+  requires its arguments to lie in no shared equivalence class and neither of them to be
+  an unpinned `indeterminate_term`, so one that stops holding withdraws the conclusion.
+
+  A justification cannot express this.  `different` is negation as failure over the
+  equality closure and over the `indeterminate_term` category, so it holds by the
+  *absence* of a merge and names no fact a firing's antecedents could carry — the
+  `SupportingProver` contract has nothing to report, and `different` is not assertible
+  (`wff/different-problems`), so no handle for it exists to name.  The re-check index is
+  therefore the only instrument that can withdraw such a firing, and this is where it
+  reads (docs/predall.md, `rules/different-flip-predicates`).
+
+  `bindings` are the **settled** ones, so an argument the equality closure has since
+  merged arrives here as its representative and the test fails on the `=` arm.  The goal
+  goes to the registry under `?ctx`, which is the context `solve-deferred` joins it under:
+  the two decisions have to read the literal the same way, or a firing would be placed and
+  blocked in the same settle."
+  [kb different-antes bindings]
+  (boolean
+   (some #(empty? (provers/solve-goal kb (res/substitute % bindings) '?ctx))
+         different-antes)))
 
 (defn closed-extent-antecedents
   "The rule's negative antecedents a `closed_extent_predicate` grant turns into negation as
@@ -295,7 +320,7 @@
   Only one thing can do that, and it is worth being precise about which: adding a
   constraint only ever *narrows* what is possible, and narrowing makes a positive
   entailment more likely rather than less — so an entailed relation is never lost by
-  learning more. What is lost is the right to use it at all, when the facts turn out to
+  learning more. The right to use it is what is lost at all, when the facts turn out to
   be unsatisfiable: an impossible theory entails everything and is mined for nothing.
 
   A justification's antecedents cannot express that. They name the facts the entailment
@@ -342,7 +367,7 @@
   places S (`place-conseq`), and a negation roots under its positive body's predicate
   (`kv/root-keys` — polarity lives in the record, so `(not (p a))` counts under `p` and
   never under `not`).  So neither `ist` nor `not` is ever the answer here, and a
-  conclusion wearing either would otherwise be read as a functor no declaration uses."
+  conclusion wearing either would otherwise be are indistinguishable from a functor no declaration uses."
   [c]
   (when (sequential? c)
     (let [c (if (= sx/ist-functor (nm/functor c)) (nth c 2 nil) c)
@@ -475,9 +500,9 @@
 
   Asked per antecedent (`res/hidden-fn`) rather than against the materialized hidden set,
   because this runs once per placement and once per candidate justification, and a rule
-  has two or three antecedents where a cone can hide thousands of handles.  A nil
+  has two or three antecedents where an ancestor set can hide thousands of handles.  A nil
   predicate is the gate — a KB that hides nothing from `pctx` pays a deref and returns
-  here.  The rule handle among `antes` matching is load-bearing, not spurious: a rule
+  here.  The rule handle among `antes` matching is required, not spurious: a rule
   is a sentex and an `except` may target it, and a firing rests on its rule as it
   rests on its facts — this is what sweeps a hidden rule's conclusions
   (`special/recheck-except` carries the departure-side twin)."
@@ -489,7 +514,8 @@
 (defn- rule-firing-blocked?
   "Is a firing of the rule stored at `rh` — settled bindings `bindings` (a delay),
   placed in `pctx` — blocked by something the *rule* carries: its `exceptWhen`
-  exception, an `(unknown S)` antecedent whose `S` is now derivable, a **closed-extent**
+  exception, an `(unknown S)` antecedent whose `S` is now derivable, a `(different …)`
+  antecedent a merge or an indeterminacy has since withdrawn, a **closed-extent**
   negative antecedent that no longer holds, an **aggregate** antecedent whose count has
   moved, an **inherited** antecedent a more specific claim has undercut, or the
   qualitative network it joined on having become unsatisfiable?
@@ -508,6 +534,8 @@
          (or (provers/exceptions-block? kb rh @bindings pctx)
              (and (rules/has-naf? rsx)
                   (naf-blocks? kb (rules/naf-antecedents rsx) @bindings pctx))))
+       (when (rules/has-different? rsx)
+         (different-blocks? kb (rules/different-antecedents rsx) @bindings))
        (when-let [ce (seq (closed-extent-antecedents kb (rules/antecedents (:sentence rsx))))]
          (closed-extent-blocks? kb ce @bindings pctx))
        (post-join-withdrawn? kb rsx bindings pctx)
@@ -571,7 +599,7 @@
   (QuantityFn 500 Gram) (QuantityFn 1 Kilogram))` holds *because* a gram is declared a
   thousandth of a kilogram, and a conclusion drawn from it has to go when that
   declaration does.  Which provers can say this is `provers/SupportingProver`; the ones
-  that cannot report empty, and the seam is what makes that the honest answer rather than
+  that cannot report empty, and the protocol is what makes that the defensible answer rather than
   merely the convenient one.
 
   The context is the wildcard, and deliberately so: a computed literal holds wherever its
@@ -641,7 +669,7 @@
   "The networks worth re-joining `calc` against — `qcn-kb/reader-contexts`, cached for
   the length of a chaining run.
 
-  A network is what a **reader** sees, and a reader sees the whole `genlCx` cone
+  A network is what a **reader** sees, and a reader sees the whole `genlCx` ancestor set
   above it, so the contexts that merely *hold* a fact are not the networks a forward
   rule may join on: a context inheriting two contexts composes what neither
   composes alone, and that entailment exists for no other reader.  `ask` has always
@@ -770,12 +798,12 @@
 ;; antecedent for a justification to rest on, and `ask` and forward chaining came back
 ;; with different answers about the same rule.
 ;;
-;; Support closes it here too, and the seam is what makes it possible: the prover reports
+;; Support closes it here too, and the `SupportingProver` protocol is what makes it possible: the prover reports
 ;; the handles the answer was read from, so the firing rests on exactly the facts behind
 ;; the computation and the ordinary relabel withdraws it when any of them goes.
 ;;
 ;; **Per reader context**, unlike the deferred arm.  A metric network is what one reader
-;; sees up its `genlCx` cone, so a wildcard read would close one network out of every
+;; sees up its `genlCx` ancestor set, so a wildcard read would close one network out of every
 ;; context's constraints at once — a bound no reader entails.  `provers/source-contexts`
 ;; enumerates the readers, `qcn-kb/reader-contexts`' argument applied to a prover that is
 ;; not a calculus.
@@ -1030,7 +1058,7 @@
   Two readers answer the same question, and the choice between them is the one the
   query side already makes (`res/matches-visible`).  `*matcher*` is the reference: the
   count-aware trie, one walk per member of the functor's sub-predicate closure, and the
-  seam the rete alpha matcher binds.  For a literal with a **bound indexable argument**
+  extension point the rete alpha matcher binds.  For a literal with a **bound indexable argument**
   — a type test `(animal ?x)` with `?x` already bound, the commonest non-trigger
   antecedent there is — that fan is `|specs|` trie walks to confirm one membership (364
   for `animal` on the starter, six figures under a `thing`-rooted antecedent on a large
@@ -1053,7 +1081,7 @@
   taken over nothing fails there.
 
   The lead is taken only when the reference matcher is the one bound: a rete run keeps
-  its seam, and `res/*hierarchical-retrieval*` false (the reference-retrieval sweep)
+  its protocol, and `res/*hierarchical-retrieval*` false (the reference-retrieval sweep)
   keeps the trie everywhere, so the join is the reference under exactly the bindings
   the rest of the engine is."
   [kb g]
@@ -1241,7 +1269,7 @@
   The other antecedents are joined only over facts that reached this run's agenda no
   later than the trigger did (`arrival-admit`), so a combination both sides could
   enumerate is enumerated by one of them.  The filter goes here, on the handles the
-  join yields, rather than in the matcher: `*matcher*` is `rete`'s seam and has to keep
+  join yields, rather than in the matcher: `*matcher*` is `rete`'s extension point and has to keep
   returning the identical set.
 
   **Any context on purpose** — the join passes `'?ctx` throughout.  Admissibility is
@@ -1321,7 +1349,7 @@
   (`res/rule-believed?`), so an un-believed mint stops firing without anything having to
   hunt it down and delete it.
 
-  Everything else is what the assert door does, because a rule is a rule whichever door
+  Everything else is what the assert entry point does, because a rule is a rule whichever entry point
   it came through: the same check list (`checks/rule-violation`, read through
   `checks/check-rule!` so the two cannot drift), the same rule postings
   (`special/index-rule-sentex`), and the direction the *stamped* rule's own
@@ -1483,23 +1511,33 @@
               asym (when new? (special/derive-antisymmetric-equalities kb conseq pctx h))
               axe  (when new? (special/antisym-equate-existing kb conseq))
               axd  (when new? (special/antisym-equate-under-edge kb conseq))
-              ;; ...and a derived `genlCx` edge restates the sentexes its widened cone
+              ;; ...and a derived `genlCx` edge restates the sentexes its widened ancestor set
               ;; newly exposes to a merge, as an asserted one does — or which spelling a
               ;; context reads a fact under would depend on whether the spindle was
               ;; written or inferred
-              cme  (when new? (special/migrate-under-context-edge kb conseq))
               ;; ...and the fourth arrival order of the functional/antisymmetric merge, a
               ;; derived `genlCx` edge making two already-marked facts jointly visible for
-              ;; the first time, exactly as an asserted one does
-              cfn  (when new? (special/equate-under-context-edge kb conseq))
-              cax  (when new? (special/antisym-equate-under-context-edge kb conseq))
+              ;; the first time, exactly as an asserted one does.  **A rule-concluded edge
+              ;; is placed here and never through the assert entry point**, so this line is the
+              ;; whole of what runs the equality reconcilers for it — which is why it is
+              ;; the same call `assert-one` and the structural producer make rather than a
+              ;; third hand-written copy of the list (vaelii#56).  And it sits *after* the
+              ;; justification above for that call's own reason: the sweeps read the
+              ;; belief-filtered genlCx closure, and a line earlier the conclusion supports
+              ;; nothing and the ancestor set has not widened
+              cxe  (when new? (special/reconcile-context-edge kb conseq))
+              ;; ...and a *derived* `(symmetric P)` re-spells the rows stored before it
+              ;; exactly as an asserted one does — the mark sorts arguments at the entry point,
+              ;; so without this whether one proposition is one record would depend on
+              ;; whether the declaration was written or inferred
+              symx (when new? (integrate/symmetrize-existing kb conseq h))
               ;; nil when nothing merged, which is every conclusion on a KB that states
               ;; no equality and every re-derivation on one that does — and a fixpoint
               ;; re-derives the same conclusion on every round of every defaults pass, so
-              ;; this is the arm that must cost nothing rather than a little
-              mig  (when (or eq fnl fex fed asym axe axd cme cfn cax)
+              ;; this is the arm that must added no work rather than a little
+              mig  (when (or eq fnl fex fed asym axe axd cxe symx)
                      (merge-with into {:new [] :superseded [] :violations []}
-                                 eq fnl fex fed asym axe axd cme cfn cax))
+                                 eq fnl fex fed asym axe axd cxe symx))
               ;; The spellings those merges retired, applied here rather than left to the
               ;; settle that follows.  A supersession *starts* when migration says so and
               ;; reaches the reconcile only as its `extra` (`special/supersession-map`),
@@ -1663,7 +1701,7 @@
 (defn- visibility-support
   "A witness for each context `pctx` had to see to hold the firing: the `genlCx` edge
   handles along one path per ingredient context (`tax/reach-support`), deduplicated
-  where two ingredients share a stretch of the cone.
+  where two ingredients share a stretch of the ancestor set.
 
   The `genl` half above and this one are the same claim about two relations.  A
   placement is the maximal context that **sees** the rule, the facts and the edges the
@@ -1699,10 +1737,10 @@
 
   Assertion contexts alone are no longer sufficient in that case: an exception can
   hide a supporter at its own context while a meta-exception restores it in only one
-  descendant cone.  Enumerate the contexts that structurally see every assertion,
+  descendant ancestor set.  Enumerate the contexts that structurally see every assertion,
   retain the readers that see every exact supporter, then keep only their maximal
   elements.  `excepted-anywhere?` is the coarse gate, so the ordinary placement path
-  still takes no cone walk when none of this firing's supporters is targeted."
+  still takes no ancestor set walk when none of this firing's supporters is targeted."
   [kb handles contexts]
   (let [tax (:taxonomy kb)]
     (if (some #(res/excepted-anywhere? kb %) handles)
@@ -1752,9 +1790,9 @@
     (if ist?
       ;; A **query context** is refused here, not merely unresolved.  `nm/context?` says
       ;; yes to `CxNothing` and its two siblings — they are spelled like contexts and read
-      ;; as roles only at the doors — so an `(ist CxNothing S)` consequent would place a
+      ;; as roles only at the entry points — so an `(ist CxNothing S)` consequent would place a
       ;; perfectly ordinary conclusion into a symbol that names a way of *reading*.  Every
-      ;; write door already refuses one; this is the door that fires rather than asserts,
+      ;; write entry point already refuses one; this is the entry point that fires rather than asserts,
       ;; and it is the one that could make `CxNothing` answer a fact.
       (let [c  (when (and (nm/context? (second raw-c))
                           (not (nm/query-context? (second raw-c))))
@@ -1917,7 +1955,7 @@
   `links` are the firing's subsumptions (`subsumption-links`); the `genl` supporters
   witnessing them are an **ingredient of the placement** (`placement-ingredients`), not
   a filter on it, and they join the antecedent list.  So do the `genlCx` supporters
-  the placement sees its ingredients over: a placement is a claim about the cone, and
+  the placement sees its ingredients over: a placement is a claim about the ancestor set, and
   the conclusion may not outlive the edges that claim rests on."
   [kb rule raw-c handles all-antes facts links depth max-depth bindings]
   (let [ist?        (and (sequential? raw-c) (= sx/ist-functor (first raw-c)))
@@ -1980,7 +2018,7 @@
       ;; nothing to defeat and nothing to arbitrate.  The check is per *placement*,
       ;; because all three are evaluated in the conclusion's context and a firing may
       ;; place into several.  `all-antes` includes the rule handle, which the hidden
-      ;; set matches on purpose: a hidden rule may not fire into the cone any more
+      ;; set matches on purpose: a hidden rule may not fire into the ancestor set any more
       ;; than a hidden fact may support a firing there.
       ;; `mapcat`, not `map`: one placement yields the conclusion *and* a copy in each
       ;; context the predicate is lifted into, and every one of them is a new datum the
@@ -2435,7 +2473,7 @@
 
   A symbol compare and one map read for every datum that is neither.  On a KB that does
   declare a transitive predicate the edge half is a memoized `genls` closure read and a
-  handful of set lookups — and its `inverse` arm costs nothing at all until some KB
+  handful of set lookups — and its `inverse` arm adds no work at all until some KB
   declares an inverse, `inverses-under` answering empty off one map read until then."
   [kb fact bfn]
   (let [tx       (:taxonomy kb)

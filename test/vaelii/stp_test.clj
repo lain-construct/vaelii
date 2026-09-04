@@ -463,7 +463,7 @@
       (is (v/ask? kb '(sameQuantity (QuantityFn 66 Minute) (QuantityFn 1.1 Hour)) C)))
     (testing "so the metric layer must too: 1.1 hours normalizes to 3960.0000000000005
               seconds and 66 minutes to 3960, and intersected exactly the two would cross —
-              one true thing said twice, read as a gap at once too long and too short"
+              one true thing said twice, are indistinguishable from a gap at once too long and too short"
       (is (not (stp/inconsistent? kb C)))
       (is (= '(QuantityFn 3960 Second) (bound kb (list 'temporalDistance P Q '?d)))))
     (testing "and nothing is filed against a KB that stated no contradiction"

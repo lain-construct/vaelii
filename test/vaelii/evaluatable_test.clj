@@ -57,7 +57,7 @@
       (testing "the added prover is the wrapper for this predicate"
         (is (some #(= triple (:pred %)) (provers/registry kb)))))))
 
-;; ---- arity dispatch: only the shape the fn can take ---------------------
+;; ---- arity dispatch: only the form the fn can take ---------------------
 
 (tu/deftest-kb arity-dispatch-leaves-other-shapes-to-other-provers
   (tu/with-terms [between]
@@ -147,7 +147,7 @@
       ;; in the stored justification instead, which `why` reads.  That is `proof-tree`'s
       ;; contract: the search proof is for what the KB *derives*, `why` for what it *holds*,
       ;; and a materialized conclusion is held.
-      (testing "the materialized conclusion reads as a stored leaf of the query proof"
+      (testing "the materialized conclusion is indistinguishable from a stored leaf of the query proof"
         (let [proof (:proof (tu/sole-answer (v/query kb (list hasPassed Alice) 'CxUniverse
                                                      {:max-depth 2 :proof? true})))]
           (is (= [:leaf] (mapv :via proof)))

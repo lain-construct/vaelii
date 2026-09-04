@@ -358,7 +358,7 @@
          calculus a registered prover speaks for, not by its class")))
 
 (tu/deftest-kb without-the-prover-the-facts-are-inert
-  ;; the same KB, queried through the *default* registry — the seam is the prover list, so
+  ;; the same KB, queried through the *default* registry — the extension point is the prover list, so
   ;; this isolates what registering it adds without building a second KB on the shared
   ;; scratch space (which would clear this one out from under the fixture)
   (tu/with-terms [A B D]

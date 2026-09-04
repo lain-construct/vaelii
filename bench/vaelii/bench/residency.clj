@@ -11,7 +11,7 @@
 
   The corpus is deliberately **vocabulary-fixed**: the same individuals, types and
   predicates at every N, so the only thing that grows is the number of facts over them.
-  That is the shape the question is about — a KB whose vocabulary has settled and whose
+  That is the form the question is about — a KB whose vocabulary has settled and whose
   extent has not.  Two sizes, and the answer is the *growth* between them rather than
   either figure, so the number means the same on any machine.
 

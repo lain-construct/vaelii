@@ -178,13 +178,13 @@
   "Rewrite `cdir`'s index image if the live index has drifted past the threshold.
 
   **`cdir` is already canonical** — the KB carries the resolved path (`kb`'s
-  `:snapshot-dir`), so nothing here calls `getCanonicalPath` and the write door pays no
+  `:snapshot-dir`), so nothing here calls `getCanonicalPath` and the write entry point pays no
   `realpath` per assert.  A caller holding a directory as its user spelled it canonicalizes
   it once and keeps the answer; this is the wrong place to do it per call.
 
-  **Called on the writer's thread, from the write door** (`kb/create-sentex`), because
+  **Called on the writer's thread, from the write entry point** (`kb/create-sentex`), because
   that is the only thread allowed to touch the columnar index (`disk/index_snapshot.clj`,
-  \"the cadence\").  So the gate is asked per write, and what it costs is worth stating
+  \"the cadence\").  So the gate is asked per write, and what it costs matters
   rather than guessing at: one read of the registry here, which is where a directory with
   no image writer registered stops — and then, for one that has, `due?`'s two property
   reads, the canonical path its state is keyed by, one map read and a clock.  The caller
@@ -195,7 +195,7 @@
   durably stored and indexed; the image is a cache of the derived half, and `save!` is
   full of steps that can throw for reasons that say nothing about the record — a full
   disk, a section that will not map.  Letting one out would take down the assert *after*
-  it succeeded, and skip the observation seams that come after this call, leaving an
+  it succeeded, and skip the observation call sites that come after this call, leaving an
   incremental matcher's alpha memories permanently behind the store.  So the failure is
   logged and swallowed, the same posture `close-dir!` above takes for the close-path save,
   and the image simply stays as stale as it was — which the next open catches and rebuilds
@@ -211,7 +211,7 @@
       ;; stamped only by `note-image!` would find the refresh due again on the very next
       ;; assert: an image-sized write per write, each one failing.  Stamping the attempt
       ;; puts a broken directory back on the ordinary interval — it retries, once a floor,
-      ;; and a fixed disk resumes without an open.  It costs nothing on the happy path,
+      ;; and a fixed disk resumes without an open.  It adds no work on the happy path,
       ;; where `save!` overwrites this with the real baseline a moment later.
       (snap/note-attempt! cdir)
       (try (save-fn)
@@ -259,13 +259,38 @@
   component gets its close attempt, the lock release and the registry removal run even
   when one throws, and the first component failure is rethrown *after* that cleanup.
   The caller learns the close did not complete cleanly, and the directory is still
-  released either way."
+  released either way.
+
+  **The order is the contract**, because handing a directory over is the point:
+  deregister → abort any rewrite → join the compactor → write the image → close the
+  components → release the lock.  Releasing the OS lock is the last thing that happens,
+  because it is the thing the other process is waiting on, and everything above it is a
+  file of this directory's still being written."
   [dir]
   (let [cdir (canonical-dir dir)]
     (locking stores
       (when-let [{:keys [records index overlay-meta snapshot dur-ids]} (@stores cdir)]
-        ;; the image first: it is stamped against the records, so it has to be written
-        ;; while they are still open, and a failure to write one must not stop the close
+        ;; Deregister first: it is the signal a task the compaction executor has queued
+        ;; but not started reads, so it turns every waiting rewrite of this directory
+        ;; into a skip rather than something to wait out.  It also stops the next daemon
+        ;; tick queueing a fresh one behind our backs, which is what makes the join below
+        ;; terminate.
+        (doseq [id (vals dur-ids)] (dur/deregister! id))
+        ;; Then stop the rewrite that is already running, and wait for it.  The record
+        ;; store's rewrite phase holds no lock on purpose (`record-store/compact-kind!`),
+        ;; so nothing a close does to the store blocks it: it reads through a private
+        ;; handle and appends to `sentexes.log.compact` *by name*, which is a path the
+        ;; next process to own this directory will compact over.  Releasing the OS lock
+        ;; with that rewrite still running is two processes appending to one temp log and
+        ;; a replay installing frames from both — the exact tearing the directory lock
+        ;; exists to prevent, under a setting (`vaelii.disk.auto-compact`) that is on by
+        ;; default.  The abort makes the wait short; the wait makes the release honest.
+        (when records (drs/abort-compaction! records))
+        (dur/await-compaction-quiescent! (vals dur-ids))
+        ;; The image after the join and before the closes: it is stamped against the
+        ;; records, so it has to be written while they are still open *and* while nothing
+        ;; is rewriting the offsets underneath it — and a failure to write one must not
+        ;; stop the close.
         (when snapshot
           (try (snapshot)
                (catch Throwable t
@@ -273,7 +298,6 @@
                               :msg (str "disk backend: the index snapshot for " cdir
                                         " was not written (" (.getMessage t)
                                         ") — the next open rebuilds from the records")}))))
-        (doseq [id (vals dur-ids)] (dur/deregister! id))
         (let [failures (into []
                              (keep identity)
                              [(when records

@@ -188,7 +188,7 @@
                    [(:backend m) {:cold c :cold-n cn :warm w :warm-n wn}])))))
 
 (defn- print-small-repeat
-  "The shape a repeated closure ask actually takes in a benchmark: a **small** class,
+  "The form a repeated closure ask actually takes in a benchmark: a **small** class,
   asked over and over in one process with nothing changed between.  Three readings of the
   same ask — the first after a cache clear, the steady-state repeat, and the repeat with
   the literal cache off — which between them say what the cache already buys and what is

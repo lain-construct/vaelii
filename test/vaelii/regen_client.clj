@@ -73,13 +73,13 @@
 
 (def ^:private abbreviations
   "Full stops that do not end a sentence.  Two, because two docstrings have one and a
-  first sentence cut at `e.g.` reads as a truncation rather than as a summary."
+  first sentence cut at `e.g.` is indistinguishable from a truncation rather than from a summary."
   #{"e.g." "i.e."})
 
 (defn- first-sentence
   "The first sentence of `doc`, whitespace-collapsed — enough to say what the wrapper is
   for, with `vaelii.core`'s own var holding the rest.  The whole first paragraph is a
-  page for the larger doors."
+  page for the larger entry points."
   [doc]
   (let [p (-> (first (str/split (or doc "") #"\n\s*\n"))
               (str/replace #"\s+" " ")

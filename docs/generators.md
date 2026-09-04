@@ -6,7 +6,8 @@
 - **Not here:** the direction wrappers a stamped rule carries →
   [inference.md](inference.md); why a *variable-predicate* rule is refused →
   [indexing.md](indexing.md); skolemizing a head existential →
-  [skolem.md](skolem.md).
+  [skolem.md](skolem.md); the shipped quantifier family two of whose cells are
+  generators → [predall.md](predall.md).
 - **Assumes:** sentex, rule, handle, justification, hole-free range restriction →
   [glossary.md](glossary.md), [inference.md](inference.md).
 
@@ -46,7 +47,7 @@ rule's own. Sharing a variable name with the antecedents *is* how an author says
 this in", so there is nothing to declare and no second spelling that could disagree
 with the first.
 
-Two consequences worth stating, because both are easy to trip over:
+Two consequences follow, and both are easy to trip over:
 
 - **A hole may stand in functor position.** `(?outcome ?a ?p)` is a rule *antecedent*,
   where a variable functor is otherwise refused, and it is legal here because by mint
@@ -56,7 +57,7 @@ Two consequences worth stating, because both are easy to trip over:
   it.
 - **Range restriction moves one level in.** The generator's own is vacuous: its
   consequent is a rule rather than a conclusion, and the stamped rule's free variables
-  are unbound on purpose. What is checked is the *stamped* rule's, with the holes
+  are unbound on purpose. The *stamped* rule's is what is checked, with the holes
   counted as bound. So `(implies (marker ?p) (implies (?p ?x) (dst ?x ?loose)))` is
   refused for `?loose`, at the generator, before any firing.
 
@@ -69,7 +70,7 @@ the level whose firing grounds it. One reading of the sentence decides every lev
 `rules/nesting` is that reading — it peels a rule into levels and carries each level's
 `:bound` set down.
 
-What the extra level buys is a **functor**. A hole is ground before the rule holding it
+The extra level gives a **functor**. A hole is ground before the rule holding it
 is stored; a variable bound by a literal *beside* it is not, because both are stored at
 once. So these two say the same join and only one of them can be stored:
 
@@ -108,7 +109,7 @@ and the two generators above it — filed under `implies`, which is where every 
 is filed at every depth.
 
 **Every level owes what a generator owes**, because every level reaches the store as a
-rule in its own right and the mint reads the same check list the assert door does. A
+rule in its own right and the mint reads the same check list the assert entry point does. A
 `set/backwardRule` around a middle level is `:not-indexable` at the sentence rather than
 one firing later; an `exceptWhen` on any stamped level is `:not-well-formed`; and a level
 that fills **no hole an enclosing level has not already filled** is
@@ -164,8 +165,8 @@ the same way, so it too sees what is already there.
 
 ## What a firing does
 
-The mint goes through the same check list the assert door runs
-(`checks/check-rule!`, read by both doors so neither can drift): range restriction,
+The mint goes through the same check list the assert entry point runs
+(`checks/check-rule!`, read by both entry points so neither can drift): range restriction,
 indexability, naming, stratification, no imperative, disjunction shape, NAF closure,
 the argument constraints the rule's own variables carry, and the generator's own three. A
 stamped rule concluding a conjunction is polycanonicalized into one rule per conjunct,
@@ -232,7 +233,7 @@ were asserted in the other order.
 
 ## What this is not
 
-**Not storage compaction.** Materializing N rules stores N rule records. What it buys
+**Not storage compaction.** Materializing N rules stores N rule records. What it provides
 instead is that only the fills that actually *occur* become rules: a hand-authored
 cross-product is `predicates × types`, while a generator mints one rule per instance
 fact that exists, and the family grows and shrinks with the data. Matching cost is
@@ -263,7 +264,7 @@ rule remains the `(sentexHandle H)` meta-sentex layer
 - `vaelii.impl.naming` — `applied-literals`, which tags a stamped rule's literals
   `:generated-antecedent` / `:generated-consequent` — at every depth — so the index
   check can tell them from the author's own.
-- `vaelii.impl.checks` — `check-rule!` (the list both doors read), `check-generator!`
+- `vaelii.impl.checks` — `check-rule!` (the list both entry points read), `check-generator!`
   (the three a generator owes — the `exceptWhen` and forward-only refusals per level,
   the cycle once), `rule-violation` (the value form, for the firing), `generator-cycle`.
 - `vaelii.impl.chain` — `mint-rule`, and the `place-conclusion` dispatch that routes a

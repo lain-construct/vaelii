@@ -350,7 +350,7 @@
           (is (= 2 (:level (v/escalate kb goal CxStory)))))))))
 
 (tu/deftest-kb level-3-reports-one-fact-once-however-many-names-it-has
-  ;; Reading up the cone is what *creates* a retired spelling.  A fact stated above an
+  ;; Reading up the ancestor set is what *creates* a retired spelling.  A fact stated above an
   ;; equality merge is believed where it lives — its own context was told nothing —
   ;; while a context below the merge sees both it and the twin migration placed there.
   ;; So the fan-out this level introduces is also what would hand one fact back twice,
@@ -481,7 +481,7 @@
   ;; the one thing level 5 can do about its cost is not pay it until the stored half
   ;; runs out.  The fold over the derived half must not force it either: the set of
   ;; answers already carried is built from a seq `lazy-cat` has by then already yielded,
-  ;; so it costs nothing a consumer taking one result would not have paid anyway.
+  ;; so it adds no work a consumer taking one result would not have paid anyway.
   (tu/with-terms [ancestorOf CxStory CxSub]
     (v/assert kb (list 'genlCx CxSub CxStory) CxStory)
     (v/assert kb (list 'transitive ancestorOf) CxStory)

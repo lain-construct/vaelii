@@ -107,7 +107,7 @@
   audit's question is which grammar terms this KB carries documentation for, and a
   `comment` is documentation rather than a claim about the world: the term is spelled in
   the vocabulary whatever the JTMS currently makes of the sentex that spells it, and a
-  believed door would report the grammar shrinking whenever a settle moved a belief
+  believed entry point would report the grammar shrinking whenever a settle moved a belief
   nobody wrote the comment about."
   [kb]
   (into (sorted-set)

@@ -7,7 +7,7 @@
   well-formedness, disjointness (`vaelii.impl.naming` / `vaelii.impl.wff`).  These
   specs guard the other side: the *shape* of the arguments a caller passes, the
   option and budget maps especially, so a typo like `{:strength :monotone}` or a
-  string where a millisecond count belongs is rejected at the door with a spec
+  string where a millisecond count belongs is rejected at the entry point with a spec
   explanation rather than surfacing as a downstream error.
 
   Nothing here runs unless a caller opts in with
@@ -48,10 +48,10 @@
 (s/def ::kb map?)                          ; a KB record satisfies map?
 ;; A context is a Cx-prefixed CapitalCamelCase symbol, the open `?ctx` variable the read
 ;; paths default to — or a **context-denoting application** `(CxTimeFn CxMonad (DatetimeFn
-;; "2000"))`, which the doors reify to its `cx/` constant before anything downstream reads
+;; "2000"))`, which the entry points reify to its `cx/` constant before anything downstream reads
 ;; it (docs/context-nat.md).  The spec admits the *shape*; whether the head is a declared
-;; `context_denoting_function` and the application ground is the door's own `:shape` check,
-;; which needs the KB.  Narrower than the door, instrumentation would refuse a write into a
+;; `context_denoting_function` and the application ground is the entry point's own `:shape` check,
+;; which needs the KB.  Narrower than the entry point, instrumentation would refuse a write into a
 ;; context the engine accepts.
 (s/def ::context (s/or :name symbol? :context-nat seq?))
 (s/def ::sentence some?)                   ; a sentence (a list) — never nil
@@ -197,8 +197,8 @@
   :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context) :opts (s/? (s/nilable map?)))
   :ret  boolean?)
 
-;; The four backward-search doors take a trailing bound, checked against their own roster
-;; at the door (`core/prove-opt-keys`, `core/ask-opt-keys`) — so the spec says `map?` and
+;; The four backward-search entry points take a trailing bound, checked against their own roster
+;; at the entry point (`core/prove-opt-keys`, `core/ask-opt-keys`) — so the spec says `map?` and
 ;; leaves which keys are real to the check that carries the message.
 (s/fdef vaelii.core/prove
   :args (s/cat :kb ::kb :goal ::goal :context (s/? ::context)

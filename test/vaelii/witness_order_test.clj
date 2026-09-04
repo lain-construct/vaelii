@@ -7,7 +7,7 @@
   A two-antecedent rule is triggered by a datum at either position and both triggers
   enumerate the same pair, so half of a join rule's firings rebuild a conclusion the
   other half already placed.  Ordering the agenda's datums lets one of the two skip the
-  work.  Everything here is the claim that skipping it costs nothing: the firing that
+  work.  Everything here is the claim that skipping it adds no work: the firing that
   survives is the same firing, so the derived sentexes and their justifications are
   identical to a run with `chain/*suppress-duplicate-firings*` bound false, which is
   the reference this file compares against.

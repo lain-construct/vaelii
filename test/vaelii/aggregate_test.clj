@@ -584,7 +584,7 @@
     (is (not (v/query? kb (list large_family Bob) 'CxWell {:max-depth 2})))))
 
 (tu/deftest-kb forward-and-backward-agree-about-a-compared-count
-  ;; the parity `provers/exception-holds?` exists to guarantee, asked of the shape that
+  ;; the parity `provers/exception-holds?` exists to guarantee, asked of the structure that
   ;; breaks it first: a forward throw where backward answers
   (tu/with-terms [person childOf large_family Ann Bob]
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
@@ -1046,7 +1046,7 @@
 
 (deftest post-join-solutions-that-agree-conclude-once
   ;; Two solutions, one value: `pj_candidate` is stated of the same term in two contexts of
-  ;; one cone, so the prover answers twice with the same binding.  Agreement is what is
+  ;; one ancestor set, so the prover answers twice with the same binding.  Agreement is what is
   ;; asked for, not a solution count.
   (let [{:keys [tallies entries]} (post-join-run! [[post-join-ctx 'PjSame]
                                                    [post-join-above 'PjSame]])]

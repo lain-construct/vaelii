@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.snapshot-sink-test
-  "The snapshot **sink** seam (`vaelii.impl.io.snapshot`): one image format, many targets.
+  "The snapshot **sink** protocol (`vaelii.impl.io.snapshot`): one image format, many targets.
 
   A snapshot is a set of named sections plus a manifest, written through a sink that knows
   only how to stream a section and commit a manifest, and read back through a source.  The
@@ -95,7 +95,7 @@
 ;;; ── the projection installs the same index a rebuild does ──────────────
 
 (deftest a-replayed-image-and-a-rebuilt-index-are-the-same-index
-  ;; The load-bearing test: save the index through a sink, install it into an emptied
+  ;; The required test: save the index through a sink, install it into an emptied
   ;; index, and compare — the entries the index projects, and the answers the KB gives —
   ;; against a `reindex` that rebuilt from the same records.
   (tu/with-cleared-kb [kb tu/fresh]
@@ -121,7 +121,7 @@
 ;;; ── one image, two sinks ───────────────────────────────────────────────
 
 (deftest an-image-written-to-one-sink-loads-from-another
-  ;; Portability is the whole reason for the seam: the file sink and the memory sink carry
+  ;; Portability is the whole reason for the protocol: the file sink and the memory sink carry
   ;; the same projection, so both install to the index a rebuild produces.  This is the
   ;; sink-level echo of `index_dump_test`'s "every backend exports the same entries".
   (let [dir (temp-dir "cross")]
@@ -236,7 +236,7 @@
                  (snap/load-index! m (:index kb) (records-stamp other)))))))))
 
 (deftest a-truncated-section-is-discarded-and-installs-nothing-of-itself
-  ;; A torn nippy chunk reads as a clean EOF, so truncation shows only as a frame count
+  ;; A torn nippy chunk is indistinguishable from a clean EOF, so truncation shows only as a frame count
   ;; below what the manifest recorded — caught while installing, not in `decision`.
   (let [dir (temp-dir "truncated")]
     (try

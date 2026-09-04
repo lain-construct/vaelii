@@ -196,8 +196,8 @@
   ;; deep hierarchy here and pin that :scoped, :auto, :agnostic and the matches-visible
   ;; fan-out return the identical set — through the predicate filter (an unrelated
   ;; predicate holds the same term at the same position, so the agnostic bucket returns it
-  ;; and `pred-ok?` must drop it) and the context cone (a sibling-context fact the global
-  ;; roster sees but a scoped read must not).  This is the shape a wrong small side would
+  ;; and `pred-ok?` must drop it) and the context ancestor set (a sibling-context fact the global
+  ;; roster sees but a scoped read must not).  This is the form a wrong small side would
   ;; leak on, where the shallow oracle above would stay green.
   (tu/with-terms [broadRel otherRel A B1 B2 Bother CxSib Bsib]
     (let [subs (vec (repeatedly 8 tu/tmp-pred))]

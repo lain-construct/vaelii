@@ -9,7 +9,7 @@
   clear it and re-derive every entry.  Three situations need it:
 
   * a crash between the record write and the index pipeline (`assert` spans both
-    stores; each side is a single pipeline, but the seam between them remains)
+    stores; each side is a single pipeline, but the boundary between them remains)
     — the orphaned record is unfindable, and re-asserting its sentence
     would mint a *second* handle for the same canonical form;
   * an index whose key shapes are not this build's (`kv/index-layout-version`): a

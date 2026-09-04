@@ -80,7 +80,7 @@
         "an individual is not a metatype")
     (testing "and it takes exactly one argument"
       ;; :naming — disjoint_metatype is snake_case, so a second argument is refused at
-      ;; the naming door, upstream of the `wff` arity check
+      ;; the naming check, upstream of the `wff` arity check
       (is (= :naming
              (ex-type #(v/assert kb (list 'disjoint_metatype animal_species 'Extra) 'CxUniverse)))))))
 
@@ -94,7 +94,7 @@
           (str prop " must reject an individual")))))
 
 (tu/deftest-kb the-predicate-properties-take-exactly-one-argument
-  ;; Which door refuses it is the spelling's to say.  A snake_case property is a unary
+  ;; Which entry point refuses it is the spelling's to say.  A snake_case property is a unary
   ;; predicate by its name, so a second argument is a NAMING violation and never reaches
   ;; `prop-problems`; a bare lowercase one claims no arity and is caught by `wff`.
   (tu/with-terms [partOf otherPred]

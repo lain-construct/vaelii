@@ -4,7 +4,7 @@
   "Per-namespace assertion counts, for a suite total that moves between runs.
 
   `scripts/test-backends.sh` checks that every configuration ran the same number of
-  assertions, because a run that quietly skipped something reads as a green run.  When
+  assertions, because a run that quietly skipped something is indistinguishable from a green run.  When
   that check fails the next question is always *which namespace*, and the suite's own
   output cannot answer it: `lein test` prints one total for 297 namespaces.
 

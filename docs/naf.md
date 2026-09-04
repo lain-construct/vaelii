@@ -115,7 +115,7 @@ same evaluator answers both (`provers/exception-holds?`): the conjunction is der
 only if **every** conjunct is, so one conjunct short leaves `(unknown S)` holding and
 the rule fires. Closure makes this one cheap: every variable is bound before the query
 runs, so after substitution the conjuncts share nothing and each is an independent
-ground existence check. What runs it is the join below, of which a ground conjunction is
+ground existence check. The join below runs it, of which a ground conjunction is
 the degenerate case — one evaluator, and no second reading of `and` to drift from it.
 
 The same argument refuses a **disjunctive** body. `(unknown (or A B))` would need the
@@ -157,7 +157,7 @@ The conjuncts here share the binder, so reading them independently would take ea
 a *different* witness — "has a sick child" would hold of anyone with a child while
 anyone at all was sick. That reading is wrong, and it is the one
 [defenses.md](defenses.md#a-conjunction-under-a-quantifier-is-joined-never-read-flat)
-refused. What answers it correctly is a **join**, and that is what
+refused. A **join** answers it correctly, and that is what
 `provers/conjunction-solutions` is: each conjunct is substituted with what the conjuncts
 before it bound, run through the registry, and its solutions thread on. One evaluator,
 used by `unknown`, by `thereExists` and by an `exceptWhen` alike.
@@ -215,7 +215,7 @@ is exactly what it canonicalizes into (`sentex/desugar-forall-literal`):
 (unknown (thereExists ?y (and (childOf ?x ?y) (unknown (asleep ?y)))))
 ```
 
-The desugar runs at the **door** — the sentex constructor, and `rules/inner-rule`, which
+The desugar runs at the **entry point** — the sentex constructor, and `rules/inner-rule`, which
 every pre-storage check reads through. So range restriction, closure, quantifier
 locality and the stratification graph all see the nested NAF, `canonical-sentex` shows
 it, and the sugared rule and the hand-written nested one are **one rule with one
@@ -296,7 +296,7 @@ registry, and the negative held exactly while the positive finds nothing. Cost t
 
 It is a **grant**, and the only thing that closes an extent: an undeclared predicate stays
 open-world, where a fact nobody stated is not thereby false. And it is a **policy of the
-context that gives it**, read from the asking context's `genlCx` up-cone the way
+context that gives it**, read from the asking context's `genlCx` ancestor set the way
 `abducible_predicate` is ([abduction.md](abduction.md)) rather than universally — one
 theory may state the twelve months and read a thirteenth as refuted while a sibling,
 reading the same predicate, answers only what it was told. It is belief-following like the
@@ -338,7 +338,7 @@ A grant asserted **after** the rules it governs reaches them too:
 `special/index-closed-extent-rules` posts every stored rule with a `[:not P]` antecedent
 and queues it `:all-rejoin`, because the grant blocked nothing for the blocked set to
 notice and the firings it licenses have no justification yet — the same asymmetry a
-widened `genlCx` cone takes that marker for.
+widened `genlCx` ancestor set takes that marker for.
 
 ### Stratification, from both arrival orders
 
@@ -441,7 +441,7 @@ and finds it empty. This keeps NAF
 consistent with the codebase's existing closed-world mechanism (`exceptWhen`) and the
 store free of negative space.
 
-**The one door that could fill it refuses to.** A justification frame in a dump is the
+**The one entry point that could fill it refuses to.** A justification frame in a dump is the
 record's field map, so the export carries `:out` and the import reads it — which makes
 `vaelii.impl.io.import` the only way a filled slot could reach a store, and it refuses
 one (`:naf-justification`). Three relabel invariants read
@@ -522,7 +522,7 @@ implementations.
   `conjuncts` / `naf-query-conjuncts` (the query's conjuncts, the `unknown` spelling of
   `exception-query-conjuncts`) with the conjunct sort beside the other literal
   normalizations, `desugar-forall-literal` / `desugar-forall-rule` (the `forall` sugar,
-  applied at both doors), `census-bound-vars` (what a census body binds for itself), and
+  applied at both entry points), `census-bound-vars` (what a census body binds for itself), and
   `check-naf-closed` (closure, quantifier locality, the producible-quantified-variable
   rule, and the aggregate's census check).
 - **The joined evaluator**, `provers/conjunction-solutions` — one function, used by
@@ -581,7 +581,7 @@ side, and `why-not` saying the extent is closed.
 ## The third member of the family
 
 [aggregate.md](aggregate.md) adds `agg/count` and its four siblings against the
-same seams: query operators, refused by the same `wff` arm, deferred literals with the
+same code path: query operators, refused by the same `wff` arm, deferred literals with the
 same closure rule and the same `:naf-not-closed` diagnostic, level-6 bodies, negative
 edges in the same stratification graph, and firings maintained through the same
 re-check index. Two things differ, and both follow from an aggregate binding a

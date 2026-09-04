@@ -22,7 +22,7 @@
     argument, so negation-as-failure is mutually recursive with the chainer that asked
     for it (docs/naf.md).
 
-  A third call runs the other way for a different reason:
+  Two further calls run the other way for a different reason:
 
     `import-dump` — `vaelii.impl.io.import` sits *above* `vaelii.core` and requires it,
     because reading a dump is asserting: it re-canonicalizes records, reindexes and
@@ -31,10 +31,19 @@
     not a round trip — so the delegation points up, and this is where a call that points
     up is written down.
 
+    `specified-violations` / `all-specified-violations` — `vaelii.impl.predall` sits
+    *above* `vaelii.core` for the mirror-image reason: running the `predAllSpecified`
+    audit is asking.  The audit reads a declaration and then asks the KB one goal per
+    member, and a goal answered outside `vaelii.core/ask` sees neither the context's
+    `genlCx` ancestor set nor the goal preparation that read runs (`read-in-context`,
+    `ist-goal` and `prepare-goal-for-read` are private to `vaelii.core`).  An audit that
+    reported violations a scoped read would not have is worse than no audit, so the
+    reader asks through the public read path and the delegation points up to reach it.
+
   The first two are genuine mutual recursion: the cycle is in the **behaviour**, neither
-  is a misplaced function, and no arrangement of the code removes either.  The third is a
-  layering inversion rather than a recursion, and is kept here for the same reason — a
-  call the require graph cannot express belongs in the one file that inventories them.
+  is a misplaced function, and no arrangement of the code removes either.  The last two
+  are layering inversions rather than recursions, and are kept here for the same reason —
+  a call the require graph cannot express belongs in the one file that inventories them.
   Why they are gathered here rather than left at their call sites, what `lein lint`'s
   **E8** enforces, and why each is a `delay` rather than a dynamic var —
   docs/namespaces.md, \"The layering\"."
@@ -67,7 +76,7 @@
   assert batch."
   false)
 
-;; ---- the two cuts, and the one inversion ----------------------------------
+;; ---- the two cuts, and the two inversions ---------------------------------
 
 (def ^:private core-assert
   (delay (requiring-resolve 'vaelii.core/assert)))
@@ -77,6 +86,12 @@
 
 (def ^:private io-import-dump
   (delay (requiring-resolve 'vaelii.impl.io.import/import-dump)))
+
+(def ^:private predall-specified-violations
+  (delay (requiring-resolve 'vaelii.impl.predall/specified-violations)))
+
+(def ^:private predall-all-specified-violations
+  (delay (requiring-resolve 'vaelii.impl.predall/all-specified-violations)))
 
 (defn assert-sentence
   "`vaelii.core/assert` — store `sentence` in `context` under `opts`, returning its handle.
@@ -95,3 +110,17 @@
   See the namespace docstring for why this is not a require."
   [kb dir opts]
   (@io-import-dump kb dir opts))
+
+(defn specified-violations
+  "`vaelii.impl.predall/specified-violations` — the instances of `indep` with no
+  determinate `dep` filler at `arg-pos` of `pred`, in `context`.  See the namespace
+  docstring for why this is not a require."
+  [kb pred indep dep context arg-pos]
+  (@predall-specified-violations kb pred indep dep context arg-pos))
+
+(defn all-specified-violations
+  "`vaelii.impl.predall/all-specified-violations` — every `predAllSpecified` and
+  `predSpecifiedAll` declaration visible in `context`, audited.  See the namespace
+  docstring for why this is not a require."
+  [kb context]
+  (@predall-all-specified-violations kb context))

@@ -8,7 +8,7 @@
   decoupled-in-time catch-up, the off-thread poll loop, and the writer never blocked by a
   slow subscriber).
 
-  The reply loop's load-bearing claims: a reply is a meta-sentex in the replier's own
+  The reply loop's required claims: a reply is a meta-sentex in the replier's own
   context (D1), idempotent by sentence identity (so an at-least-once feed is safe), and
   torn down with its target (D7, no dangling edges).  Belief is never special-cased — every
   move is an ordinary assert / retract, which the full suite staying green is the check on."
@@ -194,7 +194,7 @@
             "and the admissible half never landed — edit! never ran")))))
 
 (tu/deftest-kb a-multi-claim-reply-cannot-sign-anothers-name
-  ;; The batch door is the SAME door `assert` is, or the batch is a way round it: a vote
+  ;; The batch entry point is the SAME entry point `assert` is, or the batch is a way round it: a vote
   ;; is counted off the sentence (`adjudication/tally` reads the voter there), so a batch
   ;; of ballots naming other agents would be one principal casting a house of votes.
   (let [atlas  (join! kb 'AgentAtlas)
@@ -230,7 +230,7 @@
 (tu/deftest-kb subscribe-fires-on-a-matching-write-and-stops-when-dropped
   ;; The single-process path: a plain `core/watch` listener, callback on the writer's
   ;; thread.  Watch the CHANNEL and a write in an agent's own context is delivered up the
-  ;; genlCx cone.
+  ;; genlCx ancestor set.
   (let [atlas (join! kb 'AgentAtlas)
         boreas (join! kb 'AgentBoreas)
         seen (atom [])
@@ -384,7 +384,7 @@
       (is (= :koinii/no-wire-feed (:type (refusal #(ch/-feed-poll m nil nil nil))))
           "and resuming from one it never issued"))))
 
-;; ---- the two doors that nil-punned: a bad handle, and a bad stance -------
+;; ---- the two entry points that nil-punned: a bad handle, and a bad stance -------
 
 (tu/deftest-kb dispute-refuses-a-handle-that-names-no-record
   ;; `dispute` reads the target's sentence to build the rebuttal, so a handle naming
@@ -409,7 +409,7 @@
     (is (= :abstain (:stance (ex-data e))))
     (is (= [:for :against] (:known (ex-data e))) "the refusal names the legal directions")))
 
-;; ---- the wire poll loop's two seams are never silent ---------------------
+;; ---- the wire poll loop's two extension points are never silent ---------------------
 ;;
 ;; A scripted daemon: `wire-subscribe` reaches the far end only through `client/watch`,
 ;; `client/poll` and `client/unwatch`, so redefining those three says exactly what the
@@ -522,11 +522,11 @@
 
 ;; ---- the registry write boundary (docs/koinii.md) ------------------------
 
-(tu/deftest-kb the-admin-registry-is-never-writable-through-a-cooperative-door
+(tu/deftest-kb the-admin-registry-is-never-writable-through-a-cooperative-entry-point
   ;; `CxRegistry` is admin-only: the governed may not write the authority that governs
-  ;; them.  The channel and speech-act doors carry no authenticated principal, so they
-  ;; enforce that one boundary at the door — `check-write-boundary!` (the proof-tier
-  ;; own-context rule) is not what these cooperative doors impose, only the registry line.
+  ;; them.  The channel and speech-act entry points carry no authenticated principal, so they
+  ;; enforce that one boundary at the entry point — `check-write-boundary!` (the proof-tier
+  ;; own-context rule) is not what these cooperative entry points impose, only the registry line.
   (testing "joining AS the registry (AgentRegistry -> CxRegistry) is refused"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"registry-forbidden"
                           (join! kb 'AgentRegistry))))
@@ -544,7 +544,7 @@
         "writing another agent's context is a cooperative move, not the registry breach")))
 
 (tu/deftest-kb an-agent-cannot-sign-anothers-name-in-a-speech-act
-  ;; `speaker-of` reads the speaker off the reply's own sentence; the door stamps the
+  ;; `speaker-of` reads the speaker off the reply's own sentence; the entry point stamps the
   ;; creator off the handle.  For the two to agree — the invariant every reader relies on
   ;; — a handle may assert a speech act only when it names itself as the speaker.
   (let [atlas (join! kb 'AgentAtlas)
@@ -565,7 +565,7 @@
 ;; ---- join: the parent must be a channel (D8) -----------------------------
 
 (tu/deftest-kb a-join-refuses-a-parent-that-is-not-a-coordination-channel
-  ;; A join widens what the PARENT sees: `(genlCx parent CxMallory)` makes every cone read
+  ;; A join widens what the PARENT sees: `(genlCx parent CxMallory)` makes every ancestor set read
   ;; of the parent return Mallory's claims, and with `belief/believe-own` in force they
   ;; become what the parent's own agent is proved to believe.  So the parent is held to the
   ;; standard `assert` holds a destination to — a context the agent may legitimately be
@@ -596,7 +596,7 @@
 (tu/deftest-kb a-join-refuses-an-agent-context-placed-by-any-route
   ;; The mark is written at the ONE chokepoint every placement goes through
   ;; (`id/place-agent-context`), so an agent placed by a sibling API is recognized here
-  ;; exactly as one placed by `join` is — the door reads a fact somebody wrote, not a
+  ;; exactly as one placed by `join` is — the entry point reads a fact somebody wrote, not a
   ;; shape it infers from the lattice.
   (let [medium (ch/local kb)]
     (id/agent-context kb 'CxDeploy 'AgentAtlas)      ; the bare placement, rooted CxCore

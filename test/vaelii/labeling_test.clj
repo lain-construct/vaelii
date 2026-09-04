@@ -13,7 +13,7 @@
   **And it has to leave the KB alone.** The engine's refusal to arbitrate a dilemma is
   a deliberate stance (docs/exceptions.md), so an imperative that quietly moved belief
   — or that made the same disagreement report twice — would have taken the stance back
-  by the side door. `belief-unmoved` is checked around every labeling below rather than
+  by the side entry point. `belief-unmoved` is checked around every labeling below rather than
   in one test, because that is the property most likely to regress and least likely to
   be noticed.
 
@@ -93,7 +93,7 @@
                       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))))))
 
 (deftest an-unknown-imperative-names-the-known-ones
-  ;; A typo in the `do/` namespace must not read as a fact about a predicate called
+  ;; A typo in the `do/` namespace must not are indistinguishable from a fact about a predicate called
   ;; `do/labelling`; it is a caller error and says so.
   (tu/with-neutral-kb [kb tu/fresh]
     (let [e (try (v/assert kb (list 'do/frobnicate 'X) 'CxUniverse) nil
@@ -336,10 +336,10 @@
         "the same knowledge in either order labels the same sentence")))
 
 (deftest a-labeling-that-disagrees-with-its-own-classification-is-refused-by-name
-  ;; `check-agrees` guards the seam between two solves over one program — the failure
+  ;; `check-agrees` guards the boundary between two solves over one program — the failure
   ;; this design is most exposed to, per its own docstring — and refuses with
   ;; `:labeling-inconsistent`.  A genuine disagreement cannot be staged through the
-  ;; doors (two consistent solves is what the solver contract promises), so the guard
+  ;; entry points (two consistent solves is what the solver contract promises), so the guard
   ;; is provoked directly, in both directions it checks.  No solver needed: this is
   ;; the check, not the solve.
   (let [check @#'label/check-agrees]

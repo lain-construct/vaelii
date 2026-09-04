@@ -323,7 +323,7 @@
         (is (= #{(list wabPremise N)} (sentences r)))
         (is (seq (:solutions r)))))))
 
-;; ---- the shape of the call ------------------------------------------------
+;; ---- the structure of the call ------------------------------------------------
 
 (tu/deftest-kb a-variable-context-is-refused-rather-than-guessed
   (tu/with-terms [wabGoal N]
@@ -375,7 +375,7 @@
     (let [g (list wabPremise N)]
       (is (some? (abduce/maybe-abduce kb g CxTheory {:max-depth 2} 2)) "at the bound")
       (is (nil? (abduce/maybe-abduce kb g CxTheory {:max-depth 2} 3)) "past it")
-      (testing "and no bound is no bound — `run` always supplies one, but the seam is
+      (testing "and no bound is no bound — `run` always supplies one, but the extension point is
                 written for a proof-search hook that may not"
         (is (some? (abduce/maybe-abduce kb g CxTheory {} 99)))))))
 

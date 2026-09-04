@@ -88,7 +88,7 @@
     (is (empty? (v/contradictions kb)))))
 
 (tu/deftest-kb the-assert-path-arbitrates-when-asked-to
-  ;; `*arbitrate-constraints?*` is the policy seam: whether a *writer* is told no is a
+  ;; `*arbitrate-constraints?*` is the policy extension point: whether a *writer* is told no is a
   ;; question about the application, not about the engine.  On, all three checks read
   ;; the one rule — refuse only against known-true content.
   (binding [checks/*arbitrate-constraints?* true]
@@ -136,7 +136,7 @@
 (tu/deftest-kb an-argument-constraint-is-not-a-nogood
   ;; It convicts by the *absence* of a path from the argument's types to the constraint
   ;; type — negation as failure, not a stored sentex — so there is no pair to make and
-  ;; it stays a refusal at the door and a drop at the firing.
+  ;; it stays a refusal at the entry point and a drop at the firing.
   (binding [checks/*arbitrate-constraints?* true]
     (tu/with-kb [kb]
       (tu/with-terms [person_t rock_t parentOf Boulder Muffet]
@@ -146,7 +146,7 @@
         (v/assert kb (list rock_t Boulder) 'CxUniverse)
         (is (thrown? clojure.lang.ExceptionInfo
                      (v/assert kb (list parentOf Boulder Muffet) 'CxUniverse))
-            "refused at the door even with arbitration on")
+            "refused at the entry point even with arbitration on")
         (is (empty? (v/contradictions kb)))))))
 
 ;;; ── the loser has a reason ────────────────────────────────────────────
@@ -198,7 +198,7 @@
     (let [before (v/sentex-count kb)]
       (v/assert kb (fwd [(list dog_t '?x)] (list cat_t '?x)) 'CxUniverse)
       (let [reported (:sentence (first (v/contradictions kb)))]
-        (is (= 'contradicts (first reported)) "the report reads as a sentence")
+        (is (= 'contradicts (first reported)) "the report is indistinguishable from a sentence")
         (is (zero? (count (v/sentexes-with-functor kb 'contradicts)))
             "and is stored nowhere")
         (is (nil? (v/handle-of kb reported 'CxUniverse)))
@@ -472,8 +472,8 @@
             "the pair the new member separates is exposed but never arbitrated")))))
 
 (tu/deftest-kb a-genlcx-edge-arriving-last-is-arbitrated
-  ;; the `members-in-cone` sweep: neither writer could see the other, so both
-  ;; memberships were admissible — until a visibility edge put them in one cone
+  ;; the `members-in-ancestors` sweep: neither writer could see the other, so both
+  ;; memberships were admissible — until a visibility edge put them in one ancestor set
   (binding [checks/*arbitrate-constraints?* true]
     (tu/with-kb [kb]
       (tu/with-terms [CxA CxB t1 t2 Pip]
@@ -493,7 +493,7 @@
 
 (tu/deftest-kb a-descended-functional-declaration-arriving-last-is-arbitrated
   ;; the `subtree-facts` sweep, and the reason a mark needs one where a separation does
-  ;; not: the mark is read *up* the predicate hierarchy by the checks the door and this
+  ;; not: the mark is read *up* the predicate hierarchy by the checks the entry point and this
   ;; sweep share (`tax/props-over`), so the facts a declaration reaches back over are the
   ;; whole subtree beneath the predicate it names.  Reading `measureOf`'s own posting list
   ;; is reading the one thing a general spelling is usually empty of.
@@ -538,7 +538,7 @@
   ;; **The sharp edge behind the miss, and why it was not merely a late report.**  A pair
   ;; the sweep never reaches never enters `:clashes`, and `:clashes` is the whole of what
   ;; makes discovery accumulate — so no later settle re-examines it, however many run.  A
-  ;; third filler arriving through the door minted its own two pairs and left the first
+  ;; third filler arriving through the entry point minted its own two pairs and left the first
   ;; one absent, which is a KB reporting two thirds of one slot's clashes.
   (binding [checks/*arbitrate-constraints?* true]
     (tu/with-kb [kb]
@@ -873,7 +873,7 @@
   ;; answers it from the general side, which cannot see the specific membership at all.
   ;;
   ;; Belief is what has to agree, not storage: the general-claim-last order admits the
-  ;; default and defeats it, while the specific-claim-last order is refused at the door
+  ;; default and defeats it, while the specific-claim-last order is refused at the entry point
   ;; (admitting what the KB can never believe is still what `:arbitrate` will not do).
   ;; That is `belief-agrees-whichever-arrived-first-under-arbitrate`'s split, one
   ;; visibility edge out.  120 orderings.
@@ -958,7 +958,7 @@
   ;; entries apart would report one clash or two depending on the arrival order.  The
   ;; report the caller actually reads has to follow the same rule, or the answer to
   ;; "which side is `(first (:sides c))`?" is whichever was asserted first — a handle
-  ;; keyed on arrival order, reaching the public reading through the back door.
+  ;; keyed on arrival order, reaching the public reading through the back entry point.
   (binding [checks/*arbitrate-constraints?* true]
     (let [shape (fn [ops]
                   (let [kb (tu/fresh)]
@@ -1016,7 +1016,7 @@
 ;; set from an environment variable — so an application that wants one KB curating a
 ;; hand-written ontology beside one ingesting a corpus whose schema arrives last could
 ;; not have both.  `open-kb`'s `:constraints` is the same policy per KB, and it is a
-;; front-door setting for `:naming`'s reason: whether a *writer* is told no is a question
+;; entry-point setting for `:naming`'s reason: whether a *writer* is told no is a question
 ;; about the application.
 
 (defn- arbitrating-kb [] (v/open-kb (assoc tu/scratch-space :constraints :arbitrate)))
@@ -1055,7 +1055,7 @@
 (deftest a-declaration-arriving-last-reaches-back-only-under-arbitrate
   ;; The asymmetry this option exists for.  A schema that arrives after the facts it
   ;; convicts is the normal shape of an import, and under `:refuse` the violation is
-  ;; *filed* while both memberships stay believed — the forward door refuses an identical
+  ;; *filed* while both memberships stay believed — the forward entry point refuses an identical
   ;; fact one line later, so whether the KB is consistent depends on arrival order.
   (testing ":refuse files the exposure and decides nothing"
     (tu/with-neutral-kb [kb refusing-kb]
@@ -1079,7 +1079,7 @@
 
 (deftest belief-agrees-whichever-arrived-first-under-arbitrate
   ;; Storage does not: the schema-first order **refuses** the clashing membership at the
-  ;; door (admitting what the KB can never believe is what `:arbitrate` still will not
+  ;; entry point (admitting what the KB can never believe is what `:arbitrate` still will not
   ;; do), while the facts-first order admits and defeats it.  What has to agree is
   ;; belief, and it does.
   (let [believed (fn [build ops]

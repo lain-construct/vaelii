@@ -22,7 +22,7 @@
   **What is compared, and why it is content.** Three readings, all handle-free:
 
   - the believed sentences **per assertion context**, and per **view** context up the
-    `genlCx` cone (which is where the exception force and the visibility gate land);
+    `genlCx` ancestor set (which is where the exception force and the visibility gate land);
   - the belief label of each believed sentex — `defeat-class`, plus the contradiction
     and conflict tallies, so a flipped class or a double-counted dilemma surfaces;
   - the `genl` / `genlCx` closures at every probe type and context, plus the equality
@@ -206,7 +206,7 @@
     {;; the believed sentences, grouped by the context they were asserted in
      :believed-by-context
      (reduce (fn [m r] (update m (:context r) (fnil conj #{}) (:sentence r))) {} rows)
-     ;; and grouped by the context a reader stands in: up the genlCx cone, after the
+     ;; and grouped by the context a reader stands in: up the genlCx ancestor set, after the
      ;; exception cascade that context can see
      :visible-from
      (into {} (for [c view-contexts]
@@ -373,7 +373,7 @@
                     (is (contains? (get-in r [:visible-from cx-field]) '(barks Nell))
                         "a sibling context's own conclusion is visible from it")
                     (is (not (contains? (get-in r [:visible-from cx-home]) '(barks Nell)))
-                        "and not from the other side of the cone")
+                        "and not from the other side of the ancestor set")
                     (is (= (get-in r [:representative [cx-field 'Ann]])
                            (get-in r [:representative [cx-field 'Anna]]))
                         "the sameAs edge merged")

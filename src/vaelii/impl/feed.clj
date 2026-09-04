@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.feed
-  "The change feed's registry and its accumulator — the leaf seam a settle files its
+  "The change feed's registry and its accumulator — the leaf boundary a settle files its
   relabelled region into, and the one place a listener list lives.
 
   An application driving the KB otherwise learns that belief changed only by asking
@@ -73,7 +73,7 @@
 (def ^:private dispatch
   "A `(fn [kb region was-in])` that renders the region and calls the listeners, or nil.
   Installed by `vaelii.core` at load; nil means nothing above this layer has claimed
-  the seam, and `deliver!` is a single deref."
+  the registry, and `deliver!` is a single deref."
   (atom nil))
 
 (defn install-dispatch!
@@ -239,7 +239,7 @@
   `*held?*`).  Returns `body`'s value.
 
   The delivery runs even when `body` **throws**, so a teardown that raised part-way still
-  reports the belief it did move.  For `core/edit!` that is nothing: the door is
+  reports the belief it did move.  For `core/edit!` that is nothing: the entry point is
   all-or-nothing, and its rollback runs with `*enabled?*` off, so no region was ever filed
   and there is nothing left of the batch to report.
 

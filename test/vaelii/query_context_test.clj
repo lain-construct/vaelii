@@ -7,14 +7,14 @@
   reading* rather than a context (`nm/query-contexts`, docs/contexts.md).  Two things have
   to hold of each, and they pull in opposite directions:
 
-  - the **write** side refuses it, everywhere a context can be named — the assert door and
+  - the **write** side refuses it, everywhere a context can be named — the assert entry point and
     the `genlCx` slots — so nothing is ever stored in one and nothing wires one into the
     lattice;
-  - the **read** side resolves it at the door, so the engine below never sees the symbol.
+  - the **read** side resolves it at the entry point, so the engine below never sees the symbol.
 
   The second is the one worth testing hardest, and not because it is subtle to implement.
   All three spell like contexts and none is a `?var`, so a symbol that leaked past the
-  door would be read by every unscoped-path test in the engine as an ordinary *concrete*
+  entry point would be read by every unscoped-path test in the engine as an ordinary *concrete*
   context the taxonomy has never heard of — up-closure itself alone, sees nothing, answers
   **empty**.  No throw, no warning, just a read that quietly stops finding things.  So
   every test here checks a positive: what the reading is *for*, not only what it refuses."
@@ -28,7 +28,7 @@
 (use-fixtures :each (tu/neutral))
 
 (defn- proper-subset?
-  "Every member of `a` is in `b`, and `b` has more — the shape a *narrower* reading has
+  "Every member of `a` is in `b`, and `b` has more — the form a *narrower* reading has
   against a wider one."
   [a b]
   (and (every? b a) (> (count b) (count a))))
@@ -223,13 +223,13 @@
         "control: a real vantage below the spindle walks the chain in CxOrganism")
     (is (proper-subset? nothing well))))
 
-;; ---- a door that cannot resolve one says so ------------------------------
+;; ---- an entry point that cannot resolve one says so ------------------------------
 
-(tu/deftest-kb an-unresolving-door-refuses-rather-than-answering-empty
+(tu/deftest-kb an-unresolving-entry-point-refuses-rather-than-answering-empty
   ;; The failure mode this whole design guards against: a query context reaching the
   ;; engine is read as an ordinary concrete context the taxonomy never heard of, and the
-  ;; read answers empty with no throw and no warning.  Only four doors resolve one; the
-  ;; rest refuse, so a door added later inherits the refusal instead of the silence.
+  ;; read answers empty with no throw and no warning.  Only four entry points resolve one; the
+  ;; rest refuse, so an entry point added later inherits the refusal instead of the silence.
   (tu/with-terms [p1 Ind1]
     (v/assert kb (list p1 Ind1) 'CxUniverse)
     (doseq [[nm f] [["handle-of"      #(v/handle-of kb (list p1 Ind1) %)]
@@ -238,13 +238,13 @@
                     ["query-plan"     #(v/query-plan kb (list p1 '?x) %)]
                     ["why-not"        #(v/why-not kb (list p1 Ind1) %)]]]
       (testing nm
-        (is (some? (f 'CxUniverse)) "control: the door works at a real context")
+        (is (some? (f 'CxUniverse)) "control: the entry point works at a real context")
         (let [e (is (thrown? clojure.lang.ExceptionInfo (f 'CxInference)))]
           (is (= :unsupported-context (:type (ex-data e)))))))))
 
-(tu/deftest-kb an-ist-goal-rescues-an-unresolving-door
+(tu/deftest-kb an-ist-goal-rescues-an-unresolving-entry-point
   ;; `ist` resolution runs first, so the named context wins and there is no query context
-  ;; left to refuse — the door answers about CxUniverse, as it would have anyway.
+  ;; left to refuse — the entry point answers about CxUniverse, as it would have anyway.
   (tu/with-terms [p1 Ind1]
     (v/assert kb (list p1 Ind1) 'CxUniverse)
     (is (some? (v/handle-of kb (list 'ist 'CxUniverse (list p1 Ind1)) 'CxInference)))))
@@ -453,7 +453,7 @@
           "and the ordinary read that followed it does not inherit the unbelieved walk"))))
 
 (tu/deftest-kb a-rule-cannot-fire-a-conclusion-into-a-query-context
-  ;; Every write door refuses one; this is the door that *fires* rather than asserts.  An
+  ;; Every write entry point refuses one; this is the entry point that *fires* rather than asserts.  An
   ;; `(ist Cx S)` consequent names its own placement, and `nm/context?` says yes to all
   ;; three query contexts — so the chainer was the one way to store into CxNothing.
   (tu/with-terms [CxA p1 p2 Ind1]
@@ -517,7 +517,7 @@
     (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
     (v/assert kb (list p1 X Y) CxA)
     (let [goal (list p1 '?ctx '?b)]
-      (testing "every unscoped door refuses it"
+      (testing "every unscoped entry point refuses it"
         (is (= :shape (refusal #(v/query kb goal))))
         (is (= :shape (refusal #(v/query kb goal '?home))))
         (is (= :shape (refusal #(v/query kb goal 'CxEverything))))
@@ -533,7 +533,7 @@
 (tu/deftest-kb a-context-that-names-no-context-is-refused-rather-than-empty
   ;; A compound context is admitted only when it reifies.  Unrefused, one that does not
   ;; reaches the engine as a context nothing is asserted in and the read answers empty —
-  ;; indistinguishable from a true negative, which is the failure this door exists to stop.
+  ;; indistinguishable from a true negative, which is the failure this entry point exists to stop.
   (tu/with-terms [CxA p1 X Y]
     (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
     (v/assert kb (list p1 X Y) CxA)

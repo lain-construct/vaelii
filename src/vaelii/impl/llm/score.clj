@@ -6,7 +6,7 @@
   `vaelii.impl.llm.text` produces candidates and `vaelii.core/check-edit` says whether each
   is *admissible*.  Neither says whether it is **right**, and nothing in the engine can:
   the whole reason the reading direction needs a reviewer is that every check passes on a
-  well-formed translation of a claim the text did not make.  So the only honest measure is
+  well-formed translation of a claim the text did not make.  So the only defensible measure is
   against knowledge somebody wrote by hand, and this is the arithmetic for that.
 
   ## The gold set is read out of a KB, never transcribed
@@ -51,7 +51,7 @@
   "The hand-written version of one document, as handles: every **premise** stored in
   `context`.
 
-  Two filters, both load-bearing.  **Its own context**, not the cone above it — a story
+  Two filters, both required.  **Its own context**, not the ancestor set above it — a story
   context sees the upper ontology through `genlCx`, and scoring a reader of one fable
   against the whole shipped schema would measure a recall it was never asked for.  And
   **premises only**: a forward-chained conclusion like `(repaidKindness MouseA LionA)` is
@@ -144,7 +144,7 @@
 
 (defn rename
   "`sentence` with every symbol `m` maps replaced, at any depth.  Goes through
-  `vaelii.impl.sentex/canon` so the result is the shape the store keys on: a lazy seq, a
+  `vaelii.impl.sentex/canon` so the result is the form the store keys on: a lazy seq, a
   `PersistentList` and a vector are all `=` and freeze to *different* bytes, so a renamed
   sentence built out of lazy seqs would miss a `handle-of` match that is really there."
   [m sentence]
@@ -221,7 +221,7 @@
      :aligned  (counts (count (:gold-hit aligned)) (count gold) (count cands)
                        (:derivable aligned))
      :renaming renaming
-     ;; `nm/print-key`, never a bare `pr-str`: both lists are read as a score report, and
+     ;; `nm/print-key`, never a bare `pr-str`: both lists are are indistinguishable from a score report, and
      ;; an ambient `*print-length*` would elide two claims to one prefix and leave the
      ;; reading in `gold`'s handle order
      :missing  (nm/sort-by-content-key

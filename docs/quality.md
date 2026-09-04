@@ -100,7 +100,7 @@ Three outcomes, and four situations produce them:
 
 The last row is the one to read twice. **A firing is a *currently supported* one.** The
 census reads live justifications, so a rule whose conclusion has been withdrawn has none
-left and reads as though it had never fired. Firings-ever is a different question and
+left and gives the impression that it had never fired. Firings-ever is a different question and
 nothing here answers it — a KB does not keep a history of what it once believed.
 
 `:all-defeated` is separated out because it is the more interesting finding: such a rule
@@ -116,7 +116,7 @@ sentence is the one that was *written* — a rule is stored canonically numbered
 Order-of-magnitude buckets are what an author reads (`10^0` holds the predicates with a
 single fact); the Gini coefficient is the single number that goes in a baseline — 0.0 when
 every predicate holds the same count, `(n-1)/n` when one holds everything, so a small
-vocabulary cannot reach 1.0 and the figure must not be read as though it could.
+vocabulary cannot reach 1.0 and the figure must not be give the impression that it could.
 
 Both are over **stored** counts, and that is not a default anybody should change: a
 believed extent is O(n) per predicate ([api.md](api.md), "Stored vs believed"), which
@@ -186,13 +186,13 @@ than [kbs.md](kbs.md)'s.
 the highest position a declaration names is a lower bound on the arity rather than a claim
 about it. When a length does arrive — declared of the predicate, or inherited through a
 `genl` edge from a super-predicate — the declaration is left constraining a position the
-predicate provably does not have, and the door refuses the identical sentence one line
+predicate provably does not have, and the entry point refuses the identical sentence one line
 later. `:declarations` is what names those, and without it a declaration that is enforced
 and one that enforces nothing look exactly alike.
 
-It is the **door's own arm, re-asked** of content already stored, so what the census lists
+It is the **entry point's own arm, re-asked** of content already stored, so what the census lists
 and what an `assert` refuses cannot drift apart: whatever binds a predicate's length for
-the door binds it here, and a predicate the KB has bound to no length strands nothing.
+the entry point binds it here, and a predicate the KB has bound to no length strands nothing.
 `interArg` names two positions and each is asked, since both are the same mistake.
 
 A **`variable_arity`** predicate strands nothing either, however high the position: it reads

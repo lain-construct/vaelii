@@ -3,7 +3,7 @@
 (ns vaelii.koinii-identity-test
   "Koinii actor identity: per-agent contexts as identity substrate and
   write boundary, an admin-only registry with trust as a mutable number, and the
-  policy-conditional auth seam.  One deftest per 'How to verify' bullet, plus the
+  policy-conditional auth extension point.  One deftest per 'How to verify' bullet, plus the
   registry-load and trust-mutation checks the design decisions (D3) demand."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
@@ -78,7 +78,7 @@
       (is (= :cooperative (:policy boreas)))
       (is (thrown-with-msg? ExceptionInfo #"identity unverified"
                             (id/authenticate {:claimed-id 'AgentBoreas} {:policy :proof-tier}))
-          "proof-tier is the seam that closes the gap — an unverified claim is refused"))))
+          "proof-tier is the extension point that closes the gap — an unverified claim is refused"))))
 
 ;; ---- verify (b): no writing under another *creator* ----------------------
 
@@ -95,7 +95,7 @@
         (is (= 'AgentAtlas (:creator prov)))
         (is (true? (:authenticated? prov)))
         (is (= "atlas-daemon" (:source prov)) "the source hint rides the open provenance map")))
-    (testing "a client cannot stamp AgentAtlas without the credential — refused at the seam"
+    (testing "a client cannot stamp AgentAtlas without the credential — refused at the extension poinface"
       (is (thrown-with-msg? ExceptionInfo #"identity unverified"
                             (id/authenticate {:claimed-id 'AgentAtlas :credential "forged"}
                                              {:policy :proof-tier :verify-fn verify}))))
@@ -104,7 +104,7 @@
             h      (id/ingest kb boreas (list 'ran 'ProdCluster))]
         (is (= 'AgentBoreas (:creator (v/provenance kb h))))))))
 
-;; ---- verify (e): first-writer-wins is NOT load-bearing for attribution ----
+;; ---- verify (e): first-writer-wins is NOT required for attribution ----
 
 (tu/deftest-kb co-attribution-survives-first-writer-wins
   (id/agent-context kb 'CxDeploy 'AgentAtlas)

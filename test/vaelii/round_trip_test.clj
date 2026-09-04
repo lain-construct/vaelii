@@ -307,7 +307,7 @@
   ;; Every trip above calls `export/export!` and `imp/import-dump` — the implementations,
   ;; reached through this namespace's own `:require`.  `v/import!` is the *public* half
   ;; and it does not require its reader: it goes through `vaelii.impl.wiring`'s delayed
-  ;; `requiring-resolve`, which is the seam a load-order break lands on and the one a
+  ;; `requiring-resolve`, which is the call a load-order break lands on and the one a
   ;; direct call to `imp/import-dump` steps over.  So the public pair gets a trip of its
   ;; own, calling nothing else.
   ;;
@@ -335,7 +335,7 @@
 
 (deftest records-only-reads-our-dialect-too
   ;; The `{:belief? false}` path exists for a corpus past what the JTMS scales to.  It
-  ;; shares one seam with the belief path — `field-map->sentence` — so the dialect
+  ;; shares one fn with the belief path — `field-map->sentence` — so the dialect
   ;; discrimination has to hold there as well: the corpus lands stored and indexed, with
   ;; no TMS behind it.
   (let [dump (temp-dir "records-only")]
@@ -461,7 +461,7 @@
     added))
 
 (deftest a-frame-this-build-cannot-construct-is-counted-not-fatal
-  ;; The other door's policy, applied to the structural one.  A name `assert` would
+  ;; The other entry point's policy, applied to the structural one.  A name `assert` would
   ;; refuse is stored and counted; a *sentence* this build will not construct cannot be
   ;; stored at all, so it is skipped and counted — and the load finishes either way.
   ;; One refusal taking down a finished pass over millions of good frames is the
@@ -516,7 +516,7 @@
 
 (deftest a-torn-justification-stream-is-torn-too
   ;; The sentex stream is not the only one `meta.edn` counts, and it is not the one with
-  ;; the most to lose: a truncated `justifications.nippy.stream` reads as a clean EOF
+  ;; the most to lose: a truncated `justifications.nippy.stream` is indistinguishable from a clean EOF
   ;; exactly as a truncated sentex stream does, and what it costs is *belief* — every
   ;; conclusion whose justification was in the lost tail comes back unsupported, on a KB
   ;; that reports a clean import.  The count is the only witness either stream leaves.
@@ -559,7 +559,7 @@
 (deftest a-dump-that-fills-the-reserved-out-slot-is-refused
   ;; A justification frame is the record's field map, so it carries `:out` — the
   ;; negation-as-failure antecedent set, which the engine reserves and never writes
-  ;; (docs/naf.md).  The round trip therefore carries the slot, and this door is the only
+  ;; (docs/naf.md).  The round trip therefore carries the slot, and this entry point is the only
   ;; place a filled one could enter the store.  Three relabel invariants read it as empty
   ;; rather than reading it, so an imported one would move belief silently and
   ;; differently on every relabel; refused here, where the frame is still legible.
@@ -631,7 +631,7 @@
            [jid h]))))
 
 (defn- splice-orphaning-dump!
-  "Edit `dir` into the shape that drops a meta-sentex with something resting on it, and
+  "Edit `dir` into the structure that drops a meta-sentex with something resting on it, and
   return `{:meta-id … :rests-on-it …}`.
 
   Three edits, and each one stands for something a foreign dump has.  The
@@ -833,7 +833,7 @@
 ;;; ── a corpus with spelling conventions of its own ─────────────────────
 
 (defn- lenient-kb
-  "A cleared `:memory` KB whose front door is open — the KB a corpus in someone else's
+  "A cleared `:memory` KB whose public entry point is open — the KB a corpus in someone else's
   dialect is loaded into."
   []
   (doto (v/open-kb (assoc tu/plain-memory-space :naming :off)) (tu/clear-kb!)))
@@ -856,7 +856,7 @@
     (summary psychological_profiling-profiling "A technique used by law enforcement.")])
 
 (deftest a-corpus-in-its-own-dialect-round-trips-verbatim
-  ;; The property the whole naming policy rests on: a corpus the front door disagrees
+  ;; The property the whole naming policy rests on: a corpus the public entry point disagrees
   ;; with is *storable*, *portable* and *findable by the very names that broke the
   ;; convention* — and comes back spelled the way it went in.  A loader that silently
   ;; repaired `game-theory` to `gameTheory` would round-trip its own invention, and the
@@ -885,7 +885,7 @@
                 ;; chose the bulk path learns the number while the records go past
                 (let [{:keys [checked refused by-class] :as tally} (:naming summary)]
                   (is (= (count foreign-dialect) checked refused)
-                      "every record — they share a context the front door refuses")
+                      "every record — they share a context the public entry point refuses")
                   (is (= (count foreign-dialect) (:context-name by-class)))
                   (is (= 3 (:argument by-class))
                       "the three apostrophed names — a hyphenated one is a sense and legal")

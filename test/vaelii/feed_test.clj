@@ -3,7 +3,7 @@
 (ns vaelii.feed-test
   "The change feed: an application told that belief moved, instead of asking again.
 
-  Every claim here is about the *seam*, not about inference — the engine already
+  Every claim here is about the *extension point*, not about inference — the engine already
   computes what a listener receives and used to discard it, so what these tests hold are
   the four things a feed can get wrong.
 
@@ -200,7 +200,7 @@
 
 (tu/deftest-kb forward-chain-delivers-what-it-derived
   ;; A second entry point into a settle, so it must feed too — `assert` is not the only
-  ;; door.
+  ;; entry point.
   (tu/with-terms [dog barks Muffet]
     (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse
               {:chain? false})
@@ -213,7 +213,7 @@
 (tu/deftest-kb a-batch-that-throws-reports-nothing-then-or-later
   ;; `edit!` is all-or-nothing, so a batch that throws leaves no belief to report — not
   ;; at the time and not at the next settle either.  The rollback runs with the feed off,
-  ;; so it accumulates no region of its own, and the one event this door delivers has
+  ;; so it accumulates no region of its own, and the one event this entry point delivers has
   ;; nothing to hand anybody.
   (tu/with-terms [dog Muffet cat Tom]
     (let [[seen f] (recorder)]
@@ -366,7 +366,7 @@
           (v/unwatch kb token))))))
 
 (tu/deftest-kb listeners-belong-to-one-kb
-  ;; The renderer behind the seam is installed once per process (`observe`'s pattern), so
+  ;; The renderer behind the extension point is installed once per process (`observe`'s pattern), so
   ;; the thing that must be per-KB is the registry.  Two live KBs, and neither hears the
   ;; other.  The second one is on the **isolated** pair: a `tu/fresh` here would clear the
   ;; scratch space out from under the `:each` fixture holding the first.
@@ -388,7 +388,7 @@
   ;; one is a `recover` over the merged view, which is silent for the usual reason.
   ;;
   ;; Its own base rather than the fixture's, following `overlay_test`: a fork needs an
-  ;; index written over the `KvBackend` seam, so forking whatever `VAELII_TEST_BACKEND`
+  ;; index written over the `KvBackend` protocol, so forking whatever `VAELII_TEST_BACKEND`
   ;; chose would throw on the two columnar pairs — and the claim here is about the
   ;; registry, not about the store under it.
   (let [base (doto (v/open-kb {:backend :memory :space [::base] :recover? false})
@@ -481,7 +481,7 @@
     (let [[seen f] (recorder)]
       (v/watch kb (list dog '?x) CxChild f)
       (v/assert kb (list dog Muffet) CxParent)
-      (is (= [(list dog Muffet)] (added @seen)) "up the genlCx cone, as any read is")
+      (is (= [(list dog Muffet)] (added @seen)) "up the genlCx ancestor set, as any read is")
       (v/assert kb (list dog Rex) CxSibling)
       (is (= [(list dog Muffet)] (added @seen))
           "a context the watch cannot see is not its business"))))
@@ -567,8 +567,8 @@
 ;; ---- the delivery on the failure path ------------------------------------
 
 (defn- with-throwing-dispatch
-  "Run `f` with the seam's renderer replaced by one that throws, then put the real one
-  back.  The seam is global (`feed/install-dispatch!`), so restoring it is what keeps
+  "Run `f` with the extension point's renderer replaced by one that throws, then put the real one
+  back.  The extension point is global (`feed/install-dispatch!`), so restoring it is what keeps
   this test from being the reason a later namespace sees no events."
   [f]
   (let [prior @#'feed/dispatch]

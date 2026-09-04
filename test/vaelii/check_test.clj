@@ -41,7 +41,7 @@
                ["a variable in a fact" (list dog '?x) CxThe             :not-ground]
                ["genl over an individual" (list 'genl Muffet dog) CxThe   :not-well-formed]
                ;; negation lives on facts: a rule under `not` would store a sentence
-               ;; its own key cannot be computed from, so both doors refuse it —
+               ;; its own key cannot be computed from, so both entry points refuse it —
                ;; wrapped exactly as bare, since the wrappers peel before the test
                ["a negated rule"
                 (list 'not (list 'implies (list dog '?x) (list 'animal '?x)))
@@ -110,7 +110,7 @@
         (is (= :naming (assert-type kb sentence 'CxWell))
             "and it is the type assert throws for the same sentence")))
     (testing "a *unary* snake_case functor is a well-formed type name, however coined"
-      ;; this check is about the shape of a name, not about whether the vocabulary
+      ;; this check is about the structure of a name, not about whether the vocabulary
       ;; wants it — refusing an implausible type is a different question
       (is (= [] (v/check kb '(implies (penguin ?x) (has_black_and_white_feathers ?x))
                          'CxWell))))))
@@ -143,12 +143,12 @@
       (is (= #{:unknown-option}
              (into #{} (map :type) (v/check kb (list dog Muffet) CxThe :nope)))))))
 
-(deftest a-vector-sentence-is-refused-because-the-read-doors-read-it-as-a-join
-  ;; The one spelling both doors accepted and read differently.  A vector is
-  ;; `sequential?`, so the write door took it and canon flattened it to the list it
+(deftest a-vector-sentence-is-refused-because-the-read-entry-points-read-it-as-a-join
+  ;; The one spelling both entry points accepted and read differently.  A vector is
+  ;; `sequential?`, so the write entry point took it and canon flattened it to the list it
   ;; looks like — while a vector goal is what `query` and `prove` spell a *conjunction*
   ;; with, so the same spelling handed back asked for a join over the sentence's own
-  ;; elements and answered nothing.  Neither door raised.
+  ;; elements and answered nothing.  Neither entry point raised.
   (tu/with-neutral-kb [kb kb-with-starter]
     (tu/with-terms [likesOf Alice Bob dog CxVec]
       (let [before   (v/sentex-count kb)
@@ -163,10 +163,10 @@
         (testing "check predicts each of them, as it must"
           (doseq [form [fact rule nested]]
             (is (= #{:shape} (types-of-check kb form CxVec)))))
-        (testing "and so do the two doors that share the guard"
-          (doseq [door [#(v/assert-inert kb fact CxVec)
-                        #(v/check-edit kb {:add [[fact CxVec]]})]]
-            (let [r (try (door) (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (testing "and so do the two entry points that share the guard"
+          (doseq [entry-point [#(v/assert-inert kb fact CxVec)
+                               #(v/check-edit kb {:add [[fact CxVec]]})]]
+            (let [r (try (entry-point) (catch clojure.lang.ExceptionInfo e (ex-data e)))]
               (is (= :shape (or (:type r) (:type (first r))))))))
         (testing "the message names the conjunction reading and the spelling to write"
           (let [m (:message (first (v/check kb fact CxVec)))]
@@ -175,11 +175,11 @@
             (is (re-find (re-pattern (str "\\(" likesOf " " Alice " " Bob "\\)")) m))))
         (testing "nothing was stored by any of them"
           (is (= before (v/sentex-count kb))))
-        (testing "the list spelling is the one both doors agree on"
+        (testing "the list spelling is the one both entry points agree on"
           (let [h (v/assert kb (apply list fact) CxVec)]
             (is (= h (v/handle-of kb (apply list fact) CxVec)))
             (is (seq (v/prove kb (apply list fact) CxVec))
-                "the read door that answered nothing for the vector answers here")
+                "the read entry point that answered nothing for the vector answers here")
             (v/retract! kb h)))))))
 
 ;; ---- the opts roster: admissible knowledge, inadmissible request ---------
@@ -254,7 +254,7 @@
 ;; A `different` antecedent is negation as failure over the equality closure
 ;; (`checks/negative-predicates`), so a rule reading it carries a negative edge while
 ;; carrying no exception — and nothing registers such a rule for re-checking, so the
-;; roster of watched rules does not name it.  Both stratification doors have to find it
+;; roster of watched rules does not name it.  Both stratification entry points have to find it
 ;; anyway (`checks/negative-edge-rules`), or the same pair of rules is refused in one
 ;; arrival order and stored in the other.
 
@@ -302,7 +302,7 @@
 
 ;; ---- encodability: what a sentence's content may be ----------------------
 ;; A map or a set has no canonical form, so `sentex/canon` cannot normalize one and
-;; `nm/form-rank` cannot order one — the door refuses it rather than storing a sentence
+;; `nm/form-rank` cannot order one — the entry point refuses it rather than storing a sentence
 ;; whose durable bytes and whose content order both depend on how it was built.
 
 (deftest a-map-or-set-anywhere-in-a-sentence-is-refused
@@ -376,7 +376,7 @@
         (let [ps (v/check-edit kb {:add [[(list 'binary_predicate pOf) CxThe]
                                          [(list pOf Thing) CxThe]]})]
           (is (= [] ps)
-              "the declaration in the same batch was read as though it had landed"))))
+              "the declaration in the same batch was give the impression that it had landed"))))
     (testing "and the open-world floor still holds: an untyped argument violates nothing"
       (tu/with-terms [newPred Thing CxThe]
         (is (= [] (v/check-edit kb {:add [[(list 'arg newPred 1 'animal) CxThe]
@@ -512,10 +512,10 @@
 
 (deftest the-NAF-literal-checks-are-predicted-not-only-thrown
   ;; These live in `sentex/check-naf-closed`, which the constructor runs — so both
-  ;; *storage* doors had them and the dry-run door did not, `check` predicting an assert
+  ;; *storage* entry points had them and the dry-run entry point did not, `check` predicting an assert
   ;; without building a sentex.  A caller validating a rule before writing it was told
   ;; the rule was admissible and then handed a throw, which is the one answer `check`
-  ;; must never give.  Now in `checks/check-rule!`, the list every door reads.
+  ;; must never give.  Now in `checks/check-rule!`, the list every entry point reads.
   (tu/with-neutral-kb [kb kb-with-starter]
     (tu/with-terms [person likes kidOf sick adult loner]
       (let [before (v/sentex-count kb)]
@@ -562,7 +562,7 @@
             (is (= #{expected} (types-of-check kb sentence 'CxUniverse)))
             (is (= expected (assert-type kb sentence 'CxUniverse))
                 "and it is the type assert throws for the same sentence")))
-        (testing "and the well-formed conjunctive rule is admissible at both doors"
+        (testing "and the well-formed conjunctive rule is admissible at both entry points"
           (is (= [] (v/check kb (list 'implies (list 'and (list person '?x)
                                                      (list 'unknown (list 'and (list adult '?x)
                                                                           (list sick '?x))))
@@ -618,17 +618,17 @@
 
 (deftest assert-inert-refuses-a-rule
   ;; A rule is indexed where it is *created* — `assert-rule-sentence`'s new branch and
-  ;; the generator mint — so one stored by this door is one no chainer can reach, and it
+  ;; the generator mint — so one stored by this entry point is one no chainer can reach, and it
   ;; stays unreachable: asserting the same rule afterwards resolves to the stored sentex,
   ;; takes the existing branch and does not index it either.  What that leaves is a rule
   ;; `in?` calls believed and no fact ever fires, which is the accepted-and-inert state
-  ;; `check-generator` refuses at the other door.  A labeling labels atoms.
+  ;; `check-generator` refuses at the other entry point.  A labeling labels atoms.
   ;;
   ;; The *other* inertness is the rule's own `set/inertRule` — believed, indexed and
   ;; browsable, firing neither way — which is what a documentation-only rule wants (a
   ;; transitivity the cached closure computes instead) and what
   ;; `direction_test/inert-rule-is-documentation-only` pins.  The refusal's message names
-  ;; it, since a caller reaching for this door usually meant that one.
+  ;; it, since a caller reaching for this entry point usually meant that one.
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [bird flies Tweety CxInert]
       (let [before (v/sentex-count kb)

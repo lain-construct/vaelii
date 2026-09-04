@@ -3,7 +3,7 @@
 (ns vaelii.qcn-integration-test
   "Where the qualitative calculi meet the rest of the engine.
 
-  Each algebra's own namespace tests it in isolation; this one tests the seams they all
+  Each algebra's own namespace tests it in isolation; this one tests the protocol they all
   reach through `vaelii.impl.qcn-kb` — what a registered prover is *reachable from*, what
   it is not, and what it reports when the facts it reads cannot all hold.  Several of
   these behaviours fall out of the registry being a KB-held list rather than being
@@ -306,7 +306,7 @@
     (vec a)))
 
 (tu/deftest-kb ^:slow the-same-qualitative-knowledge-derives-the-same-belief-in-any-order
-  ;; The oracle for the whole seam, and the property the two sections above are each one
+  ;; The oracle for the whole protocol, and the property the two sections above are each one
   ;; instance of: a rule, four facts of mixed polarity, two contexts and the context
   ;; below both — asserted in eight orders, into a KB built from nothing each time, and
   ;; every order must reach the identical derived set, placement contexts included.
@@ -526,7 +526,7 @@
 
 (defn- links!
   "Links `from`..`to` of a chain under `pred`, nodes named `<prefix><i>`, each link
-  relating *i* to *i-1* — the shape that makes every pair compose, whichever calculus
+  relating *i* to *i-1* — the structure that makes every pair compose, whichever calculus
   `pred` belongs to."
   ([kb pred prefix n opts] (links! kb pred prefix 1 n opts))
   ([kb pred prefix from to opts]
@@ -576,7 +576,7 @@
 
 (tu/deftest-kb the-delta-is-generic-over-the-calculus
   ;; Nothing in the delta knows an algebra — it diffs closed networks and counts handles —
-  ;; so a second calculus is the check that it is the *seam* being tested rather than
+  ;; so a second calculus is the check that it is the *protocol* being tested rather than
   ;; RCC-8.  Allen's `after` chain is the same shape in a different algebra, and the two
   ;; networks coexist in one KB without seeing each other.
   (tu/with-terms [tmpLate]

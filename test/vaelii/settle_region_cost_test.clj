@@ -72,7 +72,7 @@
             [vaelii.test-util :as tu]))
 
 (def ^:private n
-  "Standing dilemmas per workload.  Large enough that a per-pair term reads as a
+  "Standing dilemmas per workload.  Large enough that a per-pair term is indistinguishable from a
   three-digit count rather than as a rounding one, small enough to cost a second."
   60)
 
@@ -81,7 +81,7 @@
 (defn- region-reads
   "`jtms/touched` calls made while `f` runs.  Redefined rather than instrumented, because
   the count is the whole measurement and the engine carries no counter for it — and
-  because a *materialization* is what costs, so the seam has to be the read and not the
+  because a *materialization* is what costs, so the measurement has to be the read and not the
   set it hands back.  `jtms/revived` reaches the region through this var too, so its
   one-arity is counted where it forces one and the value-taking arity is not, which is
   the distinction the hoist turns on."
@@ -94,7 +94,7 @@
 
 (def ^:private one-pass-reads
   "Region materializations a settle that converges in one pass costs: the pass's own
-  delay and the finish's delay.  `passes + 1`, which is the shape the hoist set out to
+  delay and the finish's delay.  `passes + 1`, which is the form the hoist set out to
   leave — the ns docstring names the third read this file used to carry and why it went."
   2)
 

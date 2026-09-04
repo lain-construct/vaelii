@@ -164,7 +164,7 @@
   [kb ^long e]
   (v/with-deferred-settle kb
     (dotimes [i e]
-      (let [h (v/assert kb (list 'hrDecoy (symbol (str "HrDecoy" i))) leaf-ctx
+      (let [h (v/assert kb (list 'hr_decoy (symbol (str "HrDecoy" i))) leaf-ctx
                         {:chain? false :strength :monotonic})]
         (v/assert kb (list 'except (sx/sentex-handle h)) base-ctx
                   {:chain? false :strength :monotonic})))))
@@ -254,7 +254,7 @@
 
 (defn- type-name
   "A type spelling the naming policy accepts: snake_case, so `hr_t7` and never `hrT7`,
-  which reads as a predicate."
+  which is indistinguishable from a predicate."
   [i]
   (symbol (str "hr_t" i)))
 

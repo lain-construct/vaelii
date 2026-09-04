@@ -202,7 +202,7 @@
                   (testing "the locator this seat computes is the marker's — resolved from the KB"
                     (is (= (:locator mk) (:locator r)))
                     (is (= (:locator mk) (d/locator-of seat (:handle r))))))))
-            (testing "a bare locator resolves too — the payload was never load-bearing"
+            (testing "a bare locator resolves too — the payload was never required"
               (let [r (d/resolve-by-locator disk (:locator mk))]
                 (is (:resolved? r))
                 (is (= atlas-fact (:sentence r)))

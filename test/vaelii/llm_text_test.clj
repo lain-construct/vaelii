@@ -288,7 +288,7 @@
     (testing "and so does every path the critic is reached through"
       (is (= :context-escape (:type (session/check-entry kb bracketed))))
       ;; The batch reports `:shape` beside it, and only for this spelling: the write
-      ;; door refuses a top-level vector sentence outright, so a bracketed `ist` is
+      ;; entry point refuses a top-level vector sentence outright, so a bracketed `ist` is
       ;; convicted twice over where the list spelling is convicted once.  What this
       ;; test pins is the `:context-escape` half — that a bracket is not the escape
       ;; hatch from the placement guard — and that half reads identically on both.

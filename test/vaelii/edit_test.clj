@@ -75,15 +75,15 @@
           (is (nil? (v/handle-of kb (list p X) CxThe)))
           (is (v/in? kb (v/handle-of kb (list q X) CxThe)) "the untouched premise stays"))))))
 
-;; ---- the door refuses what the dry run reports ---------------------------
+;; ---- the entry point refuses what the dry run reports ---------------------------
 
 (deftest a-malformed-add-entry-is-refused-whole-not-applied-in-part
-  ;; One fn (`add-entry-shape-problem`) is read by both doors, so what `check-edit`
+  ;; One fn (`add-entry-shape-problem`) is read by both entry points, so what `check-edit`
   ;; reports as `:shape` is what `edit` throws — a 4-element entry is never applied
   ;; with the junk silently dropped.
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [dog Muffet CxShape]
-      (testing "a 4-element entry is :shape at both doors, and nothing lands"
+      (testing "a 4-element entry is :shape at both entry points, and nothing lands"
         (let [batch  {:add [[(list dog Muffet) CxShape {} :junk]]}
               before (v/sentex-count kb)]
           (is (= [:shape] (mapv :type (v/check-edit kb batch))))
@@ -92,29 +92,29 @@
           (is (= before (v/sentex-count kb)))
           (is (nil? (v/handle-of kb (list dog Muffet) CxShape))
               "the entry was refused whole, not applied minus the junk")))
-      (testing "a non-sequential entry is :shape at both doors, not a bare throw"
+      (testing "a non-sequential entry is :shape at both entry points, not a bare throw"
         (doseq [bad [42 {:sentence 1}]]
           (let [batch {:add [bad]}]
             (is (= [:shape] (mapv :type (v/check-edit kb batch))))
             (let [e (is (thrown? clojure.lang.ExceptionInfo (v/edit! kb batch)))]
               (is (= :shape (:type (ex-data e)))))))))))
 
-(deftest a-batch-half-that-is-not-a-sequence-is-shape-at-every-door
-  ;; `{:add 5}` reaches every door's iteration, so unrefused it raises a bare
+(deftest a-batch-half-that-is-not-a-sequence-is-shape-at-every-entry-point
+  ;; `{:add 5}` reaches every entry point's iteration, so unrefused it raises a bare
   ;; "Don't know how to create ISeq" out of `check-edit`, `edit` and `preview` alike —
   ;; over the daemon, a 500 with no `:type` to discriminate on.
   (tu/with-neutral-kb [kb tu/fresh]
     (doseq [batch [{:add 5} {:remove 5} {:add {:a 1}} {:remove #{7}}]]
       (testing (pr-str batch)
         (is (= [:shape] (mapv :type (v/check-edit kb batch))))
-        (doseq [[nm door] [["edit" #(v/edit! kb batch)]
-                           ["preview" #(v/preview kb batch)]]]
-          (let [e (is (thrown? clojure.lang.ExceptionInfo (door))
+        (doseq [[nm entry-point] [["edit" #(v/edit! kb batch)]
+                                  ["preview" #(v/preview kb batch)]]]
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (entry-point))
                       (str nm " refuses " (pr-str batch)))]
             (is (= :shape (:type (ex-data e))) (str nm " says :shape"))))))))
 
 (deftest an-unknown-remove-handle-refuses-the-batch-before-anything-lands
-  ;; `check-edit` flags the handle as `:unknown-handle`; a door that then quietly
+  ;; `check-edit` flags the handle as `:unknown-handle`; an entry point that then quietly
   ;; folded it into zero counts would apply the adds first and leave a half-applied
   ;; batch behind a refusal the dry run had already named.  `retract!` standalone is
   ;; the deliberate contrast: retracting one absent handle is an ordinary zero-count

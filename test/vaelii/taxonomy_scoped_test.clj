@@ -3,7 +3,7 @@
 (ns vaelii.taxonomy-scoped-test
   "The scoped read arities: a closure read asked from context K uses exactly the
   edges K can see — some believed supporter asserts them from K's genlCx
-  up-cone, or from no recorded context at all (nil, which constrains everywhere).
+  ancestor set, or from no recorded context at all (nil, which constrains everywhere).
 
   Pure unit tests over a raw taxonomy, like taxonomy_test: handles are bare
   integers, belief is whatever set `refresh-beliefs` is handed.  The oracle at the
@@ -27,7 +27,7 @@
 (def ^:private lattice-handles
   "The handles of the context lattice's own supporters — `refresh-beliefs`
   reconciles every relation at once, so a believed set that omits these would
-  deactivate the lattice out from under the reader's cone."
+  deactivate the lattice out from under the reader's ancestor set."
   #{901 902 903 904 905 906})
 
 (defn- lattice
@@ -44,7 +44,7 @@
 
 ;; ---- the visibility sets --------------------------------------------------
 
-(deftest visible-ctxs-is-a-function-of-the-cone-and-the-census
+(deftest visible-ctxs-is-a-function-of-the-ancestor-set-and-the-census
   (let [t (lattice)]
     (tax/add-genl t 'dog 'animal 1 'CxA)
     (tax/add-genl t 'cat 'animal 2 'CxB)
@@ -75,7 +75,7 @@
         (tax/add-genl t 'fish 'animal 2 'CxE)
         (is (= '#{CxA} (tax/visible-ctxs t :genl 'CxW))
             "E asserts now, W does not see it, so W is scoped")))
-    (testing "a genlCx edge re-stamps too — the cone itself moved"
+    (testing "a genlCx edge re-stamps too — the ancestor set itself moved"
       (tax/add-genlCx t 'CxW 'CxE 907)
       (is (nil? (tax/visible-ctxs t :genl 'CxW))
           "W sees CxE now, so it sees every asserting context again"))))
@@ -353,7 +353,7 @@
   ;; The oracle above points every edge up the node order, so the graph it walks is
   ;; always a DAG — and a DAG is the one shape where the depth potential ranks *nodes*.
   ;; This one lets an edge point either way, which is the shape it ranks by **component**,
-  ;; and the shape a scoped read pruned on a strict descent alone gets wrong.  Three
+  ;; and the form a scoped read pruned on a strict descent alone gets wrong.  Three
   ;; readers of one question are held to one answer: the closure, the reachability, and
   ;; the witness the reachability rests on.
   (let [t       (lattice)

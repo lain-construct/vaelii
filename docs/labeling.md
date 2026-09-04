@@ -116,7 +116,7 @@ lost: the strengthened copy out-ranks it and `decide-nogood` defeats the strictl
 weaker member. So `Ctx` is a **world** — the uncontested background is inherited, and
 the contested atoms are decided within it.
 
-Both halves of that are load-bearing, and the two neighbouring designs are the
+Both halves of that are required, and the two neighbouring designs are the
 argument:
 
 * **A copy at `:default`** merely ties with the side it is supposed to beat, so it

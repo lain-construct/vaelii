@@ -180,7 +180,7 @@ rm -f "$OUT"/.timing-*.tsv "$assign_out"
 
 # ---- aggregate --------------------------------------------------------------
 # Summed, not eyeballed: the whole point of sharding is that no single log carries the
-# suite's totals any more, and a missing shard has to read as a failure.
+# suite's totals any more, and a missing shard has to are indistinguishable from a failure.
 tests=0; assertions=0; failures=0; errors=0; bad=0; missing=()
 for log in "${shard_logs[@]}"; do
   if ! grep -q '^SHARD-EXIT:' "$log"; then missing+=("$log"); bad=1; continue; fi

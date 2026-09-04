@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.reads
-  "The named doors onto the index — a read **as stored**, or a read **as believed**.
+  "The named entry points onto the index — a read **as stored**, or a read **as believed**.
 
   The fourth invariant is that a stored sentex is not a believed one (README.md, \"The
   model in one page\").  Every `IndexStore` posting is storage: it holds a defeated
@@ -11,28 +11,28 @@
   read nothing distinguishes the caller that answered it from the one that forgot.
 
   This namespace is where it is asked.  Every raw `vaelii.impl.protocols` index read
-  outside a short roster of implementers goes through a door here, and the door's own
+  outside a short roster of implementers goes through an entry point here, and the entry point's own
   name says which answer it gives — `lein lint`'s **E16** is what keeps that true, and
   its roster is the one place the exceptions are written down.
 
-  ## The two doors, and why they take different arguments
+  ## The two entry points, and why they take different arguments
 
   - **`as-stored-…` takes the index store.**  An as-stored read *is* an index
-    operation, so the door's arglist is the protocol method's and nothing else is in
+    operation, so the entry point's arglist is the protocol method's and nothing else is in
     scope.  A caller reaching one is saying it wants storage: a candidate set it filters
     itself, a roster that must over-approximate, a diagnostic that reports what is
-    written.  Each door below says what a stored-but-disbelieved answer is *for*.
+    written.  Each entry point below says what a stored-but-disbelieved answer is *for*.
   - **`believed-…` takes the KB.**  Belief lives in the JTMS, so a believed read is a
     question about the KB and not about the index — which is exactly the distinction the
     arglists carry.  The filter is `jtms/in?`, which already drops a **superseded**
-    spelling along with a defeated one (`vaelii.impl.jtms`'s `-in?`), so a believed door
+    spelling along with a defeated one (`vaelii.impl.jtms`'s `-in?`), so a believed entry point
     means what `kb/sentexes-matching` means for the handles it yields.
 
-  A door is a **wrapper and never a rewrite**: one call to the protocol method it names,
+  An entry point is a **wrapper and never a rewrite**: one call to the protocol method it names,
   the same laziness, the same count-aware path.  It adds no index operation, which is
   what keeps `assert_cost_test` reading the same numbers on either side of one.
 
-  ## Where there is only one door, and why
+  ## Where there is only one entry point, and why
 
   - **The cardinalities** (`stored-count-…`) count a posting set's members.  Belief is
     not in the index, so there is no O(1) believed count and this namespace does not
@@ -56,8 +56,8 @@
     twin have no believed sibling here, and a chainer asks `res/rule-believed?` of each
     handle it means to fire.
   - **`resolution/*belief-blind*`** is not read here.  It is a named opt-out scoped to
-    the retrieval door that resolves `CxEverything`, and no caller of these doors is on
-    that path — a door that consulted it would extend the opt-out to reads nobody granted
+    the retrieval entry point that resolves `CxEverything`, and no caller of these entry points is on
+    that path — an entry point that consulted it would extend the opt-out to reads nobody granted
     it to."
   (:require [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]))
@@ -69,7 +69,7 @@
 
   A stored-but-disbelieved answer is what a caller wants here when it is about the
   *contents* of a context rather than about what holds in it: a teardown that must remove
-  every record it finds, a cone sweep that fetches each record and decides on the record,
+  every record it finds, an ancestor set sweep that fetches each record and decides on the record,
   a level-1 diagnostic reporting what the root holds."
   [index context]
   (p/sentexes-in-context index context))
@@ -137,7 +137,7 @@
   "Handles with functor `pred` AND each `[pos term]` of `pos-terms` that the KB
   **believes** — `as-stored-with-args` filtered by `jtms/in?`, lazily.
 
-  The narrowing read's believed door: a caller that knows several of a sentence's terms
+  The narrowing read's believed entry point: a caller that knows several of a sentence's terms
   and wants only what holds asks here rather than intersecting and then filtering by
   hand."
   [kb pred pos-terms]
@@ -207,7 +207,7 @@
   belief unread.
 
   Belief for a **rule** is `resolution/rule-believed?` and not `jtms/in?`, which is why
-  there is no believed door beside this one: a rule the TMS holds no node for is available
+  there is no believed entry point beside this one: a rule the TMS holds no node for is available
   rather than disbelieved, and a chainer asks that question of each handle it means to
   fire."
   [index pred]
@@ -216,7 +216,7 @@
 (defn as-stored-rules-by-consequent
   "Handles of rules concluding `pred` — every rule, whatever its direction, belief unread.
 
-  `resolution/rule-believed?` is the belief question, as for the antecedent door above.  A
+  `resolution/rule-believed?` is the belief question, as for the antecedent entry point above.  A
   rule whose consequent functor is a variable files under `protocols/var-consequent-key`
   rather than under a canonical `?var0`, so a concrete goal's answer is this bucket
   unioned with that catch-all (`resolution/concluding-rule-handles`)."
@@ -229,7 +229,7 @@
   "Is `handle` in the exception/watched-rule roster — O(1) membership, the firing-path
   gate.
 
-  The roster stores no truth value, so there is no second door: it answers which rules
+  The roster stores no truth value, so there is no second entry point: it answers which rules
   carry an `exceptWhen` at all, never whether one holds.  Whether the exception *fires* is
   `provers/exceptions-block?`, and whether the rule itself is believed is
   `resolution/rule-believed?`."
@@ -237,7 +237,9 @@
   (p/exception-rule? index handle))
 
 (defn watched-rules
-  "Handles of every rule carrying an exception.
+  "Handles of every rule carrying a re-check condition — an exception, an `(unknown S)`
+  antecedent, an aggregate, a closed-extent negative or a `different` antecedent
+  (`rules/rechecked?`).
 
   Read to **queue re-checks**, which is why belief is not filtered: over-queueing costs a
   query at the next settle and under-queueing leaves a conclusion standing on evidence
@@ -246,7 +248,7 @@
   (p/exception-rules index))
 
 (defn watched-rules-on
-  "Handles of rules whose exception query mentions `pred` — the predicate-scoped slice of
-  `watched-rules`, and unfiltered for its reason."
+  "Handles of rules whose re-check condition mentions `pred` — the predicate-scoped slice
+  of `watched-rules`, and unfiltered for its reason."
   [index pred]
   (p/rules-with-exception-on index pred))

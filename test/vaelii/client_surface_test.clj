@@ -139,7 +139,7 @@
         "the client reaches the engine only over HTTP")
     (testing "and what it does require is a leaf, so the independence is transitive"
       ;; `guard` and `opts` are `clojure.string` and nothing else; a require of either
-      ;; that stopped being a leaf would be a door the engine could walk through later,
+      ;; that stopped being a leaf would be an entry point the engine could walk through later,
       ;; without this file changing a line.
       (doseq [ns-sym '[vaelii.impl.guard vaelii.impl.opts]]
         (is (every? #(re-find #"^clojure\." (str %))

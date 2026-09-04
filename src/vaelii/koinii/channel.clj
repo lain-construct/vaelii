@@ -94,8 +94,8 @@
     change).  Returns `{:token … :stop (fn []) …}`.  Where the two media genuinely
     diverge — a wire poll loop off the agent's thread, vs an in-process listener.")
   (-query [medium goal context]
-    "Solutions for `goal` in `context` as binding maps — the CONE-AWARE read (walks the
-    genlCx cone, unlike `-matching`, so a channel read sees its agents' own-context
+    "Solutions for `goal` in `context` as binding maps — the ANCESTOR-SET-AWARE read (walks the
+    genlCx ancestor set, unlike `-matching`, so a channel read sees its agents' own-context
     sentexes).  The snapshot half of catch-up (`catchup`) reads through this.")
   (-feed-open [medium goal context]
     "Open a raw change-feed subscription with a cursor — `{:token :cursor :max-events}`.
@@ -119,11 +119,11 @@
   contract.  When the subscription is dropped (`stop`, or an idle reap) the parked poll
   wakes refused, and the loop exits quietly.
 
-  **Neither seam is silent when it is left unset.**  Dropped events and a subscription
+  **Neither extension point is silent when it is left unset.**  Dropped events and a subscription
   killed by a transport failure are the two things a reader most needs to be told, and a
   nil handler must not be how either of them disappears — so `:on-lagged` defaults to a
   `:warn` line naming the drop count and `:on-error` to an `:error` line naming the
-  failure.  A supplied handler replaces the line rather than adding to it: the seam is
+  failure.  A supplied handler replaces the line rather than adding to it: the extension point is
   the caller's, the default is only what happens when nobody takes it.
 
   **`:running` is what the subscription's liveness is read from.**  Every exit from the
@@ -276,7 +276,7 @@
 (defn- check-channel-parent
   "Throw unless `parent` is a coordination channel — the standard `assert` holds for the
   context a write lands IN, held here for the context a join grafts UNDER.  `join` widens
-  what `parent` sees: every cone read of `parent` returns the joining agent's claims from
+  what `parent` sees: every ancestor set read of `parent` returns the joining agent's claims from
   then on, and with `belief/believe-own` in force they become what `parent`'s own agent
   is proved to believe.  So a parent is refused (`:koinii/not-a-channel`) when it is
 
@@ -289,7 +289,7 @@
   **An unmarked context is admissible, and that is the deliberate direction.**  A channel
   carries no mark — there is nothing for a channel to record and nobody to record it —
   so refusing what is unmarked would refuse every deployment there is.  The cost is that
-  a context placed by a build that wrote no mark reads as unmarked: the door refuses what
+  a context placed by a build that wrote no mark reads as unmarked: the entry point refuses what
   it is told, not what it infers, and a placement is idempotent, so the mark lands the
   next time that agent joins.  Recognition therefore reaches exactly as far as the
   placements a KB records — the same cooperative limit `authenticate` states, rather than
@@ -331,7 +331,7 @@
   job — so the `target_following_predicate` marks that make a reply cascade are in force."
   ([medium channel agent-id] (join medium channel agent-id nil))
   ([medium channel agent-id opts]
-   ;; the write boundary, enforced at the door rather than trusted to the destination:
+   ;; the write boundary, enforced at the entry point rather than trusted to the destination:
    ;; joining AS the admin registry (`AgentRegistry` -> `CxRegistry`) is refused here,
    ;; where `place-agent-context` would otherwise make that context writable
    (id/check-registry-write! agent-id (id/context-for agent-id))
@@ -349,34 +349,34 @@
   respond, the two ballots are counted).  A sentence with one of these functors is a
   claim ABOUT who spoke, so `assert` refuses one that names anyone but the handle's own
   agent: otherwise `speaker-of` (read off the sentence) and the `:creator` provenance the
-  door stamps would disagree, and an agent could sign another's name."
+  entry point stamps would disagree, and an agent could sign another's name."
   '#{queries answers endorses justifies disputes votesFor votesAgainst notUnderstood refuse})
 
-(defn- check-write-doors
+(defn- check-write-entry-points
   "Throw unless `handle`'s agent may write `sentence` under `opts` — the ONE place an
-  agent write's boundary is stated, so the doors that write (`assert` and `reply-many`)
+  agent write's boundary is stated, so the entry points that write (`assert` and `reply-many`)
   cannot drift into two boundaries that disagree.  Three refusals, each a way a write
   would otherwise claim an identity it does not hold:
 
-  - **the admin registry is not writable through an agent door**
+  - **the admin registry is not writable through an agent entry point**
     (`:koinii/registry-forbidden`), whatever context the handle carries: the governed may
     not write the authority that governs them (D4).  The narrower of identity's two
-    boundaries — own-context-only is a proof-tier rule these cooperative doors do not
+    boundaries — own-context-only is a proof-tier rule these cooperative entry points do not
     impose, and a cross-context write between agents stays a cooperative move.
   - **a `:creator` that disagrees with the handle's agent** is refused
-    (`:koinii/creator-mismatch`).  Ownership is load-bearing — `belief/disregard` will only
+    (`:koinii/creator-mismatch`).  Ownership is required — `belief/disregard` will only
     withdraw a statement whose creator is the withdrawing agent — so neither silent outcome
     is honest: honouring it lets an agent sign another's name, dropping it leaves a stamp
     that looks like it took.
   - **a speech act naming someone else as its speaker** is refused
     (`:koinii/speaker-mismatch`).  `speaker-of` reads the speaker off the sentence's first
-    argument while the door stamps the creator off the handle, so an act naming another
+    argument while the entry point stamps the creator off the handle, so an act naming another
     agent would say one agent spoke while the provenance says another.
 
   `opts` is the map that will be WRITTEN, not the one a caller typed, so `reply-many` —
   which builds its own `{:creator agent}` — hands over a map the creator arm cannot
-  refuse.  It goes through the arm all the same: a door with an arm switched off for one
-  caller is two doors again, which is what this helper exists to prevent."
+  refuse.  It goes through the arm all the same: an entry point with an arm switched off for one
+  caller is two entry points again, which is what this helper exists to prevent."
   [handle sentence opts]
   (let [agent (:agent handle)]
     (id/check-registry-write! agent (:context handle))
@@ -402,18 +402,18 @@
   (`:koinii/speaker-mismatch` otherwise).  Returns the handle.
 
   **The creator is the agent's, and a conflicting one is refused**
-  (`:koinii/creator-mismatch`).  Ownership is load-bearing — `belief/disregard` refuses to
+  (`:koinii/creator-mismatch`).  Ownership is required — `belief/disregard` refuses to
   withdraw a statement whose creator is not the agent (`:koinii/not-own-statement`), and the
   whole write boundary is 'an agent writes as itself' (D8) — so a caller passing someone
-  else's `:creator` is asking for something this door does not grant.  Dropping it silently would look like a stamp that took, and honouring
+  else's `:creator` is asking for something this entry point does not grant.  Dropping it silently would look like a stamp that took, and honouring
   it would let an agent sign another's name; the refusal says which it is.  Passing the
   agent's own id is redundant and allowed.  Every other `opts` key passes through.
 
-  The three refusals are stated once, in `check-write-doors`, and held identically by
-  `reply-many` — one boundary, two doors."
+  The three refusals are stated once, in `check-write-entry-points`, and held identically by
+  `reply-many` — one boundary, two entry points."
   ([handle sentence] (assert handle sentence nil))
   ([handle sentence opts]
-   (check-write-doors handle sentence opts)
+   (check-write-entry-points handle sentence opts)
    (-assert (:medium handle) sentence (:context handle)
             (assoc opts :creator (:agent handle)))))
 
@@ -520,10 +520,10 @@
   truth; the dry run refuses an inadmissible batch before anything lands.  Each of
   `sentences` is asserted into the agent's own context, creator stamped.
 
-  **Every door `assert` holds, this door holds too, and for the whole batch before the
+  **Every entry point `assert` holds, this entry point holds too, and for the whole batch before the
   first write** — the registry is not writable through it (`:koinii/registry-forbidden`)
   and no sentence may name another agent as its speaker (`:koinii/speaker-mismatch`,
-  `check-write-doors`).  A batch is a promise that nothing lands until all of it is
+  `check-write-entry-points`).  A batch is a promise that nothing lands until all of it is
   admissible, so an identity refused mid-commit would already have written the sentences
   ahead of it — which is the same half-reply the dry run exists to prevent.  A batch is
   therefore weighed as a whole twice: who may write it, then whether it is admissible.
@@ -533,7 +533,7 @@
   [handle sentences]
   (let [ctx  (:context handle)
         opts {:creator (:agent handle)}]
-    (run! #(check-write-doors handle % opts) sentences)
+    (run! #(check-write-entry-points handle % opts) sentences)
     (let [batch {:add (mapv (fn [s] [s ctx opts]) sentences)}
           probs (-check-edit (:medium handle) batch)]
       (if (seq probs)
@@ -554,7 +554,7 @@
   async reply trigger.  `goal` nil watches every change; a `goal` refused by `core/watch`
   (an aggregate, `unknown`, an evaluable, …) is refused identically here, since it is the
   same check.  Watch the CHANNEL context to see every agent's moves (the feed is scoped up
-  the `genlCx` cone, so a channel watch delivers a write made in an agent's own context).
+  the `genlCx` ancestor set, so a channel watch delivers a write made in an agent's own context).
 
   For a `wire` handle the poll loop runs OFF the agent's own thread — the whole reason the
   design uses the wire feed rather than in-process `watch`, since an in-process callback
@@ -608,8 +608,8 @@
   (-matching (:medium handle) (list 'queries '?a '?q) '?ctx))
 
 (defn query
-  "CONE-AWARE solutions for `goal` in `context`, as binding maps — the read that sees a
-  channel's agents' own-context sentexes up the genlCx cone (unlike the direct
+  "ANCESTOR-SET-AWARE solutions for `goal` in `context`, as binding maps — the read that sees a
+  channel's agents' own-context sentexes up the genlCx ancestor set (unlike the direct
   `sentexes-matching` the reads above use).  It answers the channel's whole current view of
   `goal`, which is what catch-up (`catchup`) snapshots the state from."
   [handle goal context]

@@ -17,7 +17,7 @@
   What they share is that a *read* over one answers nothing — an answer that can be
   re-asked — while a *write* lands content the store keeps.  Every definitional check
   reads `jtms/in?`, so with no nodes all ten arms match nothing and the assert lands
-  unchecked, and nothing later re-runs them.  So the write doors refuse, and
+  unchecked, and nothing later re-runs them.  So the write entry points refuse, and
   `core/*write-unrecovered?*` is the opt that names what accepting one gives up.
 
   These tests own their KBs rather than taking the fixture's: the state under test is a
@@ -63,7 +63,7 @@
       (let [kb (v/open-kb {:backend :disk-log :dir dir :space 26 :recover? false})]
         (testing "the hazard is named, and it is the belief half alone"
           (is (= {:no-belief true} (kb/write-hazards kb))))
-        (testing "every write door refuses, and by the same name"
+        (testing "every write entry point refuses, and by the same name"
           (is (= :unrecovered-kb (ex-type #(v/assert kb '(dog Rex) 'CxUniverse))))
           (is (= :unrecovered-kb (ex-type #(v/assert-inert kb '(dog Rex) 'CxUniverse))))
           (is (= :unrecovered-kb (ex-type #(v/retract! kb 1))))
@@ -83,7 +83,7 @@
   ;; Row 2, the one that turns a wrong answer into a wrong store: the index is derived
   ;; and opens empty, so `assert` dedups through nothing and mints a second handle for a
   ;; sentence already stored.  `recover` does not rebuild an index — it reads one — so it
-  ;; clears only half the hazard, and the door goes on refusing until `reindex`.
+  ;; clears only half the hazard, and the entry point goes on refusing until `reindex`.
   (with-tmp-dir
     (fn [dir]
       (let [seed (v/open-kb {:backend :disk-columnar :dir dir :space 27 :recover? :auto})]
@@ -100,7 +100,7 @@
           (is (re-find #"\(reindex kb\)"
                        (try (v/assert kb '(cat Tom) 'CxUniverse) ""
                             (catch clojure.lang.ExceptionInfo e (ex-message e))))))
-        (testing "recover alone is the wrong repair here, and the door still says so"
+        (testing "recover alone is the wrong repair here, and the entry point still says so"
           (v/recover kb)
           (is (= {:no-index true} (kb/write-hazards kb)))
           (is (= :unrecovered-kb (ex-type #(v/assert kb '(cat Tom) 'CxUniverse)))))
@@ -117,7 +117,7 @@
   ;; direction.  Row 4 (a foreign dialect) rosters no premise and carries no strength, so
   ;; its store is byte-for-byte the store a KB of `assert-inert` sentexes has; row 3's is
   ;; the store two KBs sharing a space have, where the second one's belief is behind by
-  ;; construction and the engine supports that.  So the loader says so, and the doors
+  ;; construction and the engine supports that.  So the loader says so, and the entry points
   ;; refuse on its word rather than on a reading that would catch the wrong things.
   (doseq [[label premise?] [["our dialect — a premise roster and no network" true]
                             ["a foreign dialect — no roster at all" false]]]
@@ -142,7 +142,7 @@
   ;; way and a probe would refuse every write into one.  The hazard is therefore a fact
   ;; about what this KB's own open could see, and both halves of that are pinned here:
   ;; the same pairing is guarded or unguarded depending on which end opened first, which
-  ;; is a cost of declaring rather than probing and is stated in `kb`'s seam comment.
+  ;; is a cost of declaring rather than probing and is stated in `kb`'s docstring comment.
   ;;
   ;; `let` binds in order, so which line comes first *is* the arrangement — writing the
   ;; two in one binding vector tests only the half that cannot fail.
@@ -168,7 +168,7 @@
   ;; The two shapes a read of the atom cannot tell apart — a hazard declared, no records
   ;; yet — and the event that does.  A **loader** declares before its first write so the
   ;; hazard covers a load that throws part-way, and writes at the dump's own handles,
-  ;; around the write doors; anything else that emptied the store and is now asserting is
+  ;; around the write entry points; anything else that emptied the store and is now asserting is
   ;; building this KB's network as it goes.  Retiring on *read* broke the first; never
   ;; retiring made every wipe-then-write caller carry the rule, which the perf harness,
   ;; the cost gate and the forward bench had each got wrong.
@@ -188,7 +188,7 @@
     (let [kb (tu/fresh)]
       (kb/note-hazards! kb {:no-belief true})       ; `io.import`, before its first write
       (is (= {} (kb/write-hazards kb)) "no records yet, so nothing for it to be true of")
-      ;; the load writes around the doors, at the dump's own handles
+      ;; the load writes around the entry points, at the dump's own handles
       (let [h (p/put-sentex (:records kb) (sx/sentex '(dog Rex) 'CxUniverse {}))]
         (p/index-sentex (:index kb) (p/get-sentex (:records kb) h) h))
       (is (= {:no-belief true} (kb/write-hazards kb))
@@ -196,9 +196,9 @@
       (is (= :unrecovered-kb (ex-type #(v/assert kb '(cat Tom) 'CxUniverse))))
       (tu/clear-kb! kb))))
 
-(deftest the-dry-run-answers-what-the-door-answers
+(deftest the-dry-run-answers-what-the-entry-point-answers
   ;; `check` promises "would `assert` succeed, and if not, why" — the same functions in
-  ;; the same order.  `check-writable!` runs first at the door, so a report that omits it
+  ;; the same order.  `check-writable!` runs first at the entry point, so a report that omits it
   ;; tells a caller validating a batch that every line is fine and is then refused on the
   ;; first one.  `check-edit` says it for the batch, before reading any entry.
   (let [kb (tu/fresh)]
@@ -207,7 +207,7 @@
     (is (= [:unrecovered-kb] (mapv :type (v/check kb '(cat Tom) 'CxUniverse))))
     (is (= [:unrecovered-kb] (mapv :type (v/check-edit kb {:add [['(cat Tom) 'CxUniverse]]}))))
     (is (= :unrecovered-kb (ex-type #(v/assert kb '(cat Tom) 'CxUniverse)))
-        "and the door agrees with the report")
+        "and the entry point agrees with the report")
     (testing "and under the opt both go quiet, because the write lands"
       (binding [v/*write-unrecovered?* true]
         (is (empty? (v/check kb '(cat Tom) 'CxUniverse)))
@@ -249,7 +249,7 @@
             (is (= [:no-belief] (:hazards d))
                 "the hazards are the sorted vector of keys writable-problem carries")
             (is (= "retract!" (:operation d)))
-            (is (= 'recover (:repair d)) "one :type, one shape at both doors"))
+            (is (= 'recover (:repair d)) "one :type, one shape at both entry points"))
           (is (some? (p/get-sentex (:records kb) derived))
               "and the record is still there"))
         (testing "and after recover it retracts, taking what rested on it"
@@ -334,7 +334,7 @@
 ;; ---- and the browser, which is where an operator meets it ---------------
 
 (deftest the-browser-refuses-the-write-as-a-page-not-an-exception
-  ;; The refusal is an `ex-info` at the door, and a route that let one out would answer
+  ;; The refusal is an `ex-info` at the entry point, and a route that let one out would answer
   ;; an error status — which leaves htmx not swapping at all, so the write reads as
   ;; having silently vanished.  `write-refusal` already renders two conditions as pages
   ;; for exactly that reason; this is the third, and it says which repair applies.

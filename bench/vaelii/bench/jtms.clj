@@ -74,7 +74,7 @@
 
 (defn- build-kb
   "`n` premise facts plus a forward rule fired over `m` more, so the JTMS holds premise
-  nodes, derived nodes, and real justifications — the shape that is being sized."
+  nodes, derived nodes, and real justifications — the structure that is being sized."
   ([n m strength] (build-kb n m strength :reference))
   ([n m strength tms]
    (let [kb  (v/open-kb {:backend :memory :space 60
@@ -252,7 +252,7 @@
   (let [;; the baseline is the map REBUILT with the same records, not the original.
         ;; Stripping rebuilds it, and a `PersistentHashMap` grown by `into` is a few
         ;; bytes an entry off one grown by `assoc` — a constant that would otherwise
-        ;; land on every row and read as a negative cost for the shared-object fields.
+        ;; land on every row and are indistinguishable from a negative cost for the shared-object fields.
         rebuild (fn [s] (:justs (update s :justs (fn [js] (into {} js)))))
         js   (rebuild state)
         n    (count js)

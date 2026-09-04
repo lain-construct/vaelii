@@ -13,7 +13,7 @@
       readers are somebody else's dependency and adding or dropping one changes no file
       here;
     * a build with nothing registered refuses a foreign dump or corpus **by name**
-      instead of half-reading it, and the seam is what does the refusing.
+      instead of half-reading it, and the extension point is what does the refusing.
 
   The complement — with a plugin present, every format it declares is found — is
   `vaelii.foreign.plugin-test`, over in the artifact that has one.  Discovery itself is
@@ -28,7 +28,7 @@
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
-(def ^:private seam-file "src/vaelii/impl/foreign.clj")
+(def ^:private plugin-file "src/vaelii/impl/foreign.clj")
 
 (defn- clj-files
   "Every Clojure source file under `dir`, as `[path text]`."
@@ -47,14 +47,14 @@
   (testing "and no manifest, so this build declares no format of its own"
     (is (not (.exists (io/file "resources" foreign/manifest-resource)))
         (str "a manifest here would make the engine's own build read a foreign format, "
-             "which is the coupling the seam exists to avoid"))))
+             "which is the coupling the extension point exists to avoid"))))
 
-(deftest nothing-outside-the-seam-names-a-reader
+(deftest nothing-outside-the-extension-point-names-a-reader
   ;; The contract, stated as a grep: a plugin's namespaces are named in *its* manifest and
-  ;; nowhere in this repo, so no file here breaks when one is dropped.  The seam's own
+  ;; nowhere in this repo, so no file here breaks when one is dropped.  The extension point's own
   ;; docstring shows a manifest by way of example, and this test names one to register.
   (let [offenders (for [[path text] (concat (clj-files "src") (clj-files "test"))
-                        :when (not (or (str/ends-with? path seam-file)
+                        :when (not (or (str/ends-with? path plugin-file)
                                        (str/ends-with? path "foreign_contract_test.clj")))
                         :when (re-find #"vaelii\.foreign\.|vaelii\.impl\.foreign\." text)]
                     path)]
@@ -62,8 +62,8 @@
         (str "these name a reader namespace directly, so a plugin is no longer optional "
              "— route them through vaelii.impl.foreign instead: " (pr-str (vec offenders))))))
 
-(deftest the-seam-holds-no-compile-time-reference
-  (let [text (slurp seam-file)]
+(deftest the-extension-point-holds-no-compile-time-reference
+  (let [text (slurp plugin-file)]
     (testing "a format is named as a symbol, resolved at runtime"
       (is (re-find #"requiring-resolve" text))
       (is (not (re-find #":require[^)]*vaelii\.foreign" text))
@@ -83,7 +83,7 @@
       (is (= :no-such-format (:kind (ex-data e))))
       (is (set? (:available (ex-data e)))))))
 
-(deftest a-registration-the-seam-cannot-look-up-is-refused-rather-than-stored
+(deftest a-registration-the-extension-point-cannot-look-up-is-refused-rather-than-stored
   ;; The refusal is for an entry that would sit in the registry answering nothing: a kind
   ;; that is not a keyword never matches the kind a loader asks for, and an unqualified
   ;; symbol names no var for `requiring-resolve` to reach.  Both read from the outside

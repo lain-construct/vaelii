@@ -10,7 +10,7 @@
   affected region (`add-just*`, jtms.clj).  The cost of the phase is therefore
   `Σ_j |R_j|` — the region relabelled per add, summed — and whether that sum is ~M (every
   region a singleton, nothing a bulk mode can save) or ≫M (hash-order percolation, so a
-  `sort` or a bulk seam helps) is a percolation quantity on the corpus's derivation shape
+  `sort` or a bulk-load protocol helps) is a percolation quantity on the corpus's derivation shape
   that the code does not settle.  This measures it, with **no engine change**:
   `reset-touched!` before each add and `(count (touched tms))` after is exactly that add's
   relabelled region — `relabel-region*` records the region as `:touched`, and the fast
@@ -21,8 +21,8 @@
   Two orders, per item 2: hash order (`p/justification-ids` returns a `set`) against
   **sorted id order**, a cheap proxy for derivation/topological order since handles are
   allocated as records are derived.  If sorting collapses `Σ|R_j|` toward M, the fix for
-  [08] is a `sort` in `rebuild-tms` and a comment, not a protocol seam; if it stays ≫M in
-  both orders the seam is worth building; if it is ~M in both, phase 3 is already linear
+  [08] is a `sort` in `rebuild-tms` and a comment, not a protocol change; if it stays ≫M in
+  both orders the bulk-load protocol is worth building; if it is ~M in both, phase 3 is already linear
   and [08] is `dropped` carrying this number.
 
   The corpus is generated **with forward rules** (`:chain? true`) into a `:disk` store and

@@ -47,7 +47,7 @@ and those files describe the project around it.
       network", "## What is not built"): an absence is a fact about the engine.
       What this bans is the promise attached to one.  Narrower than E7 by
       design, and NOT extended to the files E7 gained: a changelog's whole job
-      is to say what a released version does, which reads as a commitment in
+      is to say what a released version does, which is indistinguishable from a commitment in
       every tense the patterns match, and CONTRIBUTING.md carries a forward
       statement about licensing that is a promise on purpose.  Scoping the
       check to the docs that describe the engine keeps it a check about the
@@ -184,7 +184,7 @@ ALIASES = {
 # `deftest-kb` that needs it: `tu/deftest-kb` is the repo's primary test form
 # (`.claude/rules/testing.md`) and outnumbers bare `deftest` in the suite, so a
 # pattern anchored at `(def` sees only the minority of the tests and every
-# citation of the rest reads as a missing definition.  `test-kb` precedes `test`
+# citation of the rest is indistinguishable from a missing definition.  `test-kb` precedes `test`
 # in the alternation so the longer name wins without backtracking.
 DEF_RE = (r"\((?:[a-z][\w.-]*/)?"
           r"def(?:n|n-|macro|multi|method|protocol|record|type|once|test-kb|test|routes)?"
@@ -226,7 +226,7 @@ def extra_md_files():
     Three checks read these and no others do: the link check (E4), archaeology
     (E7/W7) and the s-expression check (E13). The first two are rules about
     prose, and prose here rots exactly as it does under docs/ — a link into a
-    directory that is not there reads like a live one either way. E13 joins them
+    directory that is not there is indistinguishable from a live one either way. E13 joins them
     on the same footing: whether an example parses is a fact about the example,
     not about which file carries it.
 
@@ -650,7 +650,7 @@ for doc in extra_md_files():
 # Split by how ambiguous the phrasing is.  ARCHAEOLOGY is unambiguous: nothing
 # but the project's own past reads that way, so it fails the build.  AMBIGUOUS
 # is the "X used to Y" family, which collides with "used to" meaning *employed
-# to* — a warning here, and the write-time hook is where it earns its keep.
+# to* — a warning here, and the write-time hook is where it pays for itself.
 # This file names the phrases to look for them, so it excludes itself.
 # The banned repo name is assembled from halves: the checker must not itself
 # contain the name it bans, or it would be the tree's one occurrence.
@@ -677,7 +677,7 @@ AMBIGUOUS = re.compile(r"(?<!be )(?<!,)\b[a-z0-9`)\]*]+ used to [a-z]")
 PROMPT_DIR = re.compile(r"docs/design/[a-z-]*prompts/")
 # Two files STATE this rule, so they quote its phrasings in order to ban them —
 # the same reason this checker excludes itself. Exempting the file is the only
-# honest option available: the allowlist matches a TOKEN, so excusing
+# defensible option available: the allowlist matches a TOKEN, so excusing
 # "there used to" there would disarm the check in every other file too.
 E7_STATES_THE_RULE = {"CONTRIBUTING.md", ".claude/rules/conventions.md"}
 
@@ -709,7 +709,7 @@ for path in itertools.chain(repo_text_files(), extra_md_files()):
 # that names work as forthcoming is making a commitment on behalf of whoever
 # reads it next, and what gets built is not knowable in advance.
 #
-# The line to hold: an ABSENCE is a fact and belongs in the docs — "there is no
+# The distinction to keep: an ABSENCE is a fact and belongs in the docs — "there is no
 # beta network", "## What is not built", "nothing reads the `:out` slot". A
 # PROMISE about that absence does not. So the patterns below match the promise
 # ("on the roadmap", "left for a future pass", "is the next step"), never the
@@ -722,7 +722,7 @@ for path in itertools.chain(repo_text_files(), extra_md_files()):
 # Narrow in SCOPE as well, and this is the one place the two rules part company:
 # E7 reads extra_md_files() and E9 does not. A changelog exists to say what a
 # released version does, and it says it in the tense these patterns match, so
-# every entry would read as a commitment; CONTRIBUTING.md carries a licensing
+# every entry would are indistinguishable from a commitment; CONTRIBUTING.md carries a licensing
 # statement about later versions that is a promise deliberately made. Both are
 # writing about the project rather than about the engine, and E9 is a rule about
 # what the ENGINE docs may claim.
@@ -783,8 +783,8 @@ for path in repo_text_files():
 #
 # What this does NOT see, stated so nobody over-trusts it: only the literal form
 # is matched, so binding the symbol first — `(let [s 'a.b/c] (requiring-resolve s))`
-# — is a cut this rule reads as a registry and passes.  Closing that would mean
-# banning the computed form outright, which is the shape the four legitimate
+# — is a cut this rule is indistinguishable from a registry and passes.  Closing that would mean
+# banning the computed form outright, which is the form the four legitimate
 # registries above are built from.  So the rule catches the cut somebody writes
 # without thinking, not the one somebody hides; the inventory is a convention the
 # check defends, not a sandbox it enforces.
@@ -823,7 +823,7 @@ for path in clj_files():
 #     re-derive the call graph to find out.
 #   - it is dead.  A name whose every use is below its own definition needs no
 #     forward reference at all; `defn` interns the var before compiling the body,
-#     so even self-recursion does not need one.  A dead declare reads as a claim
+#     so even self-recursion does not need one.  A dead declare is indistinguishable from a claim
 #     about the file that is not true.
 #
 # Reordering is the preferred fix and this rule does not know when one is
@@ -893,7 +893,7 @@ for path in clj_files():
 # ── E11: borrowed vocabulary — somebody else's word for a thing we name ─────
 # The engine calls it a CONTEXT, and a non-atomic term is a NAT — reified or
 # structural. Cyc's words for those same things are not vaelii's, and prose
-# that uses them reads as though they were: wrong for a reader who then looks
+# that uses them gives the impression that they were: wrong for a reader who then looks
 # them up, and for a coinage that appears in no general KR literature, a claim
 # about where this engine came from that nobody made.
 #
@@ -915,7 +915,7 @@ BORROWED = {
 BORROWED_RE = re.compile(r"\b(" + "|".join(BORROWED) + r")\b", re.I)
 # These two STATE this rule, so they spell the words in order to ban them —
 # the same bind E7 is in, and the same fix. Exempting the files is the only
-# honest option: the allowlist matches a TOKEN, so excusing the borrowed word
+# defensible option: the allowlist matches a TOKEN, so excusing the borrowed word
 # in them would disarm the check in every other file too.
 E11_STATES_THE_RULE = {"CONTRIBUTING.md", ".claude/rules/conventions.md"}
 
@@ -1084,7 +1084,7 @@ if os.path.exists(changelog):
                  f" from a sibling that is fine. One line beside the class, holding"
                  f" each name a caller would have written (CONTRIBUTING §3.8)")
 
-# ── E16: an index read is a door's, and an as-stored one is named ───────────
+# ── E16: an index read is an entry point's, and an as-stored one is named ───────────
 # The `IndexStore` posting sets are storage: they hold a defeated default, a
 # conclusion whose support was withdrawn and a spelling an equality retired,
 # because all three are revivable and belief lives in the JTMS instead. So every
@@ -1095,7 +1095,7 @@ if os.path.exists(changelog):
 #
 # `vaelii.impl.reads` is where the question gets asked, in the name of the read:
 # `as-stored-…` / `stored-…` over the index store, `believed-…` over the KB. This
-# check is what keeps the doors the only way in, and the roster below is the one
+# check is what keeps the entry points the only way in, and the roster below is the one
 # place an exception is written down.
 #
 # The roster is not a list of trusted callers — it is the implementers. A store
@@ -1105,12 +1105,12 @@ if os.path.exists(changelog):
 #
 # Scoped to the INDEX reads, and `RecordStore` is deliberately outside it: a record
 # IS the storage, so fetching one asks nothing about belief. `p/get-sentex` beside a
-# door here is the ordinary shape and not a second violation.
+# entry point here is the ordinary shape and not a second violation.
 #
 # What this does NOT see, stated so nobody over-trusts it: a read reached through a
-# bound var (`(let [f p/lookup] (f idx path))`) reads as a value and passes, and so
+# bound var (`(let [f p/lookup] (f idx path))`) is indistinguishable from a value and passes, and so
 # does one behind a `resolve`. Closing that would mean banning the value form, which
-# is the shape the planner's injected cost model is built from. The rule catches the
+# is the form the planner's injected cost model is built from. The rule catches the
 # read somebody writes without thinking, not the one somebody hides.
 E16_READS = ("lookup", "leaf-at", "count-at", "children", "count-children",
              "sentexes-in-context", "count-in-context",
@@ -1121,7 +1121,7 @@ E16_READS = ("lookup", "leaf-at", "count-at", "children", "count-children",
              "sentexes-with-term", "sentexes-with-terms",
              "terms", "term-count", "index-entries")
 E16_OK_FILES = {
-    # the doors themselves
+    # the entry points themselves
     "src/vaelii/impl/reads.clj",
     # the protocol that declares them
     "src/vaelii/impl/protocols.clj",
@@ -1160,7 +1160,7 @@ for path in clj_files():
 
 # ── E17: a global taxonomy read is rostered, never reached for ─────────────
 # Context scoping is the third invariant: a read sees what its context sees, up the
-# genlCx cone. `vaelii.impl.taxonomy` answers each closure both ways — `genls` walks
+# genlCx ancestor set. `vaelii.impl.taxonomy` answers each closure both ways — `genls` walks
 # the edges visible from a context, `genls-global` walks every active edge whoever
 # can see it — and on a KB where no edge is context-restricted the two return the
 # same object. That is what makes the global read dangerous rather than merely

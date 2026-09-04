@@ -123,7 +123,7 @@
 
 (defn- hit-rate
   "Hits over lookups, or nil when nothing has been counted.  Nil rather than zero for an
-  untouched cache: a rate of 0.0 reads as a cache that is missing everything."
+  untouched cache: a rate of 0.0 is indistinguishable from a cache that is missing everything."
   [hits misses]
   (when (and hits misses)
     (let [total (+ (long hits) (long misses))]

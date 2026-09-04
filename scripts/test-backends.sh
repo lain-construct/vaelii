@@ -45,7 +45,7 @@
 # gap is this script: `lein test` boots a JVM and then compiles and loads every
 # test namespace before it runs any of them, so there is nothing to mark until
 # it has.  The run says as much on the line under the command, because silence
-# nobody accounted for reads as a hang.
+# nobody accounted for is indistinguishable from a hang.
 #
 # The suite is expected to be **failing-set-identical** across every run — a
 # backend that answers differently is a bug in the backend, not a feature of
@@ -358,8 +358,8 @@ for backend in "${BACKENDS[@]}"; do
 done
 
 echo
-# One revision for the whole matrix is the case worth stating plainly; more than
-# one is the case worth stating loudly, since the runs then answer for different
+# One revision for the whole matrix is the case stated here plainly; more than
+# one is the case stated here loudly, since the runs then answer for different
 # trees and the failing-set-identical claim is about a tree.
 # guarded on the length: this is bash 3.2, where `"${a[@]}"` on an empty array is an
 # unbound-variable error under `set -u` rather than an empty list

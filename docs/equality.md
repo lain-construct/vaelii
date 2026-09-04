@@ -71,6 +71,20 @@ OWL drops UNA. We do not. `(different X Y)` is **provable exactly when the
 arguments lie in no shared equivalence class** — so distinct symbols denote
 distinct individuals until an equality sentex says otherwise.
 
+One carve-out: an **unpinned indeterminate term** — a skolem constant, or a
+believed member of the extensible `indeterminate_term` category — suspends the
+UNA for itself. It stands for some object without pinning down which, so
+neither `equals` nor `different` is provable between it and a determinate term
+until a `rewriteOf` or merge pins it, at which point its representative moves
+off it and the exemption lifts (`provers.clj`, `pairwise-distinct?`). The category,
+what it does to `same-class?`, and the stratification edge it adds are in
+[predall.md](predall.md).
+
+A rule guarded by `different` is re-checked when either input moves. Both a merge and an
+indeterminacy declaration withdraw the firing they licensed, and retracting one brings it
+back, so the guard is order-independent though the prover can name no handle for a
+justification to carry ([predall.md](predall.md#a-different-guard-is-re-checked-not-supported)).
+
 This is negation as failure over the equality closure, and it is what keeps
 counting meaningful: counting distinct symbols stays correct except for terms
 somebody explicitly merged, so `count-with-arg` and friends do not acquire a
@@ -278,8 +292,8 @@ set-empty test per query.
 
 #### A late `genlCx` edge is a third arrival order
 
-An equality applies where it is visible, so the `genlCx` cone decides what a merge
-restates as much as the closure does — and the cone is knowledge that arrives in its own
+An equality applies where it is visible, so the `genlCx` ancestor set decides what a merge
+restates as much as the closure does — and the ancestor set is knowledge that arrives in its own
 time. `(equals Tom Thomas)` in `Up`, `(mammal Tom)` in `Low`, and `(genlCx Low Up)` are
 three sentences that must yield one KB in all six orders, and the edge is the ingredient
 whose arrival nothing keyed on: `migrate-class` covers the merge arriving last and the
@@ -290,16 +304,16 @@ under while every read from `Low` asks after `Thomas` — a sentex believed and 
 no query, under either name.
 
 `special/migrate-under-context-edge` closes that, and it is the equality twin of the
-`genlCx` seeding forward chaining takes ([inference.md](inference.md)). **Both cones**,
+`genlCx` seeding forward chaining takes ([inference.md](inference.md)). **Both ancestor sets**,
 because the whole of the new reachability is that a reader in `context-down(sub)` now
 sees `context-up(super)`: a reader, a fact and a merge form a new triple only if the
-reader newly reached one of the two, which puts that one in `super`'s up-cone and the
-reader in `sub`'s down-cone — a merge above meeting the facts the widened readers
+reader newly reached one of the two, which puts that one in `super`'s ancestor set and the
+reader in `sub`'s descendant set — a merge above meeting the facts the widened readers
 already saw, and a fact above meeting the merges they already saw. It is **enumerated
-from the merges**, not from the cone: the candidates are the stored sentexes naming a
+from the merges**, not from the ancestor set: the candidates are the stored sentexes naming a
 term one of those merges displaces, which the inverted term index answers in one lookup
 per term, so the cost is proportional to the standing merges and to what they reach
-rather than to how much ontology the cone holds. A KB that has merged nothing pays one
+rather than to how much ontology the ancestor set holds. A KB that has merged nothing pays one
 set-empty test, and each half is gated on the other side holding a merge the reader can
 see, so wiring a context under one whose merges it already inherits enumerates nothing.
 A **derived** edge runs the same arm from `chain/place-fact-conclusion`, so which
@@ -355,7 +369,7 @@ Oedipus Jocasta))` is not rewritten by a `sameAs` the *asker* holds, because an 
 opaque and the asker's identities are not the agent's; the agent's own merges do rewrite
 it, where the projection reads them. A `rewriteOf` **spelling** rename reaches into a
 mention either way, since it retires a name rather than merging referents. The rule and
-both halves of what it buys are [belief.md](belief.md), "Opacity: the proposition is a
+both halves of what it provides are [belief.md](belief.md), "Opacity: the proposition is a
 mention"; the exemption is in the congruence walk itself, so migration and query hold it
 alike.
 
@@ -369,7 +383,7 @@ contradiction it is, because no merge can make two numbers one thing.
 **`(functionalInArg P n)` is the same machinery with the determined position named**
 rather than fixed at argument 2 ([taxonomy.md](taxonomy.md)). Everything in this section
 holds of it unchanged: the same merge/refuse rule, the same four arrival directions, the
-same justification shape. Two differences are worth stating. The clash the checks hand
+same justification shape. Two differences matter. The clash the checks hand
 back carries the **position** — with the generalized mark a predicate may be constrained
 at more than one position at once, and two slots of one sentex are two different incoming
 fillers — so nothing downstream reads the filler as "argument 2" any more
@@ -408,9 +422,9 @@ declaration meeting the facts, sweeping the functor roots of `P`'s whole `genl` 
 subtree when `(functional P)` itself arrives, `special/equate-under-edge` is the `genl`
 edge meeting both, sweeping the arriving `(genl sub super)`'s own subtree, and
 `special/equate-under-context-edge` is the fourth: a `genlCx` edge meeting both, over the
-*context* cone rather than the predicate one. It has no subtree of its own to sweep — a
+*context* ancestor set rather than the predicate one. It has no subtree of its own to sweep — a
 context edge changes no predicate and no fact, only which contexts see one another — so
-what it sweeps is the **cone the edge widens**: every context the readers of `sub` can
+what it sweeps is the **ancestor set the edge widens**: every context the readers of `sub` can
 see once the edge integrates, which is the same reachability `migrate-under-context-edge`
 computes for the same trigger. (An earlier draft swept every marked predicate's whole
 extent KB-wide, capped only by the budget; that made an edge between two small unrelated
@@ -431,7 +445,7 @@ read.
 
 **This one direction is budgeted, unlike the other three.** A `genl` edge's subtree is
 bounded by real vocabulary growth — the edge names the predicate whose subtree is swept —
-where a `genlCx` edge names two *contexts*, and the cone they open can be large even when
+where a `genlCx` edge names two *contexts*, and the ancestor set they open can be large even when
 the edge itself is small: a context wired under a genuinely huge store makes all of it
 newly relevant. `equate-under-context-edge` caps its candidates at
 `tax/*exposure-instance-budget*` (shared with `vaelii.impl.settle`'s own exposure passes,
@@ -441,16 +455,32 @@ so one dial governs every cross-context sweep in the KB) and, past it, files a
 prevents has no second chance: nothing re-triggers on a `genlCx` edge that already
 finished landing, so the pairs past the cut stay unmerged for good, this edge.
 
+**All three of these fire for an edge nobody asserted.** A `genlCx` edge reaches the
+store by three entry points — asserted (`core/assert-one`), concluded by a rule
+(`chain/place-fact-conclusion`), or **computed** by the structural producer off a
+`contextArgSubrelation` declaration ([context-nat.md](context-nat.md)) — and the first
+two spelled `migrate-under-context-edge`, `equate-under-context-edge` and
+`antisym-equate-under-context-edge` out side by side while the third called none of
+them. A calendar month→year edge therefore reached the taxonomy and the exception
+re-checks and stopped: two fillers of one functional slot, made jointly visible for the
+first time by that edge, stayed unmerged and unreported, and whether the KB merged them
+came down to whether the year's fact was written before January existed (vaelii#56).
+`special/reconcile-context-edge` is the one entry point all three now call, and the producer
+calls it on the **transition into belief** — after the justification, because the three
+sweeps read the belief-filtered `genlCx` closure and a line earlier the edge supports
+nothing; and only on the transition, because the producer is idempotent and re-runs over
+every context of a declared function, where each edge owes exactly one sweep in its life.
+
 **Past that cap, and only past it, order independence is a residual rather than a
-guarantee.** The cone is enumerated in handle order — assertion order — and the budget
+guarantee.** The ancestor set is enumerated in handle order — assertion order — and the budget
 takes a prefix of it, so which merges a cut edge derives depends on when the facts
-arrived. Sorting the cone to content order would remove that and is refused for a
+arrived. Sorting the ancestor set to content order would remove that and is refused for a
 measured reason: the sort forces the whole extent, which is the cost the cap exists to
-refuse, and a context cycle makes the cone the graph ([taxonomy.md](taxonomy.md) has the
+refuse, and a context cycle makes the ancestor set the graph ([taxonomy.md](taxonomy.md) has the
 measurement). So the residual is left, and left **named** — the violation is filed on
 every cut, so no reader has to infer completeness from silence. Below the cap, which is
 every KB that has not put more than `*exposure-instance-budget*` marked facts in one
-cone, the sweep is exact and the invariant holds outright.
+ancestor set, the sweep is exact and the invariant holds outright.
 
 The four directions ask one question from four sides, so none can drift about what a
 functional slot licenses: the equality names both facts and the declaration whichever way
@@ -480,7 +510,7 @@ It is an **equivalence**, not a partial order, so it is stored as a partition �
 member → class, class → members and representative — rather than as up/down
 closures. Insertion is a union and cheap. Deletion can **split** a class, which
 union-find cannot undo, so a retraction rebuilds the affected class from its
-remaining believed edges — the same shape as the cone-local `genl` deletion, and
+remaining believed edges — the same shape as the ancestor-set-local `genl` deletion, and
 bounded by the class rather than the KB.
 
 `closures`-style from-scratch recomputation survives as the oracle, and the
@@ -515,7 +545,10 @@ displaced it.
   dependency**, so it joins the rule dependency graph beside `exceptWhen`
   ([exceptions.md](exceptions.md)). A rule concluding an equality from a
   `different` antecedent is a cycle through negation and is rejected — otherwise
-  belief would depend on arrival order.
+  belief would depend on arrival order. The same refusal covers a rule concluding
+  `indeterminate_term` or a `genl` into it, since the unique-name assumption is
+  suspended for a member and the guard is withdrawn the same way
+  ([predall.md](predall.md)).
 - **A rule concluding one of the three relations merges.** A rule-concluded
   `(sameAs A B)` reaches `special/integrate-equality-sentex` — the same arm the table
   runs for an asserted one — so the closure learns the edge, migration restates every
@@ -587,7 +620,7 @@ through `core/prepare-goal-for-read`, which is what keeps a goal naming a merged
 from being answered by `ask` and silently missed by `prove`. `different` is exempt, since
 its arguments must stay un-rewritten to read class membership.
 
-What stays unbuilt is the **open-goal / search** half. No **E-unification or
+The **open-goal / search** half stays unbuilt. No **E-unification or
 paramodulation** — proving `(equals ?x ?y)` by searching rewrites of a goal on
 demand — which is non-terminating without careful control; the oriented path covers
 the term-definition case that motivates it. No **Knuth-Bendix completion** — a
@@ -625,7 +658,7 @@ individual merging:
   index, keeps its `:direction` / `:defeasible` (re-applied by `rules/rewrap`,
   since the wrappers ride the record, not the stored sentence), and fires under the
   representative while the original is superseded. **In both arrival orders**, which is
-  the rule door's own arm: `migrate-class` restates a rule already stored when the merge
+  the rule entry point's own arm: `migrate-class` restates a rule already stored when the merge
   arrives, and `assert-rule-sentence` restates one written afterwards, seeding the twin
   beside the rule itself — the spelling the author wrote in stops firing the moment the
   supersession lands.
@@ -642,7 +675,7 @@ individual merging:
   that predates the merge, `migrate-into` carries it as it migrates the target; for a
   meta asserted *after* the merge — when migration already ran and never saw it —
   `migrate-meta-onto-twins` replays the same carry onto the live twin at the meta's
-  door (the exceptWhen door and the ordinary fact door alike), idempotent for the metas
+  entry point (the exceptWhen entry point and the ordinary fact entry point alike), idempotent for the metas
   already carried. A NAF `(unknown …)` antecedent lives *in* the rule sentence, so it
   rewrites with the rule and re-posts through the twin's own `index-rule-sentex`. A
   predicate merged only in an exception's *query* (the rule itself not migrated —
@@ -685,8 +718,8 @@ refuse.
   the context that elected it. Runs over the whole class, so a late `rewriteOf`
   re-electing the representative re-migrates with no separate code path.
 - The third arrival order, `special/migrate-under-context-edge`: a `genlCx` edge widens
-  which merges a context can see, so it restates the sentexes the widened cone newly
-  exposes to one — both cones, enumerated from the merges through the term index, and
+  which merges a context can see, so it restates the sentexes the widened ancestor set newly
+  exposes to one — both ancestor sets, enumerated from the merges through the term index, and
   run from `assert` and from `chain/place-fact-conclusion` alike.
 - `chain/process-datum` declines to fire a rule off a **superseded** datum, which is
   the one unbelieved datum that does not fire: a defeat is a label the conclusion
@@ -741,11 +774,15 @@ refuse.
   keeps the hard `:functional` rejection otherwise. That is the line between a clash
   that is knowledge and a clash that is an error, and it is what lets the numeric
   functional tests stand unchanged.
-- **Only the assert-time stratification check sees a `different` antecedent.** A rule
-  carrying one is not added to the `exception-rules` index, so `edge-negation-cycle` —
-  which walks out from excepted rules when a `genl` edge arrives — cannot start at it.
-  A cycle closed by a *later taxonomy edge* underneath a stored `different` rule would
-  be missed.
+- **A `different` antecedent is a re-check condition, not only a stratification edge.**
+  `rules/rechecked?` registers the rule in the re-check index under the predicates that
+  can flip the guard, so a merge or an indeterminacy arriving after the firing withdraws
+  it and a retraction brings it back
+  ([predall.md](predall.md#a-different-guard-is-re-checked-not-supported)).
+  `edge-negation-cycle` reaches such a rule through that roster and through the
+  antecedent index beside it (`checks/negative-edge-rules`), so a cycle closed by a
+  *later taxonomy edge* underneath a stored `different` rule is refused rather than
+  missed.
 - **An individual merge does not migrate a rule.** `rewritable-sentex?` holds a rule
   back when the merge only touches an individual constant: rewriting it is congruence
   over a schema rather than over ground content, and the rewritten copy would fire

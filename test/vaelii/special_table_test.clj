@@ -8,7 +8,7 @@
   makes that safe is `check-entries`, which runs at namespace load and refuses an
   entry whose cache arms are partial — the add/remove/rebuild mirroring the old
   hand-written conds left to review is now a build failure.  These tests pin the
-  validator's teeth and the table's required contents; no KB is involved, so no
+  validator's enforcement and the table's required contents; no KB is involved, so no
   fixture is either."
   (:require [clojure.spec.alpha :as s]
             [clojure.test :refer [deftest is testing]]
@@ -33,13 +33,17 @@
       (let [data (try (special/check-entries [['brokenPred {:integrate f}]])
                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
         (is (= :bad-table-entry (:type data)))
+        (is (= :partial-cache-triple (:mismatch data)))
         (is (= 'brokenPred (:functor data)))
         (is (= [:disintegrate :rebuild] (:missing data)))))
     (testing "and the empty entry carries the same :type — one word for one bad table,
-              whichever way it is bad, since the caller catching it is the namespace load"
+              whichever way it is bad, since the caller catching it is the namespace load —
+              with `:mismatch` saying which way, the discriminant every `:bad-table-entry`
+              in the tree carries and `type_contract_test` holds all of them to"
       (let [data (try (special/check-entries [['emptyPred {}]])
                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
         (is (= :bad-table-entry (:type data)))
+        (is (= :no-arm (:mismatch data)))
         (is (= 'emptyPred (:functor data)))))))
 
 (deftest well-formed-entries-pass

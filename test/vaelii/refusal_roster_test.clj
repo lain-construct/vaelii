@@ -29,7 +29,7 @@
     indexed by symptom**, so a refusal an operator or a caller meets belongs there, under
     the symptom that produced it or in the `:type` index that page closes with;
     **defenses is entry-by-entry with the code**, so a refusal belongs there only when the
-    argument for refusing *rather than accepting* is the thing worth writing down. Nearly
+    argument for refusing *rather than accepting* is the thing recorded here. Nearly
     every entry is troubleshooting's. A refusal whose mechanism is described on a
     subsystem page is documented there too — the index row is what makes it *findable*
     from the keyword alone, which is all a caller holding one has.
@@ -39,7 +39,7 @@
   - **A refusal no test provokes.** Write the test — one that reaches the throw and
     checks the `:type` in its `ex-data`, never the message text. If the throw is genuinely
     out of a test's reach — it needs a crash at a precise instant, or a store damaged in a
-    way no door can produce — add it to `unprovokable` with the one line saying why, the
+    way no entry point can produce — add it to `unprovokable` with the one line saying why, the
     way `caches_test`'s `not-a-cache-bound` excuses a constant.
   - **A refusal written down nowhere.** Give it a row in troubleshooting's `:type` index,
     with what a caller would have observed and the page that owns the mechanism.
@@ -190,7 +190,7 @@
 (def ^:private unprovokable
   "Refusals no test in this tree reaches, each with the reason. Every other refusal is
   provoked by a test that checks its `:type`; these are the ones where provoking it would
-  mean staging a failure the doors cannot produce."
+  mean staging a failure the entry points cannot produce."
   {})
 
 ;; ---- the checks ----------------------------------------------------------

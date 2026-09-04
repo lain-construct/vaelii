@@ -294,8 +294,8 @@
                 "both columns, so the delete left nothing stale to intersect against")))))))
 
 ;; ---- pipelining: the index write is one batch, args is one sinter -------
-;; A KvBackend decorator counting the two load-bearing ops.  The count is at the
-;; protocol seam, so it is backend-independent: a backend is free to make `kv-batch`
+;; A KvBackend decorator counting the two required ops.  The count is at the
+;; protocol, so it is backend-independent: a backend is free to make `kv-batch`
 ;; one round trip and `kv-intersect` one server-side intersection, so one call = one
 ;; round trip.  Proving KvIndexStore issues exactly one of each is what keeps the hot
 ;; path off a round-trip-per-op regression.
@@ -363,7 +363,7 @@
               (p/unindex-sentex! idx sx (+ 900 i)))))))))
 
 ;; A RecordStore decorator counting the fetches a call makes.  The count is at the
-;; protocol seam, so it says the same thing on a RAM store and on a paged one — where
+;; protocol, so it says the same thing on a RAM store and on a paged one — where
 ;; each fetch is a positional read and a nippy thaw past the LRU.
 (defrecord CountingRecords [inner fetches]
   p/RecordStore

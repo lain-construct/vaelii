@@ -5,7 +5,7 @@
 
   `violations`, `settle-stats` / `reset-settle-stats!`, `types-of`, `justification` and
   `dependent-justifications` are all part of `vaelii.core`'s published surface and none
-  of them had a single test reference.  Several carry load-bearing contracts —
+  of them had a single test reference.  Several carry required contracts —
   `violations` is the *only* way to see a conclusion forward chaining silently
   dropped, and `settle-stats` is the instrument behind the documented claim that one
   exception pass suffices — so a wrong answer from any of them is invisible rather

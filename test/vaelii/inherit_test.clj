@@ -432,7 +432,7 @@
   ;; Subsumption, preservation and visibility meet in one read: the claim is stored
   ;; under a *sub-predicate* of the goal's, about the *supertypes* of the goal's
   ;; arguments, and the licence and the predicate edge sit at different depths of the
-  ;; asking context's cone.  Each pairing is pinned on its own — here and in
+  ;; asking context's ancestor set.  Each pairing is pinned on its own — here and in
   ;; `predicate_subsumption_test` — and this is the intersection, where the fact reach
   ;; has to fan to the sub-predicate *as seen from the asking context* for a tuple the
   ;; argument walk proposed.
@@ -445,7 +445,7 @@
       (v/assert kb (list 'genl golden_retriever_t dog_t) 'CxUniverse)
       (v/assert kb (list 'genl maine_coon_t cat_t) 'CxUniverse)
       (v/assert kb (list muchLargerThan dog_t cat_t) 'CxUniverse)
-      ;; the licence partway up the cone, the predicate edge at its bottom
+      ;; the licence partway up the ancestor set, the predicate edge at its bottom
       (v/assert kb (list 'transitiveInArg largerThan 1 'genl) CxTop)
       (v/assert kb (list 'transitiveInArg largerThan 2 'genl) CxTop)
       (v/assert kb (list 'genl muchLargerThan largerThan) CxAsk))
@@ -733,7 +733,7 @@
   the given order, then report whether the converse is admitted from the sub-context."
   [kb {:keys [pred a b super sub order]}]
   ;; the declarations below live in CxUniverse, and the asymmetry check reads
-  ;; them from the asserting context's cone — so the lattice is wired below it
+  ;; them from the asserting context's ancestor set — so the lattice is wired below it
   (v/assert kb (list 'genlCx super 'CxUniverse) 'CxUniverse)
   (v/assert kb (list 'genlCx sub super) 'CxUniverse)
   (v/assert kb (list 'asymmetric pred) 'CxUniverse)
@@ -855,7 +855,7 @@
 ;; and then again per *pair* of claims inside `undercut?` — so an unmemoized walk is
 ;; quadratic in how many claims reach the term.  The answers are identical either way and
 ;; only the cost moves, so nothing but a count can see it.  `res/matches-visible` is the
-;; seam: a reach over a fact-relation reads it once per node walked (`inherit/fact-reach`).
+;; probe point: a reach over a fact-relation reads it once per node walked (`inherit/fact-reach`).
 ;;
 ;; A ratio of **second differences** rather than a pinned number: linear growth doubles the
 ;; step from 4→8 claims to 8→16 and quadratic growth quadruples it, so 3.0 sits between the

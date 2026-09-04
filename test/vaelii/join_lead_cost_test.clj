@@ -17,7 +17,7 @@
   sub-predicates is the overwhelmingly common one — every binary predicate nobody has
   written a `genl` under — and there the lead has no fan to collapse: `res/match-pattern`
   fast-paths a singleton closure to a single `raw-match`, whose `candidate-handles`
-  already reads the argument roots for the shape the trie cannot narrow.  Taking the lead
+  already reads the argument roots for the form the trie cannot narrow.  Taking the lead
   anyway buys nothing and pays for the apparatus, so at width 0 the join must read
   **exactly** what the reference matcher reads.  Varying only the width could never see
   that: a cost that is wrong at every width is flat in the width, and flat is what the
@@ -26,7 +26,7 @@
   The axis is **`chain/*matcher*`**, not `res/*hierarchical-retrieval*`, and that is what
   makes the width-0 arm a claim about the join rather than about the run around it.
   Binding the matcher to anything not `identical?` to `res/match-pattern` is the one thing
-  `join-matches` reads to decline the lead (that is the rete seam, and its docstring says
+  `join-matches` reads to decline the lead (that is the `rete` extension point, and its docstring says
   so), so the reference arm is the reference *join* with the rest of the engine untouched.
   The retrieval switch would have moved the settle and the placement reads too, and at
   width 0 those are the whole difference between the arms.
@@ -65,7 +65,7 @@
   hands back the shipped default of each, and `chain/*matcher*` is bound within it because
   that one is the axis under test.  It is also the one that bites the other way: under
   `VAELII_RETE=1`, whose `enable!` root-binds the alpha matcher, an unpinned run would
-  answer both arms out of RAM and read the identical count — the rete seam behaving as
+  answer both arms out of RAM and read the identical count — the `rete` extension point behaving as
   `join-matches` documents, not a lead that regressed."
   [lead? width]
   (let [kb (tu/isolated-fresh)]
@@ -105,7 +105,7 @@
              lead-wide " vs " trie-wide ")"))))
 
 (deftest the-pin-holds-both-axes-that-were-measured-to-move-this-reading
-  ;; The gate on the gate, and it is cheap enough to live in the default suite: the
+  ;; The gate on the gate, and it is inexpensive enough to live in the default suite: the
   ;; matrix took twenty-four minutes to report that this file was reading the alpha
   ;; matcher's join, and the reading it reported was a plausible number rather than an
   ;; error.  Installed here is a matcher that cannot be mistaken for one — it throws —

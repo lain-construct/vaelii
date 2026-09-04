@@ -12,7 +12,7 @@
 
 `vaelii.impl.profile`, read out by `lein bench-profile`
 (`bench/vaelii/bench/profile.clj`). The index has six families and several access paths
-into them, and every family is a write tax on every assert. Which of them earns its keep
+into them, and every family is a write tax on every assert. Which of them pays for itself
 is a question about a **workload**, not about the code: a KB whose patterns all lead with
 a ground first argument pays for three secondary root families nothing reads, and a KB
 asking `(?type Muffet)` a thousand times a second lives on the argument-slot roster. This
@@ -30,7 +30,7 @@ is the instrument that answers it from outside.
 | `:writes` | `index-sentex`, keyed by functor | what an assert costs each family |
 | `:retracts` | `unindex-sentex!`, keyed by functor | what a retraction costs each family |
 
-`:reads` is the one that answers "does this family earn its keep", and it answers it with
+`:reads` is the one that answers "does this family pay for itself", and it answers it with
 a zero when it does not. The trie counts as **two** families there — `:trie-lookup` for a
 retrieval walk and `:trie-counts` for `count-at` / `children` / `count-children` — because
 those are the query planner's selectivity probes rather than a fetch, and a run can be
@@ -74,7 +74,7 @@ distinguishes rather than what a reader would:
 
 So `(parentOf ?x Tom)` counts as `[parentOf :positive "fb" :arg-roots]`, and
 `(mass ?o (QuantityFn ?n Kilogram))` as `[mass :positive "fF" :structural]`. `functor` is
-`:open` when the functor is itself a variable, the shape that puts every argument behind
+`:open` when the functor is itself a variable, the structure that puts every argument behind
 it. Arity is the pattern's length, so the key carries that too.
 
 `n` is its own class and not a kind of `b` because the distinction is the whole reason
@@ -101,7 +101,7 @@ same question:
 An `F` is open, so it is never the bound half of the first reading and the first two never
 double-count. Adding them would report a number meaning neither, since one names a shape
 a family serves and the other names a shape nothing does. The third is a superset of the
-second by construction and is read as a bound, not added to anything.
+second by construction and is are indistinguishable from a bound, not added to anything.
 
 ## The access paths, named
 
@@ -132,8 +132,8 @@ rather than a count of what a caller asked.
 
 ## What it costs
 
-The switch and the store are one atom, nil when off, so every seam is a deref and a
-`nil?` check — what the observer seam costs the reference chainer
+The switch and the store are one atom, nil when off, so every call site is a deref and a
+`nil?` check — what the observer call sites cost the reference chainer
 ([inference.md](inference.md)). The trie walk carries two long operations per level
 whether or not anybody is counting, so `lookup` can report how wide its frontier got.
 
@@ -198,7 +198,7 @@ Six readings come out, and they answer different questions:
 - **The interactive arm** makes the reads an *application* makes — `terms`,
   `term-count`, `find-terms`, `find-sentexes` — and it is the only arm that does. No
   reasoning calls any of them, so without it the term roster and the term index read zero
-  on every corpus, which reads as a family nobody uses and means a family no **reasoner**
+  on every corpus, which is indistinguishable from a family nobody uses and means a family no **reasoner**
   uses. Its read table is the inverse of every other arm's: on the shipped starter it is
   88% `:term-index` and 12% `:term-roster`, and every other family at nothing.
 - **The churn arm** retracts a sample of premises and puts each one back, which is the
@@ -219,7 +219,7 @@ Six readings come out, and they answer different questions:
   number covering both is an index tax nobody paid.
 
   Each sample is reported as a **distribution** — median, p95 and max, with the costliest
-  pairs named — and never as a mean. What one pair costs is the size of the region its
+  pairs named — and never as a mean. One pair costs the size of the region its
   removal moves, and that ranges over orders of magnitude inside a single hierarchy: an
   edge between two leaf types moves almost nothing, while the edge holding the root type
   under `thing` disconnects every type from the root, so `isa?` changes for every
@@ -278,7 +278,7 @@ The quantity is an integer the engine computes rather than a measurement of the 
 so there is no warm-up, no tail mean, no noise floor and no tolerance. It is identical
 across runs, machines and a loaded box, which is what lets it live in the suite instead
 of behind a command somebody has to remember. Its configuration is pinned rather than
-inherited — `:backend :memory` because the seams are `KvIndexStore`'s and the columnar
+inherited — `:backend :memory` because the counted calls are `KvIndexStore`'s and the columnar
 store has none, and every retrieval switch at its shipped default — so it says
 the same thing on all eight backend runs of `scripts/test-backends.sh` and all six sweeps
 of `scripts/test-sweeps.sh`.
@@ -365,13 +365,13 @@ held identical and only the path varies.
 ### The access-path report comes first, and that is the design
 
 A layout that quietly falls back to a coarser access path answers identically and is
-merely slower. Read as a duration that is a fair loss; read as a path it is a
+merely slower. Read as a duration that is a fair loss; are indistinguishable from a path it is a
 misconfiguration. So the `:goals` tally is printed as a path histogram per layout,
 before any duration, and a layout whose histogram differs from the reference's is named.
 
 It is also the one table that spans every layout, because `:goals` is the one tally taken
 above the index. The `:reads` table beside it prints **not applicable** rather than `0`
-for a layout with no `KvIndexStore` seams, since a zero and an absence are different
+for a layout with no `KvIndexStore`, since a zero and an absence are different
 readings: a columnar arm scored on `:reads` would look like an index nobody touches.
 
 Answers are gated mechanically alongside it. Every layout answers the identical probe
@@ -404,7 +404,7 @@ correct estimator scores exactly 1.00, so it fails a layout rather than ranking 
 corpus too small for two layouts to differ reports that they do not, which is a reading of
 the corpus.
 
-The largest of them is worth stating on its own. Unification, belief filtering, the
+The largest of them matters on its own. Unification, belief filtering, the
 taxonomy closures, the record fetch and the frontier a walk rebuilds at every level are
 inside every timing, and every one is **common to both arms of every ratio**. A ratio
 divides a shared cost out, so a row that reads 1.05x can be a layout twice as expensive at

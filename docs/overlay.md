@@ -13,7 +13,7 @@
 A **fork** is a private, writable KB layered over a shared, read-only **base**. Reads
 resolve fork-first and fall through to the base; writes land only in the fork; **the base
 is never mutated**. So N forks can hang off one base and each keep its own divergent
-copy, and the sharing costs nothing — no copy, no protocol between them, no coordinator.
+copy, and the sharing adds no work — no copy, no protocol between them, no coordinator.
 
 The sharing is **within one process**. A `:disk` base is opened through the ordinary
 durable store registry, which takes the directory's exclusive single-writer lock
@@ -75,7 +75,7 @@ re-check index, the inverted term index and the term roster — and it holds no 
 its own: every read bottoms out in `kv-members`, `kv-count`, `kv-intersect` or
 `kv-get`, and every write in `kv-batch`. So a single `KvBackend` decorator merges the
 entire index, and the trie walker, the matcher, the planner, the TMS and the query layers
-need no part in it. That is what the `KvBackend` seam buys.
+need no part in it. That is what the `KvBackend` protocol buys.
 
 Two things follow, and they bound the feature.
 
@@ -121,7 +121,7 @@ has to see the base's postings.
 **Merging is not the same as building the merged set**, and on a fork the difference is
 what every query plan costs. Read the rule backwards: `(base ∪ overlay) − removed`
 collapses to `base` exactly when the base is visible and the overlay holds neither members
-of its own at that key nor a record of a removal there — which is the shape of nearly
+of its own at that key nor a record of a removal there — which is the structure of nearly
 every key a fork reads, since the whole point is that N processes share one base and each
 writes a little. `kv-count` and `kv-members` recognize that case and hand the base's own
 answer straight back, and `kv-intersect` recognizes it across *all* of its keys at once —
@@ -133,7 +133,7 @@ materialized into a Clojure set first, counting through the merge cost ~13 ms pe
 a 100,000-handle root — a selectivity read, per conjunct, on a key the fork had never
 written to. `lein perf --only overlay-selectivity` is the gate. `kv-member?` is the same
 observation at member granularity: it probes both sides rather than merging them, which is
-what keeps the `exception-rule?` gate O(1) across the seam.
+what keeps the `exception-rule?` gate O(1) across the `KvBackend` protocol.
 
 So the two roads cost differently and must answer alike, and that is what
 `overlay_test`'s `count-children-answers-the-same-on-both-roads-through-the-merge` holds:
@@ -159,7 +159,7 @@ deliberately, because that is what the caller asked for.
 
 `OverlayRecordStore` is a composite `RecordStore` `{overlay base}`.
 
-- **The id seam.** The fork's handle counter is seeded above every handle the base holds,
+- **The id boundary.** The fork's handle counter is seeded above every handle the base holds,
   so a minted handle can never collide with a base one. A record written at a handle the
   base *already* uses is therefore an **override** — same handle, different record — and
   the overlay's copy wins every read. That is how a base record is edited without editing
@@ -177,7 +177,7 @@ deliberately, because that is what the caller asked for.
   durable fork over the same base serves the merged view it was left in. An in-RAM fork
   gets an in-RAM one and pays nothing for the machinery.
 
-- **The optional capabilities cross the seam.** A base may carry `Tallying` and
+- **The optional capabilities cross the protocol.** A base may carry `Tallying` and
   `Prefetching` ([storage.md](storage.md)), and both are answered *through* the fork
   rather than lost at it. The three samplers ask each half for one handle instead of
   building the merged roster, falling back to the roster only when the handle sampled is
@@ -197,7 +197,7 @@ parallel accounting that could drift from the records.
 
 A base is any `RecordStore` + `KvBackend` wrapped by `vaelii.impl.overlay.frozen`, which
 answers every read and **throws on every write**. Base immutability is thus structural: a
-write path that forgot to divert fails loudly at the seam instead of silently mutating
+write path that forgot to divert fails loudly at the boundary instead of silently mutating
 what every other fork is reading. It is a decorator, not a file mode, so it says nothing
 about how the underlying store was opened — which is what makes the composition safe
 whatever the base is.
@@ -212,7 +212,7 @@ outlives the process. `next-id` advances the base store's monotonic counter, and
 record store persists that counter to `counters.nippy` on its next flush — so mounting a
 fork over a `:disk` base bumps the base's stored sequence by one, permanently. The bump
 allocates: it can only skip a handle, never reuse one, and recovery takes
-`max(the counters blob, 1 + the highest slot id)`, so a skipped number costs nothing and
+`max(the counters blob, 1 + the highest slot id)`, so a skipped number adds no work and
 loses nothing. There is no read-only way to seed a watermark, and no arrangement under
 which the counter both seeds a fork and stays where it was.
 

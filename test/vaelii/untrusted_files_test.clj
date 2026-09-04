@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.untrusted-files-test
-  "The two doors on a file the engine is handed: what a frame may **name**, and how much
+  "The two entry points on a file the engine is handed: what a frame may **name**, and how much
   a manifest may **hold**.
 
   A store directory and a dump are input from wherever an operator copied them, and both
@@ -49,13 +49,13 @@
   (assert (= (count from) (count to)))
   (.getBytes (.replace (String. bs "ISO-8859-1") from to) "ISO-8859-1"))
 
-;; ---- the class-name door -------------------------------------------------
+;; ---- the class-name check -------------------------------------------------
 
 (deftest a-frame-that-names-a-class-is-refused-by-name
   (let [bs (nippy/freeze (->Probe 1))]
     (testing "the bytes are good: nippy on its own builds the record from them"
       (is (= (->Probe 1) (nippy/thaw bs))
-          "the frame is well-formed, so what refuses it below is the door and not damage"))
+          "the frame is well-formed, so what refuses it below is the entry point and not damage"))
     (testing "and the engine's own thaw refuses the name instead"
       (let [d (ex-data-of #(safe/thaw bs))]
         (is (= :disallowed-class (:type d)))
@@ -66,7 +66,7 @@
 (deftest a-class-name-is-refused-before-it-is-resolved
   ;; The discriminator: a frame naming a class that is **not on this classpath**.  nippy
   ;; on its own gets as far as resolving it and reports the failure as a placeholder —
-  ;; which is the step this door exists to happen before.  Under the guard there is no
+  ;; which is the step this entry point exists to happen before.  Under the guard there is no
   ;; resolution to fail: the refusal carries the name and nothing was loaded.
   (let [absent (rename-class (nippy/freeze (->Probe 1) {:compressor nil})
                              "vaelii.untrusted_files_test.Probe"
@@ -81,7 +81,7 @@
         (is (= :disallowed-class (:type d)))
         (is (= "vaelii.untrusted_files_test.Absnt" (:class d)))))))
 
-(deftest the-serializable-fallback-is-refused-by-the-same-door
+(deftest the-serializable-fallback-is-refused-by-the-same-entry-point
   ;; nippy's `Serializable` path is allowlisted, but by a **dynamic var** an embedding
   ;; application is invited to widen — so the engine pins its own rather than inheriting
   ;; whatever the host left there.  A `java.time.LocalDate` is on nippy's default list
@@ -96,7 +96,7 @@
       (is (= "java.time.LocalDate" (:class d)))
       (is (= :serializable (:reader d))))))
 
-(deftest the-front-door-refuses-what-the-readers-would-refuse
+(deftest the-entry-point-refuses-what-the-readers-would-refuse
   ;; The two halves are one decision.  `check-encodable` probes a leaf's class through
   ;; the same thaw the durable readers run, so a value that would not read back off disk
   ;; never gets stored — rather than storing here and refusing one restart later, which
@@ -114,7 +114,7 @@
               "and names the value it could not store"))))))
 
 (deftest a-host-applications-own-thaw-is-untouched
-  ;; The door is armed for the duration of the engine's own reads and no longer: the
+  ;; The entry point is armed for the duration of the engine's own reads and no longer: the
   ;; checked readers stand in for nippy's process-wide, so a library that closed one
   ;; globally would break a host that thaws its own records in the same JVM.
   (is (= (->Probe 7) (nippy/thaw (nippy/freeze (->Probe 7))))
@@ -123,7 +123,7 @@
       "and the guarded one still reads everything a vaelii frame is made of"))
 
 (deftest a-stream-frame-naming-a-class-is-refused-on-the-way-in
-  ;; The door where a dump is actually read: `read-chunked-seq` over a stream file whose
+  ;; The entry point where a dump is actually read: `read-chunked-seq` over a stream file whose
   ;; second frame names a class.  The first frame is ordinary, so the refusal is the
   ;; frame's and not the file's.
   (let [d (temp-dir "stream")]
@@ -136,11 +136,11 @@
           (is (= "vaelii.untrusted_files_test.Probe" (:class e)))))
       (finally (rm-rf! d)))))
 
-(deftest what-a-dump-and-a-store-carry-is-nothing-the-door-refuses
+(deftest what-a-dump-and-a-store-carry-is-nothing-the-entry-point-refuses
   ;; The allowlist is empty because the formats state no class — the export's own
   ;; non-negotiable rule, and the disk codec's positional frames.  This is that claim
   ;; exercised rather than restated: a KB out to a dump and back, and a durable store
-  ;; closed and reopened, with the door armed throughout.
+  ;; closed and reopened, with the entry point armed throughout.
   (let [d (temp-dir "roundtrip")]
     (try
       (let [store (str (.getPath d) "/store")
@@ -157,12 +157,53 @@
             (finally (v/close! kb))))
         (let [reopened (v/open-kb {:backend :disk-log :dir store :recover? :auto})]
           (try (is (= 4 (v/sentex-count reopened))
-                   "the store reads back with the door armed")
+                   "the store reads back with the entry point armed")
                (finally (v/close! reopened))))
         (let [into-kb (v/open-kb {:space [::untrusted 1] :recover? false})]
           (is (= 4 (:sentexes (v/import! into-kb dump)))
               "and so does the dump")))
       (finally (rm-rf! d)))))
+
+;; ---- the pin on nippy's attachment points --------------------------------
+
+(deftest the-pin-names-the-nippy-that-is-actually-on-the-classpath
+  ;; The pin is only worth its ceremony if it is read from the resolved dependency rather
+  ;; than restated by hand, so this asserts the two agree — and that the descriptor the
+  ;; reading depends on is there at all, in a checkout and in whatever jar this runs from.
+  (is (some? (safe/resolved-nippy-version))
+      "nippy's own META-INF/maven descriptor is readable, which is what the pin reads")
+  (is (= safe/pinned-nippy-version (safe/resolved-nippy-version))
+      "the release the class-name check was written against is the one on the classpath")
+  (is (= safe/pinned-nippy-version (safe/check-nippy-pin! safe/pinned-nippy-version))
+      "and the check passes, returning the version it agreed on"))
+
+(deftest a-moved-nippy-refuses-the-load-rather-than-narrowing-in-silence
+  ;; The pin exercised rather than trusted: the failure it exists for is a bump that keeps
+  ;; `read-record` / `read-deftype` and stops routing a class name through them, which
+  ;; nothing else in the tree can see.  So the one thing to prove is that a version other
+  ;; than the pinned one throws — the same throw a real bump would meet at load.
+  (let [d (ex-data-of #(safe/check-nippy-pin! "0.0.0-not-the-pinned-one"))]
+    (is (= :nippy-version-moved (:type d))
+        "a nippy other than the pinned one refuses, which fails the namespace and the build")
+    (is (= "0.0.0-not-the-pinned-one" (:pinned d)))
+    (is (= (safe/resolved-nippy-version) (:found d))
+        "and the refusal names both versions, so the reader knows which way the ground moved"))
+  (testing "the message says what a bumper is supposed to do, not merely that it stopped"
+    (let [msg (try (safe/check-nippy-pin! "0.0.0-not-the-pinned-one")
+                   (catch clojure.lang.ExceptionInfo e (.getMessage e)))]
+      (doseq [point ["taoensso.nippy.io/read-record"
+                     "taoensso.nippy.io/read-deftype"
+                     "taoensso.nippy.impl/serializable-allowed?"]]
+        (is (.contains ^String msg point)
+            (str "the refusal names the attachment point to re-read: " point))))))
+
+(deftest a-nippy-that-cannot-be-identified-refuses-too
+  ;; Unreadable is not "probably fine".  An entry point that cannot say which nippy it stands in
+  ;; front of has no claim to be guarding anything, so the two ways of being wrong refuse
+  ;; alike and only their kind differs.
+  (with-redefs [safe/resolved-nippy-version (constantly nil)]
+    (is (= :nippy-version-unreadable
+           (:type (ex-data-of #(safe/check-nippy-pin! safe/pinned-nippy-version)))))))
 
 ;; ---- the manifest bound --------------------------------------------------
 

@@ -29,7 +29,7 @@
   (:refer-clojure :exclude [assert isa?])
   (:require [clojure.edn :as edn]
             [vaelii.impl.guard :as guard]
-            ;; the option-map door.  A leaf on `clojure.string` alone, like `guard`
+            ;; the option-map entry point.  A leaf on `clojure.string` alone, like `guard`
             ;; beside it, so requiring it costs this namespace none of the independence
             ;; the generated wrappers exist to keep
             [vaelii.impl.opts :as opts])
@@ -54,7 +54,7 @@
   refusal needs.
 
   A key outside those two, and a non-map `opts`, are refused (`:unknown-option`) at the
-  shared door every other entry point in this tree runs its options through."
+  shared entry point every other entry point in this tree runs its options through."
   ([host port] (client host port {}))
   ([host port {:keys [timeout-ms] :or {timeout-ms 30000} :as opts}]
    (opts/check! opts client-opt-keys "client"
@@ -93,7 +93,7 @@
         (throw (ex-info (str "the bearer token holds a character an HTTP header cannot "
                              "carry — VAELII_API_TOKEN is read untrimmed, so a trailing "
                              "newline or a control character in it is the usual cause")
-                        {:type :unknown-option :option :token})))))
+                        {:type :unknown-option :mismatch :bad-value :option :token})))))
   rb)
 
 (defn- read-reply
@@ -199,6 +199,13 @@
   map."
   [conn handle m]
   (call conn :add-provenance [handle m]))
+
+(defn all-specified-violations
+  "Audit every `predAllSpecified` and `predSpecifiedAll` declaration visible in `context`,
+  and return `{[functor pred indep dep] #{violating-instances…}}` — the declarations that
+  hold are omitted, so an empty map is a clean sweep."
+  [conn context]
+  (call conn :all-specified-violations [context]))
 
 (defn argue
   "Four-valued epistemic status of a ground assertion."
@@ -627,8 +634,8 @@
   (call conn :quality-report [quality]))
 
 (defn query
-  "Answer `goal` in `context` — the front door — as a seq of **binding maps** (`{?x val
-  …}`) projected onto the goal's own variables."
+  "Answer `goal` in `context` — the public entry point — as a seq of **binding maps** (`{?x
+  val …}`) projected onto the goal's own variables."
   ([conn goal] (call conn :query [goal]))
   ([conn goal context] (call conn :query [goal context]))
   ([conn goal context opts] (call conn :query [goal context opts])))
@@ -664,8 +671,8 @@
   (call conn :retract [handle]))
 
 (defn same-class?
-  "Do `a` and `b` denote the same thing? The complement of a provable `(different a b)`:
-  distinct symbols denote distinct individuals until an equality sentex says otherwise."
+  "Do `a` and `b` denote the same thing? Distinct symbols denote distinct individuals until
+  an equality sentex says otherwise."
   ([conn a b] (call conn :same-class? [a b]))
   ([conn a b context] (call conn :same-class? [a b context])))
 
@@ -720,6 +727,13 @@
   "Instrumentation for the `exceptWhen` fixpoint in `settle`."
   [conn]
   (call conn :settle-stats []))
+
+(defn specified-violations
+  "The instances of `indep` that break a `(predAllSpecified pred indep dep)` integrity
+  requirement in `context`: every member x of `indep` for which no believed `(pred x y)`
+  carries a **determinate** filler y in `dep`."
+  ([conn pred indep dep context] (call conn :specified-violations [pred indep dep context]))
+  ([conn pred indep dep context arg-pos] (call conn :specified-violations [pred indep dep context arg-pos])))
 
 (defn specs
   "The subtypes of type `t`, reflexively — `t` itself plus everything that reaches it by
@@ -796,7 +810,7 @@
   "Deprecated spelling of `assert`, which is what `vaelii.core` calls it.  Identical in
   every other respect.  `!` means *irreversible* here (`docs/api.md`) and an assertion is
   neither — `retract!` takes it back — so the wrapper carrying one said the opposite of
-  what the door does."
+  what the entry point does."
   ([conn sentence] (assert conn sentence))
   ([conn sentence context] (assert conn sentence context))
   ([conn sentence context opts] (assert conn sentence context opts)))
@@ -852,7 +866,7 @@
      (when-not (nat-int? w)
        (throw (ex-info (str "poll :wait-ms must be a whole number of milliseconds, got "
                             (pr-str w))
-                       {:type :unknown-option :options [:wait-ms]})))
+                       {:type :unknown-option :mismatch :bad-value :options [:wait-ms]})))
      ;; extended by what the daemon will actually wait, not by what was asked for: the
      ;; wait is capped there, so a caller asking for ten minutes would otherwise hold its
      ;; own socket open for ten minutes against a reply that came in thirty seconds

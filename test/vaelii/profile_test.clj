@@ -5,7 +5,7 @@
 
   A profile is only worth reading if its **labels are true**: a tally that says a shape
   took the argument roots when it walked the trie is worse than no tally, because it
-  reads as a measurement.  So the load-bearing tests here are not that counting works —
+  is indistinguishable from a measurement.  So the required tests here are not that counting works —
   they are that each of the access paths the tally names is the path the engine actually
   took, established by making the engine take it and then reading the label back.
 
@@ -88,7 +88,7 @@
       (prof/stop))))
 
 (deftest stop-is-final-against-a-tally-still-being-filed
-  ;; The instrument is process-wide and its seams sit on every index read, so `stop` can
+  ;; The instrument is process-wide and its call sites sit on every index read, so `stop` can
   ;; land while another thread is inside one — the browser reading beside a REPL, a
   ;; portfolio racer, a job.  A tally applied to the cleared instrument must be dropped:
   ;; recreated instead, it is a fragment with no `:t0`, which leaves `profiling?` true

@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.inference-canonical-test
-  "Every node of the node engine is a **canonicalized conjunction**, and what that buys.
+  "Every node of the node engine is a **canonicalized conjunction**, and what that provides.
 
   Two things follow from numbering each node's variables `?var0 ?var1 …`, and this
   namespace is about both.  Identity becomes structural: two conjunctions that differ
@@ -67,7 +67,7 @@
 
 (tu/deftest-kb alpha-variant-queries-build-the-same-nodes
   ;; The identity claim, end to end: what the asker calls their variables cannot change
-  ;; the shape of the search, only the names the answers come back under.
+  ;; the structure of the search, only the names the answers come back under.
   (tu/with-terms [edgeOf anc CxAlpha]
     (tu/with-terms [AlA AlB AlC]
       (chain-kb! kb edgeOf anc CxAlpha [AlA AlB AlC])
@@ -278,10 +278,10 @@
         (is (empty? (doall (inf/search-seq sess))))
         (is (zero? (:frontier (inf/tree-stats sess))) "the search did not terminate")))))
 
-;; ---- the leaf-solver seam ------------------------------------------------
+;; ---- the leaf-solver extension point ------------------------------------------------
 
 (tu/deftest-kb a-leaf-solver-answers-what-the-search-will-not-rewrite
-  ;; The seam that lets one engine serve two leaf semantics.  Correctness only: routing
+  ;; The extension point that lets one engine serve two leaf semantics.  Correctness only: routing
   ;; `ask` through here is measured and rejected (see `inf/backchain`'s docstring), so
   ;; what this pins is that the mechanism is right, not that it is a good idea.
   (tu/with-terms [edgeOf anc CxLeaf]

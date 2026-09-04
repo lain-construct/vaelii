@@ -5,7 +5,7 @@
   one switch.
 
   The index has six families and several access paths into them (`docs/indexing.md`),
-  and which of them earns its keep is a question about a *workload*, not about the code:
+  and which of them pays for itself is a question about a *workload*, not about the code:
   a KB whose every pattern leads with a ground first argument pays for three secondary
   root families it never reads, and a KB that asks `(?type Muffet)` a thousand times a
   second lives or dies on the argument-slot roster.  Nothing in the engine answers that
@@ -21,7 +21,7 @@
     closure records one entry per sub-predicate — so a total here is index traffic, not
     a count of what a caller asked.
   * **`:reads`** — every `IndexStore` read, by family.  This is the one that answers
-    whether a family earns its keep: a KB that never reads the argument roots is a KB
+    whether a family pays for itself: a KB that never reads the argument roots is a KB
     paying three write taxes for an access path nothing takes.  The trie counts as two
     families here, `:trie-lookup` and `:trie-counts`, because retrieval and the cost
     model read the same structure for unrelated reasons and a run can be dominated by
@@ -65,7 +65,7 @@
 
   So `(parentOf ?x Tom)` is `[parentOf :positive \"fb\" :arg-roots]` and
   `(mass ?o (QuantityFn ?n Kilogram))` is `[mass :positive \"fF\" :structural]`.  `functor` is
-  `:open` when the functor is itself a variable, which is the shape that puts every
+  `:open` when the functor is itself a variable, which is the structure that puts every
   argument behind it.  Arity is the adornment's length, so the key carries it too.
 
   The alphabet is what the *index* distinguishes rather than what a reader would: `b` and
@@ -74,8 +74,8 @@
 
   ## Off by default, and free when off
 
-  The switch and the store are one atom: nil when off, so every seam is a deref and a
-  `nil?` check, which is what the observer seam costs the reference chainer
+  The switch and the store are one atom: nil when off, so every call site is a deref and a
+  `nil?` check, which is what the observer call sites cost the reference chainer
   (`vaelii.impl.observe`).  Anything heavier on a retrieval path would show up in `lein
   perf` as a constant, and a ratio cannot see a constant.
 
@@ -115,7 +115,7 @@
   (:require [vaelii.impl.sentex :as sx]))
 
 ;; nil when off; otherwise `{:t0 <nanos> :goals {} :reads {} :fan {} :sift {} :fetches {}
-;; :writes {} :retracts {}}`.  One atom rather than a flag beside a store, so a seam
+;; :writes {} :retracts {}}`.  One atom rather than a flag beside a store, so a call site
 ;; cannot read the flag on and the store as nil.
 (defonce ^:private tally (atom nil))
 
@@ -161,13 +161,13 @@
   []
   (read-out (first (swap-vals! tally (constantly nil)))))
 
-;; ---- the seam every tally goes through ----------------------------------
+;; ---- the call site every tally goes through ----------------------------------
 
 (defmacro ^:private tallying
   "`(update-in tally path f args…)`, applied **only while the instrument is still
   collecting** — the one shape every `record-*` below files its count in.
 
-  Two guards, and both are load-bearing.  The deref is the fast path: a seam off a
+  Two guards, and both are required.  The deref is the fast path: a call site off a
   timing run pays that and a `nil?` check, which is what every `record-*` promises, and
   nothing inside is built until it passes.  The `when` *inside* the swap is what makes
   `stop` final.  A bare `swap!` on a tally `stop` has already cleared does not fail — it
@@ -178,7 +178,7 @@
   nil)` off the missing stamp.  `jobs/update-job!` guards the same shape against the same
   recreation.
 
-  Answers nil, since every seam here is called for effect."
+  Answers nil, since every call site here is called for effect."
   [path f & args]
   `(do (when @tally
          (swap! tally (fn [t#] (when t# (update-in t# ~path ~f ~@args)))))
@@ -224,7 +224,7 @@
 
 (defn record-read
   "Tally one `IndexStore` read against the family that answered it.  This is the tally
-  that says whether a family earns its keep, so the names are the families and not the
+  that says whether a family pays for itself, so the names are the families and not the
   method names: several methods read the argument roots, and what a policy would drop is
   the family."
   [family]
@@ -245,7 +245,7 @@
   a support walk, the provenance nothing but the browser reads — and a per-handle key
   would hold the whole workload.
 
-  A deref and a `nil?` check when the instrument is off, like every seam here."
+  A deref and a `nil?` check when the instrument is off, like every call site here."
   [kind]
   (tallying [:fetches kind] (fnil inc 0)))
 
@@ -276,7 +276,7 @@
   lazy short-circuit an existence check relies on.
 
   Unhinted args: a fn taking primitive `long`s is capped at four, and this takes five —
-  the counts box, which costs nothing off the timing path (this is only reached while
+  the counts box, which adds no work off the timing path (this is only reached while
   collecting)."
   [sentence path returned matched unified]
   (tallying [:sift (shape-of sentence :positive path)]

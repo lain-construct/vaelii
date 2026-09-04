@@ -68,7 +68,7 @@
   Anything else rebuilds, at `:info`, with the reason named.  A cache that silently
   stops being used is a cache nobody maintains.
 
-  The store-facing replay is written against the engine's real seams: populate the record
+  The store-facing replay is written against the engine's real protocols: populate the record
   store with the re-canonicalized records + justifications + premise marks, then either
   install the dumped index (`p/index-load`) or rebuild it (`reindex`), then
   `core/recover` — which rebuilds the JTMS and the taxonomy **from the records**, so a
@@ -138,7 +138,7 @@
   figure the refusal states is the figure that was read.
 
   Content the EDN reader cannot parse is refused by name too (`:malformed-manifest`).
-  A manifest cut mid-form — the shape a crashed writer and a half-copied directory both
+  A manifest cut mid-form — the form a crashed writer and a half-copied directory both
   leave — otherwise raises a bare `RuntimeException` (\"EOF while reading\"), which is
   neither a `:type` a caller can discriminate on nor a fact about the file it names.
   Which of the two refusals means \"not a KB\" and which means \"a broken one\" is the
@@ -177,7 +177,7 @@
 ;;; policy of choosing a reader from a dump's own `meta.edn` (`stream-reader-for`).
 
 (defn- check-frame-count!
-  "Refuse a stream that ended early.  A torn chunk reads as a clean EOF — the
+  "Refuse a stream that ended early.  A torn chunk is indistinguishable from a clean EOF — the
   decompressor cannot tell a truncated file from a finished one — so the only witness
   a truncated dump leaves is the count `meta.edn` states, and this is the same
   comparison `replay-index!` makes for the index entries.  Nil `stated` (a dump that
@@ -199,10 +199,10 @@
 ;;; build, or by another engine, can be one this build's checks refuse; there is no
 ;;; record to store when they do, since the check runs inside the constructor.
 ;;;
-;;; The naming path settled the policy for the other door already: a name `assert`
-;;; would refuse is stored, counted, and reported, because a store the front door
+;;; The naming path settled the policy for the other entry point already: a name `assert`
+;;; would refuse is stored, counted, and reported, because a store the public entry point
 ;;; disagrees with is a *fact about that store* rather than a reason to have no store.
-;;; The structural door gets the same treatment for the same reason, and the argument
+;;; The structural entry point gets the same treatment for the same reason, and the argument
 ;;; is sharper here — one refusal aborting the load discards a finished multi-hour pass
 ;;; over millions of good frames to punish a record nobody can fix from this end.
 
@@ -405,7 +405,7 @@
   and the premise decisions, plus the handles whose stored content names another sentex
   (needing a rewrite once the map is complete, unless every handle was preserved and the
   map is the identity), plus the fingerprint of what was stored and the count of what the
-  front door would have refused, both accumulated **here** because this is the one pass
+  public entry point would have refused, both accumulated **here** because this is the one pass
   over the records a reader gets.
 
   A frame whose sentence this build will not construct is **counted in `:refused` and
@@ -661,8 +661,8 @@
   — and a justification handle is what `core/justification` and the web's justification
   pages are addressed by.
 
-  Antecedents land as a **vector**, which is the shape the engine's own write path
-  stores and `jtms/graph-just` normalizes to.  They are read as a set — order and
+  Antecedents land as a **vector**, which is the form the engine's own write path
+  stores and `jtms/graph-just` normalizes to.  They are are indistinguishable from a set — order and
   duplicates are immaterial to `has-justification?` — but storing one would leave an
   imported record spelled differently from an asserted one, and a dump written from an
   imported KB differing byte for byte from the dump it came from.
@@ -683,7 +683,7 @@
 
   `:frames` is what the **stream yielded**, which is a different number from `:stored`
   and from `:dropped` and is the only one a torn-file check can read: a truncated chunk
-  reads as a clean EOF, so what `meta.edn` states is the sole witness
+  is indistinguishable from a clean EOF, so what `meta.edn` states is the sole witness
   (`check-frame-count!`), and a frame this load dropped for an unresolvable reference is
   not a torn file."
   [kb frames old->new orphaned preserve? tick!]
@@ -929,11 +929,11 @@
   what the stream yielded — the two differ by the refusals.
 
   It also **counts** what it does not check.  This path stores names `assert` refuses —
-  that is what a bulk path is for — but a store the front door disagrees with is a fact
+  that is what a bulk path is for — but a store the public entry point disagrees with is a fact
   about that store, and here, with each record already decoded and in hand, is the one
   cheap moment to learn it.  `nm/tally` is counts and classes only; the spellings behind
   them are a separate question (`vaelii.bench.survey naming`).  A sentence this build
-  will not *construct* is the same policy one door over: counted in `:refused`, skipped,
+  will not *construct* is the same policy one entry point over: counted in `:refused`, skipped,
   and reported."
   [kb frames decode preserve? index? report-every on-progress total]
   (let [records (:records kb)
@@ -967,8 +967,8 @@
                 ;; handle a derivation with no justification to ground it
                 ;;
                 ;; Counted and skipped when this build's structural checks refuse the
-                ;; sentence, exactly as on the belief path — the same door, and a bulk
-                ;; path is the last place an all-or-nothing refusal earns its keep.
+                ;; sentence, exactly as on the belief path — the same entry point, and a bulk
+                ;; path is the last place an all-or-nothing refusal pays for itself.
                 rec (try
                       (cond-> (res/kb-sentex kb (:sentence fm) (:context fm))
                         (and preserve? (:strength fm))
@@ -1022,7 +1022,7 @@
 
   **The premise marks are kept for a dump of ours, and only for one of ours** — the whole
   of the difference, and the reason `:belief? :stored` exists.  Each record of ours is
-  born with its dump strength and rostered in `premise-ids`, which costs nothing per frame
+  born with its dump strength and rostered in `premise-ids`, which adds no work per frame
   and is what a later `recover` rebuilds belief from.  A **foreign** frame's `:strength`
   is not the premise mark — that dialect's own account of what rests on what decides, and
   only its `replay-belief!` reads it — so `preserve?` gates the strength as well as the
@@ -1053,7 +1053,7 @@
     (trove/log! {:level :info :id ::records-loaded
                  :msg (str "loaded " (:sentexes result) " sentexes (no belief), index "
                            (name (:index idx)))})
-    ;; the other door, reported rather than enforced: a corpus the front door disagrees
+    ;; the other entry point, reported rather than enforced: a corpus the public entry point disagrees
     ;; with is loadable and worth loading, and the operator who chose this path is the
     ;; one who should hear the number — now, not from a failed experiment later
     (when-let [line (nm/tally-line (:naming result))]
@@ -1116,7 +1116,7 @@
                          (str/join ", " (map pr-str (sort-by pr-str (keys belief-modes))))
                          ".  A value nothing recognises would otherwise read as truthy"
                          " and run the recover.")
-                    {:type :unknown-option :option :belief?
+                    {:type :unknown-option :mismatch :bad-value :option :belief?
                      :value (:belief? opts)
                      :values (vec (sort-by pr-str (keys belief-modes)))}))))
 
@@ -1182,17 +1182,17 @@
   became of the index: `{:index :replayed :entries n}` or `{:index :rebuilt :reason r}`
   (`:absent` / `:layout-changed` / `:handles-remapped` / `:records-differ` /
   `:entries-truncated`).  A caller cannot see any of it for itself, and the first two are
-  load-bearing for the third: an index entry is a posting of handles, so it can only be
+  required for the third: an index entry is a posting of handles, so it can only be
   replayed over a `:preserved` import.
 
   `:naming` is the count of what this import stored that `assert` would have refused —
   `{:checked n :refused n :by-class {…}}`, logged as a warning when it is not zero.
   Neither import path runs the naming check (both build records directly, which is what
-  makes a corpus this size loadable at all), so the disagreement between the two doors is
+  makes a corpus this size loadable at all), so the disagreement between the two entry points is
   closed by *reporting* it: the operator who chose the bulk path learns the number while
   the records go past, rather than from a re-assertion that throws a year later.
 
-  `:refused` is the same account for the door one over — `{:checked n :skipped n
+  `:refused` is the same account for the entry point one over — `{:checked n :skipped n
   :by-type {…}}`, also logged as a warning.  These are frames whose sentence this build
   will not **construct**: the structural checks live inside the sentex constructor, so
   there is no record to store when one fires, and the frame is skipped rather than taken
@@ -1303,7 +1303,7 @@
                            orphaned kept?
                            (tick :justifications (:justification-count meta)))
                           ;; the same witness the sentex stream gets, and the stream that
-                          ;; most needs it: a torn justification file reads as a clean EOF,
+                          ;; most needs it: a torn justification file is indistinguishable from a clean EOF,
                           ;; and what it loses is belief — a KB that recovers to fewer
                           ;; conclusions than it was exported with, silently
                           _ (check-frame-count! :justifications frames
@@ -1334,7 +1334,7 @@
               ;; JTMS + taxonomy and settle belief.  Recovery reads the *records*, so
               ;; whichever way the index arrived it is the same restart a durable KB makes.
               ;;
-              ;; `:stored` stops here, and the seam is this one call.  Everything above it
+              ;; `:stored` stops here, and the boundary is this one call.  Everything above it
               ;; is a write to the store; `recover` is the only step that builds in-memory
               ;; state, so skipping it leaves a store a later `recover` reads exactly as it
               ;; reads one a restart finds — which is what makes the settling schedulable

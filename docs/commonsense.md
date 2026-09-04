@@ -72,7 +72,7 @@ vocabulary to make sense, it is a subsystem test wearing the wrong hat.
 
 **What is deliberately not here.** Anytime evaluation bounds a computation rather than
 answering about the world, and *within fifty milliseconds* is not a common-sense question.
-The ASP solver seam wants a labelling context and `set/assumptionRule` rules to ground, which
+The `Solver` protocol wants a labelling context and `set/assumptionRule` rules to ground, which
 is a mechanism rather than a story — the belief question it settles is asked above, at the
 level a person would ask it. Equational rewriting, `preview`, `watch`, overlay and the
 foreign bridge are not claims about the world at all.
@@ -126,7 +126,7 @@ the whole value of abduction here is what is **not** granted.
 
 `vaelii.impl.llm.text` reads English **into** the KB, where the danger is a model writing
 something false into the store and the defence is a reviewer between the two
-([reading.md](reading.md)). The oracle is the same seam pointed the other way: the KB
+([reading.md](reading.md)). The oracle is the same extension point pointed the other way: the KB
 makes the claims and the model is asked whether an ordinary person would agree.
 
 Nothing a verdict says can reach the store. The namespace calls no writer, a test greps it
@@ -180,7 +180,7 @@ very little.
 
 ## What it found
 
-**A definitional gloss reads as a definition, not as a claim.** The one disagreement in
+**A definitional gloss is indistinguishable from a definition, not as a claim.** The one disagreement in
 every run is `(ancestorOf Dave Eve)`, glossed *Dave is a parent of Eve, or a parent of an
 ancestor of Eve* — and the judge answers the definitional question behind it (*is a parent
 an ancestor?*) rather than the substituted one, which given *Dave is a biological parent of
@@ -200,7 +200,7 @@ judge found a bad claim or a defeasible one.
 in all three runs, is `(eats Kibble Muffet)` — *Kibble takes Muffet as nourishment* — which the
 judge agreed with, noting that kibble is what dogs like Muffet eat. It read the sentence as
 the sensible claim rather than the one written. This is the sharpest limit of the method
-and it is worth stating plainly: **a judge repairs an implausible reading instead of
+and it matters plainly: **a judge repairs an implausible reading instead of
 disputing it**, so a KB bug that swaps two arguments of a plausible relation is exactly the
 class this cannot catch. It is also the class `reading.md` names as the reason the reading
 direction needs a reviewer, which makes it the same hole seen from the other side.

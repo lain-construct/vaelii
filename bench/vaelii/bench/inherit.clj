@@ -29,7 +29,7 @@
 
 (def ^:private defaults
   {:depth     8      ; the genl chain each preserved argument walks
-   :branching 1      ; 1 is a chain — the shape that makes a reach long
+   :branching 1      ; 1 is a chain — the structure that makes a reach long
    :claims    1      ; stored (P …) claims per predicate
    :samples   2000})
 
@@ -103,7 +103,7 @@
         (run-arm "ask?" #(v/ask? kb g ctx) n)))
     ;; the control: a predicate declaring nothing must pay none of this
     (println "\nthe control — a predicate with no preserved position")
-    (run-arm "ask? (no decl)" #(v/ask? kb (list 'bqUnrelatedOf (type-name 0)) ctx) samples)
+    (run-arm "ask? (no decl)" #(v/ask? kb (list 'bq_unrelated_of (type-name 0)) ctx) samples)
     (println (format "\nest-bindings reports %s for the 3-position goal"
                      (provers/est-bindings (provers/->TransitiveInArgProver) kb (gs 3) ctx)))
     (println)))

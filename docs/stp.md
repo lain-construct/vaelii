@@ -234,7 +234,7 @@ locality in the one case a local answer is not available.
 
 It over-approximates one derivation on the two counts [qcn.md](qcn.md) states for the
 qualitative side: a pair narrowed by two constraints keeps both, and a second chain
-reaching the same figure contributes nothing. What is guaranteed is the piece a
+reaching the same figure contributes nothing. The guarantee is the piece a
 justification needs — every handle named was really read into this network, and the
 reported set is enough to have produced the bound on its own.
 
@@ -397,7 +397,7 @@ is what stops a rule joining a metric antecedent from re-reading the KB once per
 and a settle from re-reading it once per firing. The closed answer is resident on the same
 atom, which is what an arriving constraint is relaxed into.
 
-Measured by `lein bench-stp` over a chain of instants — the shape a sequence of events
+Measured by `lein bench-stp` over a chain of instants — the form a sequence of events
 produces, and the dense case for the read-back, since a chain pins a bound between *every*
 pair however few constraints were written. The closure figure is the fastest of five runs;
 each per-arrival figure is the mean of twenty arrivals.

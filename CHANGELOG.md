@@ -1,213 +1,323 @@
 # Changelog
 
+## 0.16.0 — 2026-09-04 — "the predAll quantifier family, refusals that name their kind, and declarations that reach back"
+
+- **An unpinned indeterminate term is not provably different from anything.** The
+  unique-name assumption made `(different X Y)` provable for any two symbols no equality
+  sentex had merged, and a skolem constant is a symbol the engine minted for an object it
+  has not identified. `different` now answers false where either argument is an unpinned
+  member of the extensible `indeterminate_term` category — the skolem constant is its
+  built-in first member, read off the `SkolemFn` expression the constant was minted from,
+  and a further kind joins with `(genl NewKind indeterminate_term)`. A `rewriteOf`,
+  `sameAs` or `equals` that pins the term moves its representative off the term itself and
+  restores the assumption. `same-class?` reads false of such a term as it always has, so
+  the two are no longer complements: a caller wanting *provably different* asks
+  `different` and reads that answer. *Class:* **Breaking** for a caller reading a
+  difference against a skolem constant or a declared indeterminate kind. *Migration:* pin
+  the term with `rewriteOf` before asking, or ask `same-class?` where the question is
+  shared membership rather than provable difference. [docs/equality.md](docs/equality.md),
+  [docs/predall.md](docs/predall.md)
+
+  *Breaks:* `(different`, `indeterminate_term`
+
+- **A missing adapter is not an unknown backend.** Selecting `:sqlite` or `:pg` records
+  without the Apache-2.0 sibling on the classpath refused as `:unknown-backend`, so a
+  caller catching that keyword to fall back on `:memory` acted on two wrong readings at
+  once: the axis name is legal, and the remedy is a coordinate in the project rather than
+  a different backend. The refusal is `:missing-adapter`, carrying `:records` and the
+  `:coordinate` to add, read off `kb/record-axes`' own `:adapter` column so it cannot
+  drift from the table that declares it. *Class:* **Breaking** for a caller branching on
+  `:unknown-backend` for either axis. *Migration:* catch `:missing-adapter` where the
+  remedy is a dependency; `:unknown-backend` still answers a name the engine does not
+  have. [docs/storage.md](docs/storage.md),
+  [docs/troubleshooting.md](docs/troubleshooting.md)
+
+  *Breaks:* `:unknown-backend` for a `:sqlite` or `:pg` records axis with no adapter on
+  the classpath
+
+- **A wrong operand count is not an unknown option.** `cli/check-arity!` refused
+  `assert takes 2 arguments, given 1` as `:unknown-option`, so a caller branching on that
+  keyword reported a bad flag when every flag on the line may be one the command reads.
+  The refusal is `:bad-args` — the keyword `serve` already refuses a wire call's argument
+  count under — carrying `:op`, `:given` and `:takes`. *Class:* **Breaking** for a caller
+  branching on `:unknown-option` for a CLI operand count. *Migration:* catch `:bad-args`.
+  [docs/api.md](docs/api.md)
+
+  *Breaks:* `:unknown-option` for a CLI operand count
+
+- **A rule concluding an indeterminacy from a `different` antecedent is refused.**
+  `different` is negation as failure over two inputs now — the equality closure and the
+  `indeterminate_term` category — so a rule concluding into either from a `different`
+  antecedent closes a cycle through negation. Such a rule was stored and settled to a
+  belief its own support contradicts, the conclusion believed off a difference the
+  conclusion then made false. `checks/negative-predicates` ran its negative edge to the
+  three merge relations alone; the edge covers `indeterminate_term` and `genl` as well,
+  and `assert` refuses the rule as `:not-stratified`. The `genl` entry
+  over-approximates, because only a `genl` into the category's closure withdraws a
+  difference and the consequent's second argument is a variable when the check runs.
+  `edge-negation-cycle` starts at a `different` rule directly, so a cycle closed by a
+  later taxonomy edge is refused rather than missed. *Class:* **Refusal**. *Migration:*
+  none for a KB the bundled ontology builds, where no rule reads `different`; a rule that
+  did conclude `indeterminate_term` or a `genl` from a difference has to be rewritten to
+  read a stored mark instead. [docs/exceptions.md](docs/exceptions.md),
+  [docs/equality.md](docs/equality.md)
+
+  *Breaks:* `:not-stratified`, `indeterminate_term`
+
+- **The `predAll` quantifier family, all eight cells.** A quantifier-family declaration
+  says how each argument position of a binary predicate is filled: one position ranges
+  over a collection's members and the other holds a fixed term, or both range over
+  collections. Each relation names its two positions in order, and the eight divide into
+  three classes by what the engine does with a declaration. `predAllInstance` and
+  `predInstanceAll` are rule generators — asserting
+  `(predAllInstance sign negative_integer "negative")` stamps the concrete forward rule
+  `(implies (negative_integer ?x) (sign ?x "negative"))`, so descent to the members is
+  ordinary chain inference, with a justification on the conclusion and a retraction that
+  follows the membership. The four cells with `exist` in the name are inert: each
+  declaration is a stored, queryable record the engine derives nothing from, and each
+  sanctions a placeholder functor — `PredAllExistsFn`, `PredExistsAllFn`,
+  `PredExistsInstanceFn`, `PredInstanceExistsFn` — an author may use to name the required
+  filler. `predAllSpecified` and `predSpecifiedAll` state a requirement audited on
+  demand: `specified-violations` reports the instances of one declaration with no
+  determinate filler, `all-specified-violations` audits every declaration visible in a
+  context and omits the ones that hold, and both read the KB and store nothing. A filler
+  is determinate unless it is an `indeterminate_term`, which is what makes the *Specified*
+  class the antagonist of the *Exists* class: a placeholder an author wrote down satisfies
+  the requirement and a witness the engine skolemized does not. Thirteen grammar terms
+  join the predicate registry, CxCore carries the declarations and the two generators, and
+  the two audit entry points reach `vaelii.core` through `wiring`, which the layering
+  inventory now names four entries. The glossary gains `indeterminate_term` and the
+  `predAll` family, 171 to 173. *Class:* **Additive**. *Migration:* none.
+  [docs/predall.md](docs/predall.md)
+
+- **A `different`-guarded firing is withdrawn when a later merge makes the guard false.**
+  A rule guarded by `(different ?x ?y)` fired, stored a conclusion, and kept it when a
+  later `sameAs` merged the two arguments, while asserting the merge first derived
+  nothing. The same three sentences settled to two beliefs depending on which arrived
+  last, which order independence forbids. `SupportingProver` cannot carry this one: its
+  contract is a prover naming the stored facts its answer was read from, and `different`
+  holds by the absence of a merge, is not assertible, and has no handle anywhere in the KB
+  for a justification to name. The re-check index answers it instead — the index
+  `unknown`, `exceptWhen`, aggregates and closed-extent negatives already use.
+  `rules/rechecked?` admits a `different` antecedent and posts the rule under
+  `rules/different-flip-predicates` (the three equality relations, `indeterminate_term`
+  and `genl`), and `chain/different-blocks?` re-evaluates each guard against the firing's
+  settled bindings from `rule-firing-blocked?`, the one place both re-decision paths run
+  through. A merge, an indeterminacy declaration and their retractions all reach the
+  firing. *Class:* **Fix**, with one thing to know: the registration is written when a
+  rule is indexed, so a store written before this release needs `recover` to rebuild the
+  posting before its `different`-guarded rules are re-checked. *Migration:* none.
+  [docs/equality.md](docs/equality.md), [docs/predall.md](docs/predall.md)
+
+- **A `(symmetric P)` declaration arriving after the facts reaches the facts already
+  stored.** The write entry point sorts a ground symmetric literal's arguments, so a mark
+  that arrives late left the store holding spellings no later assertion produces and, where
+  both spellings had been written, two records for one proposition, each retractable
+  without the other. Same declarations, same facts, one retraction, and the beliefs
+  differed by the order the mark arrived in. `integrate/symmetrize-existing` re-spells a
+  row with no mirror in place and folds a mirrored pair into one record, which restores
+  order independence on the one mark whose effect is canonicalization rather than
+  conviction. *Class:* **Fix**, with one thing to know: the migration is a write, so
+  retracting the mark does not undo it. *Migration:* none.
+  [docs/canonicalization.md](docs/canonicalization.md)
+
+- **A computed `genlCx` edge runs the equality reconcilers a stated one runs.** A `genlCx`
+  edge reaches the store three ways — asserted, concluded by a rule, or computed by the
+  structural producer off a `contextArgSubrelation` declaration. The first two ran the
+  three reconcilers a context edge owes; the third ran none, so a calendar month-to-year
+  edge reached the taxonomy and the exception re-checks and stopped there, leaving two
+  fillers of one functional slot unmerged and unreported where the same two facts under a
+  stated edge merged. `special/reconcile-context-edge` is that list once, and all three
+  paths call it. *Class:* **Fix**. *Migration:* none.
+  [docs/context-nat.md](docs/context-nat.md), [docs/equality.md](docs/equality.md)
+
+- **A close waits for the compaction it started before it hands the directory over.**
+  `close-dir!` released the directory's OS lock without joining the compaction executor,
+  and the record store's rewrite phase runs outside the kind lock by design, so this JVM
+  could still be writing the temp files of a directory a second process already owned:
+  two rewrites appending to one temp log, one commit marker, and a replay installing
+  frames from both. `vaelii.disk.auto-compact` is on by default, so this was the default
+  configuration. The order is now the contract — deregister, abort, join, write the image,
+  close the components, release the lock — and `stop!` no longer returns having stopped
+  nothing. *Class:* **Fix**. *Migration:* none. [docs/storage.md](docs/storage.md)
+
+- **`quotedArg` is answered along the `genl` closure, like its three siblings.** The write
+  entry point has always asked the whole `:argument-constraint` family whose declarations
+  speak for a tuple, so `(genl pInfantAgeOf pAgeOf)` with `(quotedArg pAgeOf 2 string)`
+  refuses `(pInfantAgeOf Bob 5)`; the query surface answered only what was literally
+  stored, so one declaration meant one thing to `assert` and another to `ask`.
+  `provers/meta-constraint-shape` gains the row it was missing, with the variance its
+  three siblings already state. *Class:* **Fix**. *Migration:* none.
+  [docs/argtypes.md](docs/argtypes.md)
+
+- **Every refusal declares what its `ex-data` carries, and a throw that drops a key
+  fails.** `carried` pins, for each `:type` raised in more than one place, the keys all of
+  its throws agree on, scanned out of the sources; `carries-nothing` records the
+  twenty-five where they agree on none, with the reason. The fifty-one remaining
+  `:unknown-option` throws now carry `:mismatch` (`:unknown-key`, `:bad-value`,
+  `:missing-value`, `:not-a-map`, `:missing-companion`, `:conflict`) and the eleven
+  `:unknown-backend` ones carry `:axis`, `:kind` and `:mismatch` (`:unknown-name`,
+  `:reserved-name`, `:illegal-pair`, `:illegal-position`). Which key held the offending
+  backend used to be the axis's own name, so a caller wrote
+  `(or (:backend d) (:records d) (:index d) (:tms d))`; `:axis` answers it. Every
+  existing key stays. *Class:* **Additive**. *Migration:* none.
+  [docs/troubleshooting.md](docs/troubleshooting.md)
+
+- **The facet contract is data, and a half-wired declaration fails the build.**
+  `predicates/facet-contract` gives every facet a row — the facets carrying it implies,
+  and whether a mark family has to agree about it — and `check-facets` refuses seven rules
+  at `settle`'s namespace load under `:bad-table-entry`, ten `:mismatch` values between
+  them. Two rules are stated rather than derived: `:opposing-read` says what an
+  arbitrable term's opposing side is read through, and `:stops-short` records an
+  implication an entry does not satisfy, checked in both directions so it can neither be
+  missing nor go stale. *Class:* **Additive**. *Migration:* none.
+  [docs/predicates.md](docs/predicates.md)
+
+- **Four more tables become rosters checked at load.** `config/switches` declares the
+  twenty-three durability switches with their readers and where each is read, and a reader
+  with no row fails the namespace — eight of them were first read inside `fsync-all`'s
+  `catch Throwable`, where a missing one logged a class name every three seconds with the
+  feature silently dead. `kb/record-axes` and `kb/index-axes` replace five private
+  literals and three `case` dispatches, with nine rules joining them to the arms that open
+  a store. `quality/readings` replaces the two hand-written lists behind `census` and
+  `report`, where a reading in one and not the other rendered as an absent section.
+  `settle/facet-check-inputs` is the one value both the live check and its test read, so
+  deleting the check no longer compiles. *Class:* **Additive** — same behaviour, same
+  order, same values refused at the same entry points. *Migration:* none.
+  [docs/predicates.md](docs/predicates.md), [docs/storage.md](docs/storage.md),
+  [docs/quality.md](docs/quality.md)
+
+- **The class-name check states which nippy release it was written against.** The gate on
+  a durable frame that names a class reaches into three of nippy's internals, and a bump
+  that keeps their names while no longer routing a class name through them would wrap
+  cleanly and cover less than it did. `thaw/pinned-nippy-version` states the release, and
+  `check-nippy-pin!` refuses at namespace load against any other, reading the resolved
+  version off nippy's own Maven descriptor: `:nippy-version-unreadable` when nothing can
+  be read, `:nippy-version-moved` when another release is named. *Class:* **Additive** —
+  two new refusals at load, and no call moves. *Migration:* a nippy upgrade re-reads the
+  three attachment points and then moves the pin. [docs/defenses.md](docs/defenses.md)
+
+- **The content-key guards read an ordering key as a form, not as the rest of its line.**
+  `sort_by_content_key_test`'s scans cut the line after the ordering call, so a key
+  written one line below its `sort-by` was invisible to them; nine sites had been written
+  under a guard watching for exactly that. The scan now reads the key paren-balanced to
+  its own close, and a fourth scan refuses a `sort-by` whose key fn reads the KB, which
+  re-reads a taxonomy closure about `2·n·log2(n)` times where `nm/sort-by-content-key`
+  reads it `n` times. *Class:* **Fix** — two of the nine collapsed a context under an
+  ambient `*print-length*`, so the tie they broke fell back to arrival order.
+  *Migration:* none. [docs/nmtms.md](docs/nmtms.md)
+
+- **The CI disk leg runs as two runner-sharded jobs, and a namespace outside the split
+  fails the leg.** The disk-log leg had grown into its own 30-minute timeout. Two shard
+  jobs each run half the test namespaces — whole namespaces, split alphabetically, the
+  same `:default` selector — on separate runner VMs, which share no directory, no registry
+  and no single-writer lock, and they report through a gate job named `disk` so the
+  required check keeps its name. The shards selected files by glob while `lein test`
+  selects by namespace, and nothing kept the two in step, so a file defining a top-level
+  `deftest` outside the glob was skipped by both shards and stayed green. The leg fails on
+  such a file now. *Class:* **Fix** — CI configuration and a test-selection check.
+  *Migration:* none.
+
+- **The prose is reworded to say what the code does.** Comments, docstrings, doc pages,
+  changelog entries and test names now state the mechanism in literal technical language,
+  and `scripts/check-prose.py` runs as `lein lint`'s `prose` row against
+  `scripts/prose-baseline.txt`, a per-file budget that only shrinks. Five metaphors are
+  replaced by what each one stood for: an entry point or a check, the named protocol or
+  extension point, the public API, a layering boundary, a call site, and the ancestor set.
+  Six private fns rename with them — `members-in-ancestors` and its five siblings — along
+  with three test-local bindings and nineteen `deftest` names;
+  `entry_point_and_report_test.clj` is the renamed test file, and `bench/index.clj`'s
+  index-store flag is `:kv-index-store?`. The glossary's entry for the API sense is
+  **Entry point**, and four words the other entries leaned on and never defined — arm,
+  lane, refusal, roster — now have entries of their own, 167 to 171. *Class:* **Additive**:
+  no public var, protocol or option key carried any of the renamed words, so the API
+  surface is unchanged and the three goldens are untouched. *Migration:* none.
+  [docs/glossary.md](docs/glossary.md), [docs/naming.md](docs/naming.md)
+
+- **CONTRIBUTING gains §3.9 and §3.10.** §3.9 states what compacting a released changelog
+  section keeps and what it drops, and that every argument in a dropped paragraph needs a
+  home first — mechanism in the subsystem page, a rejected alternative in
+  [docs/defenses.md](docs/defenses.md). §3.10 is the prose rule and its eight clauses.
+  Both released sections in this file are compacted to the shape the older ones use.
+  *Class:* **Additive**. *Migration:* none.
+
 ## 0.15.0 — 2026-09-01 — "definitions that compute, and two renames"
 
 - **A unary predicate is snake_case, and `assert` now enforces it in both directions.**
-  The spelling rule was a one-way implication — snake_case committed a functor to arity
-  1, while camelCase said nothing about arity — so the same shelf of the shipped
-  ontology held `asymmetric` beside `antiSymmetric`, and thirteen kinds
-  (`unaryPredicate`, `equivalenceRelation`, `reifiableFunction`, …) wore a relation's
-  spelling. A one-place predicate is not a relation: its extension is a *set* rather
-  than a set of tuples, and a set is what `genl` orders, which is why the taxonomy
-  exists and why its closure is cached instead of derived. The rule is now a
-  biconditional — snake_case ⇔ arity 1 — with a new problem class `:functor-unary` and a
-  rejection naming the snake_case spelling to write instead. A bare lowercase word
-  (`dog`, `alive`) still satisfies both conventions and is caught by neither: the marker
-  lives on a name's interior, so a one-word name has nowhere to carry it and never needs
-  one. `sentexHandle` is the single exemption (`nm/unary-spelling-exempt`) — it names a
-  stored sentex by id and states nothing, so there is no relation to spell either way.
-  *Class:* **Breaking** for any KB, corpus or caller holding a camelCase unary
-  predicate. *Migration:* rename every camelCase functor used at arity 1 to snake_case —
+  *Class:* **Breaking** for any KB, corpus or caller holding a camelCase unary predicate.
+  *Migration:* rename every camelCase functor used at arity 1 to snake_case —
   `warmBlooded` → `warm_blooded`, `unaryPredicate` → `unary_predicate`,
   `abduciblePredicate` → `abducible_predicate`. `nm/snake-case` is the conversion the
   rejection message applies, and every shipped context, test-world file and doc here has
   been rewritten. A corpus that cannot be rewritten opens under `{:naming :warn}` or
-  `{:naming :off}`; the bulk import path never consulted the door, and its `nm/tally`
-  summary now counts `functor-unary` beside the rest.
-  [docs/naming.md](docs/naming.md)
+  `{:naming :off}`; the bulk import path never consulted the entry point, and its `nm/tally`
+  summary now counts `functor-unary` beside the rest. [docs/naming.md](docs/naming.md)
 
   *Breaks:* every camelCase unary predicate spelling — `unaryPredicate`,
-  `reifiableFunction`, `abduciblePredicate`, `closedExtentPredicate`,
-  `disjointMetatype`, `siblingDisjoint`, `warmBlooded`
+  `reifiableFunction`, `abduciblePredicate`, `closedExtentPredicate`, `disjointMetatype`,
+  `siblingDisjoint`, `warmBlooded`
 
-- **The sentex polarity slot is `:polarity`, not `:truth`.** A literal is an atomic
-  formula and a polarity, and the slot holding the polarity was named for the thing it
-  is not: in a system whose headline is truth *maintenance*, `:truth :false` reads as
-  "not believed" and means the opposite — a believed denial, which the JTMS may well
-  hold IN. The slot is `:polarity` with `:positive` / `:negative`, the words the
-  codebase already used in twenty-three places and in `sentex/positive-body`. Belief is
-  still IN/OUT and still answered by `believed?`; nothing about what is believed has
-  changed. The index's path token for a negative body stays `:false` — that alphabet is
-  the trie's own machine vocabulary and its layout is on disk, so no `reindex` is owed.
-  *Class:* **Breaking** for any reader of a sentex map. *Migration:* `(:truth sx)` →
-  `(:polarity sx)`, `(= :true …)` → `(= :positive …)`, `(= :false …)` → `(= :negative
-  …)`. On-disk record stores are unaffected — the durable frame is positional behind a
-  numeric tag and never held the keyword — and an export dump written either side of
-  this loads correctly, since `import` re-derives the polarity from the sentence's own
-  `not` and never reads the key.
+- **The sentex polarity slot is `:polarity`, not `:truth`.** *Class:* **Breaking** for any
+  reader of a sentex map. *Migration:* `(:truth sx)` → `(:polarity sx)`, `(= :true …)` →
+  `(= :positive …)`, `(= :false …)` → `(= :negative …)`. On-disk record stores are
+  unaffected — the durable frame is positional behind a numeric tag and never held the
+  keyword — and an export dump written either side of this loads correctly, since `import`
+  re-derives the polarity from the sentence's own `not` and never reads the key.
   [docs/storage.md](docs/storage.md)
 
   *Breaks:* `:truth`
 
 - **A definitional membership question is answered at query time, not only by a forward
-  rule.** `(defnSufficient Coll C)` materializes as `(implies C (Coll ?x))`, and that rule
-  fires only when `C` is a **believed** fact — so a condition built from *computed*
-  predicates (`integer`, `lessThan`, an `add-evaluatable` check) was never stored, the
-  rule never fired, and the member was never derived: `(positive_integer 7)` did not
-  follow from `(defnSufficient positive_integer (and (integer ?x) (greaterThan ?x 0)))`,
-  which is CxCore's own worked example. Two provers close that. `DefnSufficientProver`
-  substitutes the queried member into the collection's visible sufficient conditions and
-  asks the registry, which *evaluates* the computed conjuncts — level 6, so its reach
-  matches the forward rule's rather than exceeding it — and it descends the **spec** cone,
-  a spec's sufficient admitting to the collection above it since a spec's members are
-  members. A failing `defnNecessary` on a strict `genl` fast-fails first, the broadest
-  disqualifier checked most-general-first, so a rejected query never evaluates the sides
-  or the sufficient, and a defn reachable by two paths in a diamond is evaluated exactly
-  once. `DefnNecessaryNegationProver` is the converse build.
-  *Class:* **Additive** — no signature moves, nothing is stored differently, and `ask` and
-  `prove` answer questions that previously came back unknown.
+  rule.** *Class:* **Additive** — no signature moves, nothing is stored differently, and
+  `ask` and `prove` answer questions that previously came back unknown. **One thing to
+  know, because it is a boundary and not a feature:** the negation prover concludes `(not
+  (Coll a))` from a failing necessary, so a `defnNecessary` is a disqualifier as well as
+  an obligation. Membership stays open-world in the direction that matters —
+  condition-*absence* still concludes nothing, and a thing the condition is silent about
+  is neither a member nor a non-member — but a necessary that is positively *violated* is
+  now a negative answer rather than silence. It is a query-time answer only: nothing is
+  asserted, so a KB that states `(Coll a)` against a failing necessary is not rewritten,
+  it merely answers both halves and says so. *Migration:* none, unless a KB leaned on a
+  violated necessary staying silent. [docs/defns.md](docs/defns.md)
 
-  **One thing to know, because it is a boundary and not a feature:** the negation prover
-  concludes `(not (Coll a))` from a failing necessary, so a `defnNecessary` is a
-  disqualifier as well as an obligation. Membership stays open-world in the direction that
-  matters — condition-*absence* still concludes nothing, and a thing the condition is
-  silent about is neither a member nor a non-member — but a necessary that is positively
-  *violated* is now a negative answer rather than silence. It is a query-time answer only:
-  nothing is asserted, so a KB that states `(Coll a)` against a failing necessary is not
-  rewritten, it merely answers both halves and says so.
-  *Migration:* none, unless a KB leaned on a violated necessary staying silent.
-  [docs/defns.md](docs/defns.md)
-
-- **The `AtomicSentex` record is `LiteralSentex`.** The record holds one signed
-  predicate application — an atomic formula together with the polarity saying which of
-  the two literals it is — and by the standard convention that is a **literal**, not an
-  atom. The tempting pair was `FactSentex` / `RuleSentex`, and it is wrong for a reason
-  the record's own definition gives: it holds a fact, a metadata declaration *or* a
-  query pattern, and only the first of those is a fact. `literal` is the one word
-  covering all three, because it names the sentence's shape rather than its role — and
-  shape is what the split is about, the discriminant being `(some? (:antecedent sx))`.
-  *Class:* **Additive**: the class name reaches no public surface, no golden names a
-  record class, and the durable frame is tagged with a number rather than a class name,
-  so nothing on disk moves and no store needs rewriting. The tag constant moved with it,
-  `atomic-tag` to `literal-tag`. *Migration:* none, unless a caller referenced
-  `vaelii.impl.sentex.AtomicSentex` directly, which is an impl namespace.
-  [docs/storage.md](docs/storage.md)
+- **The `AtomicSentex` record is `LiteralSentex`.** *Class:* **Additive**: the class name
+  reaches no public surface, no golden names a record class, and the durable frame is
+  tagged with a number rather than a class name, so nothing on disk moves and no store
+  needs rewriting. The tag constant moved with it, `atomic-tag` to `literal-tag`.
+  *Migration:* none, unless a caller referenced `vaelii.impl.sentex.AtomicSentex`
+  directly, which is an impl namespace. [docs/storage.md](docs/storage.md)
 
 - **One word, one stratum: the docs get a vocabulary rule, and a gate that reads it.**
-  Three senses of "literal" were in the tree at once — the formula sense (an atomic
-  formula or its negation, ~1,100 uses), an EDN scalar, and plain English "verbatim" —
-  and `checks.clj`, `CxCore.txt` and `defenses.md` each carried more than one of them,
-  one of those in a section heading another page anchor-links to. "Frame" named both a
-  connective form and a durable serialization unit, 16 uses against 54. The cause was
-  narrower than the symptom: the glossary held 141 entries and defined **none** of the
-  primitives its own entries are built out of — no literal, term, atom, formula, ground,
-  polarity, variable, pattern, frame, constraint, value — so nothing ever pinned the
-  first sense of anything.
-
-  Twenty-three entries close that, and the formula stratum now runs on the standard
-  ladder: an **atomic formula** is a predicate applied to terms, an **atomic sentence**
-  is a closed one, a **literal** is an atomic formula or its negation, a **formula** is
-  built recursively, a **sentence** is a closed formula. `Sentence` stops saying "ground
-  or a pattern with `?x` variables" and says what the engine already enforces —
-  `checks/check-ground` refuses an open non-rule sentence, and a rule's variables are
-  implicitly universal — so a possibly-open goal is a **pattern**, and the docstrings
-  that called one a sentence say formula. The squatters moved to the words already in
-  the same files: the scalar sense is a **value** and its **kind** (`quotedArg` has
-  always said "classified by its EDN kind"), so `checks/literal-type` is `value-kind`
-  and `literal-value-types` is `value-kinds`; the verbatim sense is **verbatim** or
-  **written out**; `naming.md`'s frames are **wrappers**, which is what the rest of the
-  tree already calls `set/*Rule` and `exceptWhen`, leaving `frame` to storage alone.
-  Riding along: `edit!` is the all-or-nothing door rather than the atomic one, the
-  trie's child labels are child **tokens**, and `arg` / `quotedArg` state an
-  argument-type **declaration**, which drops "constraint" from three senses to two.
-
-  `docs/naming.md` gains the **reserved-words table**. The lexical rules there are about
-  a symbol; this is about a word — one word, one stratum, one field, and where that is
-  impossible the glossary carries every sense as its own badged entry. A qualified
-  compound is a different word and stays: stack frame, binding frame, keyword literal.
-  `lint-glossary`'s new **check 6** reads the table and fails a glossary that does not
-  carry one entry per declared sense. What it cannot see is a third sense arriving in
-  prose; that stays a reviewer's job, and the table is where the question gets asked.
   *Class:* **Additive** — two renamed readers are private, and everything else is prose.
-  *Migration:* none.
-  [docs/naming.md](docs/naming.md#reserved-words)
+  *Migration:* none. [docs/naming.md](docs/naming.md#reserved-words)
 
-- **CxCore names the expression kinds.** Above the
-  value kinds — `string`, `number`, `integer` and the rest, which name a *leaf* — sit
-  eight collections naming a *compound*: `relation_application`, `denotational_term`,
-  `atomic_formula`, `atomic_sentence`, `literal`, `formula`, `sentence` and
-  `non_atomic_term`. They exist so a declaration can type an argument by the **shape** of
-  the expression written there rather than by what it denotes.
-  `relation_application` is what an atomic formula and a non-atomic term share,
-  specializing into the two, which are disjoint — and deliberately not declared
-  covering, the KB having no vocabulary that states exhaustive coverage. The
-  `LiteralSentex` record is the machine-stratum representation of a member of `literal`,
-  and the glossary carries that correspondence once, in words.
-
-  **Nothing reads them.** A compound argument has no knowable kind — `checks/value-kind`
-  answers nil for one by design — and no reader classifies a compound by its shape, so
-  `(quotedArg P n relation_application)` stores, believes, browses and convicts nothing,
-  and so does the `arg` form. `vocabulary/roster` says so per term, which is what
-  `vocabulary-audit` exists to force. The vocabulary is here so that it is one
-  vocabulary when a shape classifier exists; the classifier does not.
-  *Class:* **Additive**, with one thing to know: this claims eight generic names in
-  CxCore, so a KB already using `sentence`, `formula` or `literal` as its own collection
-  now shares ours and inherits the `genl` edges and the disjointness above.
-  *Migration:* none to write, but the shipped-KB count moved and this release is where
-  a reader should learn the real figure. CxCore ships **475** sentexes against **416** at
-  0.14.0 — +20 for the expression kinds here, +35 for the curation vocabulary below, +4
-  with the definitional provers. `docs/kbs.md`'s row now reads `~475` like its
-  neighbours, and `core_context_test` asserts a band rather than an equality: an exact
-  pin failed on every deliberate change to the vocabulary and caught nothing a deliberate
-  change did not, `vocabulary-audit` being what actually guards CxCore by failing a term
-  nobody classified. A count is kept only for what a count can catch — a load going wrong
-  in bulk.
-  [docs/glossary.md](docs/glossary.md)
+- **CxCore names the expression kinds.** *Class:* **Additive**, with one thing to know:
+  this claims eight generic names in CxCore, so a KB already using `sentence`, `formula`
+  or `literal` as its own collection now shares ours and inherits the `genl` edges and the
+  disjointness above. *Migration:* none to write, but the shipped-KB count moved and this
+  release is where a reader should learn the real figure. CxCore ships **475** sentexes
+  against **416** at 0.14.0 — +20 for the expression kinds here, +35 for the curation
+  vocabulary below, +4 with the definitional provers. `docs/kbs.md`'s row now reads `~475`
+  like its neighbours, and `core_context_test` asserts a band rather than an equality: an
+  exact pin failed on every deliberate change to the vocabulary and caught nothing a
+  deliberate change did not, `vocabulary-audit` being what actually guards CxCore by
+  failing a term nobody classified. A count is kept only for what a count can catch — a
+  load going wrong in bulk. [docs/glossary.md](docs/glossary.md)
 
 - **CxCore gains a curation vocabulary: `seeAlso`, `termsRelated` and the example
-  predicates.** Documentation vocabulary beside `comment`, earning its place for the same
-  reason `comment` does — the grammar documents itself in its own representation, so a
-  cross-reference is queried and retracted like any other fact. `(seeAlso a b)` points a
-  reader from one term to another and is **directional**: the reverse is a separate
-  assertion, not an implied one. `(termsRelated t1 t2 …)` is variable-arity and groups a
-  cluster. `positiveExample` / `negativeExample` / `borderlineExample` name an example
-  sentex *by handle*, reusing the `(sentexHandle H)` + `targetFollowingPredicate` pointing
-  pattern that koinii's speech acts already use, with the handle argument typed
-  `(quotedArg <pred> 2 thing)`.
-
-  All of it is `:inert` in the vocabulary roster — a browser rendering a term page reads
-  it and no inference path does. The obligation `positiveExample` and `negativeExample`
-  carry is held by a **test** rather than by the engine: a generative sweep proves every
-  *believed* example target holds as stated, with negated and excepted targets excluded,
-  since `(except P)` is not `(not P)`. That sweep sits under a `kb-has-integrity` umbrella
-  staking the namespace for further checks.
-  *Class:* **Additive**, and inert: nothing derives from these and no existing query
-  changes. It does claim the names in CxCore, so a KB already using `seeAlso` or
-  `termsRelated` as its own predicate now shares ours.
-  *Migration:* none.
+  predicates.** *Class:* **Additive**, and inert: nothing derives from these and no
+  existing query changes. It does claim the names in CxCore, so a KB already using
+  `seeAlso` or `termsRelated` as its own predicate now shares ours. *Migration:* none.
   [docs/predicates.md](docs/predicates.md)
-
 ## 0.14.0 — 2026-08-29 — "the index image as a backend, and the heap it stops paying"
 
-- **The mapped index image is a backend, not a property: `:disk-snapshot`.** `:index
-  :snapshot` is the columnar trie read back from `<dir>/index/` instead of rebuilt, and
-  naming it puts the intent in the KB's own opts map — where `vaelii.index.snapshot`
-  could not, since the same opts meant a mapped index on one machine and an hour of
-  `reindex` on another with nothing on the KB to tell them apart. An open that finds no
-  usable image still opens correctly and now **warns**, naming the mismatch class and the
-  rebuild it just paid, rather than passing for a fast one. Validity is unchanged: the
-  stamp is checked on every open and any doubt discards the image and reindexes, so the
-  name promises a representation and never that the image is good. That stamp is the
-  **disk** record store's slot fingerprint, which is the one record store that computes
-  one — so `:disk` records are the only half the image pairs with, and `{:index
-  :snapshot}` over anything else is refused with `:unknown-backend` naming `:pg-disk-log`
-  for durable records on a server. *Class:* **Breaking** for anything setting the
-  property. *Migration:* unset `vaelii.index.snapshot` and name the backend —
-  `{:backend :disk-columnar}` + `-Dvaelii.index.snapshot=true` → `{:backend
-  :disk-snapshot}`. The property is refused at every spelling rather than ignored, and
-  `:disk-columnar` now always rebuilds on open. A directory written with the property set
-  opens under `:disk-snapshot` as it stands; what this release does to the image inside it
-  is the argument-roots entry below.
+- **The mapped index image is a backend, not a property: `:disk-snapshot`.** *Class:*
+  **Breaking** for anything setting the property. *Migration:* unset
+  `vaelii.index.snapshot` and name the backend — `{:backend :disk-columnar}` +
+  `-Dvaelii.index.snapshot=true` → `{:backend :disk-snapshot}`. The property is refused at
+  every spelling rather than ignored, and `:disk-columnar` now always rebuilds on open. A
+  directory written with the property set opens under `:disk-snapshot` as it stands; what
+  this release does to the image inside it is the argument-roots entry below.
   [docs/storage.md](docs/storage.md#the-image-disk-snapshot)
 
   *Breaks:* `vaelii.index.snapshot`
@@ -225,137 +335,40 @@
 
   *Breaks:* `:argument-family-ceiling`
 
-- **The disk store's live-handle sets are compressed bitmaps.** Each of the three record
-  kinds keeps every live handle resident so enumeration is O(1), and as a
-  `PersistentHashSet<Long>` that costs 48–75 bytes a handle — **9.47 GB at 100M sentexes
-  and j/n 1.1**, the second-largest resident row in the engine, before a record is fetched.
-  Handles are minted in assertion order, so a kind's live set is a strided run through the
-  handle space with holes where records were deleted: the one shape a compressed bitmap is
-  built for. The same handles as a `Roaring64Bitmap` measure **33.0 MB**, still linear
-  across both of `bench-budget`'s steps, and the open builds it straight off the ascending
-  idx scan rather than through two whole boxed sets. Read the row beside *record store,
-  rest*: the bench attributes shared structure to whichever row it reaches first, so the
-  premise set's boxed handles move into that one as the rosters stop carrying them, and
-  the engine-wide figure is the pair — **13.54 GB to 4.12 GB**, a saving of **9.4 GB**
-  rather than the roster row's own multiple. `sentex-ids` and
-  `justification-ids` still answer a `PersistentHashSet<Long>`, built from a snapshot at
-  the call, so no caller can tell; what a *call* allocates is a separate question from
-  what the store *holds*. *Departure:* the bitmap is mutated in place and is not
-  thread-safe, so a read of the live set now takes the kind lock, which the boxed set did
-  not need — a tally and a first handle are O(1) under it, and an enumeration takes a
-  bitmap-sized snapshot inside it rather than building the extent there. The hazard is
-  measured, not theoretical: an unsynchronized iterator over a bitmap being written throws
-  `ArrayIndexOutOfBoundsException` once the handle space is spread widely enough for the
-  ART trie to restructure under it. `a-sentex-id` / `a-justification-id` on `:disk` now
-  answer the *least* live handle where the hash set answered whichever its order put in
-  front; both satisfy the `Tallying` question, which is whether there is one at all.
-  *Class:* **Fix**. *Migration:* none — no durable format moves, and no store needs
-  reopening.
+- **The disk store's live-handle sets are compressed bitmaps.** *Class:* **Fix**.
+  *Migration:* none — no durable format moves, and no store needs reopening.
   [docs/storage.md](docs/storage.md#the-enumerations-and-what-a-roster-costs)
 
-- **The mapped index image stops carrying the argument roots into heap.** Its
-  `roots-fallback.nippy` blob held the predicate-scoped argument roots, one posting per
-  `[pred pos term]` triple the corpus exhibits, and read them resident on every open — so
-  a `:disk-snapshot` KB's resident heap tracked its fact count. The family packs now: the
-  `(predicate, position)` scope interns to a dense id and rides the 24 bits the packed
-  root key reserves for an argument position, so the postings ride the mapped handle run
-  with every other family and the blob keeps the term and slot rosters alone. Every
-  resident section of the image is path- or vocabulary-scaled. *Class:* **Fix**.
-  *Migration:* none, and this is the whole of what the release asks of a directory that
-  already holds an image: the image's `format-version` bumps to 2, so one written by an
-  older build is discarded on the first open as `:layout-changed` and rebuilt from the
-  records — once, with the version-2 image published at the next refresh. The records do
-  not move, the `:index :columnar` key layout is unchanged, and no other durable file is
-  touched. [docs/indexing.md](docs/indexing.md#8-the-index-as-bytes-the-mapped-snapshot)
+- **The mapped index image stops carrying the argument roots into heap.** *Class:*
+  **Fix**. *Migration:* none, and this is the whole of what the release asks of a
+  directory that already holds an image: the image's `format-version` bumps to 2, so one
+  written by an older build is discarded on the first open as `:layout-changed` and
+  rebuilt from the records — once, with the version-2 image published at the next refresh.
+  The records do not move, the `:index :columnar` key layout is unchanged, and no other
+  durable file is touched.
+  [docs/indexing.md](docs/indexing.md#8-the-index-as-bytes-the-mapped-snapshot)
 
-- **The writer refreshes a drifted image mid-life, and can be told not to.** An image
-  written only at close is one a process killed outright never has, so a `:disk-snapshot`
-  writer that ran for weeks reopened onto nothing and paid the whole `reindex` the backend
-  is named to skip. The write door now rewrites it once the live index has drifted past
-  `vaelii.index.snapshot-drift` (a ratio, default 0.5, measured in indexed roots), floored
-  by the compaction interval the record store already takes. It runs on the writer's
-  thread and is a full image write rather than a delta, so the threshold and the floor are
-  what keep it rare — and a refresh that fails is logged at `:warn` and costs the image
-  rather than the write that triggered it. Two things bound it that are worth knowing
-  before reaching for the knob: **only `assert` drives the cadence**, since the gate hangs
-  off the write door and a store filled by `reindex` or by an import posts straight to
-  `index-sentex`, so a batch build already gets exactly one image at the close; and
-  **`vaelii.disk.auto-compact=false` declines the refresh outright**, a refresh being an
-  opportunistic compaction of a derived structure like the ones that knob already governs.
-  `vaelii.index.snapshot-drift` cannot say that — as a threshold, `0` means "any drift at
-  all" and is the most eager setting in the range rather than the off one.
-  *Class:* **Additive**.
-  [docs/storage.md](docs/storage.md#the-cadence-and-whose-thread-it-runs-on)
+- **The writer refreshes a drifted image mid-life, and can be told not to.** *Class:*
+  **Additive**. [docs/storage.md](docs/storage.md#the-cadence-and-whose-thread-it-runs-on)
 
 - **A visibility `except` targeting a rule now removes totally in both directions.**
-  The arrival side already held — the stored justification carries the rule handle
-  among its antecedents, so excepting a rule swept its conclusions and blocked late
-  firings — but the two read-back arms did not. *Departure:* `recheck-except`'s
-  revival arms are keyed on a fact target (`dependents`, empty once the firing is
-  swept, and the predicate fan, which a rule sentence never matches), so retracting a
-  rule-targeting except restored the rule's visibility and none of its conclusions;
-  the target itself is now re-chained when it is a rule. *Backward:* `candidate-rules`
-  filtered direction, belief and context inheritance but never the visibility hidden
-  set, so a goal in the cone rebuilt through the hidden rule exactly what forward
-  chaining had swept — the same `res/hidden-fn` the sweep reads now gates candidacy,
-  nil (one deref) for a KB that hides nothing. Found live: a justified dispute whose
-  defeated side kept ground-succeeding under `query` and holding its `contradictions`
-  entry after its rule was excepted, while the argue tree correctly collapsed.
   *Class:* **Fix**. *Migration:* none.
   [docs/contexts.md](docs/contexts.md#except-removing-visibility-down-a-context-subtree)
 
 - **A `functionalInArg` declaration arriving after the facts it convicts is reported.**
-  The generalized mark reaches stored content through two rosters in `vaelii.impl.settle`
-  — one saying what a declaration's arrival puts back in question, one saying what shape
-  the declaration is written in — and it was in neither, having been kept out of the
-  `definitional-marks` pairing table it is genuinely not a member of (that table pairs a
-  functor with the prop key it stores under, and this mark's table is keyed `[pred n]`).
-  *Departure:* `(functionalInArg P n)` asserted after two fillers no merge can reconcile
-  convicted nothing, where `(functional P)` in the same order files a `:functional`
-  violation — a generalization weaker than the case it generalizes, on the one arrival
-  order the special case handles. The merge half of the same door was already correct, so
-  a symbol pair merged and only the unmergeable pair went quiet. Both spellings now sweep
-  the subtree beneath the predicate they name, and
-  `exposure_test/every-functional-family-mark-is-in-both-of-settles-rosters` states the
-  agreement over the rosters themselves so a further spelling cannot land in one alone.
   *Class:* **Fix**. *Migration:* none — a KB using the mark gains reports it was owed;
-  nothing that was believed stops being.
-  [docs/taxonomy.md](docs/taxonomy.md)
+  nothing that was believed stops being. [docs/taxonomy.md](docs/taxonomy.md)
 
 - **`quotedArg` reads the sign-refined integer types instead of refusing every integer.**
-  `positive_integer` and its three siblings sit below `integer` in the `genl` lattice, so
-  they are inside the mention check's domain and the open-world escape for a type outside
-  it does not apply. *Departure:* the check compared a literal's bare EDN kind *upward*
-  against the declared type — asking whether `integer` is below `positive_integer` — so
-  `(quotedArg P n positive_integer)` refused `5` along with `-5`. Both argument readings
-  now share one reader (`checks/literal-value-types`), which is the arrangement the kinds
-  have always had and the reason they are in the lattice: a literal denotes itself, and a
-  sign is as decidable from the term written as from what it denotes. A refusal also names
-  the value's own type now rather than the bare kind. *Class:* **Fix**. *Migration:* none
-  — a declaration that previously refused everything now refuses only what it means to.
-  [docs/argtypes.md](docs/argtypes.md)
+  *Class:* **Fix**. *Migration:* none — a declaration that previously refused everything
+  now refuses only what it means to. [docs/argtypes.md](docs/argtypes.md)
 
-- **The quality report's rule-conflict detector reads both functional spellings.** Two
-  rules concluding different values for one slot are a `:functional` clash in waiting, and
-  a KB whose mark is `(functionalInArg P 2)` rather than `(functional P)` read as
-  clash-free. *Departure:* none in what the engine believes — this is a report — but a KB
-  spelling the mark that way now sees the pairs it was owed. The mark's reach is asked at
-  three points in the detector (does the KB declare any, which group does a conclusion
-  join, do these two share one) and each spelled it for itself; all three now go through
-  one reader, which is what the fix is. *Class:* **Fix**. *Migration:* none.
-  [docs/quality.md](docs/quality.md)
+- **The quality report's rule-conflict detector reads both functional spellings.**
+  *Class:* **Fix**. *Migration:* none. [docs/quality.md](docs/quality.md)
 
-- **A bounded partner sweep says so: `:partner-sweep-truncated`.** Finding the far half of
-  a cross-context constraint clash normally reads one argument root, but a
-  `functionalInArg` mark whose declared position covers the whole tuple leaves no root to
-  narrow by, so discovery becomes an extent sweep. It was capped at
-  `tax/*exposure-instance-budget*` and silent. *Departure:* a new `violations` kind, so a
-  consumer branching on the ledger sees one it did not before; what a cut costs is a
-  *vantage* — a context that would have seen a clashing pair is not consulted — which no
-  other truncation entry's counts can reflect. *Class:* **Additive**.
+- **A bounded partner sweep says so: `:partner-sweep-truncated`.** *Class:* **Additive**.
   [docs/nmtms.md](docs/nmtms.md)
-
-## 0.13.0 — 2026-08-25 — "calendar time, joined queries, and the doors that refuse"
+## 0.13.0 — 2026-08-25 — "calendar time, joined queries, and the entry points that refuse"
 
 - **`:disk` and `:pg-disk` are `:disk-log` and `:pg-disk-log`.** *Class:* **Breaking** for
   any opts map, script or `VAELII_TEST_BACKEND` value naming either name. *Migration:*
@@ -385,7 +398,7 @@
   **Breaking** — a caller that emptied a reified context and then read it back by its
   constant, or looked for it among `contexts`, finds it gone rather than standing empty.
   *Migration:* name the expression, never the constant: `(CxTimeFn CxMonad (DatetimeFn
-  "2000"))` resolves through the map at every door and re-mints where the KB has collected
+  "2000"))` resolves through the map at every entry point and re-mints where the KB has collected
   it, dedupping to one constant as it always has — the `cx/` symbol and the handle are
   freshly allocated, as any re-mint's are. A context to be kept while its extent is empty
   takes a stored `genlCx` edge or a sentence naming it.
@@ -418,7 +431,7 @@
 
   *Breaks:* `forward-chain`
 
-- **Calendar constructors, and a time context computes its own year–month–day cone.**
+- **Calendar constructors, and a time context computes its own year–month–day ancestor set.**
   *Class:* **Additive**. [docs/context-nat.md](docs/context-nat.md),
   [docs/time.md](docs/time.md)
 
@@ -468,7 +481,7 @@
   [docs/canonicalization.md](docs/canonicalization.md)
 
 - **A disjunctive *goal* is refused (`:shape`) rather than unioned.** *Class:* **Refusal**:
-  a goal on the undeclared predicate `or` matches nothing, so the door answers with no
+  a goal on the undeclared predicate `or` matches nothing, so the entry point answers with no
   solutions — the answer shape a caller is least likely to question, since it reads as "no"
   rather than as "I cannot". *Migration:* run the query once per alternative and
   concatenate, or put the disjunction in a rule — which *is* expanded — and ask for its
@@ -512,7 +525,7 @@
   names.** *Class:* **Fix**. *Migration:* none; a KB that was loaded in an unlucky order
   gains the firings it was owed at its next `recover`. [docs/contexts.md](docs/contexts.md)
 
-- **A `genlCx` edge arriving last restates the facts its widened cone newly exposes to a
+- **A `genlCx` edge arriving last restates the facts its widened ancestor set newly exposes to a
   merge.** *Class:* **Fix**. *Migration:* none; a KB loaded in an unlucky order gains the
   restatements it was owed at its next `recover`. [docs/equality.md](docs/equality.md)
 
@@ -528,7 +541,7 @@
 
 - **A cycle through negation that runs through a `different` antecedent is refused in every
   arrival order.** *Class:* **Fix**. *Migration:* a KB holding such a pair keeps it;
-  re-asserting either rule, or the edge, through the front door is refused
+  re-asserting either rule, or the edge, through the public entry point is refused
   `:not-stratified`. [docs/exceptions.md](docs/exceptions.md)
 
 - **Equational rewriting: the critical-pair unifier follows a binding chain to its end, and
@@ -635,7 +648,7 @@
   `with-bulk-writes` over one space now throws where it silently dropped the inner batch.
   [docs/storage.md](docs/storage.md)
 
-- **Three option doors on the operational surface refuse a value they do not read.**
+- **Three option entry points on the operational surface refuse a value they do not read.**
   *Class:* **Refusal**: each of the three took the value and ran at a setting nobody chose.
   *Migration:* spell the option as the page, the flag or `client`'s docstring names it.
   *Breaks:* `/kbs` with an unknown choice value, `lein serve --listen <flag>`,
@@ -673,7 +686,7 @@
 - **Two refusals name themselves where they threw bare.** *Class:* **Fix**. *Migration:*
   none. [docs/foreign.md](docs/foreign.md), [docs/operations.md](docs/operations.md)
 
-- **`:unrecovered-kb` carries one shape at both doors.** *Class:* **Fix**. *Migration:* a
+- **`:unrecovered-kb` carries one shape at both entry points.** *Class:* **Fix**. *Migration:* a
   caller reading `(:hazards ex-data)` off a refused `retract!` / `edit!` reads a vector of
   keys. [docs/storage.md](docs/storage.md)
 
@@ -737,11 +750,11 @@
 - **The disk record store's resident state is written under the monitor its files are
   written under.** *Class:* **Fix**. *Migration:* none. [docs/storage.md](docs/storage.md)
 
-- **The two snapshot protocols are pinned extension seams.** *Class:* **Additive**: a roster
+- **The two snapshot protocols are pinned extension protocols.** *Class:* **Additive**: a roster
   entry and four golden lines, no method moves. [docs/storage.md](docs/storage.md)
 
 - **Both readings of an index posting are named, and the raw read is refused.** *Class:*
-  **Additive**: no public var changes and no answer moves — the doors wrap the reads their
+  **Additive**: no public var changes and no answer moves — the entry points wrap the reads their
   callers already made. [docs/nmtms.md](docs/nmtms.md)
 
 - **A global taxonomy closure read says `-global`.** *Class:* **Additive**:
@@ -754,7 +767,7 @@
   so no pinned surface moved with it. Anything requiring the old namespace renames the
   prefix. [docs/koinii.md](docs/koinii.md), [docs/namespaces.md](docs/namespaces.md)
 
-- **A multi-claim reply goes through the same doors a single one does.** *Class:*
+- **A multi-claim reply goes through the same entry points a single one does.** *Class:*
   **Refusal** — a batch that forged a speaker or aimed at the registry wrote knowledge
   attributed to someone who never said it, which no query could tell from the real thing.
   *Migration:* none for an honest caller. *Breaks:* `:koinii/speaker-mismatch`,
@@ -831,11 +844,11 @@
 
 - **`VAELII_PLAN=0` runs the whole suite with the cost ranking off, and the matrix runs what
   a change owes rather than everything.** *Class:* **Additive**: one test-harness switch and
-  four script arguments, no door moved. [docs/inference.md](docs/inference.md),
+  four script arguments, no entry point moved. [docs/inference.md](docs/inference.md),
   [docs/operations.md](docs/operations.md), [docs/storage.md](docs/storage.md)
 
 - **The contracts that need two JVMs are tested with two JVMs.** *Class:* **Additive**: a
-  test mark, a selector and an alias; no engine door moved.
+  test mark, a selector and an alias; no engine entry point moved.
   [docs/storage.md](docs/storage.md), [docs/operations.md](docs/operations.md)
 
 - **`^:multi-jvm` is opt-in, and `:all` no longer adopts whatever mark is added next.**
@@ -847,26 +860,13 @@
   [docs/operations.md](docs/operations.md)
 
 - **The matrix dashboard alternates a command line with a bar, and stops walking down the
-  screen.** [<n>A` that repaints the frame moved up one row short every second and the
-  dashboard left a trail of itself. Now a bar shares its line with nothing: a running
-  configuration shows **the command that runs just that configuration** and its log file
-  after the `#`, then its bar on the next line. Widths are measured rather than assumed —
-  bars are sized from the text beside them, `…` elides a path at a separator and keeps its
-  tail, and `BLOCK` is counted from the rows actually painted — and a frame too tall for the
-  terminal falls back to the compact one-line rows rather than painting a broken one. The
-  size those widths are measured against is now the **terminal's**, asked of `/dev/tty`:
-  `tput` reads it off its own stdout, and every one of these scripts is reached through
-  lein-shell, which pipes — so a matrix under `lein` had been laying itself out for
-  terminfo's default 80 by 24 whatever the window actually was. The mark rows
-  `test-backends` and `test-sweeps` print widen with it. *Class:* **Fix**. *Migration:*
-  none; `SUITE_PROGRESS=lines` still forces the scrolling form.
-  [docs/operations.md](docs/operations.md)
+  screen.** *Class:* **Fix**. *Migration:* none; `SUITE_PROGRESS=lines` still forces the
+  scrolling form. [docs/operations.md](docs/operations.md)
 
 - **The exhaustive truncation sweep runs once rather than once per configuration, and in a
   couple of minutes where scratch space is cheap.** *Class:* **Additive**: a fourth test
-  mark, a selector, an alias and one test-only switch; no engine door moved and no offset
+  mark, a selector, an alias and one test-only switch; no engine entry point moved and no offset
   was dropped. [CONTRIBUTING.md](CONTRIBUTING.md), [docs/operations.md](docs/operations.md)
-
 ## 0.12.0 — 2026-08-23 — "query contexts, bulk loading, and a literal's type"
 
 - **`resultIsa` and `resultGenl` are `result` and `genlResult`.** *Class:* **Breaking** for
@@ -947,7 +947,7 @@
 
 - **A rule's shared variables are held to the argument constraints of every position they
   stand in.** *Class:* **Fix.** *Migration:* a KB holding such a rule keeps it; a rule
-  re-asserted through the front door is refused, and the refusal names the variable.
+  re-asserted through the public entry point is refused, and the refusal names the variable.
   [docs/taxonomy.md](docs/taxonomy.md)
 
 - **A torn justification stream tears the import.** *Class:* **Fix.** *Migration:* none.
@@ -1139,7 +1139,7 @@
 - **A compaction drops a handle whose frame the log cannot give back.** *Class:* **Fix.**
   *Migration:* none. [docs/storage.md](docs/storage.md)
 
-- **The durability tick costs nothing on a store nobody wrote to.** *Class:* **Fix.**
+- **The durability tick adds no work on a store nobody wrote to.** *Class:* **Fix.**
   *Migration:* none. [docs/storage.md](docs/storage.md)
 
 - **The durability daemon installs one ticker and forgets no backend.** *Class:* **Fix.**
@@ -1227,7 +1227,7 @@
   caller discriminating on `:reason` gains one value to match. *Breaks:* `dereference`
   `resolve-by-locator` [docs/koinii.md](docs/koinii.md)
 
-- **Two koinii channel doors stop nil-punning their argument.** *Class:* **Refusal.**
+- **Two koinii channel entry points stop nil-punning their argument.** *Class:* **Refusal.**
   *Migration:* none. *Breaks:* `channel/dispute`, `speech-acts/dispute`, `channel/vote`,
   `:koinii/no-such-handle`, `:koinii/no-such-stance` [docs/koinii.md](docs/koinii.md)
 
@@ -1282,9 +1282,7 @@ moves a counted read says so.
 
 - **Two constants stop being recomputed on the hottest write paths.** *Class:* neither
   label. [docs/qcn.md](docs/qcn.md), [docs/nmtms.md](docs/nmtms.md)
-
 ## 0.11.0 — 2026-08-22 — "contradiction solving, arrival order, and the durable log"
-
 
 - **`antiTransitive` convicts the chain it forbids.** *Class:* **Breaking** — a KB that
   declared the mark and stored a chain is now told about it, and `:nogood` / `:handles` /
@@ -1358,7 +1356,7 @@ moves a counted read says so.
 ### Storage and the durable log
 
 - **A dedup probe reads the exact leaf, not a match of it.** *Class:* **Breaking** — one
-  method added to the `IndexStore` seam, so an out-of-tree index implements `leaf-at`; it is
+  method added to the `IndexStore` protocol, so an out-of-tree index implements `leaf-at`; it is
   the leaf handles at an exact path, which every trie already holds. *Migration:* implement
   `leaf-at`; the shipped backends all carry it. *Breaks:* `leaf-at`, `IndexStore`,
   `find-sentex-handle` [docs/indexing.md](docs/indexing.md),
@@ -1482,7 +1480,7 @@ moves a counted read says so.
   is now `:unknown-option`. *Migration:* spell the rostered key. *Breaks:*
   `:unknown-option`, `query-opt-keys`, `query`, `query?` [docs/api.md](docs/api.md)
 
-- **A write door judges and writes one KB, resolved once per request.** *Class:* Fix.
+- **A write entry point judges and writes one KB, resolved once per request.** *Class:* Fix.
   [docs/web.md](docs/web.md)
 
 - **`reset-registry!` waits for a cancelled job to stop before forgetting it.** *Class:*
@@ -1500,10 +1498,10 @@ moves a counted read says so.
 - **A refusal names the KB it judged, not the active one.** *Class:* Fix.
   [docs/web.md](docs/web.md)
 
-- **`argue` holds `query`'s roster at its own door, and each debugger door rosters what it
-  reads.** *Class:* Breaking; a key these doors ignored is now `:unknown-option`.
+- **`argue` holds `query`'s roster at its own entry point, and each debugger entry point rosters what it
+  reads.** *Class:* Breaking; a key these entry points ignored is now `:unknown-option`.
   *Migration:* spell the rostered key, and stop passing `:strategy` or `:proof?` to the
-  debugger doors, which set both themselves. *Breaks:* `argue`, `search-tree`,
+  debugger entry points, which set both themselves. *Breaks:* `argue`, `search-tree`,
   `compare-tacticians`, `:unknown-option` [docs/api.md](docs/api.md)
 
 ### Efficiency
@@ -1546,9 +1544,7 @@ None of these change an answer; each is pinned by a test that fails on the old c
 - **The web view holds the type set by reference** [docs/web.md](docs/web.md)
 
 - **An LLM tool result is printed into a bounded writer** [docs/llm.md](docs/llm.md)
-
 ## 0.10.0 — 2026-08-20 — "more than one agent over one knowledge base"
-
 
 - **Koinii: several agents coordinate over one shared knowledge base.** *Class:*
   **Additive** — a new optional layer and two shipped contexts (`resources/kb/koinii/`); no
@@ -1579,7 +1575,7 @@ None of these change an answer; each is pinned by a test that fails on the old c
   `interArgIsa → interArg`; nothing else changes. [docs/argtypes.md](docs/argtypes.md),
   [docs/inherit.md](docs/inherit.md)
 
-- **A sentence carrying a non-serializable value is refused at every door.** *Class:*
+- **A sentence carrying a non-serializable value is refused at every entry point.** *Class:*
   **Refusal** — accepting the value stored a sentence no `:disk` KB could recover, so no
   working caller is broken. *Breaks:* `:not-encodable`. *Migration:* replace the
   non-serializable leaf with data. [docs/storage.md](docs/storage.md)
@@ -1590,9 +1586,7 @@ None of these change an answer; each is pinned by a test that fails on the old c
 
 - **The fast gate drops perf; `release-gate` keeps it.** *Class:* **Additive** — a
   build-command split; no engine behaviour changes.
-
 ## 0.9.0 — 2026-08-17 — "the truth-maintenance network defaults to dense"
-
 
 - **The dense truth-maintenance network is the default.** *Class:* **Breaking** — a
   documented default changes, and `catalog/footprint`'s `:tms` estimate drops 467 → ~101
@@ -1665,14 +1659,13 @@ None of these change an answer; each is pinned by a test that fails on the old c
   predicate name changed. *Breaks:* `argPreserving`, `argPreservingInverse`. *Migration:*
   rename both in your KB text; nothing else changes. [docs/inherit.md](docs/inherit.md)
 
-- **`argIsa` / `argGenl` / `interArgIsa` answer up the `genl` cone.** *Class:* **Additive**
+- **`argIsa` / `argGenl` / `interArgIsa` answer up the `genl` ancestor set.** *Class:* **Additive**
   — a query that answered nothing now answers; nothing stored or existing changes.
   [docs/argtypes.md](docs/argtypes.md), [docs/inherit.md](docs/inherit.md)
-
 ## 0.8.0 — 2026-08-14 — "predicates inherit down the hierarchy"
 
 `arity`, `functional`, `asymmetric` and the three argument
-constraints descend the predicate hierarchy now — at the door and on every retroactive
+constraints descend the predicate hierarchy now — at the entry point and on every retroactive
 pass — so a claim spelled with a sub-predicate is held to what its supers declare, and
 the six arrival orders of {declaration, fact, edge} reach one set of beliefs. Beside it
 two structural gaps close: a KB whose derived state was never built refuses writes rather
@@ -1724,7 +1717,7 @@ written.
   `recover` (or `reindex`) before retracting, which is what the sweep needed anyway.
   *Breaks:* `:unrecovered-kb` [docs/storage.md](docs/storage.md)
 
-- **`check` and `check-edit` answer for the door they mirror.** *Class:* Additive; a new
+- **`check` and `check-edit` answer for the entry point they mirror.** *Class:* Additive; a new
   problem `:type` on two readers that report problems. *Migration:* none. A caller matching
   on the message rather than the `:type` sees "index was" where the index hazard stands
   alone. *Breaks:* `:unrecovered-kb`, `check`, `check-edit`
@@ -1801,7 +1794,7 @@ written.
 - **Breaking: a `functional` or `asymmetric` mark reaches back down a `genl` edge, on both
   retroactive paths.** *Class:* Breaking; a clashing pair that stood believed is now
   arbitrated. *Migration:* a caller reading `contradictions` or `violations` sees pairs the
-  door has always refused when the mark arrived first — the two arrival orders agree now.
+  entry point has always refused when the mark arrived first — the two arrival orders agree now.
   *Breaks:* `contradictions`, `violations`, `:constraint-exposure`
   [docs/taxonomy.md](docs/taxonomy.md)
 
@@ -1812,7 +1805,7 @@ written.
   `:constraint-exposure` [docs/contexts.md](docs/contexts.md),
   [docs/taxonomy.md](docs/taxonomy.md)
 
-- **Breaking: the retroactive arity report descends the hierarchy, as the door it mirrors
+- **Breaking: the retroactive arity report descends the hierarchy, as the entry point it mirrors
   already does.** *Class:* Breaking; nothing new is refused, and a caller reading
   `violations` sees a finding it did not. *Migration:* nothing to write — read `:via` to
   tell an inherited length from a declared one. *Breaks:* `violations`, `:arity`, `:via`
@@ -1824,7 +1817,7 @@ written.
   about facts that were already wrong. *Breaks:* `violations`, `:arity`
   [docs/taxonomy.md](docs/taxonomy.md), [docs/contexts.md](docs/contexts.md)
 
-- **Breaking: the arity door words an inherited length as inherited, as its retroactive half
+- **Breaking: the arity entry point words an inherited length as inherited, as its retroactive half
   already did.** *Class:* **Breaking** on §3.8's counterweight: only the `:message` string
   moves, which is the class-1 test. *Migration:* read `:expected`, `:actual` and `:via` off
   the ex-data rather than matching the message. *Breaks:* `is declared with`,
@@ -1839,7 +1832,7 @@ written.
 
 - **`kb-quality` gains a fifth reading: argument constraints that constrain nothing.**
   *Class:* Breaking for the `:arg-position` refusal message, which now splits on `:via` as
-  the door and the report do; Additive for the reading itself. *Migration:* read `:via` and
+  the entry point and the report do; Additive for the reading itself. *Migration:* read `:via` and
   `:arity` off the ex-data rather than parsing `:message`. *Breaks:* `kb-quality`,
   `quality-report`, `:arg-position`, `is declared with` [docs/quality.md](docs/quality.md),
   [docs/taxonomy.md](docs/taxonomy.md)
@@ -1913,12 +1906,12 @@ written.
   derivation deeper than the JVM's frame budget — returns its tree where recursion threw
   `StackOverflowError`. [docs/api.md](docs/api.md)
 
-### Doors, catalogs and reports
+### Entry points, catalogs and reports
 
-- **Breaking: a top-level vector sentence is refused at both families of door** *Class:*
+- **Breaking: a top-level vector sentence is refused at both families of entry point** *Class:*
   Breaking; a caller who wrote the vector spelling on both sides had code that did what its
   author believed, and it stops on upgrade. *Migration:* write one sentence as a list —
-  `(likes Tom Ann)` — and ask a conjunction with `query` or `prove`, which are the doors
+  `(likes Tom Ann)` — and ask a conjunction with `query` or `prove`, which are the entry points
   that join. *Breaks:* `:shape`, `sentexes-matching`, `handle-of`, `ask-within`,
   `prove-within`, *Breaks:* `query-plan`, `provable?`, `query?`, `abduce`, `assert-inert`,
   `check-edit` [docs/api.md](docs/api.md),
@@ -1928,7 +1921,7 @@ written.
   — the goal never did what whoever wrote it believed. *Breaks:* `:shape`, `:conjunct`
   [docs/api.md](docs/api.md)
 
-- **Ten option doors word their refusal the same way, and `open-kb` gains the shape check.**
+- **Ten option entry points word their refusal the same way, and `open-kb` gains the shape check.**
   *Class:* Refusal for `open-kb`'s non-map, which previously threw an unnamed error.
   *Migration:* none for a caller discriminating on `:type`. A caller matching refusal text
   should match `:type :unknown-option` and read `:options` / `:unknown` instead. *Breaks:*
@@ -1997,11 +1990,10 @@ the answers computed are identical, and all three are free where nothing is decl
 
 - **Every verdict names the tree it is a verdict about.** *Class:* neither label.
   [docs/operations.md](docs/operations.md)
-
 ## 0.7.0 — 2026-08-12 — "contexts get one spelling"
 
 - **Breaking: a context name is `Cx`-prefixed, not `Context`-suffixed.** `CoreContext`
-  is `CxCore`, `UniverseContext` is `CxUniverse`, and the `assert` front door refuses a
+  is `CxCore`, `UniverseContext` is `CxUniverse`, and the `assert` public entry point refuses a
   `Context`-suffixed name by the same naming check that already refused a malformed
   predicate or type. *Migration:* respell every context name — in a stored KB, an
   `assert` call, and a saved dump — to the `Cx` form. `docs/naming.md`.
@@ -2012,11 +2004,10 @@ the answers computed are identical, and all three are free where nothing is decl
   respell the predicate wherever an edge is asserted, matched or retracted; a stored
   `genlContext` edge is a fact under a predicate nothing reads, so re-assert it rather
   than expecting the taxonomy to find it. `docs/taxonomy.md`.
-
 ## 0.6.0 — 2026-08-12 — "stored rules become first-class"
 
 A rule can conclude a rule, a NAF guard written as a
-conjunction guards instead of firing unconditionally, and every door that reaches a rule
+conjunction guards instead of firing unconditionally, and every entry point that reaches a rule
 reads **belief** rather than storage. Beside them, the arrival-order dependences left in
 the belief loop are closed — a revived datum, an un-merged spelling, and every report,
 digest and election that keyed on retrieval order — and two reads that grew with what the
@@ -2040,7 +2031,7 @@ written.
 | passes `(ist Ctx S)` to a read | it answers now instead of returning empty, with the named context winning over the argument |
 | writes `(unknown (and A B))` as a guard | it guards now; it fired unconditionally before. Under a quantifier the same shape is refused |
 | branches on `violations`' `:violation` with a defaultless `case` | `:functional`, `:asymmetric` and `:constraint-exposure-truncated` are new kinds |
-| runs `check` over `(not (implies …))` | refused `:not-well-formed` at both doors, where `check` passed it and `assert` threw |
+| runs `check` over `(not (implies …))` | refused `:not-well-formed` at both entry points, where `check` passed it and `assert` threw |
 | runs a `:refuse` KB and reads an empty `violations` as a clean bill | cross-context `functional` and `asymmetric` pairs are reported there now |
 | passes `--strength` to the CLI's `assert-rule`, or reads CLI refusals off stdout | the flag is honoured now, and refusals print on stderr |
 | forks a KB with an opts map naming neither `:space` nor `:dir` | the fork lands on its own space instead of the shared process default |
@@ -2080,7 +2071,7 @@ written.
 - **`ist` places, and four layers had it half-reading.** *Class:* **Refusal** for the
   antecedent and the two read shapes, **Additive** for the reading. *Migration:* say a
   rule's premise with `(decontextualizedPredicate P)` or a `genlCx` edge into the rule's own
-  cone. [docs/contexts.md](docs/contexts.md), [docs/api.md](docs/api.md)
+  ancestor set. [docs/contexts.md](docs/contexts.md), [docs/api.md](docs/api.md)
 
 - **A datum that comes back believed goes back on the agenda.** *Class:* neither label;
   belief moves only toward conclusions the same knowledge already reached in another order.
@@ -2104,7 +2095,7 @@ written.
   answers are added, none withdrawn. [docs/inherit.md](docs/inherit.md),
   [docs/taxonomy.md](docs/taxonomy.md)
 
-- **A negated rule is refused at the door.** *Class:* **Refusal** for both — one shape
+- **A negated rule is refused at the entry point.** *Class:* **Refusal** for both — one shape
   reached a stack trace rather than storage, the other a rule nothing was firing.
   *Migration:* assert a negated rule as the positive rule with the negation in the
   consequent; a rule meant as documentation is `set/inertRule`, and one already stored inert
@@ -2137,7 +2128,6 @@ written.
 
 - **Three more costs read the change rather than the KB.** *Class:* neither label; each
   answers what it answered.
-
 ## 0.5.1 — 2026-08-11 — "faster writes, more to watch"
 
 A run of costs that grew with what the
@@ -2164,7 +2154,6 @@ anyway, because a caller can observe them and should be told what to expect.
 | walks a `declared-transitive` predicate that also declares an `inverse` | the walk sees the inverse-recorded hops too, so an `ask` can answer more |
 | branches on `violations`' `:violation` with a defaultless `case` | `:arbitration-truncated` is a new kind |
 | builds on the shipped Space or Time vocabulary | an argument position that held `thing` now names a type, so an assert 0.5.0 accepted can meet an `:arg-type` refusal — widen the convicting declaration it names, or state the argument at a type the position admits |
-
 
 - **A settle pays for the region it moved, not for what the KB holds.** *Class:* neither
   label; every reading answers what it answered. [docs/taxonomy.md](docs/taxonomy.md),
@@ -2219,7 +2208,6 @@ anyway, because a caller can observe them and should be told what to expect.
   [docs/storage.md](docs/storage.md), [docs/profile.md](docs/profile.md)
 
 - **Eleven checks join the perf gate, and 27 in the vector all judge.**
-
 ## 0.5.0 — 2026-08-07 — "operating the engine as a service"
 
 Operating the engine, in the two senses a running process needs: what it will let a caller
@@ -2297,14 +2285,14 @@ deployed.
   configuration nothing exercised — the worst shape a test switch can have, since the result
   reads as evidence. *Migration:* none for a value in the vocabulary; a job relying on `=0`
   meaning *on* now gets the sweep off. `docs/operations.md`.
-- **Refusal: the ASP backend switches are read against their domains, at the door.** A
+- **Refusal: the ASP backend switches are read against their domains, at the entry point.** A
   misspelt `VAELII_ASP_SOLVER` matched no arm and ran auto, so a run pinned to clasp could
   use clingo and report a clean pass; `VAELII_CLINGO_MAX_BYTES` threw from the first ASP
   solve rather than from the configuration that was wrong. Both go through `config/check!`,
   refused at `open-kb` by name. *Migration:* none for a legal value. `docs/operations.md`.
 - **Breaking: `VAELII_NOHIER` is `VAELII_HIER`, and the sense is the other way up.** A
   switch carrying the negation in its own name makes `=0` mean *on*, and the entry above had
-  just made the value load-bearing. `VAELII_HIER` defaults true. *Migration:*
+  just made the value required. `VAELII_HIER` defaults true. *Migration:*
   `VAELII_NOHIER=1` becomes `VAELII_HIER=0`; a `VAELII_NOHIER` left set is simply unread,
   since a variable cannot be refused by name. `docs/operations.md`.
 - **The log level is a dial a running process turns.** `set-log-level` takes one of
@@ -2321,7 +2309,7 @@ deployed.
   the scan unbounded. The cut is named on the page and in the log, since a list that quietly
   ends early reads as "this machine has no other KBs". *Migration:* name the ones that
   matter in the catalog file to list them regardless of the count. `docs/catalog.md`.
-- **The front door says what a legal-but-wrong sentence should have been.** `(isa Muffet
+- **The public entry point says what a legal-but-wrong sentence should have been.** `(isa Muffet
   Dog)` breaks no naming invariant, so it stored a two-place relation nothing reads while
   `isa?` answered false with nothing to search for. `nm/advice` reads intent where
   `problems` reads the invariants, logging `:warn` once per process with the rewrite that
@@ -2372,13 +2360,11 @@ deployed.
 - **`docs/troubleshooting.md` and `docs/storage.md` name `:type :unknown-backend`.**
   `open-kb` throws it from five call sites and none carried a line in either doc; the entry
   reads the other key each throw's ex-data carries to say which of the five it is.
-
-
 ## 0.4.0 — 2026-08-05 — "correctness fixes against the invariants"
 
 Correctness fixes found by reading the engine against its own stated invariants, in the
 places 0.2.0 and 0.3.0 did not reach: a backward-chaining loop guard that made a
-conjunctive query answer nothing, doors that disagreed about what they would accept, an
+conjunctive query answer nothing, entry points that disagreed about what they would accept, an
 index trusted without being checked against the records it describes, slots and keys that
 let arrival order decide belief, and derived caches a settle read one revival out of date.
 Thirteen entries are **Breaking**, which is why this is 0.4.0. The **Refusal** entries
@@ -2412,12 +2398,12 @@ question in silence.
 - **Breaking: `assert` refuses a sentence that is not an s-expression.** A string — what a
   failed EDN read hands back — was stored, indexed and believed as an object no query can
   match; `nil` likewise; a symbol, number or map threw an untyped
-  `UnsupportedOperationException`. `check` refused all five, so the door built to predict
+  `UnsupportedOperationException`. `check` refused all five, so the entry point built to predict
   `assert` disagreed with it. *Migration:* nothing a working caller sent is refused; fix the
   producer that handed `assert` unread text, and discriminate on `:shape`.
 - **Breaking: an `exceptWhen` query's literals are held to the naming invariants.** A
   literal `docs/naming.md` says is refused was stored as an exception no query could match,
-  so the rule read as guarded and fired as bare. Both doors read each conjunct before the
+  so the rule read as guarded and fired as bare. Both entry points read each conjunct before the
   rule is stored. *Migration:* spell the exception's literals to the invariants, and
   re-check any rule 0.3.0 left bare.
 - **Breaking: an `edit!` batch key nothing reads is refused.** `{:adds […]}` bound nil, so
@@ -2475,7 +2461,7 @@ question in silence.
 - **Breaking: `edit!` refuses what `check-edit` reports, before applying anything.** The two
   disagreed in both directions: a 4-element `:add` entry applied with the extra silently
   dropped where the dry run reported `:shape`, and a non-sequential entry threw a bare
-  `ISeq` error from every door. An unknown `:remove` handle is refused before any entry is
+  `ISeq` error from every entry point. An unknown `:remove` handle is refused before any entry is
   applied, so a checked-clean batch cannot half-apply. *Migration:* a remove-if-present batch
   filters its handles through `in?` first.
 - **The recursive-literal hold-back keys on the peeled predicate.** A `not`- or `ist`-headed
@@ -2527,7 +2513,7 @@ question in silence.
   ordered by content; the *list* came off a hash set of handle-keyed nogoods, so which pair
   `(first (contradictions kb))` returned was an answer about which was typed first.
   `docs/nmtms.md`.
-- **Refusal: the connective frames are shape-checked at every door.** An `implies` at arity
+- **Refusal: the connective frames are shape-checked at every entry point.** An `implies` at arity
   2 threw a bare `IndexOutOfBoundsException` while arity 4 stored a silently truncated rule
   `check` read as clean; `(not A B)` stored as a positive fact whose record and index
   disagreed; a bare symbol passed as a rule literal was accepted, unmatchable; and a
@@ -2545,8 +2531,8 @@ question in silence.
   unauthenticated write routes on every interface with the rebinding guard off. `serve` read
   its positionals as a prefix, so a misplaced flag ran a disk daemon in memory.
   *Migration:* none beyond completing the command line.
-- **Refusal: the opts and shape rosters reach the remaining doors.** The roster guard held
-  at `assert`, `why`, `query` and `open-kb`, and every other door took the misspelt key in
+- **Refusal: the opts and shape rosters reach the remaining entry points.** The roster guard held
+  at `assert`, `why`, `query` and `open-kb`, and every other entry point took the misspelt key in
   silence — answering a different question than the one asked. *Migration:* spell the key as
   the refusal's roster lists it.
 - **Refusal: the operator's mistakes answer in one line.** A CLI flag missing its value bound
@@ -2576,15 +2562,13 @@ question in silence.
   antecedent beside it arrived: two arrival orders, two answers, from a rule the engine
   reported as accepted. An `:inert` rule is exempt. *Migration:* assert the instantiated
   rules, one per predicate the metarule ranged over.
-
-
 ## 0.3.0 — 2026-08-04 — "a type on every refusal"
 
 Correctness fixes across the durable index, the snapshot, the JTMS, the export dump
 and the bounded prover, a sweep that gives every refusal a `:type`, the one wire
 contract 0.2.0's own sweep left qualified, and the serialization both servers' storage
 layer already assumed. Then a run of **inference and belief** work: two orders that
-reached two answers, the two doors that disagreed about an inherited claim, and two
+reached two answers, the two entry points that disagreed about an inherited claim, and two
 enumerations that grew with the vocabulary rather than with their own answer. Eight
 entries are marked **Breaking** — they refuse input 0.2.0 accepted or change an
 observable contract, which is why this is 0.3.0 and not 0.2.1; the rest are compatible.
@@ -2724,7 +2708,6 @@ observable contract, which is why this is 0.3.0 and not 0.2.1; the rest are comp
   and a claim that denies it denies both — where the checks named one handle each, so the
   content-first of the two was weighed and the other left believed beside content that
   contradicts it.
-
 ## 0.2.0 — 2026-08-03 — "the public API boundary, drawn"
 
 **Not a drop-in upgrade from 0.1.0.** Several of the changes below refuse input
@@ -2796,12 +2779,10 @@ the 0.1.0 header are in it, newest first.
   context); a reverse proxy or local alias sets `VAELII_ALLOWED_HOSTS`.
 - **`+with-foreign` names a coordinate that exists**
   (`com.vaelii/vaelii-foreign`); the bare id it carried resolved nothing.
-
 ## 0.1.0 — 2026-07-31 — "the first release"
 
-The first release. What follows is the development log that produced it, newest
+The first release. Below is the development log that produced it, newest
 first; every entry below is in 0.1.0.
-
 ## 2026-07-30 — "declarations re-check what they change"
 
 - A declaration re-checks the exceptions it moves: `(symmetric P)`,
@@ -2818,10 +2799,9 @@ first; every entry below is in 0.1.0.
   means the union of what the readers answer.
 - Three readers of one question agree over a cyclic hierarchy, and settle
   repairs the context ranking after reconciling belief as well as before it.
-
 ## 2026-07-29 — "one entry point for backward chaining"
 
-- One front door for backward chaining: the four paths measured, then
+- One public entry point for backward chaining: the four paths measured, then
   consolidated to two chainers behind one entry point with one dial. A proof
   of an ephemeral answer reads the way `why` does.
 - The goal frontier's order is a policy measured on time-to-first-answer,
@@ -2831,7 +2811,6 @@ first; every entry below is in 0.1.0.
   without touching the engine.
 - A constraint declaration may name a second sentex it must not weigh, and a
   depth bound has no default because there is no defensible one.
-
 ## 2026-07-28 — "the gate: lint, suite, and scaling"
 
 - `lein gate`: lint, the suite, and the scaling claims, measured and failed on
@@ -2842,9 +2821,8 @@ first; every entry below is in 0.1.0.
 - A literal's matches are remembered and retired on a clock; converging
   branches share one rule expansion; a third backward chainer whose state is
   a frontier.
-- The naming invariants belong to the knowledge base, and the bulk door counts
+- The naming invariants belong to the knowledge base, and the bulk entry point counts
   what it skips.
-
 ## 2026-07-27 — "aggregation over query results"
 
 - Aggregation: a count is a query operator, and a firing that rests on one is
@@ -2857,7 +2835,6 @@ first; every entry below is in 0.1.0.
   own previous answer; a violation ledger is a claim about one KB.
 - The browser draws term shapes, composes English at three densities, and
   gained `lein browser`; OpenCyc loading went from 378s to 277s.
-
 ## 2026-07-26 — "reads scoped to the asking context"
 
 - Contexts got a vantage: every taxonomy supporter records the context it
@@ -2869,7 +2846,6 @@ first; every entry below is in 0.1.0.
   a private writable fork over a shared read-only base.
 - A knowledge base is readable before it finishes loading, and the suite runs
   on every backend from one script.
-
 ## 2026-07-25 — "OpenCyc in the engine's own format"
 
 - OpenCyc, read and re-expressed: every constant given back its role, 1.1M
@@ -2884,7 +2860,6 @@ first; every entry below is in 0.1.0.
 - A knowledge-base catalog with a browser that switches between KBs;
   `inherit` declared rather than assumed; definitional checks reach every
   term; `argGenl` constrains one level up.
-
 ## 2026-07-24 — "denser storage, measured first"
 
 - The scale program opened with measurement first: the truth-maintenance
@@ -2900,12 +2875,11 @@ first; every entry below is in 0.1.0.
 - The web browser was hardened — escape by default, guard the parse, bind
   loopback, refuse cross-origin writes — and a pluggable LLM proposes edits
   and never applies them.
-
 ## 2026-07-23 — "performance fixes, and an operational surface"
 
 - A performance review, its findings fixed: the disk log records operations
   rather than grown values (killing an O(N²) write amplification), settle
-  keeps a coincidence set, re-checks narrow to the moved cone, region
+  keeps a coincidence set, re-checks narrow to the moved ancestor set, region
   fixpoints became semi-naive worklists, compaction is copy-on-write.
 - Symbolic equational reasoning: pure oriented rewriting with full
   Knuth-Bendix orientation, order-independent normalization, and
@@ -2916,7 +2890,6 @@ first; every entry below is in 0.1.0.
 - Existential rule heads with deterministic skolemization; an occurs check;
   closures answered on demand; the record split into atomic and rule shapes
   with interned symbols; a bulk-load fast path.
-
 ## 2026-07-22 — "sound negation as failure"
 
 - Negation as failure, at top level and in antecedents, with block, sweep and
@@ -2925,11 +2898,10 @@ first; every entry below is in 0.1.0.
   cost-ordered forward-chain join; `ask-within` normalizes its goal.
 - Reification of non-atomic terms; structural subterm indexing,
   oracle-proven, then on by default.
-- The storage seam: index logic onto one key-value protocol, an in-memory
+- The storage protocol: index logic onto one key-value protocol, an in-memory
   backend, then the on-disk substrate — files, lock, durability, record
   store, index store.
 - The index benchmark harness, and a per-handle provenance side map.
-
 ## 2026-07-21 — "equality lands, and a sudoku solved"
 
 - `exceptWhen` canonicalized into the record, blocking excepted conclusions
@@ -2944,7 +2916,6 @@ first; every entry below is in 0.1.0.
 - Retrieval got sharper: argument roots, multi-column narrowing, predicate
   subsumption, set-algebra retrieval, an opt-in incremental matcher.
 - Truth-maintenance mutations are atomic; lint arrived.
-
 ## 2026-07-20 — "order independence, made an invariant"
 
 - Canonical rule form — canonical variables with a varmap, literal order,
@@ -2953,13 +2924,12 @@ first; every entry below is in 0.1.0.
   showing which level answered.
 - Order independence and locality pinned as invariants: region-local
   relabelling, belief-following closures, content-keyed tie-breaks.
-- The answer-set layer wired to the edge-solver seam, with a labeling
+- The answer-set layer wired to the edge-solver protocol, with a labeling
   materialized as a context; the defeasible layer made sound, six bugs
   pinned as failing tests first; `exceptWhen` began as a failing suite.
 - Everything but `core` moved under `vaelii.impl.*`; `!` reserved for
   irreversible operations; tests became net-neutral, and a second concurrent
   run fails fast rather than corrupting the first.
-
 ## 2026-07-19 — "the whole stack, day one"
 
 The first day: a contextualized common-sense knowledge base with a trie
@@ -2970,7 +2940,7 @@ index, inference and truth maintenance.
   built-in transitivity for types and contexts.
 - Forward chaining with dependency-directed retraction, and a backward
   chainer; a non-monotonic TMS with strengths, soft prioritized
-  contradictions, and a solver seam.
+  contradictions, and a solver protocol.
 - An inverted term index, directed rules, disjointness, well-formedness
   checks, and a pluggable prover query engine; structural connectives
   canonicalize into the record; evaluable arithmetic.

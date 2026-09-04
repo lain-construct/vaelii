@@ -213,10 +213,10 @@
                (count (:justifications side)))
             "and the report names both of them, not the one it named last settle")))))
 
-;; ---- a plain rebuttal never reaches the solver seam ---------------------
+;; ---- a plain rebuttal never reaches the `Solver` protocol ---------------------
 
 (tu/deftest-kb an-installed-solver-is-never-asked-to-decide-a-plain-rebuttal
-  ;; `set-solver` is public and the seam exists — arbitration is the right answer for
+  ;; `set-solver` is public and the protocol exists — arbitration is the right answer for
   ;; nogoods that are *not* plain rebuttals.  What is never routed there is a
   ;; default/default rebuttal: the engine represents it as a dilemma, so it is not
   ;; offered to any solver at all.
@@ -279,7 +279,7 @@
 (deftest the-output-guard-drops-a-defeat-the-program-never-offered
   ;; An overreaching defeat is a bug in the solver, and the engine should neither obey
   ;; it nor fail because of it — so it is dropped with a warning rather than thrown.
-  ;; No KB: a Program is a self-contained value, which is the whole point of the seam.
+  ;; No KB: a Program is a self-contained value, which is the whole point of the protocol.
   (let [prog (solve/program #{1 2}
                             [{:nogood #{1 2} :priority 1 :sentence '(contradicts (a) (b))}]
                             {1 {:sentence '(a) :context 'CxUniverse}

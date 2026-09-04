@@ -78,7 +78,7 @@ facts** — a `genl` edge a subsumed match climbed, a `genlCx` edge the conclusi
 reads the rule or the facts over ([contexts.md](contexts.md)) — and cap it the same way.
 The **informant is excluded** from the cap.
 
-A rule's own class (`:strength` — `opts :strength` at the door, what `defeat-class` answers
+A rule's own class (`:strength` — `opts :strength` at the entry point, what `defeat-class` answers
 for its handle, what a solver is shown) and a rule's defeasibility (bare versus
 `set/defaultRule`, what its firings confer) are two slots, and only the second moves belief;
 nothing in the engine defeats a rule. Why the cap, why the taxonomy edges count, and why the
@@ -155,7 +155,7 @@ That **no work is paid per boundary node** is neither: it is structural, secured
 `Tms` protocol passing no store, so no implementation of it *can* turn a boundary read
 into a lock and a slot decode or a round trip. That is the same fact the resident
 strength copy rests on. What is left — the cost of the in-region work itself — is the
-one piece nothing at the seam holds, and
+one piece nothing on the protocol holds, and
 [defenses.md](defenses.md#locality-is-a-claim-about-every-representation) is where the
 shape that would break it is measured. The obligations a second network inherits are
 listed once, with the gate for each, in the protocol's own docstring
@@ -167,7 +167,7 @@ consequence preview, a consequence report, and a change feed
 ([preview.md](preview.md), [feed.md](feed.md)) — and each of them would otherwise diff
 the believed set, which is O(KB) per write and flat in nothing. `settle-finish` decides
 once what the settle moved (the relabelled regions plus the flips no relabel records)
-and hands that one answer to all three. What that region collects is a **superset** of the
+and hands that one answer to all three. That region collects a **superset** of the
 handles whose belief flipped, on purpose:
 [why](defenses.md#the-touched-window-is-a-superset-not-the-flip-set).
 
@@ -245,17 +245,17 @@ the same three characters.
 
 **`vaelii.impl.reads` is where the question gets asked, in the name of the read.**
 `as-stored-…` takes the index store, because an as-stored read *is* an index operation, and
-each door's docstring says what a stored-but-disbelieved answer is for. `believed-…` takes
+each entry point's docstring says what a stored-but-disbelieved answer is for. `believed-…` takes
 the KB, because belief is a question about the KB — and it filters with `in?`, which drops a
-superseded spelling along with a defeated one, so a believed door means what
-`kb/sentexes-matching` means. A door is a wrapper and never a rewrite: one call to the
+superseded spelling along with a defeated one, so a believed entry point means what
+`kb/sentexes-matching` means. An entry point is a wrapper and never a rewrite: one call to the
 protocol method it names, the same laziness, the same count-aware path, so it adds no index
 operation. The cardinalities, the vocabulary roster and the watched-rule roster carry one
-door each, and each says why there is no second.
+entry point each, and each says why there is no second.
 
 `lein lint`'s **E16** is what makes it a boundary rather than a habit: a raw index read
 anywhere under `src/` but the implementers fails, and the roster in that check is the one
-place an exception is written down. The implementers are the doors themselves, the protocol,
+place an exception is written down. The implementers are the entry points themselves, the protocol,
 the retrieval a believed read is built from (`kb`, `resolution`), the storage backends, and
 the dump that copies every entry the index holds. `RecordStore` is deliberately outside the
 check — a record *is* the storage, so fetching one asks nothing about belief. Why the
@@ -274,7 +274,7 @@ sits behind a `Tms` protocol with two implementations, chosen by `open-kb`'s `:t
 | `:dense` (default) | bitmaps + primitive-keyed maps, and no justification object at all | 5.5× denser on a fact corpus, 3.3× on a rules-heavy one, ~3.8× at corpus scale |
 | `:reference` | one atom over one persistent map | readers get a consistent snapshot from a single deref |
 
-**The seam is the representation, not the algorithm.** Both run the same least fixpoint
+**The boundary is the representation, not the algorithm.** Both run the same least fixpoint
 over the same affected region, because that is the semantics of belief here and not an
 implementation detail; what differs is where a node's premise flag, depth and adjacency
 live. What a second network owes — the fixpoint, atomicity to a concurrent reader, the
@@ -486,7 +486,7 @@ exception, never fires, and produces no contradiction to arbitrate. Where neithe
 the other's case (the Nixon diamond) the clash is a genuine dilemma, and the engine
 represents it rather than picking a side.
 
-The solver seam below therefore has no caller on the negation path. It is kept because
+The `Solver` protocol below therefore has no caller on the negation path. It is kept because
 `set-solver` is public and because arbitration is still the right answer for nogoods
 that are not plain rebuttals.
 
@@ -498,7 +498,7 @@ being acted on. The admission criterion, and
 
 > **A nogood must stay derivable exactly as long as what it convicts stands.** Defeating
 > its weakest member may dissolve it — that is what a resolution *is* — but only by
-> removing something the conviction was **about**. What is inadmissible is a set whose
+> removing something the conviction was **about**. Inadmissible is a set whose
 > defeat makes the clash undetectable while the content it convicted goes on standing.
 
 The failure it is drawn from is a member the detection reads *through*: a nogood
@@ -515,19 +515,19 @@ the reading are audited per source:
 | `constraint-nogoods` | the clashing sentexes alone. The entry is keyed on the **handle pair**, and the separations, predicate properties and disjoint metatypes are `clash-vocabulary` — read through, never members | the separating declaration and the `genl` closure | the vocabulary is not on the ballot, so no defeat this nogood licenses can unmake the reading that convicted |
 | `preserving-nogoods` | the stored claim **and its reasons** — the general claim, the declaration permitting the move, the relation edges the reach travelled, any `(transitive R)` the reading hangs on | the same reasons, which here *are* members | the case the criterion has to admit rather than exclude. Defeating a reason does dissolve the detection, and that is the intended resolution: the inherited claim has no sentex of its own to defeat instead of its reasons, so withdrawing the reach withdraws precisely what the pair was about — and it stays withdrawn, because the reason stays defeated |
 | **not** `arity` | would be the offending sentex plus the `(arity P n)` declaration | `declared-arity`, a cache that follows belief | inadmissible: defeating the declaration unmakes the conviction while the offending sentex stands, so the clash is decided once and never again. It reports instead |
-| **not** `arg` / `genlArg` / `interArg` | there is no second sentex at all | the **absence** of a path — an open-world NAF judgement | not a nogood in the first place: nothing to weigh, no class to compare. A refusal at the door, a drop on the derivation path |
+| **not** `arg` / `genlArg` / `interArg` | there is no second sentex at all | the **absence** of a path — an open-world NAF judgement | not a nogood in the first place: nothing to weigh, no class to compare. A refusal at the entry point, a drop on the derivation path |
 
 The first three rows are the criterion's whole content as a runtime property — which
 member handles a source may file — so `nogood_admissibility_test` pins them: a
 definitional clash's `:nogood` set holds the two clashing sentexes and not the
-declaration that convicted them, and an inherited clash's holds its reasons, deliberately.
+declaration that convicted them, and an inherited clash's holds its reasons.
 
 ### A revived datum is a datum the agenda has not seen
 
 Step 1's revival is a **relabel**, and a relabel is only half of what a revival owes. It
 brings back everything that is still stored — the defeated default, and the conclusions
 resting on it, which a defeat withdraws without sweeping because they stay groundable.
-What it cannot bring back is a conclusion that was never derived, and while a datum is
+It cannot bring back a conclusion that was never derived, and while a datum is
 OUT there is a whole class of those: `chain/*matcher*` is belief filtered, so an OUT
 datum is not a match, and a rule's *other* antecedent arriving meanwhile joins against
 nothing and attempts no firing at all.
@@ -581,7 +581,7 @@ several different populations — the rules a taxonomy edge queued, an aggregate
 value, a refused firing's recorded bindings, a relabelled revival, and the spelling an
 un-merge gives back — each with an instrument narrow enough for its own, and a single
 pass would have to fall back on the widest of them. That is the coarse re-join
-[exceptions.md](exceptions.md) measures at 4.9x through the other door.
+[exceptions.md](exceptions.md) measures at 4.9x through the other entry point.
 
 They split on granularity, and the table above is why. The three that can name a
 **datum** — a released refusal's re-derived conclusion, a relabelled revival, and an
@@ -624,14 +624,14 @@ superseded datum stays in `:in` for `valid?`'s purposes, because its twin is jus
 brackets it to tell a caller which way each handle moved — and by then the loop has
 converged. So the spellings it gives back go into `settle/*unmerged-sink*`, and **`settle`
 re-seeds them and settles again**, the way `core/retract!` already settles twice around
-its own re-derivation. Rounds are bounded by `max-unmerge-rounds`; two is the shape of
+its own re-derivation. Rounds are bounded by `max-unmerge-rounds`; two is the structure of
 every real case, and a third would be a bug reported rather than a hang.
 
 Two other designs — moving the reconcile into the settle loop, and a re-enter signal from
 `settle-finish` — lose to this one on what they cost elsewhere:
 [why](defenses.md#an-un-merge-re-seeds-through-a-second-channel).
 
-### Which door the content came through
+### Which entry point the content came through
 
 One logical situation, one representation: the nogood above, however the content
 arrived. The line between refusing and arbitrating is read off the **opposing claim's
@@ -743,7 +743,7 @@ incomparable contexts can share a descendant, and from that descendant `X` and
 The common-descendant test strictly generalises `sees?` (if K sees Y then K is itself
 a common descendant of the two), so it detects everything `sees?` would. The pair test
 is **memoized per pass**: the nogood scan is already quadratic in the believed
-negations, and computing a maximal-common-descendant set per pair would turn that into
+negations, and computing a maximal-common-descendant-set per pair would turn that into
 a real cost. Contexts are few and repeat constantly, so the memo collapses it to one
 computation per distinct pair.
 
@@ -792,7 +792,7 @@ clashes went *unreported*, `:arbitration-truncated` means content a declaration
 implicates went *undecided*, so a pair that would have been defeated stands believed
 until a later settle surfaces it, and `:arity-truncated` means wrong-length facts went
 *unreported* — the `:arity` reach walks the whole spec subtree a binding descends to and
-the cone a `genlCx` edge opens, and past the budget the predicates it never reached, and
+the ancestor set a `genlCx` edge opens, and past the budget the predicates it never reached, and
 the ones it never got as far as looking *for*, hold facts neither refused nor
 named. They do not cover the same triggers — the disjointness sweeps are the
 type-separating declarations and the constraint sweeps the three tuple marks, and the
@@ -847,7 +847,7 @@ erased by the next assert.
 The checks run only when the conclusion is **new** to its context. Re-deriving a
 sentence already stored there adds a justification, not content — whatever it says was
 admissible when it was first placed — so a second derivation cannot introduce a
-violation that was not already there. That is load-bearing, not a micro-optimization:
+violation that was not already there. That is required, not a micro-optimization:
 `checks/args-problem` reads the memberships of every constrained argument — a posting
 read, a record fetch and a belief test per type the term holds — and forward chaining
 re-derives the same conclusion on every round of every defaults pass. Checking per
@@ -930,7 +930,7 @@ arrival order and `settle/ranked` orders a reading at the point it is asked for;
 `conflicts`, `contradictions` and the preview's standing filter each call it, and any
 further reader of `settle/conflicts-of` or `settle/contradictions-of` owes the same call.
 The two readings and the memo behind them sit in **one** atom, written once per settle:
-they describe one settle, and the read doors run on threads beside the writer, so three
+they describe one settle, and the read entry points run on threads beside the writer, so three
 atoms would let a reader take one settle's conflicts beside another's contradictions. The
 alternative home is the settle path, which a mutation always runs — so ordering there
 charges every assert O(standing log standing) comparisons for a reading nobody asked for:
@@ -1015,8 +1015,8 @@ its candidates are the moved region's own binary facts and it sweeps nothing.
 jointly visible without either half being relabelled — neither is in the region, and
 reporting the same knowledge only when the edges happened to arrive before the facts is
 precisely the arrival-order dependence the pass exists to remove. So an edge in the
-region reaches out over the cone it newly sees (`constraint-facts-in-cone`, the
-binary-fact parallel of the disjointness pass's `members-in-cone`) and spends the same
+region reaches out over the ancestor set it newly sees (`constraint-facts-in-ancestors`, the
+binary-fact parallel of the disjointness pass's `members-in-ancestors`) and spends the same
 `*exposure-instance-budget*` doing it. Past the cap the cost is the cap:
 `perf`'s `constraint-exposure-context-edge` holds it there. A `genl` edge moves the
 **mark** instead, down to a subtree that carried none, and reaches the subtree's facts —
@@ -1026,7 +1026,7 @@ ontology and one under nothing marked must cost a property read and no more.
 **And the mark's own sentence is a trigger, for the same reason.** A late `(functional
 P)`, `(asymmetric P)` or `(anti_transitive P)` moves nothing but the mark, so both halves
 of every pair beneath `P` sit outside the region — the declaration's arrival order
-deciding whether the KB says anything at all. What it implicates is what a `genl` edge
+deciding whether the KB says anything at all. It implicates what a `genl` edge
 carrying the same mark down implicates, the spec subtree's facts, so the two share an
 arm: a mark stands above its own predicate, so the `marks-above?` gate that lets an edge
 through lets the declaration through too. Under `:arbitrate` that reach is
@@ -1034,7 +1034,7 @@ through lets the declaration through too. Under `:arbitrate` that reach is
 the pair is *named*.
 
 The two answers are different things and the policy is what chooses between them, so
-what is order-independent is that the clash is **accounted for** — refused at the door,
+what is order-independent is that the clash is **accounted for** — refused at the entry point,
 weighed into `contradictions`, or named here — and never that every arrival order picks
 the same account. A late declaration is not refused: turning away the sentence that says
 what the predicate *means* would leave every later use of `P` unconstrained on the
@@ -1048,10 +1048,10 @@ declaration came last" whichever declaration it is.
 
 **A candidate a trigger reached is asked from its own context as well as from the
 vantages.** The vantages are the contexts *beyond* a sentex's own, which is right for a
-candidate the region holds — that one was asked from its own context at the door, and
+candidate the region holds — that one was asked from its own context at the entry point, and
 asking again every settle re-runs a check whose answer has not moved. A candidate a
 trigger reached is the opposite case: the mark over its predicate, or what its context
-sees, arrived after the door answered. Its own context is the vantage the door would use
+sees, arrived after the entry point answered. Its own context is the vantage the entry point would use
 today, and for a same-context pair beneath a late mark it is the only vantage there is.
 
 The second pass is **`:refuse`-only**, gated before any root is read, and behind an O(1)
@@ -1080,7 +1080,7 @@ one. (`asymmetry-problems` keys *self* on the sentence's own context, `home`, an
 on the vantage it is asked from, which is what keeps `(P a a)` written in a general
 context and again in one that sees it a real pair: key it on the asker and the twin
 **stored in the vantage** is thrown away as though it were the candidate, and the pair
-is reported or not according to which of the two contexts was written last. At the door
+is reported or not according to which of the two contexts was written last. At the entry point
 the two contexts are one.) `(outranks animal
 cat)` denies the more specific `(outranks cat reptile)`, because preservation reads a
 goal's arguments upwards: the specific claim asks whether the general one denies it, and
@@ -1089,13 +1089,13 @@ nothing is reported; written general-first, the second write is refused outright
 
 That is not a narrowing to remove — the exhaustive pass in
 `settle/*incremental-clashes*` does not share it, since upward reading is what
-preservation *is*. What a candidate rule for it reads is the **spec-side product**: the
+preservation *is*. A candidate rule for it reads the **spec-side product**: the
 tuples strictly below the arriving claim, which is `specs(a) × specs(b)` per moved fact
 of a preserved predicate. Measured on a 4-way, 3-deep hierarchy under each of two roots
 — 85 types below each — that is 7,225 candidate tuples for one claim, against the 2
 postings the visibility question above reads off an argument root, and it grows as the
 square of the hierarchy below the claim where the root read does not grow at all. So the
-two shapes look alike and cost nothing alike, and this one is the limit the engine stops
+two shapes look alike and added no work alike, and this one is the limit the engine stops
 at rather than a question nobody asked.
 
 `clash_oracle_test` excludes this shape and says so — no `transitiveInArg` declaration is
@@ -1107,7 +1107,7 @@ exists **only** because preservation reaches it is not enumerated. Reading it wo
 third one-sided shape — this time inside a nogood whose members have to convict each
 other symmetrically — where the fan the mark already needs is symmetric as it stands.
 
-## The solver seam (`vaelii.impl.solve`)
+## The `Solver` protocol (`vaelii.impl.solve`)
 
 The external solver is a plug-in behind a protocol:
 

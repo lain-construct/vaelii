@@ -135,12 +135,12 @@
   "What the form's `:belief?` choice means to `import-dump`.
 
   The form speaks in verbs (`:rebuild` / `:stored` / `:skip`) because a checkbox cannot
-  offer three answers and a tri-state named `true`/`:stored`/`false` reads as a typo in a
+  offer three answers and a tri-state named `true`/`:stored`/`false` is indistinguishable from a typo in a
   dropdown.  A caller that already speaks the importer's own vocabulary is passed through,
   so this is a widening rather than a translation layer.
 
   **Anything else is handed on unchanged**, which is what leaves `import-dump`'s own
-  refusal (`:unknown-option`, `import/belief-modes`) reachable through this door.
+  refusal (`:unknown-option`, `import/belief-modes`) reachable through this entry point.
   Defaulting it here would swallow that refusal and pick the *cheapest* load instead:
   `{:belief? :store}` — one letter off `:stored` — reads as records-only, and that path
   never opens the justification stream, so what the typo drops is dropped for good.  An
@@ -547,7 +547,7 @@
 (defn exporting-kb?
   "Is `kb` the one a running export is still walking?  Asked by identity, like
   `write-blocked?`, and it is that question's reciprocal: `export-entry!` refuses to
-  *start* while a loader writes the KB, and this is what lets the write doors refuse
+  *start* while a loader writes the KB, and this is what lets the write entry points refuse
   while the walk runs — the walk fetches record by record with no snapshot to walk
   instead, so a write landing mid-walk gives the dump no single state to be of.
 
@@ -627,7 +627,7 @@
 
   A measurement, not an estimate, but a coarse one: `:used` includes garbage that has not
   been collected, so it drifts up between collections and drops without anything being
-  freed.  Read it as the shape of the curve, not as a number to subtract KBs from."
+  freed.  Read it as the structure of the curve, not as a number to subtract KBs from."
   []
   (let [u (.getHeapMemoryUsage (java.lang.management.ManagementFactory/getMemoryMXBean))]
     {:used      (.getUsed u)
@@ -972,7 +972,7 @@
 
   `opts` takes `:run-in`, a wrapper the release runs inside — `export-entry!`'s own
   option, and here for the same reason: the browser hands its write monitor, so a
-  synchronous write already past the write doors drains before the stores go rather than
+  synchronous write already past the write entry points drains before the stores go rather than
   interleaving with the clear."
   ([key] (unload! key nil))
   ([key {:keys [run-in]}]
@@ -1007,7 +1007,7 @@
      ;; the test and the release are two touches of two separate registries, and the export
      ;; that has to lose this race is the one that has not submitted yet.  Outside it, both
      ;; requests pass their own check, the release lands first, and the walk dumps an
-     ;; emptied KB under a summary that reads as a clean export.  `drop-entry!` is inside
+     ;; emptied KB under a summary that is indistinguishable from a clean export.  `drop-entry!` is inside
      ;; for the other half of the same reason: an export blocked here must find the entry
      ;; *gone* rather than find it released.  The loader wait above stays outside — it is
      ;; about the load, it can take thirty seconds, and an export cannot start against a
@@ -1183,7 +1183,7 @@
     state.
 
   The last refusal runs the other way too: while the walk runs, `exporting-kb?`
-  answers true for this KB, and the browser's write door refuses with it — the job
+  answers true for this KB, and the browser's write entry point refuses with it — the job
   claims no writer, so the claim registry cannot say it.  (A daemon's export needs no
   such flag: `serve` files `:export` with the writes, under its own monitor.)
 
@@ -1229,7 +1229,7 @@
                  :kind       :export
                  ;; a dump is bytes on the filesystem, so this claims no writer — claiming
                  ;; one would refuse a load of some *other* KB, which has no bearing on the
-                 ;; dump; `exporting-kb?` is how the write doors refuse for this one.  It is
+                 ;; dump; `exporting-kb?` is how the write entry points refuse for this one.  It is
                  ;; never hard-interrupted either, for the same reason a KB-writing job is
                  ;; not: an interrupt mid-frame leaves a file torn rather than short
                  :result-url "/kbs"

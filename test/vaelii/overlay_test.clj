@@ -11,7 +11,7 @@
   * **The merged view is the KB.**  A fork over an *empty* base behaves exactly like a
     plain backend (the `KvBackend` contract, and the suite-parity gate — see
     `scripts/test-backends.sh`), and over a populated one the engine reasons across the
-    seam without knowing it is there: an inherited fact matches, an inherited rule fires
+    protocol without knowing it is there: an inherited fact matches, an inherited rule fires
     over a fork-local fact, and retracting an inherited premise in the fork sweeps what
     it derived — in the fork only."
   (:require [clojure.test :refer [deftest is testing]]
@@ -99,7 +99,7 @@
                             (p/clear-records! r)))
       (is (set? (p/sentex-ids r)) "and reads still work"))))
 
-(deftest an-index-with-no-kv-seam-is-refused-rather-than-half-forked
+(deftest an-index-with-no-kv-backend-is-refused-rather-than-half-forked
   ;; The columnar index is a native `IndexStore` — its trie is int-id nodes in parallel
   ;; arrays, with no backend underneath — so a KvBackend decorator would fork its roots
   ;; and silently leave the trie behind.  Say so instead.
@@ -165,7 +165,7 @@
 
 (deftest a-fork-inherits-the-bases-preservation
   ;; The preservation reads — the declaration gates, the claim, the licence — cross
-  ;; the seam like every other read: a fork-local `genl` edge fires the base's rule
+  ;; the protocol like every other read: a fork-local `genl` edge fires the base's rule
   ;; through the base's declaration and claim, fork-side only, and the base comes
   ;; back byte-identical.
   (let [base (doto (v/open-kb {:backend :memory :space [::preserve-base] :recover? false})
@@ -368,7 +368,7 @@
         (is (= (inc (long (p/count-children bx []))) (p/count-children ix []))))
       (testing "a whole sentence is one level above the leaf, and the level below it is the context"
         ;; the trie key ends with the context, so `[ownerOf Dee Rex]` is an interior node
-        ;; whose children are the contexts the sentence is stored in — the shape a merge
+        ;; whose children are the contexts the sentence is stored in — the form a merge
         ;; could most easily get wrong, since the fork's write and the base's live at
         ;; different depths under one predicate
         (agree '[ownerOf Dee Rex])
@@ -512,7 +512,7 @@
     (is (zero? (v/sentex-count base)) "the empty base stayed empty")
     (v/clear! f)))
 
-(deftest a-fork-inherits-the-front-door-policies
+(deftest a-fork-inherits-the-entry-point-policies
   ;; A fork is a hypothesis over the base's own content, so it has to hold that content
   ;; to the base's conventions.  A fork that quietly refused a clash the base would have
   ;; arbitrated — or held a lenient corpus to `:strict` — answers a different question
@@ -702,9 +702,9 @@
         (rm-rf! dir)
         (v/clear! base)))))
 
-;; ---- what the capability doors read off a fork ----------------------------
+;; ---- what the capability entry points read off a fork ----------------------------
 ;; A fork's record store is a decorator over two others, so the two OPTIONAL capabilities
-;; a base may carry have to reach it or be lost at the seam: the `Tallying` samplers
+;; a base may carry have to reach it or be lost at the protocol: the `Tallying` samplers
 ;; `open-kb` asks before the KB has answered anything, and the `Prefetching` hint a
 ;; recovery walk gives a store whose fetch is a round trip.  Both are exercised against a
 ;; base that carries them, since none of the stores the engine ships does.
@@ -812,16 +812,16 @@
 (deftest a-forks-recovery-walk-hints-the-base-that-can-use-one
   ;; A fork gets its own belief by `recover`ing over the MERGED view, so it walks every
   ;; record and justification it inherits — which over a base whose fetch is a network
-  ;; round trip is the one place `Prefetching` earns its keep.  The decorators are the
+  ;; round trip is the one place `Prefetching` pays for itself.  The decorators are the
   ;; only thing between that walk and the base, so a hint they swallowed would be lost
   ;; with nothing to show it.
   (let [base   (fresh-base 25)
         before (base-snapshot base)
         hints  (atom {})
         f      (fork-over base (watched-base (:records base) hints nil) 25)]
-    (testing "the door sees the capability through both decorators"
+    (testing "the entry point sees the capability through both decorators"
       (is (some? (cap/prefetcher (:records f)))
-          "a frozen base's hint is forwarded, not refused at the seam")
+          "a frozen base's hint is forwarded, not refused at the protocol")
       (is (some? (cap/justification-prefetcher (:records f)))))
     (testing "and the open's own recover used it"
       (is (seq (:justifications @hints))
