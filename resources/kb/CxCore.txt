@@ -479,6 +479,18 @@
 (decontextualized_predicate functional)
 (genl functional binary_predicate)
 
+(comment bijection
+         "(bijection ?predicate) means that ?predicate is functional in both directions: each first argument fixes its second and each second argument fixes its first, so the relation is one-to-one. Declared once, it stands in for the two: forward rules derive (functional ?predicate) and (functionalInArg ?predicate 1), each a real mark the engine enforces in turn — the merge/refuse rule over a shared first argument, and the same rule mirrored over a shared second — materialized as stored marks rather than claimed by subsumption edges, for the reason equivalence_relation's entry gives: the rule's stored conclusion both classifies and enforces, where a genl-inherited membership never reaches the mark ingestion. So a second symbol filler on either side derives (equals V1 V2) and merges, while two non-symbols such as 1980 and 1990 are refused outright, exactly as under a directly written mark. Also a type: (genl bijection functional) states the subsumption outright — inferentially inert for the mark machinery (the rules below do the enforcing) but true, and it classifies P as functional and so binary_predicate. Declared of a one-to-one relation such as capitalCityOf, for instance.")
+(unary_predicate bijection)
+(arg bijection 1 predicate)
+(decontextualized_predicate bijection)
+(genl bijection functional)
+
+;; the two marks a bijection stands in for, derived so each is a real property the
+;; engine enforces exactly as a directly written one is
+(implies (and (bijection ?p)) (functional ?p))
+(implies (and (bijection ?p)) (functionalInArg ?p 1))
+
 (comment functionCorrespondingPredicate
          "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. ?position is 1-based over ?predicate's arguments and may be omitted, which puts the value last — the shape nearly every correspondence has. Read only for a reifiable_function, an undeclared function having no application to reify. See docs/nat.md.")
 (binary_predicate functionCorrespondingPredicate)

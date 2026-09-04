@@ -876,6 +876,14 @@
                 (str "generic forward chaining: the three CxCore rules derive (symmetric P),"
                      " (transitive P) and (reflexive P), each enforced in turn; also a"
                      " binary_predicate type"))]
+     ['bijection
+      (enforced (collection :notes (str "two CxCore rules derive (functional P) and"
+                                        " (functionalInArg P 1) from it, each enforced in turn —"
+                                        " so it is enforced by generic forward chaining and by"
+                                        " nothing keyed on its name, like equivalence_relation."))
+                (str "generic forward chaining: the two CxCore rules derive (functional P)"
+                     " and (functionalInArg P 1), each enforced in turn; also a"
+                     " binary_predicate type"))]
 
      ;; ---- the connectives and rule wrappers -------------------------------
      ['implies (enforced (structural {:args [:sentence :sentence]}
