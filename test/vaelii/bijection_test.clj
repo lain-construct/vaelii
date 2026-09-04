@@ -1,0 +1,94 @@
+;; SPDX-License-Identifier: SSPL-1.0
+;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
+(ns vaelii.bijection-test
+  "`bijection`, the two-directions composite mark shipped in CxCore: no engine code,
+  two CxCore forward rules derive `(functional P)` and `(functionalInArg P 1)`, each a
+  real mark the engine enforces in turn — `equivalence_relation`'s pattern, over the
+  functional family.
+
+  Behaviourally that is one-to-one: a shared first argument merges-or-refuses its two
+  second-argument fillers (the `functional` half), and a shared second argument does
+  the same to its two first-argument fillers (the `functionalInArg 1` half).  The
+  merge/refuse rule itself is `functional`'s and is tested exhaustively in
+  `functional-in-arg-test`; what is tested here is that the SHIPPED declaration wires
+  both directions, and that the wiring is belief-following — retracting the one
+  declaration drops both derived marks.
+
+  A CxCore-loaded KB throughout, like `relation-properties-test`: the shipped
+  declarations are what is tested, not a hand-built fixture that could drift from the
+  file."
+  (:require [clojure.test :refer [is testing use-fixtures]]
+            [vaelii.core :as v]
+            [vaelii.impl.core-context :as core-context]
+            [vaelii.test-util :as tu]))
+
+(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
+
+(defn- ex-type
+  "The `:type` on the ex-info a thunk throws, or nil if it does not throw."
+  [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+
+(def ^:private U 'CxUniverse)
+
+;;; ── the shipped declaration ───────────────────────────────────────────
+
+(tu/deftest-kb cxcore-declares-bijection
+  (testing "the term carries its comment sentex like any other CxCore entry"
+    (is (= 1 (count (core-context/comment-of kb 'bijection))))
+    (is (string? (first (core-context/comment-of kb 'bijection)))))
+  (testing "and the classification half: a bijection is a binary_predicate"
+    (tu/with-terms [capitalCityOf]
+      (v/assert kb (list 'bijection capitalCityOf) U)
+      (is (v/ask? kb (list 'binary_predicate capitalCityOf) U)))))
+
+;;; ── the two marks, derived — no engine code ───────────────────────────
+
+(tu/deftest-kb a-bijection-derives-functional-and-functional-in-arg-1
+  (tu/with-terms [capitalCityOf]
+    (v/assert kb (list 'bijection capitalCityOf) U)
+    (testing "the two marks are derived"
+      (is (v/ask? kb (list 'functional capitalCityOf) U))
+      (is (v/ask? kb (list 'functionalInArg capitalCityOf 1) U)))))
+
+(tu/deftest-kb retracting-the-bijection-declaration-drops-the-two-marks
+  (tu/with-terms [capitalCityOf]
+    (let [decl (v/assert kb (list 'bijection capitalCityOf) U)]
+      (is (v/ask? kb (list 'functional capitalCityOf) U))
+      (v/retract! kb decl)
+      (testing "the derived marks rested on the declaration and go with it"
+        (is (not (v/ask? kb (list 'functional capitalCityOf) U)))
+        (is (not (v/ask? kb (list 'functionalInArg capitalCityOf 1) U)))))))
+
+;;; ── each derived mark is enforced in turn, behaviourally ──────────────
+
+(tu/deftest-kb a-bijection-merges-two-symbol-fillers-in-either-direction
+  (tu/with-terms [capitalCityOf]
+    (v/assert kb (list 'bijection capitalCityOf) U)
+    (testing "a shared first argument merges its two symbol fillers — the functional half"
+      (tu/with-terms [Freedonia]
+        (let [[lo hi] (sort [(tu/tmp-ind "Fredville") (tu/tmp-ind "Fredville")])]
+          (v/assert kb (list capitalCityOf Freedonia lo) U)
+          (v/assert kb (list capitalCityOf Freedonia hi) U)
+          (is (v/same-class? kb lo hi)
+              "two names for one capital are one thing, as under (functional P)"))))
+    (testing "a shared second argument merges its two — the functionalInArg 1 half"
+      (tu/with-terms [Fredopolis]
+        (let [[lo hi] (sort [(tu/tmp-ind "Sylvania") (tu/tmp-ind "Sylvania")])]
+          (v/assert kb (list capitalCityOf lo Fredopolis) U)
+          (v/assert kb (list capitalCityOf hi Fredopolis) U)
+          (is (v/same-class? kb lo hi)
+              "two names for one country are one thing, via (functionalInArg P 1)"))))))
+
+(tu/deftest-kb a-bijection-refuses-two-unmergeable-fillers-in-either-direction
+  (tu/with-terms [pRel Ruritania]
+    (v/assert kb (list 'bijection pRel) U)
+    (testing "a second number at argument 2 for one argument 1 is refused"
+      (v/assert kb (list pRel Ruritania 1980) U)
+      (is (some? (ex-type #(v/assert kb (list pRel Ruritania 1990) U)))
+          "no merge can make 1980 and 1990 one thing"))
+    (testing "and a second number at argument 1 for one argument 2 is refused the same"
+      (tu/with-terms [Zenda]
+        (v/assert kb (list pRel 7 Zenda) U)
+        (is (some? (ex-type #(v/assert kb (list pRel 8 Zenda) U)))
+            "the mirrored refusal, via the derived (functionalInArg P 1)")))))
