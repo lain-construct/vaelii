@@ -217,7 +217,7 @@
   (testing "the roster is the algebraic marks, the inverse declaration, and genlCx"
     (is (= '#{functional inverse reflexive symmetric asymmetric transitive
               irreflexive anti_symmetric anti_transitive equivalence_relation
-              bijection}
+              injection surjection bijection}
            (v/props kb :decontextualized)))
     (is (= '#{genlCx} (v/props kb :forced-decontextualized))))
   (testing "so a social fact stays in the theory that states it"

@@ -2,19 +2,27 @@
 
 ## Unreleased
 
-- **`bijection` says one-to-one once, and the engine enforces it as its two halves.** A
-  relation functional in both directions took two declarations, `(functional P)` and
-  `(functionalInArg P 1)`, so an author who wrote one and meant both got enforcement in a
-  single direction and no report of the gap. `(bijection P)` is one declaration CxCore
-  derives both from, through two forward rules, so each half is a stored mark the engine
-  enforces exactly as a directly written one is. Two symbol fillers on either side derive
-  `(equals V1 V2)` and merge, two unmergeable fillers are refused as `:functional`, and a
-  declaration arriving after a stored pair convicts that pair. `(genl bijection
-  functional)` classifies the predicate as `functional`, and so as a `binary_predicate`.
-  Retracting the one declaration drops both derived marks. The mark is a
-  `decontextualized_predicate`, so the declaration is the KB's claim about the predicate
-  rather than the theory's. The glossary gains `bijection`, 173 to 174. *Class:*
-  **Additive**. *Migration:* none. [docs/taxonomy.md](docs/taxonomy.md)
+- **`injection`, `surjection` and `bijection` name what a relation is as a function, and
+  the engine reads each half where it can.** Saying a relation was a one-to-one function
+  took four separate declarations — `(functional P)`, `(functionalInArg P 1)`,
+  `(predAllSpecified P D R)` and `(predSpecifiedAll P D R)` — and an author who wrote some
+  of them got partial enforcement with no report of the gap. The three composite marks are
+  one declaration each, and eight CxCore forward rules derive the parts, so nothing is
+  keyed on the new names. `injection` is single-valued, one-to-one and total; `surjection`
+  is single-valued, total and onto; `bijection` derives the other two. The **domain and
+  range are not arguments of the mark**: totality and ontoness are claims about two
+  collections rather than about `P`, and `(arg P 1 D)` and `(arg P 2 R)` already state
+  them, so the rules read them from there. A predicate declaring no `arg` pair gets the
+  enforced marks and no audit. The two halves divide on what an open world can refuse: a
+  second filler is refused or merged at the assert entry point, while totality and
+  ontoness become `predAllSpecified` and `predSpecifiedAll` requirements that
+  `all-specified-violations` reports when a caller asks. No new API function, and
+  retracting the mark or either `arg` declaration withdraws what rested on it. The
+  glossary gains `injection` and `surjection` and rewrites `bijection`, 173 to 176.
+  *Class:* **Additive**. *Migration:* none — `bijection` shipped in no release, and the
+  reading it had on `develop` (single-valued and one-to-one, with no totality or
+  ontoness) is now `(functional P)` beside `(functionalInArg P 1)`, written directly.
+  [docs/taxonomy.md](docs/taxonomy.md), [docs/predall.md](docs/predall.md)
 
 ## 0.16.0 — 2026-09-04 — "the predAll quantifier family, refusals that name their kind, and declarations that reach back"
 

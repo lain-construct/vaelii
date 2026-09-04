@@ -152,12 +152,11 @@ or **Derived**) and not defeated.
 with the same word — `(believes Alice P)` proves `P` in Alice's own context and says
 nothing about whether the KB holds it. See [belief.md](belief.md).
 
-**`bijection`** ![kb](../.github/badges/cat-kb.svg): `(bijection P)` — one declaration
-for a relation functional in both directions. Two CxCore forward rules derive
-`(functional P)` and `(functionalInArg P 1)` from it, so each direction is a stored mark
-the engine enforces exactly as a directly written one. **Partial**, despite the name:
-nothing requires a first argument to have a filler, and nothing requires every second
-argument to be one. See [taxonomy.md](taxonomy.md).
+**`bijection`** ![kb](../.github/badges/cat-kb.svg): `(bijection P)` — the strongest of
+the three **function marks**: `P` is single-valued, one-to-one, total on its declared
+domain and onto its declared range. CxCore rules derive `(injection P)` and
+`(surjection P)`, and those derive the four marks the engine reads. See
+[taxonomy.md](taxonomy.md).
 
 **Brave / cautious** ![asp](../.github/badges/cat-asp.svg): The two readings of
 a tie the solver leaves open. A conclusion is *cautious* when it holds in every
@@ -513,6 +512,12 @@ fluent an event `initiates` at one instant still `holdsAt` a later one exactly w
 `(unknown (clipped …))` — nothing terminated it in between. Undercutting rather than
 defeat, so a terminating event heard of later leaves no conclusion to arbitrate.
 See [time.md](time.md).
+
+**`injection`** ![kb](../.github/badges/cat-kb.svg): `(injection P)` — a **function
+mark**: `P` is single-valued, one-to-one, and total on its declared domain, with nothing
+said about reaching every member of its range. Derives `(functional P)` and
+`(functionalInArg P 1)`, both enforced at the write, and `(predAllSpecified P D R)` off
+the `arg` declarations, audited on demand. See [taxonomy.md](taxonomy.md).
 
 **`ist`** ![kb](../.github/badges/cat-kb.svg): "Is true in" — `(ist Ctx S)`
 finds-or-creates `S` in `Ctx` and returns its handle. Not stored as data; in a
@@ -966,6 +971,12 @@ retracted. See [quality.md](quality.md); the matching-time relation it is built 
 merge puts a stale spelling in — stored but not believed and not matching,
 subtracting from reported belief rather than forced OUT, so its justified twin
 survives. See [equality.md](equality.md).
+
+**`surjection`** ![kb](../.github/badges/cat-kb.svg): `(surjection P)` — a **function
+mark**: `P` is single-valued, total on its declared domain, and onto its declared range,
+with nothing said about one-to-one. Derives `(functional P)`, enforced at the write, and
+the `(predAllSpecified P D R)` and `(predSpecifiedAll P D R)` requirements off the `arg`
+declarations, audited on demand. See [taxonomy.md](taxonomy.md).
 
 **Symmetric arguments** ![kb](../.github/badges/cat-kb.svg): A ground fact of a
 symmetric predicate stores with its arguments sorted, so both orders dedup to one

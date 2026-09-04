@@ -100,6 +100,14 @@ ones that hold, so an empty map is a clean sweep. Both read the KB and store not
 `predSpecifiedAll` is the argument-swapped twin, audited by passing `:first` as the
 argument position.
 
+**The function marks derive both.** `(injection P)`, `(surjection P)` and `(bijection P)`
+are declared of a predicate rather than of a pair of collections, and CxCore rules read
+the domain and the range off `(arg P 1 D)` and `(arg P 2 R)` to derive the requirements:
+`predAllSpecified` is that family's totality, and `predSpecifiedAll` its ontoness
+([taxonomy.md](taxonomy.md)). A derived declaration is a stored sentex like a written one,
+so the sweep above reports it with no extra entry point, and retracting the mark or either
+`arg` declaration withdraws it.
+
 The cost is one read per member of the quantified collection, plus one membership read per
 candidate filler. This is a sweep to run at a checkpoint, not a check to run per write.
 

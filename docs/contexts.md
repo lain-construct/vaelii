@@ -566,8 +566,8 @@ Two boundaries, both deliberate:
 
 Every shipped declaration is a claim about a **predicate** rather than about a world.
 `functional`, `functionalInArg`, `inverse`, `reflexive`, `irreflexive`, `symmetric`,
-`anti_symmetric`, `asymmetric`, `transitive`, `anti_transitive`, `equivalence_relation`
-and `bijection` carry the mark — so a `(symmetric P)` stated in one theory is the KB's
+`anti_symmetric`, `asymmetric`, `transitive`, `anti_transitive`, `equivalence_relation`,
+`injection`, `surjection` and `bijection` carry the mark — so a `(symmetric P)` stated in one theory is the KB's
 claim about `P` and not that theory's — and `genlCx` carries the forced variant below.
 **No domain relation carries either**, and two things hold that line:
 

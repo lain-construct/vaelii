@@ -876,14 +876,33 @@
                 (str "generic forward chaining: the three CxCore rules derive (symmetric P),"
                      " (transitive P) and (reflexive P), each enforced in turn; also a"
                      " binary_predicate type"))]
-     ['bijection
-      (enforced (collection :notes (str "two CxCore rules derive (functional P) and"
-                                        " (functionalInArg P 1) from it, each enforced in turn —"
-                                        " so it is enforced by generic forward chaining and by"
-                                        " nothing keyed on its name, like equivalence_relation."))
-                (str "generic forward chaining: the two CxCore rules derive (functional P)"
-                     " and (functionalInArg P 1), each enforced in turn; also a"
+     ['injection
+      (enforced (collection :notes (str "three CxCore rules derive (functional P),"
+                                        " (functionalInArg P 1) and, off the arg-declared"
+                                        " domain and range, (predAllSpecified P D R) — the"
+                                        " first two enforced in turn, the third audited on"
+                                        " demand, and nothing keyed on its name."))
+                (str "generic forward chaining: the three CxCore rules derive (functional P),"
+                     " (functionalInArg P 1) and (predAllSpecified P D R); also a"
                      " binary_predicate type"))]
+     ['surjection
+      (enforced (collection :notes (str "three CxCore rules derive (functional P) and, off"
+                                        " the arg-declared domain and range,"
+                                        " (predAllSpecified P D R) and (predSpecifiedAll P D R)"
+                                        " — the first enforced, the other two audited on"
+                                        " demand, and nothing keyed on its name."))
+                (str "generic forward chaining: the three CxCore rules derive (functional P),"
+                     " (predAllSpecified P D R) and (predSpecifiedAll P D R); also a"
+                     " binary_predicate type"))]
+     ['bijection
+      (enforced (collection :notes (str "two CxCore rules derive (injection P) and"
+                                        " (surjection P) from it, and each of those derives"
+                                        " its own marks in turn — so it is enforced by generic"
+                                        " forward chaining and by nothing keyed on its name,"
+                                        " like equivalence_relation."))
+                (str "generic forward chaining: the two CxCore rules derive (injection P)"
+                     " and (surjection P), whose own rules land the enforced and audited"
+                     " marks; also a binary_predicate type"))]
 
      ;; ---- the connectives and rule wrappers -------------------------------
      ['implies (enforced (structural {:args [:sentence :sentence]}
