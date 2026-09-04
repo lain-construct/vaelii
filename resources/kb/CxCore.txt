@@ -64,7 +64,7 @@
 (arg arg 2 positive_integer)
 (genlArg arg 3 thing)
 (comment arg1
-         "(arg1 ?predicate ?type) means that argument 1 of ?predicate must be of ?type — the binary projection of (arg ?predicate 1 ?type), created so a positional argument constraint can itself stand in the subject position of a binary declaration such as (predAllSpecified arg1 predicate). The two spellings are bridged by rules in both directions, so either may be asserted and both are believed; arg2 and arg3 project positions 2 and 3 the same way.")
+         "(arg1 ?predicate ?type) means that argument 1 of ?predicate must be of ?type — the binary projection of (arg ?predicate 1 ?type), created so a positional argument constraint can itself stand in the subject position of a binary declaration such as (predAllSpecified arg1 predicate). The two spellings are bridged by rules in both directions and held to the same declaration checks at assert, so either may be asserted and both STORED spellings are believed. The projection relates stored declarations only: a reading arg answers through genl generalization or super-predicate inheritance has no argN twin, so a generalized or inherited question must be asked of arg itself. arg2 and arg3 project positions 2 and 3 the same way.")
 (binary_predicate arg1)
 (arg arg1 1 predicate)
 (genlArg arg1 2 thing)

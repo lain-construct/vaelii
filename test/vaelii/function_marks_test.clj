@@ -173,7 +173,8 @@
     (v/assert kb (list 'bijection capitalCityOf) U)
     (v/assert kb (list country Freedonia) U)
     (testing "a country with no capital breaks totality"
-      (is (= {['predAllSpecified capitalCityOf country] {:violations #{Freedonia}}}
+      (is (= {['predAllSpecified capitalCityOf country]
+              {:status :audited :violations #{Freedonia}}}
              (v/all-specified-violations kb U))))
     (testing "and stating its capital clears the sweep"
       (v/assert kb (list capital_city Fredopolis) U)
@@ -186,7 +187,8 @@
     (v/assert kb (list 'bijection capitalCityOf) U)
     (v/assert kb (list capital_city Fredopolis) U)
     (testing "a capital that is the capital of nothing breaks ontoness"
-      (is (= {['predSpecifiedAll capitalCityOf capital_city] {:violations #{Fredopolis}}}
+      (is (= {['predSpecifiedAll capitalCityOf capital_city]
+              {:status :audited :violations #{Fredopolis}}}
              (v/all-specified-violations kb U))
           "the sweep keys the declaration [functor pred indep]"))))
 
@@ -233,7 +235,7 @@
           "totality rested on the domain declaration and goes with it")
       (is (v/ask? kb (list 'predSpecifiedAll capitalCityOf capital_city) U)
           "ontoness rests on the range declaration and stands")
-      (is (= {:gap :missing-slot-typing :pred capitalCityOf :position 1}
+      (is (= {:status :gap :gap :missing-slot-typing :pred capitalCityOf :position 1}
              (get (v/all-specified-violations kb U)
                   ['predSpecifiedAll capitalCityOf capital_city]))
           "and its audit reports the withdrawn filler typing as a gap")

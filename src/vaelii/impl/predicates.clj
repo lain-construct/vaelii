@@ -672,20 +672,30 @@
      ['arg1      (inert {:shape {:args [:relation :type]} :storage [:none] :checked false
                          :family nil :facets #{}
                          :notes (str "the binary projection of (arg ?p 1 ?t), bridged to it"
-                                     " by CxCore rules in both directions; no engine arm keys"
-                                     " on this functor — the ternary twin a rule concludes"
-                                     " carries all the machinery. Exists so a positional"
-                                     " constraint can be the subject of a binary declaration"
-                                     " such as (predAllSpecified arg1 predicate).")}
-                        (str "binary projection of arg position 1; semantics arrive through"
-                             " the CxCore bridge rules, not through an arm keyed here"))]
+                                     " by CxCore rules in both directions and held to arg's"
+                                     " own declaration arms at the projected position"
+                                     " (checks/declaration-problem), so both spellings of"
+                                     " one declaration refuse identically. The projection"
+                                     " relates STORED declarations only — a reading arg"
+                                     " generalizes up genl or inherits from a"
+                                     " super-predicate has no argN twin; ask arg for those."
+                                     " Exists so a positional constraint can be the subject"
+                                     " of a binary declaration such as"
+                                     " (predAllSpecified arg1 predicate).")}
+                        (str "binary projection of arg position 1; enforcement shared with"
+                             " arg at the entry point, inference through the bridge rules"))]
      ['arg2      (inert {:shape {:args [:relation :type]} :storage [:none] :checked false
                          :family nil :facets #{}
-                         :notes "the binary projection of (arg ?p 2 ?t) — see arg1."}
+                         :notes (str "the binary projection of (arg ?p 2 ?t) — see arg1."
+                                     " Deliberately shipped ahead of any consumer, for"
+                                     " symmetry with the KE packet that commissioned the"
+                                     " family; unused-for-now is the stated decision, the"
+                                     " way serve's open-routes states its.")}
                         "binary projection of arg position 2 — see arg1")]
      ['arg3      (inert {:shape {:args [:relation :type]} :storage [:none] :checked false
                          :family nil :facets #{}
-                         :notes "the binary projection of (arg ?p 3 ?t) — see arg1."}
+                         :notes (str "the binary projection of (arg ?p 3 ?t) — see arg1"
+                                     " and arg2's unused-for-now note.")}
                         "binary projection of arg position 3 — see arg1")]
      ['quotedArg (enforced (assoc (prop :declares-quoted-arg :arg :relation
                                         :facets #{:convicts :answers})

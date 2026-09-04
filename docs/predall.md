@@ -96,12 +96,18 @@ Nothing fires on assert. The requirement is checked when a caller asks:
 
 ```clojure
 (v/specified-violations kb 'hasPet 'person 'CxUniverse)
-;; => {:violations #{Bob}}   ; Bob has no filler
+;; => {:status :audited :violations #{Bob}}   ; Bob has no filler
 (v/all-specified-violations kb 'CxUniverse)
-;; => {[predAllSpecified hasPet person] {:violations #{Bob}}}
+;; => {[predAllSpecified hasPet person] {:status :audited :violations #{Bob}}}
 ```
 
-`specified-violations` audits one declaration and returns the instances that violate it.
+Discriminate on `:status`, not key presence — a `{:status :gap …}` result carries no
+`:violations` key, and a bare `(:violations r)` read would nil-pun the gap into a
+clean pass. Two gap kinds ship: `:missing-slot-typing`, and
+`:legacy-ternary-declaration` for a stored pre-migration ternary sentex the bulk
+import path can carry past the assert-time refusal.
+
+`specified-violations` audits one declaration and reports the instances with no admissible filler.
 `all-specified-violations` audits every declaration visible in the context and omits the
 ones that hold — but never a `{:gap …}` — so an empty map is a clean sweep and a gap
 cannot pass as one. Both read the KB and store nothing. `predSpecifiedAll` is the
@@ -113,7 +119,7 @@ argument-type inference types a stored filler off that very declaration, so the
 instance-position bite is existence + determinacy (plus any actively refuted membership) —
 the conformance bite for instance-positions lives at the assert-time checker, and an
 audit stricter than the contract it derives from would be a second type system. The
-subtype arm keeps independent teeth: nothing derives a `genl` edge for a filler, so a
+subtype arm still convicts on its own: nothing derives a `genl` edge for a filler, so a
 kind the checker excused as evidence-free still violates.
 
 **The function marks derive both.** `(injection P)`, `(surjection P)` and `(bijection P)`
