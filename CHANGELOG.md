@@ -2,10 +2,35 @@
 
 ## Unreleased
 
+- **`predAllSpecified` and `predSpecifiedAll` go binary: the filler type derives from
+  the predicate's own slot contract.** The ternary forms restated in a third argument
+  what `(arg P 2 R)` / `(genlArg P 2 R)` already say, and a restated type can disagree
+  with the contract it copies — a second type system inside one declaration. The
+  declarations are now `(predAllSpecified P D)` and `(predSpecifiedAll P R)`; the audit
+  derives the filler constraints from the predicate's visible slot typing (`arg` →
+  membership, `genlArg` → subtype with a reflexive floor, a `type_relation_predicate`
+  membership → subtype-of-`thing` on every position, composed conjunctively as the
+  assert-time checker composes them), and a declaration over a predicate with **no**
+  visible slot typing is reported as an explicit `{:gap :missing-slot-typing}`
+  declaration-contract diagnostic, never silently audited unconstrained.
+  `specified-violations` accordingly returns `{:violations #{…}}` or `{:gap …}` and
+  drops its `dep` parameter; `all-specified-violations` keys by `[functor pred indep]`
+  and always carries gaps, so an empty map remains a clean sweep a gap cannot fake. The
+  function-mark rules thin to one antecedent each — totality reads only `(arg P 1 D)`,
+  ontoness only `(arg P 2 R)`. New vocabulary `arg1` / `arg2` / `arg3` — binary
+  projections of `arg`, bridged by rules in both directions — lets a positional
+  constraint stand in a binary declaration's subject position, `(predAllSpecified arg1
+  predicate)` being the founding use. *Class:* **Breaking** (declaration arity and audit
+  return shape). *Migration:* rewrite `(predAllSpecified P D R)` to
+  `(predAllSpecified P D)` and `(predSpecifiedAll P D R)` to `(predSpecifiedAll P R)`,
+  ensure the audited slot carries its `arg`/`genlArg` typing, and read
+  `(:violations result)` where a bare set was read before.
+  [docs/predall.md](docs/predall.md), [docs/taxonomy.md](docs/taxonomy.md)
+
 - **`injection`, `surjection` and `bijection` name what a relation is as a function, and
   the engine reads each half where it can.** Saying a relation was a one-to-one function
   took four separate declarations — `(functional P)`, `(functionalInArg P 1)`,
-  `(predAllSpecified P D R)` and `(predSpecifiedAll P D R)` — and an author who wrote some
+  `(predAllSpecified P D)` and `(predSpecifiedAll P R)` — and an author who wrote some
   of them got partial enforcement with no report of the gap. The three composite marks are
   one declaration each, and eight CxCore forward rules derive the parts, so nothing is
   keyed on the new names. `injection` is single-valued, one-to-one and total; `surjection`

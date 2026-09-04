@@ -287,9 +287,9 @@
   (c/add-provenance conn handle m))
 
 (defn all-specified-violations
-  "Audit every `predAllSpecified` and `predSpecifiedAll` declaration visible in `context`,
-  and return `{[functor pred indep dep] #{violating-instances…}}` — the declarations that
-  hold are omitted, so an empty map is a clean sweep."
+  "Audit every binary `predAllSpecified` and `predSpecifiedAll` declaration visible in
+  `context`, and return `{[functor pred indep] result…}` — each result a `{:violations
+  #{…}}` or a `{:gap …}` diagnostic."
   [conn context]
   (c/all-specified-violations conn context))
 
@@ -681,11 +681,13 @@
   (c/settle-stats conn))
 
 (defn specified-violations
-  "The instances of `indep` that break a `(predAllSpecified pred indep dep)` integrity
-  requirement in `context`: every member x of `indep` for which no believed `(pred x y)`
-  carries a **determinate** filler y in `dep`."
-  ([conn pred indep dep context] (c/specified-violations conn pred indep dep context))
-  ([conn pred indep dep context arg-pos] (c/specified-violations conn pred indep dep context arg-pos)))
+  "The audit result for one binary `(predAllSpecified pred indep)` integrity requirement in
+  `context`: `{:violations #{x…}}` — every member x of `indep` for which no believed
+  `(pred x y)` carries a **determinate** filler y satisfying `pred`'s own slot contract —
+  with an empty set where the requirement holds, or `{:gap :missing-slot-typing …}` where
+  `pred` carries no visible slot typing at the audited position."
+  ([conn pred indep context] (c/specified-violations conn pred indep context))
+  ([conn pred indep context arg-pos] (c/specified-violations conn pred indep context arg-pos)))
 
 (defn supporting-justifications
   "Justifications that conclude `handle` (its supporting justifications), in **content**

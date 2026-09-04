@@ -4909,10 +4909,18 @@
   (settle/exposed-clashes kb))
 
 (defn specified-violations
-  "The instances of `indep` that break a `(predAllSpecified pred indep dep)` integrity
-  requirement in `context`: every member x of `indep` for which no believed `(pred x y)`
-  carries a **determinate** filler y in `dep`.  Returns a set of such x, empty where the
-  requirement holds.
+  "The audit result for one binary `(predAllSpecified pred indep)` integrity requirement
+  in `context`: `{:violations #{x…}}` — every member x of `indep` for which no believed
+  `(pred x y)` carries a **determinate** filler y satisfying `pred`'s own slot contract —
+  with an empty set where the requirement holds, or `{:gap :missing-slot-typing …}` where
+  `pred` carries no visible slot typing at the audited position.  The gap is a
+  declaration-contract diagnostic, reported explicitly rather than silently audited
+  unconstrained.
+
+  The required filler type is **derived** from `pred`'s argument contract, never restated:
+  each visible `(arg pred n t)` requires membership in `t`, each visible
+  `(genlArg pred n t)` requires being a subtype of `t`, and the constraints compose
+  conjunctively, as the assert-time checker composes them.
 
   `arg-pos` selects the twin.  `:second` is `predAllSpecified`, whose audited filler sits
   at `pred`'s second position; `:first` is `predSpecifiedAll`, whose filler sits first and
@@ -4927,14 +4935,15 @@
   on assert, so a KB carrying one is audited when a caller asks and never otherwise.  Cost
   is one read per member of `indep` plus one membership read per candidate filler, so this
   is a sweep to run at a checkpoint rather than per write."
-  ([kb pred indep dep context] (specified-violations kb pred indep dep context :second))
-  ([kb pred indep dep context arg-pos]
-   (wiring/specified-violations kb pred indep dep context arg-pos)))
+  ([kb pred indep context] (specified-violations kb pred indep context :second))
+  ([kb pred indep context arg-pos]
+   (wiring/specified-violations kb pred indep context arg-pos)))
 
 (defn all-specified-violations
-  "Audit every `predAllSpecified` and `predSpecifiedAll` declaration visible in `context`,
-  and return `{[functor pred indep dep] #{violating-instances…}}` — the declarations that
-  hold are omitted, so an empty map is a clean sweep.
+  "Audit every binary `predAllSpecified` and `predSpecifiedAll` declaration visible in
+  `context`, and return `{[functor pred indep] result…}` — each result a
+  `{:violations #{…}}` or a `{:gap …}` diagnostic.  Declarations that hold are omitted
+  and gaps never are, so an empty map is a clean sweep.
 
   The one call an integrity sweep makes; `specified-violations` is the per-declaration
   reader behind it, and carries what determinacy means."
