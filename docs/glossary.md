@@ -152,6 +152,13 @@ or **Derived**) and not defeated.
 with the same word — `(believes Alice P)` proves `P` in Alice's own context and says
 nothing about whether the KB holds it. See [belief.md](belief.md).
 
+**`bijection`** ![kb](../.github/badges/cat-kb.svg): `(bijection P)` — one declaration
+for a relation functional in both directions. Two CxCore forward rules derive
+`(functional P)` and `(functionalInArg P 1)` from it, so each direction is a stored mark
+the engine enforces exactly as a directly written one. **Partial**, despite the name:
+nothing requires a first argument to have a filler, and nothing requires every second
+argument to be one. See [taxonomy.md](taxonomy.md).
+
 **Brave / cautious** ![asp](../.github/badges/cat-asp.svg): The two readings of
 a tie the solver leaves open. A conclusion is *cautious* when it holds in every
 optimal answer set and *brave* when it holds in at least one; the committed

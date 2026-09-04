@@ -14,6 +14,11 @@
   both directions, and that the wiring is belief-following — retracting the one
   declaration drops both derived marks.
 
+  Four dimensions beyond the wiring, each one a derived mark could lose without the
+  wiring tests noticing: both arrival orders (the declaration before the pair, and after
+  it), the merge and the refusal, the reach up the predicate hierarchy, and the
+  decontextualization that makes the declaration the whole KB's claim.
+
   A CxCore-loaded KB throughout, like `relation-properties-test`: the shipped
   declarations are what is tested, not a hand-built fixture that could drift from the
   file."
@@ -85,10 +90,81 @@
     (v/assert kb (list 'bijection pRel) U)
     (testing "a second number at argument 2 for one argument 1 is refused"
       (v/assert kb (list pRel Ruritania 1980) U)
-      (is (some? (ex-type #(v/assert kb (list pRel Ruritania 1990) U)))
+      (is (= :functional (ex-type #(v/assert kb (list pRel Ruritania 1990) U)))
           "no merge can make 1980 and 1990 one thing"))
     (testing "and a second number at argument 1 for one argument 2 is refused the same"
       (tu/with-terms [Zenda]
         (v/assert kb (list pRel 7 Zenda) U)
-        (is (some? (ex-type #(v/assert kb (list pRel 8 Zenda) U)))
+        (is (= :functional (ex-type #(v/assert kb (list pRel 8 Zenda) U)))
             "the mirrored refusal, via the derived (functionalInArg P 1)")))))
+
+;;; ── the declaration reaches back over content already stored ──────────
+
+(tu/deftest-kb a-bijection-declared-after-an-unmergeable-pair-convicts-that-pair
+  ;; The arrival order the mark family gets wrong when a spelling reaches the sweep
+  ;; through only some of its readers (#45): the pair is stored first and the
+  ;; declaration second, so nothing refuses at the entry point and what has to convict
+  ;; is the retroactive pass.  Both halves are derived here rather than written, so the
+  ;; pass runs against a conclusion of a rule.
+  (tu/with-terms [pRel Ruritania]
+    (v/assert kb (list pRel Ruritania 1980) U)
+    (v/assert kb (list pRel Ruritania 1990) U)
+    (v/assert kb (list 'bijection pRel) U)
+    (is (= [:functional] (mapv :violation (v/violations kb)))
+        "the stored pair sharing argument 1 is convicted by the derived (functional P)")))
+
+(tu/deftest-kb a-late-bijection-convicts-a-stored-pair-sharing-argument-2
+  (tu/with-terms [pRev Zenda]
+    (v/assert kb (list pRev 7 Zenda) U)
+    (v/assert kb (list pRev 8 Zenda) U)
+    (v/assert kb (list 'bijection pRev) U)
+    (is (= [:functional] (mapv :violation (v/violations kb)))
+        "the mirrored conviction, by the derived (functionalInArg P 1)")))
+
+(tu/deftest-kb a-late-bijection-merges-two-mergeable-fillers-in-either-direction
+  (testing "a stored pair sharing argument 1"
+    (tu/with-terms [pRel Freedonia]
+      (let [[lo hi] (sort [(tu/tmp-ind "Fredville") (tu/tmp-ind "Fredville")])]
+        (v/assert kb (list pRel Freedonia lo) U)
+        (v/assert kb (list pRel Freedonia hi) U)
+        (v/assert kb (list 'bijection pRel) U)
+        (is (v/same-class? kb lo hi)))))
+  (testing "and a stored pair sharing argument 2"
+    (tu/with-terms [pRev Fredopolis]
+      (let [[lo hi] (sort [(tu/tmp-ind "Sylvania") (tu/tmp-ind "Sylvania")])]
+        (v/assert kb (list pRev lo Fredopolis) U)
+        (v/assert kb (list pRev hi Fredopolis) U)
+        (v/assert kb (list 'bijection pRev) U)
+        (is (v/same-class? kb lo hi))))))
+
+;;; ── the two derived marks descend the predicate hierarchy ─────────────
+
+(tu/deftest-kb a-bijection-on-a-super-predicate-convicts-a-sub-predicate-pair
+  ;; Both derived marks are read up the predicate hierarchy, as every constraint mark
+  ;; is, so the declaration is written once at the general predicate.  The query does
+  ;; not descend — `(functional fatherOf)` is false — and the enforcement does, which is
+  ;; the distinction taxonomy.md draws between a mark's classification and its reach.
+  (tu/with-terms [parentOf fatherOf Ann Bob]
+    (v/assert kb (list 'bijection parentOf) U)
+    (v/assert kb (list 'genl fatherOf parentOf) U)
+    (is (not (v/ask? kb (list 'functional fatherOf) U))
+        "the sub-predicate is not itself classified functional")
+    (v/assert kb (list fatherOf Ann 1980) U)
+    (is (= :functional (ex-type #(v/assert kb (list fatherOf Ann 1990) U)))
+        "and is enforced anyway, at argument 2")
+    (v/assert kb (list fatherOf 7 Bob) U)
+    (is (= :functional (ex-type #(v/assert kb (list fatherOf 8 Bob) U)))
+        "and at argument 1")))
+
+;;; ── the declaration is decontextualized ───────────────────────────────
+
+(tu/deftest-kb a-bijection-stated-in-one-theory-is-the-whole-kb-s-claim
+  ;; `bijection` is a `decontextualized_predicate`, so the declaration is the KB's claim
+  ;; about the predicate rather than the theory's — and the two marks derived from it
+  ;; reach CxUniverse with it.
+  (tu/with-terms [pRel CxStory]
+    (v/assert kb (list 'genlCx CxStory U) U)
+    (v/assert kb (list 'bijection pRel) CxStory)
+    (is (v/ask? kb (list 'bijection pRel) U))
+    (is (v/ask? kb (list 'functional pRel) U))
+    (is (v/ask? kb (list 'functionalInArg pRel 1) U))))

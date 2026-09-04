@@ -1211,6 +1211,14 @@ maintained by `integrate-sentex`:
   the *query* but would not set the `:symmetric` property the enforcement reads, since a
   genl-inherited membership is not a stored `symmetric` sentex the mark ingestion sees — so
   the rules, which materialize that sentex, are the minimal correct expression.
+- `(bijection P)` — no engine code either: two shipped CxCore rules derive
+  `(functional P)` and `(functionalInArg P 1)`, each a real mark the engine enforces in
+  turn, which makes the relation functional in both directions. A shared first argument
+  merges or refuses its two second-argument fillers, and a shared second argument does the
+  same to its two first-argument fillers. `(genl bijection functional)` is stated beside
+  the two rules and classifies `P` as `functional`, and so as a `binary_predicate`. That
+  edge sets neither property the enforcement reads, for the reason the entry above gives,
+  so the two rules are the minimal correct expression.
 
 **The constraint marks are read up the predicate hierarchy; the generative marks
 are not.** Which family a mark belongs to decides whether it descends, and the reader

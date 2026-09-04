@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **`bijection` says one-to-one once, and the engine enforces it as its two halves.** A
+  relation functional in both directions took two declarations, `(functional P)` and
+  `(functionalInArg P 1)`, so an author who wrote one and meant both got enforcement in a
+  single direction and no report of the gap. `(bijection P)` is one declaration CxCore
+  derives both from, through two forward rules, so each half is a stored mark the engine
+  enforces exactly as a directly written one is. Two symbol fillers on either side derive
+  `(equals V1 V2)` and merge, two unmergeable fillers are refused as `:functional`, and a
+  declaration arriving after a stored pair convicts that pair. `(genl bijection
+  functional)` classifies the predicate as `functional`, and so as a `binary_predicate`.
+  Retracting the one declaration drops both derived marks. The mark is a
+  `decontextualized_predicate`, so the declaration is the KB's claim about the predicate
+  rather than the theory's. The glossary gains `bijection`, 173 to 174. *Class:*
+  **Additive**. *Migration:* none. [docs/taxonomy.md](docs/taxonomy.md)
+
 ## 0.16.0 — 2026-09-04 — "the predAll quantifier family, refusals that name their kind, and declarations that reach back"
 
 - **An unpinned indeterminate term is not provably different from anything.** The
