@@ -67,8 +67,7 @@
   (:require [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.naming :as nm]
-            [vaelii.impl.seed :as seed]
-            [vaelii.impl.taxonomy :as tax]))
+            [vaelii.impl.seed :as seed]))
 
 (defn load-into
   "Populate `kb` with the starter schema — every context under resources/kb/, loaded
@@ -77,8 +76,8 @@
   (core-context/load-into kb)                                       ; CxCore.txt: the vocabulary head
   (seed/load-layer kb "upper"  (seed/layer-contexts "upper"))  ; every definitional context
   (seed/load-layer kb "middle" (seed/layer-contexts "middle")) ; every theory context
-  ;; every type is a unary_predicate — computed over the taxonomy, so it stays in code;
-  ;; a predicate classification, placed with the others in CxCore
-  (doseq [t (nm/by-print-key (tax/types (:taxonomy kb)))]
+  ;; The subtypes of thing are unary types. Other genl components may relate
+  ;; predicates of any arity and do not imply unary membership.
+  (doseq [t (nm/by-print-key (v/specs kb 'thing))]
     (v/assert kb (list 'unary_predicate t) 'CxCore))
   kb)

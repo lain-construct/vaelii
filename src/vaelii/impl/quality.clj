@@ -386,18 +386,22 @@
   the reading means the same on a corpus that never heard of `thing`.
 
   The denominator is every type-shaped name in the vocabulary, which by `docs/naming.md`
-  includes a bare lowercase word (`likes` is a legal predicate *and* a legal type name;
-  arity decides and the index does not record arity).  That is why the gap is the finding
-  rather than either fraction on its own.
+  includes a bare lowercase word (`likes` is a legal predicate *and* a legal type name).
+  A unique declared arity other than one excludes a known non-unary predicate; unknown
+  or conflicting arities remain candidates rather than hiding disconnected type islands.
+  That is why the gap is the finding rather than either fraction on its own.
 
   Reachability is **reflexive**, as `genls` is: the root reaches itself, so `:rooted`
   counts it and `:islands` is exactly the edged types outside the root's ancestor set."
   [kb pass progress!]
   (let [taxo  (:taxonomy kb)
-        nodes (tax/types taxo)
-        named (:type-names pass)]
+        type-candidate? (fn [name]
+                          (let [arity (tax/declared-arity taxo name)]
+                            (or (nil? arity) (= 1 arity))))
+        nodes (into #{} (filter type-candidate?) (tax/types taxo))
+        named (into #{} (filter type-candidate?) (:type-names pass))]
     (progress! {:phase :taxonomy :done 0 :total (count nodes)})
-    (let [reach (frequencies (mapcat #(tax/genls-global taxo %) nodes))
+    (let [reach (frequencies (mapcat #(filter type-candidate? (tax/genls-global taxo %)) nodes))
           [root rooted] (first (sort-by (juxt (comp - val) (comp nm/print-key key)) reach))]
       {:names   (count (into named nodes))
        :edged   (count nodes)

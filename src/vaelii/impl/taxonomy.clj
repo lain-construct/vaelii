@@ -4,7 +4,7 @@
   "Cached transitive closures for the two transitivity relations at the heart of
   common-sense reasoning:
 
-    genl    relates unary *types*    (genl dog animal)   — the type hierarchy
+    genl    relates predicates       (genl dog animal)   — types are its unary case
     genlCx  relates *contexts*       (genlCx CxA CxB)     — context inheritance
 
   Transitivity is not done with rules (too central, too hot); instead we store the

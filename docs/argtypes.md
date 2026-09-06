@@ -8,6 +8,21 @@
   [inherit.md](inherit.md).
 - **Assumes:** sentex, justification, context, `genl` → [glossary.md](glossary.md).
 
+## Relation-wide declarations and the runtime boundary
+
+`arg` (including `arg1` / `arg2` / `arg3`), `genlArg`, `quotedArg`, and `interArg`
+accept a `relation` as their subject: either a predicate or a function. Accepting and
+storing a function's declaration does **not** yet guarantee recursive enforcement of
+its input constraints inside a nested function application. The current checks read
+the asserted sentence's argument declarations. For `arg` / `genlArg`, a function
+application filling a constrained slot is checked through its `result` / `genlResult`,
+not by recursively checking every input against that function's declarations.
+`quotedArg` instead exempts compound arguments from its value-kind check.
+Recursive function-input enforcement is follow-up runtime work, not supplied by the
+vocabulary generalization.
+
+## Constraint and entailment readings
+
 `(arg parentOf 1 animal)` says the first argument of `parentOf` is an animal. Assert
 `(parentOf Fred Mary)` and the KB checks that claim against what it knows about `Fred` —
 and when it knows nothing, **passes and stores nothing**. The declaration is are indistinguishable from a
