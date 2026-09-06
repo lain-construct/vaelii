@@ -214,6 +214,12 @@
 (unreifiable_function InstantFn)
 (fixed_arity_function InstantFn)
 (arity InstantFn 6)
+(arg InstantFn 1 integer)
+(arg InstantFn 2 integer)
+(arg InstantFn 3 integer)
+(arg InstantFn 4 integer)
+(arg InstantFn 5 integer)
+(arg InstantFn 6 integer)
 (result InstantFn time_point)
 
 (comment instantNotAfter

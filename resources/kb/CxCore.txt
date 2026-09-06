@@ -51,38 +51,38 @@
          "(and ?antecedent1 ?antecedent2 …) means the conjunction of the antecedents inside an implies rule. A syntactic connective rather than a predicate: it is never asserted on its own, and a rule with a single antecedent needs no and at all.")
 
 (comment genlArg
-         "(genlArg ?predicate ?position ?type) means that argument ?position of ?predicate must be a subtype of ?type. The arg constraint one level up, for a type_relation_predicate whose arguments name kinds rather than instances: (genlArg partType 1 physical_object) says the argument names a kind of physical object, where (arg partOf 1 physical_object) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it.")
+         "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 physical_object) says the argument names a kind of physical object, where (arg partOf 1 physical_object) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
 (ternary_predicate genlArg)
-(arg genlArg 1 predicate)
+(arg genlArg 1 relation)
 (arg genlArg 2 positive_integer)
 (genlArg genlArg 3 thing)
 
 (comment arg
-         "(arg ?predicate ?position ?type) means that argument ?position of ?predicate must be of ?type. Checked through genl transitivity whenever a sentex is asserted, and open-world: an argument whose type is unknown cannot violate it, so this narrows what can be said without demanding that everything be typed.")
+         "(arg ?relation ?position ?type) means that argument ?position of ?relation must be of ?type. Its domain includes predicates and functions. Checked through genl transitivity whenever a sentex is asserted, and open-world: an argument whose type is unknown cannot violate it, so this narrows what can be said without demanding that everything be typed.")
 (ternary_predicate arg)
-(arg arg 1 predicate)
+(arg arg 1 relation)
 (arg arg 2 positive_integer)
 (genlArg arg 3 thing)
 (comment arg1
-         "(arg1 ?predicate ?type) means that argument 1 of ?predicate must be of ?type — the binary projection of (arg ?predicate 1 ?type), created so a positional argument constraint can itself stand in the subject position of a binary declaration such as (predAllSpecified arg1 predicate). The two spellings are bridged by rules in both directions and held to the same declaration checks at assert, so either may be asserted and both STORED spellings are believed. The projection relates stored declarations only: a reading arg answers through genl generalization or super-predicate inheritance has no argN twin, so a generalized or inherited question must be asked of arg itself. arg2 and arg3 project positions 2 and 3 the same way.")
+         "(arg1 ?relation ?type) means that argument 1 of ?relation must be of ?type — the binary projection of (arg ?relation 1 ?type), created so a positional argument constraint can itself stand in the subject position of a binary declaration such as (predAllSpecified arg1 relation). The two spellings are bridged by rules in both directions and held to the same declaration checks at assert, so either may be asserted and both STORED spellings are believed. The projection relates stored declarations only: a reading arg answers through genl generalization or super-predicate inheritance has no argN twin, so a generalized or inherited question must be asked of arg itself. arg2 and arg3 project positions 2 and 3 the same way.")
 (binary_predicate arg1)
-(arg arg1 1 predicate)
+(arg arg1 1 relation)
 (genlArg arg1 2 thing)
 (implies (and (arg1 ?reln ?type)) (arg ?reln 1 ?type))
 (implies (and (arg ?reln 1 ?type)) (arg1 ?reln ?type))
 
 (comment arg2
-         "(arg2 ?predicate ?type) is the binary projection of (arg ?predicate 2 ?type) — see arg1.")
+         "(arg2 ?relation ?type) is the binary projection of (arg ?relation 2 ?type) — see arg1.")
 (binary_predicate arg2)
-(arg arg2 1 predicate)
+(arg arg2 1 relation)
 (genlArg arg2 2 thing)
 (implies (and (arg2 ?reln ?type)) (arg ?reln 2 ?type))
 (implies (and (arg ?reln 2 ?type)) (arg2 ?reln ?type))
 
 (comment arg3
-         "(arg3 ?predicate ?type) is the binary projection of (arg ?predicate 3 ?type) — see arg1.")
+         "(arg3 ?relation ?type) is the binary projection of (arg ?relation 3 ?type) — see arg1.")
 (binary_predicate arg3)
-(arg arg3 1 predicate)
+(arg arg3 1 relation)
 (genlArg arg3 2 thing)
 (implies (and (arg3 ?reln ?type)) (arg ?reln 3 ?type))
 (implies (and (arg ?reln 3 ?type)) (arg3 ?reln ?type))
@@ -96,9 +96,9 @@
 ;; stays a plain fact (a sub-predicate may carry its own signature).
 
 (comment quotedArg
-         "(quotedArg ?predicate ?position ?type) means that argument ?position of ?predicate, taken AS A TERM — the syntactic object written in that position, not what it denotes — must be of ?type. The mention twin of arg: (arg name_of_guy 1 agent) types what the first argument names, (quotedArg name_of_guy 1 string) types the argument itself, the value sitting there. Its ?type is a syntactic type — string, number (with integer below it), symbol — and the argument is classified by its EDN kind, then checked through genl like arg. Closed about a value whose kind is decidable: (name_of_guy 5) violates (quotedArg name_of_guy 1 string), 5 being a number and not a string. It does not read the referent's type, which is arg's business.")
+         "(quotedArg ?relation ?position ?type) means that argument ?position of ?relation, taken AS A TERM — the syntactic object written in that position, not what it denotes — must be of ?type. The mention twin of arg: (arg name_of_guy 1 agent) types what the first argument names, (quotedArg name_of_guy 1 string) types the argument itself, the value sitting there. Its ?type is a syntactic type — string, number (with integer below it), symbol — and the argument is classified by its EDN kind, then checked through genl like arg. Closed about a value whose kind is decidable: (name_of_guy 5) violates (quotedArg name_of_guy 1 string), 5 being a number and not a string. It does not read the referent's type, which is arg's business. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
 (ternary_predicate quotedArg)
-(arg quotedArg 1 predicate)
+(arg quotedArg 1 relation)
 (arg quotedArg 2 positive_integer)
 (genlArg quotedArg 3 thing)
 
@@ -212,11 +212,11 @@
 (disjoint atomic_formula non_atomic_term)
 
 (comment interArg
-         "(interArg ?predicate ?position1 ?type1 ?position2 ?type2) means that whenever argument ?position1 of ?predicate is a ?type1, argument ?position2 must be a ?type2. The conditional argument constraint, and it says what arg cannot: (interArg eats 1 carnivore 2 meat) types the second argument only for the eaters that are carnivores, where (arg eats 2 meat) would demand meat of every eater. Open-world in both directions, and they point opposite ways — silence about the trigger argument's type leaves the constraint dormant rather than firing it, while silence about the target argument's is what convicts. Checked through genl transitivity from the writing context, like arg, and it entails the same way under assertive argument types.")
+         "(interArg ?relation ?position1 ?type1 ?position2 ?type2) means that whenever argument ?position1 of ?relation is a ?type1, argument ?position2 must be a ?type2. The conditional argument constraint, and it says what arg cannot: (interArg eats 1 carnivore 2 meat) types the second argument only for the eaters that are carnivores, where (arg eats 2 meat) would demand meat of every eater. Open-world in both directions, and they point opposite ways — silence about the trigger argument's type leaves the constraint dormant rather than firing it, while silence about the target argument's is what convicts. Checked through genl transitivity from the writing context, like arg, and it entails the same way under assertive argument types. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
 (arity interArg 5)
 (fixed_arity_predicate interArg)
 (instance_relation_predicate interArg)
-(arg interArg 1 predicate)
+(arg interArg 1 relation)
 (arg interArg 2 positive_integer)
 (arg interArg 3 unary_predicate)
 (arg interArg 4 positive_integer)
@@ -338,8 +338,10 @@
 (binary_predicate arity)
 (instance_relation_predicate arity)
 (functional arity)
-(arg arity 1 fixed_arity)
+(arg arity 1 relation)
 (arg arity 2 non_negative_integer)
+
+(implies (arity ?relation ?arity) (fixed_arity ?relation))
 
 (comment arityMin
          "(arityMin ?relation ?n) means that a variable-arity ?relation requires at least ?n arguments. Every further position normally repeats the same argument role rather than introducing an unnamed optional field. No WFF reader consumes this declaration.")

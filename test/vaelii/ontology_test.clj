@@ -273,15 +273,65 @@
 
 ;; ---- the shipped rules, read against each other --------------------------
 
-(tu/deftest-kb no-shipped-rule-is-covered-by-another
-  ;; `kb-quality`'s subsumption reading over the shipped schema and the test-world's
-  ;; fables.  Zero is the claim: nothing here fires wherever another rule fires and
-  ;; concludes no more than it does, so no rule in the ontology is carrying its weight
-  ;; only because somebody wrote it twice at two levels of the hierarchy.
-  (let [q (:subsumption (v/kb-quality kb {:limit 100}))]
-    (is (pos? (:total q)) "the reading ran over rules rather than over nothing")
-    (is (zero? (:subsumed-count q))
-        (str "covered: " (pr-str (mapv (juxt :by-sentence :sentence) (:subsumed q)))))))
+(defn- arity-rule [type arity]
+  (list 'implies (list type '?relation) (list 'arity '?relation arity)))
+
+(defn- generated-arity-pairs [kb]
+  ;; Temporary, exact exception until generators decline subsumed rules. No general
+  ;; exemption for generated rules: the provenance and complete pair set are tested.
+  (set (for [[general arity specializations]
+             '[[unary 1 [unary_predicate unary_function]]
+               [binary 2 [binary_predicate binary_function]]
+               [ternary 3 [ternary_predicate ternary_function]]]
+             specialized specializations]
+         [(v/handle-of kb (arity-rule general arity) 'CxCore)
+          (v/handle-of kb (arity-rule specialized arity) 'CxCore)])))
+
+(defn- unexpected-subsumptions [expected reading]
+  (remove #(contains? expected [(:by %) (:subsumed %)]) (:subsumed reading)))
+
+(tu/deftest-kb no-shipped-rule-is-covered-except-the-exact-generated-arity-pairs
+  (let [q (:subsumption (v/kb-quality kb {:limit 100}))
+        expected (generated-arity-pairs kb)
+        generator (v/handle-of kb
+                               '(implies (relationTypeByArity ?type ?arity)
+                                         (implies (?type ?relation) (arity ?relation ?arity)))
+                               'CxCore)]
+    (is (pos? (:total q)))
+    (is (not (:truncated? q)))
+    (is (= 6 (count expected)))
+    (is (some? generator))
+    (doseq [h (set (mapcat identity expected))]
+      (is (some? h))
+      (is (not (v/premise? kb h)) "the exception cannot cover a hand-written rule")
+      (is (some #(some #{generator} (:antecedents %))
+                (v/supporting-justifications kb h))
+          "each rule is actually stamped by the arity generator"))
+    (is (= expected (set (map (juxt :by :subsumed) (:subsumed q))))
+        "the exception must be removed when its motivating redundancies disappear")
+    (is (empty? (unexpected-subsumptions expected q))
+        (str "unexpected covered rules: "
+             (pr-str (mapv (juxt :by-sentence :sentence)
+                           (unexpected-subsumptions expected q)))))))
+
+(tu/deftest-kb unexpected-generated-subsumption-is-not-exempt
+  (tu/with-terms [broad_type narrow_type outcome_type generatesType]
+    (v/assert kb (list 'genl broad_type 'thing) 'CxCore)
+    (v/assert kb (list 'genl narrow_type broad_type) 'CxCore)
+    (v/assert kb (list 'genl outcome_type 'thing) 'CxCore)
+    (v/assert kb (list 'implies (list generatesType '?type)
+                       (list 'implies (list '?type '?x) (list outcome_type '?x))) 'CxCore)
+    (doseq [type [broad_type narrow_type]]
+      (v/assert kb (list generatesType type) 'CxCore))
+    (let [rule (fn [type] (list 'implies (list type '?x) (list outcome_type '?x)))
+          pair [(v/handle-of kb (rule broad_type) 'CxCore)
+                (v/handle-of kb (rule narrow_type) 'CxCore)]
+          q (:subsumption (v/kb-quality kb {:limit 100}))]
+      (is (every? some? pair))
+      (is (not (:truncated? q)))
+      (is (some #(= pair [(:by %) (:subsumed %)])
+                (unexpected-subsumptions (generated-arity-pairs kb) q))
+          "even another generated subtype pair must still fail the gate"))))
 
 (tu/deftest-kb every-negated-conclusion-the-ontology-can-clash-with-is-stated-as-an-exception
   ;; The other rule-hygiene reading, and the structure of what it finds here is the finding.

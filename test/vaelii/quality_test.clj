@@ -245,10 +245,24 @@
       (is (= 2 (:islands t)) "the island pair, and nothing else")
       (testing "the denominator is every type-shaped name in the vocabulary — the six here
                 plus `genl` itself, because a bare lowercase word is a legal type name as
-                well as a legal predicate and the index records no arity to tell them
+                well as a legal predicate and this KB declares no arity to tell them
                 apart.  Which is exactly why the *gap* above is the finding rather than
                 either fraction on its own"
         (is (= 7 (:names t)))))))
+
+(tu/deftest-kb taxonomy-coverage-excludes-known-nonunary-components-not-unknown-types
+  (tu/with-terms [root_type mid_type leaf_type island_a island_b parent_relation child_relation]
+    (doseq [[sub super] [[leaf_type mid_type] [mid_type root_type]
+                         [island_a island_b] [child_relation parent_relation]]]
+      (v/assert kb (list 'genl sub super) 'CxUniverse))
+    (doseq [relation [parent_relation child_relation]]
+      (v/assert kb (list 'arity relation 2) 'CxUniverse))
+    (v/assert kb (list 'arity leaf_type 1) 'CxUniverse)
+    (let [t (:taxonomy (v/kb-quality kb))]
+      (is (= root_type (:root t)) "a corpus need not use thing as its root")
+      (is (= 5 (:edged t)) "declared binary predicates are not unary type nodes")
+      (is (= 3 (:rooted t)) "known unary and unknown types both remain")
+      (is (= 2 (:islands t)) "untyped disconnected islands are still findings"))))
 
 ;; ---- the options, and the emitter ----------------------------------------
 

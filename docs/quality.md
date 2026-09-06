@@ -169,9 +169,10 @@ the reading means the same on a corpus that never heard of `thing`.
 
 The denominator (`:names`) is every type-shaped name in the vocabulary, and by
 [naming.md](naming.md) that includes a bare lowercase word: `likes` is a legal predicate
-*and* a legal type name, arity decides, and the index records no arity to tell them apart.
-`genl` itself is counted. Which is the reason the gap is the finding rather than either
-fraction on its own.
+*and* a legal type name. A unique declared arity other than one excludes a known
+non-unary predicate from both names and edges. Unknown or conflicting arities remain
+candidates, so an untyped root or disconnected unary island is not silently dropped.
+This is why the gap is the finding rather than either fraction on its own.
 
 The measured shape on the same OpenCyc conversion as the Gini above, and all three
 counts are that one run's own denominator: of roughly 124k types, about 71% carry a

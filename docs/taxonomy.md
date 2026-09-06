@@ -25,8 +25,11 @@ as a sentence.
 
 ## genl: the type hierarchy
 
-`(genl Sub Super)` — every `Sub` is a `Super`. Types are unary predicates, rooted
-at `thing`. We cache the reflexive-transitive closure both ways:
+`(genl Sub Super)` — every `Sub` tuple is a `Super` tuple. Types are unary predicates,
+rooted at `thing`. Predicate specializations of other arities also use `genl`;
+membership in that graph alone does not imply `unary_predicate`. The starter assigns
+unary membership to the subtypes of `thing`. We cache the reflexive-transitive closure
+both ways:
 
 - `genls tax t context` — supertypes of `t`, incl. `t` (up-closure).
 - `specs tax t context` — subtypes of `t`, incl. `t` (down-closure).

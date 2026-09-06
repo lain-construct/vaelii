@@ -24,6 +24,36 @@
   (is (v/isa? kb 'lessThan 'relation))
   (is (v/isa? kb 'MotherFn 'relation)))
 
+(tu/deftest-kb starter-distinguishes-type-nodes-from-binary-predicate-nodes
+  (doseq [mapping '[relationTypeByArity predicateTypeByArity functionTypeByArity]]
+    (is (v/isa? kb mapping 'binary_predicate))
+    (is (not (v/isa? kb mapping 'unary_predicate)))
+    (is (v/ask? kb (list 'arity mapping 2) 'CxCore)))
+  (doseq [type '[thing animal physical_object fixed_arity]]
+    (is (v/isa? kb type 'unary_predicate)))
+  (is (v/genl? kb 'predicateTypeByArity 'relationTypeByArity))
+  (is (v/genl? kb 'functionTypeByArity 'relationTypeByArity)))
+
+(tu/deftest-kb arity-generator-tracks-mapping-support-without-a-converse
+  (doseq [mapping-first? [true false]]
+    (tu/with-terms [four_place_relation classifiedRelation exactOnlyRelation]
+      (v/assert kb (list 'genl four_place_relation 'fixed_arity) 'CxCore)
+      (let [mapping (list 'relationTypeByArity four_place_relation 4)
+            member  (list four_place_relation classifiedRelation)
+            h       (if mapping-first?
+                      (let [h (v/assert kb mapping 'CxCore)]
+                        (v/assert kb member 'CxCore)
+                        h)
+                      (do (v/assert kb member 'CxCore)
+                          (v/assert kb mapping 'CxCore)))]
+        (is (v/ask? kb (list 'arity classifiedRelation 4) 'CxCore))
+        (v/assert kb (list 'arity exactOnlyRelation 4) 'CxCore)
+        (is (not (v/ask? kb (list four_place_relation exactOnlyRelation) 'CxCore)))
+        (v/retract! kb h)
+        (is (v/ask? kb member 'CxCore))
+        (is (not (v/ask? kb (list 'arity classifiedRelation 4) 'CxCore)))
+        (is (v/ask? kb (list 'arity exactOnlyRelation 4) 'CxCore))))))
+
 (tu/deftest-kb exact-arity-and-variable-floors-are-distinct
   (testing "an exact declaration is fixed, not an overloaded floor"
     (is (v/ask? kb '(fixed_arity interArg) 'CxCore))
