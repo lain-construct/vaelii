@@ -218,7 +218,7 @@
 
 (defn- ordering-keys
   "`[line-number line key-form]` for every `call` in `text` — the ordering **key** each one
-  is handed, are indistinguishable from a form.
+  is handed, read as a form.
 
   A key is not \"the rest of the line\".  Written below its call — a `juxt` broken over two
   lines, a `pr-str` on the continuation — it is invisible to a scan that cuts the line

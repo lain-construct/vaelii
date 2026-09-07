@@ -2,15 +2,93 @@
 
 - **Covers:** how, with the opt-in toggle on, an `arg` / `genlArg` / `interArg`
   declaration also mints the type it constrains as a derived, justified, retractable sentex.
-- **Not here:** `arg` / `genlArg` are indistinguishable from a constraint that rejects a wrongly-typed
+- **Not here:** `arg` / `genlArg` read as a constraint that rejects a wrongly-typed
   argument (the default, toggle-off reading) → [taxonomy.md](taxonomy.md); `transitiveInArg`,
   which carries a stated claim rather than a declared type across an argument →
   [inherit.md](inherit.md).
 - **Assumes:** sentex, justification, context, `genl` → [glossary.md](glossary.md).
 
+## Relation-wide declarations and the runtime boundary
+
+`arg` (including `arg1` / `arg2` / `arg3`), `genlArg`, `quotedArg`, and `interArg`
+accept a `relation` as their subject: either a predicate or a function. Accepting and
+storing a function's declaration does **not** yet guarantee recursive enforcement of
+its input constraints inside a nested function application. The current checks read
+the asserted sentence's argument declarations. For `arg` / `genlArg`, a function
+application filling a constrained slot is checked through its `result` / `genlResult`,
+not by recursively checking every input against that function's declarations.
+`quotedArg` instead exempts compound arguments from its value-kind check.
+Recursive function-input enforcement is follow-up runtime work, not supplied by the
+vocabulary generalization.
+
+### A unary predicate declares a position only when its `genl` parent does not imply it
+
+An `arg` declaration on a unary predicate and a `genl` edge above it can say the same
+thing, and which of the two is right turns on where the parent sits relative to the type
+the declaration names.
+
+`fixed_arity` carries `(arg fixed_arity 1 relation)` and `(genl fixed_arity relation)`
+names that same type. The edge concludes `(relation 5)` from `(fixed_arity 5)` and
+nothing is disjoint from `relation` for a number, so the declaration is the only refusal
+there is; drop it and `(fixed_arity 5)` is accepted. `variable_arity` and the function
+marks are in the same position and keep theirs.
+
+`instance_relation_predicate` is the other case. Its parent is `binary_predicate`, which
+sits **below** `predicate`, so `(arg instance_relation_predicate 1 predicate)` restated
+in a weaker form what the edge already concludes, and turned that conclusion into a
+precondition — the declaration demanded of the argument the very type the assertion
+supplies:
+
+```clojure
+(assert kb '(arity pairOf 2) 'CxUniverse)
+(assert kb '(instance_relation_predicate pairOf) 'CxUniverse)  ; was :arg-type
+```
+
+`(arity R 2)` derives `fixed_arity` and the relation-wide `binary`, so `R` is a
+`relation`; it says nothing about predicate or function, two arguments being a shape
+either kind has. `outside-declared-type?` convicts an argument whose closure reaches
+`thing` and does not reach the declared type, so the classification was refused for a
+kind it had not yet stated — while the same pair written in the other order was accepted.
+
+That asymmetry is not by itself the argument for dropping the row. The refusal half is
+order-sensitive wherever a declaration narrows a type the argument already holds, by the
+design stated below under "Three directions": it convicts on an absence, so a KB given
+`(arg ownsGadget 1 gadget)`, `(artifact Widget)` and `(ownsGadget Widget Widget)` in
+different orders holds different facts, and no change here alters that. What these six
+marks had on top of it is a declared type their own `genl` parent already supplies — the
+declaration demanded its own conclusion — so the six declare no position:
+`instance_relation_predicate`, `type_relation_predicate`, `equivalence_relation`,
+`injection`, `surjection` and `bijection`.
+
+Both refusals the rows carried survive the drop, and one of them sharpens:
+
+| argument | with the row | without it |
+|---|---|---|
+| a term reaching only `thing`, or a number | `:arg-type` | `:arg-type`, through the `(arg fixed_arity 1 relation)` floor the mark inherits |
+| a `function` | `:arg-type: must be a predicate` | `:disjoint: cannot be both instance_relation_predicate and function` |
+| a relation whose kind is not yet stated | `:arg-type` | accepted, and the mark supplies the kind |
+
+`arity_vocabulary_test/a-predicate-only-classification-is-order-independent-of-the-arity`
+compares the two orders on the whole closure rather than on an acceptance, and
+`an-arity-alone-leaves-the-relation-kind-open` asserts the two refusals that remain.
+
+### The policy classes declare one position and their specializations declare none
+
+`fixed_arity` and `variable_arity` each carry `(arg C 1 relation)`. Nothing below them
+carries one. The parent's declaration descends the predicate hierarchy, so
+`(fixed_arity_predicate Fred)` with `Fred` a person is refused `:arg-type` all the same,
+while a narrower `(arg fixed_arity_predicate 1 predicate)` would refuse the wrong thing:
+a relation whose only stated type is `variable_arity` reaches `relation` and not
+`predicate`, so `(binary_predicate P)` written after `(variable_arity P)` would report the
+argument's type where the contradiction is the arity policy. The two are one
+contradiction and report `:disjoint` in either order. A relation classified into the
+wrong kind is caught by `(disjoint predicate function)` through the `genl` edges.
+
+## Constraint and entailment readings
+
 `(arg parentOf 1 animal)` says the first argument of `parentOf` is an animal. Assert
 `(parentOf Fred Mary)` and the KB checks that claim against what it knows about `Fred` —
-and when it knows nothing, **passes and stores nothing**. The declaration is are indistinguishable from a
+and when it knows nothing, **passes and stores nothing**. The declaration is read as a
 constraint to test, never as a fact to derive.
 
 This is the other reading: the declaration also *entails* what it constrains, and the
@@ -44,6 +122,75 @@ taxonomy that `isa?` / `types-of` and the definitional checks read, and a datum 
 agenda fires rules on. A prover's answer is none of those, and it is confined to a
 CapitalCamelCase individual; `genlArg` entails a `genl` edge, which no prover can.
 
+## One reading, not two
+
+With the toggle on, `args-problem`'s **symbol arm yields** to the entailment
+(`checks/entailment-covers?`). A declaration read as an entailment says Fred *is* an
+animal, so there is no state of the KB in which Fred fills the slot and fails it: the
+conviction and the entailment are two readings of one declaration, and only the second
+one holds. The condition is `arg-entailments`' condition term for term — an eligible
+argument, a type the hierarchy holds, a declaration that speaks for this context — so
+the two arms cannot disagree about which declarations mint.
+
+Three things still convict, because no mint can answer them:
+
+- a **value**, which carries its type in its syntax — `5` is not a `string`, and no
+  membership can be asserted of it;
+- a **function application**, typed by its function's declared `result`;
+- an **inherited** declaration, which constrains a descendant context without minting
+  there (`declares-locally?`) — so in that context the constraint reading is the only
+  reading there is.
+
+Running both readings at once stops the cascade, which is the reason only one of them
+holds. A minted `(t1 Fred)` re-enters the check; a conviction arm reading `t1`'s own
+declaration convicts it for Fred not yet being a `t2`, and the conclusion `(t2 Fred)` is
+drawn from is dropped. Such a cascade closes only for an argument holding **no** type at
+all, since one unrelated membership — or a unary triggering sentence, which types its own
+argument — convicts every mint after the first.
+
+## The entry point refuses what the sentence entails
+
+The refusal did not disappear with the symbol arm; it moved one step along the
+derivation. `checks/entailment-check` walks the whole cascade of prospective mints before
+anything is stored and reports the first the KB could not admit, so **the entry point
+refuses a sentence exactly when it would refuse what the sentence entails**:
+
+```clojure
+(v/assert kb '(rock Bert) 'CxWorld)
+(v/assert kb '(disjoint animal rock) 'CxWorld)
+(v/assert kb '(arg parentOf 1 animal) 'CxWorld)
+(v/assert kb '(parentOf Bert Mary) 'CxWorld)
+;; throws :disjoint — "arg constraint: (parentOf Bert Mary) entails (animal Bert),
+;; which cannot be admitted — disjointness violated: Bert cannot be both animal and rock"
+```
+
+The violation is the **mint's own**, so its `:type` is what `refuses-assert?` weighs: a
+disjointness clash refuses under the `:refuse` policy and is arbitrated under
+`:arbitrate`, exactly as a direct assertion of that membership would be
+([exceptions.md](exceptions.md)).
+
+Asked before the store, which is the whole point of asking here.
+`special/entail-arg-type` asks the same question of each mint as it materializes, but it
+runs *after* the triggering sentex exists — so a mint it cannot admit is dropped and
+recorded, leaving the KB believing a fact whose declared consequence it rejects. Asked at
+the entry point, the refusal reaches the writer and nothing is stored.
+
+**Two arms, because a clash has two shapes.** `disjoint-problems` names an opposing
+*handle*, so it reads clashes against **stored** memberships. A pair the cascade supplies
+both sides of has no second record — `(p1 Fred)` and the `(p2 Fred)` it entails — and
+`checks/cascade-clash` reads those as content instead. Without it the same clash would
+refuse when the opposing type arrived earlier and pass when the cascade produced it.
+
+**The derivation path still reports.** A rule firing has no caller to refuse and may not
+throw mid-fixpoint, so `constraint-admission` leaves the conclusion standing and the mint
+is recorded in the violations ledger as before. That is the split every other check
+already draws.
+
+Three convictions are **not** asked at the entry point — naming, well-formedness and edge
+stratification. Those three live above `checks` (`special/inadmissible` is where the four
+are one question), and a mint they convict is still dropped and reported by the
+materializer.
+
 ## Where it lives
 
 The **check computes it; the post-store slot materializes it.**
@@ -51,6 +198,7 @@ The **check computes it; the post-store slot materializes it.**
 | | |
 |---|---|
 | `checks/constraint-entailments` | reads the declarations, returns `{:assert :because :position :kind}` maps — **writes nothing** |
+| `checks/entailment-check` | walks the cascade of prospective mints at the entry point and refuses the first the KB could not admit — **writes nothing** |
 | `special/deduce-arg-types` | materializes them, beside `deduce-lifts`, in `core/assert-one` and `chain/place-conclusion` |
 | `special/entail-existing` | the retroactive direction: a declaration arriving over facts already stored |
 
@@ -209,7 +357,7 @@ a finite set that never shrinks.
 
 | case | what happens instead |
 |---|---|
-| the argument is disjoint with the declared type | the existing `:arg-type` refusal — no type is minted on the way to it |
+| the argument is disjoint with the declared type | `entailment-check` refuses the assert with the mint's own `:disjoint` violation — no type is minted on the way to it |
 | an **individual** in an `genlArg` position | `genls-problem` convicts; an individual can never acquire `genl` edges |
 | the declared type is not one the hierarchy holds | nothing — a name that does not reach `thing` is not a type we invent a membership in. This is where a structural constraint lands without needing a list of exemptions to keep in step |
 | a **function application** in the position | `args-problem` / `genls-problem` check it against the function's declared `result` / `genlResult` and refuse where the result misses ([nat.md](nat.md)) — but nothing is minted, a declared result being a claim about the *function* and not about this application, and a compound having no membership to mint |

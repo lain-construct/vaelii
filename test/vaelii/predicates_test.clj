@@ -149,8 +149,12 @@
       ;; follows belief, so a nogood that defeated the declaration would destroy its own
       ;; premise. The argument constraints reach through `special/entail-existing`, which
       ;; *mints* rather than convicting, being open-world, and is gated on
-      ;; `checks/*assertive-arg-types?*`.
-      (is (= (into '#{arity arg genlArg interArg} (keys checks/predicate-type-arities))
+      ;; `checks/*assertive-arg-types?*`. `arg1` / `arg2` / `arg3` reach through that
+      ;; same mechanism at one remove, the bridge rule's `arg` conclusion being what
+      ;; entail-existing reads: a late `(arg1 owns person)` mints `(person Ann)` over an
+      ;; `(owns Ann Rex)` stored before it, exactly as the ternary spelling does.
+      (is (= (into '#{arity arg genlArg interArg arg1 arg2 arg3}
+                   (keys checks/exact-arity-classes))
              (set/difference (pr/by-facet :reach) clash))))))
 
 (deftest the-declaration-writes-settles-three-questions
@@ -445,14 +449,13 @@
 ;; ---- the vocabularies are closed -----------------------------------------
 
 (deftest every-field-is-drawn-from-its-closed-vocabulary
-  ;; This walked all five fields of every entry.  `check-facets`' `:vocabulary` rule does
-  ;; that at `settle`'s namespace load, so what is left here is the pairing no field read
-  ;; can state: `facet-contract` and `facets` must enumerate the same keywords, which is
-  ;; what makes growing the vocabulary the one commit the `facets` docstring promises
-  ;; rather than a keyword whose meaning its first user decides.
-  (is (= pr/facets (set (keys pr/facet-contract)))
-      "a facet with no row in the contract is one nothing governs")
-  (testing "and every implication names a facet, so a row cannot ask for a keyword"
+  ;; `check-facets`' `:vocabulary` rule walks all five fields of every entry at `settle`'s
+  ;; namespace load, and `facets` is `facet-contract`'s keys, so neither the field reads
+  ;; nor the pairing between the two vocabularies is this test's to state.  What is left
+  ;; is the contract's own rows: an `:implies` naming something that is not a facet asks
+  ;; for a keyword no row governs, and a `:lane?` that is not a boolean is a family
+  ;; question with no answer.
+  (testing "every implication names a facet, so a row cannot ask for a keyword"
     (doseq [[f {:keys [implies lane?]}] pr/facet-contract]
       (is (set/subset? implies pr/facets) (str f "'s :implies must be facets"))
       (is (boolean? lane?) (str f " must decide whether a family agrees about it")))))

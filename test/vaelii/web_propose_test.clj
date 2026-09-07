@@ -15,7 +15,6 @@
             [vaelii.impl.llm.protocol :as proto]
             [vaelii.impl.llm.provider :as llm-provider]
             [vaelii.impl.llm.stub :as stub]
-            [vaelii.impl.starter :as starter]
             [vaelii.impl.web :as web]
             [vaelii.test-util :as tu]))
 
@@ -23,7 +22,7 @@
 
 (use-fixtures :once
   (fn [f]
-    (let [kb (starter/load-into (tu/fresh))]
+    (let [kb (tu/load-starter! (tu/fresh))]
       (binding [tu/*kb* kb, *app* (web/app kb)] (f))
       (tu/clear-kb! kb))))
 (use-fixtures :each (tu/neutral))

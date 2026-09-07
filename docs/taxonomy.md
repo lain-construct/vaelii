@@ -25,8 +25,11 @@ as a sentence.
 
 ## genl: the type hierarchy
 
-`(genl Sub Super)` — every `Sub` is a `Super`. Types are unary predicates, rooted
-at `thing`. We cache the reflexive-transitive closure both ways:
+`(genl Sub Super)` — every `Sub` tuple is a `Super` tuple. Types are unary predicates,
+rooted at `thing`. Predicate specializations of other arities also use `genl`;
+membership in that graph alone does not imply `unary_predicate`. The starter assigns
+unary membership to the subtypes of `thing`. We cache the reflexive-transitive closure
+both ways:
 
 - `genls tax t context` — supertypes of `t`, incl. `t` (up-closure).
 - `specs tax t context` — subtypes of `t`, incl. `t` (down-closure).
@@ -51,6 +54,66 @@ globally, and why: [below](#the-global-readers-and-who-may-use-one).
    antecedent `(animal ?x)` is satisfied by a stored `(dog Muffet)` — no need to
    materialize `(animal Muffet)`. `isa?` answers membership on demand.
 3. **(genlCx is the sibling relation over contexts — see contexts.md.)**
+
+### Relations and arity policy
+
+`relation` is the common parent of `predicate` and `function`: both can be applied to
+arguments, while only predicates hold or fail and only functions denote values. Arity
+policy and the exact `arity` table are therefore relation-wide.
+
+`fixed_arity` and `variable_arity` classify two disjoint policies, with predicate and
+function specializations for each. Unsuffixed `unary`, `binary` and `ternary` classify
+exact relations; `unary_predicate` / `unary_function` and their binary and ternary peers
+specialize those relation-wide classes. `relationTypeByArity` owns the shared mapping;
+`predicateTypeByArity` and `functionTypeByArity` are its `genl` specializations, and one
+rule derives a relation's exact `arity` from whichever mapped type classifies it, with no
+parallel rule families. CxCore ships **three** mapping facts, over `unary`, `binary` and
+`ternary`. The predicate and function types reach them through their `genl` edges, so a
+`(predicateTypeByArity unary_predicate 1)` beside them would only stamp a second rule
+firing wherever the first already does — which `ontology_test`'s subsumption reading
+reports. The two specializations stay declared for a KB mapping an arity the
+relation-wide table has no class for. `arityMin` states the lower bound of a variable-arity relation. Prefer
+variable arity for a repeatable, homogeneously typed argument role. A relation may
+explicitly define a bounded optional tail instead, as `functionCorrespondingPredicate`
+does.
+
+`at_least_binary_relation` and `at_least_ternary_relation` are generic derived
+classifications over `arityMin`; callers can conjoin them with `predicate` or `function`
+instead of maintaining duplicate predicate/function classes. `admitsArgnum` names the
+separate question of whether one positive argument position exists. No WFF/query reader
+currently consumes it, and no parallel finite position roster is inferred.
+
+Exact `(arity R N)` entails `fixed_arity`; it is not also an `arityMin` floor. The four
+shipped variable predicates state their lower bound with `arityMin` instead of carrying
+an exact binary classification.
+
+The mapping's two rules run in both directions, so `(arity R 2)` and `(binary R)` derive
+each other and asserting either keeps both believed. The cycle is **relation-wide** and
+has to be: `arity` covers functions, so a rule concluding `(binary_predicate R)` from
+`(arity R 2)` would make every shipped binary function a predicate and clash with
+`(disjoint predicate function)`. `binary` carries no kind, which is what an arity
+actually says. The cycle is well-founded — the derived twin cannot ground itself, so
+retracting whichever spelling was asserted collapses both — and an arity no class maps to
+concludes nothing, which is why `(arity InstantFn 6)` leaves `InstantFn` classified only
+by its own `fixed_arity_function`.
+
+The `genl` edges on the arity classes run downward only: a `binary_predicate` is `binary`
+and is a `predicate`. None of them says that a relation which is `binary` **and** a
+`predicate` is a `binary_predicate`, and CxCore does not state that half either. A
+`(defnSufficient binary_predicate (and (arity ?x 2) (predicate ?x)))` ([defns.md](defns.md))
+would say it, and the six of them measure 748 justifications and 600 ms of a 3.2 s
+starter load for 36 memberships: `(predicate ?x)` matches every class membership of
+every predicate by subsumption, once per `genl` route between the two, so one conclusion
+collects a justification per route. The nine exact classes cost that once each; the
+intersection would cost it again for a membership nothing reads.
+
+The classification is read for its arity, and the relation-wide class answers that
+without the intersection: `(arity P 2)` derives `(binary P)` through the converse
+generator above, and `checks/exact-arity-classes` — the roster the assert entry point,
+the retroactive report and the quality readings share — holds all nine spellings, so
+`(binary P)`, `(binary_predicate P)` and `(binary_function F)` each declare an arity the
+check enforces. A KB that wants the kind membership as well writes the
+`defnSufficient` itself, in its own context, and pays for it there.
 
 ## The closures are derived state
 
@@ -1211,6 +1274,41 @@ maintained by `integrate-sentex`:
   the *query* but would not set the `:symmetric` property the enforcement reads, since a
   genl-inherited membership is not a stored `symmetric` sentex the mark ingestion sees — so
   the rules, which materialize that sentex, are the minimal correct expression.
+- `(injection P)`, `(surjection P)`, `(bijection P)` — the composite **function marks**,
+  no engine code either: eight shipped CxCore rules derive what the engine already
+  enforces and audits. Each mark splits into two halves, and the split is what the family
+  is for. The **enforced** half is `(functional P)` and `(functionalInArg P 1)`, merged or
+  refused at the assert entry point exactly as a directly written mark is. The **audited**
+  half is the binary `(predAllSpecified P D)` for totality and `(predSpecifiedAll P R)`
+  for ontoness — each filler type derived from the predicate's own slot contract at
+  read time — reported by `specified-violations` when a caller asks
+  ([predall.md](predall.md)).
+
+  | mark | single-valued | one-to-one | total on `D` | onto `R` |
+  |---|---|---|---|---|
+  | `injection`  | yes | yes | yes | no  |
+  | `surjection` | yes | no  | yes | yes |
+  | `bijection`  | yes | yes | yes | yes |
+
+  **`D` and `R` are not arguments of the mark.** Totality and ontoness are claims about a
+  domain and a range rather than about `P` alone, and `(arg P 1 D)` and `(arg P 2 R)`
+  already state those two types, so the rules read them from there. A predicate declaring
+  no `arg` pair gets the enforced half and no audit, which is the honest answer rather
+  than a requirement quantified over `thing`. `genlArg` is not read, so a
+  `type_relation_predicate` — which the entry point refuses an `arg` on — carries the
+  enforced half alone. The audit requirements rest on the `arg`
+  declarations as well as on the mark, so retracting `(arg P 1 D)` withdraws them and
+  leaves the refusals standing.
+
+  **The two halves divide on what an open world can refuse.** A second filler contradicts
+  a stored one, so the engine refuses it at the write. A domain member with no filler
+  contradicts nothing — the filler may arrive next — so totality is a sweep to run at a
+  checkpoint. `(bijection P)` derives `(injection P)` and `(surjection P)` rather than the
+  base marks directly, so the whole family reaches the engine through two entries.
+  `(genl bijection injection)` and `(genl bijection surjection)` state the subsumption
+  outright; those edges set none of the properties the enforcement reads, for the reason
+  `equivalence_relation`'s entry above gives, so the rules are the minimal correct
+  expression.
 
 **The constraint marks are read up the predicate hierarchy; the generative marks
 are not.** Which family a mark belongs to decides whether it descends, and the reader
@@ -1219,14 +1317,14 @@ differs by mark. `tax/props-over` walks up for `asymmetric`, `functional`, `irre
 `functionalInArg` walks up too and is no prop: `tax/functional-in-arg-over` reads a
 table keyed `pred → #{n …}`, which is `arity`'s shape rather than a roster's, and
 returns the `[pred n]` pairs a probe predicate is reached by. `arity` is no prop at all:
-`checks/declared-arity` reads it off the arity table and the predicate-type memberships,
-falling back to `inherited-arity` where the predicate declares nothing of its own. And
-`inverse` has a reader of its own, `tax/inverses-under`, which walks the hierarchy the
-other way.
+`checks/declared-arity` reads it off the arity table and the exact-class memberships
+(`checks/exact-arity-classes`, nine spellings), falling back to `inherited-arity` where
+the predicate declares nothing of its own. And `inverse` has a reader of its own,
+`tax/inverses-under`, which walks the hierarchy the other way.
 
 | mark | descends? | why |
 |---|---|---|
-| `arity`, and the predicate-type memberships | yes — read where the sub-predicate declares none of its own, and where it declares one the two are held to **match** | a ternary `fatherOf` fact is a ternary `parentOf` tuple |
+| `arity`, and the exact-class memberships | yes — read where the sub-predicate declares none of its own, and where it declares one the two are held to **match** | a ternary `fatherOf` fact is a ternary `parentOf` tuple |
 | `asymmetric` | yes | `(fatherOf a b)` beside `(parentOf b a)` is two `parentOf` tuples one way round each |
 | `functional` | yes | two `fatherOf` mothers for one child are two `parentOf` values |
 | `functionalInArg` | yes — through `tax/functional-in-arg-over` rather than `props-over`, the table carrying an integer | `(functionalInArg parentOf 2)` must convict two `fatherOf` mothers exactly as `(functional parentOf)` does, or the generalization would be weaker than the case it generalizes |
@@ -1361,16 +1459,18 @@ convict harder the less a context sees.
 ### Arity
 
 `checks/arity-problem` holds a sentence to the arity its predicate is **bound** to —
-from `(arity P N)` or from a `unary_predicate` / `binary_predicate` / `ternary_predicate`
-membership, which the CxCore rules derive from each other, so either spelling binds, and
-from a super-predicate's where the predicate declares nothing of its own (below). One
-predicate binds one length: the three classes are pairwise `disjoint` (above), so a second
-classification never lands to derive a second value. The **top literal only**, exactly like `arg`: a rule reaches the check as its
+from `(arity P N)` or from an exact-class membership (`checks/exact-arity-classes`: the
+relation-wide `unary` / `binary` / `ternary` and their six predicate and function
+specializations), which the CxCore rules derive from each other, so either spelling binds,
+and from a super-predicate's where the predicate declares nothing of its own (below). One
+relation binds one length: the relation-wide three are pairwise `disjoint` (above) and the
+six inherit that separation through their `genl` edges, so a second classification never
+lands to derive a second value. The **top literal only**, exactly like `arg`: a rule reaches the check as its
 `implies` form, whose own arity is 2 and is checked as such, and its antecedents are
 not. Open-world in the same shape — a predicate the KB has never declared can be used
 at any arity, since the declaration may simply not have arrived.
 
-`(variable_arity P)` exempts a predicate outright. `lessThan` is declared binary *and*
+`(variable_arity P)` exempts a predicate outright. `lessThan` has `arityMin` two and
 reads a chain of any length (`(lessThan 1 2 3)` is `1 < 2 < 3`); the declaration is what
 says so, rather than the check carrying a roster of predicates it quietly skips.
 
@@ -1383,7 +1483,7 @@ nothing where nobody wrote one. Supers that disagree bind nothing, which is the 
 `tax/declared-arity` already takes toward two contradictory declarations of one
 predicate, and a `variable_arity` super releases the inheritance for the reason it exempts
 the predicate carrying it. Both spellings are read up the hierarchy, the `(arity P n)`
-table first because it costs a map read where the predicate-type membership costs a
+table first because it costs a map read where the exact-class membership costs a
 retrieval.
 
 **A predicate that declares one is held to match its super-predicates'**, and the two
@@ -1594,7 +1694,7 @@ stored and always will until somebody decides a wrong-arity fact may be admitted
 | `functional` | refuses, or arbitrates | reaches back as a nogood under `:arbitrate`, over the spec subtree of the predicate it names and not that predicate alone | two values to weigh |
 | `asymmetric` | refuses `:monotonic`, arbitrates `:default` | same | the converse is the second side |
 | `arity` | **refuses, under either policy** | **reaches back and reports** — one `:arity` entry per convicted predicate of the swept subtree, carrying `:count`, a `:sample`, `:via` and the declaration in `:declared-after`, and at most **8** of them for one pass, past which an `:arity-report-truncated` entry counts the rest | names a second sentex, but it is the *vocabulary* one |
-| `arg` / `genlArg` / `interArg` | refuses | **nothing** | convicted by an absence; no second sentex at all |
+| `arg` / `genlArg` / `quotedArg` / `interArg` | refuses | **nothing** | convicted by an absence; no second sentex at all |
 | a predicate-level `genl` edge, under an *argument* constraint above it | refuses what follows | **nothing** — the entailment reaches back, the refusal does not | the family's non-reach, one ingredient further out |
 | a predicate-level `genl` edge, under a `functional` / `asymmetric` mark above it | refuses what follows, on the marked predicate's terms — `tax/props-over` reads the mark at every predicate above the sentence's own functor | the edge is admitted, neither mark refusing one, and it reaches back over the sub's stored facts: a nogood under `:arbitrate`, a cross-context exposure entry under `:refuse`, and the merges a `functional` mark now licenses (`special/equate-under-edge`) | the sub's tuples *are* the super's, so a clash among them is the super's |
 | a predicate-level `genl` edge, under an **arity** above it | refuses what follows | **reports** — the edge binds the sub-predicate's length, so it files the same `:arity` entry a declaration would, `:via` naming the super | a binding is a binding whichever of the three ingredients supplied it |
@@ -1621,6 +1721,16 @@ weigh and nothing for a defeat class to compare — and a retroactive pass over 
 have to decide whether silence about a pre-existing argument's type is a violation or
 merely silence. That is a policy question nobody has answered, and answering it by
 accident in a sweep would quietly turn an open-world check into a closed-world one.
+
+**`quotedArg` takes the same non-reach, and half the argument reaches it.** The mention
+twin convicts the term as it is *written*, and every term has a syntactic kind, so there
+is no argument whose type has merely not arrived yet and no "silence or violation" for a
+sweep to decide. The other half does carry over. `(quotedArg pAgeOf 2 string)` convicts
+`(pAgeOf Bob 5)` because no `genl` path runs from `integer` to `string`, which is the
+absence `arg` rests on read over the syntactic lattice instead of over an asserted type.
+A retroactive report would therefore name a conviction a later edge can lift.
+`entry_point_and_report_test` pins the cell rather than leaving it inherited from the
+three spellings beside it.
 
 **The descension makes it a third ingredient rather than a second**, and the non-reach
 covers that one too. `(fatherOf TheRock1 Mary)` stored, `(arg parentOf 1 person)`
@@ -1663,7 +1773,7 @@ same non-reach, and closing either means answering the policy question above.
 
 **`arity` reaches back but does not arbitrate**, and it is the case worth reading twice
 because the pair looks exactly like the three arbitrable ones. It *does* name a second
-believed sentex — the `(arity P n)` declaration, or the predicate-type membership saying
+believed sentex — the `(arity P n)` declaration, or the exact-class membership saying
 the same thing. That sentex is the **vocabulary entry the conviction is read through**:
 `declared-arity` answers from the arity cache, which follows belief, so a nogood that
 defeated the declaration would destroy its own premise. Measured, on a known-true

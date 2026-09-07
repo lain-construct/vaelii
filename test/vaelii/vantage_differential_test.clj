@@ -26,7 +26,6 @@
   would otherwise report green forever."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.impl.starter :as starter]
             [vaelii.impl.vantage :as vantage]
             [vaelii.test-util :as tu])
   (:import (java.util Random)))
@@ -124,7 +123,7 @@
         skipped  (atom 0)]
     (dotimes [w worlds]
       (let [kb (tu/isolated-fresh)]
-        (starter/load-into kb)
+        (tu/load-starter! kb)
         (let [goals (build-world! kb r)]
           (doseq [goal goals
                   ;; **both spellings of the joint reading**, since they attach the witness
@@ -168,7 +167,7 @@
   ;; `goals`, so its context never reaches a placement — post-hoc cannot answer a read that
   ;; expands rules, and `answers` says so rather than answering wrongly.
   (let [kb (tu/isolated-fresh)]
-    (starter/load-into kb)
+    (tu/load-starter! kb)
     (v/assert kb '(genlCx CxRA CxUniverse) 'CxUniverse)
     (v/assert kb '(gq_t GRex) 'CxRA)
     (v/assert-rule kb ['(gq_t ?x)] '(gr_t ?x) 'CxRA)

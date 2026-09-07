@@ -135,7 +135,7 @@
     (v/assert kb (list 'length A '(QuantityFn 120 Minute)) CxInner)
     (v/assert kb (list 'length B '(QuantityFn 30 Minute)) C)
     (testing "duplicates collapse once normalized, whether restated or reworded, so a
-              redundant fact does not are indistinguishable from a disagreement"
+              redundant fact does not read as a disagreement"
       (is (= '(QuantityFn 9000 Second)
              (bound kb (list 'totalDuration (list 'list A B) '?d)))))))
 

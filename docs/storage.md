@@ -1319,7 +1319,13 @@ silently took `:warn` answers `[]` to everything and is indistinguishable from a
 way recovery is these two steps:
 
 - **taxonomy** — re-integrate the special-predicate sentexes (`rebuild-taxonomy`
-  queries `genl`/`genlCx`/`disjoint`/`disjoint_metatype`/predicate-props/`inverse`).
+  queries `genl`/`genlCx`/`disjoint`/`disjoint_metatype`/predicate-props/`inverse`). A
+  `genl`/`genlCx` sentex is read positionally for its two endpoints, so one an older or
+  foreign writer left under that functor root without a well-formed edge — a two-element
+  sentence whose super reads nil — is **dropped** and counted, logged once at `:warn`
+  under `::edges-malformed`. Replaying it would activate a null closure node, which the
+  `strong-components` condensation cannot walk; the drop is the taxonomy's twin of the
+  JTMS's unrooted-justification skip below.
 - **JTMS** — the record store tracks live sentex ids, justification ids, and premise
   ids; each premise's assumption strength rides on its own sentex record (the
   `:strength` field, no side hash). `rebuild-tms` recreates a node per sentex, marks

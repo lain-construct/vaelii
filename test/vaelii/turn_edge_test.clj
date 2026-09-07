@@ -17,13 +17,12 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.starter :as starter]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
 (defn- core-context-kb [] (doto (tu/fresh) (core-context/load-into)))
-(defn- starter-world-kb [] (doto (tu/fresh) (starter/load-into) (world/load-into)))
+(defn- starter-world-kb [] (doto (tu/fresh) (tu/load-starter!) (world/load-into)))
 
 (defn- one [bindings k] (get (first bindings) k))
 
@@ -252,7 +251,7 @@
     (testing "CxCore vocabulary is present, including the forcing declaration"
       (is (seq (v/sentexes-matching kb '(binary_predicate genl) 'CxCore)))
       (is (seq (v/sentexes-matching kb '(forced_decontextualized_predicate genlCx) 'CxCore))))
-    (testing "but no spindle bands — those come with the starter"
+    (testing "but no spindle members — those come with the starter"
       (is (empty? (v/sentexes-matching kb '(genlCx CxOrganism CxCore) '?ctx)))
       (is (not (tax/sees? (:taxonomy kb) 'CxWell 'CxCore))))))
 
@@ -273,7 +272,7 @@
       (v/assert kb (list 'genl widget 'artifact)  widgets)
       (v/assert kb (list 'arg priceOf 1 widget) widgets)
       (v/assert kb (list widget gadget)            widgets)
-      (testing "the sibling sits in the spindle's upper band"
+      (testing "the sibling sits among the upper spindle's members"
         (is (tax/sees? (:taxonomy kb) widgets 'CxCore))
         (is (tax/sees? (:taxonomy kb) 'CxUniverse widgets))
         (is (tax/sees? (:taxonomy kb) 'CxNaturalWorld widgets)))   ; via Universe, through Well

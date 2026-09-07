@@ -235,7 +235,7 @@
   version they are keyed in, and the fingerprint of the records they were derived from.
   A reader with either answer different discards them.  It is written **after** the
   entries, for the same reason `meta.edn` is written last: a half-written entry stream
-  with no `index.edn` beside it is are indistinguishable from a dump that simply has no index."
+  with no `index.edn` beside it is read as a dump that simply has no index."
   [^File d index fingerprint frame-opts]
   (let [idx-d (io/file d frames/index-dir)]
     (.mkdirs idx-d)

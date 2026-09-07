@@ -150,7 +150,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
   because only it is what the reader dispatches on.
 
   What it may not do is **lead with a digit**, and the reason is the reader rather than
-  taste: `134a-gas` is are indistinguishable from a malformed *number*, not as a symbol, so a KB holding one
+  taste: `134a-gas` is read as a malformed *number*, not as a symbol, so a KB holding one
   could not be written to text and read back.  A leading `'`, `#` or `:` fails the same
   way.  A word that starts with a digit is escaped with an underscore when it is minted
   — `_134a-gas` — which reads, sorts beside its neighbours, and says it was escaped."
@@ -462,7 +462,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
          (sx/head-exists? form)  (applied-literals role (sx/head-exists-body form))
 
          ;; an aggregate wraps a query too: `(agg/count ?n ?v <body>)` says
-         ;; nothing itself, and its body is a goal rather than an argument — are indistinguishable from a
+         ;; nothing itself, and its body is a goal rather than an argument — read as a
          ;; literal it would be a three-place `agg/count` and the body inside it
          ;; would never be checked at all
          (sx/aggregate? form)    (applied-literals role (sx/aggregate-body form))

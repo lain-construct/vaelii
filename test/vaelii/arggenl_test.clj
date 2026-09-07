@@ -54,26 +54,31 @@
 
 (tu/deftest-kb genlArg-wants-a-subtype-where-arg-wants-an-instance
   ;; the whole point of having both: the same type symbol passes one and fails the other
-  (let [[rel sub] (type-relation kb)
-        instRel (tu/tmp-pred) root2 (tu/tmp-type)]
-    (v/assert kb (list 'genl root2 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl sub root2) 'CxUniverse)
-    (v/assert kb (list 'arg instRel 1 root2) 'CxUniverse)
-    ;; a type symbol comes within arg's reach only once it carries a membership of
-    ;; its own reaching `thing` — which is what the starter's (unary_predicate t) batch
-    ;; does for every type.  Without one the open-world exemption applies and there is
-    ;; nothing to convict, so the test states it rather than assuming a loaded KB.
-    (let [meta (tu/tmp-type)]
-      (v/assert kb (list 'genl meta 'thing) 'CxUniverse)
-      (v/assert kb (list meta sub) 'CxUniverse))
-    (testing "the kind satisfies genlArg"
-      (is (v/assert kb (list rel sub (tu/tmp-type)) 'CxUniverse)))
-    (testing "and fails arg, which wants one of its instances"
-      (is (= :arg-type (ex-type #(v/assert kb (list instRel sub (tu/tmp-ind)) 'CxUniverse)))))
-    (testing "an instance of the kind is what arg wanted"
-      (let [x (tu/tmp-ind)]
-        (v/assert kb (list sub x) 'CxUniverse)
-        (is (v/assert kb (list instRel x (tu/tmp-ind)) 'CxUniverse))))))
+  ;; The constraint reading, pinned: with the entailment on there is no arg conviction of
+  ;; a symbol to compare genlArg's against — the declaration mints the membership instead
+  ;; (docs/argtypes.md).  What the two readings do to one type symbol is still the subject;
+  ;; only the reading of arg is fixed.
+  (tu/without-entailing
+   (let [[rel sub] (type-relation kb)
+         instRel (tu/tmp-pred) root2 (tu/tmp-type)]
+     (v/assert kb (list 'genl root2 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl sub root2) 'CxUniverse)
+     (v/assert kb (list 'arg instRel 1 root2) 'CxUniverse)
+     ;; a type symbol comes within arg's reach only once it carries a membership of
+     ;; its own reaching `thing` — which is what the starter's (unary_predicate t) batch
+     ;; does for every type.  Without one the open-world exemption applies and there is
+     ;; nothing to convict, so the test states it rather than assuming a loaded KB.
+     (let [meta (tu/tmp-type)]
+       (v/assert kb (list 'genl meta 'thing) 'CxUniverse)
+       (v/assert kb (list meta sub) 'CxUniverse))
+     (testing "the kind satisfies genlArg"
+       (is (v/assert kb (list rel sub (tu/tmp-type)) 'CxUniverse)))
+     (testing "and fails arg, which wants one of its instances"
+       (is (= :arg-type (ex-type #(v/assert kb (list instRel sub (tu/tmp-ind)) 'CxUniverse)))))
+     (testing "an instance of the kind is what arg wanted"
+       (let [x (tu/tmp-ind)]
+         (v/assert kb (list sub x) 'CxUniverse)
+         (is (v/assert kb (list instRel x (tu/tmp-ind)) 'CxUniverse)))))))
 
 (tu/deftest-kb an-unplaced-type-is-excused-but-an-individual-is-not
   (let [[rel] (type-relation kb)]
@@ -279,7 +284,7 @@
       (is (= :arity (ex-type #(v/assert kb (list rel a) 'CxUniverse)))))))
 
 (tu/deftest-kb a-variableArity-predicate-is-exempt
-  ;; lessThan is declared binary and reads a chain of any length; the declaration says so
+  ;; lessThan has a binary floor and reads a chain of any length; the declaration says so
   (let [rel (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
     (v/assert kb (list 'binary_predicate rel) 'CxUniverse)
     (is (= :arity (ex-type #(v/assert kb (list rel a b (tu/tmp-ind)) 'CxUniverse))))
@@ -292,26 +297,30 @@
   ;; any length has the arguments past its declared number, and a constraint on one of them
   ;; fires on exactly the tuples that reach it — so refusing the declaration while storing
   ;; the three-argument fact leaves the third argument untypeable in a KB that admits it.
-  (tu/with-terms [chainOf a_type b_type A B C Odd]
-    (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl b_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
-    (is (= :arg-position
-           (ex-type #(v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse)))
-        "binary and nothing else, so there is no third argument to constrain")
-    (v/assert kb (list 'variable_arity chainOf) 'CxUniverse)
-    (testing "the mark releases the declaration exactly as it releases the tuple"
-      (is (v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse))
-      (is (v/assert kb (list 'genlArg chainOf 4 'thing) 'CxUniverse)))
-    (testing "both of interArg's positions are released, not only the first"
-      (is (v/assert kb (list 'interArg chainOf 1 a_type 5 a_type) 'CxUniverse)))
-    (testing "and the constraint is live on the tuple that reaches the position"
-      (v/assert kb (list a_type C) 'CxUniverse)
-      (v/assert kb (list b_type Odd) 'CxUniverse)          ; placed, but not an a_type
-      (is (v/assert kb (list chainOf A B C) 'CxUniverse))
-      (is (= :arg-type (ex-type #(v/assert kb (list chainOf A B Odd) 'CxUniverse)))
-          "argument 3 is enforced where the tuple has one, which is what makes the
-           declaration worth admitting"))))
+  ;; Pinned to the constraint reading: what is asserted is that the released position is
+  ;; *enforced*, and enforcement of a symbol argument is what the entailment reading
+  ;; replaces with a mint (docs/argtypes.md).  The release itself reads the same either way.
+  (tu/without-entailing
+   (tu/with-terms [chainOf a_type b_type A B C Odd]
+     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl b_type 'thing) 'CxUniverse)
+     (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
+     (is (= :arg-position
+            (ex-type #(v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse)))
+         "binary and nothing else, so there is no third argument to constrain")
+     (v/assert kb (list 'variable_arity chainOf) 'CxUniverse)
+     (testing "the mark releases the declaration exactly as it releases the tuple"
+       (is (v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse))
+       (is (v/assert kb (list 'genlArg chainOf 4 'thing) 'CxUniverse)))
+     (testing "both of interArg's positions are released, not only the first"
+       (is (v/assert kb (list 'interArg chainOf 1 a_type 5 a_type) 'CxUniverse)))
+     (testing "and the constraint is live on the tuple that reaches the position"
+       (v/assert kb (list a_type C) 'CxUniverse)
+       (v/assert kb (list b_type Odd) 'CxUniverse)          ; placed, but not an a_type
+       (is (v/assert kb (list chainOf A B C) 'CxUniverse))
+       (is (= :arg-type (ex-type #(v/assert kb (list chainOf A B Odd) 'CxUniverse)))
+           "argument 3 is enforced where the tuple has one, which is what makes the
+             declaration worth admitting")))))
 
 (tu/deftest-kb a-variableArity-sub-takes-a-constraint-past-the-length-above-it
   ;; The inherited route into the same arm, and the mark sits where the inheritance never
@@ -555,12 +564,17 @@
   ;; ordinary symbol arm convicts it.  Both classes of function, one declaration, one
   ;; verdict — which is the whole of why the check reads `result` rather than inventing
   ;; a second declaration for the applications that are never minted.
-  (let [msr (tu/tmp-type) dog (tu/tmp-type) f (tu/tmp-ind) wants (tu/tmp-pred)
-        x (tu/tmp-ind)]
-    (v/assert kb (list 'genl msr 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
-    (v/assert kb (list 'reifiable_function f) 'CxUniverse)
-    (v/assert kb (list 'result f msr) 'CxUniverse)
-    (v/assert kb (list 'unary_predicate wants) 'CxUniverse)
-    (v/assert kb (list 'arg wants 1 dog) 'CxUniverse)
-    (is (= :arg-type (ex-type #(v/assert kb (list wants (list f x)) 'CxUniverse))))))
+  ;; Pinned to the constraint reading: the reified constant is a symbol, so under the
+  ;; entailment reading the symbol arm mints (dog K) rather than convicting it.  The claim
+  ;; that both classes of function reach one verdict is a claim about the reading that has
+  ;; one.
+  (tu/without-entailing
+   (let [msr (tu/tmp-type) dog (tu/tmp-type) f (tu/tmp-ind) wants (tu/tmp-pred)
+         x (tu/tmp-ind)]
+     (v/assert kb (list 'genl msr 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
+     (v/assert kb (list 'reifiable_function f) 'CxUniverse)
+     (v/assert kb (list 'result f msr) 'CxUniverse)
+     (v/assert kb (list 'unary_predicate wants) 'CxUniverse)
+     (v/assert kb (list 'arg wants 1 dog) 'CxUniverse)
+     (is (= :arg-type (ex-type #(v/assert kb (list wants (list f x)) 'CxUniverse)))))))

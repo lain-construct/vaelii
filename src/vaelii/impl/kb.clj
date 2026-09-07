@@ -254,52 +254,6 @@
    :pg      {:durable? true  :persisted-index? true  :image? false :adapter "com.vaelii/postgres"}
    :overlay {:decorator? true}})
 
-(def ^:private index-axes
-  "Every index axis, one row — the data half, as `record-axes` is.
-
-    :durable?     does the index open already populated.  Four of the five answer false
-                  and are rebuilt by `reindex` on open; `:disk-log` is the
-                  write-ahead-logged one.  **`:snapshot` answers false, and that is the
-                  whole of the difference between it and `:disk-log`**: the mapped image is
-                  an *attempt* on the way into the rebuild, taken when the stamp holds and
-                  skipped when it does not, so answering true would claim a store opens
-                  populated when only an image nobody has checked yet does.
-    :pairs-with   the record axes this index may finally sit over, or absent for one that
-                  sits over any.  Spliced into `backend-axes`' refusal, which is why it is
-                  a set here and prose there.
-    :why          the ending of that refusal's argument.  Carried per index rather than
-                  shared with a name substituted, so the message reads as one argument.
-    :decorator?   as `record-axes`.
-
-  A row with `:pairs-with` is gated **twice**, and the two gates are not one test written
-  loosely.  The first asks for `:persisted-index?` records and is shared; the second is
-  the axis's own — `:snapshot` narrows to the one axis that can stamp an image, and
-  `:pg` records reach it durable and are still refused, with the argument that is
-  actually theirs.  `check-backends!` holds `:snapshot`'s set to the image axis and
-  `:disk-log`'s to `durable-under-log-index`, so neither can drift from the gate it
-  describes."
-  {:memory   {:durable? false}
-   :dense    {:durable? false}
-   :columnar {:durable? false}
-   :snapshot {:durable?   false
-              :pairs-with #{:disk}
-              :why        "an image is stamped with a fingerprint of the records it was built from, so over a store that empties at JVM exit every open discards it and reindexes — the representation the name asks for is one this pairing can never hold"}
-   :disk-log {:durable?   true
-              :pairs-with #{:disk :pg}
-              :why        "persisting the derived half over a store that empties at JVM exit leaves index files describing records that are gone, and the next open answers every query out of them believing nothing is wrong"}
-   :overlay  {:decorator? true}})
-
-(defn- axis-prose
-  "A seq of axis keywords as a refusal spells them: `:memory, :disk, :sqlite or :pg`.
-  Derived rather than written beside the roster, because a hand-written twin of a set is a
-  sentence free to describe a pairing the gate does not make.  Order is the caller's — a
-  roster reads in its own order and a set is sorted on the way in."
-  [axes]
-  (let [v (vec axes)]
-    (if (< (count v) 2)
-      (str/join (map pr-str v))
-      (str (str/join ", " (map pr-str (butlast v))) " or " (pr-str (last v))))))
-
 (def ^:private durable-under-log-index
   "The record axes a persisted index half may sit over at all — `record-axes`'
   `:persisted-index?`, as a set.
@@ -316,6 +270,65 @@
   image has asked for a representation it can never get."
   (into #{} (comp (filter (comp :persisted-index? val)) (map key)) record-axes))
 
+(def ^:private image-record-axis
+  "The one record axis the mapped image pairs with — `record-axes`' `:image?`, which
+  `check-backends!` holds to exactly one row.  The argument for its being one is that
+  row's `:image?` line."
+  (key (first (filter (comp :image? val) record-axes))))
+
+(def ^:private index-axes
+  "Every index axis, one row — the data half, as `record-axes` is.
+
+    :durable?     does the index open already populated.  Four of the five answer false
+                  and are rebuilt by `reindex` on open; `:disk-log` is the
+                  write-ahead-logged one.  **`:snapshot` answers false, and that is the
+                  whole of the difference between it and `:disk-log`**: the mapped image is
+                  an *attempt* on the way into the rebuild, taken when the stamp holds and
+                  skipped when it does not, so answering true would claim a store opens
+                  populated when only an image nobody has checked yet does.
+    :pairs-with   the record axes this index may finally sit over, or absent for one that
+                  sits over any.  Spliced into `backend-axes`' refusal, which is why it is
+                  a set here and prose there.  **Derived**, on both rows that carry one:
+                  see below.
+    :why          the ending of that refusal's argument.  Carried per index rather than
+                  shared with a name substituted, so the message reads as one argument.
+    :decorator?   as `record-axes`.
+
+  A row with `:pairs-with` is gated **twice**, and the two gates are not one test written
+  loosely.  The first asks for `:persisted-index?` records and is shared; the second is
+  the axis's own — `:snapshot` narrows to the one axis that can stamp an image, and
+  `:pg` records reach it durable and are still refused, with the argument that is
+  actually theirs.
+
+  **Both sets are the gate they describe, so both are read off it** rather than written
+  here: `:snapshot`'s is `record-axes`' `:image?` row and `:disk-log`'s is its
+  `:persisted-index?` rows.  Neither is a judgment — whichever axis carries `:image?` is
+  the one an image can sit over, by the meaning of the field — so a set written out beside
+  them would be a second copy whose only job is to agree, and the prose `backend-axes`
+  splices would be free to name a pairing nothing gates.  A row whose pairing *is* a
+  judgment is written, and nothing derives it."
+  {:memory   {:durable? false}
+   :dense    {:durable? false}
+   :columnar {:durable? false}
+   :snapshot {:durable?   false
+              :pairs-with #{image-record-axis}
+              :why        "an image is stamped with a fingerprint of the records it was built from, so over a store that empties at JVM exit every open discards it and reindexes — the representation the name asks for is one this pairing can never hold"}
+   :disk-log {:durable?   true
+              :pairs-with durable-under-log-index
+              :why        "persisting the derived half over a store that empties at JVM exit leaves index files describing records that are gone, and the next open answers every query out of them believing nothing is wrong"}
+   :overlay  {:decorator? true}})
+
+(defn- axis-prose
+  "A seq of axis keywords as a refusal spells them: `:memory, :disk, :sqlite or :pg`.
+  Derived rather than written beside the roster, because a hand-written twin of a set is a
+  sentence free to describe a pairing the gate does not make.  Order is the caller's — a
+  roster reads in its own order and a set is sorted on the way in."
+  [axes]
+  (let [v (vec axes)]
+    (if (< (count v) 2)
+      (str/join (map pr-str v))
+      (str (str/join ", " (map pr-str (butlast v))) " or " (pr-str (last v))))))
+
 (def ^:private durable-index-axes
   "The index axes that need a `durable-under-log-index` record axis under them, and for
   each the prose pairing and the sentence saying why — both spliced into `backend-axes`'
@@ -330,12 +343,6 @@
                         [kind {:with (axis-prose (sort pairs-with)) :why why}])))
         index-axes))
 
-(def ^:private image-record-axis
-  "The one record axis the mapped image pairs with — `record-axes`' `:image?`, which
-  `check-backends!` holds to exactly one row.  The argument for its being one is that
-  row's `:image?` line."
-  (key (first (filter (comp :image? val) record-axes))))
-
 (def ^:private reserved-backend-names
   "Names `open-kb` refuses outright, and the pairing to take instead.  Each is a name a
   caller reaches for and this engine does not read: `:disk` and `:pg-disk` read as *both
@@ -346,7 +353,7 @@
   **Refused rather than aliased.**  An index axis names a directory layout, so a name
   that answers to two of them opens a store in a layout its caller did not ask for: a
   wrong-shaped directory and a heap profile nobody chose, discovered by the machine
-  running out of it.  `check-opts!` already treats an option `open-kb` cannot are indistinguishable from a
+  running out of it.  `check-opts!` already treats an option `open-kb` cannot read as a
   refusal rather than a default, and a *name* it cannot read is that same argument one
   level up — one edit per call site, against a KB that is never opened in a layout its
   caller did not name."
@@ -636,7 +643,7 @@
 (defn- check-backends!
   "Refuse at load a backend table that does not agree with itself.
 
-  Six rules, and every one of them is a thing the engine cannot notice at runtime.  A
+  Five rules, and every one of them is a thing the engine cannot notice at runtime.  A
   `backend-modes` row naming an axis nothing opens is a name that refuses at the first
   open somebody tries; a pair the gates would reject is a *name* for a selection
   `backend-axes` refuses, so the sugar and the gate disagree about what is legal; a
@@ -644,11 +651,12 @@
   refusal.  None of these is reachable from a test that opens the backends the suite
   already runs, because each is about a backend the suite does not have.
 
-  The two `:pairs-with` rules are the ones worth the ceremony.  Each is prose spliced into
-  a refusal, describing a gate written somewhere else — `:disk-log`'s describes
-  `durable-under-log-index`, `:snapshot`'s describes `image-record-axis` — and a sentence
-  that describes a gate is free to stop describing it.  Pinning each to the gate it names
-  is what keeps the refusal an argument rather than a claim.
+  `:image-axis` is the one worth the ceremony.  The mapped image is stamped with a
+  fingerprint one store computes, so `image-record-axis` reads the single `:image?` row as
+  *the* image axis and `index-axes` pairs `:snapshot` with it; a second `:image?` row makes
+  that read pick one of two and say nothing, and the pairing it feeds would then describe a
+  gate the table cannot make.  A row is what says which axis stamps, so the rule holds the
+  count rather than the identity.
 
   And the last: **every legal pair over the core axes has a name.**  That is what makes
   `:records` / `:index` opts for overriding a half rather than for reaching a corner the
@@ -660,8 +668,8 @@
   it over tables that disagree.  A validator whose only caller is its own namespace's load
   has run every branch it will ever run against a table that passes — which is the same
   position as the backends the suite does not have, one level up: nothing says the rules
-  would fire.  The two derived sets are derived from the argument here rather than read
-  off the var, so a driven table is checked against itself and not against the live one.
+  would fire.  The sets it gates with are derived from the argument here rather than read
+  off the vars, so a driven table is checked against itself and not against the live one.
 
   Refuses under `:bad-table-entry` discriminated by `:mismatch`, as
   `predicates/check-families` and `config/check-switches!` do."
@@ -670,8 +678,7 @@
   (check-arms! "record" record-axes record-arms "record-arms")
   (check-arms! "record" record-axes record-space-arms "record-space-arms")
   (check-arms! "index"  index-axes  index-arms  "index-arms")
-  (let [images            (into #{} (comp (filter (comp :image? val)) (map key)) record-axes)
-        image-record-axis (first images)
+  (let [images (into #{} (comp (filter (comp :image? val)) (map key)) record-axes)
         durable-under-log-index (into #{} (comp (filter (comp :persisted-index? val)) (map key))
                                       record-axes)]
     (when-not (= 1 (count images))
@@ -681,25 +688,6 @@
                           " fingerprint one store computes, so exactly one axis carries"
                           " `:image?` and `image-record-axis` is that one.")
                      {:axes images}))
-    (when-not (= #{image-record-axis} (:pairs-with (index-axes :snapshot)))
-      (refuse-table! :pairs-with
-                     (str ":snapshot pairs with "
-                          (pr-str (:pairs-with (index-axes :snapshot)))
-                          " and the image axis is " image-record-axis
-                          " — the set is the prose of a refusal the `:image?` gate makes,"
-                          " so a set that has drifted from it argues for a pairing that is"
-                          " refused for another reason, or refuses one nothing gates.")
-                     {:axis :snapshot :pairs-with (:pairs-with (index-axes :snapshot))
-                      :image image-record-axis}))
-    (when-not (= durable-under-log-index (:pairs-with (index-axes :disk-log)))
-      (refuse-table! :pairs-with
-                     (str ":disk-log pairs with "
-                          (pr-str (:pairs-with (index-axes :disk-log)))
-                          " and the record axes that take a persisted index are "
-                          (pr-str durable-under-log-index) " — the refusal would name a"
-                          " pairing the gate does not make.")
-                     {:axis :disk-log :pairs-with (:pairs-with (index-axes :disk-log))
-                      :gate durable-under-log-index}))
     (doseq [[nm {:keys [records index]}] (sort-by key backend-modes)]
       (when-not (contains? record-axes records)
         (refuse-table! :unknown-axis
@@ -863,11 +851,11 @@
 
   `where` names the map, since a fork's `:base` and `:overlay` carry opts of their own.
 
-  Through the shared entry point (`opts/check!`), which also refuses a non-map `opts` — the one
-  thing this entry point did not: `(open-kb :nope)` reached `keys` and came back as a bare
-  `IllegalArgumentException` about creating an ISeq, where every other public entry point
-  answers `:unknown-option`.  It is the most-used option map in the API and was the one
-  with no guard on the structure of it."
+  Through the shared entry point (`opts/check!`), which also refuses a non-map `opts`:
+  `(open-kb :nope)` answers `:unknown-option` like every other public entry point, rather
+  than reaching `keys` and coming back as a bare `IllegalArgumentException` about creating
+  an ISeq.  This is the most-used option map in the API, so the structure of it is guarded
+  here and not left to the first thing that dereferences it."
   [opts where]
   (opts/check! opts opt-keys where
                (str "An option nothing reads takes the default in silence,"
@@ -2288,7 +2276,7 @@
 ;;
 ;; What the roster removes is the *fetches*: which except sits in which context, and what
 ;; each hides, are facts about storage, so they are maintained here at the two choke
-;; points and are indistinguishable from a map.  What stays a read is belief — `jtms/in?` on the except's own
+;; points and read as a map.  What stays a read is belief — `jtms/in?` on the except's own
 ;; handle — and the `context-up` walk, both of which move without a sentex arriving or
 ;; leaving.  This is `:opposed`'s bargain exactly (belief-blind storage, filtered by the
 ;; reader), and it is the second idiom rather than a stamped memo because the scope that

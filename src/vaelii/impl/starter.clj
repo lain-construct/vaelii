@@ -47,10 +47,13 @@
         - CxSocial.txt    — what acquaintance follows from; employment as one way
                                  of belonging.
 
-  The context spindle is a five-layer axis, most general (top) to most specific
-  (bottom): CxCore, the upper layer, CxUniverse, the middle layer,
-  CxWell.  Each upper/middle file wires itself into the axis, so the topology is
-  data.  **No cast and no contingent facts ship**: the starter is a schema, and
+  A spindle is three layers — a head every member sees, members that see the head and
+  not each other, and a collector that sees every member — and the topology is two of
+  them stacked, most general (top) to most specific (bottom): CxCore heads the
+  upper spindle, whose members are `kb/upper/` and whose collector is CxUniverse, and
+  CxUniverse heads the middle spindle, whose members are `kb/middle/` and whose
+  collector is CxWell.  Each member file wires itself to its own head and collector, so
+  the topology is data.  **No cast and no contingent facts ship**: the starter is a schema, and
   contingent data (a cast, worked examples, the Aesop fables) belongs below CxWell
   and lives in the tests that need it.
 
@@ -67,8 +70,7 @@
   (:require [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
             [vaelii.impl.naming :as nm]
-            [vaelii.impl.seed :as seed]
-            [vaelii.impl.taxonomy :as tax]))
+            [vaelii.impl.seed :as seed]))
 
 (defn load-into
   "Populate `kb` with the starter schema — every context under resources/kb/, loaded
@@ -77,8 +79,8 @@
   (core-context/load-into kb)                                       ; CxCore.txt: the vocabulary head
   (seed/load-layer kb "upper"  (seed/layer-contexts "upper"))  ; every definitional context
   (seed/load-layer kb "middle" (seed/layer-contexts "middle")) ; every theory context
-  ;; every type is a unary_predicate — computed over the taxonomy, so it stays in code;
-  ;; a predicate classification, placed with the others in CxCore
-  (doseq [t (nm/by-print-key (tax/types (:taxonomy kb)))]
+  ;; The subtypes of thing are unary types. Other genl components may relate
+  ;; predicates of any arity and do not imply unary membership.
+  (doseq [t (nm/by-print-key (v/specs kb 'thing))]
     (v/assert kb (list 'unary_predicate t) 'CxCore))
   kb)

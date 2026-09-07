@@ -93,7 +93,7 @@
                       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))))))
 
 (deftest an-unknown-imperative-names-the-known-ones
-  ;; A typo in the `do/` namespace must not are indistinguishable from a fact about a predicate called
+  ;; A typo in the `do/` namespace must not read as a fact about a predicate called
   ;; `do/labelling`; it is a caller error and says so.
   (tu/with-neutral-kb [kb tu/fresh]
     (let [e (try (v/assert kb (list 'do/frobnicate 'X) 'CxUniverse) nil

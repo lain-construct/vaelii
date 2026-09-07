@@ -18,11 +18,10 @@
   every context-scoped vocabulary would look global."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
-(use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
+(use-fixtures :once (tu/loaded (fn [kb] (-> kb tu/load-starter! world/load-into))))
 (use-fixtures :each (tu/neutral))
 
 (def ^:private N 'CxNaturalWorld)
@@ -129,7 +128,7 @@
 ;; ---- the scoping, which is the whole point ------------------------------
 
 (tu/deftest-kb an-argument-declaration-is-reported-only-where-the-reader-can-see-it
-  ;; `(arg parentOf 1 animal)` is stated in the upper band; `CxCore` sits above it and
+  ;; `(arg parentOf 1 animal)` is stated in an upper-spindle member; `CxCore` is its head and
   ;; sees nothing below.  A `describe` that read the whole KB would report the
   ;; declaration to a reader for whom it does not bind, which is the failure this
   ;; scoping exists to stop — and it is invisible from the answer, since a declaration

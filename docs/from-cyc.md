@@ -24,7 +24,9 @@ third column is the one to read.
 | collection | a type, which is a **unary predicate** | `(dog Muffet)`, never `(isa Muffet Dog)` |
 | `genls` | `genl` | |
 | `genlPreds` | `genl` | one relation for both, because a type *is* a predicate here |
-| `arg1Isa` / `arg2Isa` | `(arg P 1 T)` | the position is an argument, so there is no per-position predicate to learn |
+| `argIsa` | `arg` | positional typing as one ternary declaration: `(argIsa P 1 T)` → `(arg P 1 T)` |
+| `arg1Isa` | `arg1` | the binary projection of `arg` at position 1 — bridged to `arg` by rules and sharing its declaration checks, but relating **stored** declarations only; a generalized or inherited reading must be asked of `arg` |
+| `arg2Isa` | `arg2` | the projection at position 2, with the same bridging and the same stored-only caveat |
 | don't-care variable `??` | a head existential `(exists ?y C)` | syntactic rather than a naming convention, and skolemized to a deterministic NAT on firing → [skolem.md](skolem.md) |
 | `wff?` | `check` | returns a vector of problem maps rather than a verdict, so it says *what* is wrong |
 | rename | — | no equivalent. `sameAs` / `rewriteOf` **merge** two terms onto an elected representative and mark the displaced spelling superseded, which is a different act → [equality.md](equality.md) |
@@ -242,10 +244,10 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - Defeasible defaults with exceptions → [exceptions.md](exceptions.md)
 - The relation-property marks, enforced rather than recorded: `symmetric`, `asymmetric`,
   `transitive`, `reflexive`, `functional`, `functionalInArg`, `inverse`, `irreflexive`,
-  `anti_symmetric`, `anti_transitive`, `equivalence_relation`, `arity` and `variable_arity`
-  → [taxonomy.md](taxonomy.md). `functionalInArg` is the one with no Cyc counterpart to
-  map from: it names the *determined* argument rather than fixing it at 2, so a
-  composite determinant — `(namespace, path) → object` — is sayable in one declaration
+  `anti_symmetric`, `anti_transitive`, `equivalence_relation`, `injection`, `surjection`,
+  `bijection`, `arity` and `variable_arity` → [taxonomy.md](taxonomy.md). `functionalInArg` is the one with no Cyc
+  counterpart to map from: it names the *determined* argument rather than fixing it at 2,
+  so a composite determinant — `(namespace, path) → object` — is sayable in one declaration
   → [taxonomy.md](taxonomy.md)
 - Polycanonicalization, so a conjunctive consequent becomes one rule per conjunct and a
   disjunctive antecedent one rule per alternative → [canonicalization.md](canonicalization.md)
@@ -256,7 +258,6 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - Natural-language generation
 - `notAssertible`, `assertedMoreSpecifically`
 - `negationPreds` above arity 1 — the paired rules above are the translation
-- `arg1Isa` / `arg2Isa` sugar
 - Strict well-formedness mode
 
 `transitiveViaArg` is **not** on this list — it is spelled `transitiveInArg` here:

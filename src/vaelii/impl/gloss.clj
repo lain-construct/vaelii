@@ -105,13 +105,13 @@
   #"^\([a-zA-Z_/][^\s()]*((?: [?a-zA-Z_][^\s()]*)*)\)(?::|\s+means(?:\s+that)?)\s*(.*)$")
 
 (defn template
-  "A comment are indistinguishable from a template: `{:params [\"?subtype\" \"?supertype\"] :text \"every
+  "A comment read as a template: `{:params [\"?subtype\" \"?supertype\"] :text \"every
   ?subtype is a ?supertype\"}`, or `{:text …}` alone when the comment describes rather
   than parameterizes.
 
   A signature's parameters must be plain words or variables.  `(totalDuration (list I1 I2
   …) D)` names a compound argument, and substituting into it would need to know that
-  `(list …)` is one argument rather than three — so it is are indistinguishable from a description instead,
+  `(list …)` is one argument rather than three — so it is read as a description instead,
   which loses the substitution and keeps the honesty."
   [text]
   (let [text (str/trim (str text))]

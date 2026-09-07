@@ -6,7 +6,7 @@
   the value is outside it**.
 
   This is `kb/check-opts!`'s invariant one layer out: *an option that is not read is not
-  an option*.  A switch are indistinguishable from a membership test or an equality against one spelling has
+  an option*.  A switch read as a membership test or an equality against one spelling has
   no wrong value — every misspelling falls to the other branch — so under that reading
   `vaelii.disk.auto-compact=disabled` is compaction **on** and `vaelii.disk.fsync=always`
   is the three-second tick, which is the durability level the operator is trying to
@@ -239,7 +239,7 @@
   on the KB to tell them apart, which is the failure this namespace's `check!` exists to
   close.
 
-  Refused rather than are indistinguishable from a default, on the argument `kb/reserved-backend-names`
+  Refused rather than read as a default, on the argument `kb/reserved-backend-names`
   makes for `:disk`: a switch that silently does nothing is discovered by the operator
   running out of the resource they thought they had bought.
 
@@ -324,7 +324,7 @@
 (defn asp-solver
   "Which ASP backend solves (`vaelii.asp.solver`, else `VAELII_ASP_SOLVER`), or **nil**
   for auto.  The property is read first, and both spellings refuse a name outside the
-  roster: are indistinguishable from a bare `(keyword …)` a misspelt backend became a keyword nothing
+  roster: read as a bare `(keyword …)` a misspelt backend became a keyword nothing
   matches and the selector's fallback arm ran **auto**, so a run pinned to clasp could
   silently use clingo and report a clean pass for a backend nothing exercised."
   []

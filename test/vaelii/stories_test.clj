@@ -7,11 +7,10 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
-(use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
+(use-fixtures :once (tu/loaded (fn [kb] (-> kb tu/load-starter! world/load-into))))
 (use-fixtures :each (tu/neutral))
 
 ;; ---- connected conjunctive antecedents in the starter -------------------

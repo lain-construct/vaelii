@@ -143,11 +143,11 @@ governing it, so a keyword can never come to mean whatever its first user assume
 | `sweep-kinds` | `:type-separating` `:predicate-marked` `:both` | carrying one **is** being a clash declaration, so `settle`'s exposure pass has an arm for it. Absent is the answer for a term whose retroactive half is a different mechanism |
 | `mark-families` | `:functional` `:argument-constraint` | a family lives in more than one lane. Naming it once is what makes a third spelling reach every lane at once |
 
-`facets` is the one with a second half. `facet-contract` gives every facet a row — the
-facets carrying it *implies*, and whether a mark family has to agree about it — and
-`check-facets` refuses the pair if the two enumerate different keywords. That is what makes
-"one commit adds the keyword and the rule governing it" a build failure rather than a
-promise: a facet with no row is one whose meaning its first user decided.
+`facets` is the one that is not written out. `facet-contract` gives every facet a row — the
+facets carrying it *implies*, and whether a mark family has to agree about it — and `facets`
+is that map's keys. So for this vocabulary the single commit above is not a rule to keep to
+but the only edit available: a keyword with no row is not a facet, and there is no second
+list to fall out of step with the first.
 
 The distinction worth reading twice is `:predicate` against `:relation` in the first row. A
 mark read off a sentence's functor holds its subject to a symbol that is not an individual.
@@ -203,7 +203,7 @@ that caller do.
 | `special/check-entries` | an entry with *some* of the cache triple — the cache would fill on assert and leak on retract, or come back wrong after a recover (`:mismatch :partial-cache-triple`); and an entry with no arm at all, which is a typo (`:mismatch :no-arm`) |
 | `special/check-declarations` | a functor with arms and no declaration or the reverse (`:mismatch :enumeration`); a `:cached` declaration whose arms have no triple, or the reverse (`:mismatch :cached`); a `:checked` declaration with no `:wff` arm, or the reverse (`:mismatch :checked`) |
 | `settle/clash-declaration-kinds` | a sweep kind the exposure pass has no arm for, and a definitional mark that does not sweep what it convicts (`:mismatch :reach`) |
-| `predicates/check-facets`, run at `settle`'s load | `facet-contract` and `facets` enumerating different keywords (`:contract`); a field value outside its closed vocabulary (`:vocabulary`); `:cached` disagreeing with the storage kind (`:storage`); a `:sweeps` with no `:reach` (`:sweep-reach`); an `:arbitrable` term with no `:opposing-read` claim (`:arbitrable`); an `:inert` term carrying a second facet or a storage (`:inert`); a roster that reads a mark family as a family and enumerates something other than that family (`:family-roster`); a facet the entry is committed to and neither carries nor records — by `facet-contract` (`:implication`), by a sibling spelling of its family (`:family-lane`), or by answering goals about a predicate and posting no exception re-check (`:recheck`); and a `:stops-short` record that is not owed or carries no reason (`:stops-short`) |
+| `predicates/check-facets`, run at `settle`'s load | a field value outside its closed vocabulary (`:vocabulary`); `:cached` disagreeing with the storage kind (`:storage`); a `:sweeps` with no `:reach` (`:sweep-reach`); an `:arbitrable` term with no `:opposing-read` claim (`:arbitrable`); an `:inert` term carrying a second facet or a storage (`:inert`); a roster that reads a mark family as a family and enumerates something other than that family (`:family-roster`); a facet the entry is committed to and neither carries nor records — by `facet-contract` (`:implication`), by a sibling spelling of its family (`:family-lane`), or by answering goals about a predicate and posting no exception re-check (`:recheck`); and a `:stops-short` record that is not owed or carries no reason (`:stops-short`) |
 
 `check-entries` and `check-declarations` are two validators at two layers rather than one
 duplicated: the first sees only the arms and so can check only that they mirror each other,

@@ -14,7 +14,9 @@
 
     (load-into (v/open-kb {}))
 
-  About 1,879 sentexes: the vocabulary head, the definitional upper band, and the
-  middle theories.  No individuals — it is a schema to build on, not a world."
+  Over 1,600 asserted sentexes — the spindle head, the upper spindle's members
+  and the middle spindle's — which the rules take to 3,200+ stored once they have fired.  No
+  individuals: the starter is a schema to build on, not a world.  `starter_test` pins
+  both counts, so a shipped file that adds content moves a number here."
   [kb]
   (starter/load-into kb))

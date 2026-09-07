@@ -328,49 +328,71 @@
 ;; test below is what fails the day a sweep answers it.
 
 (deftest the-argument-constraints-reach-back-over-nothing-and-refuse-what-follows
-  (tu/with-terms [person_t rock_t parentOf fatherOf eats Rock Mary Pebble]
-    (let [ground [(list 'genl person_t 'thing) (list 'genl rock_t 'thing)
-                  (list rock_t Rock) (list person_t Mary) (list rock_t Pebble)]
-          rows
-          [{:row     "arg, the declaration arriving last"
-            :fact    (list parentOf Rock Mary)
-            :closing (list 'arg parentOf 1 person_t)
-            :next    (list parentOf Pebble Mary)
-            :type    :arg-type}
-           {:row     "genlArg, the declaration arriving last"
-            :fact    (list parentOf Rock Mary)
-            :closing (list 'genlArg parentOf 1 person_t)
-            :next    (list parentOf Pebble Mary)
-            :type    :arg-genl}
-           ;; the conditional constraint has *three* ingredients, and it is the third that
-           ;; nothing reaches: the fact and the declaration are stored, and the membership
-           ;; arming the trigger arrives afterwards
-           {:row     "interArg, the trigger's type arriving last"
-            :fact    (list eats Rock Mary)
-            :extra   [(list 'interArg eats 1 person_t 2 person_t)]
-            :closing (list person_t Rock)
-            :next    (list eats Rock Pebble)
-            :type    :inter-arg-type}
-           ;; the family's non-reach, one ingredient further out: the edge is admitted, the
-           ;; fact it now convicts stays stored and believed, and the next claim is refused
-           {:row     "a predicate-level genl edge under an argument constraint"
-            :fact    (list fatherOf Rock Mary)
-            :extra   [(list 'arg parentOf 1 person_t)]
-            :closing (list 'genl fatherOf parentOf)
-            :next    (list fatherOf Pebble Mary)
-            :type    :arg-type}]]
-      (doseq [{:keys [row fact extra closing next type]} rows]
-        (testing row
-          (tu/with-cleared-kb [kb tu/fresh]
-            (doseq [s (concat ground [fact] extra [closing])]
-              (v/assert kb s 'CxUniverse))
-            (is (empty? (v/violations kb))
-                "nothing is filed against content admitted before the constraint existed")
-            (is (empty? (v/contradictions kb))
-                "and no pair is opened — the conviction rests on an absence, not a sentex")
-            (is (v/ask? kb fact 'CxUniverse) "the stored fact keeps its belief")
-            (is (= type (:type (first (v/check kb next 'CxUniverse))))
-                "while the identical claim one line later is refused")))))))
+  ;; Pinned to the constraint reading: the rows here say which arrival order *refuses*, and
+  ;; with the entailment on a symbol argument is minted rather than convicted
+  ;; (docs/argtypes.md).  The entailment's own three arrival orders are held by
+  ;; argtype_entail_test, which is where that reading answers the same question.
+  (tu/without-entailing
+   (tu/with-terms [person_t rock_t parentOf fatherOf eats Rock Mary Pebble]
+     (let [ground [(list 'genl person_t 'thing) (list 'genl rock_t 'thing)
+                   (list rock_t Rock) (list person_t Mary) (list rock_t Pebble)]
+           rows
+           [{:row     "arg, the declaration arriving last"
+             :fact    (list parentOf Rock Mary)
+             :closing (list 'arg parentOf 1 person_t)
+             :next    (list parentOf Pebble Mary)
+             :type    :arg-type}
+            {:row     "genlArg, the declaration arriving last"
+             :fact    (list parentOf Rock Mary)
+             :closing (list 'genlArg parentOf 1 person_t)
+             :next    (list parentOf Pebble Mary)
+             :type    :arg-genl}
+            ;; the conditional constraint has *three* ingredients, and it is the third that
+            ;; nothing reaches: the fact and the declaration are stored, and the membership
+            ;; arming the trigger arrives afterwards
+            {:row     "interArg, the trigger's type arriving last"
+             :fact    (list eats Rock Mary)
+             :extra   [(list 'interArg eats 1 person_t 2 person_t)]
+             :closing (list person_t Rock)
+             :next    (list eats Rock Pebble)
+             :type    :inter-arg-type}
+            ;; `quotedArg` takes the same non-reach, and it is the row worth reading twice:
+            ;; the mention twin convicts the *written* term, whose syntactic kind every term
+            ;; has, so the "merely silence" half of the family's argument does not reach it —
+            ;; what remains is that the conviction is still the absence of a `genl` path,
+            ;; from `integer` to `string` here rather than from an argument's type. Pinned so
+            ;; the cell is examined rather than inherited from the three rows above.
+            {:row     "quotedArg, the declaration arriving last"
+             :fact    (list parentOf Mary 5)
+             :closing (list 'quotedArg parentOf 2 'string)
+             :next    (list parentOf Rock 7)
+             :type    :quoted-arg-type}
+            {:row     "quotedArg, the predicate edge arriving last"
+             :fact    (list fatherOf Mary 5)
+             :extra   [(list 'quotedArg parentOf 2 'string)]
+             :closing (list 'genl fatherOf parentOf)
+             :next    (list fatherOf Rock 7)
+             :type    :quoted-arg-type}
+            ;; the family's non-reach, one ingredient further out: the edge is admitted, the
+            ;; fact it now convicts stays stored and believed, and the next claim is refused
+            {:row     "a predicate-level genl edge under an argument constraint"
+             :fact    (list fatherOf Rock Mary)
+             :extra   [(list 'arg parentOf 1 person_t)]
+             :closing (list 'genl fatherOf parentOf)
+             :next    (list fatherOf Pebble Mary)
+             :type    :arg-type}]]
+       (doseq [{:keys [row fact extra closing next type]} rows]
+         (testing row
+           (tu/with-cleared-kb [kb tu/fresh]
+             (doseq [s (concat ground [fact] extra [closing])]
+               (v/assert kb s 'CxUniverse))
+             (is (empty? (v/violations kb))
+                 "nothing is filed against content admitted before the constraint existed")
+             (is (empty? (v/contradictions kb))
+                 "and no pair is opened — the conviction rests on an absence, not a sentex")
+             (is (v/ask? kb fact 'CxUniverse) "the stored fact keeps its belief")
+             (is (= type (:type (first (v/check kb next 'CxUniverse))))
+                 "while the identical claim one line later is refused"))))))))
 
 (deftest a-stranded-declaration-is-a-census-finding-and-the-census-says-what-the-entry-point-says
   ;; The other documented absence, and the one whose retroactive half lives somewhere else

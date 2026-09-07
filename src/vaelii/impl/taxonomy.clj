@@ -4,7 +4,7 @@
   "Cached transitive closures for the two transitivity relations at the heart of
   common-sense reasoning:
 
-    genl    relates unary *types*    (genl dog animal)   — the type hierarchy
+    genl    relates predicates       (genl dog animal)   — types are its unary case
     genlCx  relates *contexts*       (genlCx CxA CxB)     — context inheritance
 
   Transitivity is not done with rules (too central, too hot); instead we store the
@@ -782,7 +782,7 @@
 
 (defn- forget-handle-key
   "Drop `k` from `handle`'s reverse-index entry, and the handle itself once it supports
-  nothing — an empty set left behind would make the handle are indistinguishable from a live supporter and
+  nothing — an empty set left behind would make the handle read as a live supporter and
   keep it in the reconcile's scope for the life of the KB."
   [t handle k]
   (let [left (disj (get-in t [:cache-handle-keys handle] #{}) k)]

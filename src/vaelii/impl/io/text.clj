@@ -339,7 +339,7 @@
   "`dir` as an empty directory, created when it does not exist.  A directory that
   already holds anything is **refused**: a second export over a first would leave the
   files the first wrote for contexts the second has nothing to say about, and a text KB
-  is are indistinguishable from a whole directory."
+  is read as a whole directory."
   ^File [dir]
   (let [^File d (io/file dir)]
     (when (.isFile d)

@@ -159,20 +159,24 @@
 (tu/deftest-kb argisa-constrains-a-predicate-valued-position
   ;; (arg typeToInstancePred 1 type_relation_predicate) is only enforceable because
   ;; the argument check reaches past CapitalCamelCase individuals
-  (let [typeKind (tu/tmp-type) otherKind (tu/tmp-type) link (tu/tmp-pred)
-        typeLevel (tu/tmp-pred) instanceLevel (tu/tmp-pred) unclassified (tu/tmp-pred)]
-    (v/assert kb (list 'genl typeKind 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl otherKind 'thing) 'CxUniverse)
-    (v/assert kb (list 'arg link 1 typeKind) 'CxUniverse)
-    (v/assert kb (list typeKind typeLevel) 'CxUniverse)
-    (v/assert kb (list otherKind unclassified) 'CxUniverse)
-    (testing "a correctly classified predicate satisfies the constraint"
-      (is (v/assert kb (list link typeLevel instanceLevel) 'CxUniverse)))
-    (testing "a predicate typed as something else violates it"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list link unclassified instanceLevel) 'CxUniverse))))
-    (testing "open-world survives: a predicate with no type at all cannot violate"
-      (is (v/assert kb (list link (tu/tmp-pred) instanceLevel) 'CxUniverse)))))
+  ;; Pinned to the constraint reading: the position holds a symbol, so with the entailment
+  ;; on the declaration mints the metatype rather than convicting the predicate that lacks
+  ;; it (docs/argtypes.md).
+  (tu/without-entailing
+   (let [typeKind (tu/tmp-type) otherKind (tu/tmp-type) link (tu/tmp-pred)
+         typeLevel (tu/tmp-pred) instanceLevel (tu/tmp-pred) unclassified (tu/tmp-pred)]
+     (v/assert kb (list 'genl typeKind 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl otherKind 'thing) 'CxUniverse)
+     (v/assert kb (list 'arg link 1 typeKind) 'CxUniverse)
+     (v/assert kb (list typeKind typeLevel) 'CxUniverse)
+     (v/assert kb (list otherKind unclassified) 'CxUniverse)
+     (testing "a correctly classified predicate satisfies the constraint"
+       (is (v/assert kb (list link typeLevel instanceLevel) 'CxUniverse)))
+     (testing "a predicate typed as something else violates it"
+       (is (thrown? clojure.lang.ExceptionInfo
+                    (v/assert kb (list link unclassified instanceLevel) 'CxUniverse))))
+     (testing "open-world survives: a predicate with no type at all cannot violate"
+       (is (v/assert kb (list link (tu/tmp-pred) instanceLevel) 'CxUniverse))))))
 
 ;;; ── the reach of a disjointness: exactly its declaration's visibility ──
 

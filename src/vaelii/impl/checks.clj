@@ -247,6 +247,65 @@
   [ds]
   (nm/sort-by-content-key #(nm/print-key (:sentence (nth % 2))) compare ds))
 
+;; ---- what both readings of an argument declaration need ------------------
+;; The toggle, and the two conditions an entailment is drawn under.  They sit above
+;; the constraint arms rather than beside the entailment arms below because
+;; `args-problem` reads them too: under the toggle its symbol arm yields to the
+;; entailment, and what it yields to is exactly these conditions.
+
+(def ^:dynamic *assertive-arg-types?*
+  "Do the argument constraints *entail* as well as constrain?
+
+  **Off by default.**  A KB that derives types it cannot retract cleanly is worse than
+  one that derives none, and entailing changes what a KB *contains* rather than only
+  what it answers — so it is opt-in, and off leaves the constraint reading alone
+  (docs/argtypes.md).
+
+  `binding` it is the ordinary way in.  `VAELII_ASSERTIVE_ARG_TYPES=1` sets the root
+  value instead, which is what lets the whole suite be run under it — the parity gate
+  that says the entailment is additive rather than a different engine."
+  (config/assertive-arg-types?))
+
+(def ^:private universal-context
+  "The context every context below the spindle joint sees.  A declaration stated there
+  speaks for all of them, so it entails locally wherever it is visible.  The upper
+  spindle sits above the joint and does not see CxUniverse — CxCore is the head every
+  context reaches, and a declaration written there constrains everywhere while entailing
+  only in CxCore itself (docs/contexts.md).  `special/universal-context` is the same
+  symbol, named there for the lift."
+  'CxUniverse)
+
+(defn- mintable-type?
+  "Is `t` a type a membership can be minted in — a name the genl hierarchy actually
+  holds?
+
+  A **global** read, like `genls-problem`'s individual floor and for the same reason:
+  this asks what the name *is*, not what a context can see of it, and an entailment
+  drawn in a context that cannot see `thing` would be an entailment about nothing.
+  A name the hierarchy does not hold is not a type we invent a membership in — which
+  is where a structural constraint (an argument that must be a number, a string) lands
+  without needing a list of exemptions to keep in step."
+  [tax t]
+  (and (symbol? t) (not (sx/variable? t)) (tax/genl?-global tax t 'thing)))
+
+(defn- declares-locally?
+  "Does the declaration stored at `dh` speak **for** `context`, rather than merely
+  reaching it?
+
+  A declaration is *inherited* by every descendant of the context it was written in,
+  and there it constrains: an ancestor schema enforces its argument types in every
+  context below it.  It does not *entail* there — an upper-spindle schema would
+  otherwise spray derived `(T x)` memberships across every context that inherits it,
+  claims no author of that context made.  So only a declaration written in the
+  context being checked, or in `CxUniverse` (which speaks for every context by
+  construction), draws the entailment.
+
+  One record fetch, asked last of the conditions so it is paid only for a declaration
+  that would otherwise mint."
+  [kb dh context]
+  (let [dc (:context (p/get-sentex (:records kb) dh))]
+    (or (= dc context) (= dc universal-context))))
+
 (defn- outside-declared-type?
   "Does `arg` fail the `(arg P n t)` demand, as seen from `context`?
 
@@ -340,6 +399,32 @@
       (when (not-any? #(tax/genl? tax % t context) rs)
         (nm/min-by-content-key identity (filterv #(tax/genl? tax % 'thing context) rs))))))
 
+(defn- entailment-covers?
+  "Would the `arg` declaration matched by `d` *mint* the very type it demands of `arg`,
+  rather than test for it?
+
+  The conviction and the entailment are two readings of one declaration, and under the
+  toggle only the second one holds: `(arg parentOf 1 animal)` read as an entailment says
+  Fred **is** an animal, so there is no state of the KB in which Fred fills the slot and
+  fails it.  Running both readings at once is what stopped the cascade — a minted
+  `(t1 Fred)` re-entered the check, `t1`'s own declaration convicted it for not yet
+  being a `t2`, and the conclusion the next mint would have come from was dropped.
+
+  So the condition here is `arg-entailments`' condition, term for term: an eligible
+  argument, a type the hierarchy holds, and a declaration that speaks for this context.
+  An **inherited** declaration mints nothing (`declares-locally?`), so it still convicts
+  — the constraint reading is all an ancestor's schema has in a context below it.
+
+  Only the symbol arm yields.  A **value** carries its type in its syntax and no mint can
+  change it, and an **application** is typed by its function's `result`; neither is a term
+  a membership can be asserted of, so for both the constraint reading is the only one
+  there is."
+  [kb tax arg t context d]
+  (and *assertive-arg-types?*
+       (checkable-term? arg)
+       (mintable-type? tax t)
+       (declares-locally? kb (nth d 0) context)))
+
 (defn- args-problem
   "First (arg pred n type) violation for a sentence, or nil.  Uses genl
   transitivity; only constraints and type memberships visible from `context`
@@ -362,6 +447,13 @@
   admits it under `(arg needsMeasure 1 measure)`.  `convicting-result-type` has that
   argument, the open-world floor included.
 
+  **Under `*assertive-arg-types?*` the symbol arm yields** to the entailment that reads
+  the same declaration (`entailment-covers?`): where the declaration mints the type, the
+  argument cannot fail to have it.  What refuses in its place is the mint the KB cannot
+  admit — `entailment-check` walks the whole cascade before anything is stored, so a
+  declaration whose consequence clashes with a disjoint membership refuses the assert
+  instead of dropping a conclusion after it.
+
   `types` is the shared per-assert membership reader (`kb/membership-reader`), `decls`
   the shared declaration reader.  The two questions asked of each constrained
   argument — is it in the hierarchy at all, and does it reach the constraint type —
@@ -380,7 +472,8 @@
                     arg (arg-at as n)
                     ;; the application arm — nil for every argument that is not one
                     r   (convicting-result-type kb nat/result-types pred arg t context)]
-             :when (and arg (or r (outside-declared-type? tax types arg t context)))]
+             :when (and arg (or r (and (not (entailment-covers? kb tax arg t context m))
+                                       (outside-declared-type? tax types arg t context))))]
          {:type :arg-type :sentence sentence :arg arg :expected t :position n
           ;; `pr-str`, so a convicted string reads as one — it prints the same as `str`
           ;; for every term that could already be convicted here
@@ -480,7 +573,7 @@
 
   **A deliberate global/scoped split inside one `cond`.**  The first floor asks what
   the argument *is* (could it ever be a type?) and stays **global**: a reified NAT's
-  minting edges land in `CxUniverse`, which the upper band sits above and
+  minting edges land in `CxUniverse`, which the upper spindle's members sit above and
   cannot see, so a scoped floor would convict an imported reified NAT used from
   `CxMeasure` as \"an individual, so never a subtype\" — false.  The second
   floor is the **scoped** open-world excuse: an argument with no *visible* path
@@ -583,16 +676,49 @@
   forcing it in would put that difference inside every reader of this map."
   '{arg genlArg, genlArg arg})
 
-(def predicate-type-arities
-  "What each predicate-type membership says the arity is.  The `arity` sentexes and
+(def exact-arity-classes
+  "What each exact-arity class membership says the arity is.  The `arity` sentexes and
   these memberships derive each other through the CxCore rules, so a declared
-  predicate normally has both — but a `{:chain? false}` assert or a KB loaded without
+  relation normally has both — but a `{:chain? false}` assert or a KB loaded without
   the rules has only what was written, so both spellings are read.
+
+  **Nine spellings, because CxCore ships nine classes.**  `unary` / `binary` / `ternary`
+  are the relation-wide ones and the other six specialize them by kind, so a KB may write
+  the arity of a function as `(binary_function F)` exactly as it writes a predicate's as
+  `(binary_predicate P)`.  The relation-wide three alone would answer `membered-arity`,
+  which reads the term's whole `genl` closure — but `arity-declaration-handle` looks for
+  a **stored** sentex to name in a refusal, and what a KB stored is whichever of the nine
+  its author wrote.
+
+  The three arities never disagree across the spellings one term holds: a class and its
+  specializations map to one number, and `(disjoint unary binary)` and its two peers
+  separate the relation-wide three, which the six inherit through their `genl` edges.
 
   Public because `settle`'s retroactive arity report triggers on an arriving *arity
   declaration*, and these memberships are the second way to write one — a roster read
   twice is a roster that drifts."
-  '{unary_predicate 1 binary_predicate 2 ternary_predicate 3})
+  '{unary 1 binary 2 ternary 3
+    unary_predicate 1 binary_predicate 2 ternary_predicate 3
+    unary_function 1 binary_function 2 ternary_function 3})
+
+(def exact-arity-class-gates
+  "The `exact-arity-classes` keys a KB can hold a membership of **without** CxCore, which
+  is the question `settle/any-arity-declared?` asks the index — one `stored-count-with-functor`
+  per class, per assert, on a KB whose `(arity P n)` table is empty.
+
+  Three of the nine, and the other six are left out on a measurement.  `unary` / `binary`
+  / `ternary` and the three function classes are CxCore's own vocabulary: a KB holding one
+  holds CxCore, whose rules put an `(arity P n)` sentex in the table for it, and the
+  table is the gate's first branch — so asking the index about them adds six reads per
+  assert (`assert_cost_test`'s `functor-root` budget) to answer what the branch above
+  already answered.  What the six lose is the retroactive *report* in a KB that has
+  CxCore's class names and not its rules; the entry point still refuses a wrong-length
+  fact under all nine, `declared-arity` reading the roster rather than this.
+
+  A **vector**, in arity order: the reader walks it until one class has a stored member,
+  so the order decides how many index reads a KB with no arity at all pays, and a set
+  would make that number a hash order rather than a decision."
+  '[unary_predicate binary_predicate ternary_predicate])
 
 (defn- tabled-arity
   "The arity the `(arity P n)` **table** gives `pred` from `context`, or nil.
@@ -609,19 +735,20 @@
     (when (and (integer? n) (pos? n)) n)))
 
 (defn- membered-arity
-  "The arity `pred`'s own predicate-type membership gives it, or nil — the second
+  "The arity `pred`'s own exact-class membership gives it, or nil — the second
   spelling, read off the predicate's types (`types`, the shared per-assert reader), so it
   costs the retrieval `arg` already needs for its arguments rather than one of its
   own.  A retrieval where `tabled-arity` is a map read, which is the whole of why the two
   are separate functions rather than one `or`: a caller asking about several predicates
   wants the cheap half of the question asked of all of them first.
 
-  `first` over the roster is exact wherever CxCore is loaded: it declares the three
-  classes pairwise `disjoint`, so a predicate holds at most one of them and the first hit
-  is the only hit."
+  `first` over the roster is exact wherever CxCore is loaded: `(disjoint unary binary)`
+  and its two peers separate the relation-wide three and the six kind specializations
+  inherit that separation through their `genl` edges, so a relation reaches one number
+  however many of the nine spellings its closure holds."
   [types pred]
   (let [cs (:closures (types pred))]
-    (first (for [[t n] predicate-type-arities
+    (first (for [[t n] exact-arity-classes
                  :when (kb/isa-among? cs t)]
              n))))
 
@@ -684,7 +811,7 @@
   one closure read, already memoized by the argument-constraint reader beside it.
 
   **Both spellings, like `own-arity`** — the `(arity P n)` table first, since it is a map
-  read where the predicate-type membership is a retrieval, and the membership after it
+  read where the exact-class membership is a retrieval, and the membership after it
   for a super the table does not name.  A KB loaded with CxCore's rules has both for
   every declared predicate, because the rules derive each from the other; a KB loaded
   without them, or one written with `{:chain? false}`, has only what somebody typed, and
@@ -778,8 +905,8 @@
   from `context` — the sentex a wrong-arity sentence convicts *against*.
 
   Two spellings declare it and `own-arity` reads both, so both are looked for: the
-  `(arity P n)` sentex, and failing that the predicate-type membership `(binary_predicate
-  P)` that says the same thing.  `via` is the predicate the binding arity was read off,
+  `(arity P n)` sentex, and failing that the exact-class membership `(binary_predicate P)`
+  — or `(binary F)`, or `(binary_function F)` — that says the same thing.  `via` is the predicate the binding arity was read off,
   which is the sentence's own for a locally declared one and a super-predicate for an
   inherited one — so a refusal through the hierarchy names the declaration that convicted
   rather than looking for one the sentence's predicate never had.  Asked only once a
@@ -790,7 +917,9 @@
   ;; between the two *spellings* is this `or`, and stays content-ordered by construction.
   (or (let [target (list 'arity via declared)]
         (handle-naming (res/matches-visible kb target context) target))
-      (first (for [[t n] predicate-type-arities
+      ;; sorted, so which of the nine spellings a refusal names is decided by the roster's
+      ;; content and not by a map's iteration order — the reason `membership-arity` sorts
+      (first (for [[t n] (sort-by key exact-arity-classes)
                    :when (= n declared)
                    :let  [target (list t via)
                           h (handle-naming (res/matches-visible kb target context) target)]
@@ -807,8 +936,8 @@
 
   Open-world in the same shape as `arg`: a predicate the KB has never declared can
   be used at any arity, since the declaration may simply not have arrived.  A
-  `variable_arity` predicate is exempt outright — `lessThan` is declared binary *and*
-  reads a chain of any length, and the declaration is what says so.
+  `variable_arity` predicate is exempt outright — `lessThan` has a binary floor and
+  reads a chain of any length, and the declarations are what say so.
 
   The binding arity **descends the predicate hierarchy** where the predicate declares
   none of its own (`inherited-arity`): a `fatherOf` tuple is a `parentOf` tuple, so its
@@ -1005,9 +1134,9 @@
 
 (defn membership-arity
   "The arity a one-place membership functor `f` declares of its argument, or nil — one of
-  the three spellings itself, or a collection the taxonomy makes a `genl` of one.
+  the nine spellings itself, or a collection the taxonomy makes a `genl` of one.
 
-  Public for the reason `predicate-type-arities` is, and in its place: `settle`'s
+  Public for the reason `exact-arity-classes` is, and in its place: `settle`'s
   retroactive arity report triggers on an arriving declaration and has to recognise the
   same ones this entry point does.  Reading the raw map there and the closure here is the drift
   its own docstring warns about, so the closure read is the shared one.
@@ -1015,25 +1144,25 @@
   **Read through the closure because the readers read through one.**  `membered-arity`
   answers off `(:closures (types pred))`, so `(genl myBinPred binary_predicate)` beside
   `(myBinPred fatherOf)` makes `fatherOf` binary to everything that *reads* a declaration.
-  Matching the three literal functors here made the *writer* of one blind to exactly that
-  spelling: the disagreeing edge lands, and the reader then convicts facts under it.  A
+  Matching the roster's own functors and nothing else here made the *writer* of one blind
+  to exactly that spelling: the disagreeing edge lands, and the reader then convicts facts under it.  A
   roster read twice is a roster that drifts, and these are its two reads.
 
   The literal is asked first and answers all but the unusual case; only a one-place
-  sentence whose functor is not already one of the three pays the cached `genls` behind
-  it.  Content-ordered, so a functor made a `genl` of two of them — itself incoherent —
-  picks the same one every run."
+  sentence whose functor is not already one of the nine pays the cached `genls` behind
+  it.  Content-ordered, so a functor made a `genl` of two that disagree — itself
+  incoherent — picks the same one every run."
   [kb f context]
-  (or (predicate-type-arities f)
+  (or (exact-arity-classes f)
       (let [supers (tax/genls (:taxonomy kb) f context)]
-        (first (for [[t n] (sort-by key predicate-type-arities)
+        (first (for [[t n] (sort-by key exact-arity-classes)
                      :when (contains? supers t)]
                  n)))))
 
 (defn- arity-declared-by
   "The `[pred n]` an arriving sentence declares an arity of, or nil — both spellings,
-  `(arity P n)` and the `unary_predicate` / `binary_predicate` / `ternary_predicate`
-  membership that says the same thing.  The gate on the arm below: nothing else can
+  `(arity P n)` and the exact-class membership (`binary_predicate`, `binary`,
+  `binary_function`, …) that says the same thing.  The gate on the arm below: nothing else can
   put a predicate in disagreement with one a `genl` edge already relates it to."
   [kb sentence context]
   (let [f  (nm/functor sentence)
@@ -1140,11 +1269,30 @@
   The two checks are independent and each is open-world on its own, so declaring both
   narrows the slot rather than emptying it.
 
+  `arg1` / `arg2` / `arg3` — the binary projections of `arg` — are held to the same
+  two arms at their projected position, so both spellings of one declaration refuse
+  identically.  Without this the binary spelling would evade the arms entirely: the
+  sentence itself carries no position for the generic machinery to check, the bridge
+  rule's ternary conclusion is convicted on the *derivation* path where a conviction
+  is dropped and recorded rather than thrown, and the author is left holding a
+  believed `argN` fact whose real declaration the engine rejected — silently inert,
+  the exact trap CxCore's `quotedArg` note names.
+
   Open-world throughout: each arm needs a declaration to contradict, so a predicate
   the KB has said nothing about is unconstrained."
   [kb sentence context types]
   (let [[f pred n _ m] sentence]
     (cond
+      (and ('{arg1 1, arg2 2, arg3 3} f) (= 2 (nm/arity sentence)) (symbol? pred))
+      (let [pos ('{arg1 1, arg2 2, arg3 3} f)]
+        (or (some-> (arg-position-problem kb f pred pos context types)
+                    (assoc :sentence sentence))
+            (when (seq (res/matches-visible kb (list 'type_relation_predicate pred) context))
+              {:type :arg-constraint-kind :sentence sentence :predicate pred
+               :message (str pred " is declared type_relation_predicate, so its"
+                             " arguments are constrained with genlArg, not " f
+                             " (the binary projection of arg)")})))
+
       (and (= 'interArg f) (= 5 (nm/arity sentence)) (symbol? pred))
       (some-> (or (arg-position-problem kb f pred n context types)
                   (arg-position-problem kb f pred m context types)
@@ -1184,7 +1332,7 @@
 ;; class to compare.  Those stay refusals.
 ;;
 ;; `arity` **does** name a second sentex — the `(arity P n)` declaration, or the
-;; predicate-type membership saying the same thing — and is still not arbitrable, which is
+;; exact-class membership saying the same thing — and is still not arbitrable, which is
 ;; the case worth naming because the pair looks so much like the three above it.  The
 ;; sentex it names is the *vocabulary entry the conviction is read through*: `declared-arity`
 ;; answers from the taxonomy's arity table, which follows belief, so a nogood that defeated
@@ -1535,8 +1683,9 @@
 (defn functional-filler
   "The incoming filler a clash quadruple is about — argument `n` of `sentence`.
 
-  One reader for the thing three call sites used to spell `(second (nm/args sentence))`,
-  so the arg-2 assumption has exactly one place left to live and it is this function."
+  The one reader for it, where three call sites would otherwise each spell
+  `(second (nm/args sentence))`, so the arg-2 assumption has exactly one place to live
+  and it is this function."
   [sentence [_ _ _ n]]
   (nth (vec (nm/args sentence)) (dec n)))
 
@@ -2101,56 +2250,6 @@
 ;; post-store slot, beside the decontextualization lift, where there is a handle to
 ;; hang `[source-handle declaration-handle]` on.
 
-(def ^:dynamic *assertive-arg-types?*
-  "Do the argument constraints *entail* as well as constrain?
-
-  **Off by default.**  A KB that derives types it cannot retract cleanly is worse than
-  one that derives none, and entailing changes what a KB *contains* rather than only
-  what it answers — so it is opt-in, and off leaves the constraint reading alone
-  (docs/argtypes.md).
-
-  `binding` it is the ordinary way in.  `VAELII_ASSERTIVE_ARG_TYPES=1` sets the root
-  value instead, which is what lets the whole suite be run under it — the parity gate
-  that says the entailment is additive rather than a different engine."
-  (config/assertive-arg-types?))
-
-(def ^:private universal-context
-  "The one context every other sees.  A declaration stated there speaks for every
-  context, so it entails locally wherever it is visible; `special/universal-context` is
-  the same symbol, named there for the lift."
-  'CxUniverse)
-
-(defn- mintable-type?
-  "Is `t` a type a membership can be minted in — a name the genl hierarchy actually
-  holds?
-
-  A **global** read, like `genls-problem`'s individual floor and for the same reason:
-  this asks what the name *is*, not what a context can see of it, and an entailment
-  drawn in a context that cannot see `thing` would be an entailment about nothing.
-  A name the hierarchy does not hold is not a type we invent a membership in — which
-  is where a structural constraint (an argument that must be a number, a string) lands
-  without needing a list of exemptions to keep in step."
-  [tax t]
-  (and (symbol? t) (not (sx/variable? t)) (tax/genl?-global tax t 'thing)))
-
-(defn- declares-locally?
-  "Does the declaration stored at `dh` speak **for** `context`, rather than merely
-  reaching it?
-
-  A declaration is *inherited* by every descendant of the context it was written in,
-  and there it constrains: an ancestor schema enforces its argument types in every
-  context below it.  It does not *entail* there — an upper-band schema would
-  otherwise spray derived `(T x)` memberships across every context that inherits it,
-  claims no author of that context made.  So only a declaration written in the
-  context being checked, or in `CxUniverse` (which speaks for every context by
-  construction), draws the entailment.
-
-  One record fetch, asked last of the conditions so it is paid only for a declaration
-  that would otherwise mint."
-  [kb dh context]
-  (let [dc (:context (p/get-sentex (:records kb) dh))]
-    (or (= dc context) (= dc universal-context))))
-
 (defn edge-support
   "The handles of the `genl` edge supporters a declaration written of `via` travels down
   to reach `pred` — empty when `via` **is** `pred`, a declaration that rests on no edge.
@@ -2275,6 +2374,144 @@
                                    (fn [arg t] (list 'genl arg t)))
                   (inter-arg-entailments kb sentence context types decls))))))
 
+(defn- entailment-cascade
+  "Every sentence the argument declarations would mint over `sentence` in `context`, and
+  over those mints in turn — `{:mints [sentence …] :readers {functor reader}}`.
+
+  This is the closure `special/entail-arg-type` walks as it materializes, computed here
+  before anything is stored.  A mint draws its own entailments and must — the retroactive
+  direction cascades whether or not the forward one does — so a check that looked only one
+  level down would pass a sentence whose *second* consequence the KB cannot hold.
+
+  **Terminates on `seen`.**  A mint is a `(t x)` or a `(genl x t)` over names the KB
+  already holds, so the sentences reachable are a subset of a finite product and each is
+  expanded once.  That is `entail-arg-type`'s termination argument, made over sentences
+  here rather than over stored records.
+
+  One declaration reader per **functor**, kept and handed back: the walk asks the same
+  functor's declarations again for every mint that shares one, and the admissibility pass
+  below asks a third time.  A reader memoizes for the life of one caller, so building one
+  per sentence would throw the memo away at each step and pay `res/constraining-predicates`
+  again for it.
+
+  A membership the cascade itself would add is **not** threaded into `types`: the reader
+  answers what is stored, which is what the materializer will read too for every mint but
+  the ones this same cascade produces.  `cascade-clash` is the arm for that residue.
+
+  Seeded with the caller's own reader and its **already-computed** first level, so the
+  common case — a sentence whose declarations mint nothing further — walks an empty
+  frontier and costs no retrieval at all.  Building a second reader for the triggering
+  functor here read its declarations twice per assert, which `assert_cost_test` counts."
+  [kb sentence context types decls seed]
+  (let [level (into [] (comp (map :assert) (distinct)) seed)]
+    (loop [frontier level
+           readers  {(nm/functor sentence) decls}
+           seen     (conj (set level) sentence)
+           mints    level]
+      (if-let [s (first frontier)]
+        (let [f'    (nm/functor s)
+              rs    (if (contains? readers f')
+                      readers
+                      (assoc readers f' (declaration-reader kb f' context)))
+              es    (constraint-entailments kb s context types (get rs f'))
+              fresh (into [] (comp (map :assert) (remove seen) (distinct)) es)]
+          (recur (into (vec (rest frontier)) fresh)
+                 rs
+                 (into seen fresh)
+                 (into mints fresh)))
+        {:mints mints :readers readers}))))
+
+(defn- cascade-memberships
+  "term -> #{type} — the memberships `sentence` and its cascade would add, as content
+  rather than as records.
+
+  The pair no stored sentex witnesses: `(p1 Fred)` under `(arg p1 1 p2)` mints
+  `(p2 Fred)`, and whether those two clash is a question about the sentence being
+  asserted and the mint it draws, neither of which is in the index yet.
+  `disjoint-problems` reads memberships to name an **opposing handle**, so it cannot see
+  a pair with no second record, and a cascade that convicted only against stored types
+  would refuse `(p1 Bert)` for Bert's old membership and admit the identical clash when
+  the cascade supplies both sides."
+  [sentence mints]
+  (reduce (fn [acc s]
+            (if (= 1 (nm/arity s))
+              (update acc (first (nm/args s)) (fnil conj #{}) (nm/functor s))
+              acc))
+          {}
+          (cons sentence mints)))
+
+(defn- cascade-clash
+  "The disjointness clash between prospective mint `sentence` and a membership the
+  cascade itself introduces, or nil.
+
+  No `:opposing-handle`, because there is no opposing sentex — both sides are content the
+  KB is being asked to take on at once, and neither is stored when the check runs.  That
+  is also why `constraint-checks` refuses on this without consulting `refuses-assert?`:
+  the policy that arbitrates weighs a *pair* of records, and a declined mint leaves one
+  side of this pair unwritten.
+
+  Content order over the types, so which of several clashes is named is keyed on what the
+  KB says rather than on the order the cascade enumerated its mints."
+  [tax sentence context added]
+  (when (= 1 (nm/arity sentence))
+    (let [t (nm/functor sentence)
+          x (first (nm/args sentence))]
+      (when-let [t' (first (filter #(and (not= % t) (tax/disjoint? tax t % context))
+                                   (sort (get added x))))]
+        {:type :disjoint :sentence sentence :types [t t']
+         :message (str "disjointness violated: " x " cannot be both " t " and " t')}))))
+
+(defn- entailment-check
+  "The entailment reading's half of the entry point check:
+  `{:entailments [{:assert …} …] :refusal v}` — what `sentence`'s argument declarations
+  draw over it, and the first consequence of those declarations the KB could not admit.
+  Nil with the toggle off, which is `constraint-entailments`' answer there.
+
+  **The refusal sits on the consequence.**  With the entailment on, `args-problem`'s
+  symbol arm yields (`entailment-covers?`), so a wrongly-typed symbol argument is not a
+  violation: the declaration says what the argument is.  A *consequence* still can be one
+  — a minted membership clashing with a disjoint one, a mint at an arity its type denies —
+  so the entry point refuses `sentence` exactly when it would refuse what `sentence`
+  entails.  The constraint reading's rule, moved one step along the derivation.
+
+  **Asked before the store.**  `special/entail-arg-type` asks the same question of each
+  mint as it materializes, and it runs after the triggering sentex exists — so a mint it
+  cannot admit is *dropped* and recorded, and the KB is left believing a fact whose
+  declared consequence it rejects.  Asked here, the refusal reaches the writer and nothing
+  is stored.
+
+  The violation handed back is the **mint's own**, with the sentence that entailed it in
+  `:entailed-from`: what could not be held is what a reader is told, rather than a second
+  wording of the argument constraint.
+
+  Naming, well-formedness and edge stratification are **not** asked, only the definitional
+  checks: those three live above this namespace, where `special/inadmissible` asks all
+  four as one question, and a mint they convict is dropped and reported by the
+  materializer.
+
+  One walk of the declarations serves both halves.  The first level is what the caller
+  materializes and is also the cascade's seed, so asking `constraint-entailments` again
+  for the answer already in hand would read the triggering functor's declarations twice
+  per assert — a cost `assert_cost_test` counts."
+  [kb sentence context types decls]
+  (when *assertive-arg-types?*
+    (let [seed (constraint-entailments kb sentence context types decls)
+          {:keys [mints readers]} (entailment-cascade kb sentence context types decls seed)
+          added (cascade-memberships sentence mints)
+          tax   (:taxonomy kb)]
+      {:entailments seed
+       :refusal
+       (first
+        (keep (fn [m]
+                (when-let [p (or (constraint-problem kb m context types
+                                                     (get readers (nm/functor m)))
+                                 (cascade-clash tax m context added))]
+                  (assoc p :entailed-from sentence
+                         :message (str "arg constraint: " (nm/print-key sentence)
+                                       " entails " (nm/print-key m)
+                                       ", which cannot be admitted — " (:message p)))))
+              mints))})))
+
 (defn constraint-checks
   "Throw the first definitional violation as typed ex-info — the assert path.
 
@@ -2288,7 +2525,23 @@
 
   Returns the **entailments** the argument constraints draw over an admissible
   sentence (`constraint-entailments`), for the caller to materialize once the sentex
-  it would be justified by exists.  Empty unless `*assertive-arg-types?*`."
+  it would be justified by exists.  Empty unless `*assertive-arg-types?*`.
+
+  **Two questions, not one, once the entailment is on.**  The sentence has to be
+  admissible and so does everything it entails (`entailment-check`) — the argument
+  declarations are read as definitions there, so admitting `(parentOf Rex Mary)` is
+  admitting `(animal Rex)`, and a KB that cannot hold the second may not be left holding
+  the first.  Asked second, and only when the sentence itself passed: a sentence already
+  refused needs no second reason, and the cascade is the more expensive read of the two.
+
+  **`refuses-assert?` is not asked of the second one**, and that is the one place the two
+  questions are weighed differently.  A clash between the sentence and a stored one is a
+  *pair*, so the constraint policy can admit both and let `settle` weigh them; a clash
+  with a mint is not, because `special/entail-arg-type` **declines** a mint it cannot
+  admit rather than placing it (`constraint-violation`'s reading, the one every minting
+  caller takes).  Admitting the trigger under `:arbitrate` would therefore arbitrate
+  nothing — it would store the fact and drop the consequence, which is the state this
+  check exists to prevent."
   [kb sentence context]
   (let [chk   (checked-sentence sentence)
         types (kb/membership-reader kb context)
@@ -2296,7 +2549,10 @@
         p     (constraint-problem kb chk context types decls)]
     (if (refuses-assert? kb p)
       (throw (ex-info (:message p) (dissoc p :message)))
-      (constraint-entailments kb chk context types decls))))
+      (let [{:keys [entailments refusal]} (entailment-check kb chk context types decls)]
+        (if refusal
+          (throw (ex-info (:message refusal) (dissoc refusal :message)))
+          entailments)))))
 
 (defn constraint-admission
   "The derivation path's `constraint-checks`: one pass over the definitional checks,
@@ -2925,11 +3181,21 @@
   super-predicate names the predicate it was written of, exactly as `args-problem` does.
 
   Walked in `in-content-order`, so which declaration a refusal names is decided by what
-  the KB says rather than by how the retrieval happened to enumerate."
+  the KB says rather than by how the retrieval happened to enumerate.
+
+  A literal whose **functor is itself a variable** contributes nothing.  `?pred` names no
+  predicate, so `declaration-reader` reads it as a match pattern and every `(arg P n T)`
+  in the KB comes back — `(arg typeToInstancePred 2 instance_relation_predicate)` beside
+  `(genlArg arg1 2 thing)` — and the conjunction of two unrelated predicates' position 2
+  is a demand no term meets.  A variable functor is refused `:not-indexable` where it
+  stands as a top-level antecedent (`rules.clj`) and is filled by a generator's hole
+  otherwise, so the declarations that bind it are the stamped rule's, read when the
+  functor is ground."
   [kb lit context]
   (let [pred (nm/functor lit)
         as   (vec (nm/args lit))]
-    (when (and (sequential? lit) (symbol? pred) (some sx/variable? as))
+    (when (and (sequential? lit) (symbol? pred) (not (sx/variable? pred))
+               (some sx/variable? as))
       (let [decls    (declaration-reader kb pred context)
             type-rel (seq (res/matches-visible kb (list 'type_relation_predicate pred) context))
             of-kind  (fn [kind mk]

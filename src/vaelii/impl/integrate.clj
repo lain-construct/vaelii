@@ -211,18 +211,57 @@
         (p/put-justification recs just)
         (jtms/add-justification tms just)))))
 
+(defn- fold-supports!
+  "Re-hang every justification that **concludes** `doomed` on `survivor`, so a row a rule
+  derived can leave the fold the way a bare premise does.  Same informant, same
+  antecedents, same bindings, same strength — only the consequence moves, and it moves to
+  the row saying the same thing.
+
+  The consequence-side twin of `fold-dependents!`, and it is what lets `symmetrize-row!`
+  fold a mirrored pair both of whose rows a rule concluded.  Nothing about a
+  justification is deleted here: it is copied onto the survivor, `doomed` is left
+  supporting nothing, and `fold-row!`'s `jtms/retract!` then sweeps it as it sweeps any
+  ungroundable non-premise datum.
+
+  A justification naming `survivor` among its own antecedents is skipped: retargeted it
+  would conclude a datum from itself, and a datum that grounds itself is groundable for
+  ever.  Skipping it loses no belief, because the row it concluded is the one leaving.
+  Idempotent through `has-justification?`, and read from the **record** for
+  `fold-dependents!`' reason — the network drops a firing's `:bindings`, which an
+  `exceptWhen` query and a NAF antecedent re-evaluate from."
+  [kb doomed survivor]
+  (let [tms  (:tms kb)
+        recs (:records kb)]
+    (doseq [jid  (vec (jtms/supports tms doomed))
+            :let [j (or (p/get-justification recs jid) (jtms/justification tms jid))]
+            :when (and j (not (some #{survivor} (:antecedents j)))
+                       (not (jtms/has-justification? tms (:informant j) (:antecedents j)
+                                                     survivor)))]
+      (let [nid  (p/next-id recs)
+            just (assoc (jtms/->just nid (:informant j) (vec (:antecedents j)) survivor
+                                     (:bindings j) (:strength j))
+                        :out (set (:out j)))]
+        (p/put-justification recs just)
+        (jtms/add-justification tms just)))))
+
 (defn- fold-row!
-  "Fold the mirrored row `doomed` into `survivor` and take it out of the store: its
-  premise mark, the conclusions drawn through it, and the handle-naming metas that would
-  otherwise be left pointing at a record nothing holds.
+  "Fold the mirrored row `doomed` into `survivor` and take it out of the store: the
+  justifications that conclude it, its premise mark, the conclusions drawn through it,
+  and the handle-naming metas that would otherwise be left pointing at a record nothing
+  holds.
 
   Then `jtms/retract!`, which is what `core/retract!` runs and does the same work here —
   drops the premise, relabels the region, and sweeps the row now that nothing is left
   resting on it — with the swept records handed to the removal choke point above.  A row
   the sweep leaves behind goes through that choke point directly, `core/retract!`'s other
   branch: an **inert** sentex (`assert-inert`) was never a TMS datum, so the retraction
-  no-ops over it, and nothing else concludes this row — that is what picked it."
+  no-ops over it.
+
+  `fold-supports!` runs **first**, so that by the time the retraction reads the row it
+  supports nothing: the sweep collects an ungroundable non-premise datum, and a row still
+  carrying its own supports would be relabelled back in."
   [kb doomed survivor witness]
+  (fold-supports! kb doomed survivor)
   (fold-dependents! kb doomed survivor)
   (fold-premise! kb doomed survivor)
   (special/migrate-handle-metas kb doomed survivor [witness]
@@ -244,22 +283,23 @@
   one stored, the pair folds into a single row and that row is re-spelled if it needs it.
 
   **Which of the pair survives is decided from what supports it, and only then from the
-  handle.**  A row a rule concluded cannot be the one that leaves: folding it away would
-  have to delete the justifications naming it as their consequence, and the JTMS
-  deliberately has no entry point for that — belief is recomputed from the justifications, never
-  edited around them — so the row would go on grounding itself through the ones left
-  behind.  A row that is only a premise leaves cleanly, because `jtms/retract!` is exactly
-  the sweep that takes it.  Between two rows that both stand on nothing but their own
-  premise, the **lower** handle survives: it is the row the KB would hold had the
-  declaration been written first, which is the claim being restored.  Nothing keys belief
-  on the number; what keys on it is which of two handles a caller can still name, and
-  answering that with the earlier one is what makes the issue's `(retract! h1)` mean the
-  same thing in both orders.
+  handle.**  A row that is only a premise leaves cleanly, because `jtms/retract!` is
+  exactly the sweep that takes it, so it is preferred as the one to go.  A row a rule
+  concluded leaves through `fold-supports!`, which re-hangs the justifications naming it
+  as their consequence onto the survivor rather than deleting them — belief is recomputed
+  from the justifications, never edited around them, and a copy onto the row saying the
+  same thing edits nothing.  Between two rows the fold has no other reason to separate,
+  the **lower** handle survives: it is the row the KB would hold had the declaration been
+  written first, which is the claim being restored.  Nothing keys belief on the number;
+  what keys on it is which of two handles a caller can still name, and answering that with
+  the earlier one is what makes the issue's `(retract! h1)` mean the same thing in both
+  orders.
 
-  **Two rows a rule concluded are left alone**, pair and all — there is no clean row to
-  fold — and for that pair the KB reads exactly as it read before this arm existed.  It
-  takes two rules concluding one proposition's two spellings under a predicate nothing had
-  yet declared symmetric."
+  **A pair both of whose rows a rule concluded folds too**, on that same lower-handle
+  rule.  It takes two rules concluding one proposition's two spellings under a predicate
+  nothing had yet declared symmetric, and left unfolded it is the defect this arm exists
+  to close: the mark arriving first leaves one record and the mark arriving last leaves
+  two, each believed, so the proposition is matched twice."
   [kb sx witness]
   (let [ctx  (:context sx)
         want (kb/canonical-sentence kb (:sentence sx) ctx)]
@@ -267,17 +307,19 @@
       (let [tms    (:tms kb)
             self   (:id sx)
             mirror (kb/find-sentex-handle kb want ctx)
-            ;; the row that can leave: the one nothing concludes, and the later of two
+            ;; the row that can leave: the one standing on nothing but its own premise
+            ;; where only one of the two does, and otherwise the later handle — which
+            ;; covers a pair a rule concluded on both sides, `fold-supports!` being what
+            ;; makes that one foldable
+            bare?  (fn [h] (empty? (jtms/supports tms h)))
             doomed (cond (nil? mirror)                          nil
-                         (seq (jtms/supports tms mirror))       (when (empty? (jtms/supports tms self)) self)
-                         (seq (jtms/supports tms self))         mirror
-                         :else                                  (max self mirror))]
+                         (and (bare? self)   (not (bare? mirror))) self
+                         (and (bare? mirror) (not (bare? self)))   mirror
+                         :else                                    (max self mirror))]
         (cond
           ;; nothing to fold: the row is alone under this proposition and only spelled
           ;; the way the entry point used to spell it
           (nil? mirror)   (:id (respell! kb sx want))
-          ;; both rows are concluded by a rule — neither can leave, so neither does
-          (nil? doomed)   nil
           ;; this row is the one that leaves; the mirror is already the canonical spelling
           (= doomed self) (do (fold-row! kb self mirror witness) mirror)
           ;; the mirror leaves, and this row takes the canonical spelling it vacated

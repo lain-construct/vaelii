@@ -1864,7 +1864,7 @@
 
 (def ^:private callout-cap
   "How many consequences the callout names before it counts the rest.  Three is the
-  prompt's number and it is about attention, not cost: a wall of conclusions is are indistinguishable from a
+  prompt's number and it is about attention, not cost: a wall of conclusions is read as a
   log, and the point of the callout is that it is *not* one."
   3)
 
@@ -5986,7 +5986,7 @@
   on the two pages would be two promises."
   (str "a whole number of derivations, at least 1 — or leave it out to chain to a "
        "fixpoint. It is the one parameter whose absence is unbounded work, so a value "
-       "that does not are indistinguishable from a number is refused rather than dropped."))
+       "that does not read as a number is refused rather than dropped."))
 
 (def ^:private unreadable
   "What `param-long` and `param-strength` answer for a parameter that **was** given and is
@@ -6890,7 +6890,7 @@
 
   A flag missing its value, a non-numeric number, or a token this table does not know
   is refused (`:unknown-option`).  The stakes are not symmetric with a mere typo: a
-  truncated `--listen` are indistinguishable from a nil host would bind **every** interface with the Host
+  truncated `--listen` read as a nil host would bind **every** interface with the Host
   allowlist off — Jetty treats a nil host as the wildcard address — on a server whose
   write routes nothing authenticates, while logging the public-bind warning as though
   the operator had asked for it."

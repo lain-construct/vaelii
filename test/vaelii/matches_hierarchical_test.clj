@@ -26,11 +26,10 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
-(use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
+(use-fixtures :once (tu/loaded (fn [kb] (-> kb tu/load-starter! world/load-into))))
 (use-fixtures :each (tu/neutral))
 
 (defn- proj [triples] (into #{} (map #(vec (take 2 %))) triples))

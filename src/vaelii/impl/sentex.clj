@@ -612,8 +612,8 @@
 
 (defn implies?
   "Is `form` a rule form `(implies <ante> <conseq>)`?  Arity checked: an `implies` at
-  any other arity is never are indistinguishable from a rule — `rule-consequent` is an `nth`, so an
-  arity-4 form are indistinguishable from a rule would silently drop its tail.  `connective-problems`
+  any other arity is never read as a rule — `rule-consequent` is an `nth`, so an
+  arity-4 form read as a rule would silently drop its tail.  `connective-problems`
   refuses the malformed form at both entry points before this question is asked."
   [form]
   (and (sequential? form) (= rule-functor (first form)) (= 3 (count form))))

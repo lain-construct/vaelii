@@ -118,14 +118,22 @@ default-chain-opts                              ; the bounds a chain run takes w
 (exposed-clashes kb)                            ; the standing cross-context disjointness clashes, asked
                                                 ; of the whole KB — settle files what a change newly
                                                 ; exposes, this answers what the KB holds now
-(specified-violations kb pred indep dep ctx)     ; audit one predAllSpecified declaration: the instances of
-                                                ; `indep` with no DETERMINATE `dep` filler. Pass :first as a
-                                                ; sixth argument for the predSpecifiedAll twin. Reads only,
-                                                ; nothing filed; a skolem filler is indeterminate and an
-                                                ; author-written Exists placeholder is not (docs/predall.md)
+(specified-violations kb pred indep ctx)        ; audit one binary predAllSpecified declaration, always
+                                                ; carrying a :status — {:status :audited :violations #{…}},
+                                                ; the instances of `indep` with no DETERMINATE filler
+                                                ; satisfying pred's own slot contract, or {:status :gap …}
+                                                ; when pred has no visible slot typing. Discriminate on
+                                                ; :status, not key presence: (:violations gap) is nil,
+                                                ; which empty? and seq report as a clean audit. Pass
+                                                ; :first as a fifth argument for the predSpecifiedAll twin.
+                                                ; Reads only, nothing filed; a skolem filler is
+                                                ; indeterminate and an author-written Exists placeholder is
+                                                ; not (docs/predall.md)
 (all-specified-violations kb ctx)               ; every such declaration visible in ctx, audited at once —
-                                                ; {[functor pred indep dep] #{instances…}}, the ones that
-                                                ; hold omitted, so an empty map is a clean sweep
+                                                ; {[functor pred indep] result…}, the ones that hold
+                                                ; omitted and the gaps never, so an empty map is a clean
+                                                ; sweep. A legacy-ternary gap keys by its whole stale
+                                                ; tuple [functor pred a b], displacing nothing
 (last-program kb)                              ; the last edge Program solved — the tie, before belief erased it
 (set-solver kb :asp)                           ; the real answer-set backend, by name (:stub is the default)
 (set-solver kb solver)                         ; or any vaelii.impl.solve/Solver value
@@ -999,23 +1007,30 @@ natural sort order), and every context file is **discovered on the classpath and
 on kb start** (`seed/layer-contexts`), so adding a KB is dropping a `Cx<Name>.txt`
 file — no code change. What stays in `starter.clj` is the *order the layers* load in
 and the one computed batch (every type is a `unary_predicate`, placed in CxCore).
-The context topology is a **five-layer spindle**, most general (top) to most specific
-(bottom): **CxCore** (the vocabulary head, every context sees it) → the **upper**
-definitional band (`resources/kb/upper/`: `CxAbstract` = the abstract type skeleton, body
-parts and substances, `partOf`/`locatedIn`/`madeOf`, and the two **type-level**
-relations `largerThan`/`partType`; `CxOrganism` = the biological taxonomy +
-disjointness; `CxLife` = organism relations and states; `CxSociety` = social
-relations; `CxMeasure` = the theory of measurement; `CxSpace` = RCC-8 region
-relations and cardinal directions; `CxTime` = Allen's interval relations, the point
-algebra, the calendar constructors and the event/fluent vocabulary) →
-**CxUniverse** (the mid anchor, free for lifted universal facts) → the **middle**
-theory band (`kb/middle/`: `CxKinship`, `CxMereology`, `CxBiology`, `CxChange`,
-`CxSocial` — the rules; `CxAnatomy` and `CxSize` — claims about kinds) →
-**CxWell** (the bottom anchor, transitively seeing the whole ontology).
-upper is *definitional* (what things **are**, always true, like `genl`); middle is
-*theory* (how they **interrelate**, where several overlapping accounts can coexist).
-Each upper/middle file wires itself into the axis, so the topology is data; a
-CxCore-only KB is just the vocabulary head, and a user adds a sibling in either band.
+The context topology is **two three-layer spindles stacked** — a spindle being a head
+every member sees, members that see the head and not each other, and a collector that
+sees every member — most general (top) to most specific (bottom).
+
+The **upper spindle** is headed by **CxCore** (the vocabulary head, every context
+sees it); its members are `resources/kb/upper/` (`CxAbstract` = the kinds hanging off the
+skeleton CxCore holds, body parts and substances, `partOf`/`locatedIn`/`madeOf`, and the
+two **type-level** relations `largerThan`/`partType`; `CxOrganism` = the biological
+taxonomy + disjointness; `CxLife` = organism relations and states; `CxSociety` = social
+relations; `CxMeasure` = the theory of measurement; `CxSpace` = RCC-8 region relations
+and cardinal directions; `CxTime` = Allen's interval relations, the point algebra, the
+calendar constructors and the event/fluent vocabulary); its collector is **CxUniverse**,
+free for lifted universal facts.
+
+The **middle spindle** is headed by that same CxUniverse; its members are `kb/middle/`
+(`CxKinship`, `CxMereology`, `CxBiology`, `CxChange`, `CxSocial` — the rules;
+`CxAnatomy` and `CxSize` — claims about kinds); its collector is **CxWell**, which
+transitively sees the whole ontology.
+
+The upper spindle's members say what things **are**, always true, like `genl`; the
+middle spindle's members say how they **interrelate**, where several overlapping accounts can coexist.
+Each member file wires itself to its own head and collector, so the topology is data; a
+CxCore-only KB is a head with no spindle under it, and a user adds a member to either
+spindle.
 The middle theories are the defeasible defaults that state their own exception with
 `exceptWhen` (birds fly except penguins; animals breathe air except fish; living things
 are alive until they are dead and awake until they are asleep — four rules of one shape,

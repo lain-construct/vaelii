@@ -14,10 +14,9 @@
             [vaelii.core :as v]
             [vaelii.impl.modal :as modal]
             [vaelii.impl.naming :as naming]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :once (tu/loaded starter/load-into))
+(use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
 (def ^:private ask-ctx 'CxWell)
@@ -229,7 +228,7 @@
   (v/assert kb '(purrs Cat) (modal/context-of-agent 'Bob))
   (let [nested '(believes Alice (believes Bob (purrs Cat)))]
     (testing "by default Alice's context is independent and cannot see the CxCore grant,
-              so the inner (believes …) is are indistinguishable from a plain literal — false, no recursion"
+              so the inner (believes …) is read as a plain literal — false, no recursion"
       (is (not (v/ask? kb nested ask-ctx))))
     (testing "once Alice's context sees the grant, the nesting projects through"
       (v/assert kb (list 'genlCx (modal/context-of-agent 'Alice) 'CxCore) 'CxUniverse)

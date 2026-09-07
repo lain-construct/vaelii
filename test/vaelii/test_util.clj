@@ -18,7 +18,7 @@
   Fixture recipes:
 
     ;; a shared KB loaded once (starter / CxCore), neutral per test
-    (use-fixtures :once (tu/loaded starter/load-into))
+    (use-fixtures :once (tu/loaded tu/load-starter!))
     (use-fixtures :each (tu/neutral))
 
     ;; a fresh KB rebuilt per test (empty or CxCore-loaded), neutral per test
@@ -30,11 +30,14 @@
             [clojure.string :as str]
             [clojure.test :refer [is]]
             [vaelii.core :as v]
+            [vaelii.impl.checks :as checks]
             [vaelii.impl.config :as config]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.llm.ollama :as ollama]
             [vaelii.impl.observe :as observe]
-            [vaelii.impl.protocols :as p]))
+            [vaelii.impl.protocols :as p]
+            [vaelii.impl.starter :as starter])
+  (:import [java.io File]))
 
 ;; ---- the switches, and the pin that hands their defaults back -----------
 ;;
@@ -135,6 +138,22 @@
                           [vr (get shipped-defaults vr)]))
                    vars)]
     (fn [f] (with-bindings* pins f))))
+
+(defmacro without-entailing
+  "Run `body` with the argument declarations read as **constraints only** — the shipped
+  reading, whatever `VAELII_ASSERTIVE_ARG_TYPES` set the root to.
+
+  `with-pinned`'s job for the one switch it cannot do: `shipped-defaults` captures each
+  root at *this* namespace's load, and this root is set at `vaelii.impl.checks`'s, which
+  is earlier — so a capture would record the sweep's value as the shipped one.  The
+  default is written out here instead, in the one place that has to state it.
+
+  A test wants this when what it asserts is the **refusal**: with the entailment on there
+  is no `:arg-type` conviction of a symbol argument to assert, because the declaration
+  mints the type it demands rather than testing for it (docs/argtypes.md).  A test about
+  the entailment binds the var the other way and lives in `argtype_entail_test`."
+  [& body]
+  `(binding [checks/*assertive-arg-types?* false] ~@body))
 
 (defmacro with-pinned
   "`pinning` around one test rather than a namespace's fixture, for a file the sweep
@@ -408,6 +427,67 @@
 (defn fresh
   "An empty, cleared KB on the shared scratch space."
   [] (doto (test-kb) (clear-kb!)))
+
+;; ---- the starter ontology, built once and copied ------------------------
+
+(def starter-build-space
+  "The space the starter dump is built on: a plain in-RAM KB of its own, never the
+  shared scratch one.  A `:once` fixture in another namespace holds a KB open on
+  `scratch-space` for the length of that namespace and `fresh` wipes what it finds, so
+  building here would wipe it.  Plain memory whatever storage the run selected, for
+  `plain-memory-space`'s reason and because a dump is backend-portable — what is
+  exported is the record store, and every backend holds the same records."
+  {:backend :memory
+   :space [::starter block-top]
+   :recover? false :tms tms-kind})
+
+(def ^:private starter-dump
+  "An export dump of the starter ontology, built **once per JVM** and read back by
+  `load-starter!`.
+
+  `starter/load-into` re-asserts all 3,200+ sentexes through the full write path, and
+  that path is not linear in the ontology's size.  64% of the load is its 28 `genlCx`
+  edges: each one sweeps the facts its widened ancestor set newly exposes and re-derives
+  the functional equalities over them (`special/equate-under-context-edge`), which for
+  one edge over the loaded starter is 145 ms and ~5,100 index queries.  Measured on this
+  tree: `load-into` 3,144 ms, `export!` 76 ms for an 89 KB dump, `import!` 267 ms.
+
+  A dump is a copy of the KB rather than a shortcut past building one: `import!` restores
+  the records, the justifications and the premise marks, rebuilds the index and recovers
+  belief, so what it produces is what `load-into` produces.  `starter_copy_test` pins
+  that — same sentences, same contexts, same truth, same strength, same belief.
+
+  The directory is deleted on JVM exit, deepest entry first, since `deleteOnExit` runs
+  its queue in reverse insertion order and will not remove a directory holding files."
+  (delay
+    (let [dir (doto (File. (System/getProperty "java.io.tmpdir")
+                           (str "vaelii-starter-" (System/nanoTime)))
+                (.mkdirs))
+          ;; cleared first, for `fresh`'s reason: the space is opened `:recover? false`
+          ;; over databases a previous run may have populated, and a write into a KB whose
+          ;; belief was never built is refused (`:type :unrecovered-kb`)
+          kb  (doto (v/open-kb starter-build-space) (clear-kb!))]
+      (starter/load-into kb)
+      (v/export! kb (.getPath dir))
+      (clear-kb! kb)
+      (.deleteOnExit dir)
+      (run! #(.deleteOnExit ^File %) (file-seq dir))
+      (.getPath dir))))
+
+(defn load-starter!
+  "Load the starter ontology into `kb` and return `kb` — `starter/load-into`'s result,
+  restored from the dump `starter-dump` builds once per JVM rather than re-asserted.
+
+  A `:once` fixture calls this:
+
+    (use-fixtures :once (tu/loaded tu/load-starter!))
+
+  A test *about the load path itself* — what `load-into` asserts, in what order, or what
+  it refuses — calls `starter/load-into` directly and pays for it, since a restored dump
+  answers a different question."
+  [kb]
+  (v/import! kb @starter-dump {:belief? true})
+  kb)
 
 (defn isolated-fresh
   "An empty, cleared KB on the isolated space.  See `isolated-test-kb`."

@@ -30,10 +30,9 @@
             [vaelii.core :as v]
             [vaelii.impl.rules :as vr]
             [vaelii.impl.space :as space]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :once (tu/loaded starter/load-into))
+(use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
 (defn- stamped-rule

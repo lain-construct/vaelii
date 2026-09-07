@@ -473,6 +473,11 @@
    :base-is-overlay         #{}
    :body-too-large          #{}
    :compaction-failed       #{:log}
+   ;; two arms of one condition: `checks/disjoint-problems` names the opposing
+   ;; membership's handle, and `checks/cascade-clash` reads a pair the cascade
+   ;; supplies both sides of, which no stored sentex witnesses — so the handle is
+   ;; the key they do not share
+   :disjoint                #{:message :sentence :types}
    :disk-locked             #{:dir :holder}
    :duplicate-handle        #{:handle}
    :exception-not-closed    #{:unbound}
@@ -536,10 +541,10 @@
   caller is the build: the value is read by whoever is looking at the failure, so the
   vocabulary is pinned here and not spelled out in a table cell forty rows long."
   {:bad-table-entry
-   #{:arbitrable :blank-exemption :blank-title :cached :checked :contract :duplicate-name
+   #{:arbitrable :blank-exemption :blank-title :cached :checked :duplicate-name
      :duplicate-reading :duplicate-title :enumeration :exempt-and-rostered :family
      :family-lane :family-roster :illegal-pair :image-axis :implication :inert :no-arm
-     :no-names :pairs-with :partial-cache-triple :reach :read-at :reading :recheck
+     :no-names :partial-cache-triple :reach :read-at :reading :recheck
      :reserved-name :stale-exemption :stops-short :storage :sweep-reach :sweeps
      :unarmed-axis :unarmed-reading :undeclared-arm :unknown-axis :unnamed-pair
      :unrostered-arm :unrostered-reader :vocabulary}

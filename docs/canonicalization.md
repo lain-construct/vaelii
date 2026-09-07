@@ -100,16 +100,18 @@ stored is **re-spelled where it lies** — same handle, same TMS node, same prem
 same justifications, since for a re-canonicalization nothing resting on the row is about
 its spelling (`kb/respell-sentex!`, the store's third mutation beside `create-sentex` and
 `integrate/sentex-removed!`). A mirrored pair **folds into one row**: the redundant one
-hands over its premise mark, the justifications drawn through it and its handle-naming
-metas, and then leaves through the ordinary teardown.
+hands over its premise mark, the justifications that conclude it, the justifications drawn
+through it and its handle-naming metas, and then leaves through the ordinary teardown.
 
-Which of a pair survives is decided from what supports it and only then from the handle. A
-row a rule concluded cannot be the one to leave — folding it would mean deleting the
-justifications naming it as their consequence, and the JTMS has no entry point for that on
-purpose — so the row standing on nothing but its own premise is the one that goes. Between
-two such rows the **lower handle** survives: it is the row the KB would be holding had the
-declaration come first, which is the claim being restored. Two rows a rule concluded are
-left alone, pair and all, and for that pair the KB reads as it did before the arm existed.
+Which of a pair survives is decided from what supports it and only then from the handle.
+The row standing on nothing but its own premise is the one that goes, because
+`jtms/retract!` is exactly the sweep that takes it. A row a rule concluded leaves through
+`integrate/fold-supports!`, which re-hangs the justifications naming it as their
+consequence onto the survivor: nothing is deleted, the doomed row is left supporting
+nothing, and the same sweep collects it. Between two rows the fold has no other reason to
+separate — both bare premises, or both a rule's conclusion — the **lower handle**
+survives: it is the row the KB would be holding had the declaration come first, which is
+the claim being restored.
 
 The migration is a **write**, so retracting the mark does not undo it: `P`'s facts stay
 spelled the way the declaration had them spelled. That is a spelling and not a belief. The

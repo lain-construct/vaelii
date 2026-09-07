@@ -10,27 +10,30 @@
             [vaelii.test-util :as tu]))
 
 (deftest violations-accumulate-across-chaining-runs
-  (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [person rock parentOf looksLike unrelated Boulder Muffet Spot]
-      (v/assert kb (list 'genl person 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-      (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
-      (v/assert kb (list rock Boulder) 'CxUniverse)
-      (v/clear-violations! kb)
-      ;; the rule derives (parentOf Boulder Muffet) for the stored (rock Boulder) — an
-      ;; argument constraint, so there is no opposing sentex to arbitrate against and
-      ;; the conclusion is dropped rather than placed (a disjointness clash *is*
-      ;; arbitrated; see constraint_nogood_test)
-      (v/assert-rule kb [(list rock '?x)] (list parentOf '?x Muffet) 'CxUniverse)
-      (let [drops (filter #(= :arg-type (:violation %)) (v/violations kb))]
-        (is (seq drops) "the derived inadmissible conclusion was recorded")
-        (is (every? :run drops) "every entry carries its chaining run id"))
-      (testing "a later, unrelated assert no longer erases the ledger"
-        (v/assert kb (list unrelated Spot) 'CxUniverse)
-        (is (seq (filter #(= :arg-type (:violation %)) (v/violations kb)))))
-      (testing "clear-violations! is the one way to empty it"
-        (v/clear-violations! kb)
-        (is (empty? (v/violations kb)))))))
+  ;; Pinned to the constraint reading: the entries counted are arg convictions of a symbol
+  ;; argument, which the entailment reading mints instead (docs/argtypes.md).
+  (tu/without-entailing
+   (tu/with-neutral-kb [kb tu/fresh]
+     (tu/with-terms [person rock parentOf looksLike unrelated Boulder Muffet Spot]
+       (v/assert kb (list 'genl person 'thing) 'CxUniverse)
+       (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+       (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
+       (v/assert kb (list rock Boulder) 'CxUniverse)
+       (v/clear-violations! kb)
+       ;; the rule derives (parentOf Boulder Muffet) for the stored (rock Boulder) — an
+       ;; argument constraint, so there is no opposing sentex to arbitrate against and
+       ;; the conclusion is dropped rather than placed (a disjointness clash *is*
+       ;; arbitrated; see constraint_nogood_test)
+       (v/assert-rule kb [(list rock '?x)] (list parentOf '?x Muffet) 'CxUniverse)
+       (let [drops (filter #(= :arg-type (:violation %)) (v/violations kb))]
+         (is (seq drops) "the derived inadmissible conclusion was recorded")
+         (is (every? :run drops) "every entry carries its chaining run id"))
+       (testing "a later, unrelated assert no longer erases the ledger"
+         (v/assert kb (list unrelated Spot) 'CxUniverse)
+         (is (seq (filter #(= :arg-type (:violation %)) (v/violations kb)))))
+       (testing "clear-violations! is the one way to empty it"
+         (v/clear-violations! kb)
+         (is (empty? (v/violations kb))))))))
 
 (deftest a-completed-firing-with-no-placement-context-is-recorded
   (tu/with-neutral-kb [kb tu/fresh]

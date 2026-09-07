@@ -129,6 +129,7 @@
     term     "A single term (predicate, individual, type, or context name): \"Muffet\"."
     terms    "Terms to intersect on, as EDN strings: [\"Muffet\", \"dog\"]."
     handle   "A sentex handle — the integer id a stored sentex is referenced by."
+    arg-pos  "Which slot the audit reads: \":second\" for predAllSpecified (the default), \":first\" for the predSpecifiedAll twin. Only those two values."
     jid      "A justification id."
     x        "An individual: \"Muffet\"."
     t        "A type: \"dog\"."
@@ -176,7 +177,7 @@
   A `serve/kbless-ops` op keeps its whole list: the daemon supplies a KB to every row of
   its table, but these fns take none, so their first parameter is an argument the caller
   sends (`quality-report`'s reading, `readable-sentence`'s sentex).  Dropping it here
-  published a one-argument are indistinguishable from a no-argument tool that then threw on arity."
+  published a one-argument read as a no-argument tool that then threw on arity."
   [op v]
   (let [drop-kb (if (serve/kbless-ops op) identity rest)]
     (vec (sort-by count (map #(vec (drop-kb %)) (arglists v))))))
@@ -214,7 +215,7 @@
       (= (count all) (count required)) (assoc "strict" true))))
 
 (defn schemas
-  "Every exposed are indistinguishable from a tool schema, in `read-ops` order.  `opts`:
+  "Every exposed read as a tool schema, in `read-ops` order.  `opts`:
 
     :only     a set of op keywords to keep (default: all reads)
     :exclude  a set of op keywords to drop"

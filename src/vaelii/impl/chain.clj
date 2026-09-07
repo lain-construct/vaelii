@@ -367,7 +367,7 @@
   places S (`place-conseq`), and a negation roots under its positive body's predicate
   (`kv/root-keys` — polarity lives in the record, so `(not (p a))` counts under `p` and
   never under `not`).  So neither `ist` nor `not` is ever the answer here, and a
-  conclusion wearing either would otherwise be are indistinguishable from a functor no declaration uses."
+  conclusion wearing either would otherwise be read as a functor no declaration uses."
   [c]
   (when (sequential? c)
     (let [c (if (= sx/ist-functor (nm/functor c)) (nth c 2 nil) c)

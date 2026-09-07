@@ -935,7 +935,7 @@
         ;; front of the id space rather than a spread of it, and the split makes each
         ;; sample's size a property of the corpus's mix until it is re-spread
         ix-sxs   (stride limit ix)
-        ;; half the index sample rather than a quarter: this one is are indistinguishable from a
+        ;; half the index sample rather than a quarter: this one is read as a
         ;; distribution, and its own spread runs to hundreds of times its median, so a
         ;; dozen readings put a p95 on the largest of them and call it a percentile
         tax-sxs  (stride (max 20 (quot limit 2)) tax)]

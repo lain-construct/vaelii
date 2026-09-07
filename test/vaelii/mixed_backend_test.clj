@@ -652,14 +652,6 @@
       (is (= :image-axis
              (:mismatch (refusal {:record-axes (assoc-in (:record-axes tables)
                                                          [:sqlite :image?] true)})))))
-    (testing "the `:snapshot` prose drifting from the `:image?` gate it describes"
-      (is (= :pairs-with
-             (:mismatch (refusal {:index-axes (assoc-in (:index-axes tables)
-                                                        [:snapshot :pairs-with] #{:pg})})))))
-    (testing "the `:disk-log` prose drifting from the record axes that take a persisted index"
-      (is (= :pairs-with
-             (:mismatch (refusal {:index-axes (assoc-in (:index-axes tables)
-                                                        [:disk-log :pairs-with] #{:disk})})))))
     (testing "a name for an axis nothing declares, which refuses at the first open"
       (is (= :unknown-axis
              (:mismatch (refusal {:backend-modes (assoc (:backend-modes tables)

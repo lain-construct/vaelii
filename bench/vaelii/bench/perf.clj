@@ -34,7 +34,7 @@
   baseline large enough to already carry the cost being measured divides that cost out of
   the answer: `clash-arbitration` at 100 vs 800 could not tell a healthy engine from one
   re-deriving every standing pair, because 100 pairs' worth of the per-pair cost was
-  sitting in the denominator.  Both failures are indistinguishable from a *comfortable pass*.  So when
+  sitting in the denominator.  Both failures read as a *comfortable pass*.  So when
   adding a check, pick the small size to be a size at which the thing being measured has
   barely started.
 
@@ -363,7 +363,7 @@
   Two shapes break it and neither breaks a test, because both are merely slow — deciding
   which edges are active by recomputing the believed-supporter set of every edge in the
   relation, and gating that scan by walking every supporter to ask whether any moved.
-  Both are indistinguishable from a flip that tracks the vocabulary; the fix is a reverse index off the
+  Both read as a flip that tracks the vocabulary; the fix is a reverse index off the
   moved handles, and only a load says which one is in.
 
   The edges are wide rather than deep (every type straight under `thing`) so the build
@@ -396,7 +396,7 @@
   every entry in the map, and gating that scan by walking every supporter to ask whether
   any moved.  The **gate** is the one this check is really about — most settles move no
   declaration at all, so a miss that walks the whole supporter set is a cost every settle
-  pays to learn it had nothing to do.  Both are indistinguishable from a flip that tracks the vocabulary; the
+  pays to learn it had nothing to do.  Both read as a flip that tracks the vocabulary; the
   fix is a reverse index off the moved handles, and only a load says which one is in.
 
   Each pair is over types of its own, so nothing is a subtype of anything and no instance
@@ -842,7 +842,7 @@
   settle relabelled** and never to what is stored.  Two plausible implementations break
   that and neither breaks a test: snapshotting the believed set and diffing it is O(KB)
   per write, and answering a standing query by re-running its goal makes every mutation
-  cost a query per listener.  Both are indistinguishable from a per-assert cost that grows with the load,
+  cost a query per listener.  Both read as a per-assert cost that grows with the load,
   which is what this separates from a per-region one.
 
   The listeners discard their events on purpose — what is being measured is the engine's
@@ -1392,6 +1392,65 @@
        (for [_ (range 60)]
          (nanos (dotimes [_ reads-per-visibility-reading]
                   (count (v/sentexes-matching kb '(pv_seen ?x) 'CxPerf)))))))))
+
+(def ^:private readings-per-reader-fan
+  "Timed readings.  Above `tail-samples`, so the answer is a mean over the last 50 and the
+  first reading — the only one that still has merges to derive — is outside it."
+  60)
+
+(defn- genlcx-edge-reader-fan
+  "One `(genlCx sub super)` edge joining two branches of a KB carrying n **bystander**
+  reader contexts — contexts that read the candidates' own branch and sit under no `sub`,
+  so the edge leaves every one of their ancestor sets exactly as it found them.
+
+  The claim is that the edge costs the readers it **widened**.  When the edge lands,
+  `special/equate-under-context-edge` re-derives the functional equalities over the facts
+  the widened ancestor set newly exposes, and each derivation sweeps a set of reader
+  contexts: the honest set is `context-down(sub)`, which here is `sub` alone, and the lazy
+  one is every reader below each candidate's own storage context, which every bystander
+  is.  So n moves the reader fan and leaves the widened set and the candidate set alone,
+  and an edge that grows with n is the sweep re-asking readers a question already answered
+  when the fact arrived.
+
+  **This is the growth that shipped**: as the starter grew from 1,668 to 2,435 sentexes
+  one edge over it went from 23 ms to 145 ms and `starter/load-into` from 0.87 s to
+  2.50 s.  `genlcx_sweep_cost_test` counts the same fan in the suite; this reads it as a
+  duration, which is what also catches a per-call cost growing inside a fan of the right
+  size.
+
+  **One `sub` exists at a time, and the reading retracts its own edge.**  That is what
+  keeps the baseline out of the measurement, and getting it wrong once is why it is
+  written down: a `sub` per reading has to be wired somewhere it can see the candidates,
+  which makes each one a bystander of every later reading — 60 of them, so the n=8 fan is
+  really 68 and the n=512 fan 572, and a ratio the sweep should have made ~57x reads
+  2.0x.  That is the header's own warning about a baseline that already carries the cost,
+  met in the setup rather than in the sizes.  Retracting the joining edge leaves the merge
+  standing (`equate-under-context-edge` says why), so every reading after the first pays
+  the sweep and not the merge — which is the fan, and is the quantity this is about."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(functional gefParent) 'CxUniverse {:strength :monotonic})
+    (v/assert kb '(genlCx CxGefLeft CxUniverse) 'CxCore {:strength :monotonic})
+    (v/assert kb '(genlCx CxGefRight CxUniverse) 'CxCore {:strength :monotonic})
+    (v/with-deferred-settle kb
+      ;; readers of the candidates' branch, under no `sub`: the joining edge changes no
+      ;; ancestor set of theirs, so none of them is entitled to cost it anything
+      (doseq [i (range n)]
+        (v/assert kb (list 'genlCx (symbol (str "CxGefBy" i)) 'CxGefLeft) 'CxCore
+                  {:strength :monotonic}))
+      ;; the one sub, and the clashing pairs the sweep enumerates
+      (v/assert kb '(genlCx CxGefSub CxGefLeft) 'CxCore {:strength :monotonic})
+      (doseq [i (range 8)]
+        (v/assert kb (list 'gefParent (symbol (str "GefK" i)) (symbol (str "GefA" i)))
+                  'CxGefLeft {:strength :monotonic})
+        (v/assert kb (list 'gefParent (symbol (str "GefK" i)) (symbol (str "GefB" i)))
+                  'CxGefRight {:strength :monotonic})))
+    (doall
+     (for [_ (range readings-per-reader-fan)]
+       (let [t (nanos (v/assert kb '(genlCx CxGefSub CxGefRight) 'CxCore
+                                {:strength :monotonic}))]
+         (v/retract! kb (v/handle-of kb '(genlCx CxGefSub CxGefRight) 'CxCore))
+         t)))))
 
 (def ^:private reads-per-clash-reading
   "Readings of the standing set batched into one timed measurement, and **the same batch
@@ -2147,6 +2206,31 @@
     :sizes     [8 1024]
     :max-ratio 2.0
     :run       visibility-reading}
+
+   ;; The reader fan a `genlCx` edge sweeps.  Flat by construction: the bystanders read
+   ;; the candidates' branch and sit under no `sub`, so the edge changes no ancestor set
+   ;; of theirs and the widened set is the same size at both n.  The shape this exists to
+   ;; catch is the one that shipped — the sweep taking `context-down` of each candidate's
+   ;; own storage context rather than of `sub`, which put every bystander in the fan at
+   ;; one derivation per candidate apiece.
+   ;;
+   ;; **Calibrated from both ends**, at the two readings that bracket it.  Healthy it
+   ;; reads **1.02x** under `--only` (2.012 ms/op against 2.048) and **1.52x** on a full
+   ;; run (1.370 against 2.088) — the header's warmer-baseline gap, which shows here
+   ;; because the small size's own reading is small.  Against the defect, measured on a
+   ;; worktree at the parent commit, it reads **15.51x** (2.996 ms/op against 46.456).  So
+   ;; 3.0 is twice the healthy spread and five times under the defect, which is
+   ;; `visibility-reading`'s rule for the same shape.  A bound at 2.0 would sit 24% over
+   ;; a full run's healthy reading, which is the margin `inherit-reach-memo` lives on and
+   ;; the reason it is the one check here that flakes.
+   ;;
+   ;; `genlcx_sweep_cost_test` counts the same fan in the suite, exactly and with no
+   ;; tolerance, and `genlcx_sweep_test` holds what the sweep must still derive.
+   {:name      :genlcx-edge-reader-fan
+    :claim     "a genlCx edge costs the readers it widened, not every reader below its candidates"
+    :sizes     [8 512]
+    :max-ratio 3.0
+    :run       genlcx-edge-reader-fan}
 
    ;; **The only check here that writes to a disk**, and the first thing in this file to
    ;; measure the durable stores at all.  Flat, and calibrated from both ends.  Healthy it

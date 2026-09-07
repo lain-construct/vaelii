@@ -154,9 +154,9 @@ check() {
 # staging with five errors waiting for it.
 #
 # A NOTE and never a failure.  The pin moves whenever the workflow
-# is edited, and a package manager can lag it for weeks — brew was four months
-# behind the pin at one point, so there was a window where no `brew install`
-# could satisfy a hard check.  Refusing to run the linter at all during that
+# is edited, and a package manager can lag it for weeks — brew runs as much as
+# four months behind the pin, which opens a window where no `brew install`
+# can satisfy a hard check.  Refusing to run the linter at all during that
 # window costs more than the drift it would report.  Silent when the two agree,
 # and silent when either side cannot be read: an unreadable pin is a fact about
 # this script's parsing, not a finding about the tree.

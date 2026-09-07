@@ -61,6 +61,75 @@
     (is (empty? guilty)
         (str "shipped sentences their own KB convicts: " (vec guilty)))))
 
+(def ^:private defining-functors
+  "The functors whose sentence *defines or extends* the term it names, as opposed to
+  merely using it.  A `(comment T …)` or `(arity T 2)` defines `T`; a `(genl sub super)`
+  defines `sub` and **extends** `super`, since it adds to what the supertype's extent
+  holds; a `disjoint` extends both sides.  An `(arg P 1 T)` defines `P` and only uses
+  `T` — a constraint naming a type says nothing new about the type.
+
+  Read as a roster rather than as \"every functor\": a use is the common case and the
+  test below is about the rare one."
+  '#{comment unary_predicate binary_predicate ternary_predicate arity arg genlArg quotedArg
+     arg1 arg2 arg3 interArg symmetric transitive asymmetric anti_symmetric anti_transitive
+     reflexive irreflexive functional functionalInArg injection surjection bijection
+     equivalence_relation variable_arity abducible_predicate closed_extent_predicate
+     modal_predicate decontextualized_predicate forced_decontextualized_predicate
+     instance_relation_predicate type_relation_predicate target_following_predicate
+     reifiable_function unreifiable_function quoting_function context_denoting_function
+     result genlResult transitiveInArg transitiveInArgInverse inverse relation_kind})
+
+(defn- touched-terms
+  "`term -> #{context}` over `sentences`, for the terms each one defines or extends."
+  [pairs]
+  (reduce (fn [acc [ctx s]]
+            (if-not (seq? s)
+              acc
+              (let [[f & args] s]
+                (cond
+                  (= 'genl f)
+                  (reduce #(update %1 %2 (fnil conj #{}) ctx) acc (filter symbol? (take 2 args)))
+                  (contains? '#{disjoint sibling_disjoint siblingDisjointException} f)
+                  (reduce #(update %1 %2 (fnil conj #{}) ctx) acc (filter symbol? args))
+                  (and (contains? defining-functors f) (symbol? (first args)))
+                  (update acc (first args) (fnil conj #{}) ctx)
+                  :else acc))))
+          {}
+          pairs))
+
+(deftest a-term-two-spindle-members-touch-is-defined-in-the-head
+  ;; A spindle is a **head** every member sees, **members** that see the head and not
+  ;; each other, and a **collector** that sees every member (docs/contexts.md).  So a
+  ;; term defined in one member and extended from a second is a term the extending
+  ;; member cannot see, and that is a defect rather than untidiness: with `living_thing`
+  ;; defined in CxAbstract, `(genl animal living_thing)` written in CxOrganism left
+  ;; `animal` unable to reach `thing` FROM CxOrganism, so every `arg` constraint written
+  ;; there convicted nothing in its own context and `isa?` answered false about a type
+  ;; the file defines.
+  ;;
+  ;; The rule, and what this holds: a term more than one member of a spindle defines or
+  ;; extends belongs at or above that spindle's head — CxCore for the upper spindle, and
+  ;; for the middle spindle CxUniverse or anything CxUniverse sees, which is the whole
+  ;; upper spindle it collects.  Using another member's term is not caught here and is a
+  ;; separate question; *extending* one is what breaks a closure.
+  (let [pairs      (authored-sentences)
+        from       (fn [ctxs] (fn [[c _]] (contains? ctxs c)))
+        members    (fn [dir] (set (seed/layer-contexts dir)))
+        upper      (members "upper")
+        middle     (members "middle")
+        in-head    (set (keys (touched-terms (filter (from #{'CxCore}) pairs))))
+        in-upper   (set (keys (touched-terms (filter (from upper) pairs))))]
+    (is (seq upper) "the spindles were read")
+    (doseq [[spindle ctxs visible]
+            [["upper" upper in-head] ["middle" middle (into in-head in-upper)]]]
+      (let [shared (for [[t cs] (touched-terms (filter (from ctxs) pairs))
+                         :when  (and (< 1 (count cs)) (not (contains? visible t)))]
+                     [t (sort cs)])]
+        (is (empty? (sort shared))
+            (str "two members of the " spindle " spindle define or extend these, and no"
+                 " context at or above their head defines the term — push it up to the"
+                 " head: " (pr-str (sort shared))))))))
+
 (tu/deftest-kb starter-loads-and-reasons
   (testing "the universal rule fires on natural-world facts, landing in CxNaturalWorld"
     (is (seq (v/sentexes-matching kb '(grandparentOf Tom Ann) 'CxNaturalWorld)))

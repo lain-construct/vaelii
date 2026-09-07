@@ -96,7 +96,7 @@
 
 (deftest a-frame-tag-this-build-does-not-read-is-refused-by-name
   ;; The other direction of the same compatibility question: a positional frame whose tag
-  ;; is not one of this codec's must be refused rather than are indistinguishable from a literal whose fields
+  ;; is not one of this codec's must be refused rather than read as a literal whose fields
   ;; land in the wrong slots.  Refused *by name*, because `rebuild-premises!`
   ;; discriminates on the type: `:damaged-dictionary` and `:malformed-record` are crash
   ;; damage and tombstone the record, while this one rethrows — a build that cannot read a

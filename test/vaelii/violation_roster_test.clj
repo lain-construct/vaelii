@@ -259,7 +259,7 @@
 
 (defn- docstring-lines
   "The lines of `core/violations`' docstring, from the `defn` to its argument vector.
-  Scoped that tightly so a table in a neighbouring docstring is not are indistinguishable from a claim about
+  Scoped that tightly so a table in a neighbouring docstring is not read as a claim about
   the ledger."
   []
   (->> (str/split-lines (slurp doc-file))

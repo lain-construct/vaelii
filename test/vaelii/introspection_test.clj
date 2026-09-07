@@ -30,47 +30,54 @@
   ;; weigh it against and nothing for `settle` to arbitrate: the conclusion is dropped
   ;; and lands here.  (Disjointness, functionality and asymmetry each *do* name an
   ;; opposing sentex, and are arbitrated instead — see `soundness_test`.)
-  (tu/with-terms [person rock parentOf looksLike Boulder Muffet]
-    (v/assert kb (list 'genl person 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
-    (v/assert kb (list rock Boulder) 'CxUniverse)
-    (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
-    (v/assert kb (list looksLike Boulder) 'CxUniverse)
-    (testing "the inadmissible conclusion is not believed"
-      (is (empty? (v/sentexes-matching kb (list parentOf Boulder Muffet) 'CxUniverse))))
-    (let [vs (filter #(= :arg-type (:violation %)) (v/violations kb))]
-      (testing "and it is reported, rather than dropped silently"
-        (is (= 1 (count vs)) "exactly one conclusion was dropped")
-        (let [{:keys [violation sentence context rule detail]} (first vs)]
-          (is (= :arg-type violation))
-          (is (= (list parentOf Boulder Muffet) sentence))
-          (is (= 'CxUniverse context))
-          (is (integer? rule) "the firing rule's handle, so the drop is attributable")
-          (is (map? detail))
-          (is (string? (:message detail))))))))
+  ;; Pinned to the constraint reading, which is the reading the conviction-by-absence above
+  ;; belongs to.  With the entailment on the conclusion is admitted and the type minted, and
+  ;; what the derivation path drops is a mint it cannot admit — held by
+  ;; argtype_entail_test/an-inadmissible-entailment-on-the-derivation-path-is-reported-not-thrown.
+  (tu/without-entailing
+   (tu/with-terms [person rock parentOf looksLike Boulder Muffet]
+     (v/assert kb (list 'genl person 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+     (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
+     (v/assert kb (list rock Boulder) 'CxUniverse)
+     (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
+     (v/assert kb (list looksLike Boulder) 'CxUniverse)
+     (testing "the inadmissible conclusion is not believed"
+       (is (empty? (v/sentexes-matching kb (list parentOf Boulder Muffet) 'CxUniverse))))
+     (let [vs (filter #(= :arg-type (:violation %)) (v/violations kb))]
+       (testing "and it is reported, rather than dropped silently"
+         (is (= 1 (count vs)) "exactly one conclusion was dropped")
+         (let [{:keys [violation sentence context rule detail]} (first vs)]
+           (is (= :arg-type violation))
+           (is (= (list parentOf Boulder Muffet) sentence))
+           (is (= 'CxUniverse context))
+           (is (integer? rule) "the firing rule's handle, so the drop is attributable")
+           (is (map? detail))
+           (is (string? (:message detail)))))))))
 
 (tu/deftest-kb the-violations-ledger-accumulates-across-chaining-runs
   ;; The ledger **accumulates**, each entry stamped with its run id (`chain-stats`
   ;; counts runs), and `clear-violations!` is the one way to empty it.  Clearing at the
   ;; start of each chaining run instead would make a bulk load's drops unobservable by
   ;; its end — assert #38 erasing what #37 dropped.
-  (tu/with-terms [person rock parentOf looksLike Boulder Muffet Other]
-    (v/assert kb (list 'genl person 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
-    (v/assert kb (list rock Boulder) 'CxUniverse)
-    (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
-    (v/assert kb (list looksLike Boulder) 'CxUniverse)
-    (is (= 1 (count (v/violations kb))))
-    (testing "an unrelated later assert re-runs chaining and the drop is still reported"
-      (v/assert kb (list rock Other) 'CxUniverse)
-      (is (= 1 (count (v/violations kb))))
-      (is (integer? (:run (first (v/violations kb))))
-          "stamped with the run that dropped it, so \"current\" is decidable"))
-    (testing "clear-violations! empties it"
-      (v/clear-violations! kb)
-      (is (empty? (v/violations kb))))))
+  ;; Pinned for the reason above: the entries counted here are arg convictions.
+  (tu/without-entailing
+   (tu/with-terms [person rock parentOf looksLike Boulder Muffet Other]
+     (v/assert kb (list 'genl person 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+     (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
+     (v/assert kb (list rock Boulder) 'CxUniverse)
+     (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
+     (v/assert kb (list looksLike Boulder) 'CxUniverse)
+     (is (= 1 (count (v/violations kb))))
+     (testing "an unrelated later assert re-runs chaining and the drop is still reported"
+       (v/assert kb (list rock Other) 'CxUniverse)
+       (is (= 1 (count (v/violations kb))))
+       (is (integer? (:run (first (v/violations kb))))
+           "stamped with the run that dropped it, so \"current\" is decidable"))
+     (testing "clear-violations! empties it"
+       (v/clear-violations! kb)
+       (is (empty? (v/violations kb)))))))
 
 (tu/deftest-kb every-definitional-check-reports-through-the-same-ledger
   ;; `place-conclusion` runs four checks on the derivation path — the three

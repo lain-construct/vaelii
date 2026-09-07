@@ -16,7 +16,6 @@
             [vaelii.core :as v]
             [vaelii.impl.examples :as ex]
             [vaelii.impl.sandbox :as sandbox]
-            [vaelii.impl.starter :as starter]
             [vaelii.impl.web :as web]
             [vaelii.test-util :as tu]))
 
@@ -25,7 +24,7 @@
 (use-fixtures :once
   (fn [f]
     (let [kb (tu/fresh)]
-      (starter/load-into kb)
+      (tu/load-starter! kb)
       (binding [tu/*kb* kb, *app* (web/app kb)] (f))
       (tu/clear-kb! kb))))
 (use-fixtures :each (tu/neutral))

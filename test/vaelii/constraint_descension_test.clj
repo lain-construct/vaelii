@@ -63,25 +63,30 @@
 (tu/deftest-kb both-spellings-of-one-ill-typed-claim-are-refused
   ;; The headline.  Without the descension the second assert stores a fact that answers
   ;; the very query the first one was refused for.
-  (tu/with-terms [person rock parentOf fatherOf TheRock1 Mary]
-    (a-type kb person 'CxUniverse)
-    (a-type kb rock 'CxUniverse)
-    (v/assert kb (list rock TheRock1) 'CxUniverse)
-    (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
-    (is (= :arg-type (ex-type #(v/assert kb (list parentOf TheRock1 Mary) 'CxUniverse)))
-        "the declaration's own predicate")
-    (is (= :arg-type (ex-type #(v/assert kb (list fatherOf TheRock1 Mary) 'CxUniverse)))
-        "and the sub-predicate, whose tuples are the same tuples")
-    (testing "the refusal names the predicate the constraint was declared of"
-      (is (re-find (re-pattern (str "declared of " parentOf))
-                   (:message (first (v/check kb (list fatherOf TheRock1 Mary)
-                                             'CxUniverse))))))
-    (testing "and a well-typed claim under either spelling still stores"
-      (tu/with-terms [Fred]
-        (v/assert kb (list person Fred) 'CxUniverse)
-        (is (v/assert kb (list parentOf Fred Mary) 'CxUniverse))
-        (is (v/assert kb (list fatherOf Fred Mary) 'CxUniverse))))))
+  ;; Pinned to the constraint reading: what descends is asserted here as a *refusal* of both
+  ;; spellings, and with the entailment on a symbol argument is minted rather than convicted
+  ;; (docs/argtypes.md).  The declaration read through the edge is the subject either way —
+  ;; the entailment descends through the same edges, and argtype_entail_test holds that half.
+  (tu/without-entailing
+   (tu/with-terms [person rock parentOf fatherOf TheRock1 Mary]
+     (a-type kb person 'CxUniverse)
+     (a-type kb rock 'CxUniverse)
+     (v/assert kb (list rock TheRock1) 'CxUniverse)
+     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+     (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
+     (is (= :arg-type (ex-type #(v/assert kb (list parentOf TheRock1 Mary) 'CxUniverse)))
+         "the declaration's own predicate")
+     (is (= :arg-type (ex-type #(v/assert kb (list fatherOf TheRock1 Mary) 'CxUniverse)))
+         "and the sub-predicate, whose tuples are the same tuples")
+     (testing "the refusal names the predicate the constraint was declared of"
+       (is (re-find (re-pattern (str "declared of " parentOf))
+                    (:message (first (v/check kb (list fatherOf TheRock1 Mary)
+                                              'CxUniverse))))))
+     (testing "and a well-typed claim under either spelling still stores"
+       (tu/with-terms [Fred]
+         (v/assert kb (list person Fred) 'CxUniverse)
+         (is (v/assert kb (list parentOf Fred Mary) 'CxUniverse))
+         (is (v/assert kb (list fatherOf Fred Mary) 'CxUniverse)))))))
 
 (tu/deftest-kb genlArg-descends-on-the-same-argument
   (tu/with-terms [machine_t vehicle_t partType subPartType Rex]
@@ -155,19 +160,21 @@
   ;; The `genl` edge is as much a piece of evidence as the declaration and the
   ;; membership are, so it is held to the same vantage: a NAF check that convicted on
   ;; an edge asserted out of sight would convict harder the less a context sees.
-  (tu/with-terms [person rock parentOf fatherOf TheRock1 Mary CxLeft CxRight]
-    (v/assert kb (list 'genlCx CxLeft 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'genlCx CxRight 'CxUniverse) 'CxUniverse)
-    (a-type kb person 'CxUniverse)
-    (a-type kb rock 'CxUniverse)
-    (v/assert kb (list rock TheRock1) 'CxUniverse)
-    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
-    ;; the edge is asserted in a sibling context CxLeft cannot see
-    (v/assert kb (list 'genl fatherOf parentOf) CxRight)
-    (is (v/assert kb (list fatherOf TheRock1 Mary) CxLeft)
-        "no visible edge, so no constraint descends")
-    (is (= :arg-type (ex-type #(v/assert kb (list fatherOf TheRock1 Mary) CxRight)))
-        "and where the edge is visible the constraint is")))
+  ;; Pinned for the reason above: the vantage rule is stated here as which context refuses.
+  (tu/without-entailing
+   (tu/with-terms [person rock parentOf fatherOf TheRock1 Mary CxLeft CxRight]
+     (v/assert kb (list 'genlCx CxLeft 'CxUniverse) 'CxUniverse)
+     (v/assert kb (list 'genlCx CxRight 'CxUniverse) 'CxUniverse)
+     (a-type kb person 'CxUniverse)
+     (a-type kb rock 'CxUniverse)
+     (v/assert kb (list rock TheRock1) 'CxUniverse)
+     (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
+     ;; the edge is asserted in a sibling context CxLeft cannot see
+     (v/assert kb (list 'genl fatherOf parentOf) CxRight)
+     (is (v/assert kb (list fatherOf TheRock1 Mary) CxLeft)
+         "no visible edge, so no constraint descends")
+     (is (= :arg-type (ex-type #(v/assert kb (list fatherOf TheRock1 Mary) CxRight)))
+         "and where the edge is visible the constraint is"))))
 
 ;; ---- the three arrival orders ------------------------------------------
 
@@ -179,22 +186,25 @@
   ;; arrival order").  The descension inherits that verbatim rather than answering the
   ;; question through a side entry point: the edge arriving last is the family's third
   ;; ingredient, and it neither throws nor unstores.
-  (tu/with-terms [person rock parentOf fatherOf TheRock1 Mary]
-    (a-type kb person 'CxUniverse)
-    (a-type kb rock 'CxUniverse)
-    (v/assert kb (list rock TheRock1) 'CxUniverse)
-    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
-    (let [fh (v/assert kb (list fatherOf TheRock1 Mary) 'CxUniverse)]
-      (v/clear-violations! kb)
-      (is (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-          "the edge is admitted, not refused for what it retroactively convicts")
-      (is (v/in? kb fh) "and the fact it now convicts stays stored and believed")
-      (is (empty? (filter #(= :arg-type (:violation %)) (v/violations kb))))
-      (testing "what does change is that the next such claim is refused"
-        (tu/with-terms [TheRock2]
-          (v/assert kb (list rock TheRock2) 'CxUniverse)
-          (is (= :arg-type (ex-type #(v/assert kb (list fatherOf TheRock2 Mary)
-                                               'CxUniverse)))))))))
+  ;; Pinned for the reason above.  The absence this rests on is exactly what the entailment
+  ;; reading fills in, so the two readings answer differently and this one names its own.
+  (tu/without-entailing
+   (tu/with-terms [person rock parentOf fatherOf TheRock1 Mary]
+     (a-type kb person 'CxUniverse)
+     (a-type kb rock 'CxUniverse)
+     (v/assert kb (list rock TheRock1) 'CxUniverse)
+     (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
+     (let [fh (v/assert kb (list fatherOf TheRock1 Mary) 'CxUniverse)]
+       (v/clear-violations! kb)
+       (is (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
+           "the edge is admitted, not refused for what it retroactively convicts")
+       (is (v/in? kb fh) "and the fact it now convicts stays stored and believed")
+       (is (empty? (filter #(= :arg-type (:violation %)) (v/violations kb))))
+       (testing "what does change is that the next such claim is refused"
+         (tu/with-terms [TheRock2]
+           (v/assert kb (list rock TheRock2) 'CxUniverse)
+           (is (= :arg-type (ex-type #(v/assert kb (list fatherOf TheRock2 Mary)
+                                                'CxUniverse))))))))))
 
 (tu/deftest-kb every-arrival-order-of-the-three-ingredients-mints-the-same-type
   ;; Storage may differ by arrival order — that is the documented contract for a

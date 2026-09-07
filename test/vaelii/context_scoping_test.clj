@@ -27,10 +27,9 @@
   than have to decide whether it is a bug."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :once (tu/loaded starter/load-into))
+(use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
 (defn- siblings!

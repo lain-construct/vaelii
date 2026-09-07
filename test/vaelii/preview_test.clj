@@ -168,22 +168,25 @@
 (tu/deftest-kb a-conclusion-the-derivation-path-would-drop-is-reported-as-a-violation
   ;; an `arg` conviction has no opposing sentex to weigh against, so the derivation
   ;; path drops it — and a preview says so before the write happens
-  (tu/with-terms [person rock parentOf looksLike Boulder Muffet CxStory]
-    (v/assert kb (list 'genl person 'thing) CxStory)
-    (v/assert kb (list 'genl rock 'thing) CxStory)
-    (v/assert kb (list 'arg parentOf 1 person) CxStory)
-    (v/assert kb (list rock Boulder) CxStory)
-    (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) CxStory)
-    (let [before (content kb)
-          r      (v/preview kb {:add [[(list looksLike Boulder) CxStory]]})]
-      (testing "the drop is reported where a real run would report it"
-        (is (= [:arg-type] (mapv :violation (:violations r))))
-        (is (= [(list parentOf Boulder Muffet)] (mapv :sentence (:violations r)))))
-      (testing "only the admissible half of the batch is believed"
-        (is (= [(list looksLike Boulder)] (sentences (:believed-added r)))))
-      (testing "the KB's own ledger is left as it was found"
-        (is (empty? (v/violations kb))))
-      (is (= before (content kb))))))
+  ;; Pinned to the constraint reading: the drop previewed is an arg conviction, which the
+  ;; entailment reading replaces with a mint (docs/argtypes.md).
+  (tu/without-entailing
+   (tu/with-terms [person rock parentOf looksLike Boulder Muffet CxStory]
+     (v/assert kb (list 'genl person 'thing) CxStory)
+     (v/assert kb (list 'genl rock 'thing) CxStory)
+     (v/assert kb (list 'arg parentOf 1 person) CxStory)
+     (v/assert kb (list rock Boulder) CxStory)
+     (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) CxStory)
+     (let [before (content kb)
+           r      (v/preview kb {:add [[(list looksLike Boulder) CxStory]]})]
+       (testing "the drop is reported where a real run would report it"
+         (is (= [:arg-type] (mapv :violation (:violations r))))
+         (is (= [(list parentOf Boulder Muffet)] (mapv :sentence (:violations r)))))
+       (testing "only the admissible half of the batch is believed"
+         (is (= [(list looksLike Boulder)] (sentences (:believed-added r)))))
+       (testing "the KB's own ledger is left as it was found"
+         (is (empty? (v/violations kb))))
+       (is (= before (content kb)))))))
 
 (tu/deftest-kb a-conclusion-the-derivation-path-would-arbitrate-is-previewed-as-a-contradiction
   ;; the counterpart: a disjointness clash names an opposing sentex, so the firing is
@@ -280,7 +283,7 @@
     (let [before (content kb)
           r      (v/preview kb {:add [[(list dog Rex) CxStory]]} {:max-results 1})]
       (is (= 1 (count (:believed-added r))))
-      (is (true? (:bounded? r)) "a capped answer must not are indistinguishable from a complete one")
+      (is (true? (:bounded? r)) "a capped answer must not read as a complete one")
       (is (= before (content kb))))))
 
 (tu/deftest-kb an-unbounded-run-says-it-was-unbounded

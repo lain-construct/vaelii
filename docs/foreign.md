@@ -25,6 +25,29 @@ bridge is a **separate artifact** that teaches it a format when it is on the cla
 `vaelii-foreign` is the one we publish. Retiring a bridge is dropping a dependency; there
 is no file here to delete and none to change when one arrives.
 
+## Which way the dependency runs
+
+The dependency runs one way. `vaelii-foreign` depends on `com.vaelii/vaelii`, and this
+repo depends on no plugin. The two are not mutually dependent, and a build here does not
+resolve the plugin at all: `vaelii-foreign` is named in exactly one place in
+`project.clj`, the optional `:with-foreign` profile, and a profile coordinate is not a
+dependency edge. `lein deps`, `lein test` and `lein gate` run on the default profile and
+fetch nothing from the plugin.
+
+The direction follows from where the readers call. A reader reaches into
+`vaelii.impl.*`, which is not the public API and is free to change
+([namespaces.md](namespaces.md)); the plugin carries the cost of tracking those changes,
+which is why a bridge is a separate artifact rather than a namespace here. Reversing the
+direction would put the engine behind a plugin's release schedule for a format it does
+not read.
+
+One consequence reaches a release. The release carve strips the `-SNAPSHOT` suffix
+tree-wide, so a released engine's `:with-foreign` profile names the plugin at the
+engine's own version — `0.17.0` names `com.vaelii/vaelii-foreign "0.17.0"`. That
+coordinate has to exist on Clojars or the profile resolves nothing, so the plugin
+publishes a version whenever the engine does. `lein lint`'s `versions` row holds the pair
+in the development tree, and the release tooling checks it again before a cut.
+
 ## The extension point
 
 `vaelii.impl.foreign` is the whole of it. A caller asks by kind and gets a map of

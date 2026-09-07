@@ -402,16 +402,29 @@ Three process rules follow:
 
 ### 3.9 Compacting a released changelog section
 
-When a release stops being the current one, its entries are stripped to the shape every
-older section in [`CHANGELOG.md`](CHANGELOG.md) already uses: the entry's first sentence,
-then `*Class:*` / `*Breaks:*` / `*Migration:*` and the doc links. The mechanism paragraph
-goes, because §8's rule puts a mechanism in the `docs/` page that owns the subsystem,
-where it keeps being true.
+[`CHANGELOG.md`](CHANGELOG.md) carries the current release in full and every older one as
+a summary. When a release stops being the current one, its section is replaced by four
+things: the heading it already had, a class census (`**N entries** — n Breaking, n
+Refusal, n Additive, n Fix`), a paragraph of three to five sentences saying what the
+release did, and **every `*Breaks:*` token the section carried**, merged into one
+`*Breaks:*` line with duplicates removed.
 
-Before dropping a paragraph, check that every argument in it has a home. Mechanism belongs
-in the subsystem page; a rejected alternative, or a choice a reader would question, belongs
-in [`docs/defenses.md`](docs/defenses.md) under a stable heading the subsystem page links
-to. An argument recorded nowhere else is the one thing compaction must not lose.
+**The `*Breaks:*` tokens are the part that must survive verbatim.** An upgrade across
+several releases is a grep for the name a caller wrote, and a token dropped in compaction
+is a migration the reader cannot find. `scripts/check-breaking-siblings.sh` reads the
+current section only, so nothing else re-checks the older ones.
+
+The mechanism paragraphs go, because §8's rule puts a mechanism in the `docs/` page that
+owns the subsystem, where it keeps being true. Before dropping one, check that every
+argument in it has a home. Mechanism belongs in the subsystem page; a rejected
+alternative, or a choice a reader would question, belongs in
+[`docs/defenses.md`](docs/defenses.md) under a stable heading the subsystem page links to.
+An argument recorded nowhere else is the one thing compaction must not lose. The dropped
+prose stays reachable at the tag of the release that shipped it — `git show
+v0.16.0:CHANGELOG.md` — and the file's header says so.
+
+Compaction happens at the cut, in the same commit that dates the new section, so the file
+has exactly one section in full at any time.
 
 ### 3.10 Prose style: literal technical language
 
@@ -454,8 +467,8 @@ pronoun points at. Eight rules:
    pattern", never "the exception interface".
 
 5. **Mechanism first, reason second.** State what the code does, then why.
-6. **One claim per sentence.** At most one em-dash, and no second claim chained onto the
-   first with a subordinate clause.
+6. **One claim per sentence.** No second claim chained onto the first with a subordinate
+   clause.
 7. **Use the glossary term or a plain noun.** No coined synonym for a term that already
    has an entry, and no new coinage without one.
 8. **No evaluative adjective without a number behind it** — load-bearing, honest, cheap,
@@ -463,12 +476,17 @@ pronoun points at. Eight rules:
    is quantitative, cite the test or bench that measures it (§8).
 
 **`lein lint`'s `prose` check** (`scripts/check-prose.py`) enforces the mechanical part:
-P1 banned metaphors, P2 banned rhetoric, P3 pseudo-cleft. It reads against
-`scripts/prose-baseline.txt`, a per-file budget that only shrinks — a file absent from
-the baseline is pinned at zero, so new and rewritten files are clean by default. The
-sentence-form rules are held by review. This section states the rule, so it quotes the
-banned tokens in order to ban them and is exempt by name, the arrangement §3.6 and §3.7
-already use.
+P1 banned metaphors, P2 banned rhetoric, P3 pseudo-cleft, P4 a copula with `are` straight
+after it. It reads against `scripts/prose-baseline.txt`, a per-file budget that only
+shrinks — a file absent from the baseline is pinned at zero, so new and rewritten files
+are clean by default. The sentence-form rules are held by review. This section states the
+rule, so it quotes the banned tokens in order to ban them and is exempt by name, the
+arrangement §3.6 and §3.7 already use.
+
+P4 is not a style rule but a guard on the other three. P1 and P2 name what to write
+instead, and a substitution made across the tree at once is how a batch of their hits
+gets fixed, so `is read as a` rewritten to `is are indistinguishable from a` is what such
+a pass leaves behind.
 
 The tree is at zero today, so `scripts/prose-baseline.txt` holds no entries and any hit
 fails. The file stays because the ratchet is how a batch of new prose lands without

@@ -21,11 +21,10 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.sandbox :as sandbox]
-            [vaelii.impl.starter :as starter]
             [vaelii.impl.web :as web]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :once (tu/loaded starter/load-into))
+(use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
 (def ^:private bird    '(bird Pingu))

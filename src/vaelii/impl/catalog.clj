@@ -84,8 +84,8 @@
    {:id      "starter"
     :kind    :starter
     :name    "Starter ontology"
-    :blurb   "The shipped schema: the vocabulary head, the definitional upper band, and the middle theories. No individuals."
-    :scale   "~1,879 sentexes"
+    :blurb   "The shipped schema: the spindle head, the upper spindle's members, and the middle spindle's theories. No individuals."
+    :scale   "1,600+ asserted / 3,200+ stored"
     :default? true
     :options [{:key :chain? :type :flag :label "Forward-chain after loading" :default false}]}
    {:id      "generated"

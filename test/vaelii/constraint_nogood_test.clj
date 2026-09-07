@@ -137,17 +137,22 @@
   ;; It convicts by the *absence* of a path from the argument's types to the constraint
   ;; type — negation as failure, not a stored sentex — so there is no pair to make and
   ;; it stays a refusal at the entry point and a drop at the firing.
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-kb [kb]
-      (tu/with-terms [person_t rock_t parentOf Boulder Muffet]
-        (v/assert kb (list 'genl person_t 'thing) 'CxUniverse)
-        (v/assert kb (list 'genl rock_t 'thing) 'CxUniverse)
-        (v/assert kb (list 'arg parentOf 1 person_t) 'CxUniverse)
-        (v/assert kb (list rock_t Boulder) 'CxUniverse)
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list parentOf Boulder Muffet) 'CxUniverse))
-            "refused at the entry point even with arbitration on")
-        (is (empty? (v/contradictions kb)))))))
+  ;; Pinned to the constraint reading, which is the reading that has the conviction this
+  ;; describes.  With the entailment on the declaration mints the type instead, so there is
+  ;; no conviction-by-absence to classify; a mint the KB cannot admit refuses the fact that
+  ;; entails it, and refuses under either policy (docs/argtypes.md).
+  (tu/without-entailing
+   (binding [checks/*arbitrate-constraints?* true]
+     (tu/with-kb [kb]
+       (tu/with-terms [person_t rock_t parentOf Boulder Muffet]
+         (v/assert kb (list 'genl person_t 'thing) 'CxUniverse)
+         (v/assert kb (list 'genl rock_t 'thing) 'CxUniverse)
+         (v/assert kb (list 'arg parentOf 1 person_t) 'CxUniverse)
+         (v/assert kb (list rock_t Boulder) 'CxUniverse)
+         (is (thrown? clojure.lang.ExceptionInfo
+                      (v/assert kb (list parentOf Boulder Muffet) 'CxUniverse))
+             "refused at the entry point even with arbitration on")
+         (is (empty? (v/contradictions kb))))))))
 
 ;;; ── the loser has a reason ────────────────────────────────────────────
 

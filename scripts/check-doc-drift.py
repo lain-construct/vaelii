@@ -32,8 +32,11 @@ and those files describe the project around it.
       got here.  Only the unambiguous phrasings are errors — plain "X used to
       Y" collides with "used to" meaning *employed to* ("the key used to diff
       against what is stored"), so it is W7 and the hook catches it at the
-      keystroke instead.  Scans source and scripts as well as docs, plus the
-      markdown in `extra_md_files`.  Two of those files STATE this rule and so
+      keystroke instead.  A phrasing joins E7 only when every sentence that can
+      carry it states the project's past: "was the one" stays out, because
+      "whether it was the one that closed the subscription" is a live hypothetical,
+      and so does "has since moved", because evidence moves at run time.  Scans
+      source and scripts as well as docs, plus the markdown in `extra_md_files`.  Two of those files STATE this rule and so
       quote its phrasings in order to ban them; they are exempt by name, the
       same way this checker excludes itself.
   E8  `(requiring-resolve 'ns/var)` on a literal symbol anywhere under src/
@@ -666,6 +669,12 @@ ARCHAEOLOGY = re.compile(
     r"|\bbefore (the|this|that) fix\b|\bprior to the fix\b"
     r"|\bthe point of the change\b"
     r"|\b(formerly|renamed from|was renamed|used to be called)\b"
+    r"|\bhistorically\b|\bat one point\b"
+    r"|\ban earlier (version|form|implementation|shape)\b"
+    r"|\bthe earlier (code|version|form|rule|check|behaviou?r)\b"
+    r"|\bsince (renamed|removed|deleted|dropped)\b"
+    r"|\bno longer (a|an|the) (parameter|argument|var|function|namespace|field|key"
+    r"|option)\b"
     r"|\b" + _BANNED_REPO + r"\b",
     re.I)
 # "<lowercase word> used to <verb>", excluding the auxiliary ("be used to") and
@@ -722,7 +731,7 @@ for path in itertools.chain(repo_text_files(), extra_md_files()):
 # Narrow in SCOPE as well, and this is the one place the two rules part company:
 # E7 reads extra_md_files() and E9 does not. A changelog exists to say what a
 # released version does, and it says it in the tense these patterns match, so
-# every entry would are indistinguishable from a commitment; CONTRIBUTING.md carries a licensing
+# every entry would read as a commitment; CONTRIBUTING.md carries a licensing
 # statement about later versions that is a promise deliberately made. Both are
 # writing about the project rather than about the engine, and E9 is a rule about
 # what the ENGINE docs may claim.

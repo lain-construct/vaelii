@@ -112,11 +112,14 @@
   (@io-import-dump kb dir opts))
 
 (defn specified-violations
-  "`vaelii.impl.predall/specified-violations` — the instances of `indep` with no
-  determinate `dep` filler at `arg-pos` of `pred`, in `context`.  See the namespace
-  docstring for why this is not a require."
-  [kb pred indep dep context arg-pos]
-  (@predall-specified-violations kb pred indep dep context arg-pos))
+  "`vaelii.impl.predall/specified-violations` — the audit result for one binary
+  `(predAllSpecified pred indep)` declaration in `context`, always carrying a
+  `:status`: `{:status :audited :violations #{…}}`, or `{:status :gap …}` where
+  `pred` carries no visible slot typing at `arg-pos`.  A caller discriminates on
+  `:status` rather than on key presence, a gap carrying no `:violations` key.  See
+  the namespace docstring for why this is not a require."
+  [kb pred indep context arg-pos]
+  (@predall-specified-violations kb pred indep context arg-pos))
 
 (defn all-specified-violations
   "`vaelii.impl.predall/all-specified-violations` — every `predAllSpecified` and

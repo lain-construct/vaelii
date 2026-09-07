@@ -12,6 +12,7 @@
             [vaelii.core :as v]
             [vaelii.impl.chain :as chain]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.sentex :as sx]
             [vaelii.impl.starter :as starter]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]
@@ -107,6 +108,48 @@
           (is (v/in? kb2 h))
           (is (contains? (set (v/genls kb2 dog_t)) mammal_t))
           (is (v/isa? kb2 Rex mammal_t)))))))
+
+(tu/deftest-kb recover-drops-a-malformed-edge-declaration-rather-than-crashing
+  ;; `recover` replays the **stored** genl / genlCx sentexes rather than the checked ones,
+  ;; reading each edge positionally (`[_ a b]`).  A store an older or foreign writer left a
+  ;; non-edge sentex under the genl / genlCx functor root then reaches the rebuild arm as a
+  ;; malformed edge whose super reads nil — a two-element sentence binds the member as the
+  ;; sub and nil as the super.  Added, the nil is a node the closure's `strong-components`
+  ;; cannot walk (`java.util.ArrayDeque` rejects a null element), and it throws the moment a
+  ;; loose or cyclic relation is condensed — the `NullPointerException` recover hits on such
+  ;; a store.  The genlCx cycle below makes that walk run during the replay, so this is the
+  ;; reported crash; the fix drops the malformed declaration and warns, the way `rebuild-tms`
+  ;; drops a justification the store cannot root.
+  (let [rec    (:records kb)
+        idx    (:index kb)
+        store! (fn [sentence]                          ; put a sentex past the assert checks
+                 (let [s (sx/sentex sentence 'CxUniverse)
+                       h (p/put-sentex rec s)]
+                   (p/mark-premise rec h :default)
+                   (p/index-sentex idx (assoc s :id h) h)))]
+    ;; a well-formed genlCx cycle — two contexts that see each other, admitted
+    ;; (docs/contexts.md) — which forces the condensation walk during the replay
+    (v/assert kb (list 'genlCx 'CxAaa 'CxBbb) 'CxUniverse)
+    (v/assert kb (list 'genlCx 'CxBbb 'CxAaa) 'CxUniverse)
+    ;; the malformed declarations: a two-element genl / genlCx sentex a foreign loader or an
+    ;; older writer's store presents, which no assert path would let past `wff`
+    (store! '(genl foo))
+    (store! '(genlCx CxFoo))
+    (let [kb2   (restart)
+          level (v/log-level)
+          out   (try (v/set-log-level :warn)
+                     (with-out-str (v/recover kb2))     ; throws here without the fix
+                     (finally (v/set-log-level level)))
+          tax2  @(:taxonomy kb2)]
+      (testing "recover completes rather than crashing in strong-components"
+        (is (not (contains? (get-in tax2 [:genl :nodes]) nil)))
+        (is (not (contains? (get-in tax2 [:genlCx :nodes]) nil))))
+      (testing "the malformed declaration seeds no edge at all, not merely no null node"
+        (is (empty? (get-in tax2 [:genl :fwd])))
+        (is (= #{'CxAaa 'CxBbb} (get-in tax2 [:genlCx :nodes]))
+            "only the well-formed cycle's contexts are nodes"))
+      (testing "and the drop is reported, not silent"
+        (is (re-find #"not well-formed edges" out))))))
 
 (tu/deftest-kb recover-rebuilds-disjoint-metatype-membership
   ;; A metatype's members are cached in memory, not stored: the only durable trace is

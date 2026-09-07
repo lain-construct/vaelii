@@ -20,11 +20,10 @@
   every test here checks a positive: what the reading is *for*, not only what it refuses."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.starter :as starter]
             [vaelii.impl.vantage :as vantage]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :once (tu/loaded starter/load-into))
+(use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
 (defn- proper-subset?

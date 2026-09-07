@@ -266,7 +266,7 @@
 
   Three commands answer with one — `match`, `query` and `ask` — and a set has no order of
   its own, so what reached stdout was whichever order the retrieval enumerated: two loads
-  of the same knowledge printed it differently, and a diff of the two outputs are indistinguishable from a
+  of the same knowledge printed it differently, and a diff of the two outputs read as a
   change in the KB.  `types` and `contexts` in the same table are sorted for that reason,
   and these are held to it too.
 

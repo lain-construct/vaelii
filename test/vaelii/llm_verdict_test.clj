@@ -9,12 +9,11 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.llm.verdict :as verdict]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
 
 ;; the corrections read the shipped schema — arg constraints, declared arities, the
 ;; genl edges that decide what is a type — so the starter is the fixture
-(use-fixtures :once (tu/loaded starter/load-into))
+(use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
 (defn- verdict-for [kb sentence]

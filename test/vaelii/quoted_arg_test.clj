@@ -117,20 +117,24 @@
   ;; a predicate and therefore fails that constraint; `(Quote parentOf)` is a compound
   ;; mention and remains WFF.  This pins the boundary without conflating it with the
   ;; preceding predicate's simultaneous arg/quotedArg declarations.
-  (tu/with-terms [quotedTestPred parentOf Quote PredicateQuote]
-    (v/assert kb (list 'unary_predicate quotedTestPred) 'CxUniverse)
-    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
-    (v/assert kb (list 'arg quotedTestPred 1 'symbol) 'CxUniverse)
-    (v/assert kb (list 'unreifiable_function Quote) 'CxUniverse)
-    (v/assert kb (list 'quoting_function Quote) 'CxUniverse)
-    (v/assert kb (list 'result Quote 'symbol) 'CxUniverse)
-    (v/assert kb (list 'unreifiable_function PredicateQuote) 'CxUniverse)
-    (v/assert kb (list 'quoting_function PredicateQuote) 'CxUniverse)
-    (v/assert kb (list 'result PredicateQuote 'predicate) 'CxUniverse)
-    (is (= :arg-type (refusal kb (list quotedTestPred parentOf)))
-        "using parentOf denotes a predicate, not a symbol")
-    (is (= :arg-type
-           (refusal kb (list quotedTestPred (list PredicateQuote parentOf))))
-        "a quoted compound whose declared result is predicate does not satisfy symbol")
-    (is (nil? (refusal kb (list quotedTestPred (list Quote parentOf))))
-        "Quote declares a symbol result, so the quoted mention satisfies the use-level slot")))
+  ;; Pinned to the constraint reading: the contrast is between the quoted arm's verdict and
+  ;; the ordinary one's, and with the entailment on the ordinary arm mints rather than
+  ;; convicts (docs/argtypes.md).  The quoted arm is unchanged by the toggle.
+  (tu/without-entailing
+   (tu/with-terms [quotedTestPred parentOf Quote PredicateQuote]
+     (v/assert kb (list 'unary_predicate quotedTestPred) 'CxUniverse)
+     (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
+     (v/assert kb (list 'arg quotedTestPred 1 'symbol) 'CxUniverse)
+     (v/assert kb (list 'unreifiable_function Quote) 'CxUniverse)
+     (v/assert kb (list 'quoting_function Quote) 'CxUniverse)
+     (v/assert kb (list 'result Quote 'symbol) 'CxUniverse)
+     (v/assert kb (list 'unreifiable_function PredicateQuote) 'CxUniverse)
+     (v/assert kb (list 'quoting_function PredicateQuote) 'CxUniverse)
+     (v/assert kb (list 'result PredicateQuote 'predicate) 'CxUniverse)
+     (is (= :arg-type (refusal kb (list quotedTestPred parentOf)))
+         "using parentOf denotes a predicate, not a symbol")
+     (is (= :arg-type
+            (refusal kb (list quotedTestPred (list PredicateQuote parentOf))))
+         "a quoted compound whose declared result is predicate does not satisfy symbol")
+     (is (nil? (refusal kb (list quotedTestPred (list Quote parentOf))))
+         "Quote declares a symbol result, so the quoted mention satisfies the use-level slot"))))

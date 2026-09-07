@@ -13,7 +13,6 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.sandbox :as sandbox]
             [vaelii.impl.serve :as serve]
-            [vaelii.impl.starter :as starter]
             [vaelii.impl.svg :as svg]
             [vaelii.impl.web :as web]
             [vaelii.test-util :as tu]
@@ -34,7 +33,7 @@
       ;; pinning here is what stops one baseline's gap being reported as this namespace's
       ;; bug.  It pins the LOAD rather than the test because `/chain` runs on a job thread
       ;; a `binding` does not reach.
-      (-> kb starter/load-into world/load-into)
+      (-> kb tu/load-starter! world/load-into)
       (binding [tu/*kb* kb, *app* (web/app kb)] (f))
       (tu/clear-kb! kb))))
 
@@ -112,9 +111,12 @@
     (testing "the stated root is on the page, open"
       (is (re-find #"<details open=\"open\"><summary><a[^>]*href=\"/term\?q=thing\"" body)))
     (testing "a node with subtypes is a disclosure that fetches its own children"
-      ;; `spatial_thing` is a direct subtype of `thing`, so it is on the first level, and
-      ;; it has `physical_object` under it, so it is a node with children rather than a leaf
-      (is (re-find #"<details[^>]*hx-get=\"/tree/rows\?rel=genl&amp;node=spatial_thing" body)))
+      ;; `formula` is a direct subtype of `thing`, so it is on the first level, and it has
+      ;; `atomic_formula` under it, so it is a node with children rather than a leaf.  It
+      ;; also sorts early: the first level is paged at 50, and a node late in the
+      ;; alphabet falls off that page whenever the vocabulary grows a direct subtype —
+      ;; which `VAELII_ASSERTIVE_ARG_TYPES=1` does by minting one per declared type
+      (is (re-find #"<details[^>]*hx-get=\"/tree/rows\?rel=genl&amp;node=formula" body)))
     (testing "and it selects nothing out of what it fetches"
       ;; `hx-select="#main"` is on the body and inherited; against a fragment of bare
       ;; rows it selects nothing, so an open would swap in nothing.  This is invisible
@@ -276,14 +278,21 @@
     (let [n (+ 50 (apply max 0 (map #(v/count-in-context kb %) (v/contexts kb))))]
       (v/assert-many kb (for [i (range n)] (list heldBy (symbol (str "TmpBig" i))))
                      CxBiggest {:chain? false})
+      ;; `web/commas` renders a count in the DEFAULT locale, and a thousands separator
+      ;; is a comma, a period or a non-breaking space depending on which one that is.
+      ;; The expectation is built with the same `format` call rather than by pinning
+      ;; `Locale/US`, which would be a JVM-global write for the length of a render.
       (let [cap  (ns-resolve 'vaelii.impl.web 'lattice-cap)
-            body (with-redefs-fn {cap 0}                ; no lattice to draw, at any size
+            shown (format "%,d" (long n))
+            body (with-redefs-fn {cap 0}               ; no lattice to draw, at any size
                    #(:body (GET "/")))
             seg  (segment body "holding the most" 4000)
-            ns'  (mapv #(Long/parseLong (second %)) (re-seq #" — (\d+) sentexes" seg))]
+            ns'  (mapv #(Long/parseLong (str/replace (second %) #"\D" ""))
+                       (re-seq #" — (\d[\d,.\u00a0\u202f ]*) sentexes" seg))]
         (is (some? seg) "the fallback says what it is showing instead")
         (is (re-find (re-pattern (str ">" CxBiggest "</a><span class=\"muted\"> — "
-                                      n " sentexes"))
+                                      (java.util.regex.Pattern/quote shown)
+                                      " sentexes"))
                      seg)
             "the biggest context, named with what it holds")
         (is (seq ns') "and it is a list of counts, not of names alone")
@@ -587,7 +596,7 @@
   (let [svg (svg-of (:body (GET "/term" "q=CxNaturalWorld")))]
     (is (some? svg))
     (is (re-find #"class=\"g-edge g-genlCx\"" svg)
-        "drawn distinguishably: a context edge must not are indistinguishable from a type edge")
+        "drawn distinguishably: a context edge must not read as a type edge")
     (is (not (re-find #"class=\"g-edge g-genl\"" svg)))
     (is (contains? (drawn-terms svg) "CxWell"))))
 

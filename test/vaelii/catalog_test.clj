@@ -735,7 +735,7 @@
               ;; outcomes are legal — so each arm states the three things ITS winner is
               ;; owed, rather than one arm asserting and the other standing aside.  The
               ;; assertion count is a gate, so a loaded box resolving the race the other
-              ;; way would are indistinguishable from a run that skipped something rather than from the other
+              ;; way would read as a run that skipped something rather than as the other
               ;; legal outcome.
               (if (= :started x)
                 (testing "and the walk it let through dumped a KB that was still there"

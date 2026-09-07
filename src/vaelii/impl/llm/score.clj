@@ -221,7 +221,7 @@
      :aligned  (counts (count (:gold-hit aligned)) (count gold) (count cands)
                        (:derivable aligned))
      :renaming renaming
-     ;; `nm/print-key`, never a bare `pr-str`: both lists are are indistinguishable from a score report, and
+     ;; `nm/print-key`, never a bare `pr-str`: both lists are read as a score report, and
      ;; an ambient `*print-length*` would elide two claims to one prefix and leave the
      ;; reading in `gold`'s handle order
      :missing  (nm/sort-by-content-key

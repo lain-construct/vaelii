@@ -78,6 +78,15 @@ a type whose genl closure reaches `type`. Open-world and context-scoped. See
 a `T` — and it reads open-world in *both* directions at once: an unestablished trigger
 leaves it dormant, an unreachable target convicts. See [argtypes.md](argtypes.md).
 
+**Arity vocabulary** ![kb](../.github/badges/cat-kb.svg): `fixed_arity` and
+`variable_arity` are disjoint relation-wide argument policies. Unsuffixed `unary`,
+`binary` and `ternary` are the exact relation classes, each with predicate and function
+specializations. `arity` states one exact relation arity and derives its exact
+class, which derives the arity back; `arityMin` states a variable relation's lower bound.
+`at_least_binary_relation` / `at_least_ternary_relation` are derived minimum classes.
+`admitsArgnum` names whether one positive position exists; no WFF/query reader currently
+consumes it. See [taxonomy.md](taxonomy.md#relations-and-arity-policy).
+
 **Arm** ![kb](../.github/badges/cat-kb.svg): The function a table stores under a functor
 and a walk over that table invokes at one fixed point — `special/arms` holds an
 `:integrate`, a `:disintegrate`, a `:rebuild` and a `:wff` per interpreted predicate, and
@@ -151,6 +160,12 @@ or **Derived**) and not defeated.
 **Belief (an agent's)** ![kb](../.github/badges/cat-kb.svg): A different question
 with the same word — `(believes Alice P)` proves `P` in Alice's own context and says
 nothing about whether the KB holds it. See [belief.md](belief.md).
+
+**`bijection`** ![kb](../.github/badges/cat-kb.svg): `(bijection P)` — the strongest of
+the three **function marks**: `P` is single-valued, one-to-one, total on its declared
+domain and onto its declared range. CxCore rules derive `(injection P)` and
+`(surjection P)`, and those derive the four marks the engine reads. See
+[taxonomy.md](taxonomy.md).
 
 **Brave / cautious** ![asp](../.github/badges/cat-asp.svg): The two readings of
 a tie the solver leaves open. A conclusion is *cautious* when it holds in every
@@ -231,17 +246,19 @@ dilemma* — both sides stay believed at `:default` and the pair is reported by
 `contradictions`, not arbitrated. See [nmtms.md](nmtms.md).
 
 **CxCore** ![kb](../.github/badges/cat-kb.svg): The vocabulary head — the
-most general context, seen by every other. Loaded by `core-context/load-into`:
+most general context and the upper **Spindle**'s head, seen by every other. Loaded
+by `core-context/load-into`:
 every special predicate the engine interprets, each documented by a `comment`
 sentex. See [contexts.md](contexts.md).
 
-**CxUniverse** ![kb](../.github/badges/cat-kb.svg): The mid anchor of the
-context spindle, free for lifted universal facts and the target of
-`decontextualized_predicate` justifications. See [contexts.md](contexts.md).
+**CxUniverse** ![kb](../.github/badges/cat-kb.svg): The upper **Spindle**'s
+collector and the middle spindle's head, free for lifted universal facts and the
+target of `decontextualized_predicate` justifications. See
+[contexts.md](contexts.md).
 
-**CxWell** ![kb](../.github/badges/cat-kb.svg): The bottom anchor of the
-context spindle, transitively seeing the whole ontology; the test-world's
-individuals and fables hang below it. See [contexts.md](contexts.md).
+**CxWell** ![kb](../.github/badges/cat-kb.svg): The middle **Spindle**'s
+collector, transitively seeing the whole ontology; the test-world's individuals
+and fables hang below it. See [contexts.md](contexts.md).
 
 ## D
 
@@ -507,6 +524,12 @@ fluent an event `initiates` at one instant still `holdsAt` a later one exactly w
 defeat, so a terminating event heard of later leaves no conclusion to arbitrate.
 See [time.md](time.md).
 
+**`injection`** ![kb](../.github/badges/cat-kb.svg): `(injection P)` — a **function
+mark**: `P` is single-valued, one-to-one, and total on its declared domain, with nothing
+said about reaching every member of its range. Derives `(functional P)` and
+`(functionalInArg P 1)`, both enforced at the write, and `(predAllSpecified P D)` off
+the `arg` declarations, audited on demand. See [taxonomy.md](taxonomy.md).
+
 **`ist`** ![kb](../.github/badges/cat-kb.svg): "Is true in" — `(ist Ctx S)`
 finds-or-creates `S` in `Ctx` and returns its handle. Not stored as data; in a
 rule consequent it places `S` into the named context. See
@@ -712,8 +735,10 @@ quantify one argument position of a binary predicate and fix the other, in three
 classes. The *Instance* pair (`predAllInstance` / `predInstanceAll`) is a rule generator
 and produces inference. The *Exists* four are inert records beside a sanctioned
 placeholder functor. The *Specified* pair (`predAllSpecified` / `predSpecifiedAll`) is an
-on-demand integrity audit reporting the instances with no determinate filler. See
-[predall.md](predall.md).
+on-demand integrity audit reporting the instances with no determinate filler — binary,
+the filler's required type derived from the predicate's own slot contract rather than
+restated, and a predicate with no visible slot typing reported as an explicit
+declaration-contract gap. See [predall.md](predall.md).
 
 **Premise** ![tms](../.github/badges/cat-tms.svg): An asserted datum held IN
 unconditionally (subject to defeat/supersession), as opposed to a derived
@@ -813,6 +838,11 @@ nothing else. See [space.md](space.md).
 wholesale from the
 records, then recover — the repair for a stale on-disk index layout. See
 [indexing.md](indexing.md).
+
+**`relation`** ![kb](../.github/badges/cat-kb.svg): The common parent of
+`predicate` and `function` — every operator that may be applied to arguments. The two
+specializations remain disjoint: a predicate holds or fails; a function denotes or
+evaluates to a value. See [taxonomy.md](taxonomy.md#relations-and-arity-policy).
 
 **Relation algebra** ![qr](../.github/badges/cat-qr.svg): `{:universe :identity
 :compose :converse}` — the base relations, the diagonal, the composition table
@@ -936,6 +966,15 @@ a rule conclusion's existential variable with a term built from the variables
 the antecedent bound, so the same binding names the same witness twice and a
 re-derivation does not mint a second one. See [skolem.md](skolem.md).
 
+**Spindle** ![kb](../.github/badges/cat-kb.svg): The shape the context topology
+is built from — three layers: a **head** every member sees, a set of **members**
+that see the head and not each other, and a **collector** that sees every member.
+The shipped topology is two of them stacked, the *upper* spindle (head CxCore,
+members `kb/upper/`, collector CxUniverse) and the *middle* spindle (head
+CxUniverse, members `kb/middle/`, collector CxWell). A term two members of one
+spindle define or extend belongs at or above that spindle's head, since no member
+sees another. See [contexts.md](contexts.md).
+
 **Stratification** ![inference](../.github/badges/cat-inference.svg): The
 well-formedness rule that a rule set must have no cycle through negation — `wff`
 refuses an `exceptWhen` (or a `genl`/`genlCx` edge) that closes one. A
@@ -959,6 +998,12 @@ retracted. See [quality.md](quality.md); the matching-time relation it is built 
 merge puts a stale spelling in — stored but not believed and not matching,
 subtracting from reported belief rather than forced OUT, so its justified twin
 survives. See [equality.md](equality.md).
+
+**`surjection`** ![kb](../.github/badges/cat-kb.svg): `(surjection P)` — a **function
+mark**: `P` is single-valued, total on its declared domain, and onto its declared range,
+with nothing said about one-to-one. Derives `(functional P)`, enforced at the write, and
+the `(predAllSpecified P D)` and `(predSpecifiedAll P R)` requirements off the `arg`
+declarations, audited on demand. See [taxonomy.md](taxonomy.md).
 
 **Symmetric arguments** ![kb](../.github/badges/cat-kb.svg): A ground fact of a
 symmetric predicate stores with its arguments sorted, so both orders dedup to one

@@ -140,32 +140,13 @@
     :pred-position            ; a table keyed on [predicate position] — (F P n)
     :none})                   ; nothing is cached; the declaration is read back per use
 
-(def facets
-  "The lanes a term takes part in.  **Closed**, and closed on purpose: growing it is one
-  commit that adds the keyword here and the implication that governs it to the facet
-  validator at the same time, so a facet can never mean whatever its first user assumed.
-
-  Six of the ten are reconstructible from a live data structure and are pinned that way
-  by `predicates_test`.  Four — `:answers`, `:retriggers`, `:convicts` and `:inert` —
-  are *claims*: no roster in the tree states them, which is exactly why they are the
-  ones that go wrong quietly."
-  #{:cached                   ; special/entries gives it the integrate/disintegrate/rebuild triple
-    :derived                  ; …and that triple runs on the derivation path too (:derived?)
-    :migrates                 ; asserting it merges terms — kb/equality-predicates
-    :arbitrable               ; its violation names other believed sentexes, so settle arbitrates it
-    :reach                    ; arriving after the facts, it sweeps what it now convicts
-    :query-only               ; never stored: the wff arm is the refusal, a prover is the answer
-    :answers                  ; a prover answers goals of this functor
-    :retriggers               ; its arms post exception re-checks
-    :convicts                 ; a definitional check reads it and can convict stored content
-    :inert})                  ; nothing reads it, and that is a decision — not an omission
-
 (def facet-contract
   "What carrying a facet commits the declaration to — the closed vocabulary's own
-  contract, and what `check-facets` walks.  Keyed by facet, and the keys are `facets`
-  **exactly**: the validator refuses the pair if they diverge, so growing the vocabulary
-  is the one commit the `facets` docstring promises rather than a keyword whose meaning
-  its first user decides.
+  contract, and what `check-facets` walks.  Keyed by facet, and **its keys are the
+  vocabulary**: `facets` below reads them, so a row is what makes a facet exist and
+  there is no second list to hold in step with this one.  Growing the vocabulary is
+  therefore one edit that cannot leave the implication unwritten — a keyword with no
+  row is not a facet whose meaning its first user decides, it is not a facet.
 
     :implies  the facets carrying this one entails.  Each is a bug the repo has paid
               for, stated as an implication rather than as a review item: `:convicts`
@@ -194,16 +175,27 @@
   about a predicate and post no re-check of their own.  Each reason is about the engine rather than about the
   declaration, and the point of the field is that the reason is written where a validator
   can hold it to being exactly the set that is owed."
-  {:cached     {:implies #{}                :lane? true}
-   :derived    {:implies #{:cached}         :lane? true}
-   :migrates   {:implies #{:cached}         :lane? true}
-   :arbitrable {:implies #{:convicts}       :lane? true}
-   :reach      {:implies #{}                :lane? true}
-   :convicts   {:implies #{:reach}          :lane? true}
-   :query-only {:implies #{:answers}        :lane? false}
-   :answers    {:implies #{}                :lane? true}
-   :retriggers {:implies #{:answers}        :lane? false}
-   :inert      {:implies #{}                :lane? false}})
+  {:cached     {:implies #{}                :lane? true}    ; special/entries gives it the integrate/disintegrate/rebuild triple
+   :derived    {:implies #{:cached}         :lane? true}    ; …and that triple runs on the derivation path too (:derived?)
+   :migrates   {:implies #{:cached}         :lane? true}    ; asserting it merges terms — kb/equality-predicates
+   :arbitrable {:implies #{:convicts}       :lane? true}    ; its violation names other believed sentexes, so settle arbitrates it
+   :reach      {:implies #{}                :lane? true}    ; arriving after the facts, it sweeps what it now convicts
+   :convicts   {:implies #{:reach}          :lane? true}    ; a definitional check reads it and can convict stored content
+   :query-only {:implies #{:answers}        :lane? false}   ; never stored: the wff arm is the refusal, a prover is the answer
+   :answers    {:implies #{}                :lane? true}    ; a prover answers goals of this functor
+   :retriggers {:implies #{:answers}        :lane? false}   ; its arms post exception re-checks
+   :inert      {:implies #{}                :lane? false}}) ; nothing reads it, and that is a decision — not an omission
+
+(def facets
+  "The lanes a term takes part in — `facet-contract`'s keys, and **closed** because that
+  is where they come from: a facet exists exactly when a row states what carrying it
+  commits the declaration to.
+
+  Six of the ten are reconstructible from a live data structure and are pinned that way
+  by `predicates_test`.  Four — `:answers`, `:retriggers`, `:convicts` and `:inert` —
+  are *claims*: no roster in the tree states them, which is exactly why they are the
+  ones that go wrong quietly."
+  (set (keys facet-contract)))
 
 (def sweep-kinds
   "What a declaration arriving **after** the content it constrains puts back in question
@@ -385,6 +377,13 @@
   [spec why]
   (assoc spec :facets #{:inert} :inert why))
 
+(def ^:private arity-note
+  "The clause every exact-arity class's note ends with — nine classes say one thing, and
+  a sentence written nine times is a sentence that drifts in eight of them."
+  (str " — checks/exact-arity-classes — plus the disjointness that separates the"
+       " relation-wide three, which the kind specializations inherit through their genl"
+       " edges. Reaches through settle's arity report, not through the clash rosters."))
+
 ;; ---- the entries ---------------------------------------------------------
 
 (def entries
@@ -551,6 +550,41 @@
                                       " sweep that decides from one that only names.")}
                        (str "checks/arity-problem at the entry point, settle/report-arity-reach! over"
                             " content stored before it"))]
+     ['arityMin
+      (enforced {:shape {:args [:relation :integer]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "ordinary CxCore rules derive the at_least_*_relation"
+                             " classifications. No WFF"
+                             " or constraint reader consumes the declaration.")}
+                "ordinary rule inference in CxCore; no WFF/constraint reader")]
+     ['relationTypeByArity
+      (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the relation-wide mappings are the premises of one CxCore generator that stamps, per mapping fact, the rule deriving a relation's exact arity from its type."}
+                "one CxCore generator stamps the per-type exact-arity rules")]
+     ['predicateTypeByArity
+      (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "a genl specialization of relationTypeByArity; a fact of"
+                             " its own is a relationTypeByArity fact by ordinary CxCore"
+                             " inference, and CxCore ships none — the shipped predicate"
+                             " types reach the relation-wide mapping by genl instead.")}
+                "genl specialization of relationTypeByArity")]
+     ['functionTypeByArity
+      (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "a genl specialization of relationTypeByArity; a fact of"
+                             " its own is a relationTypeByArity fact by ordinary CxCore"
+                             " inference, and CxCore ships none — the shipped function"
+                             " types reach the relation-wide mapping by genl instead.")}
+                "genl specialization of relationTypeByArity")]
+     ['admitsArgnum
+      (inert {:shape {:args [:relation :position]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "names whether one positive argument position exists in a"
+                          " well-formed application. No finite facts or parallel"
+                          " inference are installed; no WFF/query reader consumes it.")}
+             "documentary position question with no runtime reader")]
      ['functionalInArg {:shape   {:args [:predicate :position]}
                         :storage [:pred-position :functional-in-arg]
                         :checked true
@@ -669,6 +703,32 @@
                                         " arg-type re-check.")}
                                   :notes "the same one level up; entail-existing covers it too.")
                            "checks/genls-problem — the same, one level up")]
+     ['arg1      (enforced {:shape {:args [:relation :type]} :storage [:none] :checked false
+                            :family nil :facets #{:convicts :reach}
+                            :notes (str "the projection relates STORED declarations only — a"
+                                        " reading arg generalizes up genl or inherits from a"
+                                        " super-predicate has no argN twin; ask arg for those."
+                                        " :family stays nil for arity's reason rather than for"
+                                        " want of a family: mark-families rosters the lanes"
+                                        " that must recognize one spelling set, and two"
+                                        " spellings a rule cycle keeps believed under one check"
+                                        " are not that. Exists so a positional constraint can"
+                                        " be the subject of a binary declaration such as"
+                                        " (predAllSpecified arg1 predicate).")}
+                           (str "checks/declaration-problem — arg's own declaration arms at the"
+                                " projected position, so both spellings of one declaration"
+                                " refuse identically; the bridge rules derive each other, as"
+                                " arity and the predicate-type memberships do"))]
+     ['arg2      (enforced {:shape {:args [:relation :type]} :storage [:none] :checked false
+                            :family nil :facets #{:convicts :reach}
+                            :notes "the binary projection of (arg ?p 2 ?t) — see arg1."}
+                           (str "checks/declaration-problem — the same at position 2; see"
+                                " arg1"))]
+     ['arg3      (enforced {:shape {:args [:relation :type]} :storage [:none] :checked false
+                            :family nil :facets #{:convicts :reach}
+                            :notes "the binary projection of (arg ?p 3 ?t) — see arg1."}
+                           (str "checks/declaration-problem — the same at position 3; see"
+                                " arg1"))]
      ['quotedArg (enforced (assoc (prop :declares-quoted-arg :arg :relation
                                         :facets #{:convicts :answers})
                                   :shape  {:args [:relation :position :type]}
@@ -815,34 +875,86 @@
            [sentence "documentary: a closed formula, which checks/check-ground is what actually enforces on the way in. The collection itself is read by nothing."]
            [non_atomic_term "documentary: a function applied to terms — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this."]])
 
+    ;; ---- the upper-ontology skeleton -------------------------------------
+    ;; The five collections CxCore holds so that a spindle member can place its own types
+    ;; under the root.  A spindle's members see the head and not each other, so a skeleton
+    ;; term defined in one member is invisible to the member extending it — which left
+    ;; `animal` unable to reach `thing` from CxOrganism, where it is defined.
+    ;;
+    ;; They are here because CxCore comments them and `vocabulary/audit` answers for every
+    ;; term CxCore comments, not because the engine reads any of them.  It reads none: no
+    ;; check names one, and the kinds hanging off them are the members'.  `inert` is the
+    ;; class, and the note is what a KB author asking `interpreted` is told.
+    (map (fn [[t why]] [t (inert (collection :notes why) why)])
+         '[[intangible "ontology, not grammar: something with no mass or location. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [spatial_thing "ontology, not grammar: something with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [physical_object "ontology, not grammar: something with mass and a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [living_thing "ontology, not grammar: an organism. CxCore holds it so CxOrganism's kinds reach the root from CxOrganism; no engine check names it."]
+           [capability "ontology, not grammar: something a kind of thing can do. CxCore holds it so CxLife can extend it; no engine check names it."]])
+
     ;; ---- the hierarchy roots and the meta-level targets -------------------
     [['thing     (enforced (collection :notes "the hierarchy root the open-world floors test against by name.")
                            "checks — the hierarchy root the open-world floors test against by name")]
+     ['relation  (enforced (collection :notes "the common arg target for predicates and functions.")
+                           (str "generic: the common parent of predicate and function, and the"
+                                " arg target for relation-wide arity vocabulary"))]
      ['predicate (enforced (collection :notes "the arg target CxCore constrains its own meta-level with.")
-                           "generic: the arg target CxCore constrains its own meta-level with")]
+                           "generic: the predicate specialization of relation")]
      ['function  (enforced (collection :notes "the arg target the function-valued positions name.")
-                           (str "generic: the arg target the function-valued positions of result,"
-                                " genlResult and functionCorrespondingPredicate name"))]
+                           (str "generic: the function specialization of relation and the arg"
+                                " target the function-valued positions of result, genlResult"
+                                " and functionCorrespondingPredicate name"))]
+
+     ['unary   (enforced (collection :facets #{:convicts :reach}
+                                     :notes (str "the relation-wide exact-one-argument type, and"
+                                                 " the membership spelling of an arity"
+                                                 arity-note))
+                         "checks/exact-arity-classes — the relation-wide membership spelling of an arity")]
+     ['binary  (enforced (collection :facets #{:convicts :reach}
+                                     :notes (str "the same, at two" arity-note))
+                         "checks/exact-arity-classes — the relation-wide membership spelling of an arity")]
+     ['ternary (enforced (collection :facets #{:convicts :reach}
+                                     :notes (str "the same, at three" arity-note))
+                         "checks/exact-arity-classes — the relation-wide membership spelling of an arity")]
 
      ;; ---- the predicate types --------------------------------------------
      ['unary_predicate   (enforced (collection :facets #{:convicts :reach}
-                                               :notes (str "the membership spelling of an arity —"
-                                                           " checks/predicate-type-arities — plus"
-                                                           " disjointness with the other two, so a"
-                                                           " predicate is at most one of the three."
-                                                           " Reaches through settle's arity report,"
-                                                           " not through the clash rosters."))
-                                   (str "checks/predicate-type-arities — the membership spelling of an arity;"
-                                        " plus its disjointness with the other two classes, so a predicate is at"
-                                        " most one of the three"))]
-     ['binary_predicate  (enforced (collection :facets #{:convicts :reach} :notes "the same, at two.")
-                                   (str "checks/predicate-type-arities — the membership spelling of an arity;"
-                                        " plus its disjointness with the other two classes, so a predicate is at"
-                                        " most one of the three"))]
-     ['ternary_predicate (enforced (collection :facets #{:convicts :reach} :notes "the same, at three.")
-                                   (str "checks/predicate-type-arities — the membership spelling of an arity;"
-                                        " plus its disjointness with the other two classes, so a predicate is at"
-                                        " most one of the three"))]
+                                               :notes (str "a predicate's membership spelling of an"
+                                                           " arity" arity-note))
+                                   (str "checks/exact-arity-classes — a predicate's membership spelling of"
+                                        " an arity"))]
+     ['binary_predicate  (enforced (collection :facets #{:convicts :reach}
+                                               :notes (str "the same, at two" arity-note))
+                                   (str "checks/exact-arity-classes — a predicate's membership spelling of"
+                                        " an arity"))]
+     ['ternary_predicate (enforced (collection :facets #{:convicts :reach}
+                                               :notes (str "the same, at three" arity-note))
+                                   (str "checks/exact-arity-classes — a predicate's membership spelling of"
+                                        " an arity"))]
+     ['unary_function
+      (enforced (collection :facets #{:convicts :reach}
+                            :notes (str "the function specialization of unary, and a"
+                                        " function's spelling of an arity" arity-note))
+                "checks/exact-arity-classes — a function's membership spelling of an arity")]
+     ['binary_function
+      (enforced (collection :facets #{:convicts :reach}
+                            :notes (str "the same, at two" arity-note))
+                "checks/exact-arity-classes — a function's membership spelling of an arity")]
+     ['ternary_function
+      (enforced (collection :facets #{:convicts :reach}
+                            :notes (str "the same, at three" arity-note))
+                "checks/exact-arity-classes — a function's membership spelling of an arity")]
+     ['fixed_arity       (enforced (collection
+                                    :notes (str "classifies one exact argument policy; exact"
+                                                " arity declarations and the unary/binary/ternary"
+                                                " families specialize it."))
+                                   "generic taxonomy classification and ordinary CxCore arity rule")]
+     ['fixed_arity_predicate
+      (enforced (collection :notes "the predicate specialization of fixed_arity.")
+                "generic taxonomy classification under fixed_arity and predicate")]
+     ['fixed_arity_function
+      (enforced (collection :notes "the function specialization of fixed_arity.")
+                "generic taxonomy classification under fixed_arity and function")]
      ['variable_arity    (enforced (collection
                                     :notes (str "the one *exemption* from the arity check — it"
                                                 " un-convicts, which is why it carries no facet at"
@@ -850,6 +962,22 @@
                                                 " a term causes, and none names something it"
                                                 " prevents."))
                                    "checks/arity-problem — the one exemption from the arity check")]
+     ['variable_arity_predicate
+      (enforced (collection
+                 :notes (str "the predicate specialization of variable_arity; the arity"
+                             " check reads the generic superclass through taxonomy closure."))
+                "checks/arity-problem through inherited variable_arity membership")]
+     ['variable_arity_function
+      (enforced (collection
+                 :notes (str "the function specialization of variable_arity; it shares the"
+                             " relation-wide taxonomy. No function WFF reader consumes it."))
+                "generic taxonomy classification under variable_arity and function")]
+     ['at_least_binary_relation
+      (enforced (collection :notes "derived by a CxCore rule from arityMin greater than one.")
+                "ordinary CxCore rule inference from arityMin")]
+     ['at_least_ternary_relation
+      (enforced (collection :notes "derived by a CxCore rule from arityMin greater than two.")
+                "ordinary CxCore rule inference from arityMin")]
      ['relation_kind     (enforced (collection :notes "a disjoint_metatype, so its two members separate each other.")
                                    "generic: a disjoint_metatype, so its two members separate each other")]
      ['instance_relation_predicate
@@ -876,6 +1004,33 @@
                 (str "generic forward chaining: the three CxCore rules derive (symmetric P),"
                      " (transitive P) and (reflexive P), each enforced in turn; also a"
                      " binary_predicate type"))]
+     ['injection
+      (enforced (collection :notes (str "three CxCore rules derive (functional P),"
+                                        " (functionalInArg P 1) and, off the arg-declared"
+                                        " domain, (predAllSpecified P D) — the"
+                                        " first two enforced in turn, the third audited on"
+                                        " demand, and nothing keyed on its name."))
+                (str "generic forward chaining: the three CxCore rules derive (functional P),"
+                     " (functionalInArg P 1) and (predAllSpecified P D); also a"
+                     " binary_predicate type"))]
+     ['surjection
+      (enforced (collection :notes (str "three CxCore rules derive (functional P) and, off"
+                                        " the arg-declared domain and range,"
+                                        " (predAllSpecified P D) and (predSpecifiedAll P R)"
+                                        " — the first enforced, the other two audited on"
+                                        " demand, and nothing keyed on its name."))
+                (str "generic forward chaining: the three CxCore rules derive (functional P),"
+                     " (predAllSpecified P D) and (predSpecifiedAll P R); also a"
+                     " binary_predicate type"))]
+     ['bijection
+      (enforced (collection :notes (str "two CxCore rules derive (injection P) and"
+                                        " (surjection P) from it, and each of those derives"
+                                        " its own marks in turn — so it is enforced by generic"
+                                        " forward chaining and by nothing keyed on its name,"
+                                        " like equivalence_relation."))
+                (str "generic forward chaining: the two CxCore rules derive (injection P)"
+                     " and (surjection P), whose own rules land the enforced and audited"
+                     " marks; also a binary_predicate type"))]
 
      ;; ---- the connectives and rule wrappers -------------------------------
      ['implies (enforced (structural {:args [:sentence :sentence]}
@@ -1091,17 +1246,22 @@
                   " (PredInstanceExistsFn ?pred ?fixed ?dep) is its sanctioned"
                   " placeholder."))]
      ['predAllSpecified
-      (enforced {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
+      (enforced {:shape {:args [:predicate :type]} :storage [:none] :checked false
                  :family nil :facets #{}
                  :notes (str "an on-demand audit, not a stored constraint: nothing fires on"
-                             " assert, and the read is a function a caller invokes.")}
+                             " assert, and the read is a function a caller invokes. Binary —"
+                             " the required filler type is derived from ?pred's own slot-2"
+                             " argument contract (arg → membership, genlArg → subtype),"
+                             " never restated; no visible slot typing is a"
+                             " declaration-contract gap the audit reports explicitly.")}
                 (str "vaelii.core/specified-violations — the on-demand integrity"
                      " audit reads the declaration and returns the instances of ?indep with"
                      " no determinate filler; stamps no rule"))]
      ['predSpecifiedAll
-      (enforced {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
+      (enforced {:shape {:args [:predicate :type]} :storage [:none] :checked false
                  :family nil :facets #{}
-                 :notes "the argument-swapped twin, auditing ?pred's first position."}
+                 :notes (str "the argument-swapped twin, auditing ?pred's first position;"
+                             " binary, filler type derived from ?pred's slot-1 contract.")}
                 (str "vaelii.core/specified-violations with :first — audits ?pred's"
                      " first position, the argument-swapped twin"))]
      ['PredAllExistsFn
@@ -1247,10 +1407,8 @@
   * `:family-rosters` — `family -> {roster-name functors}`, the rosters that read a mark
     family **as a family**.  Each must enumerate exactly that family.
 
-  Eight rules, eleven `:mismatch` values:
+  Seven rules, ten `:mismatch` values:
 
-  * `facet-contract` and `facets` enumerate different keywords.  A facet with no row is
-    one whose meaning its first user decided.
   * a field value outside its closed vocabulary — a facet, a storage kind, a family, a
     sweep kind, an argument kind.
   * `:cached` and a `:none` storage, or a storage and no `:cached`.  The two say the same
@@ -1295,15 +1453,6 @@
   (let [refuse (fn [mismatch msg data]
                  (throw (ex-info msg (merge {:type :bad-table-entry :mismatch mismatch}
                                             data))))]
-    (when-not (= (set (keys facet-contract)) facets)
-      (refuse :contract
-              (str "facet-contract and facets enumerate different keywords: "
-                   (pr-str (vec (sort (remove facets (keys facet-contract)))))
-                   " has a row and is no facet, "
-                   (pr-str (vec (sort (remove (set (keys facet-contract)) facets))))
-                   " is a facet with no row — a facet with no row is one whose meaning its"
-                   " first user decided")
-              {:contract (set (keys facet-contract)) :facets facets}))
     (doseq [[fam rosters] (sort-by key family-rosters)
             :let              [spellings (into #{} (comp (filter #(= fam (:family (second %))))
                                                          (map first))

@@ -75,7 +75,7 @@
                                             :provider whole})]
         (is (= :ok (:status r')))
         (is (= [h-cat] (:remove (:batch r')))
-            "are indistinguishable from a finished answer, the row that never arrived is retracted")))))
+            "read as a finished answer, the row that never arrived is retracted")))))
 
 (tu/deftest-kb a-truncated-batch-turn-is-its-own-status
   (tu/with-terms [dog Muffet]
@@ -174,7 +174,7 @@
     (let [{:keys [error batch]} (session/parse-batch deep-open)]
       (is (some? error))
       (is (nil? batch) "and never an empty batch — a stack overflow carries no message,
-                        and a nil marker would have are indistinguishable from a map with neither key"))
+                        and a nil marker would have read as a map with neither key"))
     (is (some? (:error (session/parse-batch deep-form)))))
 
   (testing "the selection path's lines, in both shapes it reads"

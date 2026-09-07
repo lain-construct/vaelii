@@ -45,6 +45,7 @@
   settle): everything here reads kb and checks, and the store-mutation choke points in
   `vaelii.impl.integrate` sit directly above."
   (:require [clojure.string :as str]
+            [taoensso.trove :as trove]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
@@ -585,7 +586,7 @@
   rule that never fired, and skip it.  An `:overflow` record keeps no entries, so there
   is nothing to test and the only sound answer is yes.
 
-  The record is are indistinguishable from a bare KB field rather than through `chain`, which writes it and
+  The record is read as a bare KB field rather than through `chain`, which writes it and
   sits three layers above here."
   [kb rh hit?]
   (let [r (get @(:refused kb) rh)]
@@ -2887,6 +2888,24 @@
   `context-down` always includes it — pays a repeated no-op read rather than a repeated
   merge.
 
+  **`readers`, when given, is the only reader set this sweeps** — the intersection with
+  `context-down(context)`, not a replacement for it.  One caller passes it:
+  `equate-under-context-edge-via`, which hands down the contexts a `genlCx` edge actually
+  changed the ancestor set of.  A reader outside that set sees exactly what it saw before
+  the edge, so no pair can have newly become jointly visible to it; whichever of the other
+  three arrival orders applies had already run there, each with its full fan.  Which set
+  that is comes straight out of `context-down`, which filters its raw candidates by
+  `(sees? tax % c)` — every candidate's own forward walk — and so is the exact inverse of
+  `context-up`, `except` holes included: `context-up(R)` gains `super`'s side exactly when
+  `sub` is in it, which is exactly when `R` is in `context-down(sub)`.
+
+  nil is the default and the every-other-caller case: a fact, a declaration or a `genl`
+  edge arriving last changes no context's ancestor set, so there is no smaller set to
+  narrow to and all of `context-down` is swept.  `genlcx_sweep_test` pins both the pairs
+  the narrowing must keep deriving and the readers it must not visit, and
+  `genlcx_sweep_cost_test` pins that the count does not grow with readers the edge did
+  not reach.
+
   **This is what lets `equate-under-context-edge` and `equate-under-edge` stay the same
   shape**: each already calls this function once per stored fact, using that fact's own
   storage context, exactly as it always has — the sweep this wrapper adds is what
@@ -2905,15 +2924,17 @@
   what `functional-clashes` is always going to check anyway (`tax/props-over`,
   `tax/functional-in-arg-over`), asked once, early, before the expensive part rather
   than N times inside it."
-  [kb sentence context handle]
-  (let [tax (:taxonomy kb)]
-    (when (tax/functional-family-declared? tax)
-      (if (functional-mark-relevant? tax sentence)
-        (reduce (fn [acc r]
-                  (merge-with into acc (derive-functional-equalities-in kb sentence r handle)))
-                {:new [] :superseded [] :violations []}
-                (tax/context-down tax context))
-        (derive-functional-equalities-in kb sentence context handle)))))
+  ([kb sentence context handle] (derive-functional-equalities kb sentence context handle nil))
+  ([kb sentence context handle readers]
+   (let [tax (:taxonomy kb)]
+     (when (tax/functional-family-declared? tax)
+       (if (functional-mark-relevant? tax sentence)
+         (reduce (fn [acc r]
+                   (merge-with into acc (derive-functional-equalities-in kb sentence r handle)))
+                 {:new [] :superseded [] :violations []}
+                 (cond->> (tax/context-down tax context)
+                   readers (filter readers)))
+         (derive-functional-equalities-in kb sentence context handle))))))
 
 (defn- functional-family-declaration
   "The predicate `sentence` marks, when it is a functional-family declaration —
@@ -3154,16 +3175,24 @@
   mutually-blind contexts each holding one direction of a converse pair merge only from
   a reader below both, and a context edge alone (`antisym-equate-under-context-edge`) is
   not the only way that reader comes to exist — the *facts* can just as well be the last
-  of the three to arrive, into a topology the edges already connect."
-  [kb sentence context handle]
-  (let [tax (:taxonomy kb)]
-    (when (seq (tax/props tax :anti-symmetric))
-      (if (anti-symmetric-mark-relevant? tax sentence)
-        (reduce (fn [acc r]
-                  (merge-with into acc (derive-antisymmetric-equalities-in kb sentence r handle)))
-                {:new [] :superseded [] :violations []}
-                (tax/context-down tax context))
-        (derive-antisymmetric-equalities-in kb sentence context handle)))))
+  of the three to arrive, into a topology the edges already connect.
+
+  `readers` narrows the sweep exactly as it does in the functional twin, is passed by the
+  same one caller, and rests on the same argument — read that docstring for it.  The two
+  take the argument together because `equate-under-context-edge-via` hands it to whichever
+  `derive` it was given: one twin narrowing and the other not would be the drift the
+  shared body exists to prevent."
+  ([kb sentence context handle] (derive-antisymmetric-equalities kb sentence context handle nil))
+  ([kb sentence context handle readers]
+   (let [tax (:taxonomy kb)]
+     (when (seq (tax/props tax :anti-symmetric))
+       (if (anti-symmetric-mark-relevant? tax sentence)
+         (reduce (fn [acc r]
+                   (merge-with into acc (derive-antisymmetric-equalities-in kb sentence r handle)))
+                 {:new [] :superseded [] :violations []}
+                 (cond->> (tax/context-down tax context)
+                   readers (filter readers)))
+         (derive-antisymmetric-equalities-in kb sentence context handle))))))
 
 (defn antisym-equate-existing
   "When an `(anti_symmetric P)` declaration arrives, derive the equalities P's **already
@@ -3319,6 +3348,15 @@
   sweep to the facts a mark of it could actually reach — the two places the families
   differ, beside the derive and the truncation key.
 
+  **`derive` is called with a fifth argument here and with four everywhere else**: the
+  contexts `context-down(sub)` names, which are the readers whose ancestor set this edge
+  changed.  Both twins take it and both narrow on it, since this body chooses neither.
+  The candidate set is what the *budget* bounds and the reader set is what this bounds,
+  and the two do not interact: `budgeted-context-edge-candidates` cuts a prefix of the
+  facts, this cuts the contexts each surviving fact is re-derived at, and
+  `genlcx_sweep_test` pins a forced truncation deriving the same pairs and filing the same
+  notice either way.
+
   **Shared for `equate-under-edge-via`'s reason**, and more sharply: this is the budgeted
   entry point, so a copy that drifted would not merely miss merges but report a different
   coverage story for the same cut."
@@ -3328,9 +3366,14 @@
           [_ sub super] sentence]
       (when (and (symbol? sub) (symbol? super) (declares? tax))
         (let [[candidates cut] (budgeted-context-edge-candidates kb sub relevant?)
+              ;; the readers this edge actually changed the ancestor set of, computed once
+              ;; and handed to every `derive` below rather than each one re-deriving the
+              ;; whole reader fan of its candidate's own context
+              widened (set (tax/context-down tax sub))
               result (reduce (fn [acc sx]
                                (merge-with into acc
-                                           (derive kb (:sentence sx) (:context sx) (:id sx))))
+                                           (derive kb (:sentence sx) (:context sx) (:id sx)
+                                                   widened)))
                              {:new [] :superseded [] :violations []}
                              candidates)]
           (cond-> result
@@ -3622,6 +3665,33 @@
   [_tax sentence]
   (sx/defn-condition-problems sentence))
 
+(def ^:private ^:dynamic *edge-replay-skips*
+  "Bound by `rebuild-taxonomy` to a volatile the genl / genlCx `:rebuild` arms bump each
+  time `replay-edge` drops a stored declaration that is not a well-formed edge.  Nil off
+  the replay path, where `replay-edge` still guards but counts nothing."
+  nil)
+
+(defn- replay-edge
+  "Replay one stored `genl` / `genlCx` declaration through `add` (`tax/add-genl` or
+  `tax/add-genlCx`), but only when both endpoints are symbols — a valid taxonomy node.
+
+  The rebuild arms read the edge positionally (`[_ a b]`) off whatever the functor root
+  returns, and `recover` replays the **stored** sentexes rather than the checked ones, so
+  a store an older or foreign writer left a non-edge sentex under the genl / genlCx
+  functor root reaches here as a malformed edge: a 2-element metatype membership binds the
+  member as `a` and nil as `b`, an `arity` / `arg` declaration binds an integer.  Added,
+  the nil enters the closure's node set, and `strong-components` throws on it
+  (`java.util.ArrayDeque` rejects a null element) the moment `restore-depths` walks a loose
+  relation — the crash `recover` hits on such a store.
+
+  Dropping the malformed declaration is `rebuild-tms`'s discipline for a justification the
+  store cannot root: the bad sentex is skipped and counted, never a spurious edge added.
+  Returns tax."
+  [add tax a b id ctx]
+  (if (and (symbol? a) (symbol? b))
+    (add tax a b id ctx)
+    (do (when-let [v *edge-replay-skips*] (vswap! v inc)) tax)))
+
 (def ^:private arms
   "What the engine *does* about each functor it interprets, keyed by functor: the
   integrate / disintegrate / rebuild triple and the structural `:wff` check.
@@ -3651,7 +3721,7 @@
                              (tax/del-genl! (:taxonomy kb) a b (:id sx))
                              (recheck-genl-edge kb a b)))
            :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                           (tax/add-genl tax a b id ctx))
+                           (replay-edge tax/add-genl tax a b id ctx))
            :wff          wff/genl-problems}
     'genlCx {:integrate    (fn [kb sx h]
                              (let [[_ a b] (:sentence sx)]
@@ -3670,7 +3740,7 @@
                                (recheck-genlCx-edge kb a)
                                (recheck-except-ancestors kb)))
              :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                             (tax/add-genlCx tax a b id ctx))
+                             (replay-edge tax/add-genlCx tax a b id ctx))
              :wff          wff/genlCx-problems}
     'disjoint {:integrate    (fn [kb sx h]
                                (let [[_ a b] (:sentence sx)]
@@ -3934,9 +4004,11 @@
     'thereExists    {:wff wff/naf-problems}
     'forall         {:wff wff/naf-problems}}
    ;; the eight predicate-metadata marks, each differing only in the `:props` kind its
-   ;; declaration names.  `anti_symmetric` and `anti_transitive` are in the same list as
-   ;; the six below them now that the kind is read off the declaration rather than
-   ;; case-converted from the functor — the conversion is what used to force them out.
+   ;; declaration names.  `anti_symmetric` and `anti_transitive` sit in the same list as
+   ;; the six below them because the kind is read off the declaration: theirs are the two
+   ;; functors whose keyword is not their own spelling (`anti_transitive` stores under
+   ;; `:anti-transitive`), so converting the functor would put them somewhere else
+   ;; (`pr/prop-kind`, and the pairing at `predicates/prop-marks`).
    ;; `(anti_symmetric P)` derives `(equals a b)` from a believed converse
    ;; (`derive-antisymmetric-equalities`); `(anti_transitive P)` convicts the two-step
    ;; chain and the direct step together (`checks/antitransitivity-problems`).  The mark
@@ -4280,14 +4352,23 @@
 
   Drops every cache first: a rebuild that merged into the existing one could only
   ever *add*, so an entry whose sentex is gone would survive the recovery that was
-  supposed to re-derive it."
+  supposed to re-derive it.
+
+  A stored `genl` / `genlCx` declaration whose positional read is not a well-formed edge
+  is dropped rather than replayed (`replay-edge`), and the count is warned once — the same
+  discipline `rebuild-tms` follows for a justification the store cannot root.  A well-formed
+  store never has one; a store an older or foreign writer left a non-edge sentex under the
+  genl / genlCx functor root does, and replaying it would seed a null closure node that
+  crashes `restore-depths`."
   [kb]
-  (let [tax (:taxonomy kb)]
+  (let [tax   (:taxonomy kb)
+        skips (volatile! 0)]
     (tax/clear-relations! tax)
-    (doseq [[f {:keys [rebuild]}] entries
-            :when rebuild
-            sx (stored-declarations kb f)]
-      (rebuild tax sx))
+    (binding [*edge-replay-skips* skips]
+      (doseq [[f {:keys [rebuild]}] entries
+              :when rebuild
+              sx (stored-declarations kb f)]
+        (rebuild tax sx)))
     ;; Members second, once the metatypes are known — membership is what separates
     ;; them, and nothing about it is stored beyond the `(M T)` sentexes themselves.
     ;; A second pass rather than a table entry, because the member functors are the
@@ -4295,4 +4376,9 @@
     ;; reads it, so the recovered members are the live KB's whatever the marks' labels.
     (doseq [m (tax/stored-disjoint-metatypes tax)
             {[_ t] :sentence id :id ctx :context} (stored-declarations kb m)]
-      (tax/add-metatype-member tax m t id ctx))))
+      (tax/add-metatype-member tax m t id ctx))
+    (when (pos? (long @skips))
+      (trove/log! {:level :warn :id ::edges-malformed
+                   :msg  (str @skips " stored genl/genlCx declarations are not well-formed"
+                              " edges and are left out of the taxonomy")
+                   :data {:skipped @skips}}))))

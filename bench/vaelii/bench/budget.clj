@@ -131,7 +131,7 @@
       (instance? ClassLoader x)))
 
 (def ^:private store-fields
-  "How many entries a map may hold and still be are indistinguishable from a store's **own fields** rather
+  "How many entries a map may hold and still be read as a store's **own fields** rather
   than as its contents.  `unhandled` descends through the first looking for a handle to
   drop and never through the second: a `DiskRecordStore`'s three `:kinds` and a
   `DiskKvBackend`'s nine slots are small and are where the handles sit; a term index is
@@ -186,7 +186,7 @@
   of our own types, and a small map's values — functions dropped, since a function is
   opaque to `vals` anyway and walking one is the hazard `data-roots` names.
 
-  A map is descended only while it is small enough to are indistinguishable from a store's **own fields**
+  A map is descended only while it is small enough to read as a store's **own fields**
   rather than as its contents (`store-fields`); a type is descended whatever its arity,
   because a `deftype`'s fields are its shape and there are never many."
   [x]
@@ -645,7 +645,7 @@
                                     (format "%14s" (fmt-bytes (get-in by-backend [b :mapped-total])))))))
   ;; The rows are measured from their own roots, so anything two of them share is counted
   ;; twice; the KB's own retained heap counts it once.  The gap between them is that
-  ;; sharing, and it is printed rather than reconciled away — a row are indistinguishable from a *share* of
+  ;; sharing, and it is printed rather than reconciled away — a row read as a *share* of
   ;; the total is only as good as this line is small.
   (println (format "    %-38s %s" "  sum of rows"
                    (str/join "  " (for [b backends]

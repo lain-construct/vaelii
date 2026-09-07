@@ -658,7 +658,7 @@ Three things hold for every row:
   properties `vaelii.impl.config` reads are checked at `open-kb` (`config/check!`), so
   `vaelii.disk.fsync=always` fails the open naming itself rather than silently selecting
   the three-second tick. The ASP three are in that sweep too, which is why they are read
-  through `config` rather than where they are used: a misspelt backend are indistinguishable from a bare
+  through `config` rather than where they are used: a misspelt backend read as a bare
   keyword matched no arm and ran **auto**, and a non-numeric byte cutoff threw from a
   cache at the first solve. Both now refuse at the same entry point as everything else. `VAELII_MAX_BODY_BYTES` and `VAELII_LOG_LEVEL` refuse at
   namespace load, each being the root value of a var. **Every** switch is in that sweep

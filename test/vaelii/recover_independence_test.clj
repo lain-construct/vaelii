@@ -192,6 +192,43 @@
       (is (= 1 (:handles reading)) "and both spellings resolve to the one handle")
       (is (= [true true] [(:ask-sf reading) (:ask-fs reading)])))))
 
+(tu/deftest-kb a-different-guarded-rule-is-re-checkable-after-a-restart
+  ;; A `(different …)` antecedent holds by the *absence* of a merge, so it names no handle
+  ;; a justification can carry and the re-check index is the only instrument that can
+  ;; withdraw the firing it guards (docs/equality.md).  The posting is written when the
+  ;; rule is **indexed** and nothing about blocking is durable, so a restart that rebuilds
+  ;; the rule without rebuilding the posting reads exactly as the live KB does — right up
+  ;; until a merge arrives, and then keeps a conclusion the live KB would withdraw.
+  ;;
+  ;; The withdrawing fact therefore lands on the **restarted** KB and not before it, which
+  ;; is what the sibling tests here cannot do with `one-reading!`: the two KBs share one
+  ;; store, so a merge asserted live is a merge the rebuild replays rather than one it has
+  ;; to re-decide.
+  (tu/with-terms [dpRel dqRel DAa DBb]
+    (v/assert kb (list 'binary_predicate dpRel) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate dqRel) 'CxUniverse)
+    (v/assert kb (list 'implies (list 'and (list dpRel '?x '?y) (list 'different '?x '?y))
+                       (list dqRel '?x '?y))
+              'CxUniverse)
+    (v/assert kb (list dpRel DAa DBb) 'CxUniverse)
+    (is (v/ask? kb (list dqRel DAa DBb) 'CxUniverse)
+        "the guard holds, so the live KB fired")
+    (let [back (restarted)]
+      (is (v/ask? back (list dqRel DAa DBb) 'CxUniverse)
+          "and the rebuild agrees the firing stands")
+      (let [merge (v/assert back (list 'sameAs DAa DBb) 'CxUniverse)]
+        (is (not (v/ask? back (list 'different DAa DBb) 'CxUniverse))
+            "merged, so the two are no longer provably different")
+        (is (not (v/ask? back (list dqRel DAa DBb) 'CxUniverse))
+            "and the rebuilt KB re-checks the firing the guard licensed, as the live one does")
+        (v/retract! back merge)
+        (is (v/ask? back (list dqRel DAa DBb) 'CxUniverse)
+            "the release direction survives the restart too")))
+    ;; the re-derivation above was drawn by the *rebuilt* KB, whose justification the
+    ;; fixture's KB value has no node for, so the store is cleared here rather than left
+    ;; to a teardown that can only unwind what one TMS recorded
+    (tu/clear-kb! (tu/test-kb))))
+
 (tu/deftest-kb a-computed-context-edge-merge-reads-the-same-after-a-restart
   ;; vaelii#56.  The `genlCx` edge here is **computed** — `contextArgSubrelation` makes
   ;; January a spec of its year structurally, and nobody asserts the edge — so the merge

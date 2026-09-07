@@ -237,7 +237,7 @@
   ;; a discarded row first, because the first row of an arm is a cold one and the rows
   ;; are meant to be read against each other: without this the E=0 baseline carries the
   ;; JVM's warmup and every row after it reads faster than the one above for that reason
-  ;; alone — which at one point had 1,000 excepts costing less than none
+  ;; alone — which is how a run shows 1,000 excepts costing less than none
   (except-row 100 facts 1)
   (let [rows (mapv #(except-row % facts reps) [0 1 10 100 1000])]
     (doseq [{:keys [excepts hidden derived ms per-drv calls costly read-ns share]} rows]

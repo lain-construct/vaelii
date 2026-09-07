@@ -29,7 +29,7 @@
             [vaelii.world :as world]
             [vaelii.world-fables :as fables]))
 
-(use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
+(use-fixtures :once (tu/loaded (fn [kb] (-> kb tu/load-starter! world/load-into))))
 (use-fixtures :each (tu/neutral))
 
 (def ^:private lion-mouse (get fables/texts 'CxLionMouse))

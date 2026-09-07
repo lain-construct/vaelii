@@ -252,7 +252,7 @@
   (let [;; the baseline is the map REBUILT with the same records, not the original.
         ;; Stripping rebuilds it, and a `PersistentHashMap` grown by `into` is a few
         ;; bytes an entry off one grown by `assoc` — a constant that would otherwise
-        ;; land on every row and are indistinguishable from a negative cost for the shared-object fields.
+        ;; land on every row and read as a negative cost for the shared-object fields.
         rebuild (fn [s] (:justs (update s :justs (fn [js] (into {} js)))))
         js   (rebuild state)
         n    (count js)

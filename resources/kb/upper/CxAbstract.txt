@@ -19,8 +19,6 @@
 (comment building "An artifact that is a fixed structure enclosing space.")
 (genl building artifact)
 
-(comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
-(genl capability intangible)
 
 (comment clothing "An artifact worn on the body.")
 (genl clothing artifact)
@@ -52,8 +50,6 @@
 (comment glass_stuff "A hard, brittle, transparent substance.")
 (genl glass_stuff substance)
 
-(comment intangible "Something with no mass or location: an attribute, a relation, a time.")
-(genl intangible thing)
 
 ;; CxCore's literal types, placed in this lattice.  Text and a number have no mass and no
 ;; location, and neither of them is a relation.  Saying the second is what lets a rule be
@@ -97,8 +93,6 @@
 (comment liquid "A substance that flows and takes the structure of its container.")
 (genl liquid substance)
 
-(comment living_thing "An organism — it is born, lives, and (by default) dies.")
-(genl living_thing physical_object)
 (disjoint living_thing artifact)
 
 (comment locatedIn
@@ -145,8 +139,6 @@
 (comment petal "A coloured body part of a flower.")
 (genl petal body_part)
 
-(comment physical_object "Something with mass and a location in space.")
-(genl physical_object spatial_thing)
 
 (comment relation_type "A type whose instances are relations between things.")
 (genl relation_type intangible)
@@ -154,8 +146,6 @@
 (comment root "The body part a plant anchors itself and draws water with.")
 (genl root body_part)
 
-(comment spatial_thing "Something with a location, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. What the four spatial calculi relate.")
-(genl spatial_thing thing)
 
 (comment stone "A hard mineral substance.")
 (genl stone substance)

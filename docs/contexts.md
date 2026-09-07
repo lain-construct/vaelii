@@ -54,18 +54,34 @@ next in `CxBeta` for no reason but how many settles had run since the defeat.
 
 ## The context spindle
 
-The default topology is a **five-layer spindle**, most general (top) to most specific
-(bottom): the vocabulary head, a *definitional* band, a mid anchor, a *theory* band,
-and a bottom anchor. Data hangs below the bottom.
+**A spindle is three layers**: a **head** every member sees, a set of **members** that
+see the head and not each other, and a **collector** that sees every member. The default
+topology is **two spindles stacked**, most general (top) to most specific (bottom):
 
-- **CxCore** — the spindle *head*: the code-supported vocabulary (every special
-  predicate the engine interprets), asserted by `vaelii.impl.core-context`. The root —
-  every context sees it.
-- **upper** — the *definitional* band, between Core and Universe: what things *are*,
-  always true, like `genl`. One context per domain (`vaelii.impl.starter`), each
-  seeing CxCore and seen by CxUniverse:
-  - `CxAbstract` — the abstract type skeleton (`intangible`/`physical_object` and
-    their kinds) plus the structural relations `partOf`/`locatedIn`.
+| | head | members | collector |
+|---|---|---|---|
+| the upper spindle | CxCore | `resources/kb/upper/` — seven contexts | CxUniverse |
+| the middle spindle | CxUniverse | `kb/middle/` — seven contexts | CxWell |
+
+CxUniverse is the joint, the first spindle's collector and the second's head, and it can
+be the second's head *because* it is the first's collector: a head is a context every
+member sees, and collecting the whole upper spindle is what makes CxUniverse one.
+Data hangs below CxWell.
+
+- **CxCore** — the upper spindle's *head*: the code-supported vocabulary (every
+  special predicate the engine interprets), asserted by `vaelii.impl.core-context`. The
+  root — every context sees it. It also holds the five collections at the top of the
+  ontology — `intangible`, `spatial_thing`, `physical_object`, `living_thing`,
+  `capability` — which the engine reads by no name and which are here for the reason
+  below: the members of a spindle see each other not at all, so a term two of them
+  extend has to be defined in the head.
+  `starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head` holds that.
+- **the upper spindle's members** (`resources/kb/upper/`) — what things *are*, always
+  true, like `genl`. One context per domain (`vaelii.impl.starter`), each seeing CxCore
+  and seen by CxUniverse:
+  - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`artifact`,
+    `attribute`, `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
+    structural relations `partOf`/`locatedIn`.
   - `CxOrganism` — the biological taxonomy and its disjointness.
   - `CxLife` — the organism relations (`parentOf`, `siblingOf`, `flies`, `mortal`,
     `birthYearOf`, `olderThan`, …) with their arg and metadata.
@@ -87,12 +103,13 @@ and a bottom anchor. Data hangs below the bottom.
     duration arithmetic computes over lives here too ([duration.md](duration.md)), and so
     do the three calendar constructors `YearFn` / `MonthFn` / `DayFn`, which name an
     interval the calendar already picks out ([context-nat.md](context-nat.md)).
-- **CxUniverse** — the mid *anchor*, left free for **lifting**: universally-true
-  facts collect here (`decontextualized_predicate` justifications and the forced `genlCx`
-  extent). It sees every upper context and is seen by every middle context.
-- **middle** — the *theory* band, between Universe and Well: how the definitional
-  things *interrelate*, where several overlapping theories can coexist. One context
-  per theory, each seeing CxUniverse and seen by CxWell:
+- **CxUniverse** — the upper spindle's *collector* and the middle spindle's *head*, left free for **lifting**: universally-true facts collect here
+  (`decontextualized_predicate` justifications and the forced `genlCx` extent). It sees
+  every upper member and is seen by every middle member. Being the one context
+  that sees the whole upper spindle is what makes it the head of the next.
+- **the middle spindle's members** (`kb/middle/`) — how the definitional things *interrelate*,
+  where several overlapping theories can coexist. One context per theory, each seeing
+  CxUniverse and seen by CxWell:
   - `CxKinship` — grandparentOf, ancestorOf, olderThan.
   - `CxMereology` — a part is located where its whole is; owning a whole entails
     owning its parts.
@@ -110,17 +127,30 @@ and a bottom anchor. Data hangs below the bottom.
   - `CxSocial` — what acquaintance follows from, and how employment relates to
     membership. Every rule runs one way only, because `knows` is deliberately not
     symmetric.
-- **CxWell** — the bottom *anchor*: it sees every middle theory, so it (and any
-  context hung beneath it) transitively sees the whole ontology.
+- **CxWell** — the middle spindle's *collector*: it sees every middle member, so it (and
+  any context hung beneath it) transitively sees the whole ontology.
 
-Each upper/middle file wires *itself* into the axis with two `genlCx` edges, so
-the topology is **data** — dropping a `Cx<Name>.txt` in `resources/kb/upper/` or `resources/kb/middle/`
-adds a context, no code change, and every context present is loaded on kb start by
-default. There is **no** direct `(genlCx CxWell CxCore)` edge; Well
-reaches Core through the whole axis (middle → Universe → upper → Core).
+**A member sees no member, so a shared term belongs in the head.** That is what makes a
+spindle a spindle: `CxLife` does not see `CxOrganism` and `CxOrganism` does not see
+`CxAbstract`. A term defined in one member and *extended* from another is therefore
+invisible where it is extended, and the closure breaks — `(genl animal living_thing)` in
+`CxOrganism` against a `living_thing` defined in `CxAbstract` left `animal` unable to
+reach `thing` from `CxOrganism` itself, so every `arg` constraint written there convicted
+nothing in its own context. So a term more than one member of a spindle defines or
+extends belongs at or above that spindle's head: CxCore for the upper spindle, and
+CxUniverse or anything CxUniverse sees for the middle spindle. *Using* a member's term
+from another member is a separate question the rule does not cover — extending one is
+what breaks a closure.
 
-`vaelii.impl.core-context` loads only the head (CxCore); the bands are the starter's,
-so a **CxCore-only KB is just the vocabulary** — no spindle bands at all.
+Each member file wires *itself* in with two `genlCx` edges — one to its spindle's head
+and one to its collector — so the topology is **data**: dropping a `Cx<Name>.txt` in
+`resources/kb/upper/` or `resources/kb/middle/` adds a member, no code change, and every
+context present is loaded on kb start by default. There is **no** direct `(genlCx CxWell
+CxCore)` edge; Well reaches Core through both spindles (middle member → CxUniverse →
+upper member → CxCore).
+
+`vaelii.impl.core-context` loads only the head (CxCore); the members are the starter's,
+so a **CxCore-only KB is just the vocabulary** — a head with no spindle under it.
 
 ### The shipped KB is schema only
 
@@ -136,11 +166,11 @@ cast facts in `CxNaturalWorld` places its conclusion back in `CxNaturalWorld`
 
 ### Adding a sibling context
 
-A user adds their **own sibling** in either band. A *definitional* sibling sees
+A user adds their **own member** to either spindle. An *upper* member sees
 CxCore and is seen by CxUniverse (`(genlCx CxMy CxCore)` and
 `(genlCx CxUniverse CxMy)`); a *theory* sibling sees CxUniverse and
 is seen by CxWell. Its vocabulary is visible from every data context below Well
-without touching the shipped bands.
+without touching the shipped members.
 
 ## Context-aware inference
 
@@ -508,10 +538,12 @@ stated meet in the target as a violation nothing reports:
 ;; CxT now believes Rex is both, and no check ever considered the pair
 ```
 
-CxUniverse is the target that closes this, because it is the one context every
-context sees: the first copy is visible to the *next* assert, so the ordinary
-context-scoped check catches the clash at its source, and the second assert is refused
-where it is made. That is not a lucky property of a well-known context — it is the
+CxUniverse is the target that closes this, because every context that lifts sees it:
+the middle spindle and the data contexts below the joint all reach CxUniverse, so the
+first copy is visible to the *next* assert, the ordinary context-scoped check catches
+the clash at its source, and the second assert is refused where it is made. The upper
+spindle sits above the joint and reaches CxCore instead, which is why a declaration
+written in CxCore constrains every context in the tree. That is not a lucky property of a well-known context — it is the
 whole reason the target is fixed.
 
 The residual case is a context wired outside the spindle, which sees neither its
@@ -566,10 +598,10 @@ Two boundaries, both deliberate:
 
 Every shipped declaration is a claim about a **predicate** rather than about a world.
 `functional`, `functionalInArg`, `inverse`, `reflexive`, `irreflexive`, `symmetric`,
-`anti_symmetric`, `asymmetric`, `transitive`, `anti_transitive` and `equivalence_relation` carry
-the mark — so a `(symmetric P)` stated in one theory is the KB's claim about `P` and not
-that theory's — and `genlCx` carries the forced variant below. **No domain relation
-carries either**, and two things hold that line:
+`anti_symmetric`, `asymmetric`, `transitive`, `anti_transitive`, `equivalence_relation`,
+`injection`, `surjection` and `bijection` carry the mark — so a `(symmetric P)` stated in one theory is the KB's
+claim about `P` and not that theory's — and `genlCx` carries the forced variant below.
+**No domain relation carries either**, and two things hold that line:
 
 - **A domain fact is what a theory is for.** A marriage, an ownership, a location holds
   in the context that states it, and a story, a jurisdiction or a hypothesis is entitled

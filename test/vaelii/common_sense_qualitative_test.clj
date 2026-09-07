@@ -20,11 +20,10 @@
   and that needs the calculus in the registry."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded (fn [kb]
-                                 (starter/load-into kb)
+                                 (tu/load-starter! kb)
                                  (v/add-reasoner kb :rcc8 :allen :point :cardinal
                                                  :relative :distance :duration
                                                  :metric-time :sign :calendar))))

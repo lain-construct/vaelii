@@ -309,16 +309,20 @@
           "checking must not write"))))
 
 (tu/deftest-kb an-argisa-clash-is-an-arg-type-rejection
-  (tu/with-terms [dog cat likes Muffet Whiskers]
-    (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl cat 'thing) 'CxUniverse)
-    (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
-    (v/assert kb (list 'arg likes 1 dog) 'CxUniverse)
-    (v/assert kb (list cat Whiskers) 'CxUniverse)
-    (let [rs (session/check-batch kb {:add [[(list likes Whiskers Muffet) 'CxUniverse]]
-                                      :remove []})]
-      (is (= 1 (count rs)))
-      (is (= :arg-type (:type (first rs)))))))
+  ;; Pinned to the constraint reading: the classification asserted is :arg-type, and with
+  ;; the entailment on the same content is refused as the :disjoint clash the mint makes
+  ;; (docs/argtypes.md).
+  (tu/without-entailing
+   (tu/with-terms [dog cat likes Muffet Whiskers]
+     (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl cat 'thing) 'CxUniverse)
+     (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
+     (v/assert kb (list 'arg likes 1 dog) 'CxUniverse)
+     (v/assert kb (list cat Whiskers) 'CxUniverse)
+     (let [rs (session/check-batch kb {:add [[(list likes Whiskers Muffet) 'CxUniverse]]
+                                       :remove []})]
+       (is (= 1 (count rs)))
+       (is (= :arg-type (:type (first rs))))))))
 
 (tu/deftest-kb malformed-entries-and-handles-are-rejected
   (testing "an entry that is not [sentence context]"

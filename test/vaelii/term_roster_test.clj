@@ -14,10 +14,9 @@
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
 
-(defn- starter-kb [] (doto (tu/fresh) (starter/load-into)))
+(defn- starter-kb [] (doto (tu/fresh) (tu/load-starter!)))
 
 (defn- scanned-terms
   "The oracle: every symbol term reachable by walking the records — what a client with

@@ -7,10 +7,15 @@
   worse than useless to the caller asking whether it is safe to write."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
 
-(defn- kb-with-starter [] (doto (tu/fresh) (starter/load-into)))
+(defn- kb-with-starter
+  "A fresh starter KB per test — `check` and `assert` are compared on the same baseline
+  and `assert-type` really does store, so the isolation is per-test rather than per
+  namespace.  Restored from `tu/load-starter!`'s dump rather than re-asserted: this
+  namespace builds one 23 times, and the two routes produce the same KB
+  (`starter_copy_test`)."
+  [] (doto (tu/fresh) (tu/load-starter!)))
 
 (defn- types-of-check
   "The `:type` keywords `check` reports for a sentence, as a set."

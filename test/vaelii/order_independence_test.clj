@@ -710,6 +710,55 @@
              result)))
     (tu/clear-kb! (tu/test-kb))))
 
+(deftest a-late-symmetric-mark-folds-a-pair-two-rules-concluded
+  ;; The pair a fold has no bare premise to take: both spellings of one proposition are a
+  ;; rule's conclusion, so neither row leaves by having its premise dropped.
+  ;; `integrate/fold-supports!` re-hangs the justifications naming the doomed row as their
+  ;; consequence onto the survivor, which is what lets the fold run here at all — without
+  ;; it the mark arriving first leaves one record and the mark arriving last leaves two,
+  ;; each believed, and `(near …)` above the predicate answers the proposition twice.
+  ;;
+  ;; The two supports are separate rules over separate facts, so the reading also holds
+  ;; the belief half: one of them retracted leaves the proposition standing on the other,
+  ;; and both retracted take it away.
+  (let [ops [[#(v/assert % '(borderClaim Spain France) 'CxUniverse)]
+             [#(v/assert % '(treatyClaim France Spain) 'CxUniverse)]
+             [#(v/assert % '(symmetric bordersOn) 'CxUniverse)]]
+        setup (fn [kb]
+                (v/assert-rule kb '[(borderClaim ?x ?y)] '(bordersOn ?x ?y) 'CxUniverse)
+                (v/assert-rule kb '[(treatyClaim ?x ?y)] '(bordersOn ?x ?y) 'CxUniverse)
+                (v/assert kb '(genl bordersOn near) 'CxUniverse))
+        rows  (fn [kb] (count (v/sentexes-matching kb '(bordersOn ?x ?y) 'CxUniverse)))
+        observe
+        (fn [kb]
+          {:rows        (rows kb)
+           :one-handle? (= (v/handle-of kb '(bordersOn Spain France) 'CxUniverse)
+                           (v/handle-of kb '(bordersOn France Spain) 'CxUniverse))
+           :near-sf     (v/ask? kb '(near Spain France) 'CxUniverse)
+           :near-fs     (v/ask? kb '(near France Spain) 'CxUniverse)
+           ;; one support withdrawn: the other still concludes the proposition
+           :after-one   (do (v/retract! kb (v/handle-of kb '(borderClaim Spain France)
+                                                        'CxUniverse))
+                            [(rows kb) (v/ask? kb '(bordersOn Spain France) 'CxUniverse)])
+           ;; and with both gone there is nothing left for either spelling to answer
+           :after-both  (do (v/retract! kb (v/handle-of kb '(treatyClaim France Spain)
+                                                        'CxUniverse))
+                            [(rows kb) (v/ask? kb '(bordersOn Spain France) 'CxUniverse)
+                             (v/ask? kb '(bordersOn France Spain) 'CxUniverse)])})
+        result (one-outcome-under! "late symmetric mark over two rule-concluded spellings"
+                                   (cons [setup] ops) observe)]
+    (testing "and the one outcome is the mark-first reading"
+      (is (= 1 (:rows result)) "one proposition, one record")
+      (is (true? (:one-handle? result)))
+      (is (every? true? ((juxt :near-sf :near-fs) result))
+          "and the predicate above it answers the proposition once, either way round"))
+    (testing "belief follows both supports across the fold"
+      (is (= [1 true] (:after-one result))
+          "one support withdrawn leaves the row standing on the other")
+      (is (= [0 false false] (:after-both result))
+          "and the second withdrawal takes the whole proposition"))
+    (tu/clear-kb! (tu/test-kb))))
+
 (deftest a-computed-context-edge-merges-in-every-ordering
   ;; The calendar case, and the one where the edge nobody asserts is the whole question.
   ;; `contextArgSubrelation` makes January a spec of its year *structurally*, so the
@@ -1568,7 +1617,7 @@
   ;; `(gkinOf ?a ?b)` is the cheapest literal and leads — and a lead-position match is the
   ;; one place a symmetric fact's mirror was dropped, because both retrieval paths deduped
   ;; the mirror probe by **handle**: an all-variable pattern binds one stored fact twice
-  ;; and differently, and the second binding was are indistinguishable from a repeat of the first.
+  ;; and differently, and the second binding was read as a repeat of the first.
   ;;
   ;; It failed forward *and* backward, which is what says the defect was in the matcher
   ;; rather than in chaining: 48 of these 120 orderings derived nothing, and `prove` of
@@ -1631,3 +1680,68 @@
           (is (= '#{PrA PrB PrC} (:whole result))
               "while the uncapped run still reaches every witness")))))
   (tu/clear-kb! (tu/test-kb)))
+
+;; ---- a generator's stamped rules -----------------------------------------
+
+(deftest a-generator-and-its-stamped-rules-are-order-independent
+  ;; The shape CxCore's arity vocabulary uses (docs/generators.md), stated over a
+  ;; miniature so the scenario is the mechanism and not the ontology: one rule whose
+  ;; consequent is itself a rule, a mapping fact that fills the hole, and members of the
+  ;; type the hole names.  A stamped rule is minted when its mapping fact arrives and
+  ;; may therefore arrive after the members it fires on, before them, or between two of
+  ;; them.  120 orderings.
+  (let [ops [#(v/assert % '(implies (typeArity ?type ?n)
+                                    (implies (?type ?relation) (arity ?relation ?n)))
+                        'CxUniverse)
+             #(v/assert % '(typeArity binary_thing 2) 'CxUniverse)
+             #(v/assert % '(typeArity ternary_thing 3) 'CxUniverse)
+             #(v/assert % '(binary_thing pairOf) 'CxUniverse)
+             #(v/assert % '(ternary_thing tripleOf) 'CxUniverse)]
+        observe (fn [kb]
+                  {:pair   (boolean (seq (v/sentexes-matching kb '(arity pairOf 2) 'CxUniverse)))
+                   :triple (boolean (seq (v/sentexes-matching kb '(arity tripleOf 3) 'CxUniverse)))
+                   ;; the hole is filled per mapping fact, so one type's rule must not
+                   ;; conclude for a member of the other
+                   :crossed (boolean (seq (v/sentexes-matching kb '(arity pairOf 3) 'CxUniverse)))
+                   :rows    (count (v/sentexes-matching kb '(arity ?r ?n) 'CxUniverse))
+                   :conflicts (count (v/conflicts kb))})
+        result (one-outcome! "generator stamping" ops observe)]
+    (testing "and the one reading is one arity per member, from its own type's rule"
+      (is (true? (:pair result)))
+      (is (true? (:triple result)))
+      (is (false? (:crossed result)))
+      (is (= 2 (:rows result)))
+      (is (zero? (:conflicts result))))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest withdrawing-a-generators-premise-is-order-independent
+  ;; The withdrawal half.  A stamped rule is justified by the fact that minted it, so
+  ;; retracting the fact must take the rule's conclusions with it and leave every other
+  ;; type's alone — whenever in the sequence the retraction lands.  The retract names the
+  ;; handle its own assert allocated, so the two are one chain; 5!/2! = 60 orderings.
+  (let [handle (volatile! nil)
+        chains [[#(v/assert % '(implies (typeArity ?type ?n)
+                                        (implies (?type ?relation) (arity ?relation ?n)))
+                            'CxUniverse)]
+                [#(vreset! handle (v/assert % '(typeArity binary_thing 2) 'CxUniverse))
+                 #(v/retract! % @handle)]
+                [#(v/assert % '(typeArity ternary_thing 3) 'CxUniverse)]
+                [#(v/assert % '(binary_thing pairOf) 'CxUniverse)]
+                [#(v/assert % '(ternary_thing tripleOf) 'CxUniverse)]]
+        observe (fn [kb]
+                  {:pair    (boolean (seq (v/sentexes-matching kb '(arity pairOf 2) 'CxUniverse)))
+                   :triple  (boolean (seq (v/sentexes-matching kb '(arity tripleOf 3) 'CxUniverse)))
+                   :member  (boolean (seq (v/sentexes-matching kb '(binary_thing pairOf) 'CxUniverse)))
+                   :mapping (boolean (seq (v/sentexes-matching kb '(typeArity binary_thing 2)
+                                                               'CxUniverse)))
+                   :rows    (count (v/sentexes-matching kb '(arity ?r ?n) 'CxUniverse))
+                   :conflicts (count (v/conflicts kb))})
+        result (one-outcome-under! "generator withdrawal" chains observe)]
+    (testing "the withdrawn fact takes its own conclusion and nothing else"
+      (is (false? (:pair result)) "the stamped rule's conclusion goes with its premise")
+      (is (false? (:mapping result)))
+      (is (true? (:member result)) "the membership was asserted and stands on its own")
+      (is (true? (:triple result)) "the other type's rule is untouched")
+      (is (= 1 (:rows result)))
+      (is (zero? (:conflicts result))))
+    (tu/clear-kb! (tu/test-kb))))

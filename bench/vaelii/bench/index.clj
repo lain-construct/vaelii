@@ -20,7 +20,7 @@
   A projection comparison has a hole that this shape of harness inherits in a worse
   form, and `index_dump_test` already names it: **a layout that quietly falls back to a
   coarser access path answers identically and is merely slower.**  Read as a duration
-  that is a fair loss; are indistinguishable from a path it is a misconfiguration.  So the access-path
+  that is a fair loss; read as a path it is a misconfiguration.  So the access-path
   report is printed **first**, before any number that could be mistaken for a verdict,
   and a layout whose path histogram diverges from the reference's is called out by name.
   `vaelii.impl.profile`'s `:goals` tally is where it comes from — keyed by shape *and*
@@ -713,7 +713,7 @@
   makes about warming: measuring every group of layout A before any group of layout B
   puts tens of seconds between the two readings a ratio is taken over, so any drift over
   the run — heap growth as each layout's KB stays resident, a background process, thermal
-  throttling — lands on the *layout* axis and is are indistinguishable from a layout difference.  Taken
+  throttling — lands on the *layout* axis and is read as a layout difference.  Taken
   group by group, the readings a ratio compares are seconds apart and the drift is
   common to all of them.
 

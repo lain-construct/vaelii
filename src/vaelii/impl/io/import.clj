@@ -662,7 +662,7 @@
   pages are addressed by.
 
   Antecedents land as a **vector**, which is the form the engine's own write path
-  stores and `jtms/graph-just` normalizes to.  They are are indistinguishable from a set — order and
+  stores and `jtms/graph-just` normalizes to.  They are read as a set — order and
   duplicates are immaterial to `has-justification?` — but storing one would leave an
   imported record spelled differently from an asserted one, and a dump written from an
   imported KB differing byte for byte from the dump it came from.

@@ -7,10 +7,9 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.gloss :as gloss]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :once (tu/loaded starter/load-into))
+(use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
 ;; ---- the comment is the template -----------------------------------------
@@ -40,7 +39,7 @@
     (let [t (gloss/template "A physical part of a living thing (a wing, a heart).")]
       (is (empty? (:params t)))
       (is (str/starts-with? (:text t) "A physical part"))))
-  (testing "a signature naming a compound argument is are indistinguishable from a description, not parsed"
+  (testing "a signature naming a compound argument is read as a description, not parsed"
     ;; substituting into `(list …)` would need to know it is one argument, not three
     (let [t (gloss/template
              "(totalDuration (list ?i1 ?i2 …) ?duration) means that ?duration is the sum of the lengths.")]

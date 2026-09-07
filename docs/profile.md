@@ -101,7 +101,7 @@ same question:
 An `F` is open, so it is never the bound half of the first reading and the first two never
 double-count. Adding them would report a number meaning neither, since one names a shape
 a family serves and the other names a shape nothing does. The third is a superset of the
-second by construction and is are indistinguishable from a bound, not added to anything.
+second by construction and is read as a bound, not added to anything.
 
 ## The access paths, named
 
@@ -365,7 +365,7 @@ held identical and only the path varies.
 ### The access-path report comes first, and that is the design
 
 A layout that quietly falls back to a coarser access path answers identically and is
-merely slower. Read as a duration that is a fair loss; are indistinguishable from a path it is a
+merely slower. Read as a duration that is a fair loss; read as a path it is a
 misconfiguration. So the `:goals` tally is printed as a path histogram per layout,
 before any duration, and a layout whose histogram differs from the reference's is named.
 

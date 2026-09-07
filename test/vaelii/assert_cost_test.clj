@@ -62,7 +62,7 @@
     once whether it returns four handles or four million.  `lein perf`'s
     `intersect-selectivity` is the check that holds *that*, and this gate does not
     subsume it.
-  - **A retraction cost are indistinguishable from a per-retraction constant.**  `unindex-sentex!` reports
+  - **A retraction cost read as a per-retraction constant.**  `unindex-sentex!` reports
     what it cost (`:retracts`, docs/profile.md), so a teardown is budgeted the same way —
     except `:dead`, the trie nodes a removal emptied, which is decided by what else is
     still stored under the same prefix rather than by the sentex.  It is exact for a

@@ -1052,3 +1052,38 @@
     (v/retract! kb (v/handle-of kb (list 'indeterminate_term Aa) 'CxUniverse))
     (is (v/ask? kb (list qRel Aa Bb) 'CxUniverse)
         "and the conclusion arrives once the exemption goes, with no re-assertion")))
+
+(deftest a-different-guarded-firing-comes-back-through-the-subkind-channel-too
+  ;; The release direction through the channel the flip set reaches by fan-out rather than
+  ;; by name.  A kind declared `(genl K indeterminate_term)` makes its members exempt from
+  ;; the unique-name assumption, and the exemption rests on **two** sentences — the edge
+  ;; and the membership — so withdrawing either restores the difference and owes the
+  ;; firing back.  `different-flip-predicates` names `genl` outright and reaches the
+  ;; membership through `special/recheck-on-predicate`'s `genls-global` fan, and neither
+  ;; route has a blocked justification to move: the guard is evaluated in the join, so the
+  ;; suppressed firing never existed.
+  (doseq [[label lift!]
+          [["the membership retracted — reached through the genls fan"
+            (fn [kb k a] (v/retract! kb (v/handle-of kb (list k a) 'CxUniverse)))]
+           ["the genl edge retracted — the edge is what made the kind indeterminate"
+            (fn [kb k _] (v/retract! kb (v/handle-of kb (list 'genl k 'indeterminate_term)
+                                                     'CxUniverse)))]]]
+    (testing label
+      (tu/with-cleared-kb [kb tu/fresh]
+        (tu/with-terms [pRel qRel Aa Bb vague_kind]
+          (v/assert kb (list 'binary_predicate pRel) 'CxUniverse)
+          (v/assert kb (list 'binary_predicate qRel) 'CxUniverse)
+          (v/assert kb (list 'implies (list 'and (list pRel '?x '?y)
+                                            (list 'different '?x '?y))
+                             (list qRel '?x '?y))
+                    'CxUniverse)
+          (v/assert kb (list 'genl vague_kind 'indeterminate_term) 'CxUniverse)
+          (v/assert kb (list vague_kind Aa) 'CxUniverse)
+          (v/assert kb (list pRel Aa Bb) 'CxUniverse)
+          (is (not (v/ask? kb (list qRel Aa Bb) 'CxUniverse))
+              "exempt from the UNA, so the guard does not hold and nothing is concluded")
+          (lift! kb vague_kind Aa)
+          (is (v/ask? kb (list 'different Aa Bb) 'CxUniverse)
+              "the exemption is gone, so the two are provably different again")
+          (is (v/ask? kb (list qRel Aa Bb) 'CxUniverse)
+              "and the firing the guard licensed arrives, with no re-assertion"))))))

@@ -19,6 +19,23 @@
   retraction into one KB, and the question is whether the arrival order of those decides
   anything.
 
+  **The declarations that reach back are in the pool too**, because each is a mark whose
+  arrival order is the whole question and none of them was drawn here before:
+
+  - a rule guarded by `(different ?a ?b)`, which is negation as failure over the equality
+    closure and over the `indeterminate_term` category and so names no handle a
+    justification can carry — its two arguments are a pair one of the pool's own `equals`
+    edges merges, and the category reaches it twice more, by a direct membership and by a
+    kind declared under it;
+  - `(functionalInArg keeperOf 1)` over a `(genl ownerOf keeperOf)` edge, so the mark, the
+    edge and two facts are four ingredients of one merge and every arrival order runs a
+    different retroactive arm;
+  - `(symmetric walksWith)` over a pair **both** of whose spellings a rule concluded,
+    which is the fold that has no bare premise to take;
+  - `(predSpecifiedAll keeperOf dog)` over an `(arg keeperOf 1 person)` slot contract, an
+    integrity audit that stores nothing and reads the believed extents, the elected
+    spelling and the category at once.
+
   **What is compared, and why it is content.** Three readings, all handle-free:
 
   - the believed sentences **per assertion context**, and per **view** context up the
@@ -26,7 +43,12 @@
   - the belief label of each believed sentex — `defeat-class`, plus the contradiction
     and conflict tallies, so a flipped class or a double-counted dilemma surfaces;
   - the `genl` / `genlCx` closures at every probe type and context, plus the equality
-    partition they are cached beside.
+    partition they are cached beside, the `different` answer over five probe pairs, and
+    the integrity audit's violation set.
+
+  `different` is read directly as well as through the conclusion it guards, and the reason
+  is what makes it need the re-check index at all: it holds by the *absence* of a merge,
+  so a firing it withdrew leaves nothing in the sentence sets to say why.
 
   Which sentexes are **stored** is deliberately absent, for `property_test`'s reason: a
   conclusion drawn and then defeated leaves a record an ordering that defeated its
@@ -65,6 +87,13 @@
 
 (def ^:private probe-types '[terrier dog mammal animal thing])
 (def ^:private probe-terms '[Rex Nell Tom Thomas Bud Sparrow Ann Anna Kip Kipper])
+
+(def ^:private probe-pairs
+  "The term pairs the unique-name assumption is read over. Three are pairs an equality
+  edge in the pool merges, one is a pair nothing merges, and one crosses the two sides of
+  the world — so the reading holds a `different` that is true throughout, ones a merge
+  turns false, and ones the `indeterminate_term` category turns false without any merge."
+  '[[Kip Kipper] [Ann Anna] [Tom Thomas] [Rex Nell] [Kip Ann]])
 
 (defn- default-rule [antes conseq]
   (list 'set/defaultRule (list 'implies (cons 'and antes) conseq)))
@@ -155,10 +184,90 @@
    [[:doubt-nells-barking
      #(v/assert % '(not (barks Nell)) cx-field {:strength :monotonic})]
     [:withdraw-the-doubt
-     #(v/retract! % (v/handle-of % '(not (barks Nell)) cx-field))]]])
+     #(v/retract! % (v/handle-of % '(not (barks Nell)) cx-field))]]
+
+   ;; ---- the unique-name guard, and the three things that suspend it ----
+   ;; A `(different ?a ?b)` antecedent is negation as failure over TWO inputs: the
+   ;; equality closure, and the `indeterminate_term` category whose members are exempt
+   ;; from the unique-name assumption. It holds by the *absence* of a merge, so it names
+   ;; no handle a justification can carry and no `SupportingProver` support can reach it —
+   ;; the re-check index is the only instrument that can withdraw or restore the firing,
+   ;; and this pool is where it meets everything else.
+   ;;
+   ;; The guard's two arguments are **Kip and Kipper**, which `kip-equals-kipper` above
+   ;; already merges, so one flip source is a chain the pool had before this one. The
+   ;; other two are the category itself and a kind declared under it, which reaches the
+   ;; guard through the genls fan rather than by name.
+   [[:kipper-owns-rex-too
+     #(v/assert % '(ownerOf Kipper Rex) cx-home {:strength :monotonic})]]
+   [[:two-owners-are-shared-custody
+     #(v/assert % (default-rule '[(ownerOf ?a ?d) (ownerOf ?b ?d) (different ?a ?b)]
+                                '(shared_custody ?d))
+                cx-base)]]
+   [[:kipper-is-indeterminate
+     #(v/assert % '(indeterminate_term Kipper) 'CxUniverse {:strength :monotonic})]]
+   [[:an-uncertain-thing-is-indeterminate
+     #(v/assert % '(genl uncertain_thing indeterminate_term) cx-base {:strength :monotonic})]]
+   [[:kip-is-uncertain
+     #(v/assert % '(uncertain_thing Kip) cx-home {:strength :monotonic})]]
+
+   ;; ---- a functional mark on a super-predicate, and the edge that carries it down ----
+   ;; `(functionalInArg keeperOf 1)` says the other argument determines argument 1, and it
+   ;; is read up the predicate hierarchy, so the mark, the `(genl ownerOf keeperOf)` edge
+   ;; and the two `ownerOf` facts are four ingredients of one merge. Each arrival order
+   ;; runs a different arm — the facts last meet an ingested mark, the mark last runs
+   ;; `special/equate-existing`, the edge last runs `special/equate-under-edge`, whose
+   ;; gate read the arity-2 spelling alone until 0.14.0. Both fillers are symbols, so the
+   ;; pair merges rather than being refused, and the merge is a second route to the class
+   ;; `kip-equals-kipper` elects.
+   [[:one-keeper-per-animal
+     #(v/assert % '(functionalInArg keeperOf 1) 'CxUniverse {:strength :monotonic})]]
+   [[:owning-is-keeping
+     #(v/assert % '(genl ownerOf keeperOf) cx-base {:strength :monotonic})]]
+
+   ;; ---- a symmetric mark over a pair two rules concluded ----
+   ;; The mark's effect is canonicalization: the entry point sorts a symmetric literal's
+   ;; arguments, so a mark arriving after the facts migrates the records. Here BOTH
+   ;; spellings of the proposition are a rule's conclusion off the same `ownerOf` fact, so
+   ;; neither row can leave by having its premise dropped and the fold runs through
+   ;; `integrate/fold-supports!` instead. The arguments are also what the pool's two
+   ;; equality edges merge, so the fold and the migration meet.
+   [[:an-owner-walks-the-dog
+     #(v/assert-rule % '[(ownerOf ?o ?d)] '(walksWith ?o ?d) cx-base)]]
+   [[:the-dog-walks-the-owner
+     #(v/assert-rule % '[(ownerOf ?o ?d)] '(walksWith ?d ?o) cx-base)]]
+   [[:walking-is-mutual
+     #(v/assert % '(symmetric walksWith) 'CxUniverse {:strength :monotonic})]]
+
+   ;; ---- the integrity audit, which reads belief and stores nothing ----
+   ;; `(predSpecifiedAll keeperOf dog)` requires every dog to have a determinate keeper,
+   ;; and `(arg keeperOf 1 person)` is where the required filler type is stated — the
+   ;; declaration restates no type of its own, so the slot contract is a fourth input the
+   ;; audit reads and a fourth chain the pool permutes. The audit is a read, so its own
+   ;; order independence is structural; what makes it worth drawing is *what* it reads —
+   ;; the believed extents, the equality partition that decides which name a filler
+   ;; carries, the slot contract that decides which fillers count, and the
+   ;; `indeterminate_term` category that decides whether the filler counts at all. Bud is
+   ;; nobody's dog in this pool, so the reading is never empty and never silently vacuous.
+   [[:a-keeper-is-a-person
+     #(v/assert % '(arg keeperOf 1 person) cx-base {:strength :monotonic})]]
+   [[:every-dog-has-a-person
+     #(v/assert % '(predSpecifiedAll keeperOf dog) cx-base {:strength :monotonic})]]
+   [[:ann-is-a-person
+     #(v/assert % '(person Ann) cx-base {:strength :monotonic})]
+    [:kip-is-a-person
+     #(v/assert % '(person Kip) cx-base {:strength :monotonic})]]])
 
 (defn- op-of    [[ci si]] (second (nth (nth chain-pool ci) si)))
 (defn- label-of [[ci si]] (first  (nth (nth chain-pool ci) si)))
+
+(defn- chain-index
+  "The pool index of the chain whose first step carries `label`.  The witness below names
+  the chains it wants by what they do rather than by where they sit, so a chain inserted
+  above one of them does not silently re-point it at another."
+  [label]
+  (or (first (keep-indexed (fn [i c] (when (= label (ffirst c)) i)) chain-pool))
+      (throw (ex-info "no chain carries that label" {:label label}))))
 
 ;; ---- the reading ----------------------------------------------------------
 
@@ -228,7 +337,16 @@
      :context-down (into {} (for [c view-contexts] [c (v/context-down kb c)]))
      ;; the equality partition, cached and recomputed the same way the closures are
      :equiv-class    (into {} (for [c view-contexts x probe-terms] [[c x] (v/equiv-class kb x c)]))
-     :representative (into {} (for [c view-contexts x probe-terms] [[c x] (v/representative kb x c)]))}))
+     :representative (into {} (for [c view-contexts x probe-terms] [[c x] (v/representative kb x c)]))
+     ;; the unique-name assumption, which a merge suspends in one direction and an
+     ;; `indeterminate_term` membership in the other. Read here as well as through the
+     ;; conclusion it guards, because the guard names no handle and a firing it withdrew
+     ;; leaves nothing in the sentence sets above to say why
+     :different (into {} (for [c view-contexts [x y] probe-pairs]
+                           [[c x y] (v/ask? kb (list 'different x y) c)]))
+     ;; the integrity audit, which reads the believed extents, the partition and the
+     ;; category at once and stores nothing
+     :specified (into {} (for [c view-contexts] [c (v/all-specified-violations kb c)]))}))
 
 (defn- run-order
   "Apply one ordering to a fresh KB over `opts`' stores and read it.
@@ -385,7 +503,61 @@
                     (is (not (contains? (get-in r [:visible-from cx-field]) '(has_fur Tom)))
                         "and nowhere else")
                     (is (not (contains? (get-in r [:believed-by-context cx-field]) '(dog Sparrow)))
-                        "and the chains that end where they began left nothing behind")))))
+                        "and the chains that end where they began left nothing behind")
+                    ;; the symmetric mark folded the pair both rules concluded: one row
+                    ;; for one proposition, spelled the way the entry point spells it
+                    (is (contains? (get-in r [:believed-by-context cx-home]) '(walksWith Kip Rex))
+                        "the two rules' conclusions are one row at the sorted spelling")
+                    (is (not (contains? (get-in r [:believed-by-context cx-home])
+                                        '(walksWith Rex Kip)))
+                        "and the mirror is not a second row beside it")
+                    ;; the functionalInArg mark reached the sub-predicate's facts through
+                    ;; the genl edge, and the merge it derived elects the same class the
+                    ;; stated `equals` edge does
+                    (is (= 'Kip (get-in r [:representative [cx-home 'Kipper]]))
+                        "the two names for one keeper are one thing")
+                    (is (not (contains? (get-in r [:believed-by-context cx-home])
+                                        '(ownerOf Kipper Rex)))
+                        "so the retired spelling is not believed beside the elected one")
+                    ;; ...which makes the guard false, and the firing it licensed goes
+                    (is (false? (get-in r [:different [cx-home 'Kip 'Kipper]]))
+                        "a merge suspends the unique-name assumption for the pair")
+                    (is (not (contains? (get-in r [:believed-by-context cx-home])
+                                        '(shared_custody Rex)))
+                        "and one owner under two names is not two owners")
+                    ;; the kind declared under `indeterminate_term` suspends it for a term
+                    ;; no merge touched, and only where the membership is visible
+                    (is (false? (get-in r [:different [cx-home 'Kip 'Ann]]))
+                        "an indeterminate term is not provably different from anything")
+                    (is (true? (get-in r [:different [cx-base 'Kip 'Ann]]))
+                        "and the exemption stops where the membership stops being visible")
+                    ;; the audit reads all three: the extents, the elected spelling and
+                    ;; the category
+                    (is (= {'[predSpecifiedAll keeperOf dog]
+                            {:status :audited :violations '#{Rex Bud}}}
+                           (get-in r [:specified cx-home]))
+                        "Bud has no keeper at all, and Rex's is an indeterminate term")
+                    (is (= {} (get-in r [:specified cx-field]))
+                        "where Nell's keeper is a person under the name the merge elected")))))
+  (testing "and the guard the pool suspends can be seen holding"
+    ;; Every reading above is of a guard something has made false, which on its own would
+    ;; leave a rule that never fires indistinguishable from one that always does. This
+    ;; draws the same rule over the same two owners with neither the merge nor the
+    ;; indeterminacy in the KB, so the positive side of `different` is on the record too.
+    (on-backend {:backend :memory :space [::mix :witness-una]}
+                (fn [opts]
+                  (let [r (run-order opts
+                                     (into [] cat
+                                           (steps-of (mapv chain-index
+                                                           [:home-sees-base :terrier-is-a-dog
+                                                            :rex-is-a-terrier :kip-owns-rex
+                                                            :kipper-owns-rex-too
+                                                            :two-owners-are-shared-custody]))))]
+                    (is (true? (get-in r [:different [cx-home 'Kip 'Kipper]]))
+                        "nothing has merged the two names or declared either indeterminate")
+                    (is (contains? (get-in r [:believed-by-context cx-home])
+                                   '(shared_custody Rex))
+                        "so they are two owners and the guarded rule fires")))))
   (let [scenario (gen-scenario 3 8 3)]
     (doseq [opts (backends)]
       (testing (str "backend " (name (:backend opts)))
