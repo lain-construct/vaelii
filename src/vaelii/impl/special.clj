@@ -3673,23 +3673,37 @@
 
 (defn- replay-edge
   "Replay one stored `genl` / `genlCx` declaration through `add` (`tax/add-genl` or
-  `tax/add-genlCx`), but only when both endpoints are symbols — a valid taxonomy node.
+  `tax/add-genlCx`), but only when the stored sentence's **complete shape** is exactly
+  `(expected-f <symbol> <symbol>)` — a valid two-endpoint taxonomy edge.
 
-  The rebuild arms read the edge positionally (`[_ a b]`) off whatever the functor root
-  returns, and `recover` replays the **stored** sentexes rather than the checked ones, so
-  a store an older or foreign writer left a non-edge sentex under the genl / genlCx
-  functor root reaches here as a malformed edge: a 2-element metatype membership binds the
-  member as `a` and nil as `b`, an `arity` / `arg` declaration binds an integer.  Added,
-  the nil enters the closure's node set, and `strong-components` throws on it
-  (`java.util.ArrayDeque` rejects a null element) the moment `restore-depths` walks a loose
-  relation — the crash `recover` hits on such a store.
+  `recover` replays the **stored** sentexes rather than the checked ones, and
+  `stored-declarations` is a candidate read over the durable functor root, not proof that
+  every returned sentence has the requested functor or the current WFF shape.  So a store
+  an older, foreign, or stale writer left reaches here as a malformed edge, and reading it
+  positionally (`[_ a b]`) launders three distinct malformations into a spurious edge:
+
+    - a 2-element declaration (`(genl foo)`, a metatype membership, an `arity` / `arg`
+      row) binds the member as `a` and nil as `b` — the nil enters the closure's node set,
+      and `strong-components` throws on it (`java.util.ArrayDeque` rejects a null element)
+      the moment `restore-depths` walks a loose relation (the `recover` crash of #80);
+    - an **over-arity** row (`(genl a b surplus)`) binds `a` and `b` and silently discards
+      the surplus, fabricating `(genl a b)` from a sentence that never was one;
+    - a **wrong-functor** row (`(disjoint a b)` handed up under the genl root by a foreign
+      or stale index) has symbols in both positions and would replay as `(genl a b)`.
+
+  The last two both satisfy `(symbol? a) (symbol? b)`, so the endpoint-only guard passed
+  them; requiring the whole shape — arity three, the literal expected functor, both
+  endpoints symbols — is the producer boundary #80 drew, applied to the sentence entire.
 
   Dropping the malformed declaration is `rebuild-tms`'s discipline for a justification the
   store cannot root: the bad sentex is skipped and counted, never a spurious edge added.
   Returns tax."
-  [add tax a b id ctx]
-  (if (and (symbol? a) (symbol? b))
-    (add tax a b id ctx)
+  [add tax sentence expected-f id ctx]
+  (if (and (= 3 (count sentence))
+           (= expected-f (first sentence))
+           (symbol? (second sentence))
+           (symbol? (nth sentence 2)))
+    (add tax (second sentence) (nth sentence 2) id ctx)
     (do (when-let [v *edge-replay-skips*] (vswap! v inc)) tax)))
 
 (def ^:private arms
@@ -3720,8 +3734,8 @@
                            (let [[_ a b] (:sentence sx)]
                              (tax/del-genl! (:taxonomy kb) a b (:id sx))
                              (recheck-genl-edge kb a b)))
-           :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                           (replay-edge tax/add-genl tax a b id ctx))
+           :rebuild      (fn [tax {sentence :sentence id :id ctx :context}]
+                           (replay-edge tax/add-genl tax sentence 'genl id ctx))
            :wff          wff/genl-problems}
     'genlCx {:integrate    (fn [kb sx h]
                              (let [[_ a b] (:sentence sx)]
@@ -3739,8 +3753,8 @@
                                (tax/del-genlCx! (:taxonomy kb) a b (:id sx))
                                (recheck-genlCx-edge kb a)
                                (recheck-except-ancestors kb)))
-             :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                             (replay-edge tax/add-genlCx tax a b id ctx))
+             :rebuild      (fn [tax {sentence :sentence id :id ctx :context}]
+                             (replay-edge tax/add-genlCx tax sentence 'genlCx id ctx))
              :wff          wff/genlCx-problems}
     'disjoint {:integrate    (fn [kb sx h]
                                (let [[_ a b] (:sentence sx)]
