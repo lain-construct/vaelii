@@ -1076,6 +1076,13 @@
                               :facets  #{:answers}
                               :notes   "a whitelist over the arithmetic operators."}
                              "the evaluable prover — a whitelist over the arithmetic operators")]
+     ['matchesPattern (enforced {:shape   {:args [:term :term]}
+                                 :storage [:none] :checked false :family nil
+                                 :facets  #{:answers}
+                                 :notes   (str "the string-shape check: (matchesPattern s pattern) holds when the"
+                                               " whole of s matches the regex pattern, both ground strings."
+                                               " Computed by the evaluable prover through a step-limited matcher.")}
+                                "the evaluable prover — a step-limited whole-string regex match")]
 
      ;; ---- the reified-term vocabulary -------------------------------------
      ['termOfUnit (enforced {:shape {:args [:term :term]} :storage [:none] :checked false

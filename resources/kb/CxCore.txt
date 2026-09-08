@@ -875,6 +875,12 @@
 (variable_arity_predicate lessThan)
 (arityMin lessThan 2)
 
+(comment matchesPattern
+         "(matchesPattern ?string ?pattern) means that the whole of ?string matches the regular expression ?pattern. Both arguments are string values — the text inspected and the pattern applied to it, each taken as written (quotedArg). Evaluable: computed on demand from two ground strings through a step-limited matcher, never stored and never forward-chained. The primitive a defn over a string subtype reads: a defnSufficient whose condition is (matchesPattern ?x pattern) resolves by evaluation at query time, the way the sign-refined integer collections read integer and the comparisons. matchesPattern answers false for a non-string subject, so the shape check alone defines the subtype and needs no separate (string ?x) conjunct, which the registry does not evaluate. A pattern that does not compile is refused at the assert entry point.")
+(binary_predicate matchesPattern)
+(quotedArg matchesPattern 1 string)
+(quotedArg matchesPattern 2 string)
+
 (comment modal_predicate
          "(modal_predicate ?predicate) means that (?predicate ?agent ?sentence) is a belief-style projection: it holds when ?sentence holds in ?agent's context. A grant, and the only thing that turns projection on — an undeclared predicate is never projected, so the table is open (assert the marker to add knows / desires / intends) and closed by default to everything but what a context grants. Read scoped from the asking context, like abducible_predicate: which predicates a theory reads modally is a policy of the context that declares it, not a global switch. believes ships granted here.")
 (unary_predicate modal_predicate)

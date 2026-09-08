@@ -2175,6 +2175,23 @@
   [kb sentence context]
   (first (antisymmetry-problems kb sentence context)))
 
+(defn- matches-pattern-problem
+  "A `matchesPattern` literal whose pattern argument is a ground string the regex engine
+  cannot compile, or nil.  `EvaluableProver` reads the pattern as a value at query time, so
+  an author who mistypes it would otherwise get a goal that silently never matches; this
+  reports the compile failure at the assert entry point instead.  Only a ground string
+  pattern is judged — a variable pattern is open, like every other undecided argument, and a
+  non-string pattern is the `quotedArg` arm's refusal, not this one."
+  [sentence]
+  (when (= 'matchesPattern (nm/functor sentence))
+    (let [pattern (second (nm/args sentence))]
+      (when (string? pattern)
+        (try (java.util.regex.Pattern/compile pattern) nil
+             (catch java.util.regex.PatternSyntaxException e
+               {:type :bad-pattern :sentence sentence :pattern pattern
+                :message (str "matchesPattern was given a pattern that does not compile: "
+                              (.getMessage e))}))))))
+
 (defn- checked-sentence
   "The body the definitional checks see: the double-negation-eliminated positive body,
   so a `(not (not (dog Muffet)))` is still arg/disjoint/functional-checked and a genuine
@@ -2204,6 +2221,7 @@
     (or (arity-problem kb chk context types)
         (edge-arity-problem kb chk context types)
         (declaration-arity-problem kb chk context types)
+        (matches-pattern-problem chk)
         (args-problem kb chk context types decls)
         (inter-args-problem kb chk context types decls)
         (genls-problem kb chk context decls)

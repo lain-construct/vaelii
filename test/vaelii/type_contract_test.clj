@@ -382,7 +382,7 @@
   #{:already-loaded :anti-symmetric :anti-transitive :arg-constraint-kind :arg-genl :arg-position
     :arg-type :arg-variable :argument-family-ceiling :arity :asymmetric :bad-algebra :bad-arg
     :bad-args :bad-batch :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
-    :bad-level :bad-registrant :bad-reply
+    :bad-level :bad-pattern :bad-registrant :bad-reply
     :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large :budget-exhausted
     :choice-head-not-positive
     :compaction-failed :context-escape :cross-origin :daemon-error :damaged-dictionary

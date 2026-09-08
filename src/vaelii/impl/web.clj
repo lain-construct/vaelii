@@ -1164,6 +1164,7 @@
    :anti-symmetric       "forces equal"
    :anti-transitive      "chain closes"
    :shape                "shape"
+   :bad-pattern          "bad regex"
    :not-encodable        "unstorable"
    :unknown-option       "opts"
    :unknown-handle       "no handle"

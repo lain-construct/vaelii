@@ -511,6 +511,7 @@ so one vocabulary reads both.
 | `:bad-handle` | a handle argument that is not one handle — a collection where one was wanted, or a value that is no handle at all | [api.md](api.md) |
 | `:bad-host` | the daemon's `Host` allowlist does not recognize the header the request carried | [operations.md](operations.md) |
 | `:bad-level` | a `lookup` level or an `escalate` floor outside the stack's range | [levels.md](levels.md) |
+| `:bad-pattern` | a `matchesPattern` pattern argument the regex engine cannot compile, refused at the assert entry point rather than left to fail silently at query time | [defns.md](defns.md) |
 | `:bad-registrant` | a durability registrant's key, value or `:phase` is not one the close sequence reads | [storage.md](storage.md) |
 | `:bad-reply` | the daemon's reply does not read as EDN, or is not a map | [operations.md](operations.md) |
 | `:bad-snapshot` | an index snapshot file's magic number is not this engine's — the index rebuilds from the records, which are untouched | [storage.md](storage.md) |

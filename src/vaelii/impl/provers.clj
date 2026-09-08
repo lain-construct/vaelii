@@ -1000,34 +1000,89 @@
   cost, rather than by a forward rule that never fires because the computed condition is
   never a believed fact (docs/defns.md).
 
+  `matchesPattern` is the **binary** string-shape check: `(matchesPattern ?string ?pattern)`
+  holds when the whole of `?string` matches the regular expression `?pattern`, both ground
+  strings.  It is one kind further than `integer` — from \"what EDN kind is this\" to \"what
+  shape is this string\" — and it is the primitive a `defn` over a string subtype reads: a
+  `(defnSufficient ipv4_address (matchesPattern ?x \"…\"))` resolves by evaluation at query
+  time the way the sign-refined integer collections read `integer`.  `matchesPattern` answers
+  false for a non-string subject, so it needs no separate `(string ?x)` conjunct, which the
+  registry does not evaluate.  The match runs
+  through a step-limited view (`bounded-matches?`), so a catastrophically-backtracking pattern
+  is a `:pattern-too-costly` refusal rather than an unbounded match that leaves the
+  completeness promise below dishonest.
+
   A prover's own source list, and it stays one: the set is what `EvaluableProver` reads
   its arguments *as*, not a claim about what any predicate is answered by.  The
-  declaration's half is the `:answers` facet each of the three carries, pinned against
+  declaration's half is the `:answers` facet each of the four carries, pinned against
   this set by `predicates_test`."
-  '#{lessThan greaterThan integer})
+  '#{lessThan greaterThan integer matchesPattern})
 
-(defrecord EvaluableProver []                    ; arithmetic comparison + EDN-kind check
+(def ^:private ^:const match-step-budget
+  "Characters one `matchesPattern` match may read before it is refused as too costly.  A
+  linear match reads O(string length); a catastrophically-backtracking pattern reads
+  super-linearly and blows this, so the two separate cleanly.  Per match, because a goal
+  matches one string rather than scanning a vocabulary — the scan-wide budget `find-terms`
+  carries has no counterpart here."
+  1000000)
+
+(defn- bounded-matches?
+  "Does the whole of `s` match the regular expression `pattern`, read through a step-limited
+  `CharSequence` that throws `:pattern-too-costly` once the match reads past
+  `match-step-budget` characters?  A `Matcher` reads a character per backtracking step, so a
+  pathological pattern is refused on the step that exceeds the budget rather than running
+  unbounded — which is what keeps `EvaluableProver`'s completeness-100 promise honest for a
+  ground goal.  An uncompilable pattern yields nil here; the assert entry point refuses one
+  loudly (`checks/matches-pattern-problem`), so a compile failure reaching query time is a
+  goal that never passed a check, answered as no match rather than as an error."
+  [^String pattern ^String s]
+  (when-let [^java.util.regex.Pattern re (try (java.util.regex.Pattern/compile pattern)
+                                              (catch java.util.regex.PatternSyntaxException _ nil))]
+    (let [seen (java.util.concurrent.atomic.AtomicLong.)
+          view (reify CharSequence
+                 (length [_] (.length s))
+                 (charAt [_ i]
+                   (when (> (.incrementAndGet seen) (long match-step-budget))
+                     (throw (ex-info (str "regex is too costly to evaluate against "
+                                          (pr-str s) " — the match read past "
+                                          match-step-budget " characters of it")
+                                     {:type :pattern-too-costly :scope :candidate})))
+                   (.charAt s i))
+                 (subSequence [_ a b] (.subSequence s ^int a ^int b))
+                 (toString [_] s))]
+      (.matches (.matcher re ^CharSequence view)))))
+
+(defrecord EvaluableProver []                    ; arithmetic comparison, EDN-kind + string-shape check
   Prover
   (applicable? [_ _ goal _]
     (and (sequential? goal) (contains? evaluable-predicates (first goal))
-         (if (= 'integer (first goal))
+         (case (first goal)
+           integer
            ;; the unary kind check: one ground argument, of any EDN kind (a non-integer
            ;; simply yields no solution — which is what makes a failing `(integer ?x)`
            ;; necessary a sound negative witness for a string / symbol member).
            (and (= 1 (count (rest goal))) (ground? goal))
+           matchesPattern
+           ;; the binary string-shape check: two ground arguments.  A non-string subject
+           ;; yields no solution, so a failing `(matchesPattern ?x p)` is a sound negative
+           ;; witness the way `integer` is for a non-integer.
+           (and (= 2 (count (rest goal))) (ground? goal))
+           ;; lessThan / greaterThan: the variable-arity arithmetic comparisons
            (and (>= (count (rest goal)) 2)
                 (every? number? (rest goal))))))
   (est-bindings [_ _ _ _] 1)
   (cost         [_ _ _ _] :lookup)
   ;; Authoritative for a ground goal: the arithmetic cannot be wrong about two numbers, nor
-  ;; `integer?` about one term's EDN kind.
+  ;; `integer?` about one term's EDN kind, nor `matchesPattern` about a string and a pattern.
   (completeness [_ _ _ _] 100)
   (solve [_ _ goal _]
     (let [args (rest goal)
           ok   (case (first goal)
-                 lessThan    (apply < args)
-                 greaterThan (apply > args)
-                 integer     (integer? (first args))
+                 lessThan       (apply < args)
+                 greaterThan    (apply > args)
+                 integer        (integer? (first args))
+                 matchesPattern (let [[s p] args]
+                                  (and (string? s) (string? p) (bounded-matches? p s)))
                  false)]
       (if ok [{}] []))))
 

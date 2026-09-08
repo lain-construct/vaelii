@@ -352,6 +352,9 @@
    "regex-scan-budget"   (str "core.clj — how many characters one `find-terms` regex may "
                               "read across the whole vocabulary before it is refused; the "
                               "scan-wide half of the same bound, nothing retained")
+   "match-step-budget"   (str "provers.clj — how many characters one `matchesPattern` match "
+                              "may read before it is refused too costly; a per-match "
+                              "evaluation bound, nothing retained")
    "default-describe-limit" (str "core.clj — how many entries one of `describe`'s bounded "
                                  "lists carries; a per-read window on an answer computed "
                                  "fresh each call, nothing retained")})
