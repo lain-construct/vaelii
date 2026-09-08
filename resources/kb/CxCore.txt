@@ -385,14 +385,14 @@
 (implies (arity ?relation ?arity) (fixed_arity ?relation))
 
 (comment arityMin
-         "(arityMin ?relation ?n) means that a variable-arity ?relation requires at least ?n arguments. Every further position normally repeats the same argument role rather than introducing an unnamed optional field. No WFF reader consumes this declaration.")
+         "(arityMin ?relation ?n) means that a variable-arity ?relation requires at least ?n arguments. Every further position normally repeats the same argument role rather than introducing an unnamed optional field. The arity check refuses an application of the relation shorter than ?n.")
 (binary_predicate arityMin)
 (instance_relation_predicate arityMin)
 (arg arityMin 1 relation)
 (arg arityMin 2 non_negative_integer)
 
 (comment admitsArgnum
-         "(admitsArgnum ?relation ?argnum) means that positive argument position ?argnum exists in a well-formed application of ?relation. It asks about one position, not the application's total arity. No WFF or query reader consumes it.")
+         "(admitsArgnum ?relation ?argnum) means that positive argument position ?argnum exists in a well-formed application of ?relation. It asks about one position, not the application's total arity. Answered at query time from the relation's declared arity and variable-arity mark: a fixed-arity relation admits one through its arity, a variable-arity relation every positive position.")
 (binary_predicate admitsArgnum)
 (instance_relation_predicate admitsArgnum)
 (arg admitsArgnum 1 relation)

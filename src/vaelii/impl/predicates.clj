@@ -552,11 +552,16 @@
                             " content stored before it"))]
      ['arityMin
       (enforced {:shape {:args [:relation :integer]} :storage [:none] :checked false
-                 :family nil :facets #{}
-                 :notes (str "ordinary CxCore rules derive the at_least_*_relation"
-                             " classifications. No WFF"
-                             " or constraint reader consumes the declaration.")}
-                "ordinary rule inference in CxCore; no WFF/constraint reader")]
+                 :family nil :facets #{:convicts}
+                 :stops-short {:reach (str "the assert-time floor is landed;"
+                                           " a late arityMin does not yet re-file the"
+                                           " too-short applications stored before it, the"
+                                           " retroactive half report-arity-reach! supplies"
+                                           " for the exact length.")}
+                 :notes (str "checks/arity-problem refuses a variable-arity application"
+                             " shorter than the declared minimum. Ordinary CxCore rules"
+                             " also derive the at_least_*_relation classifications.")}
+                "checks/arity-problem floors a variable-arity application at the minimum")]
      ['relationTypeByArity
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
                  :family nil :facets #{}
@@ -579,12 +584,21 @@
                              " types reach the relation-wide mapping by genl instead.")}
                 "genl specialization of relationTypeByArity")]
      ['admitsArgnum
-      (inert {:shape {:args [:relation :position]} :storage [:none] :checked false
-              :family nil :facets #{}
-              :notes (str "names whether one positive argument position exists in a"
-                          " well-formed application. No finite facts or parallel"
-                          " inference are installed; no WFF/query reader consumes it.")}
-             "documentary position question with no runtime reader")]
+      (enforced {:shape {:args [:relation :position]} :storage [:none] :checked false
+                 :family nil :facets #{:answers}
+                 :stops-short
+                 {:retriggers
+                  (str "answered fresh at query time by provers/AdmitsArgnumProver from the"
+                       " relation's declared arity and variable-arity mark; it stores no"
+                       " declaration and licenses no forward inference, so a query"
+                       " re-evaluates against current belief and no firing predates it to"
+                       " re-check.")}
+                 :notes
+                 (str "the position query: (admitsArgnum R n) holds when positive position n"
+                      " exists in a well-formed application of R. Answered through"
+                      " provers/admits-position?, the one decision checks/arg-position-problem"
+                      " refuses against, so the query and the refusal cannot disagree.")}
+                "provers/AdmitsArgnumProver — the position query over a relation's arity")]
      ['functionalInArg {:shape   {:args [:predicate :position]}
                         :storage [:pred-position :functional-in-arg]
                         :checked true

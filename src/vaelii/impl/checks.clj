@@ -926,6 +926,14 @@
                    :when h]
                h))))
 
+(defn- arity-min-declaration-handle
+  "The handle of the believed `(arityMin pred m)` declaration visible from `context` — the
+  sentex a too-short application of a variable-arity relation convicts against.  Asked only
+  once the floor has found a violation, so an admissible assert never pays the retrieval."
+  [kb pred m context]
+  (let [target (list 'arityMin pred m)]
+    (handle-naming (res/matches-visible kb target context) target)))
+
 (defn- arity-problem
   "A sentence used at an arity its predicate is not declared with, or nil.
 
@@ -959,17 +967,32 @@
   [kb sentence context types]
   (let [pred (nm/functor sentence)]
     (when (symbol? pred)
-      ;; the arity question is answered from the taxonomy cache and the predicate's
-      ;; own type memberships (`declared-arity`) — no declaration query is made here
-      (when-let [[declared via] (declared-arity kb pred context types)]
-        (let [actual (nm/arity sentence)]
-          (when (and (not= actual declared)
-                     (not (variable-arity? types pred)))
-            {:type :arity :sentence sentence :predicate pred
-             :expected declared :actual actual :via via
-             :opposing-handle (arity-declaration-handle kb via declared context)
-             :message (str pred " " (arity-binding-clause pred via declared)
-                           " but has " actual)}))))))
+      (let [actual (nm/arity sentence)]
+        (if (variable-arity? types pred)
+          ;; a variable-arity relation reads a chain of any length at or above the
+          ;; minimum `arityMin` states, so its floor is that minimum rather than an
+          ;; exact length.  An application shorter than the minimum is missing a
+          ;; guaranteed position and is refused; a longer one is admitted.  `arityMin`
+          ;; is read by retrieval, reached only on this variable-arity branch and never
+          ;; on the exact-arity path below.  A relation with no `arityMin` keeps the
+          ;; outright exemption it had before the minimum was read.
+          (when-let [m (provers/arity-min kb pred context)]
+            (when (< actual m)
+              {:type :arity :sentence sentence :predicate pred
+               :expected m :actual actual :via pred :minimum? true
+               :opposing-handle (arity-min-declaration-handle kb pred m context)
+               :message (str pred " takes at least " m " argument"
+                             (when (not= 1 m) "s") " but has " actual)}))
+          ;; a fixed-arity relation is held to its exact declared length, answered from
+          ;; the taxonomy cache and the predicate's own type memberships
+          ;; (`declared-arity`) — no declaration query is made here
+          (when-let [[declared via] (declared-arity kb pred context types)]
+            (when (not= actual declared)
+              {:type :arity :sentence sentence :predicate pred
+               :expected declared :actual actual :via via
+               :opposing-handle (arity-declaration-handle kb via declared context)
+               :message (str pred " " (arity-binding-clause pred via declared)
+                             " but has " actual)})))))))
 
 ;; ---- arity across a genl edge -------------------------------------------
 ;;
@@ -1244,7 +1267,10 @@
   [kb f pred n context types]
   (when (and (integer? n) (pos? n))
     (when-let [[declared via] (declared-arity kb pred context types)]
-      (when (and (> n declared) (not (variable-arity? types pred)))
+      ;; the position the predicate does not have is the one the shared decision reads as
+      ;; certainly-not-admitted — the same function `provers/AdmitsArgnumProver` answers, so
+      ;; a position this arm refuses is one `(admitsArgnum pred n)` does not prove
+      (when (false? (provers/admits-position? (variable-arity? types pred) declared n))
         {:type :arg-position :predicate pred
          :position n :arity declared :via via
          :message (str f " constrains argument " n " of " pred ", which "

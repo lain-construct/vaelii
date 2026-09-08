@@ -1086,6 +1086,73 @@
                  false)]
       (if ok [{}] []))))
 
+(defn arity-min
+  "The minimum arity `(arityMin R n)` declares for relation `R`, visible from `context`,
+  or nil.
+
+  Read by retrieval, not from the taxonomy's arity cache: `arityMin` is not one of the
+  declarations kept there beside `arity` and `inverse`, so a caller reaches this only with
+  a variable-arity relation already in hand — never on the exact-arity path every assert
+  runs.  Nil when the KB has been told two different minima one reader can see, the stance
+  `taxonomy/declared-arity` takes for the exact arity: two contradictory declarations
+  leave the minimum genuinely unsettled, and flooring on whichever was found first would
+  be arbitrary."
+  [kb pred context]
+  (let [vals (into #{}
+                   (keep (fn [m]
+                           (let [v (get (second m) '?n)]
+                             (when (and (integer? v) (pos? v)) v))))
+                   (res/matches-visible kb (list 'arityMin pred '?n) context))]
+    (when (= 1 (count vals)) (first vals))))
+
+(defn admits-position?
+  "Does positive position `n` exist in a well-formed application of a relation with this
+  arity shape?  `true` when it certainly does, `false` when it certainly does not, `nil`
+  when the KB has not said.
+
+  The one decision `admitsArgnum`, `checks/arg-position-problem` and — through that arm —
+  `quality`'s position census all read, so the query and the well-formedness refusal
+  cannot answer the same position two ways.  `variable?` is whether the relation reads a
+  chain of any length; `declared` is its exact declared arity, or nil where the KB has
+  none.
+
+  A variable-arity relation admits every positive position: its guaranteed positions
+  (one through its `arityMin`) and every higher one its long tuples reach are all
+  positions a well-formed application has.  A fixed-arity relation admits one through its
+  declared arity and no more.  A relation with neither a variable-arity mark nor a
+  declared arity leaves the question open."
+  [variable? declared n]
+  (cond
+    (not (and (integer? n) (pos? n))) false
+    variable?                         true
+    (integer? declared)               (<= n declared)
+    :else                             nil))
+
+(defn- relation-variable-arity?
+  "Is `pred` a variable-arity relation, visible from `context`?  Read by the type-aware
+  retrieval so a membership stated as `variable_arity_predicate` or `variable_arity_function`
+  answers the `variable_arity` question its `genl` edge entails."
+  [kb pred context]
+  (boolean (seq (res/matches-visible kb (list 'variable_arity pred) context))))
+
+(defrecord AdmitsArgnumProver []                 ; the position query over a relation's arity
+  Prover
+  (applicable? [_ _ goal _]
+    (and (sequential? goal) (= 'admitsArgnum (first goal))
+         (= 2 (count (rest goal))) (ground? goal)   ; a ground relation and position
+         (let [[p n] (rest goal)] (and (symbol? p) (integer? n)))))
+  (est-bindings [_ _ _ _] 1)
+  (cost         [_ _ _ _] :lookup)
+  ;; Authoritative for a ground goal: the answer is computed from the relation's declared
+  ;; arity and variable-arity mark, both of which follow belief.
+  (completeness [_ _ _ _] 100)
+  (solve [_ kb goal context]
+    (let [[p n] (rest goal)]
+      (if (true? (admits-position? (relation-variable-arity? kb p context)
+                                   (tax/declared-arity (:taxonomy kb) p context)
+                                   n))
+        [{}] []))))
+
 ;; ---- different: the unique-name assumption over the equality closure ----
 
 ;; The identity exemption for `indeterminate_term` members: the UNA is
@@ -2554,6 +2621,7 @@
   [(->TransitivityProver) (->DisjointnessProver)
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
    (->EvaluableProver) (->DifferentProver) (->EvaluateProver) (->QuantityProver)
+   (->AdmitsArgnumProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
    (->DefnSufficientProver) (->DefnNecessaryNegationProver)
    (->AggregateProver) (->BeliefProjectionProver)
