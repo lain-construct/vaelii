@@ -3211,8 +3211,12 @@
       (and regex? (> (count q) pattern-cap)) ::bad
       :else
       (try
+        ;; case-insensitive: a literal query matches a term of any case, so a
+        ;; lowercase `transitiveinarg` finds `transitiveInArg`.  A regex query
+        ;; carries its own case in the pattern and asks for insensitivity with
+        ;; `(?i)`; `find-terms`' regex matcher ignores this flag, so it is unchanged.
         (v/find-terms kb q {:match (if regex? :regex :substring)
-                            :case-sensitive? true :limit limit})
+                            :case-sensitive? false :limit limit})
         ;; `Throwable`, as the namespace's other untrusted-input reads: a
         ;; catastrophic pattern can raise `StackOverflowError` out of the regex
         ;; engine, this handler stack has no exception middleware to make a page of

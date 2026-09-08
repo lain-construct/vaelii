@@ -488,6 +488,25 @@
   (testing "a pattern that matches nothing says so"
     (is (re-find #"No terms match" (:body (GET "/find" "q=zzzznope"))))))
 
+(deftest find-is-case-insensitive-for-a-literal-query
+  ;; #76: term-hits pinned :case-sensitive? true, so a lowercase query matched no
+  ;; camelCase term even though find-terms defaults to case-insensitive.  A literal
+  ;; query now matches a term of any case; a regex query still honours case in its
+  ;; pattern unless it carries (?i).
+  (testing "a lowercase query finds a camelCase term"
+    (let [r (GET "/find" "q=parentof")]                    ; the terms are parentOf / grandparentOf
+      (is (= 200 (:status r)))
+      (is (re-find #"parentOf" (:body r)))
+      (is (re-find #"grandparentOf" (:body r)))))          ; both contain "parentof"
+  (testing "an uppercase query finds it too"
+    (is (re-find #"parentOf" (:body (GET "/find" "q=PARENTOF")))))
+  (testing "a regex query stays case-sensitive unless it carries (?i)"
+    (is (not (re-find #"parentOf" (:body (GET "/find" "q=PARENT.F"))))
+        "an uppercase regex does not match the lowercase spelling")
+    (is (re-find #"parentOf"
+                 (:body (GET "/find" (str "q=" (java.net.URLEncoder/encode "(?i)parent.f" "UTF-8")))))
+        "(?i) restores insensitivity for a regex")))
+
 (deftest a-pattern-that-blows-the-matcher-stack-reads-as-unusable
   ;; A catastrophic pattern can raise StackOverflowError out of the regex engine —
   ;; past Exception — and this handler stack has no exception middleware, so an
