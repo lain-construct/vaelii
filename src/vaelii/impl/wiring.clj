@@ -40,8 +40,14 @@
     reported violations a scoped read would not have is worse than no audit, so the
     reader asks through the public read path and the delegation points up to reach it.
 
+    `functional-at-instant-violations` / `all-functional-at-instant-violations` —
+    `vaelii.impl.fluent` sits *above* `vaelii.core` for the same reason: the per-instant
+    functionality audit asks `holdsAt` of each fluent at each moment, and a goal answered
+    outside `vaelii.core/ask` sees neither the context's ancestor set nor that read
+    preparation.  So it asks through the public read path, and the delegation points up.
+
   The first two are genuine mutual recursion: the cycle is in the **behaviour**, neither
-  is a misplaced function, and no arrangement of the code removes either.  The last two
+  is a misplaced function, and no arrangement of the code removes either.  The last three
   are layering inversions rather than recursions, and are kept here for the same reason —
   a call the require graph cannot express belongs in the one file that inventories them.
   Why they are gathered here rather than left at their call sites, what `lein lint`'s
@@ -93,6 +99,12 @@
 (def ^:private predall-all-specified-violations
   (delay (requiring-resolve 'vaelii.impl.predall/all-specified-violations)))
 
+(def ^:private fluent-functional-at-instant-violations
+  (delay (requiring-resolve 'vaelii.impl.fluent/functional-at-instant-violations)))
+
+(def ^:private fluent-all-functional-at-instant-violations
+  (delay (requiring-resolve 'vaelii.impl.fluent/all-functional-at-instant-violations)))
+
 (defn assert-sentence
   "`vaelii.core/assert` — store `sentence` in `context` under `opts`, returning its handle.
   See the namespace docstring for why this is not a require."
@@ -127,3 +139,18 @@
   docstring for why this is not a require."
   [kb context]
   (@predall-all-specified-violations kb context))
+
+(defn functional-at-instant-violations
+  "`vaelii.impl.fluent/functional-at-instant-violations` — the per-instant clashes of one
+  `(functional_at_instant f)` declaration in `context`, each a map carrying `:function`,
+  `:subject`, `:instant`, `:values` and `:kind`.  See the namespace docstring for why this
+  is not a require."
+  [kb f context]
+  (@fluent-functional-at-instant-violations kb f context))
+
+(defn all-functional-at-instant-violations
+  "`vaelii.impl.fluent/all-functional-at-instant-violations` — every `functional_at_instant`
+  declaration visible in `context`, audited.  See the namespace docstring for why this is
+  not a require."
+  [kb context]
+  (@fluent-all-functional-at-instant-violations kb context))

@@ -397,6 +397,14 @@ on *every* declaration constraining that position, both spellings unioned
 a birth year, a measurement — and `sameAs` is individuals-only by OWL. `equals` is
 the only one of the three that always type-checks here.
 
+The fluent lane has its own counterpart. A value carried under `initiates` never becomes a
+bare literal, so this closure never sees it; `(functional_at_instant F)` states that `F` has
+at most one value for one subject at a single instant, and
+`vaelii.core/functional-at-instant-violations` reports a moment carrying two — a merge for
+two symbols, a contradiction otherwise. It reports rather than merges: whether two fluents
+overlap at an instant follows from the clipping closure and is read on demand, the shape
+`specified-violations` uses. See [time.md](time.md).
+
 Making it a real justification rather than a side effect is what makes it safe. The
 risk of auto-inference is that one wrong `functional` declaration silently merges
 two real individuals across the whole KB — so the merge is justified, `why` names

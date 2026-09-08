@@ -445,6 +445,15 @@ forms a sentence is built out of are **Wrapper**s, not frames. See [storage.md](
 both facts and the declaration. Two non-symbols stay a hard rejection. See
 [equality.md](equality.md).
 
+**`functional_at_instant`** ![kb](../.github/badges/cat-kb.svg): `(functional_at_instant F)`
+— the per-instant counterpart of `functional` for a value carried as a fluent. `functional`
+enforces at-most-one-value over a predicate's bare literals; a value under `initiates` is no
+bare literal, so that closure never sees it. This states that `F` has at most one value for
+one subject at any single instant, and `vaelii.core/functional-at-instant-violations` reports
+a moment where two hold — a merge for two symbols, a contradiction for two numbers — rather
+than merging, because the overlap follows from the clipping closure and is read on demand.
+See [time.md](time.md) and [equality.md](equality.md).
+
 **`functionalInArg`** ![kb](../.github/badges/cat-kb.svg): `(functionalInArg P n)` —
 `functional` generalized off its fixed argument 2: every argument of `P` except `n`,
 taken together, fixes the filler at `n`. Same merge/refuse rule and same four arrival

@@ -4967,6 +4967,37 @@
   [kb context]
   (wiring/all-specified-violations kb context))
 
+(defn functional-at-instant-violations
+  "The per-instant functionality clashes of one `(functional_at_instant f)` declaration in
+  `context`, as a set of maps `{:function f :subject s :instant t :values #{v…} :kind k}`
+  — one per moment `t` at which more than one distinct value of the fluent function `f`
+  holds for one subject `s`.  `:kind` is `:merge` when the clashing values are all symbols
+  (the pair `functional` would merge into one thing) and `:contradiction` otherwise (two
+  numbers or strings `functional` refuses outright).
+
+  `functional` enforces at-most-one-value over the **bare** literals of a marked predicate;
+  a value carried the event-calculus way rides inside a fluent under `initiates` and never
+  becomes a bare literal, so that closure never sees it (docs/time.md, docs/equality.md).
+  This is the fluent-lane counterpart, and it **reports** rather than merges: whether two
+  fluents overlap at an instant follows from the clipping closure and is not known when a
+  fluent is asserted, so it is read on demand like `specified-violations` rather than
+  enforced at a write.  A value holding at a different instant from another is not a clash,
+  which is what the fluent representation buys over a bare `functional` mark.
+
+  Computed on demand and not filed: every believed `time_point` is a candidate moment and
+  `holdsAt` is asked of each filler at each, so this is a sweep to run at a checkpoint
+  rather than per write.  The read follows belief and is scoped to `context`."
+  [kb f context]
+  (wiring/functional-at-instant-violations kb f context))
+
+(defn all-functional-at-instant-violations
+  "Audit every `(functional_at_instant f)` declaration visible in `context`, and return
+  `{f #{violation…} …}` — declarations that clash nowhere are omitted, so an empty map is
+  a clean sweep.  The one call an integrity sweep makes; `functional-at-instant-violations`
+  is the per-declaration reader behind it."
+  [kb context]
+  (wiring/all-functional-at-instant-violations kb context))
+
 (defn chain-stats
   "Chaining-run instrumentation: `{:runs n :last {:derived n :truncated? bool}}`.
 
