@@ -198,6 +198,7 @@
   describe-opt-keys :var,
   disjoint-metatypes "[[kb]]",
   disjoint? "[[kb a b] [kb a b context]]",
+  disjointness-audit "[[kb]]",
   edit! "[[kb batch]]",
   edit-batch-keys :var,
   edit-with-consequences! "[[kb batch] [kb batch opts]]",
@@ -283,6 +284,7 @@
   specified-violations
   "[[kb pred indep context] [kb pred indep context arg-pos]]",
   specs "[[kb t] [kb t context]]",
+  subsumption-status "[[kb a b]]",
   supporting-justifications "[[kb handle]]",
   term-count "[[kb]]",
   term-expression "[[kb term]]",

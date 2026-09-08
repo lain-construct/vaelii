@@ -4056,8 +4056,8 @@
 
 (defn subsumption-status
   "The subsumption relationship of type `a` to type `b`, one of:
-  `:coextensional` (each is `genl` the other), `:genl` (`a` generalizes `b` — `b` is a
-  subtype of `a`), `:spec` (`a` specializes `b` — `a` is a subtype of `b`), `:disjoint`
+  `:coextensional` (each is `genl` the other), `:genl` (`(genl a b)` holds — `a` is a
+  subtype of `b`), `:spec` (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint`
   (provably no shared instance), `:orthogonal` (neither subsumes the other and not
   disjoint, but a shared instance is provable), or `:unknown` (none of the above is
   provable). Judged from the global vantage. `:orthogonal`'s witness is a shared
@@ -4069,8 +4069,8 @@
         b<a (genl? kb b a)]
     (cond
       (and a<b b<a)      :coextensional
-      b<a                :genl
-      a<b                :spec
+      a<b                :genl
+      b<a                :spec
       (disjoint? kb a b) :disjoint
       (boolean (some #(isa? kb (get % '?x) b)
                      (query kb (list a '?x) 'CxUniverse))) :orthogonal

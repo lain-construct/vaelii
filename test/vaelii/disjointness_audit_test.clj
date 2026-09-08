@@ -5,7 +5,7 @@
   over every unordered pair. The status cases: :genl / :spec (one subsumes the other),
   :coextensional (mutual), :disjoint (a declaration, closed under genl), :orthogonal
   (a provable shared instance with no subsumption or disjointness), and :unknown."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.test :refer [is use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
@@ -18,8 +18,10 @@
   (tu/with-terms [animal dog]
     (v/assert kb (list 'genl 'animal 'thing) 'CxUniverse)
     (v/assert kb (list 'genl 'dog 'animal) 'CxUniverse)
-    (is (= :genl (v/subsumption-status kb 'animal 'dog)) "animal generalizes dog")
-    (is (= :spec (v/subsumption-status kb 'dog 'animal)) "dog specializes animal")))
+    (is (= :genl (v/subsumption-status kb 'dog 'animal))
+        "(genl dog animal) holds — dog is a subtype of animal")
+    (is (= :spec (v/subsumption-status kb 'animal 'dog))
+        "the converse — animal is a supertype of dog")))
 
 (tu/deftest-kb disjoint-pair-reads-disjoint
   (tu/with-terms [plant mineral]
