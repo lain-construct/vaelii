@@ -787,6 +787,68 @@
                                               " where every other type position reads up genl."))
                            "checks/inter-args-problem — the conditional form, same two paths")]
 
+     ;; ---- the covering constraints: a whole tail typed at once ------------
+     ;; `args` / `argsGenl` type every accepted position, `argAndRest` / `argAndRestGenl`
+     ;; every position from a start onward — the generalizations of `arg` / `genlArg`
+     ;; for a variable-arity tail.  Convict-and-answer only, like `quotedArg`: each stops
+     ;; short of `:reach` because the family's reach mints and a covering constraint mints
+     ;; nothing, and short of `:retriggers` because it posts no exception re-check.
+     ['args (enforced (assoc (prop :declares-args-isa :arg :relation
+                                   :facets #{:convicts :answers})
+                             :shape  {:args [:relation :type]}
+                             :family :argument-constraint
+                             :stops-short
+                             {:reach
+                              (str "the family's reach is special/entail-existing, which"
+                                   " MINTS what a late declaration now says about stored"
+                                   " tuples, and a covering constraint mints nothing: it"
+                                   " convicts a tail value, it does not draw a membership."
+                                   " A conviction reach — refusing the stored tuples a late"
+                                   " args now rejects — is an arity-shaped report and a"
+                                   " different mechanism from this facet's, the same"
+                                   " stop-short arityMin records.")
+                              :retriggers
+                              (str "it answers goals about the predicate at argument 1 but"
+                                   " licenses no inference that is a stored sentex reaching"
+                                   " an exception, so it is absent from"
+                                   " special/declaration-subjects and posts no re-check —"
+                                   " quotedArg's reason at the covering arity.")}
+                             :notes (str "the every-position instance twin of arg: one"
+                                         " declaration types the whole admitted tail, read"
+                                         " through the shared declaration reader so a"
+                                         " super-predicate's covering constraint binds a"
+                                         " sub-predicate's tuples."))
+                      "checks/covering-args-problem — every accepted position typed as an instance")]
+     ['argsGenl (enforced (assoc (prop :declares-args-genl :arg :relation
+                                       :facets #{:convicts :answers})
+                                 :shape  {:args [:relation :type]}
+                                 :family :argument-constraint
+                                 :stops-short
+                                 {:reach "the same one level up — see args."
+                                  :retriggers "the same one level up — see args."}
+                                 :notes "the every-position subtype twin of genlArg — see args.")
+                          "checks/covering-genls-problem — every accepted position typed as a subtype")]
+     ['argAndRest (enforced (assoc (prop :declares-arg-and-rest-isa :arg :relation
+                                         :facets #{:convicts :answers})
+                                   :shape  {:args [:relation :position :type]}
+                                   :family :argument-constraint
+                                   :stops-short
+                                   {:reach "the same as args, a tail from a start — see args."
+                                    :retriggers "the same as args — see args."}
+                                   :notes (str "the tail-from-a-start instance form: position"
+                                               " and every later one, the prefix below the"
+                                               " start excluded.  args is argAndRest at 1."))
+                            "checks/covering-args-problem — position n onward typed as an instance")]
+     ['argAndRestGenl (enforced (assoc (prop :declares-arg-and-rest-genl :arg :relation
+                                             :facets #{:convicts :answers})
+                                       :shape  {:args [:relation :position :type]}
+                                       :family :argument-constraint
+                                       :stops-short
+                                       {:reach "the same as argAndRest — see args."
+                                        :retriggers "the same as argAndRest — see args."}
+                                       :notes "the tail-from-a-start subtype form — see argAndRest.")
+                                "checks/covering-genls-problem — position n onward typed as a subtype")]
+
      ;; ---- the argument-preserving declarations ---------------------------
      ['transitiveInArg        (enforced (wff-only [:relation :position :relation-name]
                                                   :facets #{:answers})

@@ -10,7 +10,8 @@
 
 ## Relation-wide declarations and the runtime boundary
 
-`arg` (including `arg1` / `arg2` / `arg3`), `genlArg`, `quotedArg`, and `interArg`
+`arg` (including `arg1` / `arg2` / `arg3`), `genlArg`, `quotedArg`, `interArg`, and the
+covering forms `args` / `argsGenl` / `argAndRest` / `argAndRestGenl` (below)
 accept a `relation` as their subject: either a predicate or a function. Accepting and
 storing a function's declaration does **not** yet guarantee recursive enforcement of
 its input constraints inside a nested function application. The current checks read
@@ -83,6 +84,45 @@ a relation whose only stated type is `variable_arity` reaches `relation` and not
 argument's type where the contradiction is the arity policy. The two are one
 contradiction and report `:disjoint` in either order. A relation classified into the
 wrong kind is caught by `(disjoint predicate function)` through the `genl` edges.
+
+## The covering constraints: typing a variable-arity tail
+
+`arg` and `genlArg` name one numbered position. A variable-arity relation whose tail
+repeats one role has no largest position to name, and `(args R T)` types the whole
+admitted tail instead: every accepted position of `R` is an instance of `T`. `(argsGenl R
+T)` is the subtype reading — `argsGenl` to `genlArg` what `args` is to `arg`. `(argAndRest
+R n T)` and `(argAndRestGenl R n T)` type position `n` and every later one, so a relation
+whose head positions carry their own `arg` declarations and whose tail repeats one role is
+typed exactly. `(args R T)` states what `(argAndRest R 1 T)` states.
+
+A valid unbounded tail: a `variable_arity` `herd` with `(arityMin herd 2)` and `(args herd
+animal)` accepts `(herd Rex Bossy)` and `(herd Rex Bossy Clarabelle)` while refusing a
+member the KB places outside `animal`, at whatever length the tail reaches.
+
+Not every variable-arity relation has a homogeneous tail. `functionCorrespondingPredicate`
+relates a function, its corresponding predicate, and an argument count — three positions of
+three types — so no covering constraint fits it, and its positions take per-position `arg`
+declarations. The covering forms serve the homogeneous case; they do not demand that a tail
+be homogeneous, and the engine enforces neither preference.
+
+Three properties hold, each of them `arg`'s:
+
+- **Conjunctive with the singular forms.** A position-specific `(arg R n T)` and a covering
+  `(args R U)` both bind position `n`; neither overrides the other, and an argument there is
+  held to both `T` and `U`.
+- **Descends the predicate hierarchy.** A covering declaration on a super-predicate binds a
+  sub-predicate's tuples, read through the same declaration reader `arg` uses
+  (`res/constraining-predicates`).
+- **Convict-only, and open-world.** A covering constraint convicts a tail value it places
+  outside the type; an unknown argument is no evidence and passes. It mints nothing and
+  stops short of the retroactive reach `arg` runs under the entailment toggle, so a covering
+  declaration arriving after the facts convicts none of them — the same open-world
+  stop-short `arityMin` records, and order-sensitive in the way every constraint's refusal
+  half is.
+
+The walk is over the positions a sentence has, not a re-counted tail. `arity-problem`
+refuses a length the relation does not admit before the covering check runs, so the arity
+reader and the covering check never hold two answers about where the tail ends.
 
 ## Constraint and entailment readings
 

@@ -459,6 +459,11 @@
   but it is a hole in what a `catch` can act on, so each one is named in
   `carries-nothing` with the reason."
   {:arg-constraint-kind     #{:message :predicate}
+   ;; the instance and subtype argument-type refusals, each raised by its singular arm
+   ;; (args-problem / genls-problem) and its covering twin (covering-args-problem /
+   ;; covering-genls-problem) — the same payload at both
+   :arg-genl                #{:message :sentence :arg :expected :position}
+   :arg-type                #{:message :sentence :arg :expected :position}
    :arity                   #{:message :opposing-handle :predicate :sentence}
    :bad-arg                 #{:arg :value}
    :bad-args                #{:op}

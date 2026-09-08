@@ -2513,7 +2513,13 @@
   '{arg      {:pred 1 :fixed [2] :types-up [3]}
     genlArg     {:pred 1 :fixed [2] :types-up [3]}
     quotedArg   {:pred 1 :fixed [2] :types-up [3]}
-    interArg {:pred 1 :fixed [2 4] :types-up [5] :types-down [3]}})
+    interArg {:pred 1 :fixed [2 4] :types-up [5] :types-down [3]}
+    ;; the covering constraints: an every-position form has no fixed position, a tail
+    ;; form fixes its start and reads its one type up genl as the singular forms do
+    args           {:pred 1 :types-up [2]}
+    argsGenl        {:pred 1 :types-up [2]}
+    argAndRest      {:pred 1 :fixed [2] :types-up [3]}
+    argAndRestGenl  {:pred 1 :fixed [2] :types-up [3]}})
 
 (def meta-constraint-functors
   "The argument constraints this prover answers along the `genl` closure, as a set —

@@ -1197,6 +1197,7 @@ E17_ROSTER = {
     ("src/vaelii/impl/wff.clj", "disjoint-problems"),
     ("src/vaelii/impl/wff.clj", "rule-edges"),
     ("src/vaelii/impl/checks.clj", "genls-problem"),
+    ("src/vaelii/impl/checks.clj", "covering-genls-problem"),
     ("src/vaelii/impl/checks.clj", "mintable-type?"),
     # The forward join and the trigger keys. A firing is placed in a context the join
     # decides, so the candidate fan cannot be scoped by one — the rule index is keyed

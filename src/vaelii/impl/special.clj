@@ -3996,6 +3996,13 @@
     'genlArg   (assoc (prop-entry 'genlArg)   :wff wff/arg-constraint-problems)
     'quotedArg (assoc (prop-entry 'quotedArg) :wff wff/arg-constraint-problems)
     'interArg  (assoc (prop-entry 'interArg)  :wff wff/inter-arg-constraint-problems)
+    ;; the covering constraints type a whole tail at once — each marks its subject
+    ;; predicate as declaring one, exactly as the four above, and validates its own form
+    ;; through one arm reading both the two- and three-argument shapes
+    'args           (assoc (prop-entry 'args)           :wff wff/covering-constraint-problems)
+    'argsGenl       (assoc (prop-entry 'argsGenl)       :wff wff/covering-constraint-problems)
+    'argAndRest     (assoc (prop-entry 'argAndRest)     :wff wff/covering-constraint-problems)
+    'argAndRestGenl (assoc (prop-entry 'argAndRestGenl) :wff wff/covering-constraint-problems)
     ;; The two preservation declarations really are wff-only — read back per query, with
     ;; the transitivity of the relation they name checked here because `arg`'s open-world
     ;; reading cannot (docs/inherit.md).

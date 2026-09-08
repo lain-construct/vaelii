@@ -154,6 +154,27 @@
     (nm/individual? type)  (conj (str type " is an individual; " f " expects a type"))
     (nm/individual? utype) (conj (str utype " is an individual; " f " expects a type"))))
 
+(defn covering-constraint-problems
+  "The covering argument constraints — `args` / `argsGenl` name a relation and a type,
+  `argAndRest` / `argAndRestGenl` a relation, a positive-integer start position, and a
+  type.  The same latitude on the constrained relation `arg-constraint-problems` argues
+  for, and the same position and type checks, differing only in whether a start position
+  is present.  `args` is `argAndRest` at start 1, so one check reads both arities and
+  takes the type from whichever position holds it."
+  [_ [f pred a b :as s]]
+  (let [tail? (contains? '#{argAndRest argAndRestGenl} f)
+        type  (if tail? b a)
+        start a]
+    (cond-> []
+      (not= (if tail? 4 3) (count s))
+      (conj (str f " takes " (if tail? "three" "two") " arguments"))
+      (not (or (symbol? pred) (sequential? pred)))
+      (conj (str f " constrains a relation, which is named by a symbol or denoted by a"
+                 " non-atomic term; " (pr-str pred) " is neither"))
+      (and tail? (not (and (integer? start) (pos? start))))
+      (conj (str f " start position must be a positive integer"))
+      (nm/individual? type) (conj (str type " is an individual; " f " expects a type")))))
+
 (defn arg-preserving-problems
   "`transitiveInArg` / `transitiveInArgInverse` — a predicate, a positive-integer
   position, and the relation the argument is preserved along.  Structurally the arg
