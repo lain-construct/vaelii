@@ -534,6 +534,13 @@
 (genlArg defnIff 1 thing)
 (arg defnIff 2 thing)
 
+(comment intersection
+         "(intersection ?combined . ?types) means ?combined is definitionally the intersection of ?types: a thing is a ?combined exactly when it is each of ?types. A definitional collection relation over kinds, like the defn* family above, and the twin of disjoint, which states that kinds do NOT overlap. Variable-arity; (intersection causal_event causal event) names a two-way intersection and further ?types extend it. arityMin is two, since a one-type intersection is just genl.")
+(variable_arity_predicate intersection)
+(genlArg intersection 1 thing)
+(genlArg intersection 2 thing)
+(arityMin intersection 2)
+
 ;; ---- the predAll / predExists / predInstance / predSpecified matrix -------
 ;; A family of ternary relations that quantify one binary ?pred's two argument positions
 ;; against a collection or an individual, and fix the other.  Each name reads its two
