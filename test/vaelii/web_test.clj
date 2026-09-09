@@ -381,9 +381,13 @@
       (is (re-find #"complete for the goal" (:body r))))))
 
 (deftest a-complete-prover-shadows-the-rest-and-the-page-says-so
-  ;; `genl` is answered from the closure, which is complete for it — so every other
-  ;; applicable prover is shadowed, and "applicable" stops meaning "consulted"
-  (let [body (:body (GET "/levels" "q=%28genl%20dog%20thing%29&ctx=CxOrganism"))]
+  ;; `genlCx` is answered from the closure, which is complete for it — so every other
+  ;; applicable prover is shadowed, and "applicable" stops meaning "consulted".
+  ;; Previously this queried `(genl dog thing)`, but the `intersection` defining rules
+  ;; now conclude `genl` via backward rules, opening a `:rules` shadowing channel that
+  ;; correctly prevents the closure from claiming sole completeness.  `genlCx` has no
+  ;; such rules and tests the same prover/page path.
+  (let [body (:body (GET "/levels" "q=%28genlCx%20CxOrganism%20CxCore%29&ctx=CxOrganism"))]
     (is (re-find #"TransitivityProver" body))
     (is (re-find #"shadowed by" body))
     (is (re-find #"the sole complete method" body))))

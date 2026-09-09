@@ -814,6 +814,17 @@
                                 (str "special/materialize-defn-rules — both directions, the necessary rule"
                                      " and the sufficient one"))]
 
+     ;; ---- a definitional collection relation over kinds -------------------
+     ['intersection
+      (enforced {:shape {:args [] :variadic :type} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "a definitional collection relation: its facts drive CxCore"
+                             " rules that make the combined kind genl each type it"
+                             " intersects and conclude membership from the conjuncts.")}
+                (str "ordinary CxCore rule inference — (intersection ?combined . ?types)"
+                     " drives the intersection -> genl rules and a membership generator"
+                     " (binary and ternary; general arity pends list-membership vocabulary)"))]
+
      ;; ---- the query operators --------------------------------------------
      ['different   (operator {:args [] :variadic :term}
                              :notes (str "answered from the equality closure. Being"

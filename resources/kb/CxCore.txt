@@ -534,6 +534,31 @@
 (genlArg defnIff 1 thing)
 (arg defnIff 2 thing)
 
+(comment intersection
+         "(intersection ?combined . ?types) means ?combined is definitionally the intersection of ?types: a thing is a ?combined exactly when it is each of ?types. A definitional collection relation over kinds, like the defn* family above, and the twin of disjoint, which states that kinds do NOT overlap. Variable-arity; (intersection causal_event causal event) names a two-way intersection and further ?types extend it. arityMin is two.")
+(variable_arity_predicate intersection)
+(genlArg intersection 1 thing)
+(genlArg intersection 2 thing)
+(arityMin intersection 2)
+
+;; intersection is the definitional twin of disjoint (which states two kinds do NOT overlap).
+(termsRelated disjoint intersection)
+
+;; --- defining rules (binary and ternary; general arity pends memberOfList, see the
+;;     upstream list proposal). A combined kind is genl each type it intersects, and
+;;     anything that is each type is a member of the combined kind. ------------------
+(implies (intersection ?combined ?type1 ?type2) (genl ?combined ?type1))
+(implies (intersection ?combined ?type1 ?type2) (genl ?combined ?type2))
+(implies (intersection ?combined ?type1 ?type2 ?type3) (genl ?combined ?type1))
+(implies (intersection ?combined ?type1 ?type2 ?type3) (genl ?combined ?type2))
+(implies (intersection ?combined ?type1 ?type2 ?type3) (genl ?combined ?type3))
+;; membership: the consequent's predicate is a variable, so a generator stamps a
+;; concrete-functor rule per intersection fact.
+(implies (intersection ?combined ?type1 ?type2)
+         (set/defaultRule (implies (and (?type1 ?x) (?type2 ?x)) (?combined ?x))))
+(implies (intersection ?combined ?type1 ?type2 ?type3)
+         (set/defaultRule (implies (and (?type1 ?x) (?type2 ?x) (?type3 ?x)) (?combined ?x))))
+
 ;; ---- the predAll / predExists / predInstance / predSpecified matrix -------
 ;; A family of ternary relations that quantify one binary ?pred's two argument positions
 ;; against a collection or an individual, and fix the other.  Each name reads its two
