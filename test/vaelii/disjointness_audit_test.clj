@@ -45,6 +45,27 @@
   ;; function and predicate are declared disjoint in CxCore.
   (is (= :disjoint (v/subsumption-status kb 'function 'predicate))))
 
+;; ---- subsumption-statuses and inconsistency --------------------------------
+
+(tu/deftest-kb subsumption-statuses-returns-singleton-for-consistent-pair
+  (tu/with-terms [plant mineral]
+    (v/assert kb (list 'genl 'plant 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'mineral 'thing) 'CxUniverse)
+    (v/assert kb (list 'disjoint 'plant 'mineral) 'CxUniverse)
+    (is (= #{:disjoint} (v/subsumption-statuses kb 'plant 'mineral))
+        "a consistent disjoint pair yields a singleton set")))
+
+(tu/deftest-kb inconsistent-pair-is-both-genl-and-disjoint
+  (tu/with-terms [a-kind b-kind]
+    (v/assert kb (list 'genl 'a-kind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'b-kind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'a-kind 'b-kind) 'CxUniverse)
+    (v/assert kb (list 'disjoint 'a-kind 'b-kind) 'CxUniverse)
+    (is (= #{:genl :disjoint} (v/subsumption-statuses kb 'a-kind 'b-kind))
+        "the set contains both relationships")
+    (is (= :inconsistent (v/subsumption-status kb 'a-kind 'b-kind))
+        "subsumption-status returns :inconsistent for a contradictory pair")))
+
 ;; ---- the audit ------------------------------------------------------------
 
 (tu/deftest-kb audit-covers-every-unordered-pair-with-a-status
@@ -53,7 +74,7 @@
     (is (pos? n) "the starter has types")
     (is (= (:pairs a) (/ (* n (dec n)) 2)) "every unordered distinct pair")
     (is (= (:pairs a) (reduce + (vals (:by-status a)))) "every pair got exactly one status")
-    (is (every? #{:genl :spec :coextensional :disjoint :orthogonal :unknown}
+    (is (every? #{:genl :spec :coextensional :disjoint :orthogonal :unknown :inconsistent}
                 (keys (:by-status a)))
         "only the defined statuses appear")
     (is (contains? (:by-status a) :disjoint) "the starter has some disjoint pairs")))
