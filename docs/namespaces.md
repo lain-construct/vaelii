@@ -247,6 +247,10 @@ them ([why they live here](defenses.md#the-layering-inversions-live-in-wiringclj
   the preparation a public read runs. The reader asks through the public read path, and
   the delegation points up to reach it ([predall.md](predall.md)).
 
+- **`subsumption-status`** / **`disjointness-audit`** — the genl-hierarchy audit pair,
+  both in `vaelii.core` with no delegation. `subsumption-status` classifies one
+  `(a, b)` pair; `disjointness-audit` sweeps every unordered pair of types.
+
 `lein lint`'s **E8** fails a literal `requiring-resolve` anywhere else under `src/`,
 excepting the keyword-dispatch registries it names.
 
