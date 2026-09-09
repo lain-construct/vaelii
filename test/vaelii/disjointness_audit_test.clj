@@ -62,11 +62,11 @@
     ;; X and Y are genl-related, so the trusted bulk path is the
     ;; narrow existing bypass for testing inconsistency detection.
     (v/bulk-assert-facts! kb
-      [(list 'genl 'alphaKind 'thing)
-       (list 'genl 'betaKind 'thing)
-       (list 'genl 'alphaKind 'betaKind)
-       (list 'disjoint 'alphaKind 'betaKind)]
-      'CxUniverse)
+                          [(list 'genl 'alphaKind 'thing)
+                           (list 'genl 'betaKind 'thing)
+                           (list 'genl 'alphaKind 'betaKind)
+                           (list 'disjoint 'alphaKind 'betaKind)]
+                          'CxUniverse)
     (is (= #{:genl :disjoint} (v/subsumption-statuses kb 'alphaKind 'betaKind))
         "the set contains both relationships")
     (is (= :inconsistent (v/subsumption-status kb 'alphaKind 'betaKind))
