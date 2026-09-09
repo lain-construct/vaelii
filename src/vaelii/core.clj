@@ -4054,27 +4054,36 @@
   [kb result]
   (abduce/discard! kb (if (map? result) (:context result) result) abduce-ops))
 
-(defn subsumption-status
-  "The subsumption relationship of type `a` to type `b`, one of:
-  `:coextensional` (each is `genl` the other), `:genl` (`(genl a b)` holds — `a` is a
-  subtype of `b`), `:spec` (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint`
-  (provably no shared instance), `:orthogonal` (neither subsumes the other and not
-  disjoint, but a shared instance is provable), or `:unknown` (none of the above is
-  provable). Judged from the global vantage. `:orthogonal`'s witness is a shared
-  instance — a member of `a` that is also a member of `b` — the only way overlap is
-  shown when neither the taxonomy nor a
-  `disjoint` declaration settles the pair."
+(defn subsumption-statuses
+  "The set of applicable subsumption relationships between types `a` and `b`:
+  any subset of `#{:coextensional :genl :spec :disjoint :orthogonal}`.  A consistent
+  pair yields a singleton; an inconsistent pair (e.g. both genl-related and disjoint)
+  yields multiple; a pair with no provable relationship yields the empty set.
+  Judged from the global vantage."
   [kb a b]
   (let [a<b (genl? kb a b)
         b<a (genl? kb b a)]
-    (cond
-      (and a<b b<a)      :coextensional
-      a<b                :genl
-      b<a                :spec
-      (disjoint? kb a b) :disjoint
-      (boolean (some #(isa? kb (get % '?x) b)
-                     (query kb (list a '?x) 'CxUniverse))) :orthogonal
-      :else              :unknown)))
+    (cond-> #{}
+      (and a<b b<a)                                        (conj :coextensional)
+      (and a<b (not b<a))                                  (conj :genl)
+      (and b<a (not a<b))                                  (conj :spec)
+      (disjoint? kb a b)                                   (conj :disjoint)
+      (and (not a<b) (not b<a) (not (disjoint? kb a b))
+           (boolean (some #(isa? kb (get % '?x) b)
+                          (query kb (list a '?x) 'CxUniverse)))) (conj :orthogonal))))
+
+(defn subsumption-status
+  "The subsumption relationship of type `a` to type `b`, one of:
+  `:coextensional`, `:genl`, `:spec`, `:disjoint`, `:orthogonal`, `:unknown`
+  (no provable relationship), or `:inconsistent` (multiple contradictory
+  relationships hold, e.g. both genl-related and disjoint).
+  Judged from the global vantage."
+  [kb a b]
+  (let [ss (subsumption-statuses kb a b)]
+    (case (count ss)
+      0 :unknown
+      1 (first ss)
+      :inconsistent)))
 
 (defn disjointness-audit
   "The `subsumption-status` of every unordered pair of distinct types in the genl
@@ -4082,7 +4091,9 @@
   [{:a t :b t :status s} …]}`. `genl?` and `disjoint?` read cached closures, and the
   shared-instance query runs only for a pair the taxonomy and disjoint declarations
   leave open — so the N² sweep over the starter is cheap. The `:unknown` pairs are the
-  candidates for a missing `disjoint` assertion."
+  candidates for a missing `disjoint` assertion.  Each entry carries both the resolved
+  `:status` keyword and the raw `:statuses` set from `subsumption-statuses`, so
+  contradictions are visible without re-querying."
   [kb]
   (let [ts   (vec (sort (types kb)))
         n    (count ts)
@@ -4091,8 +4102,14 @@
                (fn [acc i]
                  (reduce
                   (fn [a j]
-                    (conj! a {:a (nth ts i) :b (nth ts j)
-                              :status (subsumption-status kb (nth ts i) (nth ts j))}))
+                    (let [ss (subsumption-statuses kb (nth ts i) (nth ts j))]
+                      (conj! a {:a        (nth ts i)
+                                :b        (nth ts j)
+                                :statuses ss
+                                :status   (case (count ss)
+                                            0 :unknown
+                                            1 (first ss)
+                                            :inconsistent)})))
                   acc (range (inc i) n)))
                (transient []) (range n)))]
     {:types     n
