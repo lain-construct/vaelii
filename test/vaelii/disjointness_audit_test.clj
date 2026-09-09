@@ -56,14 +56,20 @@
         "a consistent disjoint pair yields a singleton set")))
 
 (tu/deftest-kb inconsistent-pair-is-both-genl-and-disjoint
-  (tu/with-terms [a-kind b-kind]
-    (v/assert kb (list 'genl 'a-kind 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl 'b-kind 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl 'a-kind 'b-kind) 'CxUniverse)
-    (v/assert kb (list 'disjoint 'a-kind 'b-kind) 'CxUniverse)
-    (is (= #{:genl :disjoint} (v/subsumption-statuses kb 'a-kind 'b-kind))
+  (tu/with-terms [alphaKind betaKind]
+    ;; Use bulk-assert-facts! to construct the inconsistent snapshot:
+    ;; the production WFF guard correctly refuses (disjoint X Y) when
+    ;; X and Y are genl-related, so the trusted bulk path is the
+    ;; narrow existing bypass for testing inconsistency detection.
+    (v/bulk-assert-facts! kb
+      [(list 'genl 'alphaKind 'thing)
+       (list 'genl 'betaKind 'thing)
+       (list 'genl 'alphaKind 'betaKind)
+       (list 'disjoint 'alphaKind 'betaKind)]
+      'CxUniverse)
+    (is (= #{:genl :disjoint} (v/subsumption-statuses kb 'alphaKind 'betaKind))
         "the set contains both relationships")
-    (is (= :inconsistent (v/subsumption-status kb 'a-kind 'b-kind))
+    (is (= :inconsistent (v/subsumption-status kb 'alphaKind 'betaKind))
         "subsumption-status returns :inconsistent for a contradictory pair")))
 
 ;; ---- the audit ------------------------------------------------------------
