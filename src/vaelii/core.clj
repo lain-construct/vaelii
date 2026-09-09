@@ -4059,11 +4059,12 @@
   `:coextensional` (each is `genl` the other), `:genl` (`(genl a b)` holds — `a` is a
   subtype of `b`), `:spec` (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint`
   (provably no shared instance), `:orthogonal` (neither subsumes the other and not
-  disjoint, but a shared instance is provable), or `:unknown` (none of the above is
-  provable). Judged from the global vantage. `:orthogonal`'s witness is a shared
-  instance — a member of `a` that is also a member of `b` — the only way overlap is
-  shown when neither the taxonomy nor a
-  `disjoint` declaration settles the pair."
+  disjoint, but a shared instance the registry answers without rule expansion exists),
+  or `:unknown` (none of the above is provable). Judged from the global vantage.
+  `:orthogonal`'s witness is a shared instance — a member of `a` that is also a member
+  of `b` — the only way overlap is shown when neither the taxonomy nor a `disjoint`
+  declaration settles the pair. The witness is a facts-only read (`{:max-depth 0}`), so
+  the status is the same under every query engine."
   [kb a b]
   (let [a<b (genl? kb a b)
         b<a (genl? kb b a)]
@@ -4072,8 +4073,16 @@
       a<b                :genl
       b<a                :spec
       (disjoint? kb a b) :disjoint
+      ;; The shared-instance check is facts-only, pinned with `{:max-depth 0}` so it
+      ;; expands no rule and does not inherit an ambient depth. `query` with no depth
+      ;; falls back to `inference/*max-depth*` (`query-depth`), which the query-engine
+      ;; sweep binds to 8 — and a depth-8 node-engine search of `(a ?x)` over the whole
+      ;; starter, once per taxonomy-open pair, hangs under the DFS and exhausts the heap
+      ;; under a breadth-first tactician. `:orthogonal`'s witness is a shared instance
+      ;; the registry answers without rule expansion, which is what the default engine
+      ;; already reads and what keeps this status engine-independent.
       (boolean (some #(isa? kb (get % '?x) b)
-                     (query kb (list a '?x) 'CxUniverse))) :orthogonal
+                     (query kb (list a '?x) 'CxUniverse {:max-depth 0}))) :orthogonal
       :else              :unknown)))
 
 (defn disjointness-audit
