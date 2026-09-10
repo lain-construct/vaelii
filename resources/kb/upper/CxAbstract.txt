@@ -243,7 +243,6 @@
 (disjoint metal glass_stuff)
 (disjoint metal stone)
 (disjoint metal wood)
-(disjoint organization animal)
 (disjoint organization substance)
 (disjoint relation context)
 (disjoint substance artifact)
