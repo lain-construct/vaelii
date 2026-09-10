@@ -16,7 +16,7 @@
   test verifies stay literal."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
@@ -81,7 +81,7 @@
   (tu/with-neutral-kb [kb core-context-kb]
     (let [parentOf (tu/tmp-pred) kin (tu/tmp-pred) tom (tu/tmp-ind) bob (tu/tmp-ind)]
       (v/assert kb (list 'implies (list parentOf '. '?args)
-                         (list 'ist 'CxUniverse (list kin '. '?args))) 'CxUniverse)
+                         (list 'ist 'CxUniverse (list kin '. '?args))) 'CxUniverse {:direction :forward})
       (v/assert kb (list parentOf tom bob) 'CxUniverse)   ; triggers the rule
       (testing "the spliced consequent lands as a believed fact in the named context"
         (is (= [(list kin tom bob)]
@@ -332,7 +332,7 @@
       ;; x2 is anchored to a DIFFERENT constant, so (p1 ?x anchor) never binds ?x=x2
       (v/assert kb (list p1 x2 other)  'CxUniverse)
       (v/assert kb (list p2 y2 x2)     'CxUniverse)
-      (v/assert-rule kb [(list p1 '?x anchor) (list p2 '?y '?x)] (list p3 '?y '?x) 'CxUniverse)
+      (v/assert-rule kb [(list p1 '?x anchor) (list p2 '?y '?x)] (list p3 '?y '?x) 'CxUniverse {:direction :forward})
       (v/forward-chain kb)
       (testing "the anchored, joined binding is concluded"
         (is (seq (v/sentexes-matching kb (list p3 y1 x1) 'CxUniverse)))

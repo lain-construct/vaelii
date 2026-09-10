@@ -97,7 +97,7 @@
               CxRouting)
     (v/assert kb (vr/rule-sentence [(list parentOf '?x '?y) (list parentOf '?y '?z)]
                                    (list grandparentOf '?x '?z))
-              CxRouting)
+              CxRouting {:direction :forward})
     (v/assert kb (list bird Tweety) CxRouting {:strength :monotonic})
     (v/assert kb (list feathered Tweety) CxRouting)
     (v/assert kb (list bird Opus) CxRouting)

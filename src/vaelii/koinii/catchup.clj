@@ -26,7 +26,7 @@
   own sentexes) but `query` does — so the snapshot is `channel/query`, whose solution set is
   the same view the standing-query feed delivers.
 
-  Wire-only: the ring, the cursor, and lag exist on the wire feed (`vaelii.impl.subscribe`).
+  Wire-only: the ring, the cursor, and lag exist on the wire feed (`vaelii.host.subscribe`).
   An in-process medium has no ring to fall off, so `-feed-open`/`-feed-poll` throw there and
   a single-process agent needs none of this.
 

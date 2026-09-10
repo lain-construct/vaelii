@@ -7,11 +7,11 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as catalog]
-            [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.io.generate :as generate]
+            [vaelii.host.catalog :as catalog]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.io.generate :as generate]
+            [vaelii.host.web :as web]
             [vaelii.impl.kb :as kb]
-            [vaelii.impl.web :as web]
             [vaelii.test-util :as tu]))
 
 (def ^:dynamic *app* nil)

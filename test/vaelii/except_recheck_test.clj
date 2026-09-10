@@ -42,7 +42,7 @@
   "`(probe_x ?x) => (seen_x ?x)`, excepted when `(skip_x ?x)`."
   [kb]
   (v/assert kb '(exceptWhen (skip_x ?x)
-                            (set/defaultRule (implies (and (probe_x ?x)) (seen_x ?x))))
+                            (set/defaultRule (set/forwardRule (implies (and (probe_x ?x)) (seen_x ?x)))))
             ctx))
 
 (defn- probe! [kb i] (v/assert kb (list 'probe_x (symbol (str "PX" i))) ctx))
@@ -112,7 +112,7 @@
     (let [cost (fn [n]
                  (tu/with-cleared-kb [kb tu/isolated-fresh]
                    (excepted-rule! kb)
-                   (v/assert kb '(set/defaultRule (implies (and (probe_x ?x)) (skip_x ?x))) ctx)
+                   (v/assert kb '(set/defaultRule (set/forwardRule (implies (and (probe_x ?x)) (skip_x ?x)))) ctx {:direction :forward})
                    (counting-evaluations #(dotimes [i n] (probe! kb i)))))
           small (cost 10)
           big   (cost 40)]
@@ -139,7 +139,7 @@
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(genl xpenguin xflightless) ctx)
       (v/assert kb '(exceptWhen (xflightless ?x)
-                                (set/defaultRule (implies (and (xbird ?x)) (xflies ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (xbird ?x)) (xflies ?x)))))
                 ctx)
       (v/assert kb '(xbird Opus) ctx)
       (is (seq (v/sentexes-matching kb '(xflies Opus) '?ctx))
@@ -155,7 +155,7 @@
     ;; the path a filter keyed on triggering sentences would silently drop.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(exceptWhen (xflightless ?x)
-                                (set/defaultRule (implies (and (xbird ?x)) (xflies ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (xbird ?x)) (xflies ?x)))))
                 ctx)
       (v/assert kb '(xbird Tweety) ctx)
       (v/assert kb '(xpenguin Tweety) ctx)
@@ -181,7 +181,7 @@
                            k (symbol (str "cskip" i))]
                        (v/assert kb (list 'exceptWhen (list k '?x)
                                           (list 'set/defaultRule
-                                                (list 'implies (list 'and (list p '?x)) (list s '?x))))
+                                                (list 'set/forwardRule (list 'implies (list 'and (list p '?x)) (list s '?x)))))
                                  ctx)
                        (v/assert kb (list p (symbol (str "CI" i))) ctx)))
                    ;; a fresh genlCx edge whose ancestor set (context-down of its sub) does
@@ -265,7 +265,7 @@
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (excepted-rule! kb)
       (v/assert kb '(exceptWhen (lift_x ?x)
-                                (set/defaultRule (implies (and (probe_x ?x)) (skip_x ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (probe_x ?x)) (skip_x ?x)))))
                 ctx)
       (v/assert kb '(probe_x PX0) ctx)
       (is (seq (v/sentexes-matching kb '(skip_x PX0) '?ctx)) "the exception fact is derived")
@@ -296,7 +296,7 @@
       ;; touched: excepts on tall_thing, one firing.  untouched: excepts on skip_x,
       ;; twenty firings — under the old blanket trigger those twenty dominate.
       (v/assert kb '(exceptWhen (tall_thing ?x)
-                                (set/defaultRule (implies (and (probe_a ?x)) (big_a ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (probe_a ?x)) (big_a ?x)))))
                 ctx)
       (excepted-rule! kb)
       (dotimes [i 20] (probe! kb i))
@@ -337,7 +337,7 @@
   [firings sub pred]
   (tu/with-cleared-kb [kb tu/isolated-fresh]
     (v/assert kb (list 'exceptWhen (list 'not (list pred '?x))
-                       '(set/defaultRule (implies (and (neg_probe ?x)) (neg_seen ?x))))
+                       '(set/defaultRule (set/forwardRule (implies (and (neg_probe ?x)) (neg_seen ?x)))))
               ctx)
     (dotimes [i firings] (v/assert kb (list 'neg_probe (symbol (str "NG" i))) ctx))
     (counting-evaluations
@@ -372,7 +372,7 @@
   (testing "narrowing the edge trigger changes nothing about what a negation excepts"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(exceptWhen (not (negskip ?x))
-                                (set/defaultRule (implies (and (neg_probe ?x)) (neg_seen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (neg_probe ?x)) (neg_seen ?x)))))
                 ctx)
       (v/assert kb '(neg_probe NG0) ctx)
       (is (seq (v/sentexes-matching kb '(neg_seen NG0) '?ctx))
@@ -407,7 +407,7 @@
       (v/assert kb '(genl ppoodle pdog) ctx)
       (v/assert kb '(genl psiamese pcat) ctx)
       (v/assert kb '(exceptWhen (pbigger ppoodle psiamese)
-                                (set/defaultRule (implies (and (pmark ?x)) (pseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (pmark ?x)) (pseen ?x)))))
                 ctx)
       (v/assert kb '(pmark PM1) ctx)
       (is (seq (v/sentexes-matching kb '(pseen PM1) '?ctx))
@@ -426,7 +426,7 @@
       (v/assert kb '(genl ppoodle pdog) ctx)
       (v/assert kb '(genl psiamese pcat) ctx)
       (v/assert kb '(exceptWhen (pbigger ppoodle psiamese)
-                                (set/defaultRule (implies (and (pmark ?x)) (pseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (pmark ?x)) (pseen ?x)))))
                 ctx)
       (v/assert kb '(pbigger pdog pcat) ctx)
       (v/assert kb '(pmark PM1) ctx)
@@ -447,7 +447,7 @@
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(arg amotherOf 1 amammal) ctx)
       (v/assert kb '(exceptWhen (amammal AMuffet)
-                                (set/defaultRule (implies (and (amark ?x)) (aseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (amark ?x)) (aseen ?x)))))
                 ctx)
       (v/assert kb '(amark AM1) ctx)
       (is (seq (v/sentexes-matching kb '(aseen AM1) '?ctx))
@@ -462,7 +462,7 @@
   (testing "the other arrival order: the facts first, then the declaration that types them"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(exceptWhen (amammal AMuffet)
-                                (set/defaultRule (implies (and (amark ?x)) (aseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (amark ?x)) (aseen ?x)))))
                 ctx)
       (v/assert kb '(amotherOf AMuffet ARex) ctx)
       (v/assert kb '(amark AM1) ctx)
@@ -478,7 +478,7 @@
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(arg amotherOf 1 amammal) ctx)
       (v/assert kb '(exceptWhen (amammal AMuffet)
-                                (set/defaultRule (implies (and (amark ?x)) (aseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (amark ?x)) (aseen ?x)))))
                 ctx)
       (v/assert kb '(amotherOf AMuffet ARex) ctx)
       (v/assert kb '(amark AM1) ctx)
@@ -509,7 +509,7 @@
   (testing "(symmetric P) makes a stored fact answer its own mirror"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(exceptWhen (ssibOf SBob SAnn)
-                                (set/defaultRule (implies (and (smark ?x)) (sseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (smark ?x)) (sseen ?x)))))
                 ctx)
       (v/assert kb '(ssibOf SAnn SBob) ctx)
       (v/assert kb '(smark SM1) ctx)
@@ -525,7 +525,7 @@
   (testing "(transitive P) closes a chain that was already stored"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(exceptWhen (tpartOf TPiston TCar)
-                                (set/defaultRule (implies (and (tmark ?x)) (tseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (tmark ?x)) (tseen ?x)))))
                 ctx)
       (v/assert kb '(tpartOf TPiston TEngine) ctx)
       (v/assert kb '(tpartOf TEngine TCar) ctx)
@@ -541,7 +541,7 @@
   (testing "(reflexive P) answers a self-pair nobody wrote"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(exceptWhen (rlikes RBob RBob)
-                                (set/defaultRule (implies (and (rmark ?x)) (rseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (rmark ?x)) (rseen ?x)))))
                 ctx)
       (v/assert kb '(rlikes RAnn RAnn) ctx)
       (v/assert kb '(rmark RM1) ctx)
@@ -558,7 +558,7 @@
     ;; to the one that does.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(exceptWhen (ichildOf IBob IAnn)
-                                (set/defaultRule (implies (and (imark ?x)) (iseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (imark ?x)) (iseen ?x)))))
                 ctx)
       (v/assert kb '(iparentOf IAnn IBob) ctx)
       (v/assert kb '(imark IM1) ctx)
@@ -576,7 +576,7 @@
       (v/assert kb '(genl gsiamese gcat) ctx)
       (v/assert kb '(gbigger gdog gcat) ctx)
       (v/assert kb '(exceptWhen (gbigger gpoodle gsiamese)
-                                (set/defaultRule (implies (and (gmark ?x)) (gseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (gmark ?x)) (gseen ?x)))))
                 ctx)
       (v/assert kb '(gmark GM1) ctx)
       (is (seq (v/sentexes-matching kb '(gseen GM1) '?ctx))
@@ -606,7 +606,7 @@
       (v/assert kb '(nbigger ndog ncat) ctx)
       (v/assert kb '(nbigger nmc nchi) ctx)
       (v/assert kb '(exceptWhen (nbigger nchi nmc)
-                                (set/defaultRule (implies (and (nmark ?x)) (nseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (nmark ?x)) (nseen ?x)))))
                 ctx)
       (v/assert kb '(nmark NM1) ctx)
       (is (v/ask? kb '(nbigger nchi nmc) ctx)
@@ -634,7 +634,7 @@
       (v/assert kb '(transitiveInArg wneeds_oil 1 wpartOf) ctx)
       (v/assert kb '(wneeds_oil WCar) ctx)
       (v/assert kb '(exceptWhen (wneeds_oil WPiston)
-                                (set/defaultRule (implies (and (wmark ?x)) (wseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (wmark ?x)) (wseen ?x)))))
                 ctx)
       (v/assert kb '(wmark WM1) ctx)
       (is (v/ask? kb '(wneeds_oil WPiston) ctx)
@@ -655,8 +655,8 @@
     (let [cost (fn [n]
                  (tu/with-cleared-kb [kb tu/isolated-fresh]
                    (v/assert kb '(set/defaultRule
-                                  (implies (and (dmark ?x)) (dseen ?x)))
-                             ctx)
+                                  (set/forwardRule (implies (and (dmark ?x)) (dseen ?x))))
+                             ctx {:direction :forward})
                    (dotimes [i 20] (v/assert kb (list 'dmark (symbol (str "DM" i))) ctx))
                    (counting-evaluations
                     #(dotimes [i n]
@@ -686,7 +686,7 @@
   "`(mmark ?x) => (mseen ?x)`, excepted when `(mskip ?x)`."
   [kb]
   (v/assert kb '(exceptWhen (mskip ?x)
-                            (set/defaultRule (implies (and (mmark ?x)) (mseen ?x))))
+                            (set/defaultRule (set/forwardRule (implies (and (mmark ?x)) (mseen ?x)))))
             ctx))
 
 (deftest a-merge-that-makes-an-exception-hold-withdraws-the-conclusion
@@ -810,7 +810,7 @@
     (one-belief! "a conjunct constant"
                  {:rule  #(v/assert % '(exceptWhen (bskip BOne)
                                                    (set/defaultRule
-                                                    (implies (and (bmark ?x)) (bseen ?x))))
+                                                    (set/forwardRule (implies (and (bmark ?x)) (bseen ?x)))))
                                     ctx)
                   :mark  #(v/assert % '(bmark BM1) ctx)
                   :merge #(v/assert % '(rewriteOf BTwo BOne) ctx)
@@ -823,8 +823,8 @@
     ;; not — where a silently-false exception merely fails to guard.
     (one-belief! "a naf inner query"
                  {:rule  #(v/assert % '(set/defaultRule
-                                        (implies (and (ymark ?x) (unknown (yskip ?x)))
-                                                 (yseen ?x)))
+                                        (set/forwardRule (implies (and (ymark ?x) (unknown (yskip ?x)))
+                                                                  (yseen ?x))))
                                     ctx)
                   :mark  #(v/assert % '(ymark YOne) ctx)
                   :merge #(v/assert % '(rewriteOf YTwo YOne) ctx)
@@ -878,7 +878,7 @@
                                                  (agg/count ?n ?c (gchildOf ?x ?c))
                                                  (lessThan 2 ?n))
                                             (glarge_family ?x))
-                               ctx)
+                               ctx {:direction :forward})
                      (doseq [c '[GC1 GC2 GC3]]
                        (v/assert kb (list 'gchildOf 'GAnn c) 'CxGUp))
                      (when edge-last?
@@ -900,7 +900,7 @@
                  (tu/with-cleared-kb [kb tu/isolated-fresh]
                    (v/assert kb '(exceptWhen (uskip_thing UOne)
                                              (set/defaultRule
-                                              (implies (and (umark ?x)) (useen ?x))))
+                                              (set/forwardRule (implies (and (umark ?x)) (useen ?x)))))
                              ctx)
                    (dotimes [i 20] (v/assert kb (list 'umark (symbol (str "UM" i))) ctx))
                    (counting-evaluations
@@ -924,7 +924,7 @@
     ;; holding.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(exceptWhen (unknown (and (qskip ?x) (rskip ?x)))
-                                (set/defaultRule (implies (and (qmark ?x)) (qseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (qmark ?x)) (qseen ?x)))))
                 ctx)
       (v/assert kb '(qmark QOne) ctx)
       (is (empty? (v/sentexes-matching kb '(qseen ?x) ctx))
@@ -946,11 +946,11 @@
     ;; which nothing concludes — the graph reaches no rule and refuses nothing.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(exceptWhen (unknown (cskip ?x))
-                                (set/defaultRule (implies (and (cmark ?x)) (cseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (cmark ?x)) (cseen ?x)))))
                 ctx)
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb '(implies (cseen ?x) (cskip ?x)) ctx))))))
+           (v/assert kb '(implies (cseen ?x) (cskip ?x)) ctx {:direction :forward}))))))
 
 (deftest a-query-operator-exception-narrows-like-a-flat-one
   (testing "an (unknown S) exception is narrowed to the firings the trigger can reach"
@@ -968,7 +968,7 @@
                  (tu/with-cleared-kb [kb tu/isolated-fresh]
                    (v/assert kb '(exceptWhen (unknown (qskip_x ?x))
                                              (set/defaultRule
-                                              (implies (and (qprobe_x ?x)) (qseen_x ?x))))
+                                              (set/forwardRule (implies (and (qprobe_x ?x)) (qseen_x ?x)))))
                              ctx)
                    (dotimes [i firings]
                      (v/assert kb (list 'qprobe_x (symbol (str "QX" i))) ctx))

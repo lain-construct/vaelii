@@ -10,7 +10,7 @@
   because a page test that agreed for the wrong reason would still be green."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.web :as web]
+            [vaelii.host.web :as web]
             [vaelii.test-util :as tu]))
 
 (def ^:dynamic *app* nil)

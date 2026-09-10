@@ -28,9 +28,9 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.client :as vc]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.serve :as serve]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.serve :as serve]
             [vaelii.koinii.adjudication :as adj]
             [vaelii.koinii.channel :as ch]
             [vaelii.koinii.dispute :as d]
@@ -63,12 +63,12 @@
   "The household's common sense — four rules that turn a roommate's private facts into a
   stance on the dog, in two 2-hop chains.  Nobody ever asserts `(not (shouldAdopt …))`; it
   is DERIVED, and so is its opposite.  Shared knowledge, so they live in the channel."
-  [(list 'implies (list 'wants_companionship '?p) (list 'wouldEnjoy '?p 'Dog))
-   (list 'implies (list 'and (list 'memberOf '?p 'Apartment) (list 'wouldEnjoy '?p 'Dog))
-         proposal)
-   (list 'implies (list 'allergicTo '?p 'DogDander) (list 'harmedBy '?p 'Dog))
-   (list 'implies (list 'and (list 'memberOf '?p 'Apartment) (list 'harmedBy '?p 'Dog))
-         (list 'not proposal))])
+  [(list 'set/forwardRule (list 'implies (list 'wants_companionship '?p) (list 'wouldEnjoy '?p 'Dog)))
+   (list 'set/forwardRule (list 'implies (list 'and (list 'memberOf '?p 'Apartment) (list 'wouldEnjoy '?p 'Dog))
+                                proposal))
+   (list 'set/forwardRule (list 'implies (list 'allergicTo '?p 'DogDander) (list 'harmedBy '?p 'Dog)))
+   (list 'set/forwardRule (list 'implies (list 'and (list 'memberOf '?p 'Apartment) (list 'harmedBy '?p 'Dog))
+                                (list 'not proposal)))])
 
 ;; ── the argument nobody stated: it emerges from facts + house rules ───────
 

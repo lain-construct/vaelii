@@ -636,18 +636,24 @@
 ;; ---- reading six: rules another rule already covers -----------------------
 
 (def ^:private direction-covers
-  "Which directions a rule of each direction can stand in for.  `:both` is the only one
-  that covers a direction other than its own, and `:inert` covers nothing but `:inert`: a
-  rule that chains in neither engine cannot stand in for one that does."
-  {:both #{:both :forward :backward} :forward #{:forward} :backward #{:backward}
-   :inert #{:inert}})
+  "Which directions a rule of each direction can stand in for.  `:forward` and `:both`
+  both mean forward + backward, so each covers every chaining direction; `:forward-only`
+  forward-chains but answers no backward goal, so it covers only itself; `:backward`
+  covers only backward goals; and `:inert` covers nothing but `:inert`: a rule that
+  chains in neither engine cannot stand in for one that does."
+  {:both         #{:both :forward :backward :forward-only}
+   :forward      #{:both :forward :backward :forward-only}
+   :forward-only #{:forward-only}
+   :backward     #{:backward}
+   :inert        #{:inert}})
 
 (defn- available-at-least?
   "Is `r1` at least as **available** as `r2` — could every firing of `r2` have been one of
   `r1`?  Four slots decide it, and each is a way one rule reaches where the other does
   not:
 
-  - **direction**, since a `:forward` rule answers no backward goal;
+  - **direction**, since a `:backward` rule forward-chains nothing and an `:inert` rule
+    chains in neither engine;
   - **defeasibility**, since a default cannot stand in for a strict rule — its conclusion
     is defeated exactly where the strict one's stands;
   - **`assumption`** and **`constraint`**, since neither chains at all: each is a *choice*

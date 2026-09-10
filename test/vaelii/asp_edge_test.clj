@@ -44,7 +44,7 @@
 (def ^:private asp? (solver/available?))
 
 (defn- default-rule [antes conseq]
-  (list 'set/defaultRule (vr/rule-sentence antes conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 (defn- decide
   "Run `edge-solver` over a program built from `contested` / `nogoods` / `content`."
@@ -70,6 +70,26 @@
           n2      {:nogood #{3 4} :priority 0 :sentence '(contradicts B)}
           text    (fn [ngs] (:aspif (edge/translate (solve/program #{1 2 3 4} ngs content))))]
       (is (= (text [n1 n2]) (text [n2 n1]))))))
+
+(deftest a-cardinality-bound-renders-one-weight-constraint-and-prunes
+  ;; A `:cardinalities` entry is ONE weight-body statement, not the C(n, k+1) subset
+  ;; nogoods a hand-written encoding needs — and it prunes the models like a hard nogood.
+  (when asp?
+    (let [content {1 {:sentence '(p a) :context 'C} 2 {:sentence '(p b) :context 'C}
+                   3 {:sentence '(p c) :context 'C} 4 {:sentence '(p d) :context 'C}}
+          card    (fn [members] {:op :at-most :k 2 :members members :hard true :priority 1
+                                 :sentence '(cardinalityBound :at-most 2 (p ?x))})
+          prog    (fn [members] (solve/program #{1 2 3 4} [] content [(card members)]))
+          text    (fn [members] (:aspif (edge/translate (prog members))))]
+      (testing "the bound is one headless weight body of lower-bound k+1 over the members"
+        (is (re-find #"(?m)^1 0 0 1 3 4 " (text #{1 2 3 4}))))
+      (testing "the program text does not depend on the member set's order"
+        (is (= (text #{1 2 3 4}) (text #{4 3 2 1}))))
+      (testing "it prunes: keep-belief wants all four, the hard cap allows two"
+        (let [t (edge/translate (prog #{1 2 3 4}))
+              r (solver/solve (:aspif t) :label)]
+          (is (contains? #{:optimum :sat} (:status r)))
+          (is (= 2 (count (edge/kept-of t r)))))))))
 
 ;; ---- 1. the encoding, driven directly ----------------------------------
 

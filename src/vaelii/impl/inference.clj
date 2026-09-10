@@ -296,6 +296,11 @@
                 :claimed    (atom #{(node-key root)})
                 :seen       (atom #{})
                 :counter    (atom 0)
+                ;; Set to true when the depth bound stopped a rewrite the search would
+                ;; otherwise have taken (`depth-truncated?`).  Allocated only under
+                ;; `:track-truncation?`, so `step!`'s candidate-rule probe is off the plain
+                ;; query path — `core/query-status` asks for it, `core/query` never does.
+                :truncated  (when (:track-truncation? opts) (atom false))
                 :stats      (atom {:expanded 0 :dropped 0 :solutions 0})}]
      sess)))
 
@@ -526,6 +531,36 @@
 
 ;; ---- stepping ------------------------------------------------------------
 
+(defn- rewritable?
+  "Would any candidate rule's consequent unify with `sentence` in `context` — the unify
+  half of `children`'s rewrite test, without building the residual.  `nvars` is the node's
+  variable count, and the rule's consequent is shifted clear of the node's own `?varN`
+  names by it before unifying, exactly as `children` shifts the whole rule: the two share
+  the `?varN` namespace, so a plain unify would collide them and miss a rewrite a freshened
+  one takes.  A truncation check asks only *whether* a rewrite was available, never carries
+  one out, so the shifted consequent alone is enough."
+  [kb sentence context nvars]
+  (boolean (some (fn [rule]
+                   (let [[shifted _] (sx/canonical-conjunction [(:consequent rule)] nvars)]
+                     (res/subsuming-unify kb sentence (first shifted)
+                                          res/no-bindings context)))
+                 (provers/candidate-rules kb sentence context))))
+
+(defn- depth-truncated?
+  "Did the depth bound stop a rewrite this node would otherwise have taken?  True when a
+  live literal — one `children` still considers, at index ≥ `:from` — is at depth 0, is
+  not a deferred literal, and has a candidate rule that unifies.  That is the exact case
+  `children`'s `(>= depth 1)` filter drops: a rewrite site the search reached and the
+  bound refused.  Read only under `:track-truncation?`, so the candidate-rule probe never
+  runs on the plain query path."
+  [kb {:keys [literals from nvars]} context]
+  (boolean
+   (some (fn [{:keys [sentence depth]}]
+           (and (< (long depth) 1)
+                (not (sx/deferred-literal? sentence))
+                (rewritable? kb sentence context nvars)))
+         (subvec literals (long from)))))
+
 (defn step!
   "Expand the cheapest node: solve its conjunction inline, claim and enqueue its
   children, and return the solutions it completed — a vector, empty when it completed
@@ -542,7 +577,7 @@
   and the bias is how it says so.  Under `:first-result?` a productive node builds no
   children at all — the one strategy that stops the search rather than steering it."
   [{:keys [kb context queue nodes counter stats seen strategy leaf-solver est-override
-           proof? defeated]
+           proof? defeated truncated]
     :as sess}]
   (when-let [[[_ _ id] q'] (queue-pop @queue)]
     (reset! queue q')
@@ -552,6 +587,12 @@
     ;; collapses.  `sols` is reduced to a vector inside, so nothing lazy escapes.
     (observe/with-search-scope
       (let [node (get @nodes id)
+            ;; The depth bound's one silent failure mode, made observable: a rewrite site
+            ;; this node reached and the bound refused (`depth-truncated?`).  Off entirely
+            ;; unless the session asked for it, and skipped once a prior node already
+            ;; found one — a report needs the bit set, not every place it was set.
+            _    (when (and truncated (not @truncated) (depth-truncated? kb node context))
+                   (reset! truncated true))
             sols (->> (solve-inline kb (mapv :sentence (:literals node)) context
                                     leaf-solver est-override)
                       (filter (fn [s] (every? #(ask-guard % s) (:guards node))))
@@ -800,6 +841,48 @@
             :claimed   (count @claimed)
             :frontier  (count @queue)
             :max-depth (reduce max 0 (map :tree-depth ns))})))
+
+(defn search-report
+  "One node-engine search over `goals`, driven to completion and **reported** — the
+  answers plus what the run costs and whether the depth bound cut it short:
+
+    {:answers                 <vector of binding maps, `solutions`' own>
+     :truncated?              <bool>    the depth bound stopped a rewrite the search
+                                        would otherwise have taken — so the answers may
+                                        be incomplete, where `false` guarantees they are
+                                        every answer this KB entails within the bound
+     :time-to-first-answer-ms <double|nil>   nil when there are no answers
+     :total-time-ms           <double>
+     :stats                   <tree-stats>}
+
+  Truncation is **conservative**: `true` means at least one branch was stopped at the
+  bound, not that an answer was certainly lost — a converging rule graph reaches one
+  subgoal at several depths, so a branch cut at depth 0 may have been answered by a
+  shallower one.  What `true` rules out is the silent case the bound otherwise has: an
+  empty or short answer that is short *because the search stopped early*, wearing the
+  same shape as a complete one.  A caller tuning `:max-depth` raises it until `:truncated?`
+  is false and the answer set stops growing.
+
+  It drives the **single-strategy** run `solutions` drives — `:auto?` picks one ordering,
+  never a race.  A report is a tuning read of one frontier, and a portfolio's several
+  sessions have no one frontier to report truncation off.  `:track-truncation?` is on,
+  which the plain query path never pays: `session` allocates the flag only when asked, and
+  `step!`'s candidate-rule probe runs only while it is set."
+  [kb goals context opts]
+  (let [pick (when (and (:auto? opts) (not (:strategy opts)))
+               (tactics/auto-strategy kb goals context (required-depth (:max-depth opts))))
+        opts (cond-> (assoc opts :track-truncation? true)
+               (and pick (not= :portfolio pick)) (assoc :strategy pick))
+        sess (session kb goals context opts)
+        start (System/nanoTime)]
+    (loop [s (seq (search-seq sess)), acc (transient []), first-ns nil]
+      (if s
+        (recur (next s) (conj! acc (first s)) (or first-ns (- (System/nanoTime) start)))
+        {:answers                 (persistent! acc)
+         :truncated?              (boolean (some-> (:truncated sess) deref))
+         :time-to-first-answer-ms (when first-ns (/ (double first-ns) 1e6))
+         :total-time-ms           (/ (double (- (System/nanoTime) start)) 1e6)
+         :stats                   (tree-stats sess)}))))
 
 ;; ---- the search as data, for a debugger ----------------------------------
 

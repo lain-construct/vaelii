@@ -26,11 +26,11 @@
       not withdraw anything."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.duration :as dur]
             [vaelii.impl.interval :as iv]
             [vaelii.impl.rules :as vr]
-            [vaelii.impl.seed :as seed]
             [vaelii.impl.stp :as stp]
             [vaelii.test-util :as tu]))
 

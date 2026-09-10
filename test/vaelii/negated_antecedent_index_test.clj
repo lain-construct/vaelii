@@ -39,7 +39,7 @@
 (tu/deftest-kb a-negated-antecedent-rule-fires-in-either-arrival-order
   (tu/with-terms [bird flies grounded other Tweety Opus CxNeg]
     (let [rh (v/assert-rule kb [(list bird '?x) (list 'not (list flies '?x))]
-                            (list grounded '?x) CxNeg)]
+                            (list grounded '?x) CxNeg {:direction :forward})]
       (testing "the rule is posted under its body's predicate, not under the bare not"
         (is (contains? (set (p/rules-by-antecedent (:index kb) [:not flies])) rh))
         (is (not (contains? (set (p/rules-by-antecedent (:index kb) 'not)) rh)))
@@ -64,7 +64,7 @@
   (tu/with-cleared-kb [kb tu/fresh]
     (tu/with-terms [bird flies grounded Tweety]
       (let [rh (v/assert-rule kb [(list bird '?x) (list 'not (list flies '?x))]
-                              (list grounded '?x) 'CxUniverse)]
+                              (list grounded '?x) 'CxUniverse {:direction :forward})]
         (v/assert kb (list bird Tweety) 'CxUniverse)
         (v/assert kb (list 'not (list flies Tweety)) 'CxUniverse)
         (is (v/ask? kb (list grounded Tweety) 'CxUniverse))

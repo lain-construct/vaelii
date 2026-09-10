@@ -27,14 +27,14 @@
       (is (empty? (v/sentexes-matching kb (list 'not (list dog rex)) 'CxUniverse))))))
 
 (defn- default-rule [antes conseq]
-  (list 'set/defaultRule (vr/rule-sentence antes conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 (tu/deftest-kb penguins-dont-fly
   (let [penguin (tu/tmp-type) bird (tu/tmp-type) animal (tu/tmp-type)
         flies (tu/tmp-pred) robin (tu/tmp-ind) tweety (tu/tmp-ind)]
     (v/assert kb (list 'genl penguin bird) 'CxUniverse)
     (v/assert kb (list 'genl bird animal)  'CxUniverse)
-    (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) 'CxUniverse)  ; bare rule
+    (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) 'CxUniverse {:direction :forward})  ; bare rule
     (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)       ; defeasible
     (v/assert kb (list bird robin) 'CxUniverse)
     ;; Known-true grounds are what let the exception out-rank the default.  A bare rule

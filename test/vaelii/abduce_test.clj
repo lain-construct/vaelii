@@ -35,7 +35,7 @@
 (defn- a-rule
   "`(implies (and <antecedents>) <consequent>)`."
   [kb antecedents consequent ctx]
-  (v/assert kb (list 'implies (cons 'and antecedents) consequent) ctx))
+  (v/assert kb (list 'implies (cons 'and antecedents) consequent) ctx {:direction :forward}))
 
 (defn- sentences [result] (set (map :sentence (:hypotheses result))))
 
@@ -449,8 +449,8 @@
     (a-context kb CxTheory)
     ;; a base rule that states its own exception, and a base fact that fires it
     (v/assert kb (list 'exceptWhen (list wabBlock '?x)
-                       (list 'implies (list 'and (list wabTrigger '?x))
-                             (list wabConc '?x)))
+                       (list 'set/forwardRule (list 'implies (list 'and (list wabTrigger '?x))
+                                                    (list wabConc '?x))))
               CxTheory)
     (v/assert kb (list wabTrigger N) CxTheory)
     (let [c (v/handle-of kb (list wabConc N) CxTheory)]

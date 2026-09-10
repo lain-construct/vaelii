@@ -16,7 +16,7 @@
       (v/assert kb (list 'genl dog animal) 'CxUniverse)
       (v/assert kb (list dog Muffet) 'CxUniverse)
       (v/assert kb (list barksAt Muffet Rex) 'CxUniverse)
-      (v/assert-rule kb [(list dog '?x)] (list growls '?x) 'CxUniverse)
+      (v/assert-rule kb [(list dog '?x)] (list growls '?x) 'CxUniverse {:direction :forward})
       (let [snap (fn []
                    {:dog-extent    (count (v/sentexes-matching kb (list dog '?x) 'CxUniverse))
                     :functor-count (v/count-with-functor kb barksAt)

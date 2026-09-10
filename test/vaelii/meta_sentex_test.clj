@@ -61,7 +61,7 @@
   (let [ctx (tu/tmp-ctx "Bird") bird (tu/tmp-type) penguin (tu/tmp-type)
         flies (tu/tmp-pred) Opus (tu/tmp-ind) Tweety (tu/tmp-ind)]
     (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
-    (let [rh (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?b) (list flies '?b))) ctx)]
+    (let [rh (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?b) (list flies '?b)))) ctx)]
       (v/assert kb (list 'exceptWhen (list penguin '?b) (sx/sentex-handle rh)) ctx)
       (v/assert kb (list bird Opus) ctx)
       (v/assert kb (list penguin Opus) ctx)
@@ -80,10 +80,10 @@
         flies (tu/tmp-pred) P (tu/tmp-ind) O (tu/tmp-ind) R (tu/tmp-ind)]
     (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list 'exceptWhen (list penguin '?x)
-                       (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x)))) ctx)
+                       (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x))))) ctx)
     (let [rh  (v/handle-of kb (list 'implies (list bird '?var0) (list flies '?var0)) ctx)
           eh2 (v/assert kb (list 'exceptWhen (list ostrich '?y)
-                                 (list 'set/defaultRule (list 'implies (list bird '?y) (list flies '?y)))) ctx)]
+                                 (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?y) (list flies '?y))))) ctx)]
       (doseq [[b t] [[P penguin] [O ostrich]]]
         (v/assert kb (list bird b) ctx) (v/assert kb (list t b) ctx))
       (v/assert kb (list bird R) ctx)
@@ -109,8 +109,8 @@
     ;; (p ?a),(p ?b) tie; consequent (and (q ?a) (r ?b)); exception (bad ?b)
     (v/assert kb (list 'exceptWhen (list bad '?b)
                        (list 'set/defaultRule
-                             (list 'implies (list 'and (list p '?a) (list p '?b))
-                                   (list 'and (list q '?a) (list r '?b)))))
+                             (list 'set/forwardRule (list 'implies (list 'and (list p '?a) (list p '?b))
+                                                          (list 'and (list q '?a) (list r '?b))))))
               ctx)
     (v/assert kb (list p Foo) ctx)
     (v/assert kb (list p Bar) ctx)
@@ -129,7 +129,7 @@
   (let [ctx (tu/tmp-ctx "B") bird (tu/tmp-type) penguin (tu/tmp-type)
         flies (tu/tmp-pred) Opus (tu/tmp-ind)]
     (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
-    (let [rh (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?b) (list flies '?b))) ctx)
+    (let [rh (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?b) (list flies '?b)))) ctx)
           mh (v/assert kb (list 'exceptWhen (list penguin '?b) (sx/sentex-handle rh)) ctx)]
       (v/assert kb (list bird Opus) ctx)
       (is (seq (v/sentexes-matching kb (list flies Opus) ctx)))
@@ -147,7 +147,7 @@
         flies (tu/tmp-pred) Opus (tu/tmp-ind) Tweety (tu/tmp-ind)]
     (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list 'exceptWhen (list penguin '?b)
-                       (list 'set/defaultRule (list 'implies (list bird '?b) (list flies '?b)))) ctx)
+                       (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?b) (list flies '?b))))) ctx)
     (v/assert kb (list bird Opus) ctx)
     (v/assert kb (list penguin Opus) ctx)
     (v/assert kb (list bird Tweety) ctx)
@@ -232,7 +232,7 @@
   (let [ctx (tu/tmp-ctx "Sub") qq (tu/tmp-pred) pp (tu/tmp-pred) Aa (tu/tmp-ind)]
     (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list qq Aa) ctx {:strength :monotonic})]
-      (v/assert kb (list 'implies (list qq '?x) (list pp '?x)) ctx)
+      (v/assert kb (list 'implies (list qq '?x) (list pp '?x)) ctx {:direction :forward})
       (is (seq (v/sentexes-matching kb (list pp Aa) ctx)) "the rule fired")
       (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :default})
       (is (empty? (v/sentexes-matching kb (list pp Aa) ctx)) "the except sweeps the conclusion")
@@ -265,7 +265,7 @@
     (v/assert kb (list 'genlCx cm pm) 'CxUniverse {:strength :monotonic})   ; cm sees pm
     (let [h (v/assert kb (list shiny gold) gp {:strength :monotonic})]
       ;; a rule in cm derives (sparkles gold) in cm from the shiny fact it inherits from gp
-      (v/assert kb (list 'implies (list shiny '?x) (list sparkles '?x)) cm)
+      (v/assert kb (list 'implies (list shiny '?x) (list sparkles '?x)) cm {:direction :forward})
       (testing "the derivation stands before any except"
         (is (seq (v/sentexes-matching kb (list sparkles gold) cm))))
       (let [eh (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})]
@@ -293,7 +293,7 @@
     (v/assert kb (list 'genlCx cm gp) 'CxUniverse {:strength :monotonic})   ; cm sees gp directly
     (let [edge (v/assert kb (list 'genlCx cm pm) 'CxUniverse {:strength :monotonic})   ; ...and pm
           h    (v/assert kb (list shiny gold) gp {:strength :monotonic})]
-      (v/assert kb (list 'implies (list shiny '?x) (list sparkles '?x)) cm)
+      (v/assert kb (list 'implies (list shiny '?x) (list sparkles '?x)) cm {:direction :forward})
       (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})
       (testing "cm sees pm, so the except hides the antecedent and blocks the derivation"
         (is (empty? (v/sentexes-matching kb (list sparkles gold) cm))))
@@ -315,7 +315,7 @@
       (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})
       ;; the rule arrives *after* the except; its conclusion in cm would rest on the
       ;; hidden fact, so it is never placed there
-      (v/assert kb (list 'implies (list shiny '?x) (list sparkles '?x)) cm)
+      (v/assert kb (list 'implies (list shiny '?x) (list sparkles '?x)) cm {:direction :forward})
       (testing "no conclusion is placed in the ancestor set"
         (is (empty? (v/sentexes-matching kb (list sparkles gold) cm)))
         (is (nil? (v/handle-of kb (list sparkles gold) cm)))))))

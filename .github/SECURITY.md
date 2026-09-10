@@ -30,7 +30,7 @@ run where only their operator can reach them, and per-caller identity is a rever
 proxy's job. So the reports worth sending are about a boundary that fails to hold where
 it claims to, not about the absence of a login on a tool that never offered one.
 
-### The browser (`vaelii.impl.web`, default port 3000)
+### The browser (`vaelii.host.web`, default port 3000)
 
 - **It binds loopback**, and reaching it from another machine is the deliberate
   `--listen` flag on `-main`. Nothing else exposes it.
@@ -49,7 +49,7 @@ it claims to, not about the absence of a login on a tool that never offered one.
   `POST /kbs/export` writes a directory of dump files wherever the process can write.
   On a shared host, treat reaching the port as equivalent to holding the KB.
 - **Every route, read or write, requires a recognised `Host`.** On a loopback bind the
-  header must name loopback (`vaelii.impl.guard`), which is what refuses a DNS-rebound
+  header must name loopback (`vaelii.host.guard`), which is what refuses a DNS-rebound
   page — against which the origin check above is useless, since the attacker controls
   `Origin` and `Host` alike and they agree. Binding an address with `--listen` drops
   the allowlist unless `VAELII_ALLOWED_HOSTS` names one.
@@ -69,7 +69,7 @@ it claims to, not about the absence of a login on a tool that never offered one.
 - **The `:repl` profile can serve a profiler UI** (clj-async-profiler, conventionally
   on 8080). Same rule: a development tool, loopback only.
 
-### The daemon (`vaelii.impl.serve`, default port 4200)
+### The daemon (`vaelii.host.serve`, default port 4200)
 
 - **It binds loopback**, and `--listen` binds an address instead. A bind that names a
   non-loopback address **requires `VAELII_API_TOKEN`**: without one the daemon prints a

@@ -330,10 +330,13 @@ closure, keeping the unique-name assumption. Variable-arity, ground-only, and
 not assertible. See [equality.md](equality.md).
 
 **Direction** ![kb](../.github/badges/cat-kb.svg): Whether a rule chains
-`:forward`, `:backward`, `:inert`, or `:both`. The first three are written with a
-`set/*Rule` wrapper — `set/forwardRule` / `set/backwardRule` / `set/inertRule` — that
-canonicalizes into the record's `:direction` field; a bare `implies` needs none and
-reads `:both`. The chainers read the field. See [inference.md](inference.md).
+`:forward`, `:backward`, `:both`, `:forward-only`, or `:inert`. `:forward` and `:both` are
+one class — forward + backward — so a `set/forwardRule` rule answers backward goals too;
+`:forward-only` (`set/forwardOnlyRule`) forward-chains but never backchains, a tests-only
+mode the ontology avoids. The `set/*Rule` wrappers canonicalize into the record's
+`:direction` field; a bare `implies` needs none and reads `:backward`, the tractable
+default, since forward chaining materializes a conclusion per match. The chainers read the
+field. See [inference.md](inference.md).
 
 **`disjoint` / `disjoint_metatype`** ![kb](../.github/badges/cat-kb.svg): Declare
 types share no instance, closed under genl. A metatype's members are pairwise
@@ -444,6 +447,15 @@ forms a sentence is built out of are **Wrapper**s, not frames. See [storage.md](
 *symbol* values for one first argument derives `(equals V1 V2)`, justified by
 both facts and the declaration. Two non-symbols stay a hard rejection. See
 [equality.md](equality.md).
+
+**`functional_at_instant`** ![kb](../.github/badges/cat-kb.svg): `(functional_at_instant F)`
+— the per-instant counterpart of `functional` for a value carried as a fluent. `functional`
+enforces at-most-one-value over a predicate's bare literals; a value under `initiates` is no
+bare literal, so that closure never sees it. This states that `F` has at most one value for
+one subject at any single instant, and `vaelii.core/functional-at-instant-violations` reports
+a moment where two hold — a merge for two symbols, a contradiction for two numbers — rather
+than merging, because the overlap follows from the clipping closure and is read on demand.
+See [time.md](time.md) and [equality.md](equality.md).
 
 **`functionalInArg`** ![kb](../.github/badges/cat-kb.svg): `(functionalInArg P n)` —
 `functional` generalized off its fixed argument 2: every argument of `P` except `n`,
@@ -993,6 +1005,15 @@ in opposite directions: an antecedent is covered by one on a *spec*, a consequen
 one on a *genl*. A reading (`kb-quality`'s `:subsumption`), never a rewrite — nothing is
 retracted. See [quality.md](quality.md); the matching-time relation it is built out of is
 [inference.md](inference.md)'s predicate subsumption.
+
+**Subsumption status** ![kb](../.github/badges/cat-kb.svg): The relationship of one type
+to another in the genl hierarchy, as `subsumption-status` classifies it: `:genl` (the
+first type is a subtype of the second), `:spec` (the converse), `:coextensional` (each is
+`genl` the other), `:disjoint` (provably no shared instance), `:orthogonal` (a shared
+instance with neither subsumption nor disjointness), or `:unknown` (none of these is
+provable). `disjointness-audit` runs the classification over every unordered type pair,
+and its `:unknown` pairs are the candidates for a missing `disjoint` declaration. See
+[taxonomy.md](taxonomy.md).
 
 **Superseded** ![tms](../.github/badges/cat-tms.svg): The TMS state an equality
 merge puts a stale spelling in — stored but not believed and not matching,

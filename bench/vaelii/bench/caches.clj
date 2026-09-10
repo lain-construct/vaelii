@@ -55,7 +55,7 @@
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as rules]
-            [vaelii.impl.starter :as starter]))
+            [vaelii.host.starter :as starter]))
 
 ;; ---- reporting ----------------------------------------------------------
 

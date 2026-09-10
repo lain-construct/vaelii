@@ -19,9 +19,9 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as catalog]
-            [vaelii.impl.llm.stub :as stub]
-            [vaelii.impl.web :as web]
+            [vaelii.host.catalog :as catalog]
+            [vaelii.host.llm.stub :as stub]
+            [vaelii.host.web :as web]
             [vaelii.test-util :as tu]))
 
 (def ^:dynamic *app* nil)

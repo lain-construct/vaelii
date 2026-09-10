@@ -34,6 +34,19 @@
   than optimality-proving over soft violations — an adjacency clash is never
   tradeable.  Soft nogoods (the default) keep the minimize path above.
 
+  A **cardinality** entry (`program`'s `:cardinalities`, ground from a `asp/atMost` /
+  `asp/atLeast` rule) is a bound on how many of a set of choice heads may or must hold,
+  rendered as ONE weight-body statement rather than the `C(n, k+1)` subset nogoods a
+  hand-written encoding needs.  A hard bound is a weight-body integrity constraint
+
+      :- k+1 <= #count{ a_m1, a_m2, ... }        # at-most-k: never k+1 together
+
+  a soft one derives a violation atom the same minimize path penalizes
+
+      v :- k+1 <= #count{ ... }                  # breaching the bound costs, not excludes
+
+  and at-least-`k` is the mirror over the default-negated members (`card-encoding`).
+
   In practice `:violated` comes back empty, and that is correct rather than a gap.
   An irreducible known-true clash never reaches a solver: `core/settle`'s
   `decide-nogood` classifies it as *hard* and reports it directly, and
@@ -129,6 +142,33 @@
   [{:keys [nogood sentence]}]
   (list 'contradiction sentence :involved (mapv (fn [h] [:sentex h]) (sort nogood))))
 
+(defn- card-descriptor
+  "The violation descriptor for a soft cardinality entry — the same shape
+  `descriptor` gives a soft nogood, tagged `cardinality` and carrying every member."
+  [{:keys [op k members sentence]}]
+  (list 'cardinality (or sentence (list op k)) :involved (mapv (fn [h] [:sentex h]) (sort members))))
+
+(defn- card-encoding
+  "The weight body a cardinality entry over `member-atoms` (sorted atom ids) becomes,
+  or a keyword for the two degenerate cases.  Returns
+
+      [lower-bound weighted-literals]   a weight body of that bound
+      :vacuous                          every model meets the bound — emit nothing
+      :infeasible                       no model meets the bound — a model is impossible
+
+  at-most-`k` forbids the count reaching `k+1`, over the positive literals; `k >= n`
+  cannot be reached, so it is vacuous.  at-least-`k` forbids `n-k+1` of them being absent,
+  over the default-negated literals; `k <= 0` is met by every model, `k > n` (or an empty
+  member set with `k >= 1`) by none."
+  [op k member-atoms]
+  (let [n (count member-atoms)]
+    (case op
+      :at-most  (if (>= k n) :vacuous
+                    [(inc k) (mapv (fn [a] [a 1]) member-atoms)])
+      :at-least (cond (<= k 0) :vacuous
+                      (> k n)  :infeasible
+                      :else    [(- (inc n) k) (mapv (fn [a] [(- a) 1]) member-atoms)]))))
+
 (defn translate
   "Render `program` to ASPIF.  Returns
 
@@ -176,6 +216,18 @@
                                        ng]))
                                (sort-by first)
                                (mapv second)))
+         ;; Cardinality entries sorted the same content-keyed way, for the same reason:
+         ;; every emission below walks this seq, so an unsorted one renders two logically
+         ;; identical programs as different ASPIF text.
+         cardinalities (let [ck #(solve/content-key program %)]
+                         (->> (:cardinalities program)
+                              (map (fn [c]
+                                     [[(vec (sort (map ck (:members c))))
+                                       (name (:op c)) (:k c)
+                                       (boolean (:hard c)) (:priority c 1)]
+                                      c]))
+                              (sort-by first)
+                              (mapv second)))
          n         (count ordered)
          table     (atoms/new-table)
          ;; Allocate in content-key order so atom ids never depend on assertion order.
@@ -201,10 +253,24 @@
          ;; the rest are soft, minimized violations.
          hard-live (filter :hard live)
          soft-live (remove :hard live)
-         ;; Caller priorities become levels by ascending rank, clear of 0 and 1.
+         ;; A cardinality entry's members map to their atoms (sorted, so the weight body
+         ;; is content-ordered), then `card-encoding` gives its weight body or drops it as
+         ;; vacuous.  Members are contested heads, so all have atoms.
+         card-specs (into []
+                          (keep (fn [c]
+                                  (let [member-atoms (vec (sort (keep atom-of (:members c))))
+                                        enc (card-encoding (:op c) (:k c) member-atoms)]
+                                    (when-not (= :vacuous enc) (assoc c :enc enc)))))
+                          cardinalities)
+         hard-cards (filter :hard card-specs)
+         soft-cards (remove :hard card-specs)
+         ;; Caller priorities become levels by ascending rank, clear of 0 and 1 — a soft
+         ;; cardinality breach costs at its own priority alongside the soft nogoods.
          levels    (into {} (map-indexed (fn [i p] [p (+ 2 i)]))
-                         (sort (distinct (map :priority soft-live))))
+                         (sort (distinct (concat (map :priority soft-live)
+                                                 (map #(:priority % 1) soft-cards)))))
          v-atoms   (mapv (fn [ng] [ng (atoms/intern-contradiction! table (descriptor ng))]) soft-live)
+         card-v    (mapv (fn [c] [c (atoms/intern-contradiction! table (card-descriptor c))]) soft-cards)
          stmts     (concat
                     ;; believed-or-defeated
                     (map (fn [h] (aspif/choice (atom-of h))) ordered)
@@ -223,6 +289,23 @@
                                                      (mapv #(- (atom-of %)) (neg ng))))
                                (aspif/minimize (levels (:priority ng)) [[v 1]])])
                             v-atoms)
+                    ;; hard cardinality: ONE weight-body integrity constraint per group —
+                    ;; `:infeasible` (a `asp/atLeast` bound no group can meet) is an empty
+                    ;; integrity constraint, which excludes every model.
+                    (map (fn [{:keys [enc]}]
+                           (if (= :infeasible enc)
+                             (aspif/constraint [])
+                             (aspif/weight-constraint (first enc) (second enc))))
+                         hard-cards)
+                    ;; soft cardinality: the bound derives a violation atom the minimize
+                    ;; path penalizes, so breaching it costs rather than excludes.  An
+                    ;; infeasible soft bound is an unconditional violation (always costs).
+                    (mapcat (fn [[{:keys [enc priority]} v]]
+                              [(if (= :infeasible enc)
+                                 (aspif/fact v)
+                                 (aspif/weight-rule v (first enc) (second enc)))
+                               (aspif/minimize (levels (or priority 1)) [[v 1]])])
+                            card-v)
                     ;; keep as much belief as possible: a defeated atom is a false one.
                     ;; Off ⇒ plain satisfaction (no optimization to prove) — see the docstring.
                     (when (and keep-belief? (seq ordered))
@@ -235,10 +318,12 @@
                     ;; labels are how the answer set comes back
                     (map (fn [h] (aspif/show (atom-of h) (atoms/label-of-atom table (atom-of h))))
                          ordered)
-                    (map (fn [[_ v]] (aspif/show v (atoms/label-of-atom table v))) v-atoms))]
+                    (map (fn [[_ v]] (aspif/show v (atoms/label-of-atom table v))) v-atoms)
+                    (map (fn [[_ v]] (aspif/show v (atoms/label-of-atom table v))) card-v))]
      {:aspif       (when (seq stmts) (aspif/render stmts))
       :table       table
-      :by-label    (into {} (map (fn [[ng v]] [(atoms/label-of-atom table v) ng])) v-atoms)
+      :by-label    (into {} (map (fn [[ng v]] [(atoms/label-of-atom table v) ng]))
+                         (concat v-atoms card-v))
       :assumptions ordered
       :doomed      doomed})))
 
@@ -310,9 +395,13 @@
   defeat set (kept = assumptions − defeated).  `solve-context`'s `:one` mode reads a
   labeling with it.  An `:unsat` result carries no true labels, so this returns `#{}`
   (nothing kept); an `:interrupted` or `:unknown` one is refused (`:solver-failed`),
-  since its empty atom list would read the same way and mean nothing."
+  since its empty atom list would read the same way and mean nothing.  A `:best-effort`
+  result — the lowest-cost model a cancelled optimization still had in hand — reads like
+  an answer: its true labels are a valid labeling, unproven-optimal, which the imperative
+  `:one` caller wants over nothing.  The belief path (`edge-solver`) does NOT come here;
+  it holds `answered?` to a proven result so a wall clock never moves belief (ns docstring)."
   [{:keys [table assumptions]} result]
-  (when-not (or (answered? result) (= :unsat (:status result)))
+  (when-not (or (answered? result) (contains? #{:unsat :best-effort} (:status result)))
     (unanswered! :label result))
   (let [true-labels (set (:atoms result))]
     (into #{} (filter #(true-labels (atoms/label-of-atom table (atoms/atom-of-sentex table %))))
@@ -443,6 +532,9 @@
                                :msg  "the ASP program was unsatisfiable; deciding with the local solver"
                                :data {:assumptions (count (:assumptions t))}})
                   (solve/solve solve/local-solver program))
-              ;; `:interrupted` (the time limit) or `:unknown`: no witness to read, and
-              ;; the stub's answer is a different solver's, not this one's.
+              ;; `:interrupted` / `:unknown` (no witness), and `:best-effort` (a witness,
+              ;; but one a longer budget might improve): all decide nothing here.  The
+              ;; imperative `:one` reader takes a `:best-effort` model — a caller asked for
+              ;; a labeling under a deadline — but belief must not turn on a wall clock, so
+              ;; this path holds out for a proven answer and otherwise leaves the round be.
               :else (undecided t (unanswered-ex :label result)))))))))

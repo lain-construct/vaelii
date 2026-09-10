@@ -52,9 +52,9 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [vaelii.host.llm.protocol :as llm-protocol]
             [vaelii.impl.io.snapshot :as snapshot]
             [vaelii.impl.kv :as kv]
-            [vaelii.impl.llm.protocol :as llm-protocol]
             [vaelii.impl.protocols :as protocols]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.solve :as solve])

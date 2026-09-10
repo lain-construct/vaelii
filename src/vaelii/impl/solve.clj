@@ -36,7 +36,14 @@
            [assumptions        ; #{handle} — contested defeasible nodes (never known-true)
             fixed              ; #{handle} — known-true background referenced by a contradiction
             contradictions     ; [{:nogood #{handle} :priority int :sentence any}]
-            content])          ; {handle {:sentence s :context c}} — what each assumption SAYS
+            content            ; {handle {:sentence s :context c}} — what each assumption SAYS
+            cardinalities])    ; [{:op :at-most|:at-least :k int :members #{handle} :hard bool
+                               ;   :priority int :sentence any}] — a bound on how many of a set
+                               ;   of choice heads may/must hold.  A labeling-only construct
+                               ;   (docs/solving.md): `solve-context` grounds a `asp/atMost` /
+                               ;   `asp/atLeast` rule into these, and only the ASP backend solves
+                               ;   them — a solve carrying one always has a reachable backend, so
+                               ;   `local-solver` below never receives it.
 
 (defn nogood-members
   "Every handle a nogood involves — its positive members (`:nogood`, forbidden to hold
@@ -52,12 +59,17 @@
 
   `content` maps each contested handle to what it asserts.  A solver needs it to
   break ties on *what a datum says* rather than on its handle; a real ASP backend
-  needs it to name atoms stably across runs."
-  [contested nogoods content]
-  (let [contested (set contested)
-        relevant  (filterv #(seq (set/intersection (nogood-members %) contested)) nogoods)
-        fixed     (into #{} (comp (mapcat nogood-members) (remove contested)) relevant)]
-    (->Program contested fixed relevant (select-keys content contested))))
+  needs it to name atoms stably across runs.
+
+  `cardinalities` (optional, default none) are at-most-`k` / at-least-`k` bounds over
+  the contested heads — `solve-context` grounds `asp/atMost` / `asp/atLeast` rules into
+  them.  Their members are contested heads already, so they contribute no `fixed`."
+  ([contested nogoods content] (program contested nogoods content []))
+  ([contested nogoods content cardinalities]
+   (let [contested (set contested)
+         relevant  (filterv #(seq (set/intersection (nogood-members %) contested)) nogoods)
+         fixed     (into #{} (comp (mapcat nogood-members) (remove contested)) relevant)]
+     (->Program contested fixed relevant (select-keys content contested) (vec cardinalities)))))
 
 (defn content-key
   "A stable total order on contested assumptions, derived from **what they assert**.

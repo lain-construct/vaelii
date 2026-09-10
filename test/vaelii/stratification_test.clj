@@ -65,7 +65,7 @@
   ;;   p -> R1 concludes p.
   (tu/with-terms [base p q r CxCyc]
     (is (v/assert kb (except-rule (list r '?x) [(list base '?x)] (list p '?x)) CxCyc))
-    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) CxCyc))
+    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) CxCyc {:direction :forward}))
     (let [data (refusal kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxCyc)]
       (testing "the third rule closes a cycle with one negative edge in it"
         (is (= :not-stratified (:type data)))))))
@@ -100,7 +100,7 @@
   (tu/with-terms [base flightless penguin p CxBird]
     (is (v/assert kb (except-rule (list flightless '?x) [(list base '?x)] (list p '?x))
                   CxBird))
-    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxBird))))
+    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxBird {:direction :forward}))))
 
 (tu/deftest-kb a-cycle-that-runs-through-a-negated-antecedent-is-refused
   ;; The antecedent index keys a negation by its body's predicate (`[:not flies]`) and
@@ -130,7 +130,7 @@
                   CxNeg))
     (is (v/assert kb (vr/rule-sentence [(list birdy '?x) (list staysPut '?x)]
                                        (list grounded '?x))
-                  CxNeg))))
+                  CxNeg {:direction :forward}))))
 
 ;; ---- positive recursion is not a cycle through negation ------------------
 ;; DECISION: "A purely positive cycle is ordinary recursion, which the engine
@@ -152,14 +152,14 @@
     (testing "a rule whose antecedent is its own consequent's predicate is recursion"
       (is (v/assert kb (vr/rule-sentence [(list path '?x '?y) (list link '?y '?z)]
                                          (list path '?x '?z))
-                    CxRec)))))
+                    CxRec {:direction :forward})))))
 
 (tu/deftest-kb mutual-positive-recursion-is-accepted
   (tu/with-terms [a b CxMut]
     (unrelated-excepted-rule! kb CxMut)
-    (is (v/assert kb (vr/rule-sentence [(list a '?x)] (list b '?x)) CxMut))
+    (is (v/assert kb (vr/rule-sentence [(list a '?x)] (list b '?x)) CxMut {:direction :forward}))
     (testing "the rule closing the positive loop is accepted — it crosses no negation"
-      (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) CxMut)))))
+      (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) CxMut {:direction :forward})))))
 
 (tu/deftest-kb a-recursive-rule-may-carry-an-exception-on-something-outside-the-loop
   ;; The negative edge exists and leads out of the cycle rather than around it, so

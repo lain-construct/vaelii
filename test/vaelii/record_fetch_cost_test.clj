@@ -122,7 +122,7 @@
   []
   (let [kb (fresh)]
     (v/assert kb (rules/rule-sentence ['(rfSrc ?x ?y)] '(rfDst ?x ?y))
-              'CxPerf {:strength :monotonic})
+              'CxPerf {:direction :forward :strength :monotonic})
     (fn [] (dotimes [i n]
              (v/assert kb (list 'rfSrc (ind "RfR" i) (ind "RfS" i)) 'CxPerf {})))))
 

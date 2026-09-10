@@ -15,12 +15,12 @@
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.point :as pt]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
-            [vaelii.impl.seed :as seed]
             [vaelii.test-util :as tu]))
 
 ;; A fresh KB per test: the CxCore grammar, the CxTime vocabulary that states

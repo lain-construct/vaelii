@@ -89,3 +89,33 @@
     (testing ":direction opt matches the virtual-predicate behavior"
       (is (empty? (v/sentexes-matching kb (list ancestorOf tom bob) 'CxFam)))
       (is (v/provable? kb (list ancestorOf tom bob) 'CxFam)))))
+
+(tu/deftest-kb bare-rule-is-backward-by-default
+  (let [parentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred)
+        tom (tu/tmp-ind) bob (tu/tmp-ind)
+        rule (vr/rule-sentence [(list parentOf '?x '?y)] (list ancestorOf '?x '?y))]
+    (v/assert kb rule 'CxFam)                                  ; a bare implies
+    (v/assert kb (list parentOf tom bob) 'CxFam)
+    (testing "a bare rule is backward by default — it does not forward-materialize"
+      (is (empty? (v/sentexes-matching kb (list ancestorOf tom bob) 'CxFam)))
+      (is (= :backward (:direction (v/sentex kb (v/handle-of kb rule 'CxFam))))))
+    (testing "but it still answers backward queries"
+      (is (v/provable? kb (list ancestorOf tom bob) 'CxFam)))))
+
+(tu/deftest-kb forward-only-rule-forward-chains-but-is-not-backward-usable
+  ;; The fourth direction, a tests-only mode: set/forwardOnlyRule forward-chains like
+  ;; set/forwardRule but is never used in backward proof.  The shipped ontology uses
+  ;; set/forwardRule (forward + backward), never this.
+  (let [parentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred)
+        tom (tu/tmp-ind) bob (tu/tmp-ind)
+        rule (vr/rule-sentence [(list parentOf '?x '?y)] (list ancestorOf '?x '?y))]
+    (v/assert kb (list 'set/forwardOnlyRule rule) 'CxFam)
+    (v/assert kb (list parentOf tom bob) 'CxFam)
+    (let [sx (v/sentex kb (v/handle-of kb (list 'set/forwardOnlyRule rule) 'CxFam))]
+      (testing "the record carries :forward-only"
+        (is (= :forward-only (:direction sx))))
+      (testing "it forward-chains its consequent, like a forward rule"
+        (is (seq (v/sentexes-matching kb (list ancestorOf tom bob) 'CxFam))))
+      (testing "the chainers read it forward-capable but not backward-capable"
+        (is (vr/forward-sentex? sx))
+        (is (not (vr/backward-sentex? sx)))))))

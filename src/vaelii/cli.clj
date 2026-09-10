@@ -4,9 +4,9 @@
   "Drive a KB from the shell: assert, match, query, and an interactive REPL.
 
   Public because it is a documented entry point — `lein cli`, or
-  `lein run -m vaelii.cli`.  The implementation is `vaelii.impl.cli`, which is free to
+  `lein run -m vaelii.cli`.  The implementation is `vaelii.host.cli`, which is free to
   change."
-  (:require [vaelii.impl.cli :as cli]))
+  (:require [vaelii.host.cli :as cli]))
 
 (defn open-kb-from
   "The KB a set of parsed CLI options names — `--dir` for the durable `:disk-log` backend

@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-oracle-test
-  "The outside judge (`vaelii.impl.llm.oracle`): the KB's own conclusions glossed into
+  "The outside judge (`vaelii.host.llm.oracle`): the KB's own conclusions glossed into
   English, put to a model, and answered agree / disagree / unsure.
 
   Everything here but the last test runs against the offline stub, so the machinery — the
@@ -17,11 +17,11 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.llm.ollama :as ollama]
-            [vaelii.impl.llm.oracle :as oracle]
-            [vaelii.impl.llm.score :as score]
-            [vaelii.impl.llm.stub :as stub]
-            [vaelii.impl.starter :as starter]
+            [vaelii.host.llm.ollama :as ollama]
+            [vaelii.host.llm.oracle :as oracle]
+            [vaelii.host.llm.score :as score]
+            [vaelii.host.llm.stub :as stub]
+            [vaelii.host.starter :as starter]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
@@ -209,7 +209,7 @@
     ;; has to be built.
     (tu/with-terms [Rex]
       (v/assert kb (list 'dog Rex) N {:strength :monotonic})
-      (v/assert kb '(implies (and (dog ?x)) (hasCapability ?x travelling)) N {:strength :monotonic})
+      (v/assert kb '(implies (and (dog ?x)) (hasCapability ?x travelling)) N {:direction :forward :strength :monotonic})
       (let [travels (first (oracle/claims kb [(v/handle-of kb (list 'hasCapability Rex 'travelling) N)]))]
         (is (= :monotonic (:strength travels)))
         (is (str/includes? (oracle/report (judged [travels] [[0 :false]])) "[monotonic]"))))))
@@ -230,7 +230,7 @@
 (deftest the-oracle-namespace-calls-no-writer
   ;; The source-level half of the same invariant: a namespace that never names a writer
   ;; cannot write, whatever a future edit does to its logic.
-  (let [src (slurp (io/file "src/vaelii/impl/llm/oracle.clj"))]
+  (let [src (slurp (io/file "src/vaelii/host/llm/oracle.clj"))]
     (doseq [writer ["v/assert" "v/retract!" "v/edit!" "v/apply-" "v/ist"]]
       (is (not (str/includes? src writer))
           (str "oracle.clj names " writer " — the judge is a read")))))

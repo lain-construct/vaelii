@@ -431,7 +431,7 @@ The `Host` allowlist drop is not held to the same refusal — a daemon fronted b
 reverse proxy legitimately receives whatever `Host` the proxy sets, and an operator
 cannot always enumerate that in advance, so a refusal here would trip a normal
 deployment as often as a broken one. Left unset, the daemon starts anyway and warns
-once (`:id :vaelii.impl.serve/open-hosts`) rather than staying silent; the startup
+once (`:id :vaelii.host.serve/open-hosts`) rather than staying silent; the startup
 line's `:hosts` — `:allowlisted` or `:open` — says which policy is in force, beside
 `:auth`. `VAELII_ALLOWED_HOSTS` (comma-separated) names the hosts a public bind should
 answer and silences the warning. [operations.md](operations.md).
@@ -511,6 +511,7 @@ so one vocabulary reads both.
 | `:bad-handle` | a handle argument that is not one handle — a collection where one was wanted, or a value that is no handle at all | [api.md](api.md) |
 | `:bad-host` | the daemon's `Host` allowlist does not recognize the header the request carried | [operations.md](operations.md) |
 | `:bad-level` | a `lookup` level or an `escalate` floor outside the stack's range | [levels.md](levels.md) |
+| `:bad-pattern` | a `matchesPattern` pattern argument the regex engine cannot compile, refused at the assert entry point rather than left to fail silently at query time | [defns.md](defns.md) |
 | `:bad-registrant` | a durability registrant's key, value or `:phase` is not one the close sequence reads | [storage.md](storage.md) |
 | `:bad-reply` | the daemon's reply does not read as EDN, or is not a map | [operations.md](operations.md) |
 | `:bad-snapshot` | an index snapshot file's magic number is not this engine's — the index rebuilds from the records, which are untouched | [storage.md](storage.md) |

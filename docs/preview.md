@@ -222,7 +222,7 @@ node in a KB whose belief was never built — are one function (`teardown-refusa
 A preview is a write followed by its undo, so it holds the single writer for its
 duration ([storage.md](storage.md), "The single-writer contract"). It is not a read.
 
-That is also why it is filed with the writes in `serve/ops` and `vaelii.impl.access`,
+That is also why it is filed with the writes in `serve/ops` and `vaelii.host.access`,
 though it stores nothing: a remote client gets the same answer over the daemon
 ([operations.md](operations.md)), because the daemon *is* the single writer.
 
@@ -252,7 +252,7 @@ the two readings need no snapshot between them: a candidate believed then was be
 all along, and a handle the rollback took away reads as not believed, which is exactly
 right since it did not exist.
 
-Measured over generated corpora (`vaelii.impl.io.generate`, 40 predicates / 200 types,
+Measured over generated corpora (`vaelii.host.io.generate`, 40 predicates / 200 types,
 one hand-added rule, a batch of one fact that fires it; median of fifteen after a
 warm-up):
 

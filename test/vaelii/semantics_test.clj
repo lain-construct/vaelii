@@ -55,7 +55,7 @@
 (tu/deftest-kb specificity-in-matching
   (let [dog (tu/tmp-type) animal (tu/tmp-type) breathes (tu/tmp-pred) muffet (tu/tmp-ind)]
     (v/assert kb (list 'genl dog animal) 'CxUniverse)
-    (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'CxUniverse)
+    (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'CxUniverse {:direction :forward})
     (v/assert kb (list dog muffet) 'CxUniverse)
     (testing "a rule about animals fires on a dog (subtype), without materializing (animal Muffet)"
       (is (seq (v/sentexes-matching kb (list breathes muffet) 'CxUniverse)))
@@ -67,7 +67,7 @@
     (v/assert kb (list 'genlCx 'CxBio 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx 'CxCore 'CxUniverse) 'CxUniverse)
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z)
-                   'CxUniverse {:chain? false})            ; universal rule
+                   'CxUniverse {:direction :forward :chain? false})            ; universal rule
     (v/assert kb (list parentOf tom bob) 'CxBio)             ; specific facts
     (v/assert kb (list parentOf bob ann) 'CxBio)
     (testing "justification lands in the maximal context that sees rule + facts"
@@ -78,7 +78,7 @@
   (let [dog (tu/tmp-type) animal (tu/tmp-type) breathes (tu/tmp-pred) muffet (tu/tmp-ind)]
     (v/assert kb (list 'genl dog animal) 'CxUniverse)
     (v/assert kb (list 'genlCx 'CxBio 'CxUniverse) 'CxUniverse)
-    (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'CxUniverse {:chain? false})  ; universal rule
+    (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'CxUniverse {:direction :forward :chain? false})  ; universal rule
     (v/assert kb (list dog muffet) 'CxBio)                    ; specific, subtype fact
     (testing "the dog (subtype) fires the animal rule, and the justification lands in CxBio"
       (is (seq   (v/sentexes-matching kb (list breathes muffet) 'CxBio)))
@@ -86,7 +86,7 @@
 
 (tu/deftest-kb retracting-a-rule-removes-its-justifications
   (let [parentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred) tom (tu/tmp-ind) bob (tu/tmp-ind)
-        rule-h (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) 'CxUniverse)]
+        rule-h (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) 'CxUniverse {:direction :forward})]
     (v/assert kb (list parentOf tom bob) 'CxUniverse)
     (is (seq (v/sentexes-matching kb (list ancestorOf tom bob) 'CxUniverse)))
     (v/retract! kb rule-h)

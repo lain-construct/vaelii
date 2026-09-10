@@ -17,7 +17,7 @@
   leaves the base standing; and a swept context stays swept across a durable reopen."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.disk.backend :as disk-backend]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.nat :as nat]

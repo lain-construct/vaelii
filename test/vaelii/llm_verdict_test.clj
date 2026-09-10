@@ -1,14 +1,14 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-verdict-test
-  "The four-axis reading of a proposed batch (`vaelii.impl.llm.verdict`) — what the KB
+  "The four-axis reading of a proposed batch (`vaelii.host.llm.verdict`) — what the KB
   refuses, what shape a line should have been in, what vocabulary it invents, and what
   the engine could not decide.
 
   No model anywhere: a verdict is computed from a batch, and a batch is data."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.llm.verdict :as verdict]
+            [vaelii.host.llm.verdict :as verdict]
             [vaelii.test-util :as tu]))
 
 ;; the corrections read the shipped schema — arg constraints, declared arities, the

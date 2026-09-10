@@ -107,7 +107,7 @@
 
 (tu/deftest-kb a-forward-derived-genl-reaches-the-taxonomy
   (tu/with-terms [marker foo_t bar_t Trigger1 CxStory]
-    (v/assert-rule kb [(list marker '?x)] (list 'genl foo_t bar_t) CxStory {:chain? false})
+    (v/assert-rule kb [(list marker '?x)] (list 'genl foo_t bar_t) CxStory {:direction :forward :chain? false})
     (v/assert kb (list marker Trigger1) CxStory)
     (testing "the rule fired and the sentex is believed"
       (is (seq (v/sentexes-matching kb (list 'genl foo_t bar_t) CxStory))))
@@ -116,7 +116,7 @@
 
 (tu/deftest-kb recover-agrees-with-the-running-kb
   (tu/with-terms [marker foo_t bar_t Trigger1 CxStory]
-    (v/assert-rule kb [(list marker '?x)] (list 'genl foo_t bar_t) CxStory {:chain? false})
+    (v/assert-rule kb [(list marker '?x)] (list 'genl foo_t bar_t) CxStory {:direction :forward :chain? false})
     (v/assert kb (list marker Trigger1) CxStory)
     (let [before (tax/genl?-global (:taxonomy kb) foo_t bar_t)]
       (v/recover kb)
@@ -181,7 +181,7 @@
   ;; retracting the trigger sweeps it.
   (tu/with-terms [flag Switch Aa Bb]
     (v/assert kb (list 'implies (list flag '?s) (list 'sameAs Aa Bb)) 'CxUniverse
-              {:strength :monotonic})
+              {:direction :forward :strength :monotonic})
     (let [h   (v/assert kb (list flag Switch) 'CxUniverse)
           eq  #(:equality @(:taxonomy kb))
           e   (first (:handles (eq)))]
@@ -247,7 +247,7 @@
         (is (not (v/in? kb hp))))
       (v/assert-rule kb [(list qq '?x)]
                      (list 'not (list 'genlCx CxSub CxSuper))
-                     'CxUniverse)
+                     'CxUniverse {:direction :forward})
       (let [ht (v/assert kb (list qq Trigger) 'CxUniverse {:strength :monotonic})]
         (testing "the derived monotonic negation defeats the edge"
           (is (not (tax/sees? (:taxonomy kb) CxSub CxSuper)))

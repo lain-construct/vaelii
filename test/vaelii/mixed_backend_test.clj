@@ -81,7 +81,7 @@
   [kb]
   (v/assert kb '(genl dog animal) 'CxMixed {:strength :monotonic})
   (v/assert kb '(genl animal thing) 'CxMixed {:strength :monotonic})
-  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'CxMixed)
+  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'CxMixed {:direction :forward})
   (v/assert kb '(dog Muffet) 'CxMixed {:strength :monotonic})
   (v/assert kb '(cat Tom) 'CxMixed {:strength :monotonic})
   (v/assert kb '(ownerOf Ann Muffet) 'CxMixed {:strength :monotonic})

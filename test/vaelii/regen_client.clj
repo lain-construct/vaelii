@@ -5,7 +5,7 @@
   table.
 
   **The op table is the single source, and the client cannot read it.**
-  `vaelii.impl.serve/ops` names a `vaelii.core` fn per op; `vaelii.impl.client` runs no
+  `vaelii.host.serve/ops` names a `vaelii.core` fn per op; `vaelii.host.client` runs no
   engine and requires neither, which is the whole of what \"a client is a thin thing\"
   means — so the two cannot be joined at load time by a macro without dragging the
   engine, jetty and reitit onto the classpath of a namespace whose point is not needing
@@ -25,7 +25,7 @@
   how a red is silenced."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [vaelii.impl.serve :as serve]))
+            [vaelii.host.serve :as serve]))
 
 (def begin-marker
   "The line the generated section starts after.  Matched whole, so a section boundary
@@ -128,7 +128,7 @@
            ")\n"))))
 
 (defn- direct-body
-  "`vaelii.impl.client`'s body: the op and its args, over `call`."
+  "`vaelii.host.client`'s body: the op and its args, over `call`."
   [op]
   (fn [sig] (str "(call conn " op " [" (str/join " " (rest sig)) "])")))
 
@@ -162,7 +162,7 @@
   the shim is where a reader looks first, so prose written for `why` or `belief-status`
   is worth more than a generated line, and the coverage claim is the same either way —
   `client_surface_test` asks whether a wrapper exists, not who wrote it."
-  [{:path "src/vaelii/impl/client.clj" :body :direct   :skip-hand-written? false}
+  [{:path "src/vaelii/host/client.clj" :body :direct   :skip-hand-written? false}
    {:path "src/vaelii/client.clj"      :body :delegate :skip-hand-written? true}])
 
 (defn- defined-names

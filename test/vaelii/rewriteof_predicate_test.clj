@@ -87,7 +87,7 @@
 
 (tu/deftest-kb a-rule-on-the-deprecated-predicate-fires-under-the-representative
   (tu/with-terms [bornIn birthplaceOf knownPlace Ada London CxName]
-    (v/assert-rule kb [(list birthplaceOf '?x '?c)] (list knownPlace '?c) CxName)
+    (v/assert-rule kb [(list birthplaceOf '?x '?c)] (list knownPlace '?c) CxName {:direction :forward})
     (v/assert kb (list birthplaceOf Ada London) CxName)
     (testing "before the merge the rule concludes under the deprecated predicate"
       (is (believed? kb (list knownPlace London) CxName)))
@@ -111,7 +111,7 @@
             (tu/with-neutral-kb [kb tu/fresh]
               (tu/with-terms [bornIn birthplaceOf knownPlace Ada London CxName]
                 (let [rule! #(v/assert-rule kb [(list birthplaceOf '?x '?c)]
-                                            (list knownPlace '?c) CxName)
+                                            (list knownPlace '?c) CxName {:direction :forward})
                       fact! #(v/assert kb (list birthplaceOf Ada London) CxName)
                       merge! #(v/assert kb (list 'rewriteOf bornIn birthplaceOf) CxName)]
                   (doseq [op order] (op {:rule rule! :fact fact! :merge merge!}))
@@ -132,7 +132,7 @@
 (tu/deftest-kb rule-migration-preserves-defeasibility
   (tu/with-terms [bornIn birthplaceOf knownPlace Ada London CxName]
     (v/assert kb (list 'set/defaultRule
-                       (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c)))
+                       (list 'set/forwardRule (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c))))
               CxName)
     (v/assert kb (list birthplaceOf Ada London) CxName)
     (v/assert kb (list 'rewriteOf bornIn birthplaceOf) CxName)
@@ -164,7 +164,7 @@
     ;; birthplaceOf x c  =>  knownPlace c, EXCEPT when (secret x) — exception on a
     ;; *different* predicate than the one that will be merged
     (v/assert kb (list 'exceptWhen (list secret '?x)
-                       (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c)))
+                       (list 'set/forwardRule (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c))))
               CxName)
     (v/assert kb (list birthplaceOf Ada London) CxName)
     (v/assert kb (list birthplaceOf Bob Paris) CxName)
@@ -198,7 +198,7 @@
 
 (tu/deftest-kb an-exception-asserted-after-the-merge-guards-the-live-twin
   (tu/with-terms [bornIn birthplaceOf knownPlace secret Ada London Bob Paris CxName]
-    (v/assert kb (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c)) CxName)
+    (v/assert kb (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c)) CxName {:direction :forward})
     (v/assert kb (list birthplaceOf Ada London) CxName)
     (v/assert kb (list birthplaceOf Bob Paris) CxName)
     (v/assert kb (list secret Bob) CxName)
@@ -208,7 +208,7 @@
         (is (believed? kb (list knownPlace Paris) CxName) "Bob concludes — nothing guards him yet"))
       ;; NOW the exception arrives, naming the rule by its (superseded) wrapper form
       (v/assert kb (list 'exceptWhen (list secret '?x)
-                         (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c)))
+                         (list 'set/forwardRule (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c))))
                 CxName)
       (testing "the late exception re-points onto the twin and guards it"
         (is (believed? kb (list knownPlace London) CxName) "Ada is not secret — still concludes")
@@ -233,8 +233,8 @@
   ;; first arg and must still key there.
   (tu/with-terms [relOf stepOf aStepOf goalOf flagOf A B Mid End CxName]
     (v/assert kb (list 'exceptWhen (list flagOf '?x)
-                       (list 'implies (list 'and (list relOf '?x '?y) (list stepOf '?y '?z))
-                             (list goalOf '?x '?z)))
+                       (list 'set/forwardRule (list 'implies (list 'and (list relOf '?x '?y) (list stepOf '?y '?z))
+                                                    (list goalOf '?x '?z))))
               CxName)
     (v/assert kb (list relOf A Mid) CxName)
     (v/assert kb (list relOf B Mid) CxName)
@@ -255,7 +255,7 @@
     (v/assert kb (list 'implies
                        (list 'and (list birthplaceOf '?x '?c) (list 'unknown (list disputed '?c)))
                        (list knownPlace '?c))
-              CxName)
+              CxName {:direction :forward})
     (v/assert kb (list birthplaceOf Ada London) CxName)
     (testing "before the merge the NAF antecedent holds (London not disputed) → concludes"
       (is (believed? kb (list knownPlace London) CxName)))
@@ -339,7 +339,7 @@
   (tu/with-terms [bird flies penguin antarctic_bird Opus CxName]
     (v/assert kb (list 'exceptWhen (list penguin '?x)
                        (list 'set/defaultRule
-                             (list 'implies (list bird '?x) (list flies '?x))))
+                             (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x)))))
               CxName)
     (v/assert kb (list bird Opus) CxName)
     (v/assert kb (list penguin Opus) CxName)
@@ -359,7 +359,7 @@
 (tu/deftest-kb an-individual-merge-does-not-migrate-a-rule
   (tu/with-terms [likes friendly Tom Thomas Ann CxName]
     ;; a rule mentioning an individual constant Tom
-    (let [rule (v/assert-rule kb [(list likes '?x Tom)] (list friendly '?x) CxName)]
+    (let [rule (v/assert-rule kb [(list likes '?x Tom)] (list friendly '?x) CxName {:direction :forward})]
       (v/assert kb (list 'rewriteOf Tom Thomas) CxName)   ; individuals: Thomas retired
       (testing "the rule itself is left alone (migration would have superseded it)"
         (is (v/in? kb rule) "the original rule stays believed, unmigrated")

@@ -30,7 +30,7 @@
 (def ^:private asp? (solver/available?))
 
 (defn- default-rule [ante conseq]
-  (list 'set/defaultRule (list 'implies ante conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (list 'implies ante conseq))))
 
 (defn- dilemma
   "The canonical rebutting dilemma on gensym'd terms — two equally-specific defaults

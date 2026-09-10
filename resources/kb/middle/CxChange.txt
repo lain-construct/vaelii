@@ -50,18 +50,20 @@
 ;; Left to chain forward, so the unknown below can read it. Both bounds come from the
 ;; ordering the narrative's instantBefore edges imply, so the derived extent is bounded by
 ;; what the narrative says about time.
-(implies (and (happens ?event ?instant)
-              (terminates ?event ?fluent ?instant)
-              (instantBefore ?instant1 ?instant)
-              (instantBefore ?instant ?instant2))
-         (clipped ?instant1 ?fluent ?instant2))
+(set/forwardRule
+ (implies (and (happens ?event ?instant)
+               (terminates ?event ?fluent ?instant)
+               (instantBefore ?instant1 ?instant)
+               (instantBefore ?instant ?instant2))
+          (clipped ?instant1 ?fluent ?instant2)))
 
 ;; The half-open reading, for a fluent that was the case at the outset: nothing named the
 ;; moment it began, so there is no lower bound to state.
-(implies (and (happens ?event ?instant1)
-              (terminates ?event ?fluent ?instant1)
-              (instantBefore ?instant1 ?instant2))
-         (clippedBefore ?fluent ?instant2))
+(set/forwardRule
+ (implies (and (happens ?event ?instant1)
+               (terminates ?event ?fluent ?instant1)
+               (instantBefore ?instant1 ?instant2))
+          (clippedBefore ?fluent ?instant2)))
 
 ;; ---- inertia: a state persists until something ends it -------------------
 ;; Backward, and one literal of negation as failure. clipped is its own predicate rather

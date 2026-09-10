@@ -552,11 +552,16 @@
                             " content stored before it"))]
      ['arityMin
       (enforced {:shape {:args [:relation :integer]} :storage [:none] :checked false
-                 :family nil :facets #{}
-                 :notes (str "ordinary CxCore rules derive the at_least_*_relation"
-                             " classifications. No WFF"
-                             " or constraint reader consumes the declaration.")}
-                "ordinary rule inference in CxCore; no WFF/constraint reader")]
+                 :family nil :facets #{:convicts}
+                 :stops-short {:reach (str "the assert-time floor is landed;"
+                                           " a late arityMin does not yet re-file the"
+                                           " too-short applications stored before it, the"
+                                           " retroactive half report-arity-reach! supplies"
+                                           " for the exact length.")}
+                 :notes (str "checks/arity-problem refuses a variable-arity application"
+                             " shorter than the declared minimum. Ordinary CxCore rules"
+                             " also derive the at_least_*_relation classifications.")}
+                "checks/arity-problem floors a variable-arity application at the minimum")]
      ['relationTypeByArity
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
                  :family nil :facets #{}
@@ -579,12 +584,21 @@
                              " types reach the relation-wide mapping by genl instead.")}
                 "genl specialization of relationTypeByArity")]
      ['admitsArgnum
-      (inert {:shape {:args [:relation :position]} :storage [:none] :checked false
-              :family nil :facets #{}
-              :notes (str "names whether one positive argument position exists in a"
-                          " well-formed application. No finite facts or parallel"
-                          " inference are installed; no WFF/query reader consumes it.")}
-             "documentary position question with no runtime reader")]
+      (enforced {:shape {:args [:relation :position]} :storage [:none] :checked false
+                 :family nil :facets #{:answers}
+                 :stops-short
+                 {:retriggers
+                  (str "answered fresh at query time by provers/AdmitsArgnumProver from the"
+                       " relation's declared arity and variable-arity mark; it stores no"
+                       " declaration and licenses no forward inference, so a query"
+                       " re-evaluates against current belief and no firing predates it to"
+                       " re-check.")}
+                 :notes
+                 (str "the position query: (admitsArgnum R n) holds when positive position n"
+                      " exists in a well-formed application of R. Answered through"
+                      " provers/admits-position?, the one decision checks/arg-position-problem"
+                      " refuses against, so the query and the refusal cannot disagree.")}
+                "provers/AdmitsArgnumProver — the position query over a relation's arity")]
      ['functionalInArg {:shape   {:args [:predicate :position]}
                         :storage [:pred-position :functional-in-arg]
                         :checked true
@@ -773,6 +787,68 @@
                                               " where every other type position reads up genl."))
                            "checks/inter-args-problem — the conditional form, same two paths")]
 
+     ;; ---- the covering constraints: a whole tail typed at once ------------
+     ;; `args` / `argsGenl` type every accepted position, `argAndRest` / `argAndRestGenl`
+     ;; every position from a start onward — the generalizations of `arg` / `genlArg`
+     ;; for a variable-arity tail.  Convict-and-answer only, like `quotedArg`: each stops
+     ;; short of `:reach` because the family's reach mints and a covering constraint mints
+     ;; nothing, and short of `:retriggers` because it posts no exception re-check.
+     ['args (enforced (assoc (prop :declares-args-isa :arg :relation
+                                   :facets #{:convicts :answers})
+                             :shape  {:args [:relation :type]}
+                             :family :argument-constraint
+                             :stops-short
+                             {:reach
+                              (str "the family's reach is special/entail-existing, which"
+                                   " MINTS what a late declaration now says about stored"
+                                   " tuples, and a covering constraint mints nothing: it"
+                                   " convicts a tail value, it does not draw a membership."
+                                   " A conviction reach — refusing the stored tuples a late"
+                                   " args now rejects — is an arity-shaped report and a"
+                                   " different mechanism from this facet's, the same"
+                                   " stop-short arityMin records.")
+                              :retriggers
+                              (str "it answers goals about the predicate at argument 1 but"
+                                   " licenses no inference that is a stored sentex reaching"
+                                   " an exception, so it is absent from"
+                                   " special/declaration-subjects and posts no re-check —"
+                                   " quotedArg's reason at the covering arity.")}
+                             :notes (str "the every-position instance twin of arg: one"
+                                         " declaration types the whole admitted tail, read"
+                                         " through the shared declaration reader so a"
+                                         " super-predicate's covering constraint binds a"
+                                         " sub-predicate's tuples."))
+                      "checks/covering-args-problem — every accepted position typed as an instance")]
+     ['argsGenl (enforced (assoc (prop :declares-args-genl :arg :relation
+                                       :facets #{:convicts :answers})
+                                 :shape  {:args [:relation :type]}
+                                 :family :argument-constraint
+                                 :stops-short
+                                 {:reach "the same one level up — see args."
+                                  :retriggers "the same one level up — see args."}
+                                 :notes "the every-position subtype twin of genlArg — see args.")
+                          "checks/covering-genls-problem — every accepted position typed as a subtype")]
+     ['argAndRest (enforced (assoc (prop :declares-arg-and-rest-isa :arg :relation
+                                         :facets #{:convicts :answers})
+                                   :shape  {:args [:relation :position :type]}
+                                   :family :argument-constraint
+                                   :stops-short
+                                   {:reach "the same as args, a tail from a start — see args."
+                                    :retriggers "the same as args — see args."}
+                                   :notes (str "the tail-from-a-start instance form: position"
+                                               " and every later one, the prefix below the"
+                                               " start excluded.  args is argAndRest at 1."))
+                            "checks/covering-args-problem — position n onward typed as an instance")]
+     ['argAndRestGenl (enforced (assoc (prop :declares-arg-and-rest-genl :arg :relation
+                                             :facets #{:convicts :answers})
+                                       :shape  {:args [:relation :position :type]}
+                                       :family :argument-constraint
+                                       :stops-short
+                                       {:reach "the same as argAndRest — see args."
+                                        :retriggers "the same as argAndRest — see args."}
+                                       :notes "the tail-from-a-start subtype form — see argAndRest.")
+                                "checks/covering-genls-problem — position n onward typed as a subtype")]
+
      ;; ---- the argument-preserving declarations ---------------------------
      ['transitiveInArg        (enforced (wff-only [:relation :position :relation-name]
                                                   :facets #{:answers})
@@ -800,6 +876,17 @@
                                 (str "special/materialize-defn-rules — both directions, the necessary rule"
                                      " and the sufficient one"))]
 
+     ;; ---- a definitional collection relation over kinds -------------------
+     ['intersection
+      (enforced {:shape {:args [] :variadic :type} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "a definitional collection relation: its facts drive CxCore"
+                             " rules that make the combined kind genl each type it"
+                             " intersects and conclude membership from the conjuncts.")}
+                (str "ordinary CxCore rule inference — (intersection ?combined . ?types)"
+                     " drives the intersection -> genl rules and a membership generator"
+                     " (binary and ternary; general arity pends list-membership vocabulary)"))]
+
      ;; ---- the query operators --------------------------------------------
      ['different   (operator {:args [] :variadic :term}
                              :notes (str "answered from the equality closure. Being"
@@ -809,7 +896,13 @@
      ['unknown     (operator {:args [:sentence]})]
      ['thereExists (operator {:args [:sentence]})]
      ['forall      (operator {:args [:term :sentence]}
-                             :notes "sugar for a nested unknown, desugared at the rule entry point.")]]
+                             :notes "sugar for a nested unknown, desugared at the rule entry point.")]
+     ['bravely     (operator {:args [:sentence]}
+                             :notes (str "a read of the current dilemmas — S in some optimal"
+                                         " labeling; answered by the :brave-cautious prover."))]
+     ['cautiously  (operator {:args [:sentence]}
+                             :notes (str "a read of the current dilemmas — S in every optimal"
+                                         " labeling; answered by the :brave-cautious prover."))]]
 
     (map (fn [f] [f (enforced (operator {:args [:term :term :sentence]})
                               "the aggregate prover")])
@@ -1076,6 +1169,13 @@
                               :facets  #{:answers}
                               :notes   "a whitelist over the arithmetic operators."}
                              "the evaluable prover — a whitelist over the arithmetic operators")]
+     ['matchesPattern (enforced {:shape   {:args [:term :term]}
+                                 :storage [:none] :checked false :family nil
+                                 :facets  #{:answers}
+                                 :notes   (str "the string-shape check: (matchesPattern s pattern) holds when the"
+                                               " whole of s matches the regex pattern, both ground strings."
+                                               " Computed by the evaluable prover through a step-limited matcher.")}
+                                "the evaluable prover — a step-limited whole-string regex match")]
 
      ;; ---- the reified-term vocabulary -------------------------------------
      ['termOfUnit (enforced {:shape {:args [:term :term]} :storage [:none] :checked false

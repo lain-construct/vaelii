@@ -525,8 +525,8 @@
   (tu/with-terms [seenA seenB derivedQ Subject CxBase]
     (let [ops   {:fA  #(v/assert % (list seenA Subject) CxBase)
                  :fB  #(v/assert % (list seenB Subject) CxBase)
-                 :r1  #(v/assert-rule % [(list seenA '?x)] (list derivedQ '?x) CxBase)
-                 :r2  #(v/assert-rule % [(list seenB '?x)] (list derivedQ '?x) CxBase)
+                 :r1  #(v/assert-rule % [(list seenA '?x)] (list derivedQ '?x) CxBase {:direction :forward})
+                 :r2  #(v/assert-rule % [(list seenB '?x)] (list derivedQ '?x) CxBase {:direction :forward})
                  :neg #(v/assert % (list 'not (list derivedQ Subject)) CxBase)}
           sent  (fn [kb x] (if (integer? x) (:sentence (v/sentex kb x)) x))
           read! (fn [order]

@@ -31,7 +31,7 @@
           ;; chain4(?x,?w) :- a(?x,?y) ∧ b(?y,?z) ∧ c(?z,?w) — a three-way join, so
           ;; whichever fact triggers, two non-trigger antecedents are joined + planned
           (v/assert-rule kb [(list a '?x '?y) (list b '?y '?z) (list c '?z '?w)]
-                         (list chain4 '?x '?w) ctx)
+                         (list chain4 '?x '?w) ctx {:direction :forward})
           (doseq [f [(list a X Y1) (list a X Y2)
                      (list b Y1 Z1) (list b Y2 Z2)
                      (list c Z1 W1) (list c Z2 W2)]]
@@ -55,7 +55,7 @@
           (v/assert-rule kb [(list birthYear '?a '?ya)
                              (list birthYear '?b '?yb)
                              (list 'lessThan '?ya '?yb)]
-                         (list olderThan '?a '?b) ctx)
+                         (list olderThan '?a '?b) ctx {:direction :forward})
           (v/assert kb (list birthYear P1 1940) ctx)
           (v/assert kb (list birthYear P2 1980) ctx)
           (set (map #(vec (rest (:sentence %))) (v/sentexes-matching kb (list olderThan '?a '?b) ctx))))

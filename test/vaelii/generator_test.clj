@@ -125,7 +125,10 @@
     (let [minted (first (stamped kb 'CxUniverse))]
       (is (some? minted) "a rule was stamped")
       (is (:defeasible minted) "the stamped rule carries the defaultRule the template set")
-      (is (= :both (:direction minted))))))
+      ;; No direction wrapper on the stamped rule, so it takes the mint default: forward
+      ;; (forward + backward).  A set/backwardRule / set/forwardOnlyRule inside the
+      ;; consequent would set it otherwise.
+      (is (= :forward (:direction minted))))))
 
 ;; ---- a mint is derived content -------------------------------------------
 

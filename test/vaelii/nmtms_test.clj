@@ -23,7 +23,7 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- default-rule [antes conseq]
-  (list 'set/defaultRule (vr/rule-sentence antes conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 ;; ---- the headline: order independence -----------------------------------
 
@@ -59,7 +59,7 @@
         flies (tu/tmp-pred) robin (tu/tmp-ind) tweety (tu/tmp-ind)]
     (v/assert kb (list 'genl penguin bird) 'CxUniverse)
     (v/assert kb (list 'genl bird animal)  'CxUniverse)
-    (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) 'CxUniverse)   ; bare rule
+    (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) 'CxUniverse {:direction :forward})   ; bare rule
     (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)  ; defeasible default
     (v/assert kb (list bird robin) 'CxUniverse)
     (testing "Robin flies by default"

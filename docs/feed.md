@@ -273,7 +273,7 @@ is what bounds it. An event is built once per settle and shared by every listene
 `watch` takes a **function**, and a function does not cross an EDN wire — the same wall
 `:export`'s `:on-progress` hits ([operations.md](operations.md)). So the daemon's half of
 the feed is not the callback marshalled somehow; it is the one thing request/response can
-carry, which is **state with a cursor**. `vaelii.impl.subscribe` holds it, and four ops
+carry, which is **state with a cursor**. `vaelii.host.subscribe` holds it, and four ops
 reach it:
 
 ```clojure

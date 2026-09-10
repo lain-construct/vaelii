@@ -30,13 +30,13 @@
             [clojure.string :as str]
             [clojure.test :refer [is]]
             [vaelii.core :as v]
+            [vaelii.host.llm.ollama :as ollama]
+            [vaelii.host.starter :as starter]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.config :as config]
             [vaelii.impl.kb :as kb]
-            [vaelii.impl.llm.ollama :as ollama]
             [vaelii.impl.observe :as observe]
-            [vaelii.impl.protocols :as p]
-            [vaelii.impl.starter :as starter])
+            [vaelii.impl.protocols :as p])
   (:import [java.io File]))
 
 ;; ---- the switches, and the pin that hands their defaults back -----------
@@ -140,8 +140,10 @@
     (fn [f] (with-bindings* pins f))))
 
 (defmacro without-entailing
-  "Run `body` with the argument declarations read as **constraints only** — the shipped
-  reading, whatever `VAELII_ASSERTIVE_ARG_TYPES` set the root to.
+  "Run `body` with the argument declarations read as **constraints only** — the opt-out
+  reading (`VAELII_ASSERTIVE_ARG_TYPES=0`), whatever the root is set to.  Entailing is on
+  by default (docs/argtypes.md), so this is the reading a test pins when it asserts the
+  constraint-only behavior rather than the shipped one.
 
   `with-pinned`'s job for the one switch it cannot do: `shipped-defaults` captures each
   root at *this* namespace's load, and this root is set at `vaelii.impl.checks`'s, which
@@ -150,10 +152,18 @@
 
   A test wants this when what it asserts is the **refusal**: with the entailment on there
   is no `:arg-type` conviction of a symbol argument to assert, because the declaration
-  mints the type it demands rather than testing for it (docs/argtypes.md).  A test about
-  the entailment binds the var the other way and lives in `argtype_entail_test`."
+  mints the type it demands rather than testing for it (docs/argtypes.md)."
   [& body]
   `(binding [checks/*assertive-arg-types?* false] ~@body))
+
+(defmacro with-entailing
+  "Run `body` with the argument declarations read as **entailments** — the shipped
+  default reading, pinned regardless of the root so a run under
+  `VAELII_ASSERTIVE_ARG_TYPES=0` still measures it.  The mirror of `without-entailing`,
+  for a test whose subject is the entailment itself — what it mints, or what its
+  per-assert read cost is."
+  [& body]
+  `(binding [checks/*assertive-arg-types?* true] ~@body))
 
 (defmacro with-pinned
   "`pinning` around one test rather than a namespace's fixture, for a file the sweep

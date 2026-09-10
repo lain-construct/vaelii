@@ -68,8 +68,8 @@
   ;; survives — accepts this rule set instead of refusing it.
   (tu/with-terms [p q r CxMask]
     (testing "the two positive rules are fine on their own — no exception exists yet"
-      (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) CxMask))
-      (is (v/assert kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxMask)))
+      (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) CxMask {:direction :forward}))
+      (is (v/assert kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxMask {:direction :forward})))
     (let [data (refusal kb (except-rule (list r '?x) [(list q '?x)] (list p '?x))
                         CxMask)]
       (testing "the excepted rule closes a cycle whose only negative route to the
@@ -86,8 +86,8 @@
   ;; the start.  The refusal above is therefore attributable to the cycle and not to
   ;; the search visiting a node twice, and the extra state is shown not to invent one.
   (tu/with-terms [p q r base CxOpen]
-    (is (v/assert kb (vr/rule-sentence [(list base '?x)] (list q '?x)) CxOpen))
-    (is (v/assert kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxOpen))
+    (is (v/assert kb (vr/rule-sentence [(list base '?x)] (list q '?x)) CxOpen {:direction :forward}))
+    (is (v/assert kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxOpen {:direction :forward}))
     (testing "the walk reaches q's rule twice and terminates with no cycle"
       (is (v/assert kb (except-rule (list r '?x) [(list q '?x)] (list p '?x))
                     CxOpen)))))
@@ -106,8 +106,8 @@
   ;; on a cycle as a violation would refuse this, and ordinary mutual recursion would
   ;; become unwritable next to any excepted rule.
   (tu/with-terms [a b c base CxLoop]
-    (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) CxLoop))
-    (is (v/assert kb (vr/rule-sentence [(list a '?x)] (list b '?x)) CxLoop)
+    (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) CxLoop {:direction :forward}))
+    (is (v/assert kb (vr/rule-sentence [(list a '?x)] (list b '?x)) CxLoop {:direction :forward})
         "a purely positive two-rule cycle: ordinary recursion")
     (testing "an exception on a predicate the cycle concludes is not a cycle through
               negation — the negative edge leads into the loop, never back to the rule"
@@ -119,8 +119,8 @@
   ;; the same positive loop, but now the excepted rule's own consequent feeds it, so
   ;; the negative edge does return.  Accepting this one would be the real bug.
   (tu/with-terms [a b c CxLoop]
-    (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) CxLoop))
-    (is (v/assert kb (vr/rule-sentence [(list c '?x)] (list b '?x)) CxLoop))
+    (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) CxLoop {:direction :forward}))
+    (is (v/assert kb (vr/rule-sentence [(list c '?x)] (list b '?x)) CxLoop {:direction :forward}))
     (let [data (refusal kb (except-rule (list a '?x) [(list b '?x)] (list c '?x))
                         CxLoop)]
       (is (= :not-stratified (:type data))))))

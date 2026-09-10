@@ -10,10 +10,10 @@
   store is empty on the way out."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.host.starter :as starter]
             [vaelii.impl.chain :as chain]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.starter :as starter]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
@@ -151,6 +151,49 @@
       (testing "and the drop is reported, not silent"
         (is (re-find #"not well-formed edges" out))))))
 
+(tu/deftest-kb recover-drops-over-arity-edge-declarations-rather-than-fabricating
+  ;; #82: v0.17's replay guard requires both endpoints to be symbols, but the rebuild arm
+  ;; reads the edge positionally (`[_ a b]`) off the stored sentence — so an OVER-ARITY row
+  ;; `(genl a b surplus)` an older or foreign writer left under the genl / genlCx functor
+  ;; root has symbols in positions 1 and 2, passes the endpoint-only guard, and is replayed
+  ;; as `(genl a b)`: an edge fabricated from a sentence that never was one, its surplus
+  ;; term silently discarded.  The endpoints are non-nil, so — unlike #80 — there is no
+  ;; `strong-components` crash; the bug is a SILENT fabrication.  The complete-shape guard
+  ;; (arity three, the expected functor, both endpoints symbols) drops it and counts it,
+  ;; the same producer boundary #80 drew, applied to the sentence entire.
+  (let [rec      (:records kb)
+        idx      (:index kb)
+        store!   (fn [sentence]                        ; put a sentex past the assert checks
+                   (let [s (sx/sentex sentence 'CxUniverse)
+                         h (p/put-sentex rec s)]
+                     (p/mark-premise rec h :default)
+                     (p/index-sentex idx (assoc s :id h) h)))
+        sub-ok   (tu/tmp-type)
+        super-ok (tu/tmp-type)]
+    ;; well-formed edges that MUST survive the rebuild
+    (v/assert kb (list 'genl sub-ok super-ok) 'CxUniverse)
+    (v/assert kb (list 'genlCx 'CxSubOk 'CxSuperOk) 'CxUniverse)
+    ;; over-arity declarations under the correct functor root, symbols in both endpoints —
+    ;; the shape the v0.17 endpoint guard replays and this fix rejects
+    (store! '(genl SubOver SuperOver SurplusOver))
+    (store! '(genlCx CxSubOver CxSuperOver CxSurplusOver))
+    (let [kb2   (restart)
+          level (v/log-level)
+          out   (try (v/set-log-level :warn)
+                     (with-out-str (v/recover kb2))
+                     (finally (v/set-log-level level)))
+          tax2  @(:taxonomy kb2)]
+      (testing "the well-formed edges survive the rebuild"
+        (is (contains? (set (v/genls kb2 sub-ok)) super-ok))
+        (is (contains? (get-in tax2 [:genlCx :nodes]) 'CxSubOk)))
+      (testing "the over-arity row seeds neither edge nor node"
+        (is (not (contains? (set (v/genls kb2 'SubOver)) 'SuperOver)))
+        (is (not (contains? (get-in tax2 [:genl :nodes]) 'SubOver)))
+        (is (not (contains? (get-in tax2 [:genl :nodes]) 'SurplusOver)))
+        (is (not (contains? (get-in tax2 [:genlCx :nodes]) 'CxSubOver))))
+      (testing "and the drop is reported, not silent"
+        (is (re-find #"not well-formed edges" out))))))
+
 (tu/deftest-kb recover-rebuilds-disjoint-metatype-membership
   ;; A metatype's members are cached in memory, not stored: the only durable trace is
   ;; the `(M T)` sentexes themselves.  So recovery has to re-read them *after* the
@@ -253,7 +296,7 @@
             caresFor (tu/tmp-pred "caresFor")
             Tom      (tu/tmp-ind "Tom")
             [lo hi]  (sort [(tu/tmp-ind "Ann") (tu/tmp-ind "Ann")])]
-        (v/assert-rule kb [(list aliasOf '?x '?y)] (list rel '?x '?y) 'CxUniverse)
+        (v/assert-rule kb [(list aliasOf '?x '?y)] (list rel '?x '?y) 'CxUniverse {:direction :forward})
         (v/assert kb (list caresFor hi Tom) 'CxUniverse)
         (v/assert kb (list aliasOf lo hi) 'CxUniverse)
         (let [live-class (set (v/equiv-class kb hi))
@@ -281,7 +324,7 @@
   ;; (docs/taxonomy.md, "What a rule may conclude").
   (let [seen (tu/tmp-pred "seen") m (tu/tmp-pred "kind_of")
         a    (tu/tmp-type "aa")   b (tu/tmp-type "bb")]
-    (v/assert-rule kb [(list seen '?p)] (list 'disjoint_metatype '?p) 'CxUniverse)
+    (v/assert-rule kb [(list seen '?p)] (list 'disjoint_metatype '?p) 'CxUniverse {:direction :forward})
     (v/assert kb (list m a) 'CxUniverse)
     (v/assert kb (list m b) 'CxUniverse)
     (v/assert kb (list seen m) 'CxUniverse)
@@ -372,7 +415,7 @@
   ;; `recovered-supersessions`.
   (tu/with-terms [bornIn birthplaceOf knownPlace Ada London
                   dog canine animal Rex]
-    (v/assert kb (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c)) 'CxUniverse)
+    (v/assert kb (list 'implies (list birthplaceOf '?x '?c) (list knownPlace '?c)) 'CxUniverse {:direction :forward})
     (v/assert kb (list birthplaceOf Ada London) 'CxUniverse)
     (v/assert kb (list 'rewriteOf bornIn birthplaceOf) 'CxUniverse)   ; predicate merge
     (v/assert kb (list 'genl dog animal) 'CxUniverse)
@@ -435,7 +478,7 @@
   (tu/with-terms [bird flies]
     (let [rule (list 'implies (list bird '?x) (list flies '?x))
           h    (v/assert-rule kb [(list bird '?x)] (list flies '?x) 'CxUniverse
-                              {:strength :monotonic})]
+                              {:direction :forward :strength :monotonic})]
       (is (= :monotonic (:strength (v/sentex kb h))))
       (let [kb2 (restart)]
         (v/recover kb2)
@@ -456,7 +499,7 @@
       (v/assert kb (list 'transitiveInArg largerThan 2 'genl) 'CxUniverse)
       (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse))
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))
-              'CxUniverse)
+              'CxUniverse {:direction :forward})
     (let [goal (list outweighs chihuahua_t maine_coon_t)
           h    (v/handle-of kb goal 'CxUniverse)]
       (is (v/in? kb h))
@@ -482,9 +525,9 @@
   ;; none — arrival-order dependence in the machinery that exists to remove it.
   (tu/with-terms [bird flies departed alive CxAviary]
     (v/assert kb (list 'genlCx CxAviary 'CxUniverse) 'CxUniverse)
-    (v/assert-rule kb [(list bird '?x)] (list flies '?x) CxAviary)
+    (v/assert-rule kb [(list bird '?x)] (list flies '?x) CxAviary {:direction :forward})
     (v/assert-rule kb [(list 'not (list departed '?x)) (list bird '?x)]
-                   (list alive '?x) CxAviary)
+                   (list alive '?x) CxAviary {:direction :forward})
     (let [live-antes @(:rule-antecedents kb)
           live-ctxs  @(:rule-contexts kb)]
       (testing "the live roster counts what arrived, negated antecedents by [:not pred]"
@@ -512,7 +555,7 @@
   ;; the roster the fast answer and the fetch the one that settles a handle the roster does
   ;; **not** name — which is exactly this case, so it is the case worth pinning.
   (tu/with-terms [p1 q1 Ind]
-    (v/assert-rule kb [(list p1 '?x)] (list q1 '?x) 'CxUniverse)
+    (v/assert-rule kb [(list p1 '?x)] (list q1 '?x) 'CxUniverse {:direction :forward})
     (v/assert kb (list p1 Ind) 'CxUniverse)
     (is (seq (v/sentexes-matching kb (list q1 Ind) 'CxUniverse)) "derived before the restart")
     (let [premise-h (v/handle-of kb (list p1 Ind) 'CxUniverse)]
@@ -529,7 +572,7 @@
   ;; the mirror of the test above: the ordinary case still lands, so the short-circuit
   ;; above cannot be passing by skipping everything.
   (tu/with-terms [p1 q1 Ind]
-    (v/assert-rule kb [(list p1 '?x)] (list q1 '?x) 'CxUniverse)
+    (v/assert-rule kb [(list p1 '?x)] (list q1 '?x) 'CxUniverse {:direction :forward})
     (v/assert kb (list p1 Ind) 'CxUniverse)
     (is (seq (v/sentexes-matching kb (list q1 Ind) 'CxUniverse)) "derived before the restart")
     (let [kb2 (restart)]

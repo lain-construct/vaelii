@@ -46,7 +46,7 @@
   format and a reader must never have to guess.
 
   **`meta.edn` is written last**, which makes it double as the completion marker:
-  `vaelii.impl.catalog/classify` keys on it, so a half-written or cancelled export is
+  `vaelii.host.catalog/classify` keys on it, so a half-written or cancelled export is
   not offered as loadable.  That is the one ordering constraint in the whole format.
 
   Export from a KB nobody is writing: the walk fetches record by record, and the
@@ -262,7 +262,7 @@
   orthogonal to the nippy encoding of the frames inside it).  `:on-progress` is called
   with `{:phase :done :total}` — the form a corpus reader's `load-dir!`,
   `io.import/import-dump` and `io.generate/load-into` report, so
-  `vaelii.impl.catalog` draws a bar from it — at every chunk boundary, in phase order
+  `vaelii.host.catalog` draws a bar from it — at every chunk boundary, in phase order
   `:sentexes`, `:justifications`, `:provenance`, `:index-entries`, `:meta`.  A callback
   that **throws** is how a caller cancels: the throw propagates out of the phase it
   interrupted, leaving a directory with no `meta.edn`, which is not a loadable dump.

@@ -11,12 +11,12 @@
   change to the prover engine took them away."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.interval :as iv]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
-            [vaelii.impl.seed :as seed]
             [vaelii.impl.space :as space]
             [vaelii.impl.stp :as stp]
             [vaelii.test-util :as tu]))
@@ -72,8 +72,8 @@
     (v/assert kb (list 'nonTangentialProperPart Cage Room) C)
     (v/assert kb (list 'exceptWhen (list 'properPartOfRegion '?x Room)
                        (list 'set/defaultRule
-                             (list 'implies (list 'and (list tmpBird '?x))
-                                   (list tmpFlies '?x))))
+                             (list 'set/forwardRule (list 'implies (list 'and (list tmpBird '?x))
+                                                          (list tmpFlies '?x)))))
               C)
     (testing "the bird nothing contains flies"
       (is (v/ask? kb (list tmpFlies Sparrow) C)))
@@ -558,9 +558,9 @@
   ;; tuples, including the rule with **two** qualitative antecedents — the case a delta that
   ;; narrowed both at once would silently halve.
   (tu/with-terms [tmpContained tmpNested]
-    (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list tmpContained '?x) C)
+    (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list tmpContained '?x) C {:direction :forward})
     (v/assert-rule kb [(list 'properPartOfRegion '?x '?y) (list 'properPartOfRegion '?y '?z)]
-                   (list tmpNested '?x '?z) C)
+                   (list tmpNested '?x '?z) C {:direction :forward})
     (chain! kb "TmpInterleaved" 9 nil)
     (chain! kb "TmpDeferred" 9 {:chain? false})
     (v/forward-chain kb {})
@@ -580,7 +580,7 @@
   ;; RCC-8.  Allen's `after` chain is the same shape in a different algebra, and the two
   ;; networks coexist in one KB without seeing each other.
   (tu/with-terms [tmpLate]
-    (v/assert-rule kb [(list 'precedes '?x '?y)] (list tmpLate '?y) C)
+    (v/assert-rule kb [(list 'precedes '?x '?y)] (list tmpLate '?y) C {:direction :forward})
     (links! kb 'after "TmpNow" 9 nil)
     (links! kb 'after "TmpThen" 9 {:chain? false})
     (v/forward-chain kb {})
@@ -595,10 +595,10 @@
   ;; takes can reach back past the rule's arrival, which costs a repeat the TMS dedups and
   ;; must lose nothing.  Checked against the same chain with the rule there from the start.
   (tu/with-terms [tmpEarly tmpAlways]
-    (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list tmpAlways '?x) C)
+    (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list tmpAlways '?x) C {:direction :forward})
     (chain! kb "TmpBoth" 1 9 nil)
     (chain! kb "TmpLate" 1 5 nil)
-    (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list tmpEarly '?x) C)
+    (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list tmpEarly '?x) C {:direction :forward})
     (chain! kb "TmpLate" 5 9 nil)
     (is (= (derived kb tmpAlways "TmpBoth" 1)
            (derived kb tmpEarly "TmpLate" 1))
@@ -612,7 +612,7 @@
   ;; shorter chains, and the KB must believe exactly what it would have believed if that is
   ;; what it had been told.
   (tu/with-terms [tmpContained]
-    (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list tmpContained '?x) C)
+    (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list tmpContained '?x) C {:direction :forward})
     (chain! kb "TmpCut" 9 nil)
     (v/retract! kb (v/handle-of kb (list 'nonTangentialProperPart
                                          'TmpCut5 'TmpCut4)
@@ -730,7 +730,7 @@
   ;; n(n-1)/2 — one `support` call per pair answered, so counting them says which of the
   ;; two the join ran over.
   (tu/with-terms [tmpContained]
-    (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list tmpContained '?x) C)
+    (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list tmpContained '?x) C {:direction :forward})
     (chain! kb "TmpMoved" 12 nil)
     (let [calls (atom 0)
           real  @#'qkb/support]

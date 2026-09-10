@@ -15,7 +15,7 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- default-rule [antes conseq]
-  (list 'set/defaultRule (vr/rule-sentence antes conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 ;; ---- 1. defeat propagates through a downstream strict rule --------------
 
@@ -27,7 +27,7 @@
         flies (tu/tmp-pred) airborne (tu/tmp-pred) sky (tu/tmp-ind)]
     (v/assert kb (list 'genl bird animal) 'CxUniverse)
     (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
-    (v/assert-rule kb [(list flies '?x)] (list airborne '?x) 'CxUniverse)   ; strict, feeds off the default
+    (v/assert-rule kb [(list flies '?x)] (list airborne '?x) 'CxUniverse {:direction :forward})   ; strict, feeds off the default
     (v/assert kb (list bird sky) 'CxUniverse)
     (testing "the default and its strict consequence both hold"
       (is (seq (v/sentexes-matching kb (list flies sky) 'CxUniverse)))

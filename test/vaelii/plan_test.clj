@@ -1008,9 +1008,9 @@
 
 (tu/deftest-kb the-recursive-literal-stays-last-so-recursion-still-terminates
   (tu/with-terms [parentOf ancestorOf Aa Bb Cc Dd CxPlan]
-    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) CxPlan)
+    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) CxPlan {:direction :forward})
     (v/assert-rule kb [(list parentOf '?x '?y) (list ancestorOf '?y '?z)]
-                   (list ancestorOf '?x '?z) CxPlan)
+                   (list ancestorOf '?x '?z) CxPlan {:direction :forward})
     (doseq [[p c] [[Aa Bb] [Bb Cc] [Cc Dd]]]
       (v/assert kb (list parentOf p c) CxPlan))
     (testing "the literal sharing the consequent's functor is pinned last"
@@ -1045,7 +1045,7 @@
 (tu/deftest-kb planning-never-changes-the-answer-set-through-a-rule
   (tu/with-terms [parentOf grandparentOf dog Tom Bob Ann Cid CxPlan]
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) CxPlan)
+                   (list grandparentOf '?x '?z) CxPlan {:direction :forward})
     (doseq [[p c] [[Tom Bob] [Bob Cid] [Tom Ann] [Ann Cid]]]
       (v/assert kb (list parentOf p c) CxPlan))
     (v/assert kb (list dog Cid) CxPlan)
@@ -1066,7 +1066,7 @@
     (v/assert kb (list age Bob 40) CxPlan)
     (v/assert kb (list age Cid 20) CxPlan)
     (v/assert-rule kb [(list age '?p '?n) (list 'lessThan '?n 35)]
-                   (list young '?p) CxPlan)
+                   (list young '?p) CxPlan {:direction :forward})
     (let [answers (fn [] (set (map #(get % '?p) (v/ask kb (list young '?p) CxPlan))))]
       (testing "the filter applies — a hoisted evaluable would silently answer none"
         (is (= #{Tom Cid} (answers))))

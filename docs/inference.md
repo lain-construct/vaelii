@@ -46,15 +46,30 @@ literal. See [generators.md](generators.md).
 
 ## Rule direction (virtual predicates)
 
-By default a rule is used in *both* directions. Wrap it to constrain that — these
-`set/*Rule` virtual predicates are interpreted on assert, not stored as facts:
+By default a rule is used **backward only**: forward chaining materializes a conclusion
+per match, which is intractable on a large KB, so a rule forward-chains only when the
+author asks for it. Wrap a rule to change that — these `set/*Rule` virtual predicates are
+interpreted on assert, not stored as facts:
 
 | Wrapper | Forward-chained? | Used in backward? |
 |---------|------------------|-------------------|
-| `set/forwardRule`  | yes | no |
+| `set/forwardRule`  | yes | yes |
 | `set/backwardRule` | no  | yes |
+| `set/forwardOnlyRule` | yes | no |
 | `set/inertRule`    | no  | no (documentation) |
-| (bare `implies`)   | yes | yes |
+| (bare `implies`)   | no  | yes |
+
+`set/forwardRule` **adds** forward chaining rather than replacing the backward use, so a
+forward rule also answers backward goals (`rules/backward?` reads `:forward` as backward
+too). Moving a rule to forward is therefore adding the wrapper alone — no backward use it
+had is taken away. A **generator** (a rule concluding a rule, [generators.md](generators.md))
+is the one shape that defaults to forward even bare: it stamps a rule by firing forward and
+no backward goal asks for a rule.
+
+`set/forwardOnlyRule` is the fourth direction: it forward-chains but is **never** used in
+backward proof (`:forward-only`, `rules/backward?` false). It exists for tests that
+exercise forward chaining in isolation; **the shipped ontology never uses it** — an
+ontology rule that materializes is `set/forwardRule`, which stays backward-usable too.
 
 Direction is not an indexing choice: **every** rule is registered under all of its
 antecedent predicates *and* its consequent predicate, whatever its direction
@@ -76,13 +91,16 @@ a premise and so never believed at all ([solving.md](solving.md)). One is a beli
 rule that does not fire; the other is a sentex nothing believes. `assert-inert` refuses
 a rule outright, so the two cannot be confused in a stored KB.
 
-`assert-rule` also accepts `{:direction :forward|:backward|:inert|:both}` — and so
-does `assert`, as the programmatic spelling of the `set/*Rule` wrappers.
+`assert-rule` also accepts `{:direction :forward|:backward|:inert|:both}` (default
+`:backward`; a generator defaults to `:forward`) — and so does `assert`, as the
+programmatic spelling of the `set/*Rule` wrappers. `:forward` and `:both` are one class,
+forward + backward; `{:direction :forward}` and `set/forwardRule` are the same.
 
 Re-asserting an α-equivalent rule dedups to the one stored handle, and its
 `:direction` / `:defeasible` / `:strength` slots resolve from **content**, not arrival
 order: the least restrictive direction of the spellings seen (`join-direction`), strict
-over defeasible, and the stronger class ([canonicalization.md](canonicalization.md)). A rule asserted bare after `set/inertRule` therefore fires, and one
+over defeasible, and the stronger class ([canonicalization.md](canonicalization.md)). A
+rule asserted `set/forwardRule` after a bare spelling therefore forward-chains, and one
 asserted strict after `set/defaultRule` ties with a monotonic rival — the same two
 assertions reaching the same beliefs whichever arrived first, which is what
 [nmtms.md](nmtms.md) requires. The resolution reaches the justifications already
@@ -98,8 +116,9 @@ by its predicate *and its supertypes* (specificity); a newly asserted **rule** i
 joined over existing facts. Each full match records a `Justification` (including
 the rule handle) and places the consequent in its placement contexts (see
 [contexts.md](contexts.md)), at the firing rule's own **strength**: `:monotonic` for a
-bare rule — which adds no defeasibility, so the conclusion is capped at its weakest
-antecedent — or `:default` when the rule is defeasible. `rule-view-of` reads that off the record's
+strict rule (one without `set/defaultRule`) — which adds no defeasibility, so the
+conclusion is capped at its weakest antecedent — or `:default` when the rule is
+defeasible. `rule-view-of` reads that off the record's
 `:defeasible` field, the same authority `:direction` is read from — a rule needs no
 index entry to know how it fires.
 
@@ -984,6 +1003,34 @@ in force — read off `tu/query-engine-override` — while its answer-set assert
 same under both, so the sweep runs every assertion and the counts agree. That is why
 `*query-engine*` defaults to `:dfs`: two engines that disagree are worse than one engine
 that is slow.
+
+### Truncation is observable (`core/query-status`)
+
+The bound has one silent failure mode. A query the depth bound cut short returns the same
+empty (or short) seq as a query whose goal is genuinely unprovable, so a `:max-depth` set
+one too low reads as "no" rather than "not deep enough" — and the missing behaviour
+surfaces downstream, away from the bound that caused it. `core/query-status` reports it:
+it runs the same search `query` does, at the same depth, and returns a map — the answers,
+plus `:truncated?`, the phase timings, and the node engine's `tree-stats`.
+
+`:truncated?` is set when the depth bound stopped a rewrite the search would otherwise
+have taken. The node engine detects it where `children`'s `(>= depth 1)` filter drops a
+rewrite site: a live literal at depth 0 that is not a deferred literal and that a
+candidate rule's consequent unifies with (`depth-truncated?`). The flag is **conservative**
+— it says a branch was cut at the bound, not that an answer was certainly lost, because a
+converging rule graph reaches one subgoal at several depths and a branch cut at depth 0
+may have been answered by a shallower one. So `false` guarantees the answers are every
+answer the KB entails at that depth; `true` is the signal to raise the bound and stop when
+the flag clears and the answer set holds still. A cyclic rule set always has one deeper
+level the bound refuses, so it is `:truncated?` at every depth — which is the report the
+bound owes for a search it, not the data, terminated.
+
+The detection is off the plain `query` path entirely: `session` allocates the flag only
+under `:track-truncation?`, and `step!`'s candidate-rule probe runs only while it is set.
+`query-status` asks for it and drives the search itself (`inference/search-report`), timing
+the run — `:time-to-first-answer-ms` off the first realized answer, `:total-time-ms` off
+the whole set. It reports one search over one concrete context's frontier, so a variable
+or query context is refused, and `:portfolio?` picking a race is dropped.
 
 ## The literal cache (`vaelii.impl.literal-cache`)
 
@@ -2062,7 +2109,7 @@ and defeated set rather than accumulated, so it is order-independent: a defeater
 withdraws its target whether it arrives before or after, and removing the defeater
 revives it. The relabel is *scoped to the affected region* with the rest of the graph
 held fixed, and the whole-graph `jtms/relabel` has no engine caller: `recover` composes
-the region relabels its own rebuild runs (`core/rebuild-tms`), because a region relabel
+the region relabels its own rebuild runs (`recovery/rebuild-tms`), because a region relabel
 over the affected closure equals a global one. What `relabel` is for is the differential
 oracle ([nmtms.md](nmtms.md)). This is the non-monotonic upgrade — assumption strengths, the
 defeated set, and the soft-contradiction layer that fills it are documented in

@@ -1248,7 +1248,11 @@
             (let [antes  (into [src-handle] because)
                   depth  (inc (long (reduce max (map #(jtms/depth (:tms kb) %) antes))))
                   _      (jtms/ensure-node (:tms kb) h2 depth)
-                  fresh? (not (jtms/has-justification? (:tms kb) (:kind ent) antes h2))]
+                  fresh? (not (jtms/has-justification? (:tms kb) (:kind ent) antes h2))
+                  ;; `was-in?` records whether `h2` is already believed by another support,
+                  ;; read before this justification is added.  It is an O(1) fixpoint read
+                  ;; (`jtms/in?`), not an index read, and it gates the cascade below.
+                  was-in? (jtms/in? (:tms kb) h2)]
               (when fresh?
                 (let [jid  (p/next-id (:records kb))
                       just (jtms/->just jid (:kind ent) antes h2 {} :monotonic)]
@@ -1256,7 +1260,17 @@
                   (jtms/add-justification (:tms kb) just)))
               (merge-with into
                           {:new (if new? [h2] []) :violations []}
-                          (if (or new? fresh?)
+                          ;; A minted sentence materializes its own entailments when it first
+                          ;; becomes believed, and re-materializing them adds nothing:
+                          ;; `find-or-create-sentex` dedups the sentence and `has-justification?`
+                          ;; refuses a duplicate justification.  The cascade therefore recurs only
+                          ;; on a transition to believed — a newly created sentex, or a fresh
+                          ;; justification that brings an out node in.  An already-believed dedup
+                          ;; target (`fresh?` yet `was-in?`) takes the new support without
+                          ;; re-querying its own declarations.  The condition is order-independent:
+                          ;; whichever arrival first made the type believed ran the cascade once, so
+                          ;; the KB holds the same sentexes and justifications either way.
+                          (if (or new? (and fresh? (not was-in?)))
                             (deduce-arg-types
                              kb (checks/constraint-entailments kb sentence context)
                              h2 context)
@@ -3673,23 +3687,37 @@
 
 (defn- replay-edge
   "Replay one stored `genl` / `genlCx` declaration through `add` (`tax/add-genl` or
-  `tax/add-genlCx`), but only when both endpoints are symbols — a valid taxonomy node.
+  `tax/add-genlCx`), but only when the stored sentence's **complete shape** is exactly
+  `(expected-f <symbol> <symbol>)` — a valid two-endpoint taxonomy edge.
 
-  The rebuild arms read the edge positionally (`[_ a b]`) off whatever the functor root
-  returns, and `recover` replays the **stored** sentexes rather than the checked ones, so
-  a store an older or foreign writer left a non-edge sentex under the genl / genlCx
-  functor root reaches here as a malformed edge: a 2-element metatype membership binds the
-  member as `a` and nil as `b`, an `arity` / `arg` declaration binds an integer.  Added,
-  the nil enters the closure's node set, and `strong-components` throws on it
-  (`java.util.ArrayDeque` rejects a null element) the moment `restore-depths` walks a loose
-  relation — the crash `recover` hits on such a store.
+  `recover` replays the **stored** sentexes rather than the checked ones, and
+  `stored-declarations` is a candidate read over the durable functor root, not proof that
+  every returned sentence has the requested functor or the current WFF shape.  So a store
+  an older, foreign, or stale writer left reaches here as a malformed edge, and reading it
+  positionally (`[_ a b]`) reads three distinct malformations as a spurious edge:
+
+    - a 2-element declaration (`(genl foo)`, a metatype membership, an `arity` / `arg`
+      row) binds the member as `a` and nil as `b` — the nil enters the closure's node set,
+      and `strong-components` throws on it (`java.util.ArrayDeque` rejects a null element)
+      the moment `restore-depths` walks a loose relation (the `recover` crash of #80);
+    - an **over-arity** row (`(genl a b surplus)`) binds `a` and `b` and silently discards
+      the surplus, fabricating `(genl a b)` from a sentence that never was one;
+    - a **wrong-functor** row (`(disjoint a b)` handed up under the genl root by a foreign
+      or stale index) has symbols in both positions and would replay as `(genl a b)`.
+
+  The last two both satisfy `(symbol? a) (symbol? b)`, so the endpoint-only guard passed
+  them; requiring the whole shape — arity three, the literal expected functor, both
+  endpoints symbols — is the producer boundary #80 drew, applied to the whole sentence.
 
   Dropping the malformed declaration is `rebuild-tms`'s discipline for a justification the
   store cannot root: the bad sentex is skipped and counted, never a spurious edge added.
   Returns tax."
-  [add tax a b id ctx]
-  (if (and (symbol? a) (symbol? b))
-    (add tax a b id ctx)
+  [add tax sentence expected-f id ctx]
+  (if (and (= 3 (count sentence))
+           (= expected-f (first sentence))
+           (symbol? (second sentence))
+           (symbol? (nth sentence 2)))
+    (add tax (second sentence) (nth sentence 2) id ctx)
     (do (when-let [v *edge-replay-skips*] (vswap! v inc)) tax)))
 
 (def ^:private arms
@@ -3720,8 +3748,8 @@
                            (let [[_ a b] (:sentence sx)]
                              (tax/del-genl! (:taxonomy kb) a b (:id sx))
                              (recheck-genl-edge kb a b)))
-           :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                           (replay-edge tax/add-genl tax a b id ctx))
+           :rebuild      (fn [tax {sentence :sentence id :id ctx :context}]
+                           (replay-edge tax/add-genl tax sentence 'genl id ctx))
            :wff          wff/genl-problems}
     'genlCx {:integrate    (fn [kb sx h]
                              (let [[_ a b] (:sentence sx)]
@@ -3739,8 +3767,8 @@
                                (tax/del-genlCx! (:taxonomy kb) a b (:id sx))
                                (recheck-genlCx-edge kb a)
                                (recheck-except-ancestors kb)))
-             :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                             (replay-edge tax/add-genlCx tax a b id ctx))
+             :rebuild      (fn [tax {sentence :sentence id :id ctx :context}]
+                             (replay-edge tax/add-genlCx tax sentence 'genlCx id ctx))
              :wff          wff/genlCx-problems}
     'disjoint {:integrate    (fn [kb sx h]
                                (let [[_ a b] (:sentence sx)]
@@ -3982,6 +4010,13 @@
     'genlArg   (assoc (prop-entry 'genlArg)   :wff wff/arg-constraint-problems)
     'quotedArg (assoc (prop-entry 'quotedArg) :wff wff/arg-constraint-problems)
     'interArg  (assoc (prop-entry 'interArg)  :wff wff/inter-arg-constraint-problems)
+    ;; the covering constraints type a whole tail at once — each marks its subject
+    ;; predicate as declaring one, exactly as the four above, and validates its own form
+    ;; through one arm reading both the two- and three-argument shapes
+    'args           (assoc (prop-entry 'args)           :wff wff/covering-constraint-problems)
+    'argsGenl       (assoc (prop-entry 'argsGenl)       :wff wff/covering-constraint-problems)
+    'argAndRest     (assoc (prop-entry 'argAndRest)     :wff wff/covering-constraint-problems)
+    'argAndRestGenl (assoc (prop-entry 'argAndRestGenl) :wff wff/covering-constraint-problems)
     ;; The two preservation declarations really are wff-only — read back per query, with
     ;; the transitivity of the relation they name checked here because `arg`'s open-world
     ;; reading cannot (docs/inherit.md).
@@ -4002,7 +4037,13 @@
     ;; and is desugared at the rule entry point, so nothing ever stores one either.
     'unknown        {:wff wff/naf-problems}
     'thereExists    {:wff wff/naf-problems}
-    'forall         {:wff wff/naf-problems}}
+    'forall         {:wff wff/naf-problems}
+    ;; `bravely` / `cautiously` read the current dilemmas (in every optimal labeling, in
+    ;; some) and are answered by the opt-in :brave-cautious prover — never stored, for the
+    ;; same reason the aggregates are not: a stored one is a computed value nothing keeps
+    ;; current (docs/labeling.md).
+    'bravely        {:wff wff/brave-cautious-problems}
+    'cautiously     {:wff wff/brave-cautious-problems}}
    ;; the eight predicate-metadata marks, each differing only in the `:props` kind its
    ;; declaration names.  `anti_symmetric` and `anti_transitive` sit in the same list as
    ;; the six below them because the kind is read off the declaration: theirs are the two

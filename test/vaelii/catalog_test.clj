@@ -9,10 +9,10 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as cat]
+            [vaelii.host.catalog :as cat]
+            [vaelii.host.jobs :as jobs]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.io.import :as import]
-            [vaelii.impl.jobs :as jobs]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
             [vaelii.test-util :as tu]))
@@ -817,7 +817,7 @@
 (deftest an-export-refuses-what-it-cannot-be-a-dump-of
   (tu/with-cleared-kb [kb tu/fresh]
     (cat/register! "mine" "My KB" kb {:where {:backend :memory}})
-    ;; how `vaelii.impl.web`'s `--attach` files a daemon: an entry like any other, whose
+    ;; how `vaelii.host.web`'s `--attach` files a daemon: an entry like any other, whose
     ;; KB is in another process
     (cat/register! "daemon" "Daemon host:4200" {:mode :remote :conn ::stub})
     (testing "a destination is not optional — there is nowhere for a dump to go"
@@ -847,7 +847,7 @@
   (tu/with-cleared-kb [kb tu/fresh]
     (v/assert kb '(genl tmp_export_refusal_type thing) 'CxUniverse)
     (cat/register! "mine" "My KB" kb {:where {:backend :memory}})
-    ;; how `vaelii.impl.web`'s `--attach` files a daemon: an entry like any other, whose
+    ;; how `vaelii.host.web`'s `--attach` files a daemon: an entry like any other, whose
     ;; KB is in another process
     (cat/register! "daemon" "Daemon host:4200" {:mode :remote :conn ::stub})
     ;; a directory no walk reaches: every refusal below runs before the destination is

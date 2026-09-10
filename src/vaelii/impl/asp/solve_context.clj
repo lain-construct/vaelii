@@ -45,15 +45,27 @@
   runs the chainer with a choice held hypothetically, and nothing emits the rule base to
   a grounder.  A constraint that only bites downstream of a rule has nothing to bite on."
   (:require [clojure.set :as set]
-            [vaelii.core :as v]
             [vaelii.impl.asp.edge :as edge]
             [vaelii.impl.asp.solver :as solver]
+            [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.solve :as solve]))
+            [vaelii.impl.solve :as solve]
+            [vaelii.impl.taxonomy :as tax]
+            [vaelii.impl.wiring :as wiring]))
+
+;; The below-core read of a context's stored extent — all records, believed or not
+;; (the callers filter belief with `jtms/in?` / `res/rule-believed?` themselves).  This
+;; is the below-`vaelii.core` form of `vaelii.core/sentexes-in-context` with default opts:
+;; `records-of` over the index's stored handles.
+(defn- stored-in [kb ctx]
+  (keep #(p/get-sentex (:records kb) %) (reads/as-stored-in-context (:index kb) ctx)))
 
 ;; ---- context naming and ownership ----------------------------------------
 ;; `Into` is a context name (`Cx`-prefixed) that seeds the run's artifact names by
@@ -81,7 +93,7 @@
   read from the `(labelingOf <ctx> <Into> <i>)` marker each one carries, through
   the term index.  Exact ownership, no name pattern (see the naming comment)."
   [kb into-cx]
-  (->> (v/find-sentexes kb into-cx)
+  (->> (kb/find-sentexes kb into-cx)
        (keep (fn [s]
                (let [f (:sentence s)]
                  (when (and (marker? f) (= into-cx (nth f 2 nil)))
@@ -97,8 +109,8 @@
   happens to share the naming is never written into (the marker keeps it out of
   rediscovery, this keeps it out of materialization)."
   [kb into-cx n]
-  (let [existing (set (v/contexts kb))
-        taken?   (fn [c] (or (existing c) (pos? (v/count-in-context kb c))))]
+  (let [existing (set (tax/contexts (:taxonomy kb)))
+        taken?   (fn [c] (or (existing c) (pos? (reads/stored-count-in-context (:index kb) c))))]
     (->> (iterate inc 1)
          (map #(labeling-context into-cx %))
          (remove taken?)
@@ -112,14 +124,14 @@
   contexts is inert by construction, so one that answers true is not a solve artifact —
   or is one somebody has since written into."
   [kb ctx]
-  (boolean (some #(v/in? kb (:id %)) (v/sentexes-in-context kb ctx))))
+  (boolean (some #(jtms/in? (:tms kb) (:id %)) (stored-in kb ctx))))
 
 (defn- placed-under?
   "Does `ctx` carry the one `(genlCx ctx base)` edge a solve writes to place a labeling
   under `base`?  The signature of this run's own materialization: matched whole rather
   than by functor, exactly as `clear-context!` matches the edge it retracts."
   [kb ctx base]
-  (boolean (some #(= (:sentence %) (list 'genlCx ctx base)) (v/find-sentexes kb ctx))))
+  (boolean (some #(= (:sentence %) (list 'genlCx ctx base)) (kb/find-sentexes kb ctx))))
 
 (defn- marked-for?
   "Does `ctx` carry a `labelingOf` ownership marker naming `into-cx`?"
@@ -128,7 +140,7 @@
                    (and (marker? sentence)
                         (= ctx (second sentence))
                         (= into-cx (nth sentence 2 nil))))
-                 (v/sentexes-in-context kb ctx))))
+                 (stored-in kb ctx))))
 
 (defn- blocked-artifacts
   "What stands between a re-run and the replace-on-rerun promise, as
@@ -158,14 +170,14 @@
   categories are disjoint, and the residue — a marker retracted *and* believed content
   written in — is indistinguishable from the user's context, which is what it has become."
   [kb base into-cx]
-  (let [existing (set (v/contexts kb))
-        taken?   (fn [c] (or (existing c) (pos? (v/count-in-context kb c))))
+  (let [existing (set (tax/contexts (:taxonomy kb)))
+        taken?   (fn [c] (or (existing c) (pos? (reads/stored-count-in-context (:index kb) c))))
         slots    (take-while taken? (map #(labeling-context into-cx %) (iterate inc 1)))
         mine     (set (labeling-contexts kb into-cx))]
     {:believed (filterv #(believed-extent? kb %)
                         (conj (vec mine) (class-context into-cx)))
      :orphaned (filterv #(and (not (mine %))
-                              (seq (v/sentexes-in-context kb %))
+                              (seq (stored-in kb %))
                               (not (believed-extent? kb %))
                               (placed-under? kb % base)
                               (not (marked-for? kb % into-cx)))
@@ -221,14 +233,14 @@
   of every artifact before any of them is touched, so a run that would be blocked here
   never reaches here.  This one keeps the promise local to the destruction."
   [kb ctx base]
-  (let [extent (v/sentexes-in-context kb ctx)]
-    (when (not-any? #(v/in? kb (:id %)) extent)
+  (let [extent (stored-in kb ctx)]
+    (when (not-any? #(jtms/in? (:tms kb) (:id %)) extent)
       (doseq [s extent]
-        (v/retract! kb (:id s)))
+        (wiring/retract-sentex kb (:id s)))
       (when base
-        (doseq [{:keys [id sentence]} (v/find-sentexes kb ctx)
+        (doseq [{:keys [id sentence]} (kb/find-sentexes kb ctx)
                 :when (= sentence (list 'genlCx ctx base))]
-          (v/retract! kb id))))))
+          (wiring/retract-sentex kb id))))))
 
 (defn- clear-run!
   "Remove every artifact a previous `(do/label Base Into)` / `(do/classify Into)` left:
@@ -261,10 +273,24 @@
   so an `:inert` rule stays available — this run is the fourth consumer of a rule's
   firing beside the three chainers, and it reads rules by the same rule they do."
   [kb base]
-  (for [ctx (distinct (cons base (v/context-up kb base)))
-        s   (v/sentexes-in-context kb ctx)
+  (for [ctx (distinct (cons base (tax/context-up (:taxonomy kb) base)))
+        s   (stored-in kb ctx)
         :when (and (rules/assumption? s) (res/rule-believed? kb (:id s)))]
     s))
+
+(defn- registry-bounds
+  "`res/prove` bounds whose **leaf is the prover registry**, so a grounding join reaches an
+  antecedent a registered prover or evaluatable answers — a reachability partition, a
+  computed relation, a transitive closure — and not only a stored fact.  `provers/solve-goal`
+  answers every leaf (stored facts among them, through `FactProver`), and
+  `registry-est-override` costs a prover-answered conjunct by the prover's own estimate, so
+  the planner binds it last rather than enumerating an open relation.  This is the division
+  `vaelii.core/query` runs: grounding runs it too, so a choice menu is derived from believed
+  state the same way a rule reads it (docs/solving.md), instead of the caller pre-projecting
+  the menu into stored candidate facts."
+  [kb base]
+  {:leaf-solver  provers/solve-goal
+   :est-override (provers/registry-est-override kb base)})
 
 (defn- ground-heads
   "The distinct ground choice heads: each assumptionRule's antecedents proved over the
@@ -273,20 +299,26 @@
   negated one (`:choice-head-not-positive`), since the labeling round-trip through
   `(not head)` would flip its polarity.
 
+  The antecedents prove over a **registry leaf** (`registry-bounds`), so a candidate that
+  rests on a registered prover — `(sameLandmass ?a ?b)` over a Clojure partition, an
+  evaluatable — is a legal antecedent, not something the caller must pre-compute into
+  stored candidate facts.
+
   A rule's `exceptWhen` guard is honored per binding, evaluated in `base` — grounding
   is a fourth consumer of a rule's firing beside the three chainers, and it makes the
   same decision they do (docs/exceptions.md): a choice the exception holds of is not
   offered.  That is what makes an exception the way to say \"this candidate is already
   ruled out\" declaratively, instead of the caller pre-filtering the menu."
   [kb base]
-  (distinct
-   (for [rsx (assumption-rules kb base)
-         :let [ante  (vec (rules/antecedents (:sentence rsx)))
-               head  (rules/consequent (:sentence rsx))
-               guard (provers/rule-guard kb rsx base)]
-         binding (v/prove kb ante base)
-         :when (or (nil? guard) (guard binding))]
-     (res/substitute head binding))))
+  (let [bounds (registry-bounds kb base)]
+    (distinct
+     (for [rsx (assumption-rules kb base)
+           :let [ante  (vec (rules/antecedents (:sentence rsx)))
+                 head  (rules/consequent (:sentence rsx))
+                 guard (provers/rule-guard kb rsx base)]
+           binding (res/prove kb (fn [g] (provers/candidate-rules kb g base)) ante base bounds)
+           :when (or (nil? guard) (guard binding))]
+       (res/substitute head binding)))))
 
 ;; ---- constraints among the heads (MVP: direct only) ----------------------
 
@@ -306,7 +338,7 @@
        (= (first s1) (first s2))
        (= (second s1) (second s2))
        (not= (nth s1 2) (nth s2 2))
-       (v/has-prop? kb :functional (first s1) base)))
+       (tax/has-prop? (:taxonomy kb) :functional (first s1) base)))
 
 (defn- disjoint-clash?
   "Two unary type memberships of the same individual whose types are disjoint —
@@ -316,7 +348,7 @@
        (= 2 (count s1)) (= 2 (count s2))
        (= (second s1) (second s2))
        (not= (first s1) (first s2))
-       (v/disjoint? kb (first s1) (first s2) base)))
+       (kb/disjoint? kb (first s1) (first s2) base)))
 
 (defn- clash? [kb base s1 s2]
   (or (negation-pair? s1 s2)
@@ -371,11 +403,14 @@
 (defn- constraint-rules
   "Every **believed** constraint rule visible from `base` — scoped to `base` and its
   genlCx up-closure, and belief-filtered, like `assumption-rules`: a defeated or
-  superseded constraint must not go on forbidding models."
+  superseded constraint must not go on forbidding models.  A **cardinality** rule is a
+  constraint rule too but grounds to a solver cardinality atom, not a conjunctive nogood,
+  so `cardinality-rules` takes those and this excludes them."
   [kb base]
-  (for [ctx (distinct (cons base (v/context-up kb base)))
-        s   (v/sentexes-in-context kb ctx)
-        :when (and (rules/constraint? s) (res/rule-believed? kb (:id s)))]
+  (for [ctx (distinct (cons base (tax/context-up (:taxonomy kb) base)))
+        s   (stored-in kb ctx)
+        :when (and (rules/constraint? s) (not (rules/cardinality-of s))
+                   (res/rule-believed? kb (:id s)))]
     s))
 
 (defn- choice-arg-index
@@ -441,11 +476,13 @@
   binding.
 
   Background literals are solved together through the ordinary conjunctive prover
-  (`v/prove`, belief-filtered and cost-planned); each solution is extended across the
-  positive choice literals against the choice-head index, and then across the negated
-  ones the same way.  Literals are classified by predicate — a body predicate naming a
-  choice head is a choice literal, everything else a background fact — the modeling
-  contract for a constraint body.  Negated *background* literals are out of scope.
+  (`res/prove` over a **registry leaf** — `bounds`, so a background literal a prover or
+  evaluatable answers joins like `ground-heads`' antecedents do — belief-filtered and
+  cost-planned); each solution is extended across the positive choice literals against the
+  choice-head index, and then across the negated ones the same way.  Literals are classified
+  by predicate — a body predicate naming a choice head is a choice literal, everything else a
+  background fact — the modeling contract for a constraint body.  Negated *background*
+  literals are out of scope.
 
   **The negated literals are joined, not merely substituted.**  They are removed from
   `rest-body` before the positive join, so nothing else binds their variables: a
@@ -460,14 +497,14 @@
 
   Order matters and is fixed here: positives first, so a variable shared with the
   background or a positive literal is already bound when the negated ones are reached."
-  [kb base body consequent choice-preds head->id idx]
+  [kb base body consequent choice-preds head->id idx bounds]
   (let [neg?        #(neg-choice-lit? choice-preds %)
         neg-lits    (mapv second (filter neg? body))
         rest-body   (remove neg? body)
         choice-lit? #(and (sequential? %) (choice-preds (first %)))
         bg  (remove choice-lit? rest-body)
         chs (filter choice-lit? rest-body)]
-    (for [bgb          (if (seq bg) (v/prove kb (vec bg) base) [{}])
+    (for [bgb          (if (seq bg) (res/prove kb (fn [g] (provers/candidate-rules kb g base)) (vec bg) base bounds) [{}])
           [b ids]      (join-choice-literals idx head->id chs bgb #{})
           [b2 neg-ids] (join-choice-literals idx head->id neg-lits b #{})
           :when        (or (seq ids) (seq neg-ids))]
@@ -482,15 +519,75 @@
   `set/softConstraint` rule's are minimized like the auto-detector's."
   [kb base head->id]
   (let [choice-preds (into #{} (map first) (keys head->id))
-        idx          (choice-arg-index (keys head->id))]
+        idx          (choice-arg-index (keys head->id))
+        bounds       (registry-bounds kb base)]
     (for [rsx (constraint-rules kb base)
           :let [body   (vec (rules/antecedents (:sentence rsx)))
                 conseq (rules/consequent (:sentence rsx))
                 hard?  (= :hard (rules/constraint-of rsx))]
-          [ids neg-ids marker] (ground-constraint-body kb base body conseq choice-preds head->id idx)]
+          [ids neg-ids marker] (ground-constraint-body kb base body conseq choice-preds head->id idx bounds)]
       (cond-> {:nogood ids :priority 1 :sentence (list 'contradicts marker)}
         (seq neg-ids) (assoc :neg neg-ids)
         hard?         (assoc :hard true)))))
+
+;; ---- cardinality rules: a bound over a whole set of choice heads ----------
+;; A `asp/atMost` / `asp/atLeast` rule (`rules/normalize-cardinality`) grounds NOT to a
+;; nogood per binding but to ONE cardinality entry per group: its pattern is matched
+;; against every ground choice head, the matches are grouped by the pattern's variables
+;; OTHER than the counted one, and each group becomes a bound over that group's heads.
+;; `edge/translate` renders each as a single weight-body statement, which is what turns
+;; the `C(n, k+1)` subset expansion into O(n) (docs/solving.md).
+
+(defn- cardinality-rules
+  "Every **believed** cardinality rule visible from `base` — the `constraint-rules`
+  counterpart for the rules that carry a `cardAtMost` / `cardAtLeast` marker."
+  [kb base]
+  (for [ctx (distinct (cons base (tax/context-up (:taxonomy kb) base)))
+        s   (stored-in kb ctx)
+        :when (and (rules/cardinality-of s) (res/rule-believed? kb (:id s)))]
+    s))
+
+(defn- cardinality-constraints
+  "Ground every cardinality rule visible from `base` into `solve/Program` cardinality
+  entries.  The rule's pattern (its single antecedent) is matched against the ground
+  choice heads; each match binds the counted variable and the group variables, and the
+  matches are grouped by the group binding — so `(empireBuild ?c transport)` counted over
+  `?c` is one global group, and `(empireFerry ?a ?t)` counted over `?a` is one group per
+  `?t`.  Each group yields one entry over the heads it collected.
+
+  A **global** bound — its pattern has no variable other than the counted one — is one
+  group even when it matches no head: an `asp/atLeast` over an empty global group is
+  infeasible (there are not `k` of nothing), which `edge/card-encoding` reports as a
+  program with no model, rather than silently dropping the floor.  A **grouped** bound
+  keeps the grounder's reading instead: only the groups some head realizes exist, so a
+  group binding no head mentions holds vacuously, the way a universally-quantified
+  constraint over an empty domain does.  A group that exists but is smaller than `k` is
+  infeasible under either, which `edge/card-encoding` reports the same way."
+  [kb base head->id]
+  (let [idx (choice-arg-index (keys head->id))]
+    (for [rsx (cardinality-rules kb base)
+          :let [{:keys [op k counted]} (rules/cardinality-of rsx)
+                hard?      (= :hard (rules/constraint-of rsx))
+                pattern    (first (rules/antecedents (:sentence rsx)))
+                group-vars (remove #{counted}
+                                   (distinct (filter sx/variable?
+                                                     (tree-seq sequential? seq pattern))))
+                matches    (for [head (literal-heads idx pattern)
+                                 :let  [b (res/unify pattern head {})]
+                                 :when b]
+                             [(dissoc b counted) (head->id head)])
+                ;; A global bound (no group variables) is ONE group even with no match, so
+                ;; its empty-member entry can be reported infeasible; a grouped bound is
+                ;; only the groups a head realizes.
+                groups     (if (and (empty? matches) (empty? group-vars))
+                             {{} []}
+                             (group-by first matches))]
+          [gkey members] groups]
+      {:op op :k k
+       :members  (into #{} (map second) members)
+       :hard     hard?
+       :priority 1
+       :sentence (list 'cardinalityBound op k (res/substitute pattern gkey))})))
 
 ;; ---- the program ---------------------------------------------------------
 
@@ -532,7 +629,8 @@
             content  (into {} (map (fn [[s id]] [id {:sentence s :context base}])) head->id)
             ngoods   (concat (nogoods kb base head->id)
                              (constraint-nogoods kb base head->id))
-            program  (solve/program (set (vals head->id)) ngoods content)]
+            cards    (cardinality-constraints kb base head->id)
+            program  (solve/program (set (vals head->id)) ngoods content cards)]
         {:program program :head->id head->id}))))
 
 ;; ---- do/label: one inert labeling context per optimal answer set ---------
@@ -548,8 +646,10 @@
   between finishing and not at scale.  Tiebreak is always off here — its per-atom
   objective is its own scaling wall, and singling out one of many valid answers is not
   wanted; the content-keyed program is order-independent and clingo deterministic, so
-  one solve is a stable answer regardless.  Returns `{:optima [#{ids}] :translate-ms t
-  :solve-ms t}`, or `{:optima nil}`.
+  one solve is a stable answer regardless.  Returns `{:optima [#{ids}] :best-effort? b
+  :translate-ms t :solve-ms t}`, or `{:optima nil}` — `:best-effort?` true when the solve
+  was cancelled with a model still in hand (its optimality unproven; `edge/kept-of` reads
+  it as an answer anyway).
 
   **An `:unsat` program yields NO answer set — `[]`, not `[#{}]`.**  The two read
   identically off `kept-of`, which correctly keeps nothing either way, and the
@@ -566,7 +666,10 @@
           tb         (System/nanoTime)
           result     (solver/solve (:aspif translated) :label)
           tc         (System/nanoTime)]
-      {:optima      (if (= :unsat (:status result)) [] [(edge/kept-of translated result)])
+      {:optima       (if (= :unsat (:status result)) [] [(edge/kept-of translated result)])
+       ;; a cancelled optimization that still had a model: the labeling is valid but its
+       ;; optimality went unproven, so the caller is told (edge/kept-of read it anyway).
+       :best-effort? (= :best-effort (:status result))
        :translate-ms (/ (- tb ta) 1e6)
        :solve-ms     (/ (- tc tb) 1e6)})))
 
@@ -618,7 +721,10 @@
   `:solve-ms` = the solve) ride the result for a profiling caller.
 
   Returns `{:base :into :choices [..] :labelings [{:context :true [..] :false [..]}]
-  :count n}` (`:context` nil in `:one` mode, which persists nothing).  `:count 0` with
+  :count n}` (`:context` nil in `:one` mode, which persists nothing).  A `:one`/`:sat`
+  result also carries `:best-effort? true` when the solve was cancelled at the time
+  limit with a model in hand — a valid labeling whose optimality went unproven (the key
+  is absent otherwise).  `:count 0` with
   a `:reason` when there is no labeling to report: `:no-choices` (nothing was ground),
   `:no-backend` (nothing could be solved), or `:unsatisfiable` — the hard constraints
   admit no model, so there is no world to hand back.  Under `:all` an unsatisfiable
@@ -640,7 +746,7 @@
              ;; the heads in the order `build` minted their ids (a `nm/print-key` sort over the
              ;; same set), read straight off `id->head` — no re-sort, no second key built
              choices  (mapv id->head (range 1 (inc (count head->id))))
-             {:keys [optima translate-ms solve-ms]}
+             {:keys [optima translate-ms solve-ms best-effort?]}
              (if single?
                (one-optimum program (= mode :one))     ; :sat ⇒ keep-belief off (plain SAT)
                (let [ta (System/nanoTime), o (edge/enumerate-optima program)]
@@ -661,10 +767,14 @@
            (merge {:base base :into into-cx :count 0 :choices choices
                    :reason :unsatisfiable :labelings []} timing)
 
-           ;; :one / :sat — return the single labeling, persist nothing
+           ;; :one / :sat — return the single labeling, persist nothing.  `:best-effort?`
+           ;; rides along when the solve was cancelled with a model in hand (unproven
+           ;; optimal); absent otherwise, so a caller that ignores it sees no change.
            single?
            (merge {:base base :into into-cx :count 1 :choices choices
-                   :labelings [(assoc (labeling (first optima)) :context nil)]} timing)
+                   :labelings [(assoc (labeling (first optima)) :context nil)]}
+                  (when best-effort? {:best-effort? true})
+                  timing)
 
            ;; :all — materialize each optimum as its own inert labeling context
            :else
@@ -681,11 +791,11 @@
                                      falses (:false l)]
                                  ;; a genlCx edge so the labeling shows under Base in the tree;
                                  ;; monotonic because it is a real structural edge, not a solve result
-                                 (v/assert kb (list 'genlCx ctx base) base {:strength :monotonic})
+                                 (wiring/assert-sentence kb (list 'genlCx ctx base) base {:strength :monotonic})
                                  ;; the ownership marker rediscovery reads (see labeling-contexts)
-                                 (v/assert-inert kb (list 'labelingOf ctx into-cx (inc i)) ctx)
-                                 (doseq [s truths] (v/assert-inert kb s ctx))
-                                 (doseq [s falses] (v/assert-inert kb (list 'not s) ctx))
+                                 (kb/find-or-create-sentex kb (list 'labelingOf ctx into-cx (inc i)) ctx)
+                                 (doseq [s truths] (kb/find-or-create-sentex kb s ctx))
+                                 (doseq [s falses] (kb/find-or-create-sentex kb (list 'not s) ctx))
                                  (assoc l :context ctx)))
                              optima))}
                       timing)))))
@@ -710,7 +820,7 @@
                   (marker? sentence) nil
                   (and (seq? sentence) (= 'not (first sentence))) [(second sentence) :false]
                   :else [sentence :true])))
-        (v/sentexes-in-context kb ctx)))
+        (stored-in kb ctx)))
 
 (defn classify
   "Gather brave/cautious over the labelings a prior `(do/label _ Into)` produced, and
@@ -753,7 +863,7 @@
             grouped (group-by classify-one heads)]
         (clear-context! kb klass nil)
         (doseq [[k ss] grouped, s ss]
-          (v/assert-inert kb (list (symbol (name k)) s) klass))
+          (kb/find-or-create-sentex kb (list (symbol (name k)) s) klass))
         {:into into-cx :class-context klass :count (count labelings)
          :forced      (vec (:forced grouped))
          :supportable (vec (:supportable grouped))

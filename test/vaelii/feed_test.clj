@@ -64,7 +64,7 @@
 (tu/deftest-kb a-derived-conclusion-arrives-with-the-rule-that-derived-it
   (tu/with-terms [dog barks Muffet]
     (let [[seen f] (recorder)]
-      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse {:direction :forward})
       (v/watch kb f)
       (v/assert kb (list dog Muffet) 'CxUniverse)
       (is (= 1 (count @seen)))
@@ -93,7 +93,7 @@
 (tu/deftest-kb a-batch-settles-once-and-is-one-event
   (tu/with-terms [dog barks Muffet Rex Spot]
     (let [[seen f] (recorder)]
-      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse {:direction :forward})
       (v/watch kb f)
       (v/assert-many kb (mapv #(list dog %) [Muffet Rex Spot]) 'CxUniverse)
       (is (= 1 (count @seen)) "three asserts, one settle, one event")
@@ -104,7 +104,7 @@
   ;; tell which one was the KB's.
   (tu/with-terms [dog barks Muffet]
     (let [[seen f] (recorder)]
-      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse {:direction :forward})
       (v/watch kb f)
       (let [report (v/edit-with-consequences! kb {:add [[(list dog Muffet) 'CxUniverse]]})]
         (is (= 1 (count @seen)))
@@ -116,7 +116,7 @@
 (tu/deftest-kb a-defeat-and-its-revival-both-arrive
   (tu/with-terms [dog barks Muffet]
     (let [[seen f] (recorder)]
-      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse {:direction :forward})
       (v/assert kb (list dog Muffet) 'CxUniverse)
       (v/watch kb f)
       (let [neg (v/assert kb (list 'not (list barks Muffet)) 'CxUniverse
@@ -136,7 +136,7 @@
   ;; through one would send a change and then its exact reverse.
   (tu/with-terms [dog barks Muffet]
     (let [[seen f] (recorder)]
-      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse {:direction :forward})
       (v/watch kb f)
       (let [pv (v/preview kb {:add [[(list dog Muffet) 'CxUniverse]]})]
         (is (= 2 (count (:believed-added pv))) "the preview itself still answers")
@@ -146,7 +146,7 @@
   ;; `recover` relabels everything, so a feed through one would hand a reconnecting
   ;; application the whole KB as newly believed.
   (tu/with-terms [dog barks Muffet]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse {:direction :forward})
     (v/assert kb (list dog Muffet) 'CxUniverse)
     (let [[seen f] (recorder)]
       (v/watch kb f)
@@ -161,7 +161,7 @@
   (tu/with-terms [dog barks sick Muffet]
     (v/assert kb (list 'exceptWhen [(list sick '?x)]
                        (list 'set/defaultRule
-                             (vr/rule-sentence [(list dog '?x)] (list barks '?x))))
+                             (list 'set/forwardRule (vr/rule-sentence [(list dog '?x)] (list barks '?x)))))
               'CxUniverse)
     (v/assert kb (list dog Muffet) 'CxUniverse)
     (let [h (v/assert kb (list sick Muffet) 'CxUniverse)]
@@ -203,7 +203,7 @@
   ;; entry point.
   (tu/with-terms [dog barks Muffet]
     (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse
-              {:chain? false})
+              {:direction :forward :chain? false})
     (v/assert kb (list dog Muffet) 'CxUniverse {:chain? false})
     (let [[seen f] (recorder)]
       (v/watch kb f)
@@ -250,7 +250,7 @@
 (tu/deftest-kb registering-a-listener-does-not-move-belief
   ;; A feed is a read.  If registering one moved an `in?`, the delivery point is wrong.
   (tu/with-terms [dog barks Muffet Rex]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse {:direction :forward})
     (v/assert kb (list dog Muffet) 'CxUniverse)
     (let [quiet (mapv #(v/ask? kb % 'CxUniverse)
                       [(list dog Muffet) (list barks Muffet)])]
@@ -498,7 +498,7 @@
 
 (tu/deftest-kb a-standing-query-reports-what-left-belief-too
   (tu/with-terms [dog barks Muffet]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse {:direction :forward})
     (v/assert kb (list dog Muffet) 'CxUniverse)
     (let [[seen f] (recorder)]
       (v/watch kb (list barks '?x) 'CxUniverse f)

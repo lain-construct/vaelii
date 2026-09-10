@@ -112,6 +112,16 @@ and those files describe the project around it.
       the two lists.  The map's claim is arithmetic ("covers N of the M namespaces"),
       and nothing else reads it, so a namespace added without a line goes on being
       unmapped silently while the number beside it keeps asserting otherwise.
+  E19 A `(requiring-resolve 'ns/var)` in vaelii.impl.wiring whose target is not one of
+      the three the layering allows: the two genuine mutual recursions
+      (`vaelii.core/assert`, `vaelii.impl.provers/solve-goal`) and the teardown entry
+      point (`vaelii.core/retract!`), which a below-core solver reaches because the
+      teardown orchestration is core-private for now.  E8 forces every literal
+      requiring-resolve into that one file; E19 caps what it holds.  A fourth target is a
+      layering inversion — a below-core reader reached from core through a delay here
+      rather than relocated below core so the call points down (docs/namespaces.md, "The
+      layering").  Reuses E8's literal matcher, so a computed requiring-resolve is
+      as invisible to it as to E8.
 
   W1  Line-number citations into .clj files (`foo.clj:123`) — warned, not
       failed: cite the var name instead, line numbers always rot.
@@ -155,7 +165,7 @@ ALIASES = {
     "budget": "vaelii.impl.budget",
     "cap": "vaelii.impl.capabilities", "capabilities": "vaelii.impl.capabilities",
     "chain": "vaelii.impl.chain",
-    "checks": "vaelii.impl.checks", "core-context": "vaelii.impl.core-context",
+    "checks": "vaelii.impl.checks", "core-context": "vaelii.host.core-context",
     "backend": "vaelii.impl.disk.backend", "disk": "vaelii.impl.disk.backend",
     "dur": "vaelii.impl.disk.durability", "f": "vaelii.impl.disk.files",
     "dkv": "vaelii.impl.disk.kv", "lock": "vaelii.impl.disk.lock",
@@ -167,15 +177,16 @@ ALIASES = {
     "mem": "vaelii.impl.memory", "nm": "vaelii.impl.naming",
     "nat": "vaelii.impl.nat", "observe": "vaelii.impl.observe",
     "plan": "vaelii.impl.plan", "p": "vaelii.impl.protocols",
-    "provers": "vaelii.impl.provers", "reindex": "vaelii.impl.reindex",
+    "provers": "vaelii.impl.provers", "quasiquote": "vaelii.impl.quasiquote",
+    "recovery": "vaelii.impl.recovery", "reindex": "vaelii.impl.reindex",
     "rete": "vaelii.impl.rete", "rewrite": "vaelii.impl.rewrite",
     "rw": "vaelii.impl.rewrite", "rules": "vaelii.impl.rules",
-    "vr": "vaelii.impl.rules", "seed": "vaelii.impl.seed",
+    "vr": "vaelii.impl.rules", "seed": "vaelii.host.seed",
     "sentex": "vaelii.impl.sentex", "sx": "vaelii.impl.sentex",
     "settle": "vaelii.impl.settle", "solve": "vaelii.impl.solve",
-    "special": "vaelii.impl.special", "starter": "vaelii.impl.starter",
+    "special": "vaelii.impl.special", "starter": "vaelii.host.starter",
     "strength": "vaelii.impl.strength", "tax": "vaelii.impl.taxonomy",
-    "taxonomy": "vaelii.impl.taxonomy", "web": "vaelii.impl.web",
+    "taxonomy": "vaelii.impl.taxonomy", "web": "vaelii.host.web",
     "wff": "vaelii.impl.wff",
 }
 
@@ -821,6 +832,31 @@ for path in clj_files():
              f"call site; give it a real fix, or move it to vaelii.impl.wiring "
              f"with the reason it cannot be a require")
 
+# ── E19: wiring.clj holds only the layering's up-calls ──────────────────────
+# E8 forces every literal `(requiring-resolve 'ns/var)` into vaelii.impl.wiring,
+# but nothing caps what that one file holds.  A layering inversion surfaces there
+# as one more upward requiring-resolve: a below-core reader reached from core
+# through a delay here, rather than relocated below core so the call points down
+# (docs/namespaces.md, "The layering").  So pin the inventory to the three the
+# layering allows — the two genuine mutual recursions and the teardown entry point a
+# below-core solver reaches while the teardown orchestration stays core-private; a
+# fourth target is an inversion to relocate, not to add here.  Reuses E8_LITERAL, so a
+# computed `(requiring-resolve sym)` is invisible to it exactly as it is to E8.
+E19_WIRING = os.path.join(ROOT, "src/vaelii/impl/wiring.clj")
+E19_OK_TARGETS = {"vaelii.core/assert",
+                  "vaelii.impl.provers/solve-goal",
+                  "vaelii.core/retract!"}
+if os.path.exists(E19_WIRING):
+    for i, line in enumerate(open(E19_WIRING, errors="replace"), 1):
+        m = E8_LITERAL.search(line)
+        if m and m.group(1) not in E19_OK_TARGETS:
+            flag("E19", E19_WIRING, m.group(1),
+                 f"src/vaelii/impl/wiring.clj:{i} `requiring-resolve "
+                 f"'{m.group(1)}` — a target beyond the three wiring holds "
+                 f"(vaelii.core/assert, vaelii.impl.provers/solve-goal, "
+                 f"vaelii.core/retract!); relocate the callee below vaelii.core so the "
+                 f"call points down, rather than adding an inversion here")
+
 # ── E10: a declare owes a reason, and a dead one owes nothing ───────────────
 # `declare` is how a file admits its definitions do not fall in dependency
 # order.  Two things go wrong with one, and both are mechanical:
@@ -1197,6 +1233,7 @@ E17_ROSTER = {
     ("src/vaelii/impl/wff.clj", "disjoint-problems"),
     ("src/vaelii/impl/wff.clj", "rule-edges"),
     ("src/vaelii/impl/checks.clj", "genls-problem"),
+    ("src/vaelii/impl/checks.clj", "covering-genls-problem"),
     ("src/vaelii/impl/checks.clj", "mintable-type?"),
     # The forward join and the trigger keys. A firing is placed in a context the join
     # decides, so the candidate fan cannot be scoped by one — the rule index is keyed
@@ -1290,7 +1327,7 @@ E18_COUNT = re.compile(r"The map covers (\d+) of the (\d+) namespaces under `src
 
 
 def e18_expand(token):
-    """`impl/llm/{a,b}.clj` -> the names it stands for; anything else, itself."""
+    """`host/llm/{a,b}.clj` -> the names it stands for; anything else, itself."""
     m = re.match(r"^(.*?)\{([^}]*)\}(.*)$", token)
     if not m:
         return [token]

@@ -21,7 +21,7 @@
   argument one, nor a predicate nobody granted the marker to."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.modal :as modal]
             [vaelii.test-util :as tu]))

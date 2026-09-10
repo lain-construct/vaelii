@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.guard-test
-  "The HTTP guards (`vaelii.impl.guard`) as pure functions — no KB, no socket.
+  "The HTTP guards (`vaelii.host.guard`) as pure functions — no KB, no socket.
 
   These pin the refusal paths of the `Host` allowlist that closes DNS rebinding, and
   the pieces it is built from.  The daemon- and browser-level tests
@@ -9,7 +9,7 @@
   pins the guard's own decisions, including the deliberate carve-outs a handler test
   could mistake for gaps."
   (:require [clojure.test :refer [deftest is testing]]
-            [vaelii.impl.guard :as guard]))
+            [vaelii.host.guard :as guard]))
 
 (def ^:private strip-port #'guard/strip-port)
 

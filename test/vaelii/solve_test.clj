@@ -236,7 +236,7 @@
   ;; can report its sentence and priority.
   (let [bad (ng 3 7 8)
         r   (solve/solve solve/local-solver
-                         (solve/->Program #{} #{7 8} [bad] {}))]
+                         (solve/->Program #{} #{7 8} [bad] {} []))]
     (is (= #{} (:defeat r)))
     (is (= [bad] (:violated r)) "the whole nogood map comes back, not just its handles")))
 
@@ -247,7 +247,7 @@
   (let [c   (content 1 '(a))
         bad (ng 0 7 8)
         r   (solve/solve solve/local-solver
-                         (solve/->Program #{1} #{7 8 9} [(ng 0 1 9) bad] c))]
+                         (solve/->Program #{1} #{7 8 9} [(ng 0 1 9) bad] c []))]
     (is (= #{1} (:defeat r)))
     (is (= [bad] (:violated r)))))
 

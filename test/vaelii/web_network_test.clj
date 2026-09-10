@@ -9,7 +9,7 @@
   asserted has to appear in the matrix, or the page is only echoing the KB back."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.web :as web]
+            [vaelii.host.web :as web]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded tu/load-starter!))

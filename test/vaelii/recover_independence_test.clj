@@ -64,7 +64,7 @@
     (v/assert kb (list 'disjoint_metatype species) 'CxUniverse)
     (v/assert kb (list species dog_t) 'CxUniverse)
     ;; `cat_t` joins the metatype by inference alone — nothing states `(species cat_t)`
-    (v/assert kb (list 'implies (list seedOf '?x) (list species '?x)) 'CxUniverse)
+    (v/assert kb (list 'implies (list seedOf '?x) (list species '?x)) 'CxUniverse {:direction :forward})
     (v/assert kb (list seedOf cat_t) 'CxUniverse)
     (let [observe (fn [k] {:members  (tax/metatype-members (:taxonomy k) species)
                            :disjoint (v/disjoint? k dog_t cat_t)
@@ -82,9 +82,9 @@
   (tu/with-terms [q p hide Aa Trigger CxSub]
     (v/assert kb (list 'genlCx CxSub 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list q Aa) CxSub {:strength :monotonic})]
-      (v/assert kb (list 'implies (list q '?x) (list p '?x)) CxSub {:strength :monotonic})
+      (v/assert kb (list 'implies (list q '?x) (list p '?x)) CxSub {:direction :forward :strength :monotonic})
       (v/assert kb (list 'implies (list hide '?z) (list 'except (sx/sentex-handle h)))
-                CxSub {:strength :monotonic})
+                CxSub {:direction :forward :strength :monotonic})
       (v/assert kb (list hide Trigger) CxSub {:strength :monotonic})
       (let [observe (fn [k] {:target     (v/ask? k (list q Aa) CxSub)
                              :conclusion (boolean (seq (v/sentexes-matching k (list p Aa) CxSub)))
@@ -101,7 +101,7 @@
   ;; restart has to re-read the concluded edge as an edge, not merely as a stored
   ;; sentence nothing consults.
   (tu/with-terms [subOf sub_t mid_t Ind]
-    (v/assert kb (list 'implies (list subOf '?a '?b) (list 'genl '?a '?b)) 'CxUniverse)
+    (v/assert kb (list 'implies (list subOf '?a '?b) (list 'genl '?a '?b)) 'CxUniverse {:direction :forward})
     (v/assert kb (list subOf sub_t mid_t) 'CxUniverse)
     (v/assert kb (list sub_t Ind) 'CxUniverse)
     (let [observe (fn [k] {:isa   (v/isa? k Ind mid_t)
@@ -119,7 +119,7 @@
   ;; representative, and a restart that replayed the fact without the merge would answer
   ;; the retired spelling differently from the live KB that answered it through the class.
   (tu/with-terms [eqSeed eqSeen EPref EDep]
-    (v/assert kb (list 'implies (list eqSeed '?x) (list eqSeen '?x)) 'CxUniverse)
+    (v/assert kb (list 'implies (list eqSeed '?x) (list eqSeen '?x)) 'CxUniverse {:direction :forward})
     (v/assert kb (list eqSeed EDep) 'CxUniverse)
     (v/assert kb (list 'rewriteOf EPref EDep) 'CxUniverse {:strength :monotonic})
     (let [observe (fn [k] {:conclusions (set (map :sentence
@@ -141,7 +141,7 @@
   (tu/with-terms [xmark xseen xskip XBase XOne XTwo]
     (v/assert kb (list 'exceptWhen (list xskip XOne)
                        (list 'set/defaultRule
-                             (list 'implies (list 'and (list xmark '?x)) (list xseen '?x))))
+                             (list 'set/forwardRule (list 'implies (list 'and (list xmark '?x)) (list xseen '?x)))))
               'CxUniverse)
     (v/assert kb (list xmark XBase) 'CxUniverse)
     (v/assert kb (list 'rewriteOf XTwo XOne) 'CxUniverse)
@@ -157,8 +157,8 @@
     ;; to block — it would believe something the live KB does not.
     (tu/with-terms [ymark yseen yskip YBase YOne YTwo]
       (v/assert kb (list 'set/defaultRule
-                         (list 'implies (list 'and (list ymark '?x) (list 'unknown (list yskip YOne)))
-                               (list yseen '?x)))
+                         (list 'set/forwardRule (list 'implies (list 'and (list ymark '?x) (list 'unknown (list yskip YOne)))
+                                                      (list yseen '?x))))
                 'CxUniverse)
       (v/assert kb (list ymark YBase) 'CxUniverse)
       (v/assert kb (list 'rewriteOf YTwo YOne) 'CxUniverse)
@@ -209,7 +209,7 @@
     (v/assert kb (list 'binary_predicate dqRel) 'CxUniverse)
     (v/assert kb (list 'implies (list 'and (list dpRel '?x '?y) (list 'different '?x '?y))
                        (list dqRel '?x '?y))
-              'CxUniverse)
+              'CxUniverse {:direction :forward})
     (v/assert kb (list dpRel DAa DBb) 'CxUniverse)
     (is (v/ask? kb (list dqRel DAa DBb) 'CxUniverse)
         "the guard holds, so the live KB fired")

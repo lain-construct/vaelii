@@ -74,9 +74,9 @@
       (v/assert kb (list 'peerOf (cell-sym a) (cell-sym b)) S {:strength :monotonic}))
     ;; a filled peer rules its value out; a filled cell rules every value out
     (v/assert kb '(implies (and (peerOf ?c ?c2) (filled ?c2 ?v)) (ruledOut ?c ?v))
-              S {:strength :monotonic})
+              S {:direction :forward :strength :monotonic})
     (v/assert kb '(implies (and (filled ?c ?v2) (sudoku_value ?v)) (ruledOut ?c ?v))
-              S {:strength :monotonic})
+              S {:direction :forward :strength :monotonic})
     ;; the choice: any cell may take any value — except one already ruled out
     (v/assert kb '(exceptWhen (ruledOut ?c ?v)
                               (set/assumptionRule

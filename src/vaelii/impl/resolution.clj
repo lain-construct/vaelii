@@ -2537,10 +2537,18 @@
 
   Runs to completion; `prove-from` is the bounded/resumable variant this delegates
   to (`vaelii.core/prove-within` builds the anytime contract on it), and `prove-seq`
-  is the same search driven lazily."
-  [kb rules-fn goals context]
-  (:solutions (prove-from kb rules-fn context nil
-                          (initial-prove-stack kb goals context) [])))
+  is the same search driven lazily.
+
+  The 5-arg arity takes `prove-from`'s `bounds` map (`prove-seq`'s keys, plus
+  `:max-results`), so a caller can run this eager search with a **registry leaf**
+  (`{:leaf-solver provers/solve-goal :est-override (provers/registry-est-override kb ctx)}`)
+  — an antecedent answered by a prover, an evaluatable or a cached closure rather than only
+  a stored fact, the division `vaelii.core/query` runs.  The 4-arg keeps the stored-fact
+  leaf (`nil` bounds), which is what `prove` has always meant by a leaf."
+  ([kb rules-fn goals context] (prove kb rules-fn goals context nil))
+  ([kb rules-fn goals context bounds]
+   (:solutions (prove-from kb rules-fn context bounds
+                           (initial-prove-stack kb goals context (:est-override bounds)) []))))
 
 (defn prove-seq
   "The same search as `prove`, **lazily** — a seq of solution binding maps that costs one

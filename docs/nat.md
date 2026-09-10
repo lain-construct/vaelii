@@ -204,7 +204,7 @@ It is wired at every read entry, and the enumeration is the whole of the guarant
 `sentexes-matching`, `ask`, `prove`, `query`, the anytime `ask-within` /
 `prove-within`, and levels 6 and 7 of the lookup stack ([levels.md](levels.md)), which
 are the two that claim to be the engine's own dispatch. One shared step
-(`core/prepare-goal-for-read`) does it for all of them, because the failure mode when
+(`quasiquote/prepare-goal-for-read`) does it for all of them, because the failure mode when
 an entry omits it is not a wrong answer but an **empty** one — the compound is matched
 against a store that holds a symbol, and nothing comes back, which is
 indistinguishable from a KB that was never told.

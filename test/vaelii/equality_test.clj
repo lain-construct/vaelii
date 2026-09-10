@@ -448,7 +448,7 @@
                                 (list 'different '?a '?b)
                                 (list 'different '?b '?c)]
                             (list triple '?a '?b '?c)
-                            CxStory)
+                            CxStory {:direction :forward})
           antes (:antecedent (v/sentex kb rh))
           diffs (filter #(= 'different (first %)) antes)]
       (testing "both literals survive — no chain merge"
@@ -480,7 +480,7 @@
                      (v/assert-rule kb [(list candidate '?x)
                                         (list 'different '?x Anchor)]
                                     (list 'sameAs '?x Anchor)
-                                    CxMerge))))
+                                    CxMerge {:direction :forward}))))
       (testing "and the refusal leaves no rule behind"
         (is (empty? (v/sentexes-in-context kb CxMerge)))))))
 
@@ -699,7 +699,7 @@
       (v/assert kb (list 'functional motherOf) CxFam)
       (v/assert kb (list motherOf Tom lo) CxFam)
       (v/assert kb (list caresFor hi Tom) CxFam)
-      (v/assert-rule kb [(list parentOf '?x '?y)] (list motherOf '?x '?y) CxFam)
+      (v/assert-rule kb [(list parentOf '?x '?y)] (list motherOf '?x '?y) CxFam {:direction :forward})
       (v/assert kb (list parentOf Tom hi) CxFam)
       (testing "the derived second value merges"
         (is (v/same-class? kb lo hi)))
@@ -726,7 +726,7 @@
   representative and the retired spelling."
   [kb rel aliasOf caresFor Tom context]
   (let [[lo hi] (sort [(tu/tmp-ind "Ann") (tu/tmp-ind "Ann")])]
-    (v/assert-rule kb [(list aliasOf '?x '?y)] (list rel '?x '?y) context)
+    (v/assert-rule kb [(list aliasOf '?x '?y)] (list rel '?x '?y) context {:direction :forward})
     (v/assert kb (list caresFor hi Tom) context)
     (v/assert kb (list aliasOf lo hi) context)
     [lo hi]))
@@ -770,10 +770,10 @@
   ;; earlier firing either, there having been none to migrate.
   (tu/with-terms [aliasOf caresFor lives devotedTo Tom CxAlias]
     (v/assert-rule kb [(list caresFor '?x '?y) (list lives '?x)]
-                   (list devotedTo '?x '?y) CxAlias)
+                   (list devotedTo '?x '?y) CxAlias {:direction :forward})
     (let [[lo hi] (sort [(tu/tmp-ind "Ann") (tu/tmp-ind "Ann")])]
       (v/assert kb (list lives lo) CxAlias)
-      (v/assert-rule kb [(list aliasOf '?x '?y)] (list 'sameAs '?x '?y) CxAlias)
+      (v/assert-rule kb [(list aliasOf '?x '?y)] (list 'sameAs '?x '?y) CxAlias {:direction :forward})
       (v/assert kb (list caresFor hi Tom) CxAlias)
       (is (nil? (v/handle-of kb (list devotedTo hi Tom) CxAlias))
           "the join must not succeed before the merge, or the twin proves nothing")
@@ -1024,7 +1024,7 @@
                             (v/assert kb (list 'implies (list 'and (list pRel '?x '?y)
                                                               (list 'different '?x '?y))
                                                (list qRel '?x '?y))
-                                      'CxUniverse)
+                                      'CxUniverse {:direction :forward})
                             (v/assert kb (list pRel Aa Bb) 'CxUniverse)
                             (when (= order :guard-then-fact) (flip! kb Aa Bb))
                             [(v/ask? kb (list 'different Aa Bb) 'CxUniverse)
@@ -1044,7 +1044,7 @@
     (v/assert kb (list 'binary_predicate qRel) 'CxUniverse)
     (v/assert kb (list 'implies (list 'and (list pRel '?x '?y) (list 'different '?x '?y))
                        (list qRel '?x '?y))
-              'CxUniverse)
+              'CxUniverse {:direction :forward})
     (v/assert kb (list 'indeterminate_term Aa) 'CxUniverse)
     (v/assert kb (list pRel Aa Bb) 'CxUniverse)
     (is (not (v/ask? kb (list qRel Aa Bb) 'CxUniverse))
@@ -1076,7 +1076,7 @@
           (v/assert kb (list 'implies (list 'and (list pRel '?x '?y)
                                             (list 'different '?x '?y))
                              (list qRel '?x '?y))
-                    'CxUniverse)
+                    'CxUniverse {:direction :forward})
           (v/assert kb (list 'genl vague_kind 'indeterminate_term) 'CxUniverse)
           (v/assert kb (list vague_kind Aa) 'CxUniverse)
           (v/assert kb (list pRel Aa Bb) 'CxUniverse)

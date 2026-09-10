@@ -24,8 +24,8 @@
   comparison — the difference this reports is a difference in the fixtures' baseline."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.host.starter :as starter]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.starter :as starter]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 

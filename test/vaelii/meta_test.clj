@@ -284,7 +284,7 @@
   (tu/with-terms [bornInFrance speaksFrench Ann CxAlpha]
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'decontextualized_predicate speaksFrench) 'CxUniverse)
-    (v/assert-rule kb [(list bornInFrance '?x)] (list speaksFrench '?x) CxAlpha)
+    (v/assert-rule kb [(list bornInFrance '?x)] (list speaksFrench '?x) CxAlpha {:direction :forward})
     (v/assert kb (list bornInFrance Ann) CxAlpha)
 
     (testing "the rule concludes in its own context"
@@ -313,7 +313,7 @@
                              (case step
                                :decl (v/assert kb (list 'decontextualized_predicate speaksFrench)
                                                'CxUniverse)
-                               :rule (v/assert-rule kb [(list bornInFrance '?x)] (list speaksFrench '?x) CxAlpha)
+                               :rule (v/assert-rule kb [(list bornInFrance '?x)] (list speaksFrench '?x) CxAlpha {:direction :forward})
                                :fact (v/assert kb (list bornInFrance Ann) CxAlpha)))
                            [(boolean (seq (v/sentexes-matching kb (list speaksFrench Ann) CxAlpha)))
                             (boolean (seq (v/sentexes-matching kb (list speaksFrench Ann) 'CxUniverse)))]))
@@ -331,7 +331,7 @@
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'decontextualized_predicate connects) 'CxUniverse)
     (v/assert-rule kb [(list connects '?x '?y) (list connects '?y '?z)]
-                   (list connects '?x '?z) CxAlpha)
+                   (list connects '?x '?z) CxAlpha {:direction :forward})
     (v/assert kb (list connects A B) CxAlpha)
     (v/assert kb (list connects B C) CxAlpha)
     (v/assert kb (list connects C D) CxAlpha)
@@ -350,7 +350,7 @@
     (v/assert kb (list 'decontextualized_predicate penguin) 'CxUniverse)
     (v/assert kb (list 'exceptWhen (list penguin '?x)
                        (list 'set/defaultRule
-                             (list 'implies (list 'and (list bird '?x)) (list flies '?x))))
+                             (list 'set/forwardRule (list 'implies (list 'and (list bird '?x)) (list flies '?x)))))
               'CxUniverse)
     (v/assert kb (list bird Opus) 'CxUniverse)
     (is (v/ask? kb (list flies Opus) 'CxUniverse) "nothing excepts it yet")
@@ -391,7 +391,7 @@
   (tu/with-terms [edgeTo reachesFrom A B CxAlpha CxSibling]
     (v/assert kb (list 'genlCx CxAlpha 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxSibling 'CxUniverse) 'CxUniverse)
-    (v/assert-rule kb [(list edgeTo '?x '?y)] (list reachesFrom '?y '?x) 'CxUniverse)
+    (v/assert-rule kb [(list edgeTo '?x '?y)] (list reachesFrom '?y '?x) 'CxUniverse {:direction :forward})
     (v/assert kb (list 'decontextualized_predicate edgeTo) 'CxUniverse)
     (v/assert kb (list edgeTo A B) CxAlpha)
     (testing "the conclusion is placed both where the fact was stated and in the universe"

@@ -830,8 +830,8 @@
     ;; a chihuahua fits in the box, unless a chihuahua is larger than a maine coon
     (v/assert kb (list 'exceptWhen (list largerThan chihuahua_t maine_coon_t)
                        (list 'set/defaultRule
-                             (list 'implies (list 'and (list chihuahua_t '?x))
-                                   (list fitsIn '?x))))
+                             (list 'set/forwardRule (list 'implies (list 'and (list chihuahua_t '?x))
+                                                          (list fitsIn '?x)))))
               'CxUniverse)
     (v/assert kb (list chihuahua_t Tiny) 'CxUniverse)
     (is (seq (v/sentexes-matching kb (list fitsIn Tiny) 'CxUniverse))

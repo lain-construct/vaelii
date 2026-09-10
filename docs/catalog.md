@@ -8,7 +8,7 @@
   [web.md](web.md), "Long work as jobs".
 - **Assumes:** sentex, context, `genl` / `genlCx` → [glossary.md](glossary.md).
 
-`vaelii.impl.catalog`. Everything else in this repo assumes it is holding *the* KB. The
+`vaelii.host.catalog`. Everything else in this repo assumes it is holding *the* KB. The
 catalog is what makes that a choice: it lists the knowledge bases this process could
 load, loads one in the background while the pages keep answering, and says which of the
 loaded ones every other page is about.
@@ -29,9 +29,9 @@ A source is a description, not a KB. Six kinds:
 
 | kind | content | loader |
 |------|---------|--------|
-| `:core` | the CxCore vocabulary head alone | `vaelii.impl.core-context` |
-| `:starter` | the shipped schema-only ontology | `vaelii.impl.starter` |
-| `:generated` | synthesized from numbers — see [generating one](#generating-a-kb) | `vaelii.impl.io.generate` |
+| `:core` | the CxCore vocabulary head alone | `vaelii.host.core-context` |
+| `:starter` | the shipped schema-only ontology | `vaelii.host.starter` |
+| `:generated` | synthesized from numbers — see [generating one](#generating-a-kb) | `vaelii.host.io.generate` |
 | `:corpus` | a translated sentence corpus (OpenCyc) | a plugin's reader — [foreign.md](foreign.md) |
 | `:dump` | a vaelii export dump, with or without its index | `vaelii.impl.io.import` |
 | `:store` | an on-disk KB already in vaelii's own format | opened in place |
@@ -87,7 +87,7 @@ catalog file names it: an entry written down by hand is never capped, and neithe
 built-ins.
 
 Every source carries its own `:options`: the form controls it accepts, as data. The
-generator's sliders are `vaelii.impl.io.generate/knobs` rendered directly, so the page
+generator's sliders are `vaelii.host.io.generate/knobs` rendered directly, so the page
 and the generator cannot disagree about a parameter's range or its default.
 
 One of those options is worth naming here because its cost is easy to under-read. A dump's
@@ -154,7 +154,7 @@ runs at a time** — they are minutes long and memory-hungry, and two at once wo
 each other's timings meaningless and each other's memory unpredictable.
 
 The running half is not here. A load is a job like the export beside it and the chaining
-run on `/stats` (`vaelii.impl.jobs`, [web.md](web.md)), which is what gives it the thread,
+run on `/stats` (`vaelii.host.jobs`, [web.md](web.md)), which is what gives it the thread,
 the progress reading, the cancel flag and the report — so an entry carries its job's id and
 **reads its status** rather than keeping one of its own, and the panel and the loader cannot
 tell two stories. The status vocabulary is the registry's, whatever the job is doing:
@@ -354,7 +354,7 @@ number that decides whether to load it at all.
 ## The switch
 
 `holder` is a deref-able that yields the active KB (or a fallback when nothing is
-loaded). `vaelii.impl.web/app` takes one of those in place of a KB and resolves it **per
+loaded). `vaelii.host.web/app` takes one of those in place of a KB and resolves it **per
 request**, so activating another entry re-points every page at once with no restart and
 no handler rebuild. A KB or an access value still works — `app` takes any of the three.
 
@@ -408,7 +408,7 @@ first thousand sentexes — the wait stops being a wait.
 
 ## Generating a KB
 
-`vaelii.impl.io.generate` synthesizes a KB from a handful of numbers — types,
+`vaelii.host.io.generate` synthesizes a KB from a handful of numbers — types,
 individuals, predicates, facts, rules, the forward/backward mix, how many are defeasible,
 how deep the type tree branches, how many contexts the facts spread over, and the seed.
 
@@ -445,6 +445,6 @@ comparable and the conclusion lands in the deeper of the two.
 ## What this is not
 
 The catalog is **process-local**: it is the browser's own state, not a KB's, so nothing
-about it is stored, nothing survives a restart, and the daemon (`vaelii.impl.serve`) does
+about it is stored, nothing survives a restart, and the daemon (`vaelii.host.serve`) does
 not serve it. A browser started with `--attach` registers the daemon as an entry it reads
 and can load local KBs beside it, but it cannot make the daemon load anything.

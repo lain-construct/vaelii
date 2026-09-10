@@ -162,7 +162,7 @@
   (tu/with-terms [dog_t fish_t Rex]
     (v/assert kb (list 'disjoint dog_t fish_t) 'CxUniverse)
     (v/assert kb (list dog_t Rex) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'set/defaultRule (vr/rule-sentence [(list dog_t '?x)] (list fish_t '?x)))
+    (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence [(list dog_t '?x)] (list fish_t '?x))))
               'CxUniverse)
     (let [h (v/handle-of kb (list fish_t Rex) 'CxUniverse)]
       (is (integer? h) "the conclusion is placed, not discarded")
@@ -222,7 +222,7 @@
   (tu/with-terms [dog_t fish_t Rex]
     (v/assert kb (list 'disjoint dog_t fish_t) 'CxUniverse)
     (v/assert kb (list dog_t Rex) 'CxUniverse {:strength :monotonic})
-    (v/assert-rule kb [(list dog_t '?x)] (list fish_t '?x) 'CxUniverse)
+    (v/assert-rule kb [(list dog_t '?x)] (list fish_t '?x) 'CxUniverse {:direction :forward})
     (let [c (first (v/conflicts kb))]
       (is (some? c) "an irreducible known-true clash")
       (is (= report-keys (into #{} (keys c))))
@@ -296,7 +296,7 @@
   (tu/with-terms [dog_t fish_t Rex]
     (v/assert kb (list 'disjoint dog_t fish_t) 'CxUniverse)
     (v/assert kb (list dog_t Rex) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'set/defaultRule (vr/rule-sentence [(list dog_t '?x)] (list fish_t '?x)))
+    (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence [(list dog_t '?x)] (list fish_t '?x))))
               'CxUniverse)
     (let [h (v/handle-of kb (list fish_t Rex) 'CxUniverse)]
       (is (not (v/in? kb h)) "the derived side lost")
@@ -317,14 +317,14 @@
       (tu/with-terms [dog_t cat_t Rex markA markB]
         (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
         (v/assert kb (list dog_t Rex) 'CxUniverse)
-        (v/assert kb (list 'set/defaultRule (vr/rule-sentence [(list markA '?x)] (list cat_t '?x)))
+        (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence [(list markA '?x)] (list cat_t '?x))))
                   'CxUniverse)
         (v/assert kb (list markA Rex) 'CxUniverse)
         (let [h (v/handle-of kb (list cat_t Rex) 'CxUniverse)]
           (is (= 1 (count (v/contradictions kb))) "a default/default clash is a dilemma")
           (is (v/in? kb h))
           ;; a second rule reaching the same conclusion: belief is unmoved, so no relabel
-          (v/assert kb (list 'set/defaultRule (vr/rule-sentence [(list markB '?x)] (list cat_t '?x)))
+          (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence [(list markB '?x)] (list cat_t '?x))))
                     'CxUniverse)
           (v/assert kb (list markB Rex) 'CxUniverse)
           (is (= 2 (count (v/supporting-justifications kb h))))
@@ -344,7 +344,7 @@
     (v/assert kb (list dog_t Rex) 'CxUniverse {:strength :monotonic})
     ;; a bare rule confers :monotonic and is capped by its antecedent, so the
     ;; conclusion is known-true too and ties with the membership
-    (v/assert-rule kb [(list dog_t '?x)] (list fish_t '?x) 'CxUniverse)
+    (v/assert-rule kb [(list dog_t '?x)] (list fish_t '?x) 'CxUniverse {:direction :forward})
     (let [cs (v/conflicts kb)]
       (is (= 1 (count cs)))
       (is (= :disjoint (:kind (first cs))))
@@ -387,7 +387,7 @@
   (tu/with-terms [dog_t fish_t Rex]
     (v/assert kb (list 'disjoint dog_t fish_t) 'CxUniverse)
     (v/assert kb (list dog_t Rex) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'set/defaultRule (vr/rule-sentence [(list dog_t '?x)] (list fish_t '?x)))
+    (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence [(list dog_t '?x)] (list fish_t '?x))))
               'CxUniverse)
     (let [h (v/handle-of kb (list fish_t Rex) 'CxUniverse)]
       (is (not (v/in? kb h)) "defeated before the rebuild")
@@ -785,7 +785,7 @@
     (v/assert kb (list zprec Qa Qb) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list zprec Qb Qc) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list 'set/defaultRule
-                       (vr/rule-sentence [(list zhints '?x '?y)] (list zprec '?x '?y)))
+                       (list 'set/forwardRule (vr/rule-sentence [(list zhints '?x '?y)] (list zprec '?x '?y))))
               'CxUniverse)
     (v/assert kb (list zhints Qa Qc) 'CxUniverse)
     (let [h (v/handle-of kb (list zprec Qa Qc) 'CxUniverse)]

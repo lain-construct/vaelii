@@ -59,9 +59,9 @@
   [kb mark seen trig pbigger ctx]
   (v/assert kb (list 'implies (list mark '?rel)
                      (list 'implies (list '?rel '?x '?y) (list seen '?x)))
-            ctx)
+            ctx {:direction :forward})
   (v/assert kb (list 'set/defaultRule
-                     (list 'implies (list 'and (list trig '?p)) (list mark '?p)))
+                     (list 'set/forwardRule (list 'implies (list 'and (list trig '?p)) (list mark '?p))))
             ctx)
   (v/assert kb (list trig pbigger) ctx)
   (the-mint kb ctx seen))

@@ -16,7 +16,7 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as catalog]
+            [vaelii.host.catalog :as catalog]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.io.export :as export]
             [vaelii.impl.io.frames :as fr]
@@ -97,9 +97,9 @@
     ;; same literal, so `(flies Tweety)` ends up with two independent justifications
     (v/assert kb (list 'exceptWhen (list penguin '?b)
                        (list 'set/defaultRule
-                             (vr/rule-sentence [(list bird '?b)] (list flies '?b))))
+                             (list 'set/forwardRule (vr/rule-sentence [(list bird '?b)] (list flies '?b)))))
               ctx)
-    (v/assert kb (vr/rule-sentence [(list feathered '?f)] (list flies '?f)) ctx)
+    (v/assert kb (vr/rule-sentence [(list feathered '?f)] (list flies '?f)) ctx {:direction :forward})
     (v/assert kb (list feathered Tweety) ctx)
     ;; a bird the exception blocks — the rule fires for Tweety and not for Opus
     (v/assert kb (list bird Opus) ctx)
@@ -221,8 +221,8 @@
                 (is (some? (:consequent rule)))
                 (is (map? (:varmap rule))
                     "the author's variable names, or every rule renders as ?var0")
-                (is (= :both (:direction rule))
-                    "a bare implication's direction, canonicalized into the record")))
+                (is (= :forward (:direction rule))
+                    "the set/forwardRule direction, canonicalized into the record")))
 
             (testing "an exceptWhen rides as its own meta-sentex, naming the rule by handle"
               (let [meta-sx (first (filter #(and (seq? (:sentence %))

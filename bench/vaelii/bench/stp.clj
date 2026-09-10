@@ -47,9 +47,9 @@
 
   Run: `lein bench-stp [instant counts…]`  (default 25 100 400)."
   (:require [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.observe :as observe]
-            [vaelii.impl.seed :as seed]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.stp :as stp]))
 
 ;; ---- the network under test ---------------------------------------------

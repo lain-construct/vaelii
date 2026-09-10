@@ -1000,36 +1000,158 @@
   cost, rather than by a forward rule that never fires because the computed condition is
   never a believed fact (docs/defns.md).
 
+  `matchesPattern` is the **binary** string-shape check: `(matchesPattern ?string ?pattern)`
+  holds when the whole of `?string` matches the regular expression `?pattern`, both ground
+  strings.  It is one kind further than `integer` — from \"what EDN kind is this\" to \"what
+  shape is this string\" — and it is the primitive a `defn` over a string subtype reads: a
+  `(defnSufficient ipv4_address (matchesPattern ?x \"…\"))` resolves by evaluation at query
+  time the way the sign-refined integer collections read `integer`.  `matchesPattern` answers
+  false for a non-string subject, so it needs no separate `(string ?x)` conjunct, which the
+  registry does not evaluate.  The match runs
+  through a step-limited view (`bounded-matches?`), so a catastrophically-backtracking pattern
+  is a `:pattern-too-costly` refusal rather than an unbounded match that leaves the
+  completeness promise below dishonest.
+
   A prover's own source list, and it stays one: the set is what `EvaluableProver` reads
   its arguments *as*, not a claim about what any predicate is answered by.  The
-  declaration's half is the `:answers` facet each of the three carries, pinned against
+  declaration's half is the `:answers` facet each of the four carries, pinned against
   this set by `predicates_test`."
-  '#{lessThan greaterThan integer})
+  '#{lessThan greaterThan integer matchesPattern})
 
-(defrecord EvaluableProver []                    ; arithmetic comparison + EDN-kind check
+(def ^:private ^:const match-step-budget
+  "Characters one `matchesPattern` match may read before it is refused as too costly.  A
+  linear match reads O(string length); a catastrophically-backtracking pattern reads
+  super-linearly and blows this, so the two separate cleanly.  Per match, because a goal
+  matches one string rather than scanning a vocabulary — the scan-wide budget `find-terms`
+  carries has no counterpart here."
+  1000000)
+
+(defn- bounded-matches?
+  "Does the whole of `s` match the regular expression `pattern`, read through a step-limited
+  `CharSequence` that throws `:pattern-too-costly` once the match reads past
+  `match-step-budget` characters?  A `Matcher` reads a character per backtracking step, so a
+  pathological pattern is refused on the step that exceeds the budget rather than running
+  unbounded — which is what keeps `EvaluableProver`'s completeness-100 promise honest for a
+  ground goal.  An uncompilable pattern yields nil here; the assert entry point refuses one
+  loudly (`checks/matches-pattern-problem`), so a compile failure reaching query time is a
+  goal that never passed a check, answered as no match rather than as an error."
+  [^String pattern ^String s]
+  (when-let [^java.util.regex.Pattern re (try (java.util.regex.Pattern/compile pattern)
+                                              (catch java.util.regex.PatternSyntaxException _ nil))]
+    (let [seen (java.util.concurrent.atomic.AtomicLong.)
+          view (reify CharSequence
+                 (length [_] (.length s))
+                 (charAt [_ i]
+                   (when (> (.incrementAndGet seen) (long match-step-budget))
+                     (throw (ex-info (str "regex is too costly to evaluate against "
+                                          (pr-str s) " — the match read past "
+                                          match-step-budget " characters of it")
+                                     {:type :pattern-too-costly :scope :candidate})))
+                   (.charAt s i))
+                 (subSequence [_ a b] (.subSequence s ^int a ^int b))
+                 (toString [_] s))]
+      (.matches (.matcher re ^CharSequence view)))))
+
+(defrecord EvaluableProver []                    ; arithmetic comparison, EDN-kind + string-shape check
   Prover
   (applicable? [_ _ goal _]
     (and (sequential? goal) (contains? evaluable-predicates (first goal))
-         (if (= 'integer (first goal))
+         (case (first goal)
+           integer
            ;; the unary kind check: one ground argument, of any EDN kind (a non-integer
            ;; simply yields no solution — which is what makes a failing `(integer ?x)`
            ;; necessary a sound negative witness for a string / symbol member).
            (and (= 1 (count (rest goal))) (ground? goal))
+           matchesPattern
+           ;; the binary string-shape check: two ground arguments.  A non-string subject
+           ;; yields no solution, so a failing `(matchesPattern ?x p)` is a sound negative
+           ;; witness the way `integer` is for a non-integer.
+           (and (= 2 (count (rest goal))) (ground? goal))
+           ;; lessThan / greaterThan: the variable-arity arithmetic comparisons
            (and (>= (count (rest goal)) 2)
                 (every? number? (rest goal))))))
   (est-bindings [_ _ _ _] 1)
   (cost         [_ _ _ _] :lookup)
   ;; Authoritative for a ground goal: the arithmetic cannot be wrong about two numbers, nor
-  ;; `integer?` about one term's EDN kind.
+  ;; `integer?` about one term's EDN kind, nor `matchesPattern` about a string and a pattern.
   (completeness [_ _ _ _] 100)
   (solve [_ _ goal _]
     (let [args (rest goal)
           ok   (case (first goal)
-                 lessThan    (apply < args)
-                 greaterThan (apply > args)
-                 integer     (integer? (first args))
+                 lessThan       (apply < args)
+                 greaterThan    (apply > args)
+                 integer        (integer? (first args))
+                 matchesPattern (let [[s p] args]
+                                  (and (string? s) (string? p) (bounded-matches? p s)))
                  false)]
       (if ok [{}] []))))
+
+(defn arity-min
+  "The minimum arity `(arityMin R n)` declares for relation `R`, visible from `context`,
+  or nil.
+
+  Read by retrieval, not from the taxonomy's arity cache: `arityMin` is not one of the
+  declarations kept there beside `arity` and `inverse`, so a caller reaches this only with
+  a variable-arity relation already in hand — never on the exact-arity path every assert
+  runs.  Nil when the KB has been told two different minima one reader can see, the stance
+  `taxonomy/declared-arity` takes for the exact arity: two contradictory declarations
+  leave the minimum genuinely unsettled, and flooring on whichever was found first would
+  be arbitrary."
+  [kb pred context]
+  (let [vals (into #{}
+                   (keep (fn [m]
+                           (let [v (get (second m) '?n)]
+                             (when (and (integer? v) (pos? v)) v))))
+                   (res/matches-visible kb (list 'arityMin pred '?n) context))]
+    (when (= 1 (count vals)) (first vals))))
+
+(defn admits-position?
+  "Does positive position `n` exist in a well-formed application of a relation with this
+  arity shape?  `true` when it certainly does, `false` when it certainly does not, `nil`
+  when the KB has not said.
+
+  The one decision `admitsArgnum`, `checks/arg-position-problem` and — through that arm —
+  `quality`'s position census all read, so the query and the well-formedness refusal
+  cannot answer the same position two ways.  `variable?` is whether the relation reads a
+  chain of any length; `declared` is its exact declared arity, or nil where the KB has
+  none.
+
+  A variable-arity relation admits every positive position: its guaranteed positions
+  (one through its `arityMin`) and every higher one its long tuples reach are all
+  positions a well-formed application has.  A fixed-arity relation admits one through its
+  declared arity and no more.  A relation with neither a variable-arity mark nor a
+  declared arity leaves the question open."
+  [variable? declared n]
+  (cond
+    (not (and (integer? n) (pos? n))) false
+    variable?                         true
+    (integer? declared)               (<= n declared)
+    :else                             nil))
+
+(defn- relation-variable-arity?
+  "Is `pred` a variable-arity relation, visible from `context`?  Read by the type-aware
+  retrieval so a membership stated as `variable_arity_predicate` or `variable_arity_function`
+  answers the `variable_arity` question its `genl` edge entails."
+  [kb pred context]
+  (boolean (seq (res/matches-visible kb (list 'variable_arity pred) context))))
+
+(defrecord AdmitsArgnumProver []                 ; the position query over a relation's arity
+  Prover
+  (applicable? [_ _ goal _]
+    (and (sequential? goal) (= 'admitsArgnum (first goal))
+         (= 2 (count (rest goal))) (ground? goal)   ; a ground relation and position
+         (let [[p n] (rest goal)] (and (symbol? p) (integer? n)))))
+  (est-bindings [_ _ _ _] 1)
+  (cost         [_ _ _ _] :lookup)
+  ;; Authoritative for a ground goal: the answer is computed from the relation's declared
+  ;; arity and variable-arity mark, both of which follow belief.
+  (completeness [_ _ _ _] 100)
+  (solve [_ kb goal context]
+    (let [[p n] (rest goal)]
+      (if (true? (admits-position? (relation-variable-arity? kb p context)
+                                   (tax/declared-arity (:taxonomy kb) p context)
+                                   n))
+        [{}] []))))
 
 ;; ---- different: the unique-name assumption over the equality closure ----
 
@@ -2391,7 +2513,13 @@
   '{arg      {:pred 1 :fixed [2] :types-up [3]}
     genlArg     {:pred 1 :fixed [2] :types-up [3]}
     quotedArg   {:pred 1 :fixed [2] :types-up [3]}
-    interArg {:pred 1 :fixed [2 4] :types-up [5] :types-down [3]}})
+    interArg {:pred 1 :fixed [2 4] :types-up [5] :types-down [3]}
+    ;; the covering constraints: an every-position form has no fixed position, a tail
+    ;; form fixes its start and reads its one type up genl as the singular forms do
+    args           {:pred 1 :types-up [2]}
+    argsGenl        {:pred 1 :types-up [2]}
+    argAndRest      {:pred 1 :fixed [2] :types-up [3]}
+    argAndRestGenl  {:pred 1 :fixed [2] :types-up [3]}})
 
 (def meta-constraint-functors
   "The argument constraints this prover answers along the `genl` closure, as a set —
@@ -2499,6 +2627,7 @@
   [(->TransitivityProver) (->DisjointnessProver)
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
    (->EvaluableProver) (->DifferentProver) (->EvaluateProver) (->QuantityProver)
+   (->AdmitsArgnumProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
    (->DefnSufficientProver) (->DefnNecessaryNegationProver)
    (->AggregateProver) (->BeliefProjectionProver)

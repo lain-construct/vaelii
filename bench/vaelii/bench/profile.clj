@@ -50,7 +50,7 @@
             [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.starter :as starter]))
+            [vaelii.host.starter :as starter]))
 
 (defn- ms [t0] (/ (- (System/nanoTime) t0) 1e6))
 

@@ -12,7 +12,7 @@
   asserting the `genlCx` edge."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.nat :as nat]
             [vaelii.test-util :as tu]))
 
@@ -332,7 +332,7 @@
   (let [cxfn (declare-calendar-dimension! kb)
         feb  (list cxfn 'CxMonad '(MonthFn 2000 2))
         mar  (list cxfn 'CxMonad '(MonthFn 2000 3))]
-    (v/assert kb '(implies (and (blooms ?x)) (spring_has_come ?x)) mar)
+    (v/assert kb '(implies (and (blooms ?x)) (spring_has_come ?x)) mar {:direction :forward})
     (v/assert kb '(blooms Snowdrop) feb)
     (v/assert kb '(blooms Crocus) mar)
     (testing "the rule fires for its own month"

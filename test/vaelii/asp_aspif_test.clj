@@ -51,6 +51,14 @@
     (is (= ["1 0 1 3 0 2 1 -2"] (body-lines (aspif/render [(aspif/rule 3 [1 -2])])))))
   (testing "an integrity constraint is a rule with no head"
     (is (= ["1 0 0 0 2 1 2"] (body-lines (aspif/render [(aspif/constraint [1 2])])))))
+  (testing "a weight constraint is a headless rule with a body-type-1 body"
+    ;; at-most-1 over {1,2,3}: forbid the count reaching 2 — bound 2, weight 1 each
+    (is (= ["1 0 0 1 2 3 1 1 2 1 3 1"]
+           (body-lines (aspif/render [(aspif/weight-constraint 2 [[1 1] [2 1] [3 1]])])))))
+  (testing "a weight rule derives its head when the bound is reached"
+    ;; a violation atom over two default-negated literals
+    (is (= ["1 0 1 9 1 3 2 -1 1 -2 1"]
+           (body-lines (aspif/render [(aspif/weight-rule 9 3 [[-1 1] [-2 1]])])))))
   (testing "a minimize statement carries its priority then literal/weight pairs"
     (is (= ["2 5 2 1 1 2 3"]
            (body-lines (aspif/render [(aspif/minimize 5 [[1 1] [2 3]])])))))
@@ -134,6 +142,20 @@
   (when asp?
     (let [r (solver/solve (aspif/render [(aspif/fact 1) (aspif/constraint [1])]) :label)]
       (is (= :unsat (:status r))))))
+
+(deftest a-weight-constraint-bounds-a-cardinality
+  ;; {a}{b}{c}, at most one true (forbid the count reaching 2) and at least one
+  ;; (forbid all three absent — the count of absent reaching 3), minimizing a and b.
+  ;; The single kept atom is therefore c.
+  (when asp?
+    (let [prog (aspif/render [(aspif/choice 1) (aspif/choice 2) (aspif/choice 3)
+                              (aspif/weight-constraint 2 [[1 1] [2 1] [3 1]])
+                              (aspif/weight-constraint 3 [[-1 1] [-2 1] [-3 1]])
+                              (aspif/minimize 1 [[1 1] [2 1]])
+                              (aspif/show 1 "a") (aspif/show 2 "b") (aspif/show 3 "c")])
+          r (solver/solve prog :label)]
+      (testing "exactly one atom survives the at-most-1 / at-least-1 pair"
+        (is (= ["c"] (:atoms r)))))))
 
 (deftest higher-minimize-priority-dominates
   ;; The level ordering the edge solver's objective depends on: level 5 is satisfied

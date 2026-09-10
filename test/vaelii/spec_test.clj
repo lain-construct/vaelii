@@ -20,7 +20,7 @@
             [clojure.spec.test.alpha :as stest]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.spec :as vspec]
             [vaelii.test-util :as tu]))
 
@@ -87,7 +87,7 @@
                       (ns-publics 'vaelii.core))]
     (is (= '#{abduce add-evaluatable argue assert-many bulk-assert-facts! check clear-caches
               compare-tacticians edit-with-consequences! export! export-text! fork import!
-              kb-quality preview search-tree}
+              kb-quality preview query-status search-tree}
            gap)
         "the opts-taking publics `public-syms` does not reach — named in its docstring")))
 

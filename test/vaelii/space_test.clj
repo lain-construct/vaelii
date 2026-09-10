@@ -11,10 +11,10 @@
   possible relation lies inside its denotation."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn-kb :as qkb]
-            [vaelii.impl.seed :as seed]
             [vaelii.impl.space :as space]
             [vaelii.test-util :as tu]))
 

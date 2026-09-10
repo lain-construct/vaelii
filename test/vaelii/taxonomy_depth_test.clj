@@ -215,7 +215,7 @@
                                         (list 'genlCx CxHi CxLo)]]
                                (v/assert kb e 'CxUniverse {:strength :monotonic}))
                              (v/assert kb (list 'implies (list markp '?x) (list seenp '?x))
-                                       CxLo {:strength :monotonic})
+                                       CxLo {:direction :forward :strength :monotonic})
                              (v/assert kb (list markp Thing) CxMid {:strength :monotonic}))]
                   (if defer? (v/with-deferred-settle kb (body)) (body))
                   (mapv #(get {CxLo :lo CxMid :mid CxHi :hi} (:context %) (:context %))
@@ -450,7 +450,7 @@
       (doseq [c [CxRa CxRb CxRc]] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
       (v/assert kb (list 'genlCx CxRa CxRb) 'CxUniverse)     ; a sees b
       (v/assert kb (list 'genlCx CxRc CxRa) 'CxUniverse)     ; c sees a, b
-      (v/assert kb (list 'implies (list pp '?x) (list qq '?x)) CxRb)
+      (v/assert kb (list 'implies (list pp '?x) (list qq '?x)) CxRb {:direction :forward})
       (let [hf (v/assert kb (list pp Zed) CxRc)]
         (is (= #{CxRc} (ctxs)) "before the cycle, c is the one context seeing both")
         (v/assert kb (list 'genlCx CxRb CxRc) 'CxUniverse)   ; b sees c: the cycle closes

@@ -11,382 +11,305 @@ releases is still a grep for the name you call. The full entry prose for a relea
 version is in this file's git history, at the tag of the release that shipped it —
 `git show v0.16.0:CHANGELOG.md`.
 
-## 0.17.0 — 2026-09-06 — "arity as vocabulary over every relation, and declarations that stop restating their own conclusions"
+## 0.18.0 — 2026-09-09 — "declarations that mint the types they constrain, and rules that forward-chain only when asked"
 
-**Not a drop-in upgrade from 0.16.0.** Five of the fourteen entries are labelled
-**Breaking** or **Refusal**, and each carries its own `*Migration:*` line. One entry
-changes a working caller: `predAllSpecified` and `predSpecifiedAll` are binary, and the
-audit that reads them returns a `:status` map where it returned a bare set. The other
-four withdraw or add a refusal, and one of those four fires only under the opt-in
-`VAELII_ASSERTIVE_ARG_TYPES` toggle, which is off by default.
+- **Assertive argument types are on by default: an `arg` / `genlArg` / `interArg`
+  declaration now mints the type it constrains, not only tests for it.** The entailment
+  shipped in 0.17.0 behind `VAELII_ASSERTIVE_ARG_TYPES`, off by default; it is now the
+  default reading. A declaration and a fact together mint a derived, justified, retractable
+  membership (`arg`) or `genl` edge (`genlArg`), so a KB holds — and `isa?` / `types-of`
+  and the definitional checks read — types the constraint-only reading leaves to a prover's
+  on-demand answer (docs/argtypes.md). The starter load ships more stored sentexes as a
+  result, and a caller counting them, or reading a type it did not assert, sees the minted
+  content.
 
-The release has one subject. A declaration that restates what the taxonomy already
-concludes turns that conclusion into a precondition, and the arrival order of two
-assertions then decides which facts a KB holds. Four entries retire such a declaration —
-on `genl`, on fifteen unary marks, on six arity marks, and in the `predAll` pair's third
-argument — and the arity vocabulary underneath them is rebuilt so `relation` is the
-common parent of `predicate` and `function` and every relation is classified in exactly
-one arity policy. The starter ships 1,600+ asserted / 3,200+ stored, the core vocabulary
-850+.
+  Loading the shipped ontology under the entailment surfaced one ill-formed mint: the
+  meta-declarations `(genlArg arg 3 thing)` / `(genlArg genlArg 3 thing)` would draw
+  `(genl thing thing)` from every `(arg P n thing)` declaration, a reflexive edge `wff`
+  refuses. `arg-entailments` now never mints a reflexive `(genl t t)`, so the shipped KB
+  loads with a clean violations ledger. *Class:* **Breaking** (the default reading changes
+  what a KB contains). *Migration:* `VAELII_ASSERTIVE_ARG_TYPES=0` restores the
+  constraint-only default. *Breaks:* `VAELII_ASSERTIVE_ARG_TYPES`.
 
-- **`predAllSpecified` and `predSpecifiedAll` go binary: the filler type derives from
-  the predicate's own slot contract.** The ternary forms restated in a third argument
-  what `(arg P 2 R)` / `(genlArg P 2 R)` already say, and a restated type can disagree
-  with the contract it copies — a second type system inside one declaration. The
-  declarations are now `(predAllSpecified P D)` and `(predSpecifiedAll P R)`; the audit
-  derives the filler constraints from the visible slot typing of the predicate **and
-  every super-predicate whose declarations bind its tuples** — the same
-  `constraining-predicates` union the assert-time checker reads — with `arg` →
-  membership, `genlArg` → subtype through the reflexive `genl` closure, and a
-  `type_relation_predicate` membership requiring the filler to be visibly a type at
-  every position, composed conjunctively as the checker composes them. A declaration
-  over a predicate with **no** visible denotation typing is reported as an explicit
-  `{:status :gap :gap :missing-slot-typing}` declaration-contract diagnostic, never
-  silently audited unconstrained, and a stored pre-migration ternary sentex — which
-  the bulk import path can carry past the assert-time refusal — surfaces from the
-  sweep as `{:gap :legacy-ternary-declaration}` rather than silently vanishing.
-  `specified-violations` accordingly returns `{:status :audited :violations #{…}}` or
-  `{:status :gap …}` — discriminate on `:status`, not key presence — drops its `dep`
-  parameter, and refuses a non-`:second`/`:first` `arg-pos` with a typed `:bad-args`
-  naming the removed-dep migration (the shape an unmigrated caller's context symbol
-  lands in); `all-specified-violations` keys by `[functor pred indep]` — a legacy
-  ternary gap by its whole stale tuple `[functor pred a b]`, so it displaces neither
-  the migrated declaration it shares a prefix with nor another stale sentex over the
-  same predicate — and always carries gaps, so an empty map remains a clean sweep a
-  gap cannot fake. The
-  function-mark rules thin to one antecedent each — totality reads only `(arg P 1 D)`,
-  ontoness only `(arg P 2 R)`. New vocabulary `arg1` / `arg2` / `arg3` — binary
-  projections of `arg`, bridged by rules in both directions and held to `arg`'s own
-  declaration checks at the projected position, so neither spelling launders a
-  declaration the other refuses — lets a positional constraint stand in a binary
-  declaration's subject position, `(predAllSpecified arg1 predicate)` being the
-  founding use.  The pair is wired as `arity` and the predicate-type memberships are:
-  six rules deriving each other, one shared refusal path, both spellings `enforced`
-  with `#{:convicts :reach}`, and `:family` left nil, `mark-families` rostering the
-  lanes that must recognize one spelling set rather than every pair of spellings.
-  The projections relate stored declarations only, generalized and
-  inherited readings staying `arg`'s. *Class:* **Breaking** (declaration arity and
-  audit return shape). *Migration:* rewrite `(predAllSpecified P D R)` to
-  `(predAllSpecified P D)` and `(predSpecifiedAll P D R)` to `(predSpecifiedAll P R)`,
-  ensure the audited slot carries its `arg`/`genlArg` typing, and read
-  `(:violations result)` under a `:status` check where a bare set was read before.
-  [docs/predall.md](docs/predall.md), [docs/taxonomy.md](docs/taxonomy.md)
+- **A bare `implies` rule defaults to `:backward`, and `set/forwardRule` now means
+  forward and backward.** Forward chaining materializes a conclusion per match, which is
+  intractable on a large KB, so a rule forward-chains only where its author asks. A rule
+  asserted bare — no `set/*Rule` wrapper and no `:direction` — ran forward and backward
+  before (`:both`); a bare rule now backchains only and materializes nothing.
+  `set/forwardRule` adds forward chaining to the backward use rather than replacing it: a
+  rule wrapped `set/forwardRule` answers backward goals as well as forward-chaining, where
+  the wrapper made the rule forward-only before. `rules/backward?` reads `:forward` and
+  `:both` as one class, so `{:direction :forward}` and `set/forwardRule` name the same
+  forward-and-backward rule. The old forward-only reading moves to a fourth direction,
+  `set/forwardOnlyRule` / `:direction :forward-only`, which forward-chains but never
+  answers a backward goal — a mode the shipped ontology does not use. A generator, a rule
+  concluding a rule, defaults to `:forward` even when bare, because a generator stamps a
+  rule by firing forward and no backward goal asks for a rule; the shipped ontology's
+  forward-materializing meta-rules and bounded theories carry `set/forwardRule`
+  explicitly, so no shipped content changes what it derives. *Class:* **Breaking** (a
+  documented default, and the meaning of the `set/forwardRule` wrapper). *Migration:* to
+  restore forward materialization of a bare rule, wrap it `set/forwardRule` or assert it
+  with `:direction :forward` (or `:both`); to restore the old forward-only reading of
+  `set/forwardRule`, rewrite it to `set/forwardOnlyRule` or `:direction :forward-only`.
+  [docs/inference.md](docs/inference.md), [docs/generators.md](docs/generators.md)
 
-  *Breaks:* `(predAllSpecified`, `(predSpecifiedAll`, `specified-violations`,
-  `all-specified-violations`
+  *Breaks:* `(implies` asserted bare, `set/forwardRule`
 
-- **Arity policy is vocabulary over every relation.** `relation` is now the common
-  parent of `predicate` and `function`. Unsuffixed `unary` / `binary` / `ternary` are
-  the relation-wide exact classes, with predicate and function specializations;
-  `relationTypeByArity` owns their shared numeric mapping, and its two generators run the
-  cycle both ways: `(arity R 2)` and `(binary R)` derive each other, well-founded, so
-  retracting whichever was asserted collapses both. The cycle stops at the relation-wide
-  class because `arity` covers functions — concluding `(binary_predicate R)` would make
-  every shipped binary function a predicate. Exact `arity` is fixed-only,
-  while `arityMin` states a variable relation's lower bound and derives the generic
-  `at_least_binary_relation` / `at_least_ternary_relation` floors. `fixed_arity` and
-  `variable_arity` are disjoint, and every shipped relation is classified in exactly
-  one. `admitsArgnum` remains documentary. The vocabulary takes CxCore to 978 sentexes
-  and the starter to 3,280 stored — the figures this release ships, and what the floors
-  above are measured against — so `docs/kbs.md`'s core row and
-  `core_context_test`'s band now read 850+.
+- **A variable-arity application shorter than its relation's declared `arityMin` is now
+  refused at the arity check.** 0.17.0 shipped `arityMin` deriving the
+  `at_least_*_relation` classifications, but no well-formedness reader consumed the
+  declaration, so a variable-arity relation was exempt from the arity check at every
+  length. `checks/arity-problem` now reads `arityMin` on the variable-arity branch through
+  `provers/arity-min` and convicts an application below the minimum, reporting an `:arity`
+  violation carrying `:minimum? true` with the message "`P` takes at least `n` arguments
+  but has `m`". A relation with no `arityMin`, or with two visible minima that disagree,
+  keeps the outright exemption; the floor lands at assert only, so a late `arityMin` does
+  not re-file the too-short applications stored before it. The same commit gives
+  `admitsArgnum` a runtime reader: `AdmitsArgnumProver` answers `(admitsArgnum R n)` for a
+  ground relation and position from `R`'s declared arity and variable-arity mark —
+  provable for every position of a variable-arity relation, provable up to the declared
+  arity of a fixed one, and unprovable where the KB declares neither — replacing the inert
+  record 0.17.0 shipped. `provers/admits-position?` is the one decision the prover and
+  `checks/arg-position-problem` both read, so the position query and the argument-position
+  refusal cannot answer one position two ways. *Class:* **Refusal** (a too-short
+  variable-arity application, which no well-formed caller relied on storing). *Migration:*
+  extend a refused application to the relation's `arityMin`, or correct the `arityMin`
+  declaration. [docs/predicates.md](docs/predicates.md), [docs/argtypes.md](docs/argtypes.md)
 
-  An exact predicate type beside `variable_arity` is refused as a result, `(disjoint
-  fixed_arity variable_arity)` closing under the `genl` edges that put `unary_predicate`
-  and its peers below `fixed_arity`. CxCore itself shipped that pair for `lessThan`,
-  `greaterThan`, `termsRelated` and `functionCorrespondingPredicate`, and the four now
-  carry `variable_arity_predicate` with an `arityMin` floor instead. The refusal is
-  `:disjoint` whichever of the two is written first: the policy classes declare their
-  one argument position on `fixed_arity` and `variable_arity` alone, because a narrower
-  `(arg fixed_arity_predicate 1 predicate)` below them convicts a relation whose only
-  stated type is `variable_arity` for its argument's type rather than for the policy it
-  contradicts. *Class:* **Refusal**. *Migration:* a KB declaring both an exact predicate
-  type and `variable_arity` for one predicate replaces the exact type with `arityMin`;
-  the arity check reads `variable_arity` and exempts the predicate exactly as before,
-  and `arityMin` is documentary, so nothing else changes.
-  [docs/taxonomy.md](docs/taxonomy.md#relations-and-arity-policy)
+  *Breaks:* `arityMin`, `(lessThan`, `(greaterThan`, `(termsRelated`, `(functionCorrespondingPredicate`
 
-  *Breaks:* `(binary_predicate P)` beside `(variable_arity P)`
+- **`intersection` names the kind that is the overlap of others, and an asserted
+  intersection fact derives the taxonomy edges.** `(intersection ?combined ?type1 ?type2 …)`
+  declares `?combined` as definitionally the intersection of the listed types: a thing is
+  a `?combined` exactly when it is each type. `intersection` is a `variable_arity_predicate`
+  with `(arityMin intersection 3)` — the combined kind plus at least two types — and
+  carries `(genlArg intersection 1 thing)` and `(genlArg intersection 2 thing)` on its kind
+  positions; `(termsRelated disjoint intersection)` records `intersection` as the
+  definitional twin of `disjoint`. Two CxCore rules fire on an asserted fact at binary and
+  ternary arity: forward `intersection`→`genl` rules materialize `(genl ?combined ?typeN)`
+  for each type, so the taxonomy closure and `ask?` / `ask` read the derived edge, and a
+  membership generator stamps one concrete-functor rule per fact concluding `(?combined ?x)`
+  from `(and (?type1 ?x) (?type2 ?x) …)`. General arity above ternary awaits the
+  list-membership vocabulary. A one-type `(intersection C T)` is refused at the assert
+  entry point with `:type :arity` and stores nothing, since the intersection of a single
+  type is that type. CxCore now ships a rule whose consequent predicate is `genl`, so the
+  `/levels` report for a `genl` goal names a `:rules` method beside the closure rather than
+  the closure alone; the derived `genl` answer is unchanged. No shipped KB asserts an
+  intersection fact, so the starter load is unchanged. *Class:* **Additive**.
+  [docs/taxonomy.md](docs/taxonomy.md)
 
-- **Assertive argument types read one declaration one way, and the cascade closes.**
-  With `*assertive-arg-types?*` on, `args-problem`'s **symbol arm yields** to the
-  entailment that reads the same declaration: `(arg parentOf 1 animal)` read as an
-  entailment says Fred *is* an animal, so there is no state of the KB in which Fred
-  fills the slot and fails it. Running both readings at once was what stopped the
-  cascade — a minted `(t1 Fred)` re-entered the check, `t1`'s own declaration convicted
-  it for Fred not yet being a `t2`, and the conclusion `(t2 Fred)` would have been drawn
-  from was dropped — so the entailment cascaded only for an argument holding **no** type
-  at all, and one unrelated membership, or a unary triggering sentence typing its own
-  argument, was enough to stop it after the first link. A `(p1 Fred)` under
-  `(arg p1 1 p2)` was refused when re-asserted, by the membership it had itself created.
-  Values, function applications and inherited declarations still convict: no mint can
-  answer a value's syntax, a function's declared `result`, or a declaration that
-  constrains a descendant context without minting there. What refuses in the symbol
-  arm's place is the **consequence**: `checks/entailment-check` walks the whole cascade
-  of prospective mints before anything is stored and refuses the assert with the first
-  mint's own violation, so the entry point refuses a sentence exactly when it would
-  refuse what the sentence entails. Two arms, because a clash has two shapes —
-  `disjoint-problems` names an opposing handle and so reads clashes against stored
-  memberships, and `cascade-clash` reads the pair the cascade supplies both sides of,
-  which no stored sentex witnesses. `refuses-assert?` is not consulted for that second
-  question: a minting caller **declines** a mint it cannot admit rather than placing it,
-  so admitting the trigger under `:arbitrate` would store the fact and drop the
-  consequence, which is the state the check exists to prevent. The derivation path is
-  unchanged and still reports rather than throwing. *Class:* **Refusal** (only under the
-  opt-in toggle; the shipped reading is untouched). *Migration:* a KB run with
-  `VAELII_ASSERTIVE_ARG_TYPES=1` that relied on an `:arg-type` refusal of a symbol
-  argument gets a minted membership instead — read the refusal off the mint's own
-  `:type` (`:disjoint` where a disjointness axiom covers the pair), or run with the
-  toggle off, which is the default. `:disjoint` gains a row in `type_contract_test`'s
-  `carried` roster, `cascade-clash` being a second throw site that names no opposing
-  handle. [docs/argtypes.md](docs/argtypes.md)
+- **A state-of-affairs and causality cluster joins the upper ontology in CxAbstract.**
+  Seven collections are added: `situation` (`genl temporal_thing`), with the
+  specializations `static_situation` (a state that holds unchanged) and `event` (an
+  occurrence whose state changes); `causal` and `acausal`, dividing `thing` by whether a
+  thing can occupy a cause slot; and `causal_event` and `acausal_event`, defined through
+  `intersection` — `(intersection causal_event causal event)` and
+  `(intersection acausal_event acausal event)` — so the CxCore intersection rules derive
+  their `genl` edges and membership rather than restating them. Two disjointness
+  declarations partition the divisions: `(disjoint static_situation event)` and
+  `(disjoint causal acausal)`. The `genl` closure of disjointness carries
+  `(disjoint causal acausal)` down to the intersection-defined kinds, so `causal_event` and
+  `acausal_event` read `:disjoint` without a separate declaration, and a term asserted
+  `causal` and then `acausal` is refused at the assert entry point as a contradiction.
+  *Class:* **Additive**. [docs/taxonomy.md](docs/taxonomy.md)
 
-  *Breaks:* `:arg-type`, `*assertive-arg-types?*`, `VAELII_ASSERTIVE_ARG_TYPES`
+- **`(bravely S)` and `(cautiously S)` read the brave and cautious status of a labeling
+  dilemma as a query that commits nothing.** A coexisting `P` / `¬P` dilemma leaves both
+  sides believed, and an ordinary `ask` cannot separate the forced belief from the
+  arbitrary one. `(cautiously S)` holds when `S` is in every optimal labeling and
+  `(bravely S)` when `S` is in some — the classification `do/labeling` draws. The query
+  delivers that classification on the read path: after asking, belief, `contradictions`
+  and `last-program` are unchanged, where `do/labeling` commits a labeling. The
+  `:brave-cautious` reasoner answers both, added opt-in with
+  `(add-reasoner kb :brave-cautious)` and resolved lazily so the ASP stack stays off a
+  KB's load path. `bravely` and `cautiously` are computed, not assertible — the assert
+  entry point, the special table and `wff` refuse a stored one, as they refuse `unknown`
+  and the aggregates — and each takes a ground `S`. A `bravely` or `cautiously` antecedent
+  carries no support, so the forward join drops it: the pair is a read, not a premise
+  belief rests on. *Class:* **Additive**. [docs/labeling.md](docs/labeling.md),
+  [docs/naming.md](docs/naming.md)
 
-- **`genl` declares neither argument position.** `(genlArg genl 1 thing)` read "the
-  subtype is a subtype of `thing`", which stopped being true when `genl` gained predicate
-  specializations of other arities: `(genl predicateTypeByArity relationTypeByArity)`
-  relates two binary predicates and neither end is under the root. Under
-  `VAELII_ASSERTIVE_ARG_TYPES=1` the declaration entailed `(genl predicateTypeByArity
-  thing)` from that edge, which the arity descension check refused — two dropped
-  conclusions and two `:arity` ledger entries on every load of the shipped KB, plus the
-  `ontology_test` and `starter_test` sweeps that read them. Position 2 was already
-  undeclared for the neighbouring reason (`(genl thing thing)` is not well-formed), and
-  the comment now covers both. Neither position is thereby unconstrained: an individual at
-  either end is `:not-well-formed` through `wff/genl-problems`, a disagreeing arity is
-  refused by the descension check, and `(type_relation_predicate genl)` says of every
-  position what a `genlArg` says of one.
-  *Class:* **Refusal** (one withdrawn). *Migration:* a KB relying on `:arg-type` for a
-  `genl` whose subtype argument has a visible place outside the `thing` hierarchy no
-  longer gets one — that argument is now a legitimate predicate specialization.
-  [docs/taxonomy.md](docs/taxonomy.md#genl-the-type-hierarchy)
+- **`asp/atMost` / `asp/atLeast` state a cardinality bound over choice heads, and ground
+  to one solver cardinality atom per group.** `functional P` bounds a choice predicate at
+  one value per subject, but a bound past one had no construct, and a hand-written
+  at-most-`k` grounds one hard constraint per `(k+1)`-subset of the contending heads —
+  `C(n, k+1)` of them. `(asp/atMost k ?v pattern)` and `(asp/atLeast k ?v pattern)` state
+  the bound directly, with `asp/softAtMost` / `asp/softAtLeast` as soft twins that penalize
+  a breach once rather than excluding the model. The surface mirrors `agg/count`'s
+  projection: `?v` is the counted variable and the pattern's other variables are the group,
+  so a bound with no other variable is one global bound over every ground head, and a bound
+  with a free group variable is one bound per group. `rules/normalize-cardinality` rewrites
+  the surface to a constraint rule carrying a `cardAtMost` / `cardAtLeast` marker,
+  `solve-context` matches the pattern against the ground choice heads and emits one
+  `:cardinalities` entry per group, and `edge/translate` renders each as a single ASPIF
+  weight-body statement, so a cap of 10 over 30 heads is one constraint rather than
+  `C(30, 11)`. A cardinality bound is a solver atom that prunes inside the search, unlike
+  `agg/count`, which is a census over believed facts computed outside any solve and counts
+  a never-believed choice head as zero. Each head weighs one; a weighted `#sum` variant is
+  unbuilt. A malformed bound is refused with `:not-well-formed`, and `check` reports that
+  refusal rather than throwing; a global `asp/atLeast` whose predicate grounds to no head
+  is infeasible rather than silently unbounded. *Class:* **Additive**.
+  [docs/solving.md](docs/solving.md), [docs/asp.md](docs/asp.md)
 
-  *Breaks:* `(genlArg genl 1 thing)`
+- **`subsumption-status`, `subsumption-statuses` and `disjointness-audit` classify every
+  type pair and name both the missing `disjoint` assertions and the contradictions.**
+  `(subsumption-statuses kb a b)` returns the set of applicable relationships between types
+  `a` and `b`, any subset of `#{:genl :spec :coextensional :disjoint :orthogonal}`: `:genl`
+  when `(genl a b)` holds, `:spec` for the converse, `:coextensional` when each is `genl`
+  the other, `:disjoint` when a `disjoint` declaration or the taxonomy proves no shared
+  instance, and `:orthogonal` when neither subsumes the other yet a shared instance is
+  provable. `(subsumption-status kb a b)` reduces the set to one keyword: a singleton
+  returns that status, an empty set returns `:unknown`, and two or more return
+  `:inconsistent` — a pair asserted both `genl`-related and `disjoint`, a contradiction
+  rather than a precedence resolved silently. `genl?` and `disjoint?` read the global
+  cached closures; the `:orthogonal` witness, a member of `a` that is also a member of `b`,
+  is read from an optional vantage `context` (default `CxUniverse`) as a facts-only query
+  (`{:max-depth 0}`), so the status is the same under every query engine.
+  `(disjointness-audit kb)` runs the classification over every unordered pair of distinct
+  types and returns
+  `{:types n :pairs n :by-status {status count} :pairs-data [{:a t :b t :status s} …]}`; a
+  caller takes `:by-status` for the census, filters `:pairs-data` on `:status :unknown` for
+  the candidate missing-`disjoint` pairs, and on `:status :inconsistent` for the pairs a KB
+  asserts both ways. Each function takes an optional trailing `context`. A `:coextensional`
+  relationship needs a `genl` cycle, which `wff` refuses at assertion, so it appears only
+  from a belief-state cycle or an equality merge. *Class:* **Additive**.
+  [docs/api.md](docs/api.md), [docs/taxonomy.md](docs/taxonomy.md)
 
-- **A unary predicate's one position owes no `arg` declaration, and fifteen that
-  convicted nothing are dropped.** `(arg P 1 T)` on a unary predicate says of the same
-  extent what `(genl P T)` says — one record per instance against one edge — and for a
-  term the engine interprets the shape in `vaelii.impl.predicates` refuses a wrong
-  argument before any declaration is read. Measured per term over all 34 shipped unary
-  predicates carrying one: fifteen are refused by the shape (`(symmetric Fred)` with Fred
-  a person is `:not-well-formed`, never `:arg-type`) and their declarations convict
-  nothing, so `abducible_predicate`, `anti_symmetric`, `anti_transitive`, `asymmetric`,
-  `closed_extent_predicate`, `decontextualized_predicate`, `disjoint_metatype`,
-  `forced_decontextualized_predicate`, `functional`, `irreflexive`, `modal_predicate`,
-  `reflexive`, `symmetric`, `target_following_predicate` and `transitive` lose theirs.
-  Every one of the 34 still refuses the same argument with the same `:type` afterwards.
-  The other nineteen keep theirs, because for them the declaration is the only check
-  there is — the eight state predicates in `CxLife` and `CxTime`, the four function marks
-  and the seven relation-property marks the shape does not cover. `ontology_test`'s
-  demand accordingly stops at arity 2, and `[not 1]` and `[contested 1]` leave its
-  excused roster, being unary and now exempt as a class rather than by name. Fifteen
-  declarations and their derived `arg1` projections leave the starter, each dropped
-  declaration retiring one of each; the arity vocabulary below puts more back than this
-  takes out, and the figures the tree ships are stated there. *Class:* **Refusal** (nothing the shape does not already
-  refuse). *Migration:* none for a caller — the refused argument and its `:type` are
-  unchanged. A KB extending one of the fifteen marks with a sub-predicate that relied on
-  the declaration descending to it should declare its own.
-  [docs/argtypes.md](docs/argtypes.md), [docs/predicates.md](docs/predicates.md)
+- **`args` / `argsGenl` / `argAndRest` / `argAndRestGenl` type a whole variable-arity tail
+  in one declaration.** Where `(arg P n T)` types one numbered position, `(args P T)` types
+  every accepted position of `P` as an instance of `T`, so a variable-arity relation whose
+  tail repeats one role is typed without naming a largest finite position. `argsGenl` is
+  the subtype reading: `(argsGenl P T)` types every position as a subtype of `T`, standing
+  to `genlArg` as `args` stands to `arg`. `(argAndRest P n T)` and `(argAndRestGenl P n T)`
+  type position `n` and every later one and exclude the prefix below `n`, so `(args P T)`
+  states what `(argAndRest P 1 T)` states. `args` and `argsGenl` are `binary_predicate`s
+  typed `(arg _ 1 relation)` and `(genlArg _ 2 thing)`; `argAndRest` and `argAndRestGenl`
+  are `ternary_predicate`s that add `(arg _ 2 positive_integer)`. Each is `enforced` in
+  family `:argument-constraint` with facets `#{:convicts :answers}`, checked by
+  `checks/covering-args-problem` for the instance forms and `checks/covering-genls-problem`
+  for the subtype forms, and answered up the `genl` closure by `MetaConstraintProver`.
+  Three properties hold, each of them `arg`'s: a covering constraint composes conjunctively
+  with a position-specific `(arg P n T)`, both binding the slot; a super-predicate's
+  covering constraint binds a sub-predicate's tuples through the shared declaration reader
+  `res/constraining-predicates`; and the check is convict-only and open-world, refusing a
+  tail value the KB places outside the type, passing an argument of unknown type, and
+  minting nothing, so a covering declaration arriving after the facts convicts none of
+  them. The check walks the positions a sentence has, guarded by `arity-problem`, so the
+  arity reader and the covering check agree about where the tail ends. No shipped relation
+  carries a covering constraint, so a KB without one adds nothing to the firing budget.
+  *Class:* **Additive**. [docs/argtypes.md](docs/argtypes.md)
 
-  *Breaks:* `(arg symmetric 1 predicate)`, `(arg functional 1 predicate)`
+- **`query-status` runs the same search `query` runs and returns a report, so a truncated
+  read is distinguishable from an unprovable one.** `query` with `:max-depth` returns the
+  same empty or short sequence whether the goal is genuinely unprovable or the depth bound
+  cut the search, so a bound set one too low returns "no" rather than "not deep enough".
+  `query-status` runs the same search at the same depth and returns a map: `:answers` and
+  `:count`, `:status` (`:complete` or `:truncated`), `:truncated?`, `:depth`,
+  `:time-to-first-answer-ms`, `:total-time-ms`, and `:stats` (the node engine's
+  `tree-stats`, present only where a depth sent the read to that engine). `:truncated?` is
+  conservative: `true` means the depth bound stopped at least one rewrite the search would
+  otherwise have taken, so the answers may be incomplete, and `false` guarantees the
+  answers are every answer the KB entails at that depth; a facts-only read is never
+  truncated. The probe stays off the plain `query` path, since `session` allocates the
+  truncation flag only under `:track-truncation?`, which only `query-status` sets, so
+  `query` is unchanged. `query-status` reports one search over one concrete context's
+  frontier, so it takes `[kb goal context]` or `[kb goal context opts]` and refuses a
+  variable or query context with `:unsupported-context`. *Class:* **Additive**.
+  [docs/inference.md](docs/inference.md), [docs/api.md](docs/api.md)
 
-- **`injection`, `surjection` and `bijection` name what a relation is as a function, and
-  the engine reads each half where it can.** Saying a relation was a one-to-one function
-  took four separate declarations — `(functional P)`, `(functionalInArg P 1)`,
-  `(predAllSpecified P D)` and `(predSpecifiedAll P R)` — and an author who wrote some
-  of them got partial enforcement with no report of the gap. The three composite marks are
-  one declaration each, and eight CxCore forward rules derive the parts, so nothing is
-  keyed on the new names. `injection` is single-valued, one-to-one and total; `surjection`
-  is single-valued, total and onto; `bijection` derives the other two. The **domain and
-  range are not arguments of the mark**: totality and ontoness are claims about two
-  collections rather than about `P`, and `(arg P 1 D)` and `(arg P 2 R)` already state
-  them, so the rules read them from there. A predicate declaring no `arg` pair gets the
-  enforced marks and no audit. The two halves divide on what an open world can refuse: a
-  second filler is refused or merged at the assert entry point, while totality and
-  ontoness become `predAllSpecified` and `predSpecifiedAll` requirements that
-  `all-specified-violations` reports when a caller asks. No new API function, and
-  retracting the mark or either `arg` declaration withdraws what rested on it. The
-  glossary gains `injection` and `surjection` and rewrites `bijection`, 173 to 176.
-  *Class:* **Additive**. *Migration:* none — `bijection` shipped in no release, and the
-  reading it had on `develop` (single-valued and one-to-one, with no totality or
-  ontoness) is now `(functional P)` beside `(functionalInArg P 1)`, written directly.
-  [docs/taxonomy.md](docs/taxonomy.md), [docs/predall.md](docs/predall.md)
+- **`functional_at_instant` is the per-instant counterpart of `functional` for a value
+  carried as a fluent: `(functional_at_instant F)` states that `F` has at most one value
+  for one subject at a single instant.** `functional` enforces at-most-one-value over a
+  predicate's bare literals, but a value carried under `initiates` never becomes a bare
+  literal, so the equality closure never sees the pair.
+  `vaelii.core/functional-at-instant-violations` reads the residual invariant on demand and
+  returns the clashes of one declaration as a set of maps
+  `{:function :subject :instant :values :kind}`, and
+  `all-functional-at-instant-violations` sweeps every visible declaration into
+  `{f #{violation…} …}`, omitting a declaration that clashes nowhere. `:kind` is `:merge`
+  when the clashing values are all symbols, the pair `functional` would merge, and
+  `:contradiction` otherwise, two numbers or strings `functional` refuses. The audit
+  reports rather than merges, because whether two fluents overlap at an instant follows
+  from the clipping closure and is not known when a fluent is asserted. `impl/fluent.clj`
+  sits below `vaelii.core`, reading facts through `provers/ask` and the one `holdsAt` rule
+  through `inference/solutions` at depth 4. CxTime ships
+  `(unary_predicate functional_at_instant)`. *Class:* **Additive**.
+  [docs/time.md](docs/time.md), [docs/equality.md](docs/equality.md)
 
-- **The exact arity classes derive downward only, and the nine spellings of an arity are
-  the nine the checks read.** Every `genl` edge on them runs one way — a
-  `binary_predicate` is `binary` and is a `predicate` — and CxCore states no converse:
-  the six `defnSufficient` facts that did (`(defnSufficient binary_predicate (and (arity
-  ?x 2) (predicate ?x)))`) are not shipped. `(predicate ?x)` matches every class
-  membership of every predicate by subsumption, once per `genl` route between the two, so
-  the six cost **748 justifications and 600 ms of a 3.2 s starter load for 36
-  memberships**, and a firing re-derived through a route that appeared after it left the
-  KB's justification set depending on arrival order — 50 namespaces failed
-  `test-util`'s net-neutrality check under `VAELII_ASSERTIVE_ARG_TYPES=1`, where a minted
-  `(genl instance_relation_predicate predicate)` is the shorter route.
+- **`matchesPattern` is a computed string-shape predicate:
+  `(matchesPattern ?string ?pattern)` holds when the whole of a ground `?string` matches
+  the regular expression `?pattern`.** `EvaluableProver` answers it, extending the
+  evaluable set from `lessThan` / `greaterThan` / `integer` to a fourth member. Both
+  arguments are `quotedArg` strings, and a non-string subject yields no solution, so the
+  shape test alone defines a string subtype —
+  `(defnSufficient dotted_quad (matchesPattern ?x "\\d+\\.\\d+\\.\\d+\\.\\d+"))` carries no
+  separate `(string ?x)` conjunct, which the registry does not evaluate. The match runs
+  through a step-limited `CharSequence` capped at 1,000,000 characters, so a pattern that
+  would backtrack past the budget raises a `:pattern-too-costly` refusal at query time
+  rather than running unbounded. A ground pattern the regex engine cannot compile is
+  refused at the assert entry point as `:bad-pattern`, rather than a goal that never
+  matches and reports no error. CxCore ships `(binary_predicate matchesPattern)` and the
+  two `quotedArg` string declarations. *Class:* **Additive**. [docs/defns.md](docs/defns.md)
 
-  What the classification was wanted for is the **arity**, and that is answered without
-  it: `checks/exact-arity-classes` holds all nine — the relation-wide `unary` / `binary` / `ternary` beside the six predicate and
-  function specializations — so `(binary R)` and `(binary_function F)` declare a length
-  the assert check enforces, `settle`'s retroactive report triggers on, and a refusal
-  names as its `:opposing-handle`, exactly as `(binary_predicate P)` always did. The six
-  new spellings gain `#{:convicts :reach}` in `vaelii.impl.predicates`, and the roster is
-  read in key order wherever a term could hold two, so which spelling a refusal names is
-  content and not a map's iteration order. A KB wanting the kind membership as well
-  writes the `defnSufficient` in its own context.
-  *Class:* **Additive** — three relation-wide and three function spellings the checks did
-  not read before; nothing that was refused is now accepted.
-  *Migration:* none. A KB that wrote `(binary_function F)` and relied on the arity check
-  ignoring it now has that length enforced.
-  [docs/taxonomy.md](docs/taxonomy.md#relations-and-arity-policy)
+- **An interrupted `:one` label solve returns its best model instead of no answer.** An
+  optimising `do/label … :one` over many equal-cost optima finds an optimum in
+  milliseconds but proves it slowly, so the solve can reach the time limit
+  (`VAELII_ASP_TIME_LIMIT`) mid-proof. Both backends reported `:interrupted` and the
+  imperative reader `edge/kept-of` discarded the model already in hand, so the caller
+  received no labeling for a solve that had a valid one. The clingo and clasp `:label`
+  modes now solve with `--opt-mode=opt` and no model cap, streaming each improving model,
+  so a cancelled search keeps its lowest-cost one; a run cut off after finding a model
+  reports the new status `:best-effort` — a model found, optimality unproven — rather than
+  `:interrupted`. `edge/kept-of` reads a `:best-effort` result as an answer, and the
+  `do/label` `:one` / `:sat` result map carries `:best-effort? true` when the returned
+  labeling is one whose optimality went unproven. The belief path `edge-solver` still
+  treats `:best-effort` as undecided, so a wall clock never moves belief and order
+  independence holds. *Class:* **Fix**. *Migration:* a caller that ignores the new key
+  reads a valid labeling where it read none; a caller that needs a proven optimum tests
+  `:best-effort?` and rejects it. [docs/asp.md](docs/asp.md), [docs/labeling.md](docs/labeling.md)
 
-- **The upper ontology's five-term skeleton moves to CxCore, the upper spindle's head,
-  where every member can see it.** A spindle is three layers — a head every member sees,
-  members that see the head and not each other, and a collector that sees every member —
-  so a term defined in one member and *extended* from a second is invisible where it is
-  extended and the closure breaks: with `living_thing` defined in `CxAbstract`, `(genl
-  animal living_thing)` written in `CxOrganism` left `(genl? kb 'animal 'thing
-  'CxOrganism)` answering **false** — `animal` could not reach the root from the context
-  that defines it, so every `arg` constraint written there convicted nothing in its own
-  context and only `CxUniverse`, which collects the whole upper spindle, resolved the
-  chain. `intangible`, `spatial_thing`, `physical_object`, `living_thing` and
-  `capability` — the five collections a member has to see to place its own types under
-  the root — move with their comments and their own `genl` edges into `CxCore`, and are
-  classified `inert` in `vaelii.impl.predicates` because the engine reads none of them by
-  name. The kinds hanging off them stay with their members: `(genl artifact
-  physical_object)` is CxAbstract's and `(genl animal living_thing)` is CxOrganism's, and
-  both now resolve from their own context.
-  `starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head` reads the
-  shipped files and holds the rule for both spindles — CxCore for the upper, CxUniverse
-  or anything CxUniverse sees for the middle. *Using* another member's term is a separate
-  question the rule does not cover; extending one is what breaks a closure.
-
-  **The topology is described as what it is: two three-layer spindles, not one
-  five-layer one.** A spindle is a head, its members and a collector; `CxUniverse` is the
-  upper spindle's collector and the middle spindle's head, and it can be the second's
-  head because it is the first's collector. `docs/contexts.md`, `docs/api.md`,
-  `docs/glossary.md` (which gains a **Spindle** entry, and whose `CxUniverse` / `CxWell`
-  entries stop calling themselves anchors), `vaelii.impl.starter`, `vaelii.starter`,
-  `catalog`'s blurb and four comments now use head / member / collector throughout, in
-  place of the "band" the docs had for a spindle's members.
-
-  `starter_test/the-starter-ships-the-counts-its-docstrings-quote` goes with this: it
-  pinned two exact sentex counts that every deliberate KB edit had to re-pin, and the numbers it guarded are now written as floors, which the arity vocabulary below then
-  raises: `docs/kbs.md`, `catalog`'s `:scale` and `test_util` ship "1,600+ asserted /
-  3,200+ stored" for the starter and "850+ sentexes" for the core vocabulary. `core_context_test`'s band still catches a core load
-  that goes wrong in bulk. *Class:* **Additive** — a context move, a roster of five inert
-  entries, a test and prose; no engine behaviour changes and no declaration is retired.
-  *Migration:* none. A KB that asserted one of the five itself is unaffected, `CxCore`
-  being visible from everywhere. [docs/contexts.md](docs/contexts.md)
-
-- **A `genlCx` edge's merge sweep visits the readers it widened, not every reader.**
-  `equate-under-context-edge` folds the functional and antisymmetric merge derivations
-  over the facts a `(genlCx sub super)` edge newly exposes, and each derivation swept
-  every reader below the candidate's own storage context — including readers this edge
-  had changed nothing for, which were being asked a question already answered when the
-  fact arrived. The readers whose ancestor set the edge moves are `context-down(sub)`,
-  and that is now the set both twins sweep. The set is exact rather than an
-  approximation: `context-down` filters its candidates by each one's own forward walk,
-  so it is the inverse of `context-up` with `except` holes included. One edge over the
-  shipped starter falls from 5,141 derivations to 352, and the count stops growing with
-  the KB — three successive edges cost 5,141 / 5,492 / 5,843 before and 352 each after,
-  which is what made every `genlCx` edge more expensive as a KB gained contexts.
-  `starter/load-into` falls from 3,235 ms to 2,176 ms. No answer changes: the merges,
-  their contexts, the justifications `why` reports, the truncation notice and belief are
-  the same, and `genlcx_sweep_test` and `genlcx_sweep_cost_test` pin both halves — what
-  must still be derived, and that the cost no longer grows with readers the edge does
-  not reach. *Class:* **Fix**. *Migration:* none.
-
-- **A unary predicate declares its one argument position only when its own `genl` parent
-  does not already imply the type.** Six marks whose parent sits *below* the type they
-  declared — `instance_relation_predicate`, `type_relation_predicate`,
-  `equivalence_relation`, `injection`, `surjection` and `bijection`, each of which genls
-  `binary_predicate` or `functional` — drop `(arg X 1 predicate)`. The declaration
-  restated in a weaker form what the edge already concludes and turned that conclusion
-  into a precondition: `(instance_relation_predicate P)` stated after `(arity P 2)` was
-  refused `:arg-type` for P not yet being a predicate, when the assertion supplies
-  predicate-hood through the edge, while the same pair in the other order was accepted.
-  A declaration that demands its own conclusion is the reason for the drop; the
-  ordering asymmetry it removes is the consequence. `arg`'s refusal half convicts on an
-  absence and is scoped out of the order-independence invariant by design
-  ([docs/argtypes.md](docs/argtypes.md), "Three directions"), so a KB given a narrowing
-  declaration and its fact in different orders still holds different facts — what these
-  six had on top of that is a declared type their own parent already supplies.
-  `arity_vocabulary_test/a-predicate-only-classification-is-order-independent-of-the-arity`
-  compares the two orders on the whole closure rather than on acceptances. The refusals the rows carried
-  are both retained and one of them is sharpened: a term outside the relation hierarchy
-  is still `:arg-type` through the `(arg fixed_arity 1 relation)` floor the marks
-  inherit, and a **function** is now `:disjoint — cannot be both
-  instance_relation_predicate and function` where it read `:arg-type: must be a
-  predicate`, which names the contradiction instead of a missing type. `fixed_arity`,
-  `variable_arity` and the seven function marks keep their declarations, because their
-  parent *is* the type they declare and the edge alone refuses nothing there.
-  *Class:* **Fix** — the engine did not hold an invariant it documents; a caller relying
-  on the refusal keyword for the function case reads `:disjoint` instead of `:arg-type`.
-  [docs/argtypes.md](docs/argtypes.md)
-
-- **Starter loading preserves non-unary predicate specialization.** The starter
-  assigns `unary_predicate` only to the `thing` subtype hierarchy, not every `genl`
-  node. Binary mapping predicates retain their declared arity. Exact `arity` derives
-  `fixed_arity` even when argument-type entailment is disabled. Taxonomy coverage
-  excludes declared non-unary predicates without hiding unknown type islands.
-  Argument metadata (`arg` and its projections, `genlArg`, `quotedArg`, `interArg`)
-  accepts relations, including functions, which is what lets a function carry one at
-  all: `InstantFn` gains `(arity InstantFn 6)` and the six `(arg InstantFn N integer)`
-  declarations its calendar fields never had, and `YearFn`, `MonthFn`, `DayFn`,
-  `QuantityFn` and `QuantityIntervalFn` gain their exact classes. Recursive
-  function-input enforcement remains follow-up work, documented in
-  [docs/argtypes.md](docs/argtypes.md#relation-wide-declarations-and-the-runtime-boundary).
-  *Class:* **Fix**.
-  [docs/taxonomy.md](docs/taxonomy.md#relations-and-arity-policy)
-
-- **A late `(symmetric P)` folds a mirrored pair both of whose rows a rule concluded.**
-  The mark's effect is canonicalization, so a declaration arriving after both spellings
-  were written migrates the records into one. The fold ran only where one of the pair
-  stood on nothing but its own premise: a pair two rules had concluded was left alone,
-  pair and all, so the mark arriving first left one record and the mark arriving last left
-  two, each believed, and a predicate above them answered the proposition twice.
-  `integrate/fold-supports!` re-hangs the justifications naming the doomed row as their
-  *consequence* onto the survivor — the consequence-side twin of `fold-dependents!` —
-  which leaves the doomed row supporting nothing for the ordinary sweep to collect. No
-  justification is deleted and the JTMS gains no entry point; a justification naming the
-  survivor among its own antecedents is skipped rather than retargeted, since a datum that
-  grounds itself is groundable for ever. The tie-break is unmoved: the row standing on
-  nothing but its premise is still the one that goes, and between two rows the fold has no
-  other reason to separate the lower handle survives. *Class:* **Fix**. *Migration:* none.
-  [docs/canonicalization.md](docs/canonicalization.md)
-
-- **`recover` drops a malformed `genl`/`genlCx` declaration rather than crashing on it.**
-  The taxonomy rebuild reads each stored `genl`/`genlCx` sentex positionally for its two
-  endpoints, and it replays what is **stored** rather than what would pass the assert-time
-  `wff` check. A store an older or foreign writer left a non-edge sentex under the
-  `genl`/`genlCx` functor root then reached the rebuild arm as a malformed edge — a
-  two-element sentence binds the member as the subtype and nil as the super — and the nil
-  entered the closure as a node, where `strong-components` threw a `NullPointerException`
-  the moment `restore-depths` condensed a loose relation (the crash blocked recovery of the
-  whole store, with no partial-recovery fallback). `replay-edge` now activates an edge only
-  when both endpoints are symbols, so a malformed declaration is skipped and counted,
-  logged once at `:warn` under `::edges-malformed` — the taxonomy's twin of the
-  `::justifications-unrooted` skip `rebuild-tms` already makes. No well-formed store holds
-  such a declaration, so a store the current entry point wrote replays unchanged.
-  *Class:* **Fix**. *Migration:* none.
+- **`recover` requires a stored `genl`/`genlCx` declaration to carry the complete edge
+  shape before it replays the edge.** 0.17.0's `replay-edge` guard required both endpoints
+  to be symbols, but the rebuild arm reads the stored sentence positionally (`[_ a b]`), so
+  two malformations an older or foreign writer could leave under the `genl`/`genlCx`
+  functor root still passed. An over-arity row `(genl a b surplus)` replayed as
+  `(genl a b)` with its surplus term dropped, and a wrong-functor row such as
+  `(disjoint a b)` handed up under the `genl` root replayed as `(genl a b)`. Both rows
+  carry symbols in both endpoint positions, so neither crashed and both fabricated a
+  spurious edge. `replay-edge` now activates an edge only when the stored sentence is
+  exactly `(<functor> <symbol> <symbol>)` — arity three, the literal expected functor, both
+  endpoints symbols — and otherwise skips the declaration and counts it, logged once at
+  `:warn`, the discipline the 0.17.0 fix drew for the two-element crash. No well-formed
+  store holds such a declaration, so a store the current entry point wrote replays
+  unchanged. *Class:* **Fix**. *Migration:* none.
   [docs/storage.md](docs/storage.md#persistence--recovery)
 
-- **The order-independence sweep draws the last three releases' new vocabulary.**
-  `mixed_order_property_test`'s chain pool spanned the mechanisms that existed when it was
-  written and none that arrived after, so a `different` guard, a `functionalInArg` mark
-  descending a predicate edge, a `symmetric` mark over a pair two rules concluded and the
-  `predSpecifiedAll` audit were permuted by nothing. Twelve chains join the pool and two
-  keys join the reading: the `different` answer over five probe pairs, and the audit's
-  violation set, both per view context. The guard's two arguments are a pair one of the
-  pool's own `equals` edges merges, and the `indeterminate_term` category reaches it twice
-  more — a direct membership, and a kind declared under it that arrives through the genls
-  fan rather than by name. The witness runs the whole pool and a second draw with neither
-  suspension in it, so the guard is on the record holding as well as withdrawn.
-  `entry_point_and_report_test` gains the two `quotedArg` rows the argument-constraint
-  non-reach was covering without naming, and `docs/taxonomy.md`'s arrival-order table
-  names the spelling and what separates its conviction from the other three.
-  *Class:* **Additive** — tests, a roster row and prose. *Migration:* none.
-  [docs/taxonomy.md](docs/taxonomy.md)
+- **The web term search matches a name case-insensitively.** The `/find?q=` handler pinned
+  `:case-sensitive? true` on its `find-terms` call, so a lowercase query matched no
+  camelCase term even though `find-terms` itself defaults to case-insensitive. The handler
+  now passes `:case-sensitive? false`, so a literal query matches a term of any case and
+  `parentof` finds `parentOf`. A regex query carries its own case in the pattern and
+  requests insensitivity with `(?i)`, which the regex matcher already honours, so a regex
+  query is unchanged. *Class:* **Fix**. *Migration:* none. [docs/web.md](docs/web.md)
+
+## 0.17.0 — 2026-09-06 — "arity as vocabulary over every relation, and declarations that stop restating their own conclusions"
+
+**14 entries** — 1 Breaking, 4 Refusal, 4 Additive, 5 Fix. A declaration that restates
+what the taxonomy already concludes turns that conclusion into a precondition, so the
+arrival order of two assertions decides which facts a KB holds. Four entries retire such a
+declaration — on `genl`, on fifteen unary marks, on six arity marks, and in the `predAll`
+pair's third argument — and the arity vocabulary underneath is rebuilt so `relation` is
+the common parent of `predicate` and `function` and every relation lands in exactly one
+arity policy. `predAllSpecified` and `predSpecifiedAll` go binary and derive the filler
+type from the predicate's own slot contract. Three composite function marks — `injection`,
+`surjection` and `bijection` — arrive as one declaration each, a `genlCx` edge's merge
+sweep stops growing with the KB, and a late `symmetric` declaration folds a mirrored pair
+no earlier version could fold.
+
+*Breaks:* `(predAllSpecified`, `(predSpecifiedAll`, `specified-violations`,
+`all-specified-violations`, `(binary_predicate P)` beside `(variable_arity P)`,
+`:arg-type`, `*assertive-arg-types?*`, `VAELII_ASSERTIVE_ARG_TYPES`,
+`(genlArg genl 1 thing)`, `(arg symmetric 1 predicate)`, `(arg functional 1 predicate)`
 
 ## 0.16.0 — 2026-09-04 — "the predAll quantifier family, refusals that name their kind, and declarations that reach back"
 

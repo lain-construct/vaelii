@@ -186,7 +186,10 @@ a solve answers something surprising. → [asp.md](asp.md)
   `(agg/count ?n ?v Body)` after the generator antecedent that binds the group, re-checked
   as the census moves — but they are *query* operators a prover computes rather than atoms
   a solve reasons over, and none may be a rule's consequent. GROUP BY falls out of which
-  variable an antecedent binds → [aggregate.md](aggregate.md)
+  variable an antecedent binds → [aggregate.md](aggregate.md). A **cardinality bound over
+  the choices** is the one count a solve does reason over: `(asp/atMost k ?v (p ?v …))` /
+  `asp/atLeast` translate to a solver cardinality atom, the `{ … } <= k` you would have
+  written, rather than the census `agg/count` is → [solving.md](solving.md)
 - Multi-shot solving. A solve is one program, built from one region, answered once
 - Theory atoms and any constraint layer over integers
 

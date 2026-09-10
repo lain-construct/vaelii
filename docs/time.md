@@ -310,6 +310,19 @@ no conclusion for the KB to arbitrate. So an event heard of *later* that termina
 fluent simply takes the answer back, and retracting that event gives it again — order
 independence on a question with no stored answer.
 
+### Functionality at an instant
+
+`functional` enforces at most one value over a predicate's **bare** literals; a value carried
+as a fluent under `initiates` never becomes a bare literal, so that closure never sees it — a
+service that provides one namespace at three o'clock and another at four is two truthful
+snapshots, not a clash. `(functional_at_instant F)` states the residual invariant the fluent
+lane still owes: `F` has at most one value for one subject at a **single** instant.
+`vaelii.core/functional-at-instant-violations` reads it on demand and reports a moment where
+two values of one subject hold — a merge for two symbols, a contradiction for two numbers, the
+split `functional` makes. It reports rather than merges, because whether two fluents overlap at
+an instant follows from the clipping closure and is not known when a fluent is asserted, the
+shape `specified-violations` uses. See [equality.md](equality.md).
+
 ### What `clipped` can see
 
 `instantBefore` and `instantAfter` are declared **transitive** in `CxTime`, and a forward

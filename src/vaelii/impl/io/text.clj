@@ -5,7 +5,7 @@
   and written.
 
   It is the format the shipped ontology is authored in (`resources/kb/`,
-  `vaelii.impl.seed`), and this is where the writer for it lives, so a KB an author
+  `vaelii.host.seed`), and this is where the writer for it lives, so a KB an author
   edited as text can be got back out of a store as text.  The three formats a KB moves
   in are different questions and stay separate entry points:
 
@@ -165,7 +165,7 @@
   antecedent fact.  Where there is none the conclusion is *dropped* — a `:no-placement`
   violation, recorded rather than raised — so an edge arriving after the fact it would
   have placed leaves a conclusion nothing re-derives, and the retry loop never sees it,
-  because it retries what **threw**.  The context spindle is what `vaelii.impl.starter`
+  because it retries what **threw**.  The context spindle is what `vaelii.host.starter`
   keeps in code for the same reason (CxCore, then the upper layer, then the middle),
   and a directory of files carries no such order.  So the topology goes in first, and
   everything else is retried against the whole of it.
@@ -182,7 +182,7 @@
   Returns how many entries were read.
 
   `assert!` is passed in rather than required: this sits under `vaelii.core`, and the
-  two callers above it are `vaelii.core/load-text!` and `vaelii.impl.seed`.
+  two callers above it are `vaelii.core/load-text!` and `vaelii.host.seed`.
 
   A KB file's order is its *terms'*, not its dependencies' — blocks run in natural sort
   order, which is the whole point of grouping term-centrically — so a file cannot also

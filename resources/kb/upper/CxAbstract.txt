@@ -159,6 +159,40 @@
 (comment time_point "A moment rather than a stretch — one of the two instants bounding an interval. What the point algebra relates, and what startOf and endOf reach from an interval.")
 (genl time_point temporal_thing)
 
+;; --- situation / static_situation / event: the state-of-affairs hierarchy ------
+(comment situation "A state of affairs: objects bearing properties or relations over a time interval. Parent of static_situation (the state holds unchanged) and event (the world's state changes); change is the specialization axis.")
+(genl situation temporal_thing)
+
+(comment static_situation "A situation extended in time but unchanged, a held state, e.g. a file existing. Contrast event, the kind whose state changes.")
+(genl static_situation situation)
+
+(comment event "Something that happens: an occurrence located in time whose state changes. The event-calculus slots (happens/initiates/terminates) are typed temporal_thing and no event collection was declared; this names one.")
+(genl event situation)
+
+;; A situation either holds unchanged or changes, never both — the specialization axis
+;; is a partition, so the two specializations are disjoint.
+(disjoint static_situation event)
+
+;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
+(comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. One side of the causal/acausal division of thing.")
+(genl causal thing)
+
+(comment acausal "A thing that cannot be a cause: evidence, data, attributes, records. The other side of the causal/acausal division of thing.")
+(genl acausal thing)
+
+;; The causal/acausal division: a thing either can be a cause or cannot, so the two
+;; sides are disjoint. This also makes causal_event and acausal_event disjoint, by the
+;; genl closure of disjointness.
+(disjoint causal acausal)
+
+;; --- causal_event / acausal_event: events by whether they can cause ------------
+;; defined via intersection (CxCore); its rules derive the genls and membership.
+(comment causal_event "An event that is a cause: the intersection of causal and event.")
+(intersection causal_event causal event)
+
+(comment acausal_event "An event that is not a cause (an observation or receipt is one): the intersection of acausal and event.")
+(intersection acausal_event acausal event)
+
 (comment tool "An artifact used to perform work.")
 (genl tool artifact)
 

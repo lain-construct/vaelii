@@ -7,7 +7,7 @@
   strength winner, `argue` -> `:contradiction` — never a resolved strength-defeat."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.koinii.dispute :as d]
             [vaelii.koinii.identity :as id]
             [vaelii.test-util :as tu]))
@@ -57,8 +57,8 @@
   ;; each asserts a FACT, and common-sense rules in the channel derive the opposing
   ;; conclusions.  05 must surface the emergent contradiction exactly as it does a stated one.
   (channel-sees! kb 'CxDeploy '[AgentAtlas AgentBoreas])
-  (v/assert kb '(implies (green_audit ?x) (reliable ?x)) 'CxDeploy)
-  (v/assert kb '(implies (failed_failover ?x) (not (reliable ?x))) 'CxDeploy)
+  (v/assert kb '(implies (green_audit ?x) (reliable ?x)) 'CxDeploy {:direction :forward})
+  (v/assert kb '(implies (failed_failover ?x) (not (reliable ?x))) 'CxDeploy {:direction :forward})
   (holds! kb 'AgentAtlas '(green_audit ProdCluster))       ; Atlas's fact -> derives P
   (holds! kb 'AgentBoreas '(failed_failover ProdCluster))  ; Boreas's fact -> derives ¬P
   (testing "both stances are DERIVED — neither is a premise anyone stated"

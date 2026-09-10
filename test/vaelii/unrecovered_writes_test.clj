@@ -25,11 +25,11 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.host.web :as web]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.web :as web]
             [vaelii.test-util :as tu])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))

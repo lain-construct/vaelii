@@ -96,10 +96,11 @@ to reach the literals:
 | `(and X …)` | each conjunct |
 | `(or X …)` | nothing, and it never arrives: a disjunctive antecedent is polycanonicalized into one rule per alternative before naming runs, so what this walk sees is the expansion ([canonicalization.md](canonicalization.md)) |
 | `(implies A C)` | each antecedent (`:antecedent`), then `C` (`:consequent`) |
-| `set/forwardRule` · `backwardRule` · `inertRule` · `defaultRule` · `assumptionRule` · `hardConstraint` · `softConstraint` | the rule inside, wrappers nesting in any order |
+| `set/forwardRule` · `backwardRule` · `forwardOnlyRule` · `inertRule` · `defaultRule` · `assumptionRule` · `hardConstraint` · `softConstraint` | the rule inside, wrappers nesting in any order |
 | `(exceptWhen Q R)` | `Q`'s conjuncts (`:exception`), then `R` |
 | `(ist Ctx S)` | `S` (and `Ctx` is checked as a context name) |
 | `(unknown S)` · `(thereExists ?v S)` · `(exists ?v C)` | the query / consequent wrapped |
+| `(bravely S)` · `(cautiously S)` | `S` — a read of the current dilemmas, answered by the `:brave-cautious` prover ([labeling.md](labeling.md)) |
 | `(agg/count ?n ?v B)` and its four siblings | `B` — an aggregate's body is a goal, not an argument ([aggregate.md](aggregate.md)) |
 | `(sentexHandle N)` | nothing — it names a stored sentex by id |
 | `(do/labeling Ctx)` and the rest of `do/` | nothing — an imperative instructs the engine rather than stating that something is true, so it names no relation: it is dispatched at the top level of `assert` and refused anywhere inside a rule ([labeling.md](labeling.md)) |

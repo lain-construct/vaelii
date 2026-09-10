@@ -129,7 +129,7 @@ representative lookup per symbol, one with no schematic equations skips normaliz
 Migration and every query path go through `rewrite-term`, so a stored term and a goal
 meet at one normal form. **All four query paths normalize the top goal**: `sentexes-matching` and
 `ask` (via `kb/rewrite-goal`), and `prove` and `query` (via
-`core/prepare-goal-for-read`, which reifies NATs *and* rewrites the goal). It is the
+`quasiquote/prepare-goal-for-read`, which reifies NATs *and* rewrites the goal). It is the
 **top** goal that is normalized — stored facts are already in normal form via
 migration, so a subgoal a rule expansion generates needs no further rewriting, the
 same reliance `ask` makes. `different` is exempt from goal rewriting: its arguments
@@ -159,7 +159,7 @@ assertion order — the invariant [nmtms.md](nmtms.md) makes non-negotiable:
 Supersession is derived from the rules, not stored, so `recover` re-establishes it.
 `rebuild-taxonomy` re-orients each stored schematic equation into the rule cache, the
 twins' justifications replay from the durable store on their own, and
-`core/recovered-supersessions` nominates the rule-reached sentexes as supersession
+`recovery/recovered-supersessions` nominates the rule-reached sentexes as supersession
 candidates — `supersession-map` re-derives the actual displacement, since
 `rewrite-term` normalizes. So the same beliefs stand either side of a restart.
 

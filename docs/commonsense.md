@@ -13,7 +13,7 @@ reasoning subsystem, and a third instrument puts its answers to an outside reade
 |---|---|
 | [`common_sense_test.clj`](../test/vaelii/common_sense_test.clj) | reasoning over the shipped schema and the test-world's cast |
 | [`common_sense_qualitative_test.clj`](../test/vaelii/common_sense_qualitative_test.clj) | the six algebras plus duration and metric time, over networks |
-| [`vaelii.impl.llm.oracle`](../src/vaelii/impl/llm/oracle.clj) | the conclusions glossed into English and judged by a model |
+| [`vaelii.host.llm.oracle`](../src/vaelii/host/llm/oracle.clj) | the conclusions glossed into English and judged by a model |
 
 ## What counts as a common-sense test
 
@@ -124,7 +124,7 @@ the whole value of abduction here is what is **not** granted.
 
 ## The judge, and which way the trust runs
 
-`vaelii.impl.llm.text` reads English **into** the KB, where the danger is a model writing
+`vaelii.host.llm.text` reads English **into** the KB, where the danger is a model writing
 something false into the store and the defence is a reviewer between the two
 ([reading.md](reading.md)). The oracle is the same extension point pointed the other way: the KB
 makes the claims and the model is asked whether an ordinary person would agree.
@@ -142,7 +142,7 @@ a KB full of well-formed nonsense passes every other gate in this repo.
 Four decisions carry the design:
 
 - **The claim is glossed, and one the KB cannot gloss is not sent.** A model handed
-  `(genl penguin bird)` is judging our notation. `vaelii.impl.gloss` composes the English
+  `(genl penguin bird)` is judging our notation. `vaelii.host.gloss` composes the English
   from the KB's own comments, so what the judge sees is the knowledge base's sentence. A
   sentence the KB documents nothing about glosses to `:named` and is skipped and counted:
   an unanswerable question dressed up as a low score measures the prompt.

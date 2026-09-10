@@ -31,7 +31,7 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- default-rule [antes conseq]
-  (list 'set/defaultRule (vr/rule-sentence antes conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 ;; ---- 1. sweeping ---------------------------------------------------------
 ;; DECISION (contexts.md, "The removal is total"): a late except sweeps what already

@@ -12,11 +12,11 @@
   it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.duration :as dur]
             [vaelii.impl.interval :as iv]
             [vaelii.impl.provers :as provers]
-            [vaelii.impl.seed :as seed]
             [vaelii.impl.stp :as stp]
             [vaelii.test-util :as tu])
   (:import [vaelii.impl.stp TemporalDistanceProver]))
@@ -713,7 +713,7 @@
   (tu/with-terms [A B As Ae Bs Be finishedFirst]
     (with-allen kb
       (v/assert kb (list 'arg finishedFirst 1 'thing) 'CxCore {:strength :monotonic})
-      (v/assert-rule kb [(list 'before '?x '?y)] (list finishedFirst '?x) C)
+      (v/assert-rule kb [(list 'before '?x '?y)] (list finishedFirst '?x) C {:direction :forward})
       (let [[_ _ h-gap] (two-hours-apart! kb A B As Ae Bs Be)
             concl (tu/sole-answer (v/sentexes-matching kb (list finishedFirst A) '?ctx)
                                   (list finishedFirst A))]

@@ -20,6 +20,7 @@
             [vaelii.core :as v]
             [vaelii.impl.asp.solver :as solver]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.provers :as provers]
             [vaelii.impl.rules :as rules]
             [vaelii.test-util :as tu]))
 
@@ -32,10 +33,10 @@
 (deftest an-assumption-rule-is-distinct-from-its-bare-twin
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [candidate color]
-      (let [bare (v/assert kb (list 'implies (list candidate '?c) (list color '?c 'red)) 'CxUniverse)
+      (let [bare (v/assert kb (list 'implies (list candidate '?c) (list color '?c 'red)) 'CxUniverse {:direction :forward})
             asm  (v/assert kb (list 'set/assumptionRule
                                     (list 'implies (list candidate '?c) (list color '?c 'red)))
-                           'CxUniverse)]
+                           'CxUniverse {:direction :forward})]
         (testing "the wrapper is part of identity, so they are two sentexes"
           (is (not= bare asm)))
         (testing "assumption? reads the record, true only for the wrapped one"
@@ -44,16 +45,16 @@
         (testing "and re-asserting the same assumptionRule is idempotent"
           (is (= asm (v/assert kb (list 'set/assumptionRule
                                         (list 'implies (list candidate '?c) (list color '?c 'red)))
-                               'CxUniverse))))))))
+                               'CxUniverse {:direction :forward}))))))))
 
 (deftest an-assumption-rule-does-not-forward-chain
   ;; The defining behaviour: a choice head is not a derived truth. The bare rule fires
   ;; on the same fact; the assumptionRule stays dormant until a solve grounds it.
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [candidate color Item]
-      (v/assert kb (list 'implies (list candidate '?c) (list color '?c 'red)) 'CxUniverse)
+      (v/assert kb (list 'implies (list candidate '?c) (list color '?c 'red)) 'CxUniverse {:direction :forward})
       (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'blue)))
-                'CxUniverse)
+                'CxUniverse {:direction :forward})
       (v/assert kb (list candidate Item) 'CxUniverse)
       (is (seq (v/sentexes-matching kb (list color Item 'red) 'CxUniverse)) "bare rule fired")
       (is (empty? (v/sentexes-matching kb (list color Item 'blue) 'CxUniverse)) "assumptionRule did not"))))
@@ -97,9 +98,9 @@
   [kb]
   (let [candidate (tu/tmp-pred) color (tu/tmp-pred) item (tu/tmp-ind)]
     (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'red)))
-              'CxUniverse)
+              'CxUniverse {:direction :forward})
     (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'blue)))
-              'CxUniverse)
+              'CxUniverse {:direction :forward})
     (v/assert kb (list 'functional color) 'CxUniverse)
     (v/assert kb (list candidate item) 'CxUniverse)
     {:color color :item item}))
@@ -132,7 +133,7 @@
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [candidate wants Item]
         (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list wants '?c 'tea)))
-                  'CxUniverse)
+                  'CxUniverse {:direction :forward})
         (v/assert kb (list candidate Item) 'CxUniverse)
         (let [r (v/assert kb (list 'do/label 'CxUniverse (tu/tmp-ctx "Plan")) 'CxUniverse)]
           (is (= 1 (:count r)))
@@ -157,7 +158,7 @@
       (v/assert kb (list candidate Cand) 'CxUniverse)
       (v/assert kb (list 'set/assumptionRule
                          (list 'implies (list candidate '?c) (list 'not (list paints '?c))))
-                'CxUniverse)
+                'CxUniverse {:direction :forward})
       (let [e (try (v/assert kb (list 'do/label 'CxUniverse (tu/tmp-ctx "Plan")) 'CxUniverse)
                    (catch clojure.lang.ExceptionInfo ex ex))]
         (is (instance? clojure.lang.ExceptionInfo e) "the negated-head label is refused")
@@ -188,6 +189,75 @@
             (is (= 1 (:count r)))
             (is (= [(list wants Other 'tea)] (:true (first (:labelings r)))))))))))
 
+(deftest a-forward-rule-derives-the-fact-a-choice-grounds-on
+  ;; Grounding proves an assumptionRule's antecedent over the facts *believed* in Base.
+  ;; A forward rule's conclusion is a believed fact like any other.  So a choice whose
+  ;; body names a derived predicate stays dormant until a forward rule concludes that
+  ;; predicate: the precondition is asserted, the forward rule materializes the fact,
+  ;; and the same do/label call that grounded nothing before now grounds a labeling.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (tu/with-terms [registered candidate color Item]
+      (let [plan (tu/tmp-ctx "Plan")]
+        ;; a forward rule concluding the precondition, and a two-way colour choice over it
+        (v/assert kb (list 'set/forwardRule
+                           (list 'implies (list registered '?c) (list candidate '?c)))
+                  'CxUniverse)
+        (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'red)))
+                  'CxUniverse {:direction :forward})
+        (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'blue)))
+                  'CxUniverse {:direction :forward})
+        (v/assert kb (list 'functional color) 'CxUniverse)
+        (testing "before the precondition: nothing is a candidate, so a do/label grounds nothing"
+          (let [r (v/assert kb (list 'do/label 'CxUniverse plan) 'CxUniverse)]
+            (is (zero? (:count r)))
+            (is (= :no-choices (:reason r)))))
+        (testing "the precondition arrives and the forward rule concludes the candidate"
+          (v/assert kb (list registered Item) 'CxUniverse)
+          (is (seq (v/sentexes-matching kb (list candidate Item) 'CxUniverse))
+              "the forward rule materialized the derived fact"))
+        (when asp?
+          (testing "now the choice grounds on the derived fact: two optima, red and blue"
+            (let [r (v/assert kb (list 'do/label 'CxUniverse plan) 'CxUniverse)]
+              (is (= 2 (:count r)))
+              (is (= #{(list color Item 'red) (list color Item 'blue)} (set (:choices r))))
+              (let [worlds (set (map (fn [l] (set (map #(nth % 2) (:true l)))) (:labelings r)))]
+                (is (= #{#{'red} #{'blue}} worlds))))))))))
+
+(deftest grounding-proves-an-antecedent-through-a-registered-prover
+  ;; ground-heads proves an assumptionRule's antecedents over a REGISTRY leaf
+  ;; (`registry-bounds` → `provers/solve-goal`), the division `vaelii.core/query` runs — so
+  ;; a candidate that rests on a registered prover is a legal antecedent, not something the
+  ;; caller must pre-project into a stored candidate fact.  Here the antecedent `(reach ?c)`
+  ;; has no stored fact and no rule concludes it; only the registered prover answers it, and
+  ;; the choice still grounds.  (The stored-fact leaf `prove` alone left it dormant.)
+  (tu/with-cleared-kb [kb tu/fresh]
+    (tu/with-terms [reach color Item]
+      (v/add-prover kb (reify provers/Prover
+                         (applicable?  [_ _ goal _] (and (sequential? goal) (= reach (first goal))))
+                         (est-bindings [_ _ _ _] 1)
+                         (cost         [_ _ _ _] :lookup)
+                         (completeness [_ _ _ _] 100)
+                         (solve [_ _ goal _]
+                           (let [[_ x] goal]
+                             (cond
+                               (and (symbol? x) (.startsWith (name x) "?")) [{x Item}]
+                               (= x Item)                                    [{}]
+                               :else                                         [])))))
+      (v/assert kb (list 'set/assumptionRule (list 'implies (list reach '?c) (list color '?c 'red)))
+                'CxUniverse {:direction :forward})
+      (v/assert kb (list 'set/assumptionRule (list 'implies (list reach '?c) (list color '?c 'blue)))
+                'CxUniverse {:direction :forward})
+      (v/assert kb (list 'functional color) 'CxUniverse)
+      (testing "the antecedent has no stored fact and no rule concludes it — only the prover answers"
+        (is (empty? (v/sentexes-matching kb (list reach Item) 'CxUniverse))))
+      (when asp?
+        (testing "the choice grounds on the prover-supplied binding: two optima, red and blue"
+          (let [r (v/assert kb (list 'do/label 'CxUniverse (tu/tmp-ctx "Plan")) 'CxUniverse)]
+            (is (= 2 (:count r)))
+            (is (= #{(list color Item 'red) (list color Item 'blue)} (set (:choices r))))
+            (let [worlds (set (map (fn [l] (set (map #(nth % 2) (:true l)))) (:labelings r)))]
+              (is (= #{#{'red} #{'blue}} worlds)))))))))
+
 ;; ---- 6. groundings are never stored; a re-run replaces -------------------
 
 (deftest groundings-are-never-stored
@@ -217,10 +287,10 @@
       (tu/with-terms [candidate color Item]
         (v/assert kb (list 'set/assumptionRule
                            (list 'implies (list candidate '?c) (list color '?c 'red)))
-                  'CxUniverse)
+                  'CxUniverse {:direction :forward})
         (v/assert kb (list 'set/assumptionRule
                            (list 'implies (list candidate '?c) (list color '?c 'blue)))
-                  'CxUniverse)
+                  'CxUniverse {:direction :forward})
         (let [fh   (v/assert kb (list 'functional color) 'CxUniverse)
               cand (v/assert kb (list candidate Item) 'CxUniverse)
               r1   (v/assert kb '(do/label CxUniverse CxReplacePlan) 'CxUniverse)]
@@ -251,10 +321,10 @@
       (tu/with-terms [candidate color Item]
         (v/assert kb (list 'set/assumptionRule
                            (list 'implies (list candidate '?c) (list color '?c 'red)))
-                  'CxUniverse)
+                  'CxUniverse {:direction :forward})
         (v/assert kb (list 'set/assumptionRule
                            (list 'implies (list candidate '?c) (list color '?c 'blue)))
-                  'CxUniverse)
+                  'CxUniverse {:direction :forward})
         (let [fh (v/assert kb (list 'functional color) 'CxUniverse)]
           (v/assert kb (list candidate Item) 'CxUniverse)
           (v/assert kb '(do/label CxUniverse CxReclassPlan) 'CxUniverse)
@@ -484,7 +554,7 @@
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [candidate wants Item]
         (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list wants '?c 'tea)))
-                  'CxUniverse)
+                  'CxUniverse {:direction :forward})
         (v/assert kb (list candidate Item) 'CxUniverse)
         (let [into (tu/tmp-ctx "Plan")]
           (v/assert kb (list 'do/label 'CxUniverse into) 'CxUniverse)
@@ -506,4 +576,4 @@
           (str "refused: " (pr-str form))))
     (testing "and a do/ imperative is refused inside a rule"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'implies (list 'p '?x) (list 'do/label 'A 'B)) 'CxUniverse))))))
+                   (v/assert kb (list 'implies (list 'p '?x) (list 'do/label 'A 'B)) 'CxUniverse {:direction :forward}))))))

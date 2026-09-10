@@ -1,37 +1,41 @@
 # Namespace layout
 
 - **Covers:** which source file holds each namespace, and the split between the six public
-  namespaces and `vaelii.impl.*`.
+  namespaces, the `vaelii.impl.*` engine and the `vaelii.host.*` tooling.
 - **Not here:** the one-line summary of every subsystem doc → [README.md](README.md); the
   public API's function signatures → [api.md](api.md).
 - **Assumes:** sentex, context, JTMS, canonical form → [glossary.md](glossary.md).
 
 What lives where, one line per file. The public surface is **six namespaces** —
 `vaelii.core` plus five thin entry points (`vaelii.client`, `vaelii.starter`,
-`vaelii.web`, `vaelii.serve`, `vaelii.cli`) — and everything under `vaelii.impl.*` is
-free to change — tests reach into `impl` freely, nothing outside this repo should
-([api.md](api.md)). `vaelii.koinii.*` is neither: it is an **application** shipped in
-this tree, a consumer of those six exactly as an outside caller is, which is why it sits
-beside `impl/` rather than in it ([koinii.md](koinii.md)). The per-subsystem notes are
-indexed in [README.md](README.md); this is the file map that sits under them.
+`vaelii.web`, `vaelii.serve`, `vaelii.cli`). Everything else is private and free to
+change, in two strata that `vaelii.core` divides: `vaelii.impl.*` is the **engine** below
+core, which never requires `vaelii.core`; `vaelii.host.*` is the **tooling** above core —
+the two servers, the CLI, the loaders and the LLM stack — which requires `vaelii.core`
+and the engine, and which the five thin entry points front. Tests reach into both freely;
+nothing outside this repo should ([api.md](api.md)). `vaelii.koinii.*` is a fourth thing:
+an **application** shipped in this tree, a consumer of those six exactly as an outside
+caller is, requiring neither `impl/` nor `host/`, which is why it sits beside them
+([koinii.md](koinii.md)). The per-subsystem notes are indexed in [README.md](README.md);
+this is the file map that sits under them.
 
 ```
 src/vaelii/
   core.clj          THE PUBLIC API — KB; forward chaining + context placement;
                     checks; settle; every fn in docs/api.md
-  client.clj        public shim over impl/client.clj: the thin daemon client, spelled
+  client.clj        public shim over host/client.clj: the thin daemon client, spelled
                     as vaelii.core spells it (bare assert / assert-rule, retract!)
-  starter.clj       public shim over impl/starter.clj: load-into, the shipped
+  starter.clj       public shim over host/starter.clj: load-into, the shipped
                     schema-only ontology into a KB you opened
-  web.clj           public shim over impl/web.clj: handler / start / -main for the
+  web.clj           public shim over host/web.clj: handler / start / -main for the
                     browser (the dev-only affordances stay in impl)
-  serve.clj         public shim over impl/serve.clj: the daemon — ops / app / start /
+  serve.clj         public shim over host/serve.clj: the daemon — ops / app / start /
                     port / -main
-  cli.clj           public shim over impl/cli.clj: open-kb-from / dispatch / -main
+  cli.clj           public shim over host/cli.clj: open-kb-from / dispatch / -main
 
 src/vaelii/koinii/
                       AN APP, not the engine: multi-agent coordination over one shared
-                      KB, built on the six above and requiring nothing under impl/
+                      KB, built on the six above and requiring nothing under impl/ or host/
                       ([koinii.md](koinii.md))
   identity.clj      per-agent contexts as the identity substrate and the write boundary;
                     the admin-only registry and the `authenticate` policy extension point (D4/D8)
@@ -91,7 +95,8 @@ src/vaelii/impl/
   abduce.clj        abduction: the scratch-context lifecycle, the gate on what may be assumed, and the mint/re-prove loop over the dead ends `prove` reports
   wff.clj           well-formedness of genl / genlCx / disjoint / arg / the equality relations (symbols only, no rewriteOf cycle, `different` not assertible); stratification (no rule-graph cycle through negation)
   provers.clj       Prover protocol (est-bindings + cost tier + completeness) + fact/transitivity/disjointness/metadata/evaluable/quantity/NAF/aggregate/arg/belief-projection + the `ask` engine; the completeness contract and what may shadow what; exceptWhen evaluation + rule guards; `candidate-rules` and `parse-rule`, which the two backward chainers read.  **No member of it expands a rule**, so `ask` never opens a proof search. Nothing here is declared per predicate and the registry is unreachable from `predicates`: `applicable?` reads a goal's shape rather than a functor's name, `add-prover` registers with no declaration entry at all, and `sole-prover` answers the coordination question as a question about the KB. A prover's shape table stays with the prover; its enrolment is the declaration's ([predicates.md](predicates.md))
-  predall.clj       the predAll / predExists / predSpecified quantifier matrix's on-demand half, above `vaelii.core` and reached back down through `wiring`: `specified-violations` (the *Specified* integrity audit — `{:status :audited :violations …}` naming the instances with no determinate, contract-satisfying filler, or a `{:status :gap …}` declaration-contract diagnostic; the filler contract derived from the predicate's slot typing over its constraining predicates) and `indeterminate-term?`, which delegates to the `provers` implementation the equality exemption reads, so an audit and a `different` cannot disagree about a term.  The *Instance* cells are CxCore rule generators and the *Exists* cells inert records — neither needs code here (docs/predall.md)
+  predall.clj       the predAll / predExists / predSpecified quantifier matrix's on-demand half, **below** `vaelii.core` and required by it: `specified-violations` (the *Specified* integrity audit — `{:status :audited :violations …}` naming the instances with no determinate, contract-satisfying filler, or a `{:status :gap …}` declaration-contract diagnostic; the filler contract derived from the predicate's slot typing over its constraining predicates) and `indeterminate-term?`, which delegates to the `provers` implementation the equality exemption reads, so an audit and a `different` cannot disagree about a term.  The audit reads through `provers/ask` with each goal prepared as the public read prepares it (`quasiquote/prepare-goal-for-read`), so `vaelii.core`'s two audit entry points are thin downward delegations rather than a layering inversion.  The *Instance* cells are CxCore rule generators and the *Exists* cells inert records — neither needs code here (docs/predall.md)
+  fluent.clj        the per-instant functionality audit, **below** `vaelii.core` and required by it: `functional-at-instant-violations` reports a moment where two fluent values of one subject hold — a merge for two symbols, a contradiction for two numbers — the fluent-lane counterpart of the bare `functional` closure, read on demand because the overlap follows from the clipping closure, with `all-functional-at-instant-violations` the whole-KB sweep over every declaration.  The fact reads run through `provers/ask`; the one rule read, `holdsAt`, runs the node engine `inference/solutions` at a bounded depth, so `vaelii.core`'s two entry points are thin downward delegations rather than a layering inversion (docs/time.md, docs/equality.md)
   budget.clj        resource-bounded / anytime: bound a lazy answer stream (:max-ms/:max-results), the partial-result contract, the resumable tail
   plan.clj          conjunctive query planning: selectivity cost model + sideways information passing, with the cartesian factors (literals sharing no variable with the rest, and matching more than once, so they multiply it) held to the back on structure rather than on an estimate
   literal_cache.clj per-KB cache of matches-visible answers, keyed by the α-renamed (repetition-preserving) literal + context + retrieval strategy, stamped with the change clock; stores only what ran dry, so a bounded run leaves no prefix behind
@@ -99,7 +104,7 @@ src/vaelii/impl/
   opts.clj          a third leaf with no requires but `clojure.string`: the option-map entry point every public entry point that takes trailing options runs through — a key outside the roster and a non-map `opts` both refused as `:unknown-option`, with the per-entry-point sentence saying what taking the default in silence would have cost *there*.  One shape at every such entry point, because an option nothing reads is not a missing option but a run at a setting nobody chose
   caches.clj        the other leaf with no requires at all: the register every cache-holding namespace declares itself in at load, and the one read over it — entries, bound, unit, hit rate, and separately what the entries are about and what the counters are.  A cache in a namespace this process never loaded has no row, which is the honest answer rather than a zero
   feed.clj          the same extension point one altitude up, for **belief** rather than storage: the KB's listener registry, the region a settle accumulates for them, the reentrancy claim that keeps listeners from nesting, and the two dynamics a preview and a teardown suppress it with.  `core` installs the renderer; a KB nobody watches pays one deref (docs/feed.md)
-  wiring.clj        the other leaf extension point, and the whole inventory of it: the two calls that run *up* the layering — the assert path (for `nat` and `skolem`) and the prover registry (for `resolution`) — plus `import-dump` and the `predAllSpecified` audit, layering inversions rather than recursions, and the `*defer-settle?*` flag both sides read.  Each entry, and why the set is collected here instead of left at the call sites, is "The layering" at the foot of this file
+  wiring.clj        the other leaf extension point, and the whole inventory of it: the three calls that run *up* the layering — two genuine mutual recursion (the assert path for `nat` and `skolem`, the prover registry for `resolution`) and the teardown entry point `retract-sentex` (for `asp.solve-context`, while the teardown orchestration stays core-private) — and the `*defer-settle?*` flag both sides of the assert recursion read.  A namespace that merely sits above `vaelii.core` calls back down to it directly instead (`io.import` through `recovery`, `predall` through `provers`), so no layering inversion is written here.  Each entry, and why the set is collected here instead of left at the call sites, is "The layering" at the foot of this file
   vantage.clj       CxInference: which readers can answer a goal, and the two ways of working that out — the reader fan (reference) and post-hoc placement, which must agree
   violations.clj    the dropped-conclusion ledger, below its two writers: the chainer files a conclusion it refused, the prover registry an aggregate's numeric error, and the chainer is built *on* the registry — so the ledger reads neither and both reach down to it.  A report, not a throw: it is written from inside a fixpoint that must not abort
   quality.clj       the seven readings about the **knowledge** rather than the engine — unfired rules (off the JTMS adjacency that already exists for retraction, never a scan of the justifications), extent skew, SCC-condensed chain depth over the rule graph, taxonomy coverage, the argument-constraint census, and the two rule-hygiene readings that pair the rules against each other (which rules another already covers, which pairs would contradict each other if both fired) — plus the Markdown emitter over the map it returns.  Nothing here is a gate ([quality.md](quality.md))
@@ -128,12 +133,9 @@ src/vaelii/impl/
   asp/clingo.clj    in-process libclingo through raw JNA — no JNI, no bindings
   asp/solver.clj    backend selector; lazy-resolves clingo so JNA stays optional
   asp/edge.clj      Program → ASPIF and back: the real edge solver
-  asp/label.clj     brave/cautious classification (forced vs arbitrary); labeling contexts
-  core_context.clj  CxCore: the vocabulary head (loads kb/CxCore.txt), documented via comment sentexes; read back with comment-of
-  seed.clj          the shipped ontology's classpath side: read-sentences / load-context / layer-contexts (discovery of kb/*.txt); the format itself, reader and writer both, is io/text.clj
-  starter.clj       schema-only common-sense KB: loads every kb/ context on start (Core, then upper, then middle), then the type→unary_predicate batch
+  asp/label.clj     brave/cautious classification (forced vs arbitrary); labeling contexts — reads through settle / jtms and writes through wiring, reached by imperative's do/ dispatch
+  asp/prover.clj    the (bravely S) / (cautiously S) query prover: a brave/cautious read of the current dilemmas, opt-in via add-reasoner :brave-cautious, answered as a pure read that commits nothing — not assertible, and forward-chain-inert since it carries no support
   imperative.clj    the do/ imperative dispatch (do/labeling|label|classify): the one non-fact/non-rule shape `assert` takes, routed to asp.* labeling by lazy resolve
-  io/generate.clj   synthesize a KB from numbers (types/individuals/rules, a fwd/backward mix, a seed): deterministic, stratified, Zipf-skewed — the form a measurement needs
   io/frames.clj     the chunked nippy framing under both the dump and the snapshot: `[int32 length][compressed chunk]`, each chunk an independent window so the writer holds one chunk and the reader thaws one — constant memory both ways.  The one home for it, so the dump writer, the dump reader and the sink share a copy instead of three.  An independent window means an encoder per chunk, so `:xz` takes an LZMA2 dictionary sized to a chunk (`xz-dict-bytes`) rather than the preset's, for the same bytes at a quarter of the working set
   io/thaw.clj       the class-name check on every nippy thaw the engine runs over a file: nippy's record and deftype readers resolve a class name a *frame* states and build from it, and its `Serializable` reader is gated by a dynamic var a host may widen — so all three are held to one allowlist here, which is empty, because a dump frame is a field map and a log frame a positional vector.  `check-encodable` probes a leaf through the same thaw, so the public entry point and the readers hold one opinion ([storage.md](storage.md))
   io/text.clj       the text KB format — one Cx<Name>.txt per context, one s-expression per sentence — read and written: `write-kb!` (premises only, content-ordered, no handles), `read-forms` / `entries` / `load-entries!` (one order-insensitive pass, context topology first), and the `(set/monotonic S)` wrapper, the one thing the format spells that `assert` does not read
@@ -142,17 +144,26 @@ src/vaelii/impl/
   io/fingerprint.clj  what makes a dumped index and its records provably the same KB: a commutative sum of per-record hashes over exactly what the index is a function of, accumulated in the storing pass rather than by a second walk
   io/snapshot.clj   a **snapshot** of derived state (the index today; the JTMS labels next) and the two-op sink it is written through: `SnapshotSink` streams a named section and commits a manifest-last, `SnapshotSource` reads them back; a `file-sink`/`file-source` over `io/frames` and a `memory-medium` that is both.  `decision` is the validate-or-discard lifted from `disk/index_snapshot.clj` — one reason per mismatch class, any doubt discards the whole image and the caller rebuilds.  Holds the `[key value]` projection and the layout+records validity core that the dump above now shares ([storage.md](storage.md))
   foreign.clj       THE EXTENSION POINT for the formats we read and do not write, and the whole of them here: no reader ships in this tree, and a plugin declares `kind -> reader var` in one edn resource on the classpath, resolved by `requiring-resolve` so no compile-time reference to one exists ([foreign.md](foreign.md))
-  catalog.clj       the KB catalog: sources (shipped / generated / corpus / dump / on-disk store, found on a search path), the background load with progress + cancel, and which loaded KB is active ([catalog.md](catalog.md))
-  jobs.clj          the registry every long operation runs in — a load, an export, a chaining run: one status vocabulary, one progress reading, one cancel, and the claim that only one job writes at a time ([web.md](web.md))
-  sandbox.clj       a scratch context per browser session, below CxWell: sees everything shipped, nothing shipped sees it; created on the first write, discarded whole
-  examples.clj      the worked examples `/reasoning` renders: a table of questions, each naming the stored sentexes it reasons from and what the ontology should answer, plus the one fn that runs one
-  svg.clj           the concept graph's drawing layer: a node, an edge, an arrowhead, and the arithmetic for a row / column / ring — pure, no KB, no graph library
-  guard.clj         the HTTP guards both servers hold to: the Host allowlist that closes DNS rebinding (the bind interface decides; VAELII_ALLOWED_HOSTS overrides), the Origin/Referer same-origin check on writes and the EDN content-type preflight it leans on, the daemon's bearer token (VAELII_API_TOKEN) read in one place for both ends, and the request-body ceiling (VAELII_MAX_BODY_BYTES, 16 MiB) both servers share
+
+src/vaelii/host/
+                      ABOVE core: the servers, CLI, loaders and LLM stack that drive a KB
+                      through vaelii.core and reach into the engine; private, fronted by
+                      the five thin entry points, reached by no engine namespace
   web.clj           reitit-ring browser: ontology / term / sentex / justification / knowledge-base pages
   serve.clj         headless EDN-over-HTTP daemon over vaelii.core: {:op :args}, allowlisted ops, single writer, sentex→map on the wire ([operations.md](operations.md))
   cli.clj           command-line driver: lein cli <cmd> … — the 25 words in `command-table` (assert / assert-rule / match / query / ask / prove / why / why-not / describe / retract / load / export / diff / repl …); --dir disk, --starter schema, --format text a text KB
   client.clj        thin java.net.http client for the daemon (zero-dep), conn threaded explicitly — the network mirror of the explicit-kb API
   subscribe.clj     the change feed with a cursor where the in-process one has a callback: the daemon's per-handler subscription registry, one bounded ring apiece, the lag count a reader that fell off it is told, and the park a long poll waits in — outside the write monitor, which is the whole constraint (docs/feed.md)
+  starter.clj       schema-only common-sense KB: loads every kb/ context on start (Core, then upper, then middle), then the type→unary_predicate batch
+  seed.clj          the shipped ontology's classpath side: read-sentences / load-context / layer-contexts (discovery of kb/*.txt); the format itself, reader and writer both, is io/text.clj
+  core_context.clj  CxCore: the vocabulary head (loads kb/CxCore.txt), documented via comment sentexes; read back with comment-of
+  catalog.clj       the KB catalog: sources (shipped / generated / corpus / dump / on-disk store, found on a search path), the background load with progress + cancel, and which loaded KB is active ([catalog.md](catalog.md))
+  jobs.clj          the registry every long operation runs in — a load, an export, a chaining run: one status vocabulary, one progress reading, one cancel, and the claim that only one job writes at a time ([web.md](web.md))
+  sandbox.clj       a scratch context per browser session, below CxWell: sees everything shipped, nothing shipped sees it; created on the first write, discarded whole
+  examples.clj      the worked examples `/reasoning` renders: a table of questions, each naming the stored sentexes it reasons from and what the ontology should answer, plus the one fn that runs one
+  guard.clj         the HTTP guards both servers hold to: the Host allowlist that closes DNS rebinding (the bind interface decides; VAELII_ALLOWED_HOSTS overrides), the Origin/Referer same-origin check on writes and the EDN content-type preflight it leans on, the daemon's bearer token (VAELII_API_TOKEN) read in one place for both ends, and the request-body ceiling (VAELII_MAX_BODY_BYTES, 16 MiB) both servers share
+  svg.clj           the concept graph's drawing layer: a node, an edge, an arrowhead, and the arithmetic for a row / column / ring — pure, no KB, no graph library
+  io/generate.clj   synthesize a KB from numbers (types/individuals/rules, a fwd/backward mix, a seed): deterministic, stratified, Zipf-skewed — the form a measurement needs
 ```
 
 The **operational surface** (`serve` / `cli` / `client`, alongside the `web` browser)
@@ -166,19 +177,25 @@ CxWell — contingent data, not shipped schema.
 
 ```
 resources/
-  kb/CxCore.txt     the vocabulary head; kb/upper/*.txt (definitional), kb/middle/*.txt (theories) — the shipped schema, term-centric text (vaelii.impl.seed)
+  kb/CxCore.txt     the vocabulary head; kb/upper/*.txt (definitional), kb/middle/*.txt (theories) — the shipped schema, term-centric text (vaelii.host.seed)
   kb/koinii/*.txt   CxRegistry + CxSpeechActs, the app's own seed contexts — vaelii.koinii.identity loads them; the starter does not
   public/          the browser's static assets: vaelii.css (served at /vaelii.css), htmx.min.js, select.js, the favicons, logo.svg, and font/ with its two faces and their licenses
 ```
 
 ## Not glossed above
 
-The map covers 113 of the 153 namespaces under `src/`. The other 40 are listed here by
+The map covers 115 of the 156 namespaces under `src/`. The other 41 are listed here by
 name rather than left out, and the two lists together are every one of them — `lein
 lint`'s **E18** fails on a file in neither and on a count that disagrees with them, so
 the number above stays a measurement. Named here: the engine's write path (`integrate`,
-`special`, `checks`, `chain`, `settle`), the store boundary (`kb`, `access`, `reindex`), the
-term layer (`nat`, `rewrite`, `inherit`, `gloss`, `spec`, plus `quasiquote`, the
+`special`, `checks`, `chain`, `settle`), the store boundary (`kb`, `reindex`, and
+`recovery`, which rebuilds the JTMS and the taxonomy from a store — the code behind
+`vaelii.core/recover`, sitting below `vaelii.core` so the dump importer reaches it too),
+`access`, the browser's local-or-remote read path, which re-exports the slice of
+`vaelii.core` reads the browser uses and answers each local through `vaelii.core` or remote
+through the daemon client (`vaelii.host.client`) — so the browser runs unchanged against
+either, and it sits above `vaelii.core` rather than at the store boundary its name suggests,
+the term layer (`nat`, `rewrite`, `inherit`, `gloss`, `spec`, plus `quasiquote`, the
 metalinguistic constructor a firing builds a mentioned sentence with,
 [argtypes.md](argtypes.md)), the two structural `genlCx` producers that read a context
 NAT's own arguments — `context-nat` and, for the calendar dimension, `datetime`
@@ -196,13 +213,14 @@ level dial, which installs no backend unless asked) — the LLM stack
 [commonsense.md](commonsense.md)):
 
 ```
-impl/access.clj  impl/chain.clj  impl/checks.clj  impl/config.clj  impl/context_nat.clj
-impl/datetime.clj  impl/gloss.clj  impl/inherit.clj  impl/integrate.clj  impl/kb.clj
-impl/logging.clj  impl/modal.clj  impl/nat.clj  impl/quasiquote.clj  impl/reindex.clj
+host/access.clj  impl/chain.clj  impl/checks.clj  impl/config.clj  impl/context_nat.clj
+impl/datetime.clj  host/gloss.clj  impl/inherit.clj  impl/integrate.clj  impl/kb.clj
+impl/logging.clj  impl/modal.clj  impl/nat.clj  impl/quasiquote.clj  impl/recovery.clj
+impl/reindex.clj
 impl/rewrite.clj  impl/roster.clj  impl/settle.clj  impl/spec.clj  impl/special.clj
 impl/vocabulary.clj
 impl/asp/solve_context.clj  impl/disk/belief_snapshot.clj
-impl/llm/{anthropic,correct,http,inventory,ollama,oracle,page,prompt,protocol,
+host/llm/{anthropic,correct,http,inventory,ollama,oracle,page,prompt,protocol,
           provider,score,selection,session,stub,text,tools,verdict}.clj
 ```
 
@@ -220,9 +238,10 @@ engine's own grammar *says*, and the layers that need that answer — `taxonomy`
 `checks`, `provers` — are all below the layer that holds the arms acting on it.
 `special/entries` joins the two and refuses a disagreement at namespace load.
 
-Exactly two calls run the other way, and two more are layering inversions rather than
-recursions. All four live in `impl/wiring.clj` rather than at the call site that needs
-them ([why they live here](defenses.md#the-layering-inversions-live-in-wiringclj-not-at-the-call-sites)).
+Three calls run the other way, and live in `impl/wiring.clj` rather than at the call site
+that needs them ([why they live here](defenses.md#the-two-recursion-calls-live-in-wiringclj-not-at-the-call-sites)).
+The first two are genuine mutual recursion — the cycle is in the *behaviour*, and no code
+motion removes it.
 
 - **`assert-sentence`** — the full assertion path, called from `impl/nat.clj` (a reified
   NAT stores its `(termOfUnit K E)` map and its materialized types) and from
@@ -234,20 +253,37 @@ them ([why they live here](defenses.md#the-layering-inversions-live-in-wiringclj
   the registry dispatches to, and `unknown` runs the registry back over its own argument,
   so negation-as-failure is mutually recursive with the chainer that asked for it
   ([naf.md](naf.md)).
-- **`import-dump`** — `impl/io/import.clj` sits **above** `vaelii.core` and requires it,
-  because reading a dump is asserting: it re-canonicalizes records, reindexes and recovers
-  through the public write path. `core/import!` is `export!`'s inverse, and both run
-  through that same path, so the delegation points up to reach it.
-- **`specified-violations`** / **`all-specified-violations`** — `impl/predall.clj` sits
-  **above** `vaelii.core` for the mirror-image reason: running a `predAllSpecified` audit
-  is asking. The audit asks one goal per member of the quantified collection, and
-  `read-in-context`, `ist-goal` and `prepare-goal-for-read` are private to `vaelii.core`,
-  so a goal answered below it would see neither the context's `genlCx` ancestor set nor
-  the preparation a public read runs. The reader asks through the public read path, and
-  the delegation points up to reach it ([predall.md](predall.md)).
+- **`retract-sentex`** — the teardown entry point, called from `impl/asp/solve_context.clj`
+  to retract a labeling artifact. This is **not** a behavioural cycle: the teardown
+  orchestration (`retract-storage!`, the settle, the orphan and meta sweeps) is core-private
+  and has not been extracted below `vaelii.core`, so a below-core caller reaches it up here
+  for now. Extracting that orchestration below core would let the call point downward like
+  the audits below, and is the only reason this entry exists.
+
+A namespace that merely sits *above* `vaelii.core` and consumes its public API is **not**
+written here — a call that can point downward is made to point downward, so the require
+graph stays acyclic without a `delay`. Two once did the opposite and no longer do:
+`impl/io/import.clj` recovers a freshly loaded dump through `impl/recovery.clj` (the code
+behind `vaelii.core/recover`, moved below `vaelii.core`), and `impl/predall.clj` runs the
+`predAllSpecified` audit through `impl/provers.clj` with each goal prepared by
+`quasiquote/prepare-goal-for-read`. `impl/fluent.clj` runs the `functional_at_instant` audit
+the same way: its fact reads go through `impl/provers.clj`, and the one rule read it needs —
+`holdsAt`, which the registry does not expand — runs the node engine `impl/inference.clj` at
+a bounded depth, the below-`vaelii.core` form of `vaelii.core/query`. All three sit below
+`vaelii.core`, which requires them, and `vaelii.core/import!` / `specified-violations` /
+`functional-at-instant-violations` are thin downward delegations.
+
+- **`subsumption-statuses`** / **`subsumption-status`** / **`disjointness-audit`** — the
+  genl-hierarchy audit family, all in `vaelii.core` with no delegation.
+  `subsumption-statuses` returns the full set of applicable relationships for one pair
+  (a singleton when consistent, multiple when contradictory, empty when unknown);
+  `subsumption-status` wraps it as a single keyword (`:inconsistent` for contradictions,
+  `:unknown` for empty); `disjointness-audit` sweeps every unordered pair of types.
 
 `lein lint`'s **E8** fails a literal `requiring-resolve` anywhere else under `src/`,
-excepting the keyword-dispatch registries it names.
+excepting the keyword-dispatch registries it names. **E19** pins this file's inventory to
+those two targets, so a third `requiring-resolve` fails the lint instead of being added
+beside them — a new inversion is relocated below `vaelii.core`, not collected here.
 
 Each entry is a `delay`, so the resolve and the `require` behind it are paid once, on
 first use. A delay rather than a dynamic var bound per call, because the var it caches has

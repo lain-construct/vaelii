@@ -30,8 +30,8 @@
   with no clingo/clasp present `(solver/available?)` is false and that test no-ops."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.asp.solver :as solver]
-            [vaelii.impl.core-context :as core-context]
             [vaelii.impl.datetime :as dt]
             [vaelii.impl.sentex :as sx]
             [vaelii.koinii.adjudication :as adj]

@@ -31,7 +31,7 @@
 (defn- fed-if-dog-or-cat
   "The rule the file is named for, as the author writes it."
   [dog cat fed]
-  (list 'implies (list 'or (list dog '?p) (list cat '?p)) (list fed '?p)))
+  (list 'set/forwardRule (list 'implies (list 'or (list dog '?p) (list cat '?p)) (list fed '?p))))
 
 (defn- problem-of
   "The refusal `assert` throws for `sentence`, as `[type message]` — or `:accepted`."
@@ -110,7 +110,7 @@
 (tu/deftest-kb an-individually-asserted-twin-dedups-to-the-expanded-rule
   (tu/with-terms [dog cat fed CxPets]
     (let [hs   (v/assert kb (fed-if-dog-or-cat dog cat fed) CxPets)
-          twin (v/assert kb (list 'implies (list dog '?d) (list fed '?d)) CxPets)]
+          twin (v/assert kb (list 'implies (list dog '?d) (list fed '?d)) CxPets {:direction :forward})]
       (testing "the twin is one of the handles the disjunctive rule already stored"
         (is (integer? twin))
         (is (contains? (set hs) twin)))
@@ -132,7 +132,7 @@
           backward (v/assert kb (list 'implies
                                       (list 'or (list cat '?q) (list dog '?q))
                                       (list fed '?q))
-                             CxPets)]
+                             CxPets {:direction :forward})]
       (testing "the reversed spelling is the same two rules"
         (is (= (set forward) (set backward))))
       (testing "and the facts reach the same beliefs asserted after the rule"
@@ -177,7 +177,7 @@
   (tu/with-terms [dog cat fed sick Muffet Tibbles Gerald CxPets]
     (let [metas (v/assert kb (list 'exceptWhen (list sick '?p)
                                    (list 'set/defaultRule
-                                         (fed-if-dog-or-cat dog cat fed)))
+                                         (list 'set/forwardRule (fed-if-dog-or-cat dog cat fed))))
                           CxPets)]
       (testing "one exception meta-sentex per alternative"
         (is (vector? metas))
@@ -275,7 +275,7 @@
                        (list 'and (list 'or (list dog '?p) (list cat '?p))
                              (list hungry '?p))
                        (list fed '?p))
-              CxPets)
+              CxPets {:direction :forward})
     (v/assert kb (list dog Muffet)     CxPets)
     (v/assert kb (list hungry Muffet)  CxPets)
     (v/assert kb (list cat Tibbles)    CxPets)
@@ -292,7 +292,7 @@
     (let [hs (v/assert kb (list 'implies
                                 (list 'or (list dog '?p) (list cat '?p))
                                 (list 'and (list fed '?p) (list happy '?p)))
-                       CxPets)]
+                       CxPets {:direction :forward})]
       (testing "two alternatives times two conjuncts is four rules"
         (is (= 4 (count (distinct hs)))))
       (v/assert kb (list dog Muffet) CxPets)
@@ -301,11 +301,11 @@
 
 (tu/deftest-kb an-or-with-one-disjunct-is-the-disjunct
   (tu/with-terms [dog fed Muffet CxPets]
-    (let [h (v/assert kb (list 'implies (list 'or (list dog '?p)) (list fed '?p)) CxPets)]
+    (let [h (v/assert kb (list 'implies (list 'or (list dog '?p)) (list fed '?p)) CxPets {:direction :forward})]
       (testing "one alternative is one rule, and the handle is not wrapped in a vector"
         (is (integer? h)))
       (testing "and it is the same rule the bare spelling stores"
-        (is (= h (v/assert kb (list 'implies (list dog '?p) (list fed '?p)) CxPets))))
+        (is (= h (v/assert kb (list 'implies (list dog '?p) (list fed '?p)) CxPets {:direction :forward}))))
       (v/assert kb (list dog Muffet) CxPets)
       (is (v/ask? kb (list fed Muffet) CxPets)))))
 

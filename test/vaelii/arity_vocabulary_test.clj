@@ -4,7 +4,7 @@
   "The relation-wide exact/variable arity partition and its documentary floor vocabulary."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.starter :as starter]
+            [vaelii.host.starter :as starter]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded starter/load-into))
@@ -243,12 +243,64 @@
   (testing "the ternary floor specializes the binary floor"
     (is (v/genl? kb 'at_least_ternary_relation 'at_least_binary_relation))))
 
-(tu/deftest-kb admits-argnum-is-vocabulary-only
+(tu/deftest-kb admits-argnum-answers-the-position-query
+  ;; #68: (admitsArgnum R n) is answered at query time from R's declared arity and
+  ;; variable-arity mark — not from a finite rule set — so the declared vocabulary now
+  ;; carries an answer.
   (is (v/isa? kb 'admitsArgnum 'binary_predicate))
   (is (v/ask? kb '(arg admitsArgnum 1 relation) 'CxCore))
   (is (v/ask? kb '(arg admitsArgnum 2 positive_integer) 'CxCore))
-  (is (not (v/ask? kb '(admitsArgnum lessThan 212) 'CxCore))
-      "no parallel finite rule set answers the documentary position query"))
+  (testing "a fixed-arity relation admits one through its arity and no higher position"
+    (tu/with-terms [ternaryRel]
+      (v/assert kb (list 'ternary_predicate ternaryRel) 'CxCore)
+      (doseq [n [1 2 3]]
+        (is (v/ask? kb (list 'admitsArgnum ternaryRel n) 'CxCore)
+            (str "position " n " is admitted")))
+      (is (not (v/ask? kb (list 'admitsArgnum ternaryRel 4) 'CxCore))
+          "the first position above the arity is not admitted")))
+  (testing "a variable-arity relation admits its guaranteed positions and every higher one"
+    (doseq [n [1 2 3 212]]                                ; lessThan is variable_arity, arityMin 2
+      (is (v/ask? kb (list 'admitsArgnum 'lessThan n) 'CxCore)
+          (str "variable-arity position " n " is admitted"))))
+  (testing "zero and negative positions never admit"
+    (is (not (v/ask? kb '(admitsArgnum lessThan 0) 'CxCore)))
+    (is (not (v/ask? kb '(admitsArgnum lessThan -1) 'CxCore))))
+  (testing "an unclassified relation's positions stay unknown, not admitted"
+    (tu/with-terms [unknownRel]
+      (v/assert kb (list 'predicate unknownRel) 'CxCore)
+      (is (not (v/ask? kb (list 'admitsArgnum unknownRel 1) 'CxCore))
+          "open-world: no declared arity and no variable mark means no proven position"))))
+
+(tu/deftest-kb admits-argnum-and-the-position-census-answer-one-question
+  ;; #68 single source: admitsArgnum and checks/arg-position-problem read one decision,
+  ;; provers/admits-position?, so a position the constraint census refuses on a relation is
+  ;; exactly one admitsArgnum does not prove, and one it allows is one admitsArgnum proves.
+  (tu/with-terms [censusRel]
+    (v/assert kb (list 'ternary_predicate censusRel) 'CxCore)
+    (testing "a position within the arity: the census admits the constraint, the query proves it"
+      (is (v/assert kb (list 'arg censusRel 3 'thing) 'CxCore))
+      (is (v/ask? kb (list 'admitsArgnum censusRel 3) 'CxCore)))
+    (testing "a position past the arity: the census refuses the constraint, the query denies it"
+      (let [e (try (v/assert kb (list 'arg censusRel 4 'thing) 'CxCore) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :arg-position (:type (ex-data e)))
+            "the constraint census refuses argument 4 of a ternary relation")
+        (is (not (v/ask? kb (list 'admitsArgnum censusRel 4) 'CxCore))
+            "and admitsArgnum does not prove the position it refused")))))
+
+(tu/deftest-kb admits-argnum-parity-for-functions
+  ;; a variable-arity function admits every positive position, like the predicate case; a
+  ;; fixed-arity function alone invents no numeric arity, so its positions stay unknown.
+  (tu/with-terms [ChainFn PlainFn]
+    (v/assert kb (list 'variable_arity_function ChainFn) 'CxCore)
+    (v/assert kb (list 'arityMin ChainFn 2) 'CxCore)
+    (testing "a variable-arity function admits every positive position"
+      (doseq [n [1 2 3 9]]
+        (is (v/ask? kb (list 'admitsArgnum ChainFn n) 'CxCore))))
+    (v/assert kb (list 'fixed_arity_function PlainFn) 'CxCore)
+    (testing "a fixed-arity function invents no numeric arity — its positions stay unknown"
+      (is (not (v/ask? kb (list 'admitsArgnum PlainFn 1) 'CxCore))
+          "the numeric arity table is predicate-specific, so a function has no proven position"))))
 
 (tu/deftest-kb every-relation-has-exactly-one-arity-policy
   (let [relations  (->> (v/query kb '(relation ?relation) 'CxInference)
@@ -642,3 +694,53 @@
     (doseq [position (range 1 6)]
       (is (seq (v/sentexes-matching kb (list 'arg 'interArg position '?t) 'CxCore))
           (str "interArg position " position " is declared")))))
+
+;; ---- arityMin as an enforced floor, not documentary vocabulary -----------
+
+(tu/deftest-kb variable-arity-application-is-floored-at-arity-min
+  ;; #68: a variable-arity relation reads a chain of any length at or above the minimum
+  ;; arityMin states.  An application shorter than the minimum is refused through the same
+  ;; :arity path a fixed-arity relation's wrong length takes; one at or above it is admitted.
+  (tu/with-terms [chainRel a b c]
+    (v/assert kb (list 'variable_arity_predicate chainRel) 'CxCore)
+    (v/assert kb (list 'arityMin chainRel 2) 'CxCore)
+    (testing "an application shorter than the minimum is refused"
+      ;; the refusal moves :message to the exception and keeps the rest in ex-data
+      ;; (checks/throw-first-definitional-violation)
+      (let [e (try (v/assert kb (list chainRel a) 'CxCore) nil
+                   (catch clojure.lang.ExceptionInfo e e))
+            d (ex-data e)]
+        (is (= :arity (:type d)))
+        (is (:minimum? d) "the refusal marks itself a minimum-arity violation")
+        (is (= 2 (:expected d)))
+        (is (= 1 (:actual d)))
+        (is (re-find #"at least 2 arguments but has 1" (ex-message e)))
+        (is (integer? (:opposing-handle d))
+            "and names the arityMin declaration it convicts against")))
+    (testing "an application at the minimum is admitted"
+      (is (v/assert kb (list chainRel a b) 'CxCore)))
+    (testing "a longer application is admitted"
+      (is (v/assert kb (list chainRel a b c) 'CxCore)))))
+
+(tu/deftest-kb a-variable-arity-relation-with-no-minimum-keeps-its-exemption
+  ;; The floor is the minimum's alone: a variable-arity relation the KB gives no arityMin
+  ;; reads a chain of any length, including one argument, as it did before the minimum was
+  ;; read.
+  (tu/with-terms [freeRel a]
+    (v/assert kb (list 'variable_arity_predicate freeRel) 'CxCore)
+    (is (v/assert kb (list freeRel a) 'CxCore)
+        "a one-argument application of an unfloored variable-arity relation is admitted")))
+
+(tu/deftest-kb a-late-minimum-does-not-yet-refile-the-facts-stored-before-it
+  ;; The retroactive half is owed, recorded on arityMin's :stops-short: the assert-time
+  ;; floor refuses a too-short application arriving after the minimum, but a fact stored
+  ;; before the minimum is not re-filed.  arity's exact length reaches back through
+  ;; settle/report-arity-reach!; the minimum does not yet, and this pins the current
+  ;; behaviour so the follow-up that closes it turns a red assertion rather than adds one.
+  (tu/with-terms [lateRel a]
+    (v/assert kb (list 'variable_arity_predicate lateRel) 'CxCore)
+    (let [h (v/assert kb (list lateRel a) 'CxCore)]      ; one argument, no minimum yet
+      (is h "the short application stores while nothing floors it")
+      (v/assert kb (list 'arityMin lateRel 2) 'CxCore)
+      (is (v/ask? kb (list lateRel a) 'CxCore)
+          "the late minimum does not retroactively withdraw the fact stored before it"))))

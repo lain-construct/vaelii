@@ -27,11 +27,15 @@
   *clasp-binary* "clasp")
 
 (def ^:private mode-args
-  "argv tails for each supported solve mode. All modes use --opt-mode=optN
-   so that brave/cautious enumerations run over optimal models only — atoms
-   present in models that pay extra contradiction cost never contaminate
-   the supportable/true classification."
-  {:label                ["--opt-mode=optN" "-n" "1"]
+  "argv tails for each supported solve mode. The enumerating modes use --opt-mode=optN
+   so that brave/cautious enumerations run over optimal models only — atoms present in
+   models that pay extra contradiction cost never contaminate the supportable/true
+   classification. `:label` uses --opt-mode=opt with -n 0 instead: it wants ONE labeling,
+   but must stream every improving witness as the bound descends, so a run cut off by the
+   time limit still leaves its best witness in the JSON (read back as `:best-effort`)
+   rather than the nothing optN yields before it proves the optimum.  `-n 1` would stop at
+   the first, un-optimized witness."
+  {:label                ["--opt-mode=opt"  "-n" "0"]
    :all-optima           ["--opt-mode=optN" "-n" "0"]
    :classify-true        ["--opt-mode=optN" "-e" "cautious" "-n" "0"]
    :classify-supportable ["--opt-mode=optN" "-e" "brave"    "-n" "0"]})
@@ -134,14 +138,17 @@
      :classify-supportable — atoms in at least one minimum-cost witness
 
    Returns:
-     :status    — :optimum | :sat | :unsat | :interrupted | :unknown
+     :status    — :optimum | :sat | :best-effort | :unsat | :interrupted | :unknown
      :atoms     — vector of atom-name strings
      :cost      — optimum cost (nil if no minimize statement or unsat)
      :witnesses — vector of value vectors (only populated for :all-optima)
      :raw       — full parsed JSON (for diagnostics)
 
-   `:interrupted` is the time limit (`config/asp-time-limit`) or a signal: whatever
-   atoms ride beside it are a model found on the way, not the answer."
+   `:interrupted` is the time limit (`config/asp-time-limit`) or a signal with NO witness
+   to show for it.  A `:label` run cut off *after* it had a witness is `:best-effort`
+   instead — that model is a valid labeling, its optimality merely unproven — which the
+   imperative `:one` caller takes over nothing (`asp.edge/kept-of`); the enumerating modes
+   need a finished search, so they stay `:interrupted`."
   [aspif-text mode]
   (let [argv (or (mode-args mode)
                  (throw (ex-info (str "unknown clasp mode: " (pr-str mode) " — want one of "
@@ -151,10 +158,14 @@
         status (status-of parsed)]
     (case mode
       :label
-      {:status status
-       :atoms  (value-of (first (optimal-witnesses parsed)))
-       :cost   (optimum-cost parsed)
-       :raw    parsed}
+      (let [best (first (optimal-witnesses parsed))]
+        ;; interrupted mid-optimization but a witness is in hand: that model is a valid
+        ;; labeling (lowest cost seen, optimality unproven), so hand it back `:best-effort`
+        ;; rather than discard it — mirrors the in-process clingo backend.
+        {:status (if (and (= :interrupted status) best) :best-effort status)
+         :atoms  (value-of best)
+         :cost   (optimum-cost parsed)
+         :raw    parsed})
 
       :all-optima
       {:status    status

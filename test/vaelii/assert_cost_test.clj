@@ -233,7 +233,7 @@
   []
   (let [kb (fresh)]
     (v/assert kb (rules/rule-sentence ['(acSrc ?x ?y)] '(acDst ?x ?y))
-              'CxPerf {:strength :monotonic})
+              'CxPerf {:direction :forward :strength :monotonic})
     (fn [] (dotimes [i n]
              (v/assert kb (list 'acSrc (ind "AcR" i) (ind "AcS" i)) 'CxPerf {})))))
 
@@ -338,7 +338,7 @@
   []
   (let [kb (fresh)]
     (v/assert kb (rules/rule-sentence ['(acSrc ?x ?y)] '(acDst ?x ?y))
-              'CxPerf {:strength :monotonic})
+              'CxPerf {:direction :forward :strength :monotonic})
     (let [hs (mapv (fn [i] (v/assert kb (list 'acSrc (ind "AcR" i) (ind "AcS" i))
                                      'CxPerf {}))
                    (range n))]
@@ -454,7 +454,7 @@
     :build   plain
     :sentexes 100
     :reads   {:argument-root 500 :argument-slot 500 :exception-index 100
-              :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1200 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 202 :slots 200}}
 
    ;; **One membership read per assert above `plain`, and it is the arity descension's.**
@@ -471,7 +471,7 @@
     :build   membership
     :sentexes 100
     :reads   {:argument-root 700 :argument-slot 700 :exception-index 100
-              :functor-root 1100 :rule-index 200 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1200 :rule-index 200 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
 
    ;; **The same reading at depth 8, and the pair is the point.**  Whatever this costs
@@ -487,14 +487,25 @@
     :build   deep-membership
     :sentexes 100
     :reads   {:argument-root 1500 :argument-slot 1500 :exception-index 100
-              :functor-root 1100 :rule-index 1000 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1200 :rule-index 1000 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
 
+   ;; **The workload the entailment moves most.**  Every predicate is declared, so the
+   ;; shipped default reads each declaration and tests the argument against the type it
+   ;; names — the `:argument-root`/`:argument-slot` jump over `plain` — where the
+   ;; constraint-only reading (`VAELII_ASSERTIVE_ARG_TYPES=0`) reads one dynamic var and
+   ;; stops.  This is the per-assert declaration cost `lein perf` divides out and this gate
+   ;; makes visible; it is the whole reason the entailment stays measured, not pinned off.
+   ;; The arguments already hold the type, so each mint dedups to a stored handle and adds
+   ;; the declaration's justification without re-querying the minted type's own declarations:
+   ;; `special/entail-arg-type` recurs the entailment cascade only on a transition to
+   ;; believed, and an already-believed dedup target is not one. That skip is the −2 in each
+   ;; of `:argument-root`, `:argument-slot` and `:functor-root` against the pre-skip budget.
    {:name    :declared
     :build   declared
     :sentexes 100
-    :reads   {:argument-root 600 :argument-slot 400 :exception-index 100
-              :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+    :reads   {:argument-root 2600 :argument-slot 2400 :exception-index 100
+              :functor-root 1900 :rule-index 100 :trie-counts 100 :trie-lookup 300}
     :writes  {:levels 500 :terms 300 :roots 400 :roster 0 :slots 200}}
 
    ;; **No `:rule-index` family at all, and only a negative workload reads that way.**  An
@@ -524,14 +535,14 @@
     :build   functional-in-arg-arity-2
     :sentexes 100
     :reads   {:argument-root 1200 :argument-slot 1200 :exception-index 100
-              :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1200 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 200 :slots 200}}
 
    {:name    :compound
     :build   compound
     :sentexes 100
     :reads   {:argument-root 500 :argument-slot 500 :exception-index 100
-              :functor-root 1100 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1200 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 800 :terms 600 :roots 400 :roster 104 :slots 200}}
 
    ;; 200 indexed sentexes for 100 asserts — the rule concludes one apiece
@@ -551,7 +562,7 @@
     :build   rule-fired
     :sentexes 200
     :reads   {:argument-root 1000 :argument-slot 1000 :exception-index 300
-              :functor-root 1700 :rule-index 200 :trie-counts 200 :trie-lookup 200}
+              :functor-root 1900 :rule-index 200 :trie-counts 200 :trie-lookup 200}
     :writes  {:levels 1000 :terms 800 :roots 800 :roster 200 :slots 400}}
 
    ;; **The vocabulary write, and the first budget here that is not about a fact.**  What it
@@ -572,7 +583,7 @@
     :build   taxonomy-edge
     :sentexes 100
     :reads   {:argument-root 700 :argument-slot 700 :exception-index 300
-              :functor-root 1200 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1600 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 101 :slots 101}}
 
    ;; **One retrieval per relative the arity table does not name**, which is what the entry point
@@ -591,7 +602,7 @@
     :build   arity-declaration
     :sentexes 100
     :reads   {:argument-root 1000 :argument-slot 1000 :exception-index 100
-              :functor-root 900 :rule-index 100 :trie-counts 100 :trie-lookup 100}
+              :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 300 :roots 300 :roster 1 :slots 100}}])
 
 ;; The retraction half.  `:unindexed` is the retraction budgets' `:sentexes` — how many
@@ -733,17 +744,18 @@
   down under one retrieval path and priced under another would be a workload nobody runs."
   [build]
   (with-shipped-retrieval
-    (let [thunk (build)
-          _     (prof/start)
-          _     (thunk)
-          snap  (prof/stop)
-          wrows (vals (:writes snap))
-          rrows (vals (:retracts snap))]
-      {:reads     (into {} (:reads snap))
-       :writes    (by-family wrows :asserts)
-       :retracts  (by-family rrows :retracts)
-       :sentexes  (reduce + 0 (map :asserts wrows))
-       :unindexed (reduce + 0 (map :retracts rrows))})))
+    (tu/with-entailing                              ; the shipped default; budgets below are on-path
+      (let [thunk (build)
+            _     (prof/start)
+            _     (thunk)
+            snap  (prof/stop)
+            wrows (vals (:writes snap))
+            rrows (vals (:retracts snap))]
+        {:reads     (into {} (:reads snap))
+         :writes    (by-family wrows :asserts)
+         :retracts  (by-family rrows :retracts)
+         :sentexes  (reduce + 0 (map :asserts wrows))
+         :unindexed (reduce + 0 (map :retracts rrows))}))))
 
 (defn- delta-report
   "The families whose count moved, as a table.  Every family either side names is listed,
@@ -817,7 +829,7 @@
   (with-shipped-retrieval
     (let [kb (fresh)]
       (v/assert kb (rules/rule-sentence ['(vSrc ?x ?y)] '(vDst ?x ?y))
-                'CxPerf {:strength :monotonic})
+                'CxPerf {:direction :forward :strength :monotonic})
       (dotimes [i n]
         (v/assert kb (list 'vSrc (ind "Va" i) (ind "Vb" i)) 'CxPerf {:chain? false}))
       (prof/start)

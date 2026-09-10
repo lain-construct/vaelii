@@ -6,15 +6,15 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.access :as acc]
-            [vaelii.impl.catalog :as cat]
-            [vaelii.impl.guard :as guard]
-            [vaelii.impl.jobs :as jobs]
+            [vaelii.host.access :as acc]
+            [vaelii.host.catalog :as cat]
+            [vaelii.host.guard :as guard]
+            [vaelii.host.jobs :as jobs]
+            [vaelii.host.sandbox :as sandbox]
+            [vaelii.host.serve :as serve]
+            [vaelii.host.svg :as svg]
+            [vaelii.host.web :as web]
             [vaelii.impl.jtms :as jtms]
-            [vaelii.impl.sandbox :as sandbox]
-            [vaelii.impl.serve :as serve]
-            [vaelii.impl.svg :as svg]
-            [vaelii.impl.web :as web]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
@@ -282,7 +282,7 @@
       ;; is a comma, a period or a non-breaking space depending on which one that is.
       ;; The expectation is built with the same `format` call rather than by pinning
       ;; `Locale/US`, which would be a JVM-global write for the length of a render.
-      (let [cap  (ns-resolve 'vaelii.impl.web 'lattice-cap)
+      (let [cap  (ns-resolve 'vaelii.host.web 'lattice-cap)
             shown (format "%,d" (long n))
             body (with-redefs-fn {cap 0}               ; no lattice to draw, at any size
                    #(:body (GET "/")))
@@ -326,7 +326,7 @@
       (v/assert kb (list wobbles x) CxDilemma)
       (v/assert kb (list 'not (list wobbles x)) CxDilemma))
     (is (<= 2 (count (v/contradictions kb))) "the KB holds more dilemmas than the cap below")
-    (let [cap  (ns-resolve 'vaelii.impl.web 'ledger-cap)
+    (let [cap  (ns-resolve 'vaelii.host.web 'ledger-cap)
           body (with-redefs-fn {cap 1} #(:body (GET "/stats")))
           seg  (segment body "<h3>Contradictions" 2000)]   ; the section, not the stat card
       (is (= 1 (count (re-seq #"⇄" seg))) "one row, not the whole disagreement")
@@ -381,9 +381,13 @@
       (is (re-find #"complete for the goal" (:body r))))))
 
 (deftest a-complete-prover-shadows-the-rest-and-the-page-says-so
-  ;; `genl` is answered from the closure, which is complete for it — so every other
-  ;; applicable prover is shadowed, and "applicable" stops meaning "consulted"
-  (let [body (:body (GET "/levels" "q=%28genl%20dog%20thing%29&ctx=CxOrganism"))]
+  ;; `genlCx` is answered from the closure, which is complete for it — so every other
+  ;; applicable prover is shadowed, and "applicable" stops meaning "consulted".
+  ;; Previously this queried `(genl dog thing)`, but the `intersection` defining rules
+  ;; now conclude `genl` via backward rules, opening a `:rules` shadowing channel that
+  ;; correctly prevents the closure from claiming sole completeness.  `genlCx` has no
+  ;; such rules and tests the same prover/page path.
+  (let [body (:body (GET "/levels" "q=%28genlCx%20CxOrganism%20CxCore%29&ctx=CxOrganism"))]
     (is (re-find #"TransitivityProver" body))
     (is (re-find #"shadowed by" body))
     (is (re-find #"the sole complete method" body))))
@@ -488,13 +492,32 @@
   (testing "a pattern that matches nothing says so"
     (is (re-find #"No terms match" (:body (GET "/find" "q=zzzznope"))))))
 
+(deftest find-is-case-insensitive-for-a-literal-query
+  ;; #76: term-hits pinned :case-sensitive? true, so a lowercase query matched no
+  ;; camelCase term even though find-terms defaults to case-insensitive.  A literal
+  ;; query now matches a term of any case; a regex query still honours case in its
+  ;; pattern unless it carries (?i).
+  (testing "a lowercase query finds a camelCase term"
+    (let [r (GET "/find" "q=parentof")]                    ; the terms are parentOf / grandparentOf
+      (is (= 200 (:status r)))
+      (is (re-find #"parentOf" (:body r)))
+      (is (re-find #"grandparentOf" (:body r)))))          ; both contain "parentof"
+  (testing "an uppercase query finds it too"
+    (is (re-find #"parentOf" (:body (GET "/find" "q=PARENTOF")))))
+  (testing "a regex query stays case-sensitive unless it carries (?i)"
+    (is (not (re-find #"parentOf" (:body (GET "/find" "q=PARENT.F"))))
+        "an uppercase regex does not match the lowercase spelling")
+    (is (re-find #"parentOf"
+                 (:body (GET "/find" (str "q=" (java.net.URLEncoder/encode "(?i)parent.f" "UTF-8")))))
+        "(?i) restores insensitivity for a regex")))
+
 (deftest a-pattern-that-blows-the-matcher-stack-reads-as-unusable
   ;; A catastrophic pattern can raise StackOverflowError out of the regex engine —
   ;; past Exception — and this handler stack has no exception middleware, so an
   ;; uncaught one is a bare 500 on a route the browser hits per keystroke.  The
   ;; matcher's failure, whatever its class, is `term-hits`' ordinary ::bad answer.
   (with-redefs [acc/find-terms (fn [& _] (throw (StackOverflowError.)))]
-    (is (= :vaelii.impl.web/bad (#'web/term-hits tu/*kb* "a{2}" 10))
+    (is (= :vaelii.host.web/bad (#'web/term-hits tu/*kb* "a{2}" 10))
         "the sentinel, not a throw")
     (let [r (GET "/find" "q=a%7B2%7D")]
       (is (= 200 (:status r)))
@@ -744,13 +767,13 @@
   "Every read op the browser can reach, taken from the daemon's own allowlist rather than
   listed here — so an op added to the surface is counted by this the day it exists.  These
   are exactly the calls that are an HTTP round-trip under `--attach`."
-  (into [] (filter #(ns-resolve 'vaelii.impl.access %)) (map symbol (keys @(resolve 'vaelii.impl.serve/ops)))))
+  (into [] (filter #(ns-resolve 'vaelii.host.access %)) (map symbol (keys @(resolve 'vaelii.host.serve/ops)))))
 
 (defn- read-counts
   "Run `f` with every facade read counted, and answer `{op n}`."
   [f]
   (let [counts (atom {})
-        vars   (mapv (fn [op] [op (ns-resolve 'vaelii.impl.access op)]) facade-read-ops)
+        vars   (mapv (fn [op] [op (ns-resolve 'vaelii.host.access op)]) facade-read-ops)
         orig   (into {} (map (fn [[_ vr]] [vr @vr])) vars)]
     (try
       (doseq [[op vr] vars]
@@ -778,7 +801,7 @@
       (v/assert kb (list 'genl t 'thing) 'CxUniverse {:chain? false})
       (v/assert-many kb (for [i (range n)] (list 'genl (symbol (str (name t) "_kid" i)) t))
                      'CxUniverse {:chain? false}))
-    (let [gvar  (ns-resolve 'vaelii.impl.web 'term-graph)
+    (let [gvar  (ns-resolve 'vaelii.host.web 'term-graph)
           drawn (fn [t] (read-counts #(GET "/term" (str "q=" t))))
           plain (fn [t] (with-redefs-fn {gvar (fn [& _] nil)}
                           #(read-counts (fn [] (GET "/term" (str "q=" t))))))
@@ -836,7 +859,7 @@
           (is (str/includes? body "earliest mentions")))))))
 
 (tu/deftest-kb the-graph-renders-the-same-through-the-access-facade
-  ;; the browser is written against `vaelii.impl.access`, not `vaelii.core`; driving it
+  ;; the browser is written against `vaelii.host.access`, not `vaelii.core`; driving it
   ;; through an access value rather than a raw KB is the in-process half of that claim
   (tu/with-terms [nearBy TmpP TmpQ CxFacade]
     (v/assert kb (list nearBy TmpP TmpQ) CxFacade {:chain? false})
@@ -1390,7 +1413,7 @@
     (is (re-find #"<body[^>]*hx-swap=\"outerHTML show:window:top\"" body)
         "the boosted swap says where to land: the top of the document")
     (testing "a continuation replaces itself in place and moves the page not at all"
-      (let [cap (ns-resolve 'vaelii.impl.web 'group-cap)
+      (let [cap (ns-resolve 'vaelii.host.web 'group-cap)
             row (-> (with-redefs-fn {cap 1} #(:body (GET "/term" "q=dog")))
                     (->> (re-find #"<li class=\"more\"[^>]*>")))]
         (is row "a capped index group ends in a sentinel")
@@ -1796,15 +1819,15 @@
     (v/assert kb (list 'genlCx CxFly 'CxWell) 'CxUniverse {:strength :monotonic})
     ;; bird => flies, then a bird fact: the justification for (flies Opus) is placed here,
     ;; before the exception exists
-    (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) CxFly)
+    (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x)))) CxFly)
     (v/assert kb (list bird Opus) CxFly)
     ;; bat => flies, and a bat fact: a second, un-excepted support that keeps (flies Opus) IN
-    (v/assert kb (list 'set/defaultRule (list 'implies (list bat '?x) (list flies '?x))) CxFly)
+    (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bat '?x) (list flies '?x)))) CxFly)
     (v/assert kb (list bat Opus) CxFly)
     ;; except the bird rule for penguins, and make Opus one: this blocks the *already-placed*
     ;; bird justification while the bat one keeps the conclusion believed
     (v/assert kb (list 'exceptWhen (list penguin '?x)
-                       (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))))
+                       (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x)))))
               CxFly)
     (v/assert kb (list penguin Opus) CxFly)
     (let [h   (v/handle-of kb (list flies Opus) CxFly)
@@ -1840,12 +1863,12 @@
         bird (tu/tmp-type) penguin (tu/tmp-type) bat (tu/tmp-type)
         flies (tu/tmp-pred) Opus (tu/tmp-ind)]
     (v/assert kb (list 'genlCx CxFly 'CxWell) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))) CxFly)
+    (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x)))) CxFly)
     (v/assert kb (list bird Opus) CxFly)
-    (v/assert kb (list 'set/defaultRule (list 'implies (list bat '?x) (list flies '?x))) CxFly)
+    (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bat '?x) (list flies '?x)))) CxFly)
     (v/assert kb (list bat Opus) CxFly)
     (v/assert kb (list 'exceptWhen (list penguin '?x)
-                       (list 'set/defaultRule (list 'implies (list bird '?x) (list flies '?x))))
+                       (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x)))))
               CxFly)
     (v/assert kb (list penguin Opus) CxFly)
     (let [h      (v/handle-of kb (list flies Opus) CxFly)
@@ -1957,7 +1980,7 @@
 
 (tu/deftest-kb the-retract-preview-names-the-consequences-and-writes-nothing
   (tu/with-terms [aP cP X CxRetract]
-    (v/assert-rule kb [(list aP '?x)] (list cP '?x) CxRetract)
+    (v/assert-rule kb [(list aP '?x)] (list cP '?x) CxRetract {:direction :forward})
     (let [fa (v/assert kb (list aP X) CxRetract)
           ch (v/handle-of kb (list cP X) CxRetract)
           r  (GET "/retract" (str "handles=" fa))]
@@ -1975,7 +1998,7 @@
 
 (tu/deftest-kb retracting-the-selection-takes-its-consequences-with-it
   (tu/with-terms [aP cP X CxRetract]
-    (v/assert-rule kb [(list aP '?x)] (list cP '?x) CxRetract)
+    (v/assert-rule kb [(list aP '?x)] (list cP '?x) CxRetract {:direction :forward})
     (let [fa (v/assert kb (list aP X) CxRetract)
           ch (v/handle-of kb (list cP X) CxRetract)
           r  (POST "/retract" {"handles" (str fa)}

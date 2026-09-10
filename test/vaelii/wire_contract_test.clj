@@ -12,9 +12,9 @@
   only refusal reachable at all)."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [is testing use-fixtures]]
-            [vaelii.impl.guard :as guard]
-            [vaelii.impl.serve :as serve]
-            [vaelii.impl.subscribe :as sub]
+            [vaelii.host.guard :as guard]
+            [vaelii.host.serve :as serve]
+            [vaelii.host.subscribe :as sub]
             [vaelii.test-util :as tu])
   (:import [java.io ByteArrayInputStream]))
 

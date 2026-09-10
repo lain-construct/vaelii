@@ -138,12 +138,17 @@ skolemized to a deterministic NAT constant when the rule fires.
 
 | you want | write |
 |---|---|
-| forward only | `{:direction :forward}` or `set/forwardRule` |
-| backward only | `{:direction :backward}` or `set/backwardRule` |
-| both — the default | `{:direction :both}` |
+| backward only — the default | bare `(implies …)`, `{:direction :backward}`, or `set/backwardRule` |
+| forward + backward (materialize *and* prove) | `{:direction :forward}` / `{:direction :both}` or `set/forwardRule` |
+| forward only, never backward (tests only) | `{:direction :forward-only}` or `set/forwardOnlyRule` |
 | neither, but stored and believed | `{:direction :inert}` or `set/inertRule` |
 | a defeasible rule | `set/defaultRule` |
 | a stated exception | `exceptWhen` → [exceptions.md](exceptions.md) |
+
+A rule is backward by default because forward chaining materializes a conclusion per
+match; `set/forwardRule` **adds** forward chaining and keeps the backward use, so an
+ontology rule reaches for it rather than for `set/forwardOnlyRule` (which drops the
+backward use and is meant only for tests that isolate forward chaining).
 
 A conjunctive consequent splits into one rule per conjunct, and a disjunctive antecedent
 into one rule per alternative — so the `;` you would have written in a body is legal

@@ -62,7 +62,7 @@
   something to match, something to subsume through, and something to fire."
   [kb]
   (v/assert kb '(genl dog animal) 'CxOverlay {:strength :monotonic})
-  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'CxOverlay)
+  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'CxOverlay {:direction :forward})
   (v/assert kb '(dog Muffet) 'CxOverlay {:strength :monotonic})
   (v/assert kb '(ownerOf Ann Muffet) 'CxOverlay {:strength :monotonic})
   kb)
@@ -172,7 +172,7 @@
                (v/clear!))]
     (v/assert base '(transitiveInArg tmpLargerThan 1 genl) 'CxUniverse)
     (v/assert base '(tmpLargerThan tmp_dog tmp_cat) 'CxUniverse)
-    (v/assert base '(implies (tmpLargerThan ?x ?y) (tmpOutweighs ?x ?y)) 'CxUniverse)
+    (v/assert base '(implies (tmpLargerThan ?x ?y) (tmpOutweighs ?x ?y)) 'CxUniverse {:direction :forward})
     (let [before (base-snapshot base)
           f      (v/fork base)]
       (v/assert f '(genl tmp_chi tmp_dog) 'CxUniverse)
@@ -502,7 +502,7 @@
         f    (v/fork base (fork-opts 9))]
     (tu/with-terms [dog Muffet CxThis]
       (v/assert f (list 'genl dog 'thing) CxThis {:strength :monotonic})
-      (v/assert-rule f [(list dog '?x)] (list 'mammal '?x) CxThis)
+      (v/assert-rule f [(list dog '?x)] (list 'mammal '?x) CxThis {:direction :forward})
       (v/assert f (list dog Muffet) CxThis {:strength :monotonic})
       (is (= 1 (count (v/sentexes-matching f (list dog '?x) CxThis))))
       (is (seq (v/sentexes-matching f (list 'mammal '?x) CxThis)))

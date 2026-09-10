@@ -20,7 +20,7 @@
   arguments is unaffected."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.plan :as plan]
             [vaelii.impl.protocols :as p]

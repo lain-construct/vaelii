@@ -1,9 +1,9 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-selection-test
-  "The selection-scoped editing path: `vaelii.impl.llm.selection`,
-  `vaelii.impl.llm.ollama`, `vaelii.impl.llm.provider`, and
-  `vaelii.impl.llm.session/propose-edit`.
+  "The selection-scoped editing path: `vaelii.host.llm.selection`,
+  `vaelii.host.llm.ollama`, `vaelii.host.llm.provider`, and
+  `vaelii.host.llm.session/propose-edit`.
 
   Two tiers.  Everything above the live section runs **offline against the stub** — no
   host, no model, no socket — because what is under test is the pipeline: the line
@@ -20,13 +20,13 @@
             [clojure.test :refer [is testing use-fixtures]]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.llm.ollama :as ollama]
-            [vaelii.impl.llm.protocol :as proto]
-            [vaelii.impl.llm.provider :as provider]
-            [vaelii.impl.llm.selection :as sel]
-            [vaelii.impl.llm.session :as session]
-            [vaelii.impl.llm.stub :as stub]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.llm.ollama :as ollama]
+            [vaelii.host.llm.protocol :as proto]
+            [vaelii.host.llm.provider :as provider]
+            [vaelii.host.llm.selection :as sel]
+            [vaelii.host.llm.session :as session]
+            [vaelii.host.llm.stub :as stub]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
@@ -400,7 +400,7 @@
                                           (fn [_ _] (fn [_] (throw (Exception. "half-present"))))]
                               (is (satisfies? proto/Provider (build))
                                   (str what " still degrades to a Provider")))))]
-          (is (= [[:warn :vaelii.impl.llm.provider/provider-build-failed {:kind :ollama}]]
+          (is (= [[:warn :vaelii.host.llm.provider/provider-build-failed {:kind :ollama}]]
                  lines)
               (str what " logged the build failure once, naming the backend")))))
     (testing "a backend this build simply does not carry is an absence, not a fault,

@@ -18,8 +18,8 @@
   backends and owe the matrix nothing."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
-            [vaelii.impl.client :as client]
-            [vaelii.impl.serve :as serve]
+            [vaelii.host.client :as client]
+            [vaelii.host.serve :as serve]
             [vaelii.regen-client :as regen])
   (:import [java.net URI]
            [java.net.http HttpRequest]))
@@ -37,7 +37,7 @@
   - `max-wait-ms`, the daemon's own cap mirrored so the client can extend its read
     timeout without requiring the engine;
   - the two deprecated spellings, which name ops that already have a wrapper."
-  '{vaelii.impl.client #{client call health watch poll unwatch watchers max-wait-ms
+  '{vaelii.host.client #{client call health watch poll unwatch watchers max-wait-ms
                          assert! assert-rule!}
     vaelii.client      #{client call health watch poll unwatch watchers}})
 
@@ -55,7 +55,7 @@
   (set (regen/signatures op)))
 
 (deftest every-op-has-a-wrapper-spelled-as-core-spells-the-fn
-  (doseq [ns-sym '[vaelii.impl.client vaelii.client]]
+  (doseq [ns-sym '[vaelii.host.client vaelii.client]]
     (let [ws (wrappers ns-sym)]
       (doseq [op (sort (keys serve/ops))]
         (let [nm (regen/wrapper-name op)]
@@ -71,7 +71,7 @@
   ;; The other direction, and the one that catches a rename: a wrapper whose op was
   ;; spelled away is a call that reaches the daemon and comes back `:unknown-op`.
   (let [by-name (into {} (map (juxt regen/wrapper-name identity)) (keys serve/ops))]
-    (doseq [ns-sym '[vaelii.impl.client vaelii.client]]
+    (doseq [ns-sym '[vaelii.host.client vaelii.client]]
       (doseq [nm (sort (keys (wrappers ns-sym)))]
         (is (contains? by-name nm)
             (str ns-sym "/" nm " names no op — either it is an op wrapper whose op went"
@@ -110,14 +110,14 @@
     (testing path
       (is (.exists (io/file path)))
       (is (= (slurp (io/file path)) (regen/rendered target))
-          (str path " is out of step with vaelii.impl.serve/ops — `lein regen-client`")))))
+          (str path " is out of step with vaelii.host.serve/ops — `lein regen-client`")))))
 
 (deftest a-wrapper-body-sends-the-op-it-names
   ;; Read off the file rather than called, because calling one needs a daemon: the
   ;; generated body is `(call conn :op [args…])`, so the op keyword is in the text beside
   ;; the name.  What this catches is a generator that emitted the right name against the
   ;; wrong keyword — which no arity or roster check above can see.
-  (let [text (slurp (io/file "src/vaelii/impl/client.clj"))]
+  (let [text (slurp (io/file "src/vaelii/host/client.clj"))]
     (doseq [op (sort (keys serve/ops))]
       (is (re-find (re-pattern (str "\\(defn " (java.util.regex.Pattern/quote
                                                 (str (regen/wrapper-name op)))
@@ -131,17 +131,17 @@
   ;; `serve/ops`: a `require` of the table would put the engine, jetty and reitit on the
   ;; classpath of a namespace whose whole point is not needing them.  A caller extracting
   ;; this one file gets a client, and that is a property with one way to lose it.
-  (let [required (->> (ns-refers 'vaelii.impl.client)
+  (let [required (->> (ns-refers 'vaelii.host.client)
                       vals
                       (into #{} (map #(ns-name (:ns (meta %))))))
-        aliased  (into #{} (map (comp ns-name val)) (ns-aliases 'vaelii.impl.client))]
-    (is (empty? (filter #{'vaelii.core 'vaelii.impl.serve} (into required aliased)))
+        aliased  (into #{} (map (comp ns-name val)) (ns-aliases 'vaelii.host.client))]
+    (is (empty? (filter #{'vaelii.core 'vaelii.host.serve} (into required aliased)))
         "the client reaches the engine only over HTTP")
     (testing "and what it does require is a leaf, so the independence is transitive"
       ;; `guard` and `opts` are `clojure.string` and nothing else; a require of either
       ;; that stopped being a leaf would be an entry point the engine could walk through later,
       ;; without this file changing a line.
-      (doseq [ns-sym '[vaelii.impl.guard vaelii.impl.opts]]
+      (doseq [ns-sym '[vaelii.host.guard vaelii.impl.opts]]
         (is (every? #(re-find #"^clojure\." (str %))
                     (map (comp ns-name val) (ns-aliases ns-sym)))
             (str ns-sym " requires something beyond clojure.*"))))))
@@ -170,7 +170,7 @@
   ;; changes it — so a value carrying a trailing newline reaches the JDK, which quotes a
   ;; rejected header value *verbatim* in the `IllegalArgumentException` it raises.  That
   ;; message is the credential, in whatever log or reply the exception reaches, which is
-  ;; why the throw is replaced rather than left to travel (`vaelii.impl.llm.anthropic`
+  ;; why the throw is replaced rather than left to travel (`vaelii.host.llm.anthropic`
   ;; does the same for its own).  No socket opens: `with-token` sets a header on a
   ;; builder.
   (let [with-token #'client/with-token

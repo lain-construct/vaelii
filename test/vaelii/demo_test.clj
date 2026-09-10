@@ -20,8 +20,8 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.sandbox :as sandbox]
-            [vaelii.impl.web :as web]
+            [vaelii.host.sandbox :as sandbox]
+            [vaelii.host.web :as web]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded tu/load-starter!))

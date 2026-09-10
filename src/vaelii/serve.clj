@@ -5,12 +5,12 @@
 
   Public because it is a documented entry point — `lein serve`, or
   `lein run -m vaelii.serve 4200 /var/lib/vaelii`.  The implementation is
-  `vaelii.impl.serve`, which is free to change.
+  `vaelii.host.serve`, which is free to change.
 
   It binds loopback, and authenticates with one shared bearer token
   (`VAELII_API_TOKEN`) — required to bind anything else.  Read `.github/SECURITY.md`
   before `--listen` names an address."
-  (:require [vaelii.impl.serve :as serve])
+  (:require [vaelii.host.serve :as serve])
   (:import [org.eclipse.jetty.server Server]))
 
 (def ops

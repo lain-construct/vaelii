@@ -1,16 +1,17 @@
 # Assertive argument types: `arg` as an entailment
 
-- **Covers:** how, with the opt-in toggle on, an `arg` / `genlArg` / `interArg`
+- **Covers:** how, by default, an `arg` / `genlArg` / `interArg`
   declaration also mints the type it constrains as a derived, justified, retractable sentex.
 - **Not here:** `arg` / `genlArg` read as a constraint that rejects a wrongly-typed
-  argument (the default, toggle-off reading) → [taxonomy.md](taxonomy.md); `transitiveInArg`,
+  argument (the opt-out `VAELII_ASSERTIVE_ARG_TYPES=0` reading) → [taxonomy.md](taxonomy.md); `transitiveInArg`,
   which carries a stated claim rather than a declared type across an argument →
   [inherit.md](inherit.md).
 - **Assumes:** sentex, justification, context, `genl` → [glossary.md](glossary.md).
 
 ## Relation-wide declarations and the runtime boundary
 
-`arg` (including `arg1` / `arg2` / `arg3`), `genlArg`, `quotedArg`, and `interArg`
+`arg` (including `arg1` / `arg2` / `arg3`), `genlArg`, `quotedArg`, `interArg`, and the
+covering forms `args` / `argsGenl` / `argAndRest` / `argAndRestGenl` (below)
 accept a `relation` as their subject: either a predicate or a function. Accepting and
 storing a function's declaration does **not** yet guarantee recursive enforcement of
 its input constraints inside a nested function application. The current checks read
@@ -84,6 +85,45 @@ argument's type where the contradiction is the arity policy. The two are one
 contradiction and report `:disjoint` in either order. A relation classified into the
 wrong kind is caught by `(disjoint predicate function)` through the `genl` edges.
 
+## The covering constraints: typing a variable-arity tail
+
+`arg` and `genlArg` name one numbered position. A variable-arity relation whose tail
+repeats one role has no largest position to name, and `(args R T)` types the whole
+admitted tail instead: every accepted position of `R` is an instance of `T`. `(argsGenl R
+T)` is the subtype reading — `argsGenl` to `genlArg` what `args` is to `arg`. `(argAndRest
+R n T)` and `(argAndRestGenl R n T)` type position `n` and every later one, so a relation
+whose head positions carry their own `arg` declarations and whose tail repeats one role is
+typed exactly. `(args R T)` states what `(argAndRest R 1 T)` states.
+
+A valid unbounded tail: a `variable_arity` `herd` with `(arityMin herd 2)` and `(args herd
+animal)` accepts `(herd Rex Bossy)` and `(herd Rex Bossy Clarabelle)` while refusing a
+member the KB places outside `animal`, at whatever length the tail reaches.
+
+Not every variable-arity relation has a homogeneous tail. `functionCorrespondingPredicate`
+relates a function, its corresponding predicate, and an argument count — three positions of
+three types — so no covering constraint fits it, and its positions take per-position `arg`
+declarations. The covering forms serve the homogeneous case; they do not demand that a tail
+be homogeneous, and the engine enforces neither preference.
+
+Three properties hold, each of them `arg`'s:
+
+- **Conjunctive with the singular forms.** A position-specific `(arg R n T)` and a covering
+  `(args R U)` both bind position `n`; neither overrides the other, and an argument there is
+  held to both `T` and `U`.
+- **Descends the predicate hierarchy.** A covering declaration on a super-predicate binds a
+  sub-predicate's tuples, read through the same declaration reader `arg` uses
+  (`res/constraining-predicates`).
+- **Convict-only, and open-world.** A covering constraint convicts a tail value it places
+  outside the type; an unknown argument is no evidence and passes. It mints nothing and
+  stops short of the retroactive reach `arg` runs under the entailment toggle, so a covering
+  declaration arriving after the facts convicts none of them — the same open-world
+  stop-short `arityMin` records, and order-sensitive in the way every constraint's refusal
+  half is.
+
+The walk is over the positions a sentence has, not a re-counted tail. `arity-problem`
+refuses a length the relation does not admit before the covering check runs, so the arity
+reader and the covering check never hold two answers about where the tail ends.
+
 ## Constraint and entailment readings
 
 `(arg parentOf 1 animal)` says the first argument of `parentOf` is an animal. Assert
@@ -109,9 +149,10 @@ entailment is a derived, justified, retractable sentex under truth maintenance.
 ;;                       {:sentence (arg parentOf 1 animal) :premise? true}]}]}
 ```
 
-**Off by default** (`vaelii.impl.checks/*assertive-arg-types?*`; the root value reads
-`VAELII_ASSERTIVE_ARG_TYPES=1`, which is how the whole suite is run under it). Entailing
-changes what a KB *contains*, not only what it answers, so it is opt-in.
+**On by default** (`vaelii.impl.checks/*assertive-arg-types?*`; the root value reads
+`VAELII_ASSERTIVE_ARG_TYPES`, and `=0` opts out — how the whole suite is run under the
+constraint-only reading). Entailing changes what a KB *contains*, not only what it
+answers, so the constraint-only reading stays one `binding` away.
 
 ## What this is not
 
@@ -347,11 +388,13 @@ the lift's does.
 And it **draws its own entailments**. It has to: the retroactive direction cascades
 whether or not the forward one does — a declaration arriving over a stored `(t1 x)`
 reaches it through `entail-existing` — so a forward direction that stopped at one level
-would make the two orders disagree. The cascade recurses only on *progress* (a sentex
-created, or a justification added), which bounds it: both are content-keyed and monotone
-within a pass, and the sentences that can be minted are a subset of the finite
-`{(type, term)}` product the KB's vocabulary spans, so each step consumes one element of
-a finite set that never shrinks.
+would make the two orders disagree. The cascade recurses only on a *transition to
+believed* — a sentex created, or a fresh justification that brings an out node in — which
+bounds it: the condition is content-keyed and monotone within a pass, and the sentences
+that can be minted are a subset of the finite `{(type, term)}` product the KB's vocabulary
+spans, so each step consumes one element of a finite set that never shrinks. An
+already-believed mint target takes the new support without re-querying its own
+declarations; the target materialized those entailments when it first became believed.
 
 ## Where it does *not* mint
 
@@ -360,6 +403,7 @@ a finite set that never shrinks.
 | the argument is disjoint with the declared type | `entailment-check` refuses the assert with the mint's own `:disjoint` violation — no type is minted on the way to it |
 | an **individual** in an `genlArg` position | `genls-problem` convicts; an individual can never acquire `genl` edges |
 | the declared type is not one the hierarchy holds | nothing — a name that does not reach `thing` is not a type we invent a membership in. This is where a structural constraint lands without needing a list of exemptions to keep in step |
+| a `genlArg` position filled by the declared type itself | nothing — `(genl t t)` is a reflexive edge `wff` refuses, so `arg-entailments` never draws it. This is what keeps `(genlArg arg 3 thing)` / `(genlArg genlArg 3 thing)` from minting `(genl thing thing)` over every `(arg P n thing)` the ontology carries — a violation per genl edge naming `thing`, otherwise, on the shipped load |
 | a **function application** in the position | `args-problem` / `genls-problem` check it against the function's declared `result` / `genlResult` and refuse where the result misses ([nat.md](nat.md)) — but nothing is minted, a declared result being a claim about the *function* and not about this application, and a compound having no membership to mint |
 | a genuine negation, or a rule | not argument-checked, so not entailed from either |
 | a **query** | nothing, ever. The entailment is on the store path alone |
@@ -377,8 +421,8 @@ sentexes — the corpus these readings were taken on:
 | every predicate declared (one mint per assert) | 317–336 ms | 609–673 ms, **2× the sentexes** |
 | the starter load | 585–638 ms, 1571 sentexes | 865–962 ms, 1793 sentexes |
 
-With the toggle **off** an assert reads one dynamic var and stops — the default path is
-untouched. With it **on** and nothing to do, on/off straddles parity, which is as precise
+With the toggle **off** an assert reads one dynamic var and stops. With it **on** — the
+default — and nothing to do, on/off straddles parity, which is as precise
 as this bench gets; the shared `declaration-reader` is what bought that. Where it mints,
 the run stores twice as many sentexes, so the ~1.9× is the minting, not the gate.
 
@@ -395,11 +439,11 @@ perf check cannot catch this class, since a constant added to every write divide
 ## The gates
 
 The suite runs green on all eight backends `scripts/test-backends.sh` covers (the seven
-legal record×index pairings plus the overlay decorator), **both ways** —
-`VAELII_ASSERTIVE_ARG_TYPES=1` is what makes the second half possible. Same
-failing set (empty) in all sixteen runs. The disk arms matter here beyond storage
-parity: a minted type is a real record with a real justification, so they are what says
-`recover` rebuilds the same belief over it from the durable store.
+legal record×index pairings plus the overlay decorator), **both ways** — the routine run
+is the on-path default, and `VAELII_ASSERTIVE_ARG_TYPES=0` runs the constraint-only
+reading. Same failing set (empty) in all sixteen runs. The disk arms matter here beyond
+storage parity: a minted type is a real record with a real justification, so they are what
+says `recover` rebuilds the same belief over it from the durable store.
 
 The toggle-on run reports **6 fewer assertions** over the whole suite, and the small
 number hides larger movements that nearly cancel. The sampling oracles fall:
@@ -511,6 +555,10 @@ disjoint-check-only so a `(ListOfType thing)` slot refuses nothing and sprays no
 making `checks` write, for the sequencing reason above; and a dry-run mode, since
 `preview` has its own machinery and the two are not wired together.
 
-**Off by default,** and what that rests on: the gate measures free and every invariant
-above has a test, but the feature changes what a KB *contains*, and no shipped or
-imported corpus has been loaded under it end to end.
+**On by default,** and what changed to allow it: the shipped ontology loads under the
+entailment without a `(genl thing thing)` violation, because `arg-entailments` refuses the
+reflexive `genl` mint (the table under "Where it does not mint") the `(genlArg arg 3
+thing)` / `(genlArg genlArg 3 thing)` meta-declarations would otherwise draw from every
+`(arg P n thing)` the ontology carries. The constraint-only reading stays available under
+`VAELII_ASSERTIVE_ARG_TYPES=0`, and the tests that assert it pin it there
+(`tu/without-entailing`).

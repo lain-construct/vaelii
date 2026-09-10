@@ -228,7 +228,7 @@ Belief is a least fixpoint, recomputed region-locally rather than accumulated:
   a sweep that scanned the whole graph would make a run of them quadratic.
 - `relabel` (the whole-graph version) has **no engine caller at all**. The assert /
   retract / settle path relabels regions, and a rebuild composes the region relabels its
-  own adds run rather than closing with a global pass (`core/rebuild-tms`), because a
+  own adds run rather than closing with a global pass (`recovery/rebuild-tms`), because a
   region relabel over the affected closure is equal to a global one. What `relabel` is
   for is the differential oracle: a whole-graph operation both representations implement,
   so the two can be compared on one.
@@ -356,7 +356,7 @@ of retaining it. See [exceptions.md](exceptions.md), "Garbage collection, not de
 
 **Recovery starts unblocked**, because it starts from an empty network: nothing about an
 exception is stored, so the blocked set cannot be read back from the durable store, and
-`core/rebuild-tms` has nothing to clear. The window between the rebuild and the caller's
+`recovery/rebuild-tms` has nothing to clear. The window between the rebuild and the caller's
 re-evaluation believes an excepted conclusion; the next settle withdraws it, and it
 *replaces* the set rather than merging into it — merging could only ever add, leaving a
 block standing for a justification whose exception no longer holds (the bug

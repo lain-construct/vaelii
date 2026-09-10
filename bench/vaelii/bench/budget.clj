@@ -79,7 +79,7 @@
             [vaelii.impl.config :as config]
             [vaelii.impl.dense-roots :as roots]
             [vaelii.impl.disk.backend :as disk]
-            [vaelii.impl.io.generate :as gen]
+            [vaelii.host.io.generate :as gen]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p])
   (:import [java.nio Buffer ByteBuffer DoubleBuffer FloatBuffer IntBuffer LongBuffer ShortBuffer]))

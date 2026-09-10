@@ -19,7 +19,7 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- except-rule [exception antes conseq]
-  (list 'exceptWhen exception (list 'set/defaultRule (vr/rule-sentence antes conseq))))
+  (list 'exceptWhen exception (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq)))))
 
 ;; ---- same belief as per-assert -------------------------------------------
 ;; The excepted binding (Opus) has its conclusion placed while `(bird Opus)` is
@@ -96,7 +96,7 @@
 (tu/deftest-kb assert-many-chains-per-fact-and-settles-once
   (tu/with-terms [parentOf grandparentOf Tom Bob Ann CxFam]
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) CxFam)
+                   (list grandparentOf '?x '?z) CxFam {:direction :forward})
     (let [hs (v/assert-many kb [(list parentOf Tom Bob) (list parentOf Bob Ann)]
                             CxFam)]
       (testing "one handle back per input sentence, in order"

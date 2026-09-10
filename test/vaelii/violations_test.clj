@@ -24,7 +24,7 @@
        ;; argument constraint, so there is no opposing sentex to arbitrate against and
        ;; the conclusion is dropped rather than placed (a disjointness clash *is*
        ;; arbitrated; see constraint_nogood_test)
-       (v/assert-rule kb [(list rock '?x)] (list parentOf '?x Muffet) 'CxUniverse)
+       (v/assert-rule kb [(list rock '?x)] (list parentOf '?x Muffet) 'CxUniverse {:direction :forward})
        (let [drops (filter #(= :arg-type (:violation %)) (v/violations kb))]
          (is (seq drops) "the derived inadmissible conclusion was recorded")
          (is (every? :run drops) "every entry carries its chaining run id"))
@@ -40,7 +40,7 @@
     (tu/with-terms [dog barksAt Muffet CxIslandA CxIslandB]
       ;; rule and fact live in island contexts with no common descendant: the join
       ;; completes, then the conclusion has nowhere to land
-      (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) CxIslandA)
+      (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) CxIslandA {:direction :forward})
       (v/clear-violations! kb)
       (v/assert kb (list dog Muffet) CxIslandB)
       (let [drops (filter #(= :no-placement (:violation %)) (v/violations kb))]
@@ -52,7 +52,7 @@
 (deftest a-truncated-chain-is-visible-in-chain-stats
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [tmpa tmpb Item]
-      (v/assert-rule kb [(list tmpa '?x)] (list tmpb '?x) 'CxUniverse)
+      (v/assert-rule kb [(list tmpa '?x)] (list tmpb '?x) 'CxUniverse {:direction :forward})
       (testing "a plain assert that hits max-depth flags the run"
         (v/assert kb (list tmpa Item) 'CxUniverse {:max-depth 0})
         (let [{:keys [runs last]} (v/chain-stats kb)]

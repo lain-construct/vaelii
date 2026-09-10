@@ -6,7 +6,7 @@
   cases are what the models actually write rather than what they might."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.llm.correct :as correct]
+            [vaelii.host.llm.correct :as correct]
             [vaelii.test-util :as tu]))
 
 ;; the corrections read the shipped schema — arg constraints, declared arities, the

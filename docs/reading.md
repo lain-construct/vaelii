@@ -12,14 +12,14 @@ A pipeline that takes a document and answers with **candidate sentexes** — the
 of text it came from. It never asserts anything: proposing rather than importing is the
 whole design.
 
-Everything lives in `vaelii.impl.llm.text` (the prompt, the resolution, the coverage
-report), `vaelii.impl.llm.session/propose-text` (the loop), and `vaelii.impl.llm.score`
+Everything lives in `vaelii.host.llm.text` (the prompt, the resolution, the coverage
+report), `vaelii.host.llm.session/propose-text` (the loop), and `vaelii.host.llm.score`
 (the arithmetic against a hand-written gold set). Like `web` / `serve` / the rest of
 `llm`, it is an application over the engine and is not in `vaelii.core`.
 
 ## Why it proposes rather than imports
 
-[`vaelii.impl.gloss`'s namespace docstring](../src/vaelii/impl/gloss.clj) states the problem in the
+[`vaelii.host.gloss`'s namespace docstring](../src/vaelii/host/gloss.clj) states the problem in the
 other direction: *the read path is the one with no verifier*. Composing English out of the
 KB is dangerous because nothing in the engine can say an English sentence describing
 `(genl penguin bird)` is wrong.
@@ -68,8 +68,8 @@ is asked in one place rather than in two.
 ## The shape
 
 ```clojure
-(require '[vaelii.impl.llm.session :as llm]
-         '[vaelii.impl.llm.ollama :as ollama])
+(require '[vaelii.host.llm.session :as llm]
+         '[vaelii.host.llm.ollama :as ollama])
 
 (llm/propose-text kb {:text     "A lion caught a mouse, but he spared it…"
                       :context  'CxLionMouse        ; never the model's to write
@@ -207,7 +207,7 @@ make the pipeline useless. So `session/split-admissible` splits the final pass:
 - admissible entries become `:batch`, which is therefore **always applicable** — a test
   asserts `check-edit` on it is empty;
 - each rejected entry becomes a `:repair` carrying the checker's own verdict, plus
-  `:correction` where [`correct.clj`](../src/vaelii/impl/llm/correct.clj) has a shape to
+  `:correction` where [`correct.clj`](../src/vaelii/host/llm/correct.clj) has a shape to
   store instead.
 
 `:status` is `:invalid` only when the critic was shown entries and refused **all** of

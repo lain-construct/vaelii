@@ -55,7 +55,7 @@
   "A rule that **concludes** a `genl` edge from an ordinary binary fact, so the edge can
   arrive down the derivation path instead of through `assert`."
   [relates]
-  (vr/rule-sentence [(list relates '?x '?y)] (list 'genl '?x '?y)))
+  (list 'set/forwardRule (vr/rule-sentence [(list relates '?x '?y)] (list 'genl '?x '?y))))
 
 ;; ---- a declaration's own position check reads the inherited arity -------
 ;;
@@ -146,8 +146,8 @@
     (v/assert kb (list 'arg parentOf 1 person) CxStory)
     (v/assert kb (list 'genl fatherOf parentOf) CxStory)
     (v/assert kb (list 'exceptWhen (list person Ann)
-                       (list 'set/defaultRule (vr/rule-sentence [(list mark '?x)]
-                                                                (list seen '?x))))
+                       (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence [(list mark '?x)]
+                                                                                       (list seen '?x)))))
               CxStory)
     (v/assert kb (list mark M1) CxStory)
     (is (seq (v/sentexes-matching kb (list seen M1) '?ctx))

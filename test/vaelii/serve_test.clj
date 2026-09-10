@@ -1,8 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.serve-test
-  "The operational surface: the EDN-over-HTTP daemon (`vaelii.impl.serve`) and its
-  client (`vaelii.impl.client`).
+  "The operational surface: the EDN-over-HTTP daemon (`vaelii.host.serve`) and its
+  client (`vaelii.host.client`).
 
   Two levels.  The handler is pure `request -> response`, so `app` is exercised
   without a socket — the fast, deterministic check that ops dispatch, results are
@@ -22,13 +22,13 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as catalog]
-            [vaelii.impl.client :as client]
+            [vaelii.host.catalog :as catalog]
+            [vaelii.host.client :as client]
+            [vaelii.host.guard :as guard]
+            [vaelii.host.llm.tools :as tools]
+            [vaelii.host.serve :as serve]
+            [vaelii.host.subscribe :as sub]
             [vaelii.impl.config :as config]
-            [vaelii.impl.guard :as guard]
-            [vaelii.impl.llm.tools :as tools]
-            [vaelii.impl.serve :as serve]
-            [vaelii.impl.subscribe :as sub]
             [vaelii.test-util :as tu])
   (:import [java.io ByteArrayInputStream File]
            [java.nio.file Files]
@@ -560,7 +560,7 @@
           (is (= 400 (:status r))))))))
 
 (tu/deftest-kb the-models-tool-surface-is-held-to-the-same-ceiling
-  ;; `vaelii.impl.llm.tools` generates its schemas from `serve/ops` and calls back into
+  ;; `vaelii.host.llm.tools` generates its schemas from `serve/ops` and calls back into
   ;; it, so a ceiling applied at the HTTP route would be a ceiling the model does not
   ;; have — which is the entry point a prompt-injected model would find first.
   (tu/with-terms [dog Muffet]
@@ -654,7 +654,7 @@
             (let [rs (client/sentexes-matching conn (list bird '?x) CxWire)]
               (is (= (list bird Tweety) (:sentence (first rs))))))
           (testing "a forward rule fires server-side and the derived fact is asked back"
-            (client/assert-rule conn [(list bird '?b)] (list flies '?b) CxWire)
+            (client/assert-rule conn [(list bird '?b)] (list flies '?b) CxWire {:direction :forward})
             (is (client/ask? conn (list flies Tweety) CxWire)))
           (testing "why over the wire returns a proof tree"
             (let [h (client/handle-of conn (list flies Tweety) CxWire)]
@@ -782,15 +782,15 @@
   (testing "every way the daemon is started passes the pool size — `start` and `-main`
             alike, or the command-line daemon runs on Jetty's default and the pair above
             holds for the tests only"
-    (let [src   (slurp (io/resource "vaelii/impl/serve.clj"))
+    (let [src   (slurp (io/resource "vaelii/host/serve.clj"))
           calls (re-seq #"\(jetty/run-jetty[^\n]*\n[^\n]*" src)]
       (is (= 2 (count calls)) "the two starts, and no third that could forget")
       (doseq [c calls]
         (is (re-find #":max-threads http-threads" c) c)))))
 
 (deftest the-client-mirrors-the-daemons-wait-ceiling
-  ;; `vaelii.impl.client` carries its own copy rather than requiring the daemon's, which
+  ;; `vaelii.host.client` carries its own copy rather than requiring the daemon's, which
   ;; would pull the whole engine onto the classpath of a client whose point is not
   ;; needing it.  A mirrored constant drifts unless something says otherwise.
-  (is (= sub/max-wait-ms @(resolve 'vaelii.impl.client/max-wait-ms))
+  (is (= sub/max-wait-ms @(resolve 'vaelii.host.client/max-wait-ms))
       "the client extends its read timeout by what the daemon will actually wait"))

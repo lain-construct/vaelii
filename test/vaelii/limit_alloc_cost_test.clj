@@ -53,7 +53,7 @@
     *returns*; the arms below re-check the answer only so far as proving they ran."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.impl.web :as web]
+            [vaelii.host.web :as web]
             [vaelii.test-util :as tu])
   (:import [com.sun.management ThreadMXBean]
            [java.lang.management ManagementFactory]))

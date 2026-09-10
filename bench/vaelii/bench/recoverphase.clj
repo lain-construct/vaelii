@@ -60,10 +60,11 @@
             [vaelii.impl.chain :as chain]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.disk.belief-snapshot :as bs]
-            [vaelii.impl.io.generate :as gen]
+            [vaelii.host.io.generate :as gen]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.recovery :as recovery]
             [vaelii.impl.reindex :as reindex]
             [vaelii.impl.settle :as settle]
             [vaelii.impl.special :as special]
@@ -135,11 +136,12 @@
   (v/open-kb {:records :disk :index :memory :dir dir :recover? false}))
 
 ;; ---- the replay: recover's body, unrolled and timed ---------------------
-;; This must track `core/recover` line for line.  If that changes, change this and rerun
+;; This must track `recovery/recover` (the body behind `core/recover`) line for line.  If
+;; that changes, change this and rerun
 ;; `recover-parity!` — the drift is otherwise silent.
 
 (defn- rebuild-tms-split!
-  "`core/rebuild-tms`, its four steps timed apart.  Returns `{:node :premise :just
+  "`recovery/rebuild-tms`, its four steps timed apart.  Returns `{:node :premise :just
   :relabel :skipped}` in ms.  The premise loop tests membership in the live set rather
   than fetching a record (the landed shape)."
   [kb]
@@ -170,7 +172,7 @@
                       (tax/refresh-beliefs (:taxonomy kb) #(jtms/in? (:tms kb) %)))
                     (tax/restore-depths (:taxonomy kb)))
         t-exc   (ms (special/recheck-every-exception kb))
-        t-sup   (ms (special/refresh-supersessions kb (#'v/recovered-supersessions kb)))
+        t-sup   (ms (special/refresh-supersessions kb (#'recovery/recovered-supersessions kb)))
         t-opp   (ms (kb/rebuild-opposed! kb)
                     (kb/rebuild-excepted! kb))
         t-set   (ms (binding [settle/*rebuilding?* true]
@@ -410,7 +412,7 @@
     (doseq [k ks]
       (let [[kb nclasses] (equality-corpus! k members)]
         (gc!)
-        (let [[cands rs-ms] (timed (vec (#'v/recovered-supersessions kb)))
+        (let [[cands rs-ms] (timed (vec (#'recovery/recovered-supersessions kb)))
               rf-ms         (ms (special/refresh-supersessions kb cands))]
           (println (format "%-8d %10d %14.1f %14.1f %12.3f"
                            (long k) (long nclasses) (double rs-ms) (double rf-ms)

@@ -7,7 +7,7 @@
   registry-load and trust-mutation checks the design decisions (D3) demand."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.koinii.identity :as id]
             [vaelii.test-util :as tu])
   (:import (clojure.lang ExceptionInfo)))

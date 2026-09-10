@@ -219,13 +219,13 @@
 ;; nothing under impl, which is the whole point of them.
 
 (tu/deftest-kb the-shipped-reasoners-are-nameable-and-registrable-from-core
-  (testing "the roster covers the six algebras, the three quantitative reasoners and the
-            calendar clock"
-    (is (= [:allen :calendar :cardinal :distance :duration :metric-time :point :rcc8
-            :relative :sign]
+  (testing "the roster covers the six algebras, the three quantitative reasoners, the
+            calendar clock and the brave/cautious dilemma reader"
+    (is (= [:allen :brave-cautious :calendar :cardinal :distance :duration :metric-time
+            :point :rcc8 :relative :sign]
            (v/reasoners)))
     (is (= (set (map :calculus (v/calculi)))
-           (into #{} (remove #{:duration :metric-time :sign :calendar}) (v/reasoners)))
+           (into #{} (remove #{:duration :metric-time :sign :calendar :brave-cautious}) (v/reasoners)))
         "every calculus is registrable, and the roster adds the quantitative three and
          the calendar, which are not relation algebras"))
   (testing "each name resolves to a prover value"
@@ -311,12 +311,16 @@
     ;; rosters — pinning it as a public promise would make koinii's own development churn
     ;; the engine's contract. The other direction is what keeps it honest:
     ;; `koinii-reaches-into-no-impl` below.
+    ;; `host/` is private too: the tooling above core (the servers, the CLI, the loaders,
+    ;; the LLM stack) that requires core and reaches into the engine, fronted by the five
+    ;; thin entry points (docs/namespaces.md). It is not a public promise, so it is out.
     (is (= #{"vaelii.core" "vaelii.client" "vaelii.starter"
              "vaelii.web" "vaelii.serve" "vaelii.cli"}
            (->> (file-seq (java.io.File. "src/vaelii"))
                 (filter #(.isFile ^java.io.File %))
                 (filter #(.endsWith (.getName ^java.io.File %) ".clj"))
                 (remove #(.contains (.getPath ^java.io.File %) "/impl/"))
+                (remove #(.contains (.getPath ^java.io.File %) "/host/"))
                 (remove #(.contains (.getPath ^java.io.File %) "/koinii/"))
                 (map #(-> (.getPath ^java.io.File %)
                           (subs (count "src/"))
@@ -324,7 +328,7 @@
                           (.replace "/" ".")
                           (.replace "_" "-")))
                 set))
-        "a new namespace outside impl/ is a new public promise — add it here on purpose")))
+        "a new namespace outside impl/, host/ and koinii/ is a new public promise — add it here on purpose")))
 
 (defn- impl-symbols-in
   "Every `vaelii.impl…` symbol in `file`'s CODE — read, not grepped.

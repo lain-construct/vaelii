@@ -10,8 +10,8 @@
   migration and remove rides the retraction sweep."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.checks :as checks]
-            [vaelii.impl.core-context :as core-context]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.nat :as nat]
@@ -399,8 +399,8 @@
       (v/assert kb (list weather Sunny) 'CxUniverse)
       (v/assert kb (list 'exceptWhen (list overcast '?w)
                          (list 'set/defaultRule
-                               (list 'implies (list 'and (list fruity '?x) (list weather '?w))
-                                     (list brightAs '?x Sun))))
+                               (list 'set/forwardRule (list 'implies (list 'and (list fruity '?x) (list weather '?w))
+                                                            (list brightAs '?x Sun)))))
                 'CxUniverse)
       (testing "the rule's conclusion is the constant's one live use"
         (is (nat/reified-nat-symbol? k))
@@ -479,7 +479,7 @@
     (v/assert kb (list isCapital (list CapitalOfFn France) Yes) 'CxUniverse)
     (v/assert kb (list 'exceptWhen [(list isCapital (list CapitalOfFn France) Yes)]
                        (list 'set/defaultRule
-                             (list 'implies (list bird '?x) (list flies '?x))))
+                             (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x)))))
               'CxUniverse)
     (is (v/ask? kb (list isCapital (list CapitalOfFn France) Yes) 'CxUniverse)
         "the conjunct is answerable when it is asked as a goal")

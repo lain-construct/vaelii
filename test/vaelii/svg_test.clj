@@ -6,7 +6,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [hiccup2.core :as h]
-            [vaelii.impl.svg :as svg]))
+            [vaelii.host.svg :as svg]))
 
 (defn- html [hiccup] (str (h/html {:mode :html} hiccup)))
 

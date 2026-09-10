@@ -9,10 +9,10 @@
   measures; a dimension mismatch is never comparable and never throws."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.provers :as provers]
-            [vaelii.impl.seed :as seed]
             [vaelii.test-util :as tu]))
 
 ;; a fresh KB per test: the CxCore grammar (`unreifiable_function`,
@@ -98,7 +98,7 @@
     ;; the comparison is a deferred antecedent, pinned after (mass ?o ?q) binds ?q
     (v/assert-rule kb [(list 'mass '?o '?q)
                        (list 'quantityGreaterThan '?q '(QuantityFn 100 Kilogram))]
-                   (list heavy '?o) C)
+                   (list heavy '?o) C {:direction :forward})
     (v/assert kb (list 'mass Boulder '(QuantityFn 150 Kilogram)) C)
     (v/assert kb (list 'mass Pebble  '(QuantityFn 50 Kilogram))  C)
     (testing "the rule fires only for the object over the threshold"

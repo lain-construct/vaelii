@@ -30,8 +30,8 @@
   answers the same goal false by contract — the registry expands no rule."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.checks :as checks]
-            [vaelii.impl.core-context :as core-context]
             [vaelii.impl.predall :as predall]
             [vaelii.impl.resolution :as res]
             [vaelii.test-util :as tu]))
@@ -455,26 +455,31 @@
   ;; the derived contract has two arms: (arg p 2 t) asks membership, (genlArg p 2 t)
   ;; asks subtypehood — the same split the assert-time checker runs.  A filler that is
   ;; itself the constraint type passes reflexively (no genl self-edge is stored).
-  (tu/with-terms [governs meta_kind kind_a lone_individual]
-    (v/assert kb (list 'binary_predicate governs) 'CxUniverse)
-    (v/assert kb (list 'unary_predicate meta_kind) 'CxUniverse)
-    (v/assert kb (list 'unary_predicate kind_a) 'CxUniverse)
-    (v/assert kb (list 'genlArg governs 2 'thing) 'CxUniverse)
-    (v/assert kb (list 'predAllSpecified governs meta_kind) 'CxUniverse)
-    (tu/with-terms [M1 M2 M3]
-      (v/assert kb (list meta_kind M1) 'CxUniverse)
-      (v/assert kb (list meta_kind M2) 'CxUniverse)
-      (v/assert kb (list meta_kind M3) 'CxUniverse)
-      (v/assert kb (list 'genl kind_a 'thing) 'CxUniverse)
-      (v/assert kb (list governs M1 kind_a) 'CxUniverse)      ; a kind under thing — passes
-      (v/assert kb (list governs M2 'thing) 'CxUniverse)      ; the type itself
-      (v/assert kb (list governs M3 lone_individual) 'CxUniverse) ; no genl path to thing
-      (let [vs (:violations (predall/specified-violations kb governs meta_kind 'CxUniverse))]
-        (is (not (contains? vs M1)) "a filler with a genl path to the constraint type passes")
-        (is (v/ask? kb '(genl thing thing) 'CxUniverse)
-            "the genl closure ask answers is reflexive — the pass below is its, not a floor's")
-        (is (not (contains? vs M2)) "so the constraint type itself passes")
-        (is (contains? vs M3) "a filler with no visible path into the hierarchy violates")))))
+  ;; Pinned to the constraint-only reading: on the default (entailing) reading the
+  ;; `genlArg`-declared slot mints its filler's `genl thing` edge, so `lone_individual`
+  ;; would gain a visible path and M3 would not violate.  The audit's open-world excuse
+  ;; is the constraint-only behavior this asserts.
+  (tu/without-entailing
+   (tu/with-terms [governs meta_kind kind_a lone_individual]
+     (v/assert kb (list 'binary_predicate governs) 'CxUniverse)
+     (v/assert kb (list 'unary_predicate meta_kind) 'CxUniverse)
+     (v/assert kb (list 'unary_predicate kind_a) 'CxUniverse)
+     (v/assert kb (list 'genlArg governs 2 'thing) 'CxUniverse)
+     (v/assert kb (list 'predAllSpecified governs meta_kind) 'CxUniverse)
+     (tu/with-terms [M1 M2 M3]
+       (v/assert kb (list meta_kind M1) 'CxUniverse)
+       (v/assert kb (list meta_kind M2) 'CxUniverse)
+       (v/assert kb (list meta_kind M3) 'CxUniverse)
+       (v/assert kb (list 'genl kind_a 'thing) 'CxUniverse)
+       (v/assert kb (list governs M1 kind_a) 'CxUniverse)      ; a kind under thing — passes
+       (v/assert kb (list governs M2 'thing) 'CxUniverse)      ; the type itself
+       (v/assert kb (list governs M3 lone_individual) 'CxUniverse) ; no genl path to thing
+       (let [vs (:violations (predall/specified-violations kb governs meta_kind 'CxUniverse))]
+         (is (not (contains? vs M1)) "a filler with a genl path to the constraint type passes")
+         (is (v/ask? kb '(genl thing thing) 'CxUniverse)
+             "the genl closure ask answers is reflexive — the pass below is its, not a floor's")
+         (is (not (contains? vs M2)) "so the constraint type itself passes")
+         (is (contains? vs M3) "a filler with no visible path into the hierarchy violates"))))))
 
 (tu/deftest-kb multiple-slot-constraints-compose-conjunctively
   ;; two visible slot-2 constraints must BOTH be satisfied.  The division of labour the
@@ -484,35 +489,39 @@
   ;; passes-one-fails-the-other case), so what the audit's conjunction meets on stored
   ;; facts is the checker's open-world excuse: a filler with NO visible evidence stores
   ;; fine and violates both derived constraints, and one under both passes.
-  (tu/with-terms [governs meta_kind vehicle_kind insured_kind car_kind mystery_kind M1 M2]
-    (v/assert kb (list 'binary_predicate governs) 'CxUniverse)
-    (v/assert kb (list 'unary_predicate meta_kind) 'CxUniverse)
-    (v/assert kb (list 'unary_predicate vehicle_kind) 'CxUniverse)
-    (v/assert kb (list 'unary_predicate insured_kind) 'CxUniverse)
-    (v/assert kb (list 'genl vehicle_kind 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl insured_kind 'thing) 'CxUniverse)
-    (v/assert kb (list 'genlArg governs 2 vehicle_kind) 'CxUniverse)
-    (v/assert kb (list 'genlArg governs 2 insured_kind) 'CxUniverse)
-    (v/assert kb (list 'predAllSpecified governs meta_kind) 'CxUniverse)
-    (v/assert kb (list meta_kind M1) 'CxUniverse)
-    (v/assert kb (list meta_kind M2) 'CxUniverse)
-    (v/assert kb (list 'genl car_kind vehicle_kind) 'CxUniverse)
-    (v/assert kb (list 'genl car_kind insured_kind) 'CxUniverse)  ; under both
-    (v/assert kb (list governs M1 car_kind) 'CxUniverse)
-    (v/assert kb (list governs M2 mystery_kind) 'CxUniverse)      ; no visible evidence
-    ;; the partially-conforming case is unstorable, which is itself worth pinning:
-    (tu/with-terms [boat_kind M3]
-      (v/assert kb (list meta_kind M3) 'CxUniverse)
-      (v/assert kb (list 'genl boat_kind vehicle_kind) 'CxUniverse)
-      (try (v/assert kb (list governs M3 boat_kind) 'CxUniverse)
-           (is false "a filler visibly under one constraint and not the other must refuse")
-           (catch clojure.lang.ExceptionInfo e
-             (is (= :arg-genl (:type (ex-data e)))
-                 "refused by the genlArg conviction specifically, not incidentally"))))
-    (let [vs (:violations (predall/specified-violations kb governs meta_kind 'CxUniverse))]
-      (is (not (contains? vs M1)) "car_kind satisfies both subtype constraints")
-      (is (contains? vs M2)
-          "an evidence-free filler the checker excused fails the audit's conjunction"))))
+  ;; Pinned to the constraint-only reading: on the default (entailing) reading each
+  ;; `genlArg governs 2 …` mints the filler's type, so `mystery_kind` would no longer be
+  ;; the evidence-free filler the audit's conjunction is meant to catch.
+  (tu/without-entailing
+   (tu/with-terms [governs meta_kind vehicle_kind insured_kind car_kind mystery_kind M1 M2]
+     (v/assert kb (list 'binary_predicate governs) 'CxUniverse)
+     (v/assert kb (list 'unary_predicate meta_kind) 'CxUniverse)
+     (v/assert kb (list 'unary_predicate vehicle_kind) 'CxUniverse)
+     (v/assert kb (list 'unary_predicate insured_kind) 'CxUniverse)
+     (v/assert kb (list 'genl vehicle_kind 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl insured_kind 'thing) 'CxUniverse)
+     (v/assert kb (list 'genlArg governs 2 vehicle_kind) 'CxUniverse)
+     (v/assert kb (list 'genlArg governs 2 insured_kind) 'CxUniverse)
+     (v/assert kb (list 'predAllSpecified governs meta_kind) 'CxUniverse)
+     (v/assert kb (list meta_kind M1) 'CxUniverse)
+     (v/assert kb (list meta_kind M2) 'CxUniverse)
+     (v/assert kb (list 'genl car_kind vehicle_kind) 'CxUniverse)
+     (v/assert kb (list 'genl car_kind insured_kind) 'CxUniverse)  ; under both
+     (v/assert kb (list governs M1 car_kind) 'CxUniverse)
+     (v/assert kb (list governs M2 mystery_kind) 'CxUniverse)      ; no visible evidence
+     ;; the partially-conforming case is unstorable, which is itself worth pinning:
+     (tu/with-terms [boat_kind M3]
+       (v/assert kb (list meta_kind M3) 'CxUniverse)
+       (v/assert kb (list 'genl boat_kind vehicle_kind) 'CxUniverse)
+       (try (v/assert kb (list governs M3 boat_kind) 'CxUniverse)
+            (is false "a filler visibly under one constraint and not the other must refuse")
+            (catch clojure.lang.ExceptionInfo e
+              (is (= :arg-genl (:type (ex-data e)))
+                  "refused by the genlArg conviction specifically, not incidentally"))))
+     (let [vs (:violations (predall/specified-violations kb governs meta_kind 'CxUniverse))]
+       (is (not (contains? vs M1)) "car_kind satisfies both subtype constraints")
+       (is (contains? vs M2)
+           "an evidence-free filler the checker excused fails the audit's conjunction")))))
 
 (tu/deftest-kb argn-bridges-project-arg-in-both-directions
   ;; all six bridge rules, a 3-position x 2-direction matrix: either spelling concludes
@@ -681,7 +690,7 @@
     ;; one
     (v/assert kb (list 'implies (list person '?x)
                        (list 'exists '?y (list 'and (list hasPet '?x '?y) (list pet '?y))))
-              'CxUniverse)
+              'CxUniverse {:direction :forward})
     (v/assert kb (list 'arg hasPet 2 pet) 'CxUniverse)
     (v/assert kb (list 'predAllSpecified hasPet person) 'CxUniverse)
     (v/assert kb (list person Alice) 'CxUniverse)
@@ -826,7 +835,7 @@
     (v/assert kb (list 'unary_predicate pk) 'CxUniverse)
     (v/assert kb (list 'implies (list wk '?x)
                        (list 'exists '?y (list 'and (list hasP '?x '?y) (list pk '?y))))
-              'CxUniverse)
+              'CxUniverse {:direction :forward})
     (v/assert kb (list wk T1) 'CxUniverse)
     (get (first (v/ask kb (list hasP T1 '?y) 'CxUniverse)) '?y)))
 
@@ -915,13 +924,13 @@
                  (v/assert kb (list 'implies (list 'and (list pRel '?x '?y)
                                                    (list 'different '?x '?y))
                                     (list 'indeterminate_term '?x))
-                           'CxUniverse))
+                           'CxUniverse {:direction :forward}))
         "concluding indeterminacy from a difference is not stratified")
     (is (thrown? clojure.lang.ExceptionInfo
                  (v/assert kb (list 'implies (list 'and (list pRel '?x '?y)
                                                    (list 'different '?x '?y))
                                     (list 'genl '?x 'indeterminate_term))
-                           'CxUniverse))
+                           'CxUniverse {:direction :forward}))
         "and neither is minting a subkind of it — the genl edge withdraws the same way")))
 
 (tu/deftest-kb the-audit-and-the-prover-cannot-disagree-about-a-term
@@ -930,21 +939,26 @@
   ;; answerable by argument-type inference, which `ask` runs and a stored-sentex read does
   ;; not.  Either answer is defensible; disagreeing is not, because the audit would call a
   ;; filler indeterminate while `different` treated it as a determinate name.
-  (tu/with-terms [pointsAt Src Hazy Other vague_kind]
-    (v/assert kb (list 'genl vague_kind 'indeterminate_term) 'CxUniverse)
-    (v/assert kb (list 'binary_predicate pointsAt) 'CxUniverse)
-    (v/assert kb (list 'arg pointsAt 2 vague_kind) 'CxUniverse)
-    (v/assert kb (list pointsAt Src Hazy) 'CxUniverse)
-    (is (v/ask? kb (list vague_kind Hazy) 'CxUniverse)
-        "the membership is answerable by argument-type inference")
-    (let [audit-says     (predall/indeterminate-term? kb Hazy 'CxUniverse)
-          una-suspended? (not (v/ask? kb (list 'different Hazy Other) 'CxUniverse))]
-      (is (= audit-says una-suspended?)
-          "the audit and the different prover give one answer, whichever it is")
-      (is (false? audit-says)
-          (str "and the answer is that the category is what the KB HOLDS — a stored"
-               " membership or a genl edge into it — not what a prover can infer"
-               " on demand at query time")))))
+  ;; Pinned to the constraint-only reading: on the default (entailing) reading
+  ;; `(arg pointsAt 2 vague_kind)` mints `(vague_kind Hazy)`, so the category becomes one
+  ;; the KB HOLDS and the audit flips — which is the very split this test asserts cannot
+  ;; happen when the membership is only prover-inferable.
+  (tu/without-entailing
+   (tu/with-terms [pointsAt Src Hazy Other vague_kind]
+     (v/assert kb (list 'genl vague_kind 'indeterminate_term) 'CxUniverse)
+     (v/assert kb (list 'binary_predicate pointsAt) 'CxUniverse)
+     (v/assert kb (list 'arg pointsAt 2 vague_kind) 'CxUniverse)
+     (v/assert kb (list pointsAt Src Hazy) 'CxUniverse)
+     (is (v/ask? kb (list vague_kind Hazy) 'CxUniverse)
+         "the membership is answerable by argument-type inference")
+     (let [audit-says     (predall/indeterminate-term? kb Hazy 'CxUniverse)
+           una-suspended? (not (v/ask? kb (list 'different Hazy Other) 'CxUniverse))]
+       (is (= audit-says una-suspended?)
+           "the audit and the different prover give one answer, whichever it is")
+       (is (false? audit-says)
+           (str "and the answer is that the category is what the KB HOLDS — a stored"
+                " membership or a genl edge into it — not what a prover can infer"
+                " on demand at query time"))))))
 
 (tu/deftest-kb the-audit-runs-through-the-public-api
   ;; the declarations in CxCore send an author to `vaelii.core`, so the audit answers there

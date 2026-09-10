@@ -13,7 +13,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.web :as web]
+            [vaelii.host.web :as web]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded tu/load-starter!))
@@ -26,7 +26,7 @@
 (tu/deftest-kb a-rule-firing-is-reported-with-the-argument-that-made-it
   (tu/with-terms [dog mortal Muffet CxRule]
     (v/assert kb (list 'genlCx CxRule 'CxWell) 'CxUniverse)
-    (v/assert-rule kb [(list dog '?x)] (list mortal '?x) CxRule)
+    (v/assert-rule kb [(list dog '?x)] (list mortal '?x) CxRule {:direction :forward})
     (let [r (v/edit-with-consequences! kb {:add [[(list dog Muffet) CxRule]]})
           derived (remove :premise? (:believed-added r))]
       (testing "the premise the caller wrote is reported, and marked as one — that mark is
@@ -58,7 +58,7 @@
   (tu/with-terms [bird flies Tweety CxDefeat]
     (v/assert kb (list 'genlCx CxDefeat 'CxWell) 'CxUniverse)
     (v/assert kb (list 'set/defaultRule
-                       (list 'implies (list 'and (list bird '?x)) (list flies '?x)))
+                       (list 'set/forwardRule (list 'implies (list 'and (list bird '?x)) (list flies '?x))))
               CxDefeat)
     (v/assert kb (list bird Tweety) CxDefeat)
     (is (v/ask? kb (list flies Tweety) CxDefeat) "the default holds first")
@@ -78,8 +78,8 @@
             different routes; a disagreement means one of them is wrong about the engine"
     (tu/with-terms [cat purrs alive CxPair]
       (v/assert kb (list 'genlCx CxPair 'CxWell) 'CxUniverse)
-      (v/assert-rule kb [(list cat '?x)] (list purrs '?x) CxPair)
-      (v/assert-rule kb [(list purrs '?x)] (list alive '?x) CxPair)
+      (v/assert-rule kb [(list cat '?x)] (list purrs '?x) CxPair {:direction :forward})
+      (v/assert-rule kb [(list purrs '?x)] (list alive '?x) CxPair {:direction :forward})
       (tu/with-terms [Tom]
         (let [batch    {:add [[(list cat Tom) CxPair]]}
               promised (v/preview kb batch)
@@ -104,7 +104,7 @@
     (let [kb (v/open-kb {:space 913 :tms tms})]
       (try
         (v/assert kb '(genlCx CxTmsCallout CxUniverse) 'CxUniverse)
-        (v/assert-rule kb ['(tms_callout_dog ?x)] '(tms_callout_mortal ?x) 'CxTmsCallout)
+        (v/assert-rule kb ['(tms_callout_dog ?x)] '(tms_callout_mortal ?x) 'CxTmsCallout {:direction :forward})
         (let [r (v/edit-with-consequences!
                  kb {:add [['(tms_callout_dog TmsCalloutMuffet) 'CxTmsCallout]]})]
           (is (= ['(tms_callout_mortal TmsCalloutMuffet)]
@@ -116,7 +116,7 @@
   (tu/with-terms [seed CxCap]
     (v/assert kb (list 'genlCx CxCap 'CxWell) 'CxUniverse)
     (let [preds (repeatedly 4 #(tu/tmp-pred "capped"))]
-      (doseq [p preds] (v/assert-rule kb [(list seed '?x)] (list p '?x) CxCap))
+      (doseq [p preds] (v/assert-rule kb [(list seed '?x)] (list p '?x) CxCap {:direction :forward}))
       (tu/with-terms [Thing]
         (let [r (v/edit-with-consequences! kb {:add [[(list seed Thing) CxCap]]}
                                            {:max-results 2})]
@@ -162,7 +162,7 @@
 (tu/deftest-kb a-rule-firing-shows-its-proof-in-the-callout
   (tu/with-terms [fish gilled Nemo CxFish]
     (v/assert kb (list 'genlCx CxFish 'CxWell) 'CxUniverse)
-    (v/assert-rule kb [(list fish '?x)] (list gilled '?x) CxFish)
+    (v/assert-rule kb [(list fish '?x)] (list gilled '?x) CxFish {:direction :forward})
     (let [out (assert-through-the-form kb (pr-str (list fish Nemo)) CxFish)]
       (is (str/includes? out (str "(" gilled " " Nemo ")")))
       (is (str/includes? out (str "because (" fish " " Nemo ")")))
@@ -182,7 +182,7 @@
   (tu/with-terms [trigger Subject CxMany]
     (v/assert kb (list 'genlCx CxMany 'CxWell) 'CxUniverse)
     (doseq [_ (range 5)]
-      (v/assert-rule kb [(list trigger '?x)] (list (tu/tmp-pred "many") '?x) CxMany))
+      (v/assert-rule kb [(list trigger '?x)] (list (tu/tmp-pred "many") '?x) CxMany {:direction :forward}))
     (let [out (assert-through-the-form kb (pr-str (list trigger Subject)) CxMany)]
       (is (str/includes? out "more consequences")
           "the rest are counted rather than listed")

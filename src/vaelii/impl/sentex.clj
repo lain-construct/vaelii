@@ -87,8 +87,13 @@
 ;;   antecedent  [pattern ...]          (the antecedents — the sentence's `and` body)
 ;;   consequent  pattern                (the consequent)
 ;;   varmap      {?var0 ?x, …} | nil    (canonical variable -> the author's name)
-;;   direction   :forward | :backward | :both | :inert   (from its set/*Rule wrapper;
-;;               :both for a bare implies)
+;;   direction   :forward | :backward | :both | :forward-only | :inert   (from its
+;;               set/*Rule wrapper; :backward for a bare implies — the tractable default,
+;;               since forward chaining materializes a conclusion per match.  :forward and
+;;               :both mean forward + backward (`rules/backward?`), so a set/forwardRule
+;;               rule answers backward goals too; :forward-only (set/forwardOnlyRule)
+;;               forward-chains but never backward — a tests-only mode the ontology never
+;;               uses; a generator stays forward even bare)
 ;;   defeasible  true | nil             (a set/defaultRule rule: its conclusions are
 ;;               defeasible and fire from the one agenda like any other rule's;
 ;;               `settle` decides which of them survive a clash, from recomputed
@@ -312,7 +317,8 @@
 ;; separate meta-sentex, not folded into the record — see `exceptWhen-meta`.)
 
 (def rule-direction-wrappers
-  '{set/forwardRule :forward, set/backwardRule :backward, set/inertRule :inert})
+  '{set/forwardRule :forward, set/backwardRule :backward, set/inertRule :inert,
+    set/forwardOnlyRule :forward-only})
 
 (def default-rule-wrapper 'set/defaultRule)
 
@@ -1823,8 +1829,12 @@
   one rule per conjunct like any conjunctive consequent."
   [[pred coll cond]]
   (let [member     (list coll defn-member-var)
-        necessary  (rule-sentence [member] cond)
-        sufficient (rule-sentence (defn-condition-antecedents cond) member)]
+        ;; A companion rule materializes membership (or the condition) forward, so it is
+        ;; wrapped set/forwardRule (forward + backward) rather than left bare, which the
+        ;; backward default would otherwise make backward-only.
+        fwd        (fn [r] (list 'set/forwardRule r))
+        necessary  (fwd (rule-sentence [member] cond))
+        sufficient (fwd (rule-sentence (defn-condition-antecedents cond) member))]
     (case pred
       defnNecessary  [necessary]
       defnSufficient [sufficient]
@@ -1877,11 +1887,20 @@
         (let [antes1 (desugar-there-exists antes0)      ; standalone thereExists -> body
               [antes conseq varmap]
               (canonicalize-rule antes1 conseq0 symmetric?)
-              sent (rule-sentence antes conseq)]
+              sent (rule-sentence antes conseq)
+              ;; A bare implies is backward by default.  Forward chaining materializes a
+              ;; conclusion per match, which is intractable on a large KB, so it is opt-in
+              ;; (`set/forwardRule`).  A generator is the one exception: it stamps a rule by
+              ;; firing forward and no backward goal asks for a rule, so a bare generator
+              ;; stays forward.  `:forward` and `:both` both mean forward + backward
+              ;; (`rules/backward?`), so wrapping a rule `set/forwardRule` never removes a
+              ;; backward use it had — which is what lets a rule move to forward by adding
+              ;; the wrapper alone.
+              dir* (or dir (if (implies? (peek (peel-rule-wrapper conseq0)))
+                             :forward :backward))]
           (->RuleSentex (if (= polarity :negative) (list not-functor sent) sent)
                         ctx nil polarity antes conseq nil varmap
-                        (or dir :both)                        ; a bare implies works both ways
-                        def? assum con)))
+                        dir* def? assum con)))
       (let [b      (normalize-literal body symmetric?)
             stored (if (= polarity :negative) (list not-functor b) b)]
         ;; a wrapper on a non-rule is meaningless; it is stripped and ignored

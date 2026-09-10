@@ -1,15 +1,15 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.cli-test
-  "The command-line driver (`vaelii.impl.cli`).  `dispatch` takes data args and is the
+  "The command-line driver (`vaelii.host.cli`).  `dispatch` takes data args and is the
   whole engine surface the shell and REPL both call, so testing it (plus the arg/option
   parsing that feeds it) covers the CLI without spawning a process."
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pp]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as catalog]
-            [vaelii.impl.cli :as cli]
+            [vaelii.host.catalog :as catalog]
+            [vaelii.host.cli :as cli]
             [vaelii.impl.io.import :as imp]
             [vaelii.test-util :as tu])
   (:import [java.io File]

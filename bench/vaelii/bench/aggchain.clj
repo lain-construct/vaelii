@@ -25,7 +25,7 @@
 
   Run: `lein bench-aggchain`"
   (:require [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]))
+            [vaelii.host.core-context :as core-context]))
 
 (defn- fresh-kb
   "A KB with the CxCore vocabulary and nothing else.  The in-memory stores are

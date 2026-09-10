@@ -209,7 +209,7 @@
   ;; cannot waste one, and neither is gated on `*prefetch-candidates*`.  That is the whole
   ;; difference from the query path, and it is asserted with the setting explicitly OFF.
   (let [kb    (v/open-kb {:backend :memory :space (gensym "prefetch")})
-        _     (do (v/assert-rule kb '[(rel ?x)] '(derived ?x) 'CxPrefetch)
+        _     (do (v/assert-rule kb '[(rel ?x)] '(derived ?x) 'CxPrefetch {:direction :forward})
                   (doseq [i (range 50)]
                     (v/assert kb (list 'rel (symbol (str "Ind" i))) 'CxPrefetch)))
         hints   (atom [])
@@ -232,7 +232,7 @@
   ;; the same walks over the engine's own stores: `prefetcher` is nil, so the seq the walk
   ;; consumes is the enumeration itself and nothing is chunked.
   (let [kb (v/open-kb {:backend :memory :space (gensym "prefetch")})]
-    (v/assert-rule kb '[(rel ?x)] '(derived ?x) 'CxPrefetch)
+    (v/assert-rule kb '[(rel ?x)] '(derived ?x) 'CxPrefetch {:direction :forward})
     (doseq [i (range 20)] (v/assert kb (list 'rel (symbol (str "Ind" i))) 'CxPrefetch))
     (is (nil? (cap/prefetcher (:records kb))))
     (is (nil? (cap/justification-prefetcher (:records kb))))

@@ -85,7 +85,7 @@
     (siblings! kb CxA CxB)
     ;; the predicate hierarchy is A's; the rule and the fact are B's
     (v/assert kb (list 'genl fatherOf2 parentOf2) CxA)
-    (v/assert kb (list 'implies (list parentOf2 '?x '?y) (list ancestorOf2 '?x '?y)) CxB)
+    (v/assert kb (list 'implies (list parentOf2 '?x '?y) (list ancestorOf2 '?x '?y)) CxB {:direction :forward})
     (v/assert kb (list fatherOf2 Tom Bob) CxB)
     (testing "B does not conclude on the strength of an edge it cannot see"
       (is (empty? (v/sentexes-matching kb (list ancestorOf2 Tom Bob) CxB)))
@@ -99,7 +99,7 @@
   (tu/with-terms [fatherOf3 parentOf3 ancestorOf3 Tom Bob CxA CxB]
     (siblings! kb CxA CxB)
     (v/assert kb (list 'genl fatherOf3 parentOf3) 'CxUniverse)
-    (v/assert kb (list 'implies (list parentOf3 '?x '?y) (list ancestorOf3 '?x '?y)) CxB)
+    (v/assert kb (list 'implies (list parentOf3 '?x '?y) (list ancestorOf3 '?x '?y)) CxB {:direction :forward})
     (v/assert kb (list fatherOf3 Tom Bob) CxB)
     (is (= [CxB] (mapv :context (v/sentexes-matching kb (list ancestorOf3 Tom Bob) CxB))))))
 
@@ -108,7 +108,7 @@
   ;; stored, or the same three sentences mean different things in different orders
   (tu/with-terms [dog4_t animal4_t breathes4 Muffet]
     (v/assert kb (list 'genl animal4_t 'thing) 'CxUniverse)
-    (v/assert kb (list 'implies (list animal4_t '?x) (list breathes4 '?x)) 'CxUniverse)
+    (v/assert kb (list 'implies (list animal4_t '?x) (list breathes4 '?x)) 'CxUniverse {:direction :forward})
     (v/assert kb (list dog4_t Muffet) 'CxUniverse)
     (is (empty? (v/sentexes-matching kb (list breathes4 Muffet) 'CxUniverse))
         "nothing yet — dog4_t is not a kind of animal4_t")
@@ -120,7 +120,7 @@
   (tu/with-terms [dog5_t animal5_t breathes5 Muffet]
     (v/assert kb (list 'genl animal5_t 'thing) 'CxUniverse)
     (v/assert kb (list 'genl dog5_t animal5_t) 'CxUniverse)
-    (v/assert kb (list 'implies (list animal5_t '?x) (list breathes5 '?x)) 'CxUniverse)
+    (v/assert kb (list 'implies (list animal5_t '?x) (list breathes5 '?x)) 'CxUniverse {:direction :forward})
     (v/assert kb (list dog5_t Muffet) 'CxUniverse)
     (is (seq (v/sentexes-matching kb (list breathes5 Muffet) 'CxUniverse)))))
 
@@ -467,7 +467,7 @@
     (v/assert kb (list 'genl q1_t 'thing) 'CxUniverse)
     (v/assert kb (list 'genl q2_t 'thing) 'CxUniverse)
     (v/assert kb (list 'implies (list needsSep14 '?x) (list 'disjoint q1_t q2_t))
-              'CxUniverse)
+              'CxUniverse {:direction :forward})
     (v/assert kb (list needsSep14 'Go) 'CxUniverse)
     (is (v/disjoint? kb q1_t q2_t 'CxUniverse)
         "the rule-concluded separation constrains the moment it is believed")))

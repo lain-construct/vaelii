@@ -69,10 +69,10 @@
     (v/assert kb (list 'arity pseen 2) CxRB)
     (v/assert kb (list 'implies (list pmark '?rel)
                        (list 'implies (list '?rel '?x '?y) (list pseen '?x)))
-              CxRB)
+              CxRB {:direction :forward})
     ;; pmark is a DEFAULT, so defeating it leaves the mint stored and indexed while OUT
     (v/assert kb (list 'set/defaultRule
-                       (list 'implies (list 'and (list trig '?p)) (list pmark '?p)))
+                       (list 'set/forwardRule (list 'implies (list 'and (list trig '?p)) (list pmark '?p))))
               CxRB)
     (v/assert kb (list trig pbigger) CxRB)
     (is (some? (stamped-rule kb CxRB)) "the rule was stamped")
@@ -105,9 +105,9 @@
         ;; only ever fires through the qualitative re-join over the pairs that moved.
         (v/assert kb (list 'implies (list qmark '?rel)
                            (list 'implies (list '?rel '?x '?y) (list qseen '?x)))
-                  CxRBQ)
+                  CxRBQ {:direction :forward})
         (v/assert kb (list 'set/defaultRule
-                           (list 'implies (list 'and (list trig '?p)) (list qmark '?p)))
+                           (list 'set/forwardRule (list 'implies (list 'and (list trig '?p)) (list qmark '?p))))
                   CxRBQ)
         (v/assert kb (list trig 'partOfRegion) CxRBQ)
         (is (some? (stamped-rule kb CxRBQ)) "the rule was stamped")

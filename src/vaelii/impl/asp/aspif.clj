@@ -8,21 +8,31 @@
 
    **This emits what the engine's programs are built from**, and no more:
    the rule line (type 1) as facts, choice atoms, normal rules and
-   integrity constraints, plus minimize (2) and output (4).
+   integrity constraints, weight-body rules and constraints (the
+   cardinality bound a `asp/atMost` / `asp/atLeast` translates to), plus
+   minimize (2) and output (4).
 
    The rest of the format — projection (3), externals (5), assumptions
    (6), heuristics (7), acyclicity edges (8), and type 1's disjunctive
-   and multi-head choice heads and weight bodies — has no encoder here.
-   An encoder nobody executes is not coverage of a format; it is
-   unverified text generation claiming to be. What the engine needs, it
-   emits and its tests exercise, and nothing else is written here.
+   and multi-head choice heads — has no encoder here. An encoder nobody
+   executes is not coverage of a format; it is unverified text generation
+   claiming to be. What the engine needs, it emits and its tests
+   exercise, and nothing else is written here.
 
    Wire format of what is emitted (line-oriented, space-separated):
      Line 1: `asp 1 0 0`
      Rule:     1 <head_type> <head_size> <head...> <body_type> <body_size> <lits...>
                  head_type = 0 disjunctive | 1 choice
                  body_type = 0 normal (list of signed literals)
+                        or = 1 weight  (a cardinality/weight body)
                  body literal: +atom for positive, -atom for default-negated
+     Weight body: 1 <lower_bound> <n> <lit_1> <w_1> ... <lit_n> <w_n>
+                 satisfied when the summed weight of the satisfied literals is
+                 at least <lower_bound>.  A cardinality constraint is the unit-weight
+                 case: `k+1 <= #count{ ... }` is a weight body of bound k+1 over
+                 weight-1 literals.  Emitted headless (an integrity constraint that
+                 excludes any model reaching the bound) or with a head (an atom that
+                 holds when the bound is reached, for a soft/minimized violation).
      Minimize: 2 <priority> <n> <lit_1> <w_1> ... <lit_n> <w_n>
      Output:   4 <str_len> <str> <n_conditions> <atoms...>
      End:      0
@@ -66,6 +76,32 @@
   [body]
   {:type :constraint :body (vec body)})
 
+(defn weight-constraint
+  "Integrity constraint with a weight body: `:- lower-bound <= #sum{ ... }`.
+   Forbids models in which the summed weight of the satisfied body literals
+   reaches `lower-bound`. `weighted-literals` is a seq of `[literal weight]`
+   pairs (a literal is a positive atom-id or negative for default negation).
+
+   A cardinality bound is the unit-weight case: at-most-`k` over atoms `M`
+   forbids `k+1` of them holding — bound `k+1` over each `[m 1]`; at-least-`k`
+   forbids `|M|-k+1` of them absent — bound `|M|-k+1` over each `[-m 1]`."
+  [lower-bound weighted-literals]
+  {:type :weight-constraint
+   :bound lower-bound
+   :literals (vec weighted-literals)})
+
+(defn weight-rule
+  "Normal rule `head :- lower-bound <= #sum{ ... }` with a weight body: `head`
+   holds when the summed weight of the satisfied body literals reaches
+   `lower-bound`. The soft counterpart to `weight-constraint` — the derived head
+   is a violation atom a `minimize` then penalizes, so breaching the bound costs
+   rather than excludes."
+  [head lower-bound weighted-literals]
+  {:type :weight-rule
+   :head head
+   :bound lower-bound
+   :literals (vec weighted-literals)})
+
 (defn minimize
   "Weak constraint (minimize statement). `weighted-literals` is a seq of
    `[literal weight]` pairs. Priorities combine lexicographically when
@@ -90,6 +126,13 @@
     (str " 0 " (count body) " " (str/join " " body))
     " 0 0"))
 
+(defn- weight-body-tail
+  "Render a weight body: `1 <lower_bound> <n> <lit_1> <w_1> ... <lit_n> <w_n>`.
+   Returns a string with a leading space so it concatenates directly to a head."
+  [lower-bound weighted-literals]
+  (str " 1 " lower-bound " " (count weighted-literals)
+       (str/join (for [[lit w] weighted-literals] (str " " lit " " w)))))
+
 (defmulti ^:private emit-line :type)
 
 (defmethod emit-line :fact [{:keys [atom]}]
@@ -107,6 +150,14 @@
 (defmethod emit-line :constraint [{:keys [body]}]
   ;; 1 0 0 0 <|body|> <lits...>
   (str "1 0 0" (body-tail body)))
+
+(defmethod emit-line :weight-constraint [{:keys [bound literals]}]
+  ;; 1 0 0 1 <lb> <n> <lit_1> <w_1> ...
+  (str "1 0 0" (weight-body-tail bound literals)))
+
+(defmethod emit-line :weight-rule [{:keys [head bound literals]}]
+  ;; 1 0 1 <head> 1 <lb> <n> <lit_1> <w_1> ...
+  (str "1 0 1 " head (weight-body-tail bound literals)))
 
 (defmethod emit-line :minimize [{:keys [priority literals]}]
   ;; 2 <priority> <n> <lit_1> <w_1> ... <lit_n> <w_n>

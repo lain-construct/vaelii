@@ -15,7 +15,7 @@
 
     A  the fables' question set — `vaelii.world`'s cast and the four Aesop stories, asked
        the way `stories_test` asks them (`sentexes-matching`, `ask?`, `isa?`, `why-not`);
-    B  the starter KB's worked examples (`impl/examples`), one `examples/run` each, which
+    B  the starter KB's worked examples (`host/examples`), one `examples/run` each, which
        is what a render of the commonsense gallery does;
     C  the rule-expanding half — `query` at a depth, `prove`, `escalate` climbing to
        level 7 — the path whose leaf is the registry and which therefore drives
@@ -47,13 +47,13 @@
             [clojure.walk :as walk]
             [vaelii.core :as v]
             [vaelii.impl.caches :as caches]
-            [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.examples :as examples]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.examples :as examples]
             [vaelii.impl.literal-cache :as lc]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.provers :as provers]
-            [vaelii.impl.sandbox :as sandbox]
-            [vaelii.impl.starter :as starter]
+            [vaelii.host.sandbox :as sandbox]
+            [vaelii.host.starter :as starter]
             [vaelii.koinii.channel :as ch]
             [vaelii.koinii.dispute :as d]
             [vaelii.koinii.identity :as id]

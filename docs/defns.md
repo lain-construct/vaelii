@@ -110,6 +110,16 @@ evaluables answer rather than on facts anybody asserted, so nothing matches the 
 body and `(positive_integer 7)` does not arrive by forward chaining. Two provers in the
 registry answer the question where it is asked instead.
 
+`matchesPattern` extends the evaluable set from numbers to strings: `(matchesPattern
+?string ?pattern)` holds when the whole of a ground `?string` matches the regular
+expression `?pattern`, and it answers false for a non-string subject. A string subtype is
+therefore defined by the shape check alone — `(defnSufficient dotted_quad (matchesPattern
+?x "\d+\.\d+\.\d+\.\d+"))`, the pattern a Clojure string so each backslash is written
+twice — with no separate `(string ?x)` conjunct, which the registry does not evaluate. The
+match runs through a step-limited view, so a catastrophically-backtracking pattern is a
+`:pattern-too-costly` refusal rather than an unbounded match, and a pattern that does not
+compile is refused at the assert entry point.
+
 **`DefnSufficientProver`** takes a ground unary goal `(Coll a)`, substitutes `a` for the
 member variable in the sufficient conditions `Coll`'s spec ancestor set carries, and asks the
 registry whether the condition holds — which *evaluates* the computed conjuncts. It runs

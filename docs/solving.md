@@ -112,6 +112,70 @@ rather than excludes. An adjacency clash is not tradeable, which is what makes `
 class a colouring wants — and a program whose hard constraints already pin what must be
 chosen is the one `:sat` below is for.
 
+## `atMost` / `atLeast` — a cardinality bound over the choices
+
+`functional P` is at-most-one value per subject. A bound past one needs its own
+construct, because a hand-written encoding of at-most-`k` grounds one hard constraint per
+`(k+1)`-subset of the contending heads — `C(n, k+1)` of them, which an application caps
+its own inputs to keep finite. `atMost` / `atLeast` state the bound directly:
+
+```clojure
+(asp/atMost 6 ?c (build ?c transport))     ; at most 6 heads (build _ transport) hold
+(asp/atLeast 1 ?t (assign ?a ?t))          ; at least 1 (assign a _) per group
+(asp/softAtMost 6 ?c (build ?c transport)) ; the soft twins minimize a breach instead
+(asp/softAtLeast 1 ?t (assign ?a ?t))
+```
+
+The surface mirrors `agg/count`'s projection ([aggregate.md](aggregate.md)): `?c` is the
+**counted** variable, and the pattern's **other** variables are the **group**, so a bound
+is stated once per ground combination of them. `(asp/atMost 6 ?c (build ?c transport))`
+has no other variable, so it is one global bound over every ground `(build _ transport)`
+head; `(asp/atMost 1 ?a (ferry ?a ?t))` groups by `?t`, so it is one bound per transport.
+
+**Grounding is one solver cardinality atom per group, not a subset of nogoods.** The rule
+is stored as a constraint rule whose consequent marker carries the operator and the count
+(`rules/normalize-cardinality`); `solve-context` matches its pattern against the ground
+choice heads, groups the matches by the group binding, and emits one `:cardinalities`
+entry per group. `edge/translate` renders each as a single ASPIF weight-body statement —
+`:- k+1 <= #count{ ... }` for a hard at-most, its default-negated mirror for at-least —
+so a cap of 10 over 30 heads is one constraint rather than `C(30, 11)` ≈ 54M. An
+application that clamped its inputs to keep the subset expansion finite can drop the clamp
+and offer the full set.
+
+**Hard excludes, soft costs once.** A hard bound is a weight-body integrity constraint: a
+model reaching it is excluded. A soft bound derives a violation atom the same minimize
+path penalizes, so breaching it costs the constraint's weight **once** — not once per unit
+of overshoot. A soft bound is the generalization of a soft `set/hardConstraint`'s
+per-binding cost, and it composes with `functional` on the same predicate: the two bounds
+are separate constraints over the same heads.
+
+**Two degenerate groups read as you would expect.** An at-most-`k` with `k` at least the
+group size is vacuous and emits nothing. An at-least-`k` over a group smaller than `k` is
+infeasible — a hard one excludes every model, a soft one always costs. An **empty** group
+reads by whether the bound is global or grouped. A **global** bound — the counted variable
+is the pattern's only variable — is one group even when no head matches, so a global
+at-least over a choice predicate that grounds to nothing is infeasible, the way a
+single-candidate one under an at-least of two is. A **grouped** bound is only the groups
+some head realizes, so a group binding no head holds vacuously, the way a
+universally-quantified constraint over an empty domain does.
+
+**Why the bound is not `agg/count`.** The two count different things. `agg/count`
+([aggregate.md](aggregate.md)) is a census over *believed* facts, recomputed at query time
+outside any solve; a choice head is never believed (an `assumptionRule` does not chain), so
+a census would count zero, and a census outside the search cannot prune the models the
+solve enumerates. A cardinality bound has to be a **solver** cardinality atom that prunes
+inside the search — which is what `atMost` / `atLeast` translate to, and `agg/count` is not
+in that path.
+
+**Every head weighs one, today.** A cardinality bound is `#count` — the unit-weight case
+of `#sum`, which is the aggregate `edge/translate`'s weight body actually emits (each
+member rides at weight 1). A weighted `asp/atMostSum` / `asp/atLeastSum` — each head
+contributing a weight read from a fact, so a bound on total tonnage rather than headcount —
+is the natural extension, and a small one: the encoding layer already carries arbitrary
+weights, so only the surface (a weight variable and the body that binds it) and the
+grounding's weight lookup are missing. It is unbuilt because no consumer needs a weighted
+bound yet; the count is what an at-most-`k` on a choice predicate is.
+
 ## The inert-fact primitive
 
 `core/assert-inert` stores and indexes a sentex but **skips the belief step**

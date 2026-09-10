@@ -1,8 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-text-test
-  "The reading path: `vaelii.impl.llm.text`, `vaelii.impl.llm.session/propose-text`, and
-  `vaelii.impl.llm.score`.
+  "The reading path: `vaelii.host.llm.text`, `vaelii.host.llm.session/propose-text`, and
+  `vaelii.host.llm.score`.
 
   Everything above the live section runs **offline against the stub** — no host, no model,
   no socket — because what is under test is the machinery rather than a model's judgement:
@@ -19,12 +19,12 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.llm.ollama :as ollama]
-            [vaelii.impl.llm.score :as score]
-            [vaelii.impl.llm.session :as session]
-            [vaelii.impl.llm.stub :as stub]
-            [vaelii.impl.llm.text :as text]
-            [vaelii.impl.starter :as starter]
+            [vaelii.host.llm.ollama :as ollama]
+            [vaelii.host.llm.score :as score]
+            [vaelii.host.llm.session :as session]
+            [vaelii.host.llm.stub :as stub]
+            [vaelii.host.llm.text :as text]
+            [vaelii.host.starter :as starter]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]
             [vaelii.world-fables :as fables]))
@@ -167,10 +167,10 @@
 
 (deftest nothing-in-the-reading-path-writes
   (testing "the namespace holds no call that could store or retract"
-    (let [src (slurp (io/resource "vaelii/impl/llm/text.clj"))]
+    (let [src (slurp (io/resource "vaelii/host/llm/text.clj"))]
       (doseq [call ["(v/assert" "(v/edit!" "(v/retract" "(v/ist" "(v/add-provenance"]]
         (is (not (str/includes? src call))
-            (str "vaelii.impl.llm.text reaches a write: " call))))))
+            (str "vaelii.host.llm.text reaches a write: " call))))))
 
 (tu/deftest-kb reading-a-document-leaves-the-kb-byte-identical
   (let [before-sx (set (map :id (v/sentexes-in-context kb 'CxLionMouse)))

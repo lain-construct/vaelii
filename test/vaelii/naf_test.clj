@@ -116,7 +116,7 @@
   (tu/with-terms [pp qq rr Aa Bb]
     ;; (pp ?x) & unknown(qq ?x) => (rr ?x)
     (v/assert kb (list 'implies (list 'and (list 'pp '?x) (list 'unknown (list 'qq '?x))) (list 'rr '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list 'pp Aa) 'CxWell)          ; qq Aa absent -> fires
     (v/assert kb (list 'qq Bb) 'CxWell)          ; qq Bb present *before* pp Bb -> blocked
     (v/assert kb (list 'pp Bb) 'CxWell)
@@ -130,7 +130,7 @@
 (tu/deftest-kb unknown-is-order-independent-block-then-revive
   (tu/with-terms [pp qq rr Aa]
     (v/assert kb (list 'implies (list 'and (list 'pp '?x) (list 'unknown (list 'qq '?x))) (list 'rr '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list 'pp Aa) 'CxWell)
     (testing "derived while the NAF query is absent"
       (is (v/ask? kb (list 'rr Aa) 'CxWell)))
@@ -155,7 +155,7 @@
   (tu/with-terms [pp qq rr Kept Retired]
     (v/assert kb (list 'implies (list 'and (list pp '?x) (list 'unknown (list qq '?x)))
                        (list rr '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list qq Kept) 'CxWell)
     (v/assert kb (list pp Retired) 'CxWell)
     (is (v/ask? kb (list rr Retired) 'CxWell)
@@ -180,7 +180,7 @@
     (v/assert kb (list 'implies (list 'and (list pp '?x)
                                       (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                        (list ss '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list qq Kept) 'CxWell)
     (v/assert kb (list rr Retired) 'CxWell)
     (v/assert kb (list pp Retired) 'CxWell)
@@ -204,7 +204,7 @@
     (v/assert kb (list 'implies (list 'and (list pp '?x)
                                       (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                        (list ss '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list qq Kept) 'CxWell)
     (v/assert kb (list rr Retired) 'CxWell)
     (v/assert kb (list pp Retired) 'CxWell)
@@ -218,7 +218,7 @@
     (v/assert kb (list 'rewriteOf Kept Retired) 'CxWell)
     (v/assert kb (list 'implies (list 'and (list pp '?x) (list 'unknown (list qq '?x)))
                        (list rr '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list qq Kept) 'CxWell)
     (v/assert kb (list pp Retired) 'CxWell)
     (is (empty? (v/sentexes-matching kb (list rr '?x) 'CxWell))
@@ -230,7 +230,7 @@
     (v/assert kb (list 'implies (list 'and (list 'person '?p)
                                       (list 'unknown (list 'thereExists '?c (list 'owns '?c '?p))))
                        (list 'ownerless '?p))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list 'person Zed) 'CxWell)
     (testing "holds while nothing witnesses the existential"
       (is (v/ask? kb (list 'ownerless Zed) 'CxWell)))
@@ -247,7 +247,7 @@
     (v/assert kb (list 'implies (list 'and (list 'person '?x)
                                       (list 'thereExists '?y (list 'parentOf '?x '?y)))
                        (list 'a_parent '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list 'human Dad) 'CxWell)
     (v/assert kb (list 'person Childless) 'CxWell)
     (v/assert kb (list 'parentOf Dad Kid) 'CxWell)
@@ -266,7 +266,7 @@
     (v/assert kb (list 'implies (list 'and (list pp '?x)
                                       (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                        (list ss '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list qq Both) 'CxWell)
     (v/assert kb (list rr Both) 'CxWell)
     (v/assert kb (list qq One) 'CxWell)
@@ -285,7 +285,7 @@
     (v/assert kb (list 'implies (list 'and (list pp '?x)
                                       (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                        (list ss '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list pp Aa) 'CxWell)
     (v/assert kb (list qq Aa) 'CxWell)
     (is (v/ask? kb (list ss Aa) 'CxWell)
@@ -344,7 +344,7 @@
                                             (list 'and (list 'thereExists '?c (list kidOf '?x '?c))
                                                   (list adult '?x))))
                        (list lonely '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list 'person Ppp) 'CxWell)
     (v/assert kb (list adult Ppp) 'CxWell)
     (is (v/ask? kb (list lonely Ppp) 'CxWell)
@@ -385,7 +385,7 @@
                                       (list 'unknown (list 'and (list 'not (list ff '?x))
                                                            (list aa '?x))))
                        (list oo '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list bb Ned) 'CxWell)
     (v/assert kb (list aa Ned) 'CxWell)
     (is (v/ask? kb (list oo Ned) 'CxWell)
@@ -404,7 +404,7 @@
                                             (list 'and (list 'agg/count 2 '?c (list kidOf '?x '?c))
                                                   (list adult '?x))))
                        (list gg '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list 'person Moe) 'CxWell)
     (v/assert kb (list adult Moe) 'CxWell)
     (v/assert kb (list kidOf Moe K1) 'CxWell)
@@ -421,16 +421,16 @@
     (let [h1 (v/assert kb (list 'implies (list 'and (list pp '?x)
                                                (list 'unknown (list 'and (list qq '?x) (list rr '?x))))
                                 (list ss '?x))
-                       'CxWell)
+                       'CxWell {:direction :forward})
           h2 (v/assert kb (list 'implies (list 'and (list pp '?y)
                                                (list 'unknown (list 'and (list rr '?y) (list qq '?y))))
                                 (list ss '?y))
-                       'CxWell)
+                       'CxWell {:direction :forward})
           h3 (v/assert kb (list 'implies (list 'and (list pp '?z)
                                                (list 'unknown (list 'and (list qq '?z) (list rr '?z)
                                                                     (list qq '?z))))
                                 (list ss '?z))
-                       'CxWell)]
+                       'CxWell {:direction :forward})]
       (is (= h1 h2) "two spellings of one conjunction are one rule")
       (is (= h1 h3) "and a repeated conjunct is not a different condition"))))
 
@@ -439,10 +439,10 @@
     (let [h1 (v/assert kb (list 'implies (list 'and (list mm '?x)
                                                (list 'unknown (list 'and (list nn '?x))))
                                 (list zz '?x))
-                       'CxWell)
+                       'CxWell {:direction :forward})
           h2 (v/assert kb (list 'implies (list 'and (list mm '?y) (list 'unknown (list nn '?y)))
                                 (list zz '?y))
-                       'CxWell)]
+                       'CxWell {:direction :forward})]
       (is (= h1 h2) "a lone conjunct is the bare literal, and stores as it"))))
 
 ;; ---- well-formedness of NAF rule antecedents ----------------------------
@@ -460,7 +460,7 @@
                                                                  (list 'unknown (list sick '?c))))
                                   (list 'lessThan 1 '?n))
                             (list counted '?x))
-                   'CxWell)))
+                   'CxWell {:direction :forward})))
     (testing "and the same body with a generator binding it is admitted"
       (is (some? (v/assert kb (list 'implies
                                     (list 'and (list person '?x)
@@ -469,7 +469,7 @@
                                                       (list sick '?c)))
                                           (list 'lessThan 1 '?n))
                                     (list counted '?x))
-                           'CxWell))))))
+                           'CxWell {:direction :forward}))))))
 
 ;; ---- the joined NAF query: conjuncts sharing a quantifier's variable ----
 
@@ -496,7 +496,7 @@
                                                   (list 'and (list childOf '?x '?c)
                                                         (list sick '?c)))))
                        (list unworried '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list person Tom) 'CxWell)
     (v/assert kb (list childOf Tom Kid) 'CxWell)
     (testing "no sick child, so the rule fires"
@@ -521,7 +521,7 @@
                                                   (list 'and (list childOf '?x '?c)
                                                         (list sick '?c)))))
                        (list unworried '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (is (not (v/ask? kb (list unworried Tom) 'CxWell))
         "the rule never fires, which is the answer the other arrival order settles on")))
 
@@ -535,10 +535,10 @@
                                                   (list 'and (list childOf '?x '?c)
                                                         (list sick '?c)))))
                        (list unworried '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo #"not stratified"
-         (v/assert kb (list 'implies (list unworried '?y) (list sick '?y)) 'CxWell)))))
+         (v/assert kb (list 'implies (list unworried '?y) (list sick '?y)) 'CxWell {:direction :forward})))))
 
 (tu/deftest-kb a-standalone-existential-over-a-conjunction-is-the-join-written-out
   ;; A *positive* standalone `thereExists` needs no NAF machinery: its conjunction is
@@ -549,10 +549,10 @@
                                                  (list 'and (list parentOf '?x '?c)
                                                        (list sick '?c))))
                                 (list worried '?x))
-                       'CxWell)
+                       'CxWell {:direction :forward})
           h2 (v/assert kb (list 'implies (list 'and (list parentOf '?p '?k) (list sick '?k))
                                 (list worried '?p))
-                       'CxWell)]
+                       'CxWell {:direction :forward})]
       (is (= h1 h2) "the desugared rule is the hand-written join, to the same handle"))
     (v/assert kb (list parentOf Ann Kid) 'CxWell)
     (v/assert kb (list sick Kid) 'CxWell)
@@ -590,7 +590,7 @@
     (v/assert kb (list 'implies (list 'and (list candidate '?m)
                                       (list 'not (list month_of_year '?m)))
                        (list not_a_month '?m))
-              CxCalendar)
+              CxCalendar {:direction :forward})
     (v/assert kb (list candidate Smarch) CxCalendar)
     (testing "the rule fires on the absence of a member, with nothing negative stored"
       (is (v/ask? kb (list not_a_month Smarch) CxCalendar))
@@ -614,7 +614,7 @@
     (v/assert kb (list 'implies (list 'and (list candidate '?m)
                                       (list 'not (list month_of_year '?m)))
                        (list not_a_month '?m))
-              CxCalendar)
+              CxCalendar {:direction :forward})
     (v/assert kb (list 'closed_extent_predicate month_of_year) CxCalendar)
     (testing "the grant arriving after the rule is what makes it fire"
       (is (v/ask? kb (list not_a_month Smarch) CxCalendar)))
@@ -629,7 +629,7 @@
     (v/assert kb (list 'implies (list 'and (list candidate '?m)
                                       (list 'not (list month_of_year '?m)))
                        (list not_a_month '?m))
-              CxCalendar)
+              CxCalendar {:direction :forward})
     (v/assert kb (list candidate Smarch) CxCalendar)
     (v/assert kb (list 'not (list month_of_year Smarch)) CxCalendar)
     (is (v/ask? kb (list not_a_month Smarch) CxCalendar)
@@ -645,7 +645,7 @@
            (v/assert kb (list 'implies (list 'and (list candidate '?m)
                                              (list 'not (list month_of_year '?m)))
                               (list month_of_year '?m))
-                     CxCalendar))))))
+                     CxCalendar {:direction :forward}))))))
 
 (tu/deftest-kb a-grant-that-would-close-a-cycle-is-refused
   ;; The other arrival order: the rule is stored first, and the grant is what would add
@@ -655,7 +655,7 @@
     (v/assert kb (list 'implies (list 'and (list candidate '?m)
                                       (list 'not (list month_of_year '?m)))
                        (list month_of_year '?m))
-              CxCalendar)
+              CxCalendar {:direction :forward})
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo #"not stratified"
          (v/assert kb (list 'closed_extent_predicate month_of_year) CxCalendar)))))
@@ -714,7 +714,7 @@
                              (list 'forall '?y (list 'implies (list childOf '?x '?y)
                                                      (list asleep '?y))))
                        (list all_kids_asleep '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list person Bob) 'CxWell)
     (testing "vacuously true - Bob has no children, so nothing is a counterexample"
       (is (v/ask? kb (list all_kids_asleep Bob) 'CxWell)))
@@ -751,7 +751,7 @@
                              (list 'forall '?y (list 'implies (list childOf '?x '?y)
                                                      (list asleep '?y))))
                        (list all_kids_asleep '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (is (not (v/ask? kb (list all_kids_asleep Bob) 'CxWell)))
     (v/assert kb (list asleep Kid1) 'CxWell)
     (is (v/ask? kb (list all_kids_asleep Bob) 'CxWell)
@@ -765,16 +765,16 @@
                              (list 'forall '?y (list 'implies (list childOf '?x '?y)
                                                      (list asleep '?y))))
                        (list all_kids_asleep '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (testing "a rule concluding the forall's head predicate closes the cycle"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb (list 'implies (list all_kids_asleep '?z) (list asleep '?z)) 'CxWell))))
+           (v/assert kb (list 'implies (list all_kids_asleep '?z) (list asleep '?z)) 'CxWell {:direction :forward}))))
     (testing "and so does one concluding its body predicate"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
            (v/assert kb (list 'implies (list all_kids_asleep '?z) (list childOf '?z '?z))
-                     'CxWell))))))
+                     'CxWell {:direction :forward}))))))
 
 (tu/deftest-kb a-forall-binder-that-escapes-is-refused
   (tu/with-terms [person childOf asleep flagged]
@@ -785,7 +785,7 @@
                                   (list 'forall '?y (list 'implies (list childOf '?x '?y)
                                                           (list asleep '?y))))
                             (list flagged '?x))
-                   'CxWell)))))
+                   'CxWell {:direction :forward})))))
 
 (tu/deftest-kb forall-is-not-assertible
   (tu/with-terms [childOf asleep Bob Kid]
@@ -812,7 +812,7 @@
                                                        (list 'and (list childOf '?x '?x)
                                                              (list 'unknown (list asleep '?c))))))
                             (list settled '?x))
-                   'CxWell)))))
+                   'CxWell {:direction :forward})))))
 
 (tu/deftest-kb an-empty-NAF-conjunction-is-refused
   (tu/with-terms [person nobody]
@@ -821,7 +821,7 @@
            clojure.lang.ExceptionInfo #"empty conjunction"
            (v/assert kb (list 'implies (list 'and (list person '?x) (list 'unknown (list 'and)))
                               (list nobody '?x))
-                     'CxWell))))))
+                     'CxWell {:direction :forward}))))))
 
 (tu/deftest-kb unknown-must-be-closed-by-the-generators
   (tu/with-terms [person likes knows loner]
@@ -830,7 +830,7 @@
            clojure.lang.ExceptionInfo #"not closed"
            (v/assert kb (list 'implies (list 'and (list 'person '?x) (list 'unknown (list 'likes '?x '?z)))
                               (list 'loner '?x))
-                     'CxWell))))
+                     'CxWell {:direction :forward}))))
     (testing "and so is a conjunction one of whose conjuncts is open — closure is what
               makes the conjuncts independent ground checks"
       (is (thrown-with-msg?
@@ -839,7 +839,7 @@
                                              (list 'unknown (list 'and (list knows '?x)
                                                                   (list likes '?x '?z))))
                               (list 'loner '?x))
-                     'CxWell))))))
+                     'CxWell {:direction :forward}))))))
 
 (tu/deftest-kb there-exists-variable-must-be-local
   (tu/with-terms [person foo bar]
@@ -848,7 +848,7 @@
            clojure.lang.ExceptionInfo #"escapes its quantifier"
            (v/assert kb (list 'implies (list 'and (list 'person '?x) (list 'thereExists '?x (list 'foo '?x)))
                               (list 'bar '?x))
-                     'CxWell))))))
+                     'CxWell {:direction :forward}))))))
 
 ;; ---- stratification: no cycle through negation --------------------------
 
@@ -857,17 +857,17 @@
     (testing "an acyclic NAF rule is accepted"
       (is (v/assert kb (list 'implies (list 'and (list 'aa '?x) (list 'unknown (list 'bb '?x)))
                              (list 'cc '?x))
-                    'CxWell)))
+                    'CxWell {:direction :forward})))
     (testing "closing the loop — a rule concluding the NAF predicate — is refused"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb (list 'implies (list 'cc '?x) (list 'bb '?x)) 'CxWell))))
+           (v/assert kb (list 'implies (list 'cc '?x) (list 'bb '?x)) 'CxWell {:direction :forward}))))
     (testing "a one-rule cycle (unknown on what it concludes) is refused"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
            (v/assert kb (list 'implies (list 'and (list 'dd '?x) (list 'unknown (list 'ee '?x)))
                               (list 'ee '?x))
-                     'CxWell))))))
+                     'CxWell {:direction :forward}))))))
 
 (tu/deftest-kb a-cycle-through-any-conjunct-of-a-NAF-conjunction-is-refused
   ;; Every conjunct is a negative dependency, not just the first: the negative edges are
@@ -879,16 +879,16 @@
     (is (v/assert kb (list 'implies (list 'and (list gg '?x)
                                           (list 'unknown (list 'and (list aa '?x) (list bb '?x))))
                            (list cc '?x))
-                  'CxWell)
+                  'CxWell {:direction :forward})
         "the acyclic conjunctive rule is accepted")
     (testing "closing the loop through the first conjunct is refused"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb (list 'implies (list cc '?x) (list aa '?x)) 'CxWell))))
+           (v/assert kb (list 'implies (list cc '?x) (list aa '?x)) 'CxWell {:direction :forward}))))
     (testing "and through the second, which is the one a single-predicate key would miss"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb (list 'implies (list cc '?x) (list bb '?x)) 'CxWell))))))
+           (v/assert kb (list 'implies (list cc '?x) (list bb '?x)) 'CxWell {:direction :forward}))))))
 
 ;; ---- backward agreement: a NAF antecedent under rule expansion ----------
 ;; A backward-only rule cannot be pre-materialized by forward chaining, so whoever
@@ -977,7 +977,7 @@
                                       (list 'unknown (list 'qq '?x))
                                       (list 'unknown (list 'ss '?x)))
                        (list 'rr '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list 'pp Aa) 'CxWell)
     (testing "fires only when BOTH inners are absent"
       (is (v/ask? kb (list 'rr Aa) 'CxWell)))
@@ -1000,7 +1000,7 @@
     (v/assert kb (list 'genl sub super) 'CxWell)
     (v/assert kb (list 'implies (list 'and (list pp '?x) (list 'unknown (list super '?x)))
                        (list rr '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list pp Aa) 'CxWell)
     (testing "with no super/sub membership, it fires"
       (is (v/ask? kb (list rr Aa) 'CxWell)))
@@ -1026,7 +1026,7 @@
     ;; rule + generator live in SubA, so the conclusion is placed in SubA
     (v/assert kb (list 'implies (list 'and (list 'pp '?x) (list 'unknown (list 'qq '?x)))
                        (list 'rr '?x))
-              CxSubA)
+              CxSubA {:direction :forward})
     (v/assert kb (list 'pp Aa) CxSubA)
     (testing "the conclusion is derived in SubA"
       (is (v/ask? kb (list 'rr Aa) CxSubA)))

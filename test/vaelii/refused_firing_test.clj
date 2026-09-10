@@ -41,7 +41,7 @@
   "`(fmark ?x) => (fseen ?x)`, excepted when the inherited claim holds."
   [kb]
   (v/assert kb '(exceptWhen (fbigger fchi fmc)
-                            (set/defaultRule (implies (and (fmark ?x)) (fseen ?x))))
+                            (set/defaultRule (set/forwardRule (implies (and (fmark ?x)) (fseen ?x)))))
             ctx))
 
 (deftest a-firing-refused-at-derive-time-is-re-derived-when-a-fact-releases-it
@@ -95,7 +95,7 @@
       (v/assert kb '(genl emc ecat) ctx)
       (v/assert kb '(ebigger edog ecat) ctx)
       (v/assert kb '(exceptWhen (ebigger echi emc)
-                                (set/defaultRule (implies (and (emark ?x)) (eseen ?x))))
+                                (set/defaultRule (set/forwardRule (implies (and (emark ?x)) (eseen ?x)))))
                 ctx)
       ;; the converse lives where the rule's own context cannot see it
       (v/assert kb '(ebigger emc echi) 'CxFAside)
@@ -115,7 +115,7 @@
   exception is a fact that can simply be retracted."
   [kb]
   (v/assert kb '(exceptWhen (rskip ?x)
-                            (set/defaultRule (implies (and (rmark ?x)) (rseen ?x))))
+                            (set/defaultRule (set/forwardRule (implies (and (rmark ?x)) (rseen ?x)))))
             ctx))
 
 (deftest a-refusal-is-recorded-and-retired-when-it-fires

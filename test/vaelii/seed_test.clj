@@ -3,10 +3,10 @@
 (ns vaelii.seed-test
   "Ontology KB files: declarative KB content held as plain text under resources/kb/,
   one file per context, the file name the context, the sub-directory the layer.
-  Every context present is discovered and loaded on kb start (vaelii.impl.starter)."
+  Every context present is discovered and loaded on kb start (vaelii.host.starter)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.seed :as seed]
+            [vaelii.host.seed :as seed]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))

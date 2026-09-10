@@ -12,10 +12,10 @@
   lengths are of different dimensions is refused rather than added up."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.duration :as dur]
             [vaelii.impl.provers :as provers]
-            [vaelii.impl.seed :as seed]
             [vaelii.test-util :as tu])
   (:import [vaelii.impl.duration DurationProver]))
 

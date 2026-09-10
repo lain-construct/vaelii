@@ -18,7 +18,7 @@
   `borderlineExample` is truth-agnostic and carries no such obligation."
   (:require [clojure.test :refer [is use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
@@ -160,7 +160,7 @@
             h (sx/sentex-handle p)]
         ;; a rule concluding the positiveExample meta from a trigger — the meta is DEDUCED
         (v/assert kb (list 'implies (list 'marks_example '?t)
-                           (list 'positiveExample '?t h)) ctx)
+                           (list 'positiveExample '?t h)) ctx {:direction :forward})
         (v/assert kb (list 'marks_example parentOf) ctx)
         (let [found (examples-of kb 'positiveExample)]
           (is (= 1 (count found)) "the deduced example meta is believed and swept")

@@ -150,15 +150,21 @@
       (nm/functor c))))
 
 ;; ---- virtual rule-direction predicates ----------------------------------
-;; Wrapping a rule sets its inference direction on assert.  Default (a bare
-;; implies) is :both; :forward chains forward only, :backward backward only, :inert in
-;; neither engine (documentation).  The *index* is complete either way — a rule is filed
-;; under both its antecedent and its consequent predicates whatever its direction
-;; (`special/index-rule-sentex`) — and the direction on the record is what the two
-;; chainers read.
+;; Wrapping a rule sets its inference direction on assert.  Default (a bare implies) is
+;; :backward — forward chaining materializes a conclusion per match, intractable on a
+;; large KB, so forward is opt-in (set/forwardRule).  Four directions:
+;;   :forward / :both  forward AND backward (set/forwardRule adds forward without taking
+;;                     the backward use away) — the forward mode the ontology uses.
+;;   :backward         backward only (the default).
+;;   :forward-only     forward-chains but is NOT usable in backward proof (set/forwardOnlyRule).
+;;                     A tests-only mode — the shipped ontology never uses it.
+;;   :inert            neither engine (documentation).
+;; The *index* is complete either way — a rule is filed under both its antecedent and its
+;; consequent predicates whatever its direction (`special/index-rule-sentex`) — and the
+;; direction on the record is what the two chainers read.
 
-(defn forward?  [direction] (contains? #{:forward :both} direction))
-(defn backward? [direction] (contains? #{:backward :both} direction))
+(defn forward?  [direction] (contains? #{:forward :both :forward-only} direction))
+(defn backward? [direction] (contains? #{:backward :both :forward} direction))
 
 (defn forward-sentex?
   "Does this stored rule sentex forward-chain?  Read off the record, which carries
@@ -552,11 +558,17 @@
   (post-join-literals (vec (antecedents (:sentence sentex)))))
 
 (def ^:private direction-wrapper
-  (into {} (map (fn [[w d]] [d w])) sx/rule-direction-wrappers))
+  "The surface `set/*Rule` wrapper each direction rewraps and exports to.  `:backward` is
+  the default (a bare implies), so it needs no wrapper; `:both` and `:forward` both mean
+  forward + backward and write as `set/forwardRule`; `:forward-only` (forward, never
+  backward — a tests-only mode) writes `set/forwardOnlyRule`; `:inert` writes
+  `set/inertRule`."
+  '{:forward set/forwardRule :both set/forwardRule
+    :forward-only set/forwardOnlyRule :inert set/inertRule})
 
 (defn wrap-direction
   "Express `direction` as the corresponding `set/*Rule` wrapper around `sentence`.
-  `:both` needs no wrapper — a bare `(implies …)` already works both ways."
+  `:backward` needs no wrapper — a bare `(implies …)` is backward by default."
   [sentence direction]
   (if-let [w (direction-wrapper direction)] (list w sentence) sentence))
 
@@ -575,6 +587,89 @@
   (let [[_ _ _ _ _ inner] (sx/peel-rule-wrapper sentence)]
     (sx/desugar-forall-rule inner)))
 
+;; ---- cardinality bounds on choice heads ----------------------------------
+;; `(asp/atMost k ?v pattern)` bounds how many of the ground choice heads matching
+;; `pattern` a solve may set true — counting over the projected variable `?v` and
+;; grouping by the pattern's other variables, the way `agg/count` projects a variable.
+;; It is not an `(implies …)` rule, so it is normalized (below) into an ordinary
+;; hard/soft constraint rule whose consequent MARKER carries the operator and the bound:
+;;   (asp/atMost 6 ?c (empireBuild ?c transport))
+;;     -> (set/hardConstraint (implies (empireBuild ?c transport) (cardAtMost 6 ?c)))
+;; Everything downstream then treats it as the constraint rule it is — the trie key, the
+;; codec, and subsumption all distinguish `atMost 6` from `atMost 3` and from a bare twin
+;; because k and the operator ride the stored consequent, so none of them need a new arm.
+;; Only `solve-context` reads the marker back (`cardinality-of`) and grounds it to ONE
+;; solver cardinality atom rather than the `C(n, k+1)` subset nogoods a hand-written
+;; encoding needs (docs/solving.md).
+
+(def cardinality-markers
+  "The consequent-marker functors a normalized cardinality rule carries."
+  '#{cardAtMost cardAtLeast})
+
+(def ^:private cardinality-wrappers
+  "The four surface wrappers → `[marker constraint-class]`."
+  '{asp/atMost      [cardAtMost  :hard]
+    asp/atLeast     [cardAtLeast :hard]
+    asp/softAtMost  [cardAtMost  :soft]
+    asp/softAtLeast [cardAtLeast :soft]})
+
+(def ^:private cardinality-rewrap
+  "The inverse of `cardinality-wrappers`: `[marker constraint-class]` → surface wrapper,
+  so `rewrap` restores the authored form on export."
+  (into {} (map (fn [[w mc]] [mc w])) cardinality-wrappers))
+
+(defn cardinality-surface?
+  "Is `sentence` a `(asp/atMost …)` / `(asp/atLeast …)` surface form (or a soft twin)?"
+  [sentence]
+  (boolean (and (sequential? sentence) (seq sentence)
+                (contains? cardinality-wrappers (first sentence)))))
+
+(defn normalize-cardinality
+  "Rewrite a `(asp/atMost k ?v pattern)` surface form into the internal constraint rule
+  `(set/hardConstraint (implies pattern (cardAtMost k ?v)))` — the soft twins into
+  `set/softConstraint`.  The identity on anything else, so `assert` and `check` apply it
+  to every sentence.
+
+  Refuses a malformed bound here, at the entry point, before storage: `k` a non-negative
+  integer, `?v` a variable the pattern binds, `pattern` a literal.  The range check that
+  runs on the rewritten rule then holds `?v` to the pattern for free — the counted
+  variable is the consequent marker's only variable, and it comes from the antecedent."
+  [sentence]
+  (if-not (cardinality-surface? sentence)
+    sentence
+    (let [[wrapper k v pattern] sentence
+          [marker klass]        (cardinality-wrappers wrapper)]
+      (when-not (= 4 (count sentence))
+        (throw (ex-info (str "a cardinality bound is (" wrapper " k ?counted pattern); got "
+                             (pr-str sentence))
+                        {:type :not-well-formed :sentence sentence})))
+      (when-not (and (integer? k) (not (neg? k)))
+        (throw (ex-info (str "a cardinality bound's count must be a non-negative integer; got "
+                             (pr-str k) " in " (pr-str sentence))
+                        {:type :not-well-formed :sentence sentence :count k})))
+      (when-not (sx/variable? v)
+        (throw (ex-info (str "a cardinality bound's counted slot must be a variable; got "
+                             (pr-str v) " in " (pr-str sentence))
+                        {:type :not-well-formed :sentence sentence :counted v})))
+      (when-not (and (sequential? pattern)
+                     (some #{v} (filter sx/variable? (tree-seq sequential? seq pattern))))
+        (throw (ex-info (str "a cardinality bound's counted variable " (pr-str v)
+                             " must appear in the pattern " (pr-str pattern))
+                        {:type :not-well-formed :sentence sentence :counted v :pattern pattern})))
+      (list (get {:hard 'set/hardConstraint :soft 'set/softConstraint} klass)
+            (sx/rule-sentence [pattern] (list marker k v))))))
+
+(defn cardinality-of
+  "The cardinality bound a stored constraint rule expresses — `{:op :at-most|:at-least
+  :k int :counted ?v}` — read off the consequent marker `(cardAtMost k ?v)` /
+  `(cardAtLeast k ?v)`, or nil for an ordinary constraint rule."
+  [sentex]
+  (let [c (:consequent sentex)]
+    (when (and (sequential? c) (contains? cardinality-markers (first c)))
+      {:op      (if (= 'cardAtMost (first c)) :at-most :at-least)
+       :k       (second c)
+       :counted (nth c 2)})))
+
 ;; ---- polycanonicalization: split a conjunctive consequent ----------------
 
 (defn- conjunctive? [c] (and (sequential? c) (= 'and (first c))))
@@ -589,14 +684,23 @@
   and an imported rule record is rebuilt around the modes its frame carries
   (`io.import`).  An
   exceptWhen is not among them — it is split off before this runs and stored as a
-  meta-sentex against each conjunct's handle (`split-exceptWhen`)."
+  meta-sentex against each conjunct's handle (`split-exceptWhen`).
+
+  A **cardinality** constraint rule restores its authored surface instead of the
+  internal `set/hardConstraint (implies …)` form: its consequent is a `cardAtMost` /
+  `cardAtLeast` marker, so `(asp/atMost k ?v pattern)` comes back rather than the rule it
+  was normalized to (`normalize-cardinality`)."
   [sentence direction defeasible assumption constraint]
-  (cond-> sentence
-    defeasible      (->> (list sx/default-rule-wrapper))
-    assumption      (->> (list sx/assumption-rule-wrapper))
-    constraint      (->> (list (get {:hard 'set/hardConstraint :soft 'set/softConstraint}
-                                    constraint)))
-    direction       (wrap-direction direction)))
+  (let [conseq (when (sx/implies? sentence) (consequent sentence))]
+    (if (and constraint (sequential? conseq) (contains? cardinality-markers (first conseq)))
+      (let [[marker k v] conseq]
+        (list (cardinality-rewrap [marker constraint]) k v (first (antecedents sentence))))
+      (cond-> sentence
+        defeasible      (->> (list sx/default-rule-wrapper))
+        assumption      (->> (list sx/assumption-rule-wrapper))
+        constraint      (->> (list (get {:hard 'set/hardConstraint :soft 'set/softConstraint}
+                                        constraint)))
+        direction       (wrap-direction direction)))))
 
 (defn expand-consequent
   "Polycanonicalize a rule that concludes a conjunction into one rule per conjunct,

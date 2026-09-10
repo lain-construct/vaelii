@@ -17,7 +17,7 @@
   daemon's environment carries it with nothing said.
 
   Public because a client is a thing applications write against; the implementation is
-  `vaelii.impl.client`, which is free to change.  Result shapes are `vaelii.core`'s: a
+  `vaelii.host.client`, which is free to change.  Result shapes are `vaelii.core`'s: a
   sentex comes back as a plain map (the daemon projects the record), a solution as a
   binding map.
 
@@ -28,7 +28,7 @@
   aspirational (`client_surface_test`).  `call` still reaches any op directly, which is
   what a caller wants for `serve/feed-ops` and for an op newer than this build."
   (:refer-clojure :exclude [assert isa?])
-  (:require [vaelii.impl.client :as c]))
+  (:require [vaelii.host.client :as c]))
 
 (defn client
   "A connection handle to a daemon at `host`:`port` (opts: `:timeout-ms`, default
@@ -264,7 +264,7 @@
 ;; One delegation apiece, and nothing between the markers is hand-written: the wrappers
 ;; above are the ones worth prose, and these are the ops that are the same shape as the
 ;; `vaelii.core` fn they name.  `lein regen-client` rewrites the section from
-;; `vaelii.impl.serve/ops`.
+;; `vaelii.host.serve/ops`.
 
 ;; ---- generated: one wrapper per daemon op, from serve/ops ---------------
 

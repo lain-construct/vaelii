@@ -29,13 +29,13 @@
 (defn- sentences [entries] (mapv :sentence entries))
 
 (defn- except-rule [exception antes conseq]
-  (list 'exceptWhen exception (list 'set/defaultRule (vr/rule-sentence antes conseq))))
+  (list 'exceptWhen exception (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq)))))
 
 ;; ---- 1. the property everything rests on ---------------------------------
 
 (tu/deftest-kb a-preview-leaves-the-kb-byte-identical
   (tu/with-terms [dog friendly Rex CxStory]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
     (let [before (content kb)
           _      (v/preview kb {:add [[(list dog Rex) CxStory]]})]
       (testing "same live sentexes and justifications, at the same handles"
@@ -49,7 +49,7 @@
 (tu/deftest-kb a-batch-that-derives-reports-what-it-derives
   (tu/with-terms [dog friendly Rex CxStory]
     (let [rh     (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x))
-                           CxStory)
+                           CxStory {:direction :forward})
           before (content kb)
           r      (v/preview kb {:add [[(list dog Rex) CxStory]]})]
       (testing "the premise and its consequence both come back"
@@ -95,7 +95,7 @@
 
 (tu/deftest-kb previewing-a-removal-reports-what-loses-its-support
   (tu/with-terms [dog friendly Rex CxStory]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
     (let [h      (v/assert kb (list dog Rex) CxStory)
           ch     (v/handle-of kb (list friendly Rex) CxStory)
           before (content kb)
@@ -112,8 +112,8 @@
 
 (tu/deftest-kb a-removal-with-another-witness-is-not-reported-removed
   (tu/with-terms [dog canine friendly Rex CxStory]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
-    (v/assert kb (vr/rule-sentence [(list canine '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
+    (v/assert kb (vr/rule-sentence [(list canine '?x)] (list friendly '?x)) CxStory {:direction :forward})
     (v/assert kb (list dog Rex) CxStory)
     (let [h      (v/assert kb (list canine Rex) CxStory)
           before (content kb)
@@ -176,7 +176,7 @@
      (v/assert kb (list 'genl rock 'thing) CxStory)
      (v/assert kb (list 'arg parentOf 1 person) CxStory)
      (v/assert kb (list rock Boulder) CxStory)
-     (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) CxStory)
+     (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) CxStory {:direction :forward})
      (let [before (content kb)
            r      (v/preview kb {:add [[(list looksLike Boulder) CxStory]]})]
        (testing "the drop is reported where a real run would report it"
@@ -194,7 +194,7 @@
   ;; commit is the *dilemma* it would open, not a drop that will not happen
   (tu/with-terms [fish mammal swims Willy CxStory]
     (v/assert kb (list 'disjoint fish mammal) CxStory)
-    (v/assert kb (vr/rule-sentence [(list swims '?x)] (list fish '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list swims '?x)] (list fish '?x)) CxStory {:direction :forward})
     (v/assert kb (list mammal Willy) CxStory)
     (let [before (content kb)
           r      (v/preview kb {:add [[(list swims Willy) CxStory]]})]
@@ -234,7 +234,7 @@
 
 (tu/deftest-kb previewing-a-sentence-the-kb-already-derives-adds-nothing-and-marks-nothing
   (tu/with-terms [dog friendly Rex CxStory]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
     (v/assert kb (list dog Rex) CxStory)
     (let [ch     (v/handle-of kb (list friendly Rex) CxStory)
           before (content kb)
@@ -279,7 +279,7 @@
 
 (tu/deftest-kb max-results-caps-each-half-of-the-diff-and-says-so
   (tu/with-terms [dog friendly Rex CxStory]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
     (let [before (content kb)
           r      (v/preview kb {:add [[(list dog Rex) CxStory]]} {:max-results 1})]
       (is (= 1 (count (:believed-added r))))
@@ -324,8 +324,8 @@
 
 (tu/deftest-kb adds-land-before-removes-in-a-preview-as-they-do-in-an-edit
   (tu/with-terms [dog canine friendly Rex CxStory]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
-    (v/assert kb (vr/rule-sentence [(list canine '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
+    (v/assert kb (vr/rule-sentence [(list canine '?x)] (list friendly '?x)) CxStory {:direction :forward})
     (let [h      (v/assert kb (list dog Rex) CxStory)
           ch     (v/handle-of kb (list friendly Rex) CxStory)
           before (content kb)
@@ -367,7 +367,7 @@
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-derives
   (tu/with-terms [dog friendly Rex CxStory]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
     (let [batch {:add [[(list dog Rex) CxStory]]}]
       (is (= (preview-diff (v/preview kb batch)) (edit-diff kb batch))))))
 
@@ -388,7 +388,7 @@
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-removes-a-premise
   (tu/with-terms [dog friendly Rex CxStory]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory)
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
     (let [h     (v/assert kb (list dog Rex) CxStory)
           batch {:remove [h]}]
       (is (= (preview-diff (v/preview kb batch)) (edit-diff kb batch))))))

@@ -287,7 +287,7 @@
       (a-type kb animal CxWorld)
       (a-type kb mortal CxWorld)
       (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
-      (v/assert-rule kb [(list animal '?x)] (list mortal '?x) CxWorld)
+      (v/assert-rule kb [(list animal '?x)] (list mortal '?x) CxWorld {:direction :forward})
       (testing "the rule fires off the minted type within the same assert"
         (v/assert kb (list parentOf Fred Mary) CxWorld)
         (is (believed? kb (list mortal Fred) CxWorld))))))
@@ -464,7 +464,7 @@
       (a-type kb t CxWorld)
       (v/assert kb (list 'binary_predicate t) CxWorld)
       (v/assert kb (list 'arg rel 1 t) CxWorld)
-      (v/assert-rule kb [(list trigger '?x '?y)] (list rel '?x '?y) CxWorld)
+      (v/assert-rule kb [(list trigger '?x '?y)] (list rel '?x '?y) CxWorld {:direction :forward})
       (v/clear-violations! kb)
       (v/assert kb (list trigger Rex Mary) CxWorld)
       (is (some? (v/handle-of kb (list rel Rex Mary) CxWorld))
@@ -588,6 +588,28 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"never be a subtype"
                             (v/assert kb (list partType Wheel axle_kind) CxWorld)))
       (is (not (v/genl? kb Wheel physical_object))))))
+
+(tu/deftest-kb a-genlArg-position-holding-thing-mints-no-reflexive-genl-edge
+  ;; The shipped `(genlArg arg 3 thing)` / `(genlArg genlArg 3 thing)` put `thing` itself in
+  ;; a genlArg-declared position over every `(arg P n thing)` declaration the ontology
+  ;; carries.  `(genl thing thing)` is not-well-formed, so the entailment must not draw it —
+  ;; otherwise loading the shipped KB lands a `:not-well-formed` violation per genl edge
+  ;; naming `thing` (docs/argtypes.md, "Where it does not mint").
+  (tu/with-terms [partType wheel_kind axle_kind Widget CxWorld]
+    (with-entailing
+      (a-context kb CxWorld)
+      (a-type kb wheel_kind CxWorld)                       ; `thing` is now a node the hierarchy holds
+      (v/assert kb (list 'genlArg partType 2 'thing) CxWorld)
+      (testing "a non-thing argument still mints its edge — the guard is not over-broad"
+        (v/assert kb (list partType Widget axle_kind) CxWorld)
+        (is (v/genl? kb axle_kind 'thing) "axle_kind is entailed a subtype of thing"))
+      (testing "but `thing` in that position mints no reflexive edge and records no violation"
+        (v/assert kb (list partType Widget 'thing) CxWorld)
+        (is (nil? (entailed kb (list 'genl 'thing 'thing) CxWorld))
+            "no (genl thing thing) is stored")
+        (is (not-any? #(= (list 'genl 'thing 'thing) (:sentence %)) (v/violations kb))
+            "and none lands in the violations ledger")
+        (is (empty? (v/violations kb)) "the ledger stays clean")))))
 
 ;; ---- order independence --------------------------------------------------
 

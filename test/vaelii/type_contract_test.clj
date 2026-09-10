@@ -382,7 +382,7 @@
   #{:already-loaded :anti-symmetric :anti-transitive :arg-constraint-kind :arg-genl :arg-position
     :arg-type :arg-variable :argument-family-ceiling :arity :asymmetric :bad-algebra :bad-arg
     :bad-args :bad-batch :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
-    :bad-level :bad-registrant :bad-reply
+    :bad-level :bad-pattern :bad-registrant :bad-reply
     :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large :budget-exhausted
     :choice-head-not-positive
     :compaction-failed :context-escape :cross-origin :daemon-error :damaged-dictionary
@@ -419,7 +419,7 @@
   "Every `:type` in the tree whose value is a symbol rather than a keyword literal, by
   hand — and what each one is, since the scan can only read the var's name.
 
-  `cancelled` is `vaelii.impl.jobs`'s `::cancelled`, the namespaced keyword a cancelled
+  `cancelled` is `vaelii.host.jobs`'s `::cancelled`, the namespaced keyword a cancelled
   `progress!` throws and the only thing that tells a cancelled job from a failed one. It
   is deliberately not in `roster`: the roster is the *plain-keyword* refusal vocabulary a
   caller discriminates on, and this one is read by the job registry beside it rather than
@@ -459,6 +459,11 @@
   but it is a hole in what a `catch` can act on, so each one is named in
   `carries-nothing` with the reason."
   {:arg-constraint-kind     #{:message :predicate}
+   ;; the instance and subtype argument-type refusals, each raised by its singular arm
+   ;; (args-problem / genls-problem) and its covering twin (covering-args-problem /
+   ;; covering-genls-problem) — the same payload at both
+   :arg-genl                #{:message :sentence :arg :expected :position}
+   :arg-type                #{:message :sentence :arg :expected :position}
    :arity                   #{:message :opposing-handle :predicate :sentence}
    :bad-arg                 #{:arg :value}
    :bad-args                #{:op}

@@ -12,10 +12,10 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.llm.protocol :as proto]
-            [vaelii.impl.llm.provider :as llm-provider]
-            [vaelii.impl.llm.stub :as stub]
-            [vaelii.impl.web :as web]
+            [vaelii.host.llm.protocol :as proto]
+            [vaelii.host.llm.provider :as llm-provider]
+            [vaelii.host.llm.stub :as stub]
+            [vaelii.host.web :as web]
             [vaelii.test-util :as tu]))
 
 (def ^:dynamic *app* nil)
@@ -382,7 +382,7 @@
     (v/assert kb (list 'genlCx CxBird 'CxWell) 'CxUniverse)
     (v/assert kb (list 'exceptWhen (list penguin '?b)
                        (list 'set/defaultRule
-                             (list 'implies (list bird '?b) (list flies '?b))))
+                             (list 'set/forwardRule (list 'implies (list bird '?b) (list flies '?b)))))
               CxBird)
     (v/assert kb (list bird Opus) CxBird)
     (let [h      (v/handle-of kb (list flies Opus) CxBird)

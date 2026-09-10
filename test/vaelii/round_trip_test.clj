@@ -20,7 +20,7 @@
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as catalog]
+            [vaelii.host.catalog :as catalog]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.io.export :as export]
             [vaelii.impl.io.frames :as frames]
@@ -80,7 +80,7 @@
     ;; concluding the same literal — so `(flies Tweety)` rests on two justifications
     (v/assert kb (list 'exceptWhen (list penguin '?b)
                        (list 'set/defaultRule
-                             (vr/rule-sentence [(list bird '?b)] (list flies '?b))))
+                             (list 'set/forwardRule (vr/rule-sentence [(list bird '?b)] (list flies '?b)))))
               ctx)
     (v/assert kb (list 'set/forwardRule (vr/rule-sentence [(list feathered '?f)]
                                                           (list flies '?f)))
@@ -91,7 +91,7 @@
               ctx)
     (v/assert kb (vr/rule-sentence [(list parentOf '?x '?y) (list parentOf '?y '?z)]
                                    (list grandparentOf '?x '?z))
-              ctx)
+              ctx {:direction :forward})
     ;; ground facts, one known-true, and the join that fires the conjunctive rule
     (v/assert kb (list bird Tweety) ctx {:strength :monotonic})
     (v/assert kb (list feathered Tweety) ctx)

@@ -16,7 +16,7 @@
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.settle :as settle]
             [vaelii.impl.vocabulary :as vocab]
             [vaelii.test-util :as tu]))

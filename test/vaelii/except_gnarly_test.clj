@@ -95,7 +95,7 @@
                          [CxBottom CxBase]]]
       (v/assert kb (list 'genlCx sub super) 'CxUniverse {:strength :monotonic}))
     (v/assert-rule kb [(list p Item) (list q Item)] (list r Item) CxBase
-                   {:strength :monotonic})
+                   {:direction :forward :strength :monotonic})
     (let [ph (v/assert kb (list p Item) CxBase {:strength :monotonic})
           qh (v/assert kb (list q Item) CxBase {:strength :monotonic})
           pe (v/assert kb (list 'except (sx/sentex-handle ph)) CxBase
@@ -281,10 +281,10 @@
   (tu/with-terms [q p hide Aa trigger CxSub]
     (v/assert kb (list 'genlCx CxSub 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list q Aa) CxSub {:strength :monotonic})]
-      (v/assert kb (list 'implies (list q '?x) (list p '?x)) CxSub {:strength :monotonic})
+      (v/assert kb (list 'implies (list q '?x) (list p '?x)) CxSub {:direction :forward :strength :monotonic})
       (is (seq (v/sentexes-matching kb (list p Aa) CxSub)) "the rule fired")
       (v/assert kb (list 'implies (list hide '?z) (list 'except (sx/sentex-handle h)))
-                CxSub {:strength :monotonic})
+                CxSub {:direction :forward :strength :monotonic})
       (v/assert kb (list hide trigger) CxSub {:strength :monotonic})
       (is (seq (v/sentexes-matching kb (list 'except (sx/sentex-handle h)) '?c))
           "the except is stored, and nothing asserted it")
@@ -318,7 +318,7 @@
         ;; ...then derive the except on the edge, rather than stating it
         (v/assert kb (list 'implies (list hide '?z)
                            (list 'except (sx/sentex-handle edge-h)))
-                  CxChild {:strength :monotonic})
+                  CxChild {:direction :forward :strength :monotonic})
         (v/assert kb (list hide trigger) CxChild {:strength :monotonic})
         (is (seq (v/sentexes-matching kb (list 'except (sx/sentex-handle edge-h)) '?c))
             "the except is stored, and nothing asserted it")

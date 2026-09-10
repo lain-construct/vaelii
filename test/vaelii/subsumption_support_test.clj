@@ -43,7 +43,7 @@
 (tu/deftest-kb a-subsuming-firing-names-the-edge-it-subsumed-through
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse {:direction :forward})
     (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
     (let [derived (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)]
       (is (v/in? kb derived) "the rule fired by subsumption")
@@ -59,7 +59,7 @@
   ;; the fact and the rule — otherwise the section above proves only that the
   ;; antecedent list grew.
   (tu/with-terms [parentOf ancestorOf Tom Bob]
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse {:direction :forward})
     (v/assert kb (list parentOf Tom Bob) 'CxUniverse)
     (let [derived (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)]
       (is (= 2 (count (:antecedents (first (v/supporting-justifications kb derived)))))
@@ -71,7 +71,7 @@
   (tu/with-terms [dog_t mammal_t animal_t breathes Muffet]
     (v/assert kb (list 'genl dog_t mammal_t) 'CxUniverse)
     (v/assert kb (list 'genl mammal_t animal_t) 'CxUniverse)
-    (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse)
+    (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse {:direction :forward})
     (v/assert kb (list dog_t Muffet) 'CxUniverse)
     (let [derived (v/handle-of kb (list breathes Muffet) 'CxUniverse)
           antes   (antecedent-sentences kb derived)]
@@ -84,7 +84,7 @@
 (tu/deftest-kb retracting-the-edge-withdraws-the-conclusion
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
     (let [edge (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)]
-      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse {:direction :forward})
       (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
       (is (seq (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)))
       (v/retract! kb edge)
@@ -97,7 +97,7 @@
   (tu/with-terms [dog_t mammal_t animal_t breathes Muffet]
     (v/assert kb (list 'genl dog_t mammal_t) 'CxUniverse)
     (let [upper (v/assert kb (list 'genl mammal_t animal_t) 'CxUniverse)]
-      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse)
+      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse {:direction :forward})
       (v/assert kb (list dog_t Muffet) 'CxUniverse)
       (is (seq (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse)))
       (v/retract! kb upper)
@@ -109,8 +109,8 @@
   ;; dependency-directed sweep needs no special case for a taxonomy edge
   (tu/with-terms [fatherOf parentOf ancestorOf relatedTo Tom Bob]
     (let [edge (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)]
-      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
-      (v/assert kb (list 'implies (list ancestorOf '?x '?y) (list relatedTo '?x '?y)) 'CxUniverse)
+      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse {:direction :forward})
+      (v/assert kb (list 'implies (list ancestorOf '?x '?y) (list relatedTo '?x '?y)) 'CxUniverse {:direction :forward})
       (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
       (is (seq (v/sentexes-matching kb (list relatedTo Tom Bob) 'CxUniverse)))
       (v/retract! kb edge)
@@ -124,7 +124,7 @@
   ;; *same* handle — which is what distinguishes this from the retraction cases below.
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse {:direction :forward})
     (v/assert kb (list fatherOf Tom Bob) 'CxUniverse {:strength :monotonic})
     (let [derived (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)
           nope    (v/assert kb (list 'not (list 'genl fatherOf parentOf)) 'CxUniverse
@@ -142,7 +142,7 @@
   ;; now one of those things: known-true fact + bare rule + *defeasible* edge is a
   ;; defeasible conclusion, however monotonic the fact.
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse {:direction :forward})
     (v/assert kb (list fatherOf Tom Bob) 'CxUniverse {:strength :monotonic})
     (testing "climbing a :default edge"
       (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
@@ -165,7 +165,7 @@
     (let [e1 (v/assert kb (list 'genl fatherOf parentOf) 'CxCore)
           e2 (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)]
       (is (not= e1 e2) "two sentexes, one edge")
-      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse {:direction :forward})
       (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
       (let [before (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)]
         (is (v/in? kb before))
@@ -203,7 +203,7 @@
     (v/assert kb (list 'genl dog_t pet_t) 'CxUniverse)
     (let [via-mammal (v/assert kb (list 'genl mammal_t animal_t) 'CxUniverse)
           via-pet    (v/assert kb (list 'genl pet_t animal_t) 'CxUniverse)]
-      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse)
+      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse {:direction :forward})
       (v/assert kb (list dog_t Muffet) 'CxUniverse)
       (is (seq (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse)))
       (v/retract! kb via-mammal)
@@ -219,7 +219,7 @@
   ;; dependency, or a restart would quietly restore the standing-on-nothing conclusion
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse {:direction :forward})
     (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
     (let [derived (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse)
           before  (antecedent-sentences kb derived)]
@@ -238,7 +238,7 @@
     (v/assert kb (list 'genl dog_t pet_t) 'CxUniverse)
     (let [via-mammal (v/assert kb (list 'genl mammal_t animal_t) 'CxUniverse)]
       (v/assert kb (list 'genl pet_t animal_t) 'CxUniverse)
-      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse)
+      (v/assert kb (list 'implies (list animal_t '?x) (list breathes '?x)) 'CxUniverse {:direction :forward})
       (v/assert kb (list dog_t Muffet) 'CxUniverse)
       (is (seq (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse)))
       (v/edit! kb {:add [[(list dog_t Rex) 'CxUniverse]] :remove [via-mammal]})
@@ -253,7 +253,7 @@
   ;; answer while the conclusion rested on the facts alone
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
     (let [edge (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)]
-      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse)
+      (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse {:direction :forward})
       (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
       (let [removed (set (map :sentence (:believed-removed (v/preview kb {:remove [edge]} {}))))]
         (is (contains? removed (list ancestorOf Tom Bob))
@@ -285,7 +285,7 @@
     (lattice! kb CxKin CxGeo CxSaga CxEpic)
     ;; the taxonomy is Kin's; the rule and the fact are Geo's — no context is both
     (v/assert kb (list 'genl fatherOf parentOf) CxKin)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxGeo)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxGeo {:direction :forward})
     (v/assert kb (list fatherOf Tom Bob) CxGeo)
     (testing "not in Geo, which holds the rule and the fact but not the edge"
       (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) CxGeo))))
@@ -306,7 +306,7 @@
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob CxA CxB]
     (lattice! kb CxA CxB)
     (v/assert kb (list 'genl fatherOf parentOf) CxA)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxB)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxB {:direction :forward})
     (v/assert kb (list fatherOf Tom Bob) CxB)
     (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx)))
     (let [d (:detail (last (filter #(= :no-placement (:violation %)) (v/violations kb))))]
@@ -324,7 +324,7 @@
     (lattice! kb CxA CxB CxSaga)
     (v/assert kb (list 'genl fatherOf parentOf) CxA)
     (v/assert kb (list 'genl fatherOf parentOf) CxB)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxB)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxB {:direction :forward})
     (v/assert kb (list fatherOf Tom Bob) CxB)
     (is (= [CxB] (mapv :context (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx))))))
 
@@ -337,7 +337,7 @@
     (v/assert kb (list 'genl fatherOf parentOf) CxA)
     (v/assert kb (list 'implies (list parentOf '?x '?y)
                        (list 'ist CxB (list ancestorOf '?x '?y)))
-              'CxUniverse)
+              'CxUniverse {:direction :forward})
     (v/assert kb (list fatherOf Tom Bob) CxB)
     (is (empty? (v/sentexes-matching kb (list ancestorOf Tom Bob) '?ctx))
         "B cannot see A's edge, and an ist target is not lowered to somewhere that can")
@@ -356,7 +356,7 @@
     (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) CxA)
     (v/assert kb (list 'genl fatherOf parentOf) CxB)
-    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxB)
+    (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) CxB {:direction :forward})
     (v/assert kb (list fatherOf Tom Bob) CxB)
     (let [derived (v/handle-of kb (list ancestorOf Tom Bob) CxB)]
       (is (v/in? kb derived))
@@ -384,7 +384,7 @@
               (v/assert kb (list 'genl fatherOf parentOf) ctx-a)
               (v/assert kb (list 'genl fatherOf parentOf) ctx-b)
               (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y))
-                        'CxUniverse)
+                        'CxUniverse {:direction :forward})
               (v/assert kb (list fatherOf Tom Bob) 'CxUniverse)
               (let [[concl & more] (v/sentexes-matching kb (list ancestorOf Tom Bob) 'CxUniverse)
                     derived        (:id concl)]

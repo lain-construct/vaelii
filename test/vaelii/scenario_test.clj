@@ -13,12 +13,12 @@
   the answer cannot be reading a handle."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.interval :as iv]
             [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.scenario :as scen]
-            [vaelii.impl.seed :as seed]
             [vaelii.impl.space :as sp]
             [vaelii.test-util :as tu]))
 

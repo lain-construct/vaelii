@@ -162,6 +162,11 @@
 ;; at 0**, which is the stronger claim: a family the workload never reads is a key the
 ;; tally never emits, so one read of it fails the budget.
 ;;
+;; Measured under the shipped default (`with-entailing` in `measure`), so `:functor-root`
+;; carries the entailment's per-firing declaration lookup — 100 reads over the 100 firings
+;; that a `VAELII_ASSERTIVE_ARG_TYPES=0` run does not spend.  Pinned on so the number is the
+;; same whatever the root is set to.
+;;
 ;; `:trie-lookup` is where the two join workloads part, and it is the reading to take them
 ;; by.  The unfanned join walks the trie once per firing (100) and the fanned one never
 ;; touches it, leading from the bound term's postings instead — which costs the two extra
@@ -173,24 +178,24 @@
   [{:name :single-antecedent
     :build single-antecedent
     :reads {:argument-root 600 :argument-slot 600 :exception-index 200
-            :functor-root 801 :rule-index 200 :trie-counts 100}}
+            :functor-root 901 :rule-index 200 :trie-counts 100}}
 
    {:name :unfanned-join
     :build unfanned-join
     :reads {:argument-root 500 :argument-slot 500 :exception-index 200
-            :functor-root 803 :rule-index 200 :trie-counts 100 :trie-lookup 100}}
+            :functor-root 903 :rule-index 200 :trie-counts 100 :trie-lookup 100}}
 
    {:name :fanned-join
     :build fanned-join
     :reads {:argument-root 700 :argument-slot 700 :exception-index 200
-            :functor-root 803 :rule-index 200 :trie-counts 100}}
+            :functor-root 903 :rule-index 200 :trie-counts 100}}
 
    ;; two `:trie-lookup` per firing, not one: the mirror is a second orientation to look
    ;; the conclusion's own handle up under, and both orientations reach `join-matches`
    {:name :symmetric-trigger
     :build symmetric-trigger
     :reads {:argument-root 500 :argument-slot 500 :exception-index 200
-            :functor-root 803 :rule-index 200 :trie-counts 100 :trie-lookup 200}}])
+            :functor-root 903 :rule-index 200 :trie-counts 100 :trie-lookup 200}}])
 
 ;; ---- measuring -----------------------------------------------------------
 
@@ -200,13 +205,14 @@
   under one reader and priced under another would be a workload nobody runs."
   [build]
   (tu/with-shipped-config
-    (let [[kb trigs concl] (build)
-          _    (prof/start)
-          _    (chain/chain kb trigs nil)
-          snap (prof/stop)]
-      {:reads     (into {} (:reads snap))
-       :concluded (count (v/sentexes-with-functor kb concl))
-       :sentences (into #{} (map :sentence) (v/sentexes-with-functor kb concl))})))
+    (tu/with-entailing                              ; the shipped default; budgets below are on-path
+      (let [[kb trigs concl] (build)
+            _    (prof/start)
+            _    (chain/chain kb trigs nil)
+            snap (prof/stop)]
+        {:reads     (into {} (:reads snap))
+         :concluded (count (v/sentexes-with-functor kb concl))
+         :sentences (into #{} (map :sentence) (v/sentexes-with-functor kb concl))}))))
 
 (defn- delta-report
   "The families whose count moved, as a table.  Every family either side names is listed,

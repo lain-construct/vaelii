@@ -164,14 +164,14 @@
     (v/assert kb (list 'unary_predicate t) 'CxStories))
   ;; goal reasoning: wanting a goal + bringing about an event that achieves it ⇒ success
   (v/assert-rule kb '[(wants ?a ?g) (brings ?a ?e) (achieves ?e ?g)]
-                 '(achievesGoal ?a ?g) 'CxStories)
+                 '(achievesGoal ?a ?g) 'CxStories {:direction :forward})
   ;; agency: an agent is responsible for what its action directly causes
-  (v/assert-rule kb '[(does ?a ?act) (causes ?act ?e)] '(responsibleFor ?a ?e) 'CxStories)
+  (v/assert-rule kb '[(does ?a ?act) (causes ?act ?e)] '(responsibleFor ?a ?e) 'CxStories {:direction :forward})
   ;; and the two ways of ordering events are one claim: an event whose moment comes first
   ;; happens first.  beforeEvent stays the story-level spelling and keeps its transitivity;
   ;; this is what lets a story that dates its events get the ordering for nothing.
   (v/assert-rule kb '[(happens ?e1 ?t1) (happens ?e2 ?t2) (instantBefore ?t1 ?t2)]
-                 '(beforeEvent ?e1 ?e2) 'CxStories)
+                 '(beforeEvent ?e1 ?e2) 'CxStories {:direction :forward})
   (assert-all kb 'CxFoxCrow fox-and-crow)
   (v/assert kb '(comment CxFoxCrow
                          "The Fox and the Crow — moral: do not trust flatterers; the flattery serves the flatterer.")

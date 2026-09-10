@@ -127,8 +127,8 @@
 
     (v/assert kb (list 'genl penguin bird) 'CxUniverse)
     (v/assert kb (list 'exceptWhen (list penguin '?x)
-                       (list 'set/defaultRule (vr/rule-sentence [(list bird '?x)]
-                                                                (list flies '?x))))
+                       (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence [(list bird '?x)]
+                                                                                       (list flies '?x)))))
               'CxNaturalWorld)
     (v/assert kb (list penguin Opus) 'CxNaturalWorld)
 
@@ -251,7 +251,7 @@
   (tu/with-terms [bird flies Robin]
     (let [bare (vr/rule-sentence [(list bird '?x)] (list flies '?x))
           h1   (v/assert kb bare 'CxNaturalWorld)
-          h2   (v/assert kb (list 'set/defaultRule bare) 'CxNaturalWorld)]
+          h2   (v/assert kb (list 'set/defaultRule (list 'set/forwardRule bare)) 'CxNaturalWorld)]
       (is (= h1 h2) "an α-equivalent rule resolves to the existing sentex")
       (is (not (:defeasible (v/sentex kb h1)))
           "it keeps the non-defeasible reading it was first given")

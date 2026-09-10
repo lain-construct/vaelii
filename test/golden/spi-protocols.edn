@@ -22,7 +22,7 @@
   kv-members "[[b k]]",
   kv-put "[[b k v]]",
   kv-remove-from-set "[[b k member]]"},
- vaelii.impl.llm.protocol/Provider
+ vaelii.host.llm.protocol/Provider
  {complete "[[provider request]]",
   stream "[[provider request on-event]]"},
  vaelii.impl.protocols/BulkAnnotating

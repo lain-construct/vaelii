@@ -22,9 +22,9 @@
   the interleaving, the redelivery and the lag sequence deterministic."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.client :as vc]
-            [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.serve :as serve]
-            [vaelii.impl.subscribe :as sub]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.serve :as serve]
+            [vaelii.host.subscribe :as sub]
             [vaelii.koinii.catchup :as cu]
             [vaelii.koinii.channel :as ch]
             [vaelii.koinii.speech-acts :as sa]

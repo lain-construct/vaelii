@@ -8,7 +8,7 @@
   number, not a string — and admits `(name_of_guy \"Bob\")`."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded core-context/load-into))

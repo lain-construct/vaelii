@@ -17,7 +17,7 @@
             [clojure.test :refer [deftest is testing]]
             [taoensso.nippy :as nippy]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as catalog]
+            [vaelii.host.catalog :as catalog]
             [vaelii.impl.io.frames :as frames]
             [vaelii.impl.io.import :as import]
             [vaelii.impl.io.thaw :as safe]
@@ -151,7 +151,7 @@
             (tu/with-terms [dog Fido animal]
               (v/assert kb (list dog Fido) 'CxUniverse)
               (v/assert kb (list 'genl dog animal) 'CxUniverse)
-              (v/assert-rule kb [(list dog '?x)] (list animal '?x) 'CxUniverse))
+              (v/assert-rule kb [(list dog '?x)] (list animal '?x) 'CxUniverse {:direction :forward}))
             (is (= 4 (v/sentex-count kb)) "three asserts, and the rule's own conclusion")
             (v/export! kb dump {:compression :none})
             (finally (v/close! kb))))

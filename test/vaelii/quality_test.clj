@@ -24,7 +24,7 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- default-rule [antes conseq]
-  (list 'set/defaultRule (vr/rule-sentence antes conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 (defn- handles [entries] (set (map :handle entries)))
 
@@ -33,11 +33,11 @@
 (tu/deftest-kb the-four-firing-outcomes-land-in-three-different-categories
   (tu/with-terms [bird ghost penguin sings has_wings glows flies hasBeak
                   Robin Tweety Waddles]
-    (let [fires   (v/assert-rule kb [(list bird '?x)] (list has_wings '?x) 'CxUniverse)
-          never   (v/assert-rule kb [(list ghost '?x)] (list glows '?x) 'CxUniverse)
+    (let [fires   (v/assert-rule kb [(list bird '?x)] (list has_wings '?x) 'CxUniverse {:direction :forward})
+          never   (v/assert-rule kb [(list ghost '?x)] (list glows '?x) 'CxUniverse {:direction :forward})
           beaten  (v/assert kb (default-rule [(list penguin '?x)] (list flies '?x))
                             'CxUniverse)
-          undone  (v/assert-rule kb [(list sings '?x)] (list hasBeak '?x) 'CxUniverse)
+          undone  (v/assert-rule kb [(list sings '?x)] (list hasBeak '?x) 'CxUniverse {:direction :forward})
           sang    (v/assert kb (list sings Robin) 'CxUniverse)]
       (v/assert kb (list bird Robin) 'CxUniverse)
       (v/assert kb (list bird Tweety) 'CxUniverse)
@@ -75,9 +75,9 @@
   ;; the claim the cost argument rests on: rules are enumerated from the rule index, not by
   ;; scanning the record store, and the two must agree on a KB whose rules are all keyable
   (tu/with-terms [a_type b_type c_type pOne pTwo pThree]
-    (v/assert-rule kb [(list a_type '?x)] (list pOne '?x) 'CxUniverse)
-    (v/assert-rule kb [(list b_type '?x)] (list pTwo '?x) 'CxUniverse)
-    (v/assert-rule kb [(list a_type '?x) (list b_type '?x)] (list pThree '?x) 'CxUniverse)
+    (v/assert-rule kb [(list a_type '?x)] (list pOne '?x) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list b_type '?x)] (list pTwo '?x) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list a_type '?x) (list b_type '?x)] (list pThree '?x) 'CxUniverse {:direction :forward})
     (v/assert kb (list 'genl c_type a_type) 'CxUniverse)
     (let [recs    (:records kb)
           scanned (into #{} (filter #(some-> (p/get-sentex recs %) vr/rule?))
@@ -122,7 +122,7 @@
     ;; four *distinct* consequents: four rules identical up to variable names would
     ;; canonicalize to one handle, which is a different property and not this one
     (doseq [pred [pOne pTwo pThree pFour]]
-      (v/assert-rule kb [(list a_type '?x)] (list pred '?x) 'CxUniverse))
+      (v/assert-rule kb [(list a_type '?x)] (list pred '?x) 'CxUniverse {:direction :forward}))
     (let [q (:rules (v/kb-quality kb {:limit 2}))]
       (is (= 4 (:never-count q)) "the count is of the whole set")
       (is (= 2 (count (:never q))) "the list is not")
@@ -143,7 +143,7 @@
                        ["Alpha" "Beta" "Gamma" "Delta"])
           sorted (vec (sort-by str preds))]
       (doseq [p (reverse sorted)]
-        (v/assert-rule kb [(list a_type '?x)] (list p '?x) 'CxUniverse))
+        (v/assert-rule kb [(list a_type '?x)] (list p '?x) 'CxUniverse {:direction :forward}))
       (let [q       (:rules (v/kb-quality kb {:limit 2}))
             shown   (into #{} (map #(nth (:sentence %) 2)) (:never q))
             wanted  (into #{} (map #(list % '?x)) (take 2 sorted))]
@@ -168,9 +168,9 @@
     ;; content-larger sentence first: `(implies (and (a_type ?x)) (pShared ?x ?x))`
     ;; sorts *after* `(implies (and (a_type ?x) (a_type ?y)) (pShared ?x ?y))` — at the
     ;; first divergence the two-antecedent form has a space where this one has `)`.
-    (v/assert-rule kb [(list a_type '?x)] (list pShared '?x '?x) 'CxUniverse)
+    (v/assert-rule kb [(list a_type '?x)] (list pShared '?x '?x) 'CxUniverse {:direction :forward})
     (v/assert-rule kb [(list a_type '?x) (list a_type '?y)]
-                   (list pShared '?x '?y) 'CxUniverse)
+                   (list pShared '?x '?y) 'CxUniverse {:direction :forward})
     (let [q     (binding [*print-length* 1]
                   (:rules (v/kb-quality kb {:limit 1})))
           shown (into #{} (map :sentence) (:never q))]
@@ -188,9 +188,9 @@
     ;; a transitive rule is a self-loop in the functor graph, which is the commonest cycle
     ;; there is — `genl`'s own transitivity has this shape
     (v/assert-rule kb [(list chained '?x '?y) (list chained '?y '?z)]
-                   (list chained '?x '?z) 'CxUniverse)
-    (v/assert-rule kb [(list a_type '?x)] (list pMid '?x) 'CxUniverse)
-    (v/assert-rule kb [(list pMid '?x)] (list pTop '?x) 'CxUniverse)
+                   (list chained '?x '?z) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list a_type '?x)] (list pMid '?x) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list pMid '?x)] (list pTop '?x) 'CxUniverse {:direction :forward})
     (let [c (:chains (v/kb-quality kb))]
       (is (= 3 (:rules c)))
       (is (<= 1 (:cyclic c)) "the self-loop is a cycle of one node, not an acyclic node")
@@ -541,8 +541,8 @@
   ;; the same thing.  Without the edge the two rules are about unrelated types and neither
   ;; covers anything.
   (tu/with-terms [animal_kind dog_kind flies]
-    (let [general  (v/assert-rule kb [(list animal_kind '?x)] (list flies '?x) 'CxUniverse)
-          specific (v/assert-rule kb [(list dog_kind '?y)] (list flies '?y) 'CxUniverse)]
+    (let [general  (v/assert-rule kb [(list animal_kind '?x)] (list flies '?x) 'CxUniverse {:direction :forward})
+          specific (v/assert-rule kb [(list dog_kind '?y)] (list flies '?y) 'CxUniverse {:direction :forward})]
       (is (zero? (:subsumed-count (covered kb)))
           "no genl edge, so the two antecedents are about unrelated types")
       (v/assert kb (list 'genl dog_kind animal_kind) 'CxUniverse)
@@ -567,8 +567,8 @@
   ;; `animal_kind` says nothing about dogs.
   (tu/with-terms [animal_kind dog_kind pet]
     (v/assert kb (list 'genl dog_kind animal_kind) 'CxUniverse)
-    (let [narrow (v/assert-rule kb [(list pet '?x)] (list dog_kind '?x) 'CxUniverse)
-          broad  (v/assert-rule kb [(list pet '?x)] (list animal_kind '?x) 'CxUniverse)]
+    (let [narrow (v/assert-rule kb [(list pet '?x)] (list dog_kind '?x) 'CxUniverse {:direction :forward})
+          broad  (v/assert-rule kb [(list pet '?x)] (list animal_kind '?x) 'CxUniverse {:direction :forward})]
       (is (= #{[narrow broad]} (covered-pairs kb))
           "the subtype conclusion covers the supertype one, and nothing covers it"))))
 
@@ -576,9 +576,9 @@
   ;; `ante(R1)σ ⊆ ante(R2)` as literal sets: the extra condition narrows when the general
   ;; rule already fires, so the narrow rule concludes nothing new.
   (tu/with-terms [bird_kind healthy flies]
-    (let [general (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse)
+    (let [general (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse {:direction :forward})
           narrow  (v/assert-rule kb [(list bird_kind '?x) (list healthy '?x)]
-                                 (list flies '?x) 'CxUniverse)]
+                                 (list flies '?x) 'CxUniverse {:direction :forward})]
       (is (= #{[general narrow]} (covered-pairs kb))))))
 
 (tu/deftest-kb a-default-does-not-stand-in-for-a-strict-rule
@@ -588,7 +588,7 @@
   (tu/with-terms [bird_kind healthy flies]
     (v/assert kb (default-rule [(list bird_kind '?x)] (list flies '?x)) 'CxUniverse)
     (v/assert-rule kb [(list bird_kind '?x) (list healthy '?x)] (list flies '?x)
-                   'CxUniverse)
+                   'CxUniverse {:direction :forward})
     (is (zero? (:subsumed-count (covered kb)))
         "the covering rule is a default and the covered one is not")
     (tu/with-terms [swims]
@@ -600,25 +600,26 @@
         (is (contains? (covered-pairs kb) [general narrow])
             "both defeasible, and the general one covers")))))
 
-(tu/deftest-kb a-direction-covers-itself-and-only-both-covers-the-others
-  ;; A `set/forwardRule` answers no backward goal, so it cannot stand in for one — the
+(tu/deftest-kb a-direction-covers-itself-and-forward-covers-the-others
+  ;; A `set/forwardOnlyRule` answers no backward goal, so it cannot stand in for one — the
   ;; covered rule would stop being reachable from the direction it was written for.
+  ;; `:forward` / `:both` are forward + backward, so they can.
   (tu/with-terms [bird_kind healthy flies]
-    (v/assert kb (wrapped 'set/forwardRule [(list bird_kind '?x)] (list flies '?x))
+    (v/assert kb (wrapped 'set/forwardOnlyRule [(list bird_kind '?x)] (list flies '?x))
               'CxUniverse)
     (v/assert kb (wrapped 'set/backwardRule [(list bird_kind '?x) (list healthy '?x)]
                           (list flies '?x))
               'CxUniverse)
     (is (zero? (:subsumed-count (covered kb)))
-        ":forward covers :forward and nothing else")
+        ":forward-only covers :forward-only and nothing else")
     (tu/with-terms [swims]
-      (let [both   (v/assert-rule kb [(list bird_kind '?x)] (list swims '?x) 'CxUniverse)
+      (let [both   (v/assert-rule kb [(list bird_kind '?x)] (list swims '?x) 'CxUniverse {:direction :forward})
             narrow (v/assert kb (wrapped 'set/backwardRule
                                          [(list bird_kind '?x) (list healthy '?x)]
                                          (list swims '?x))
                              'CxUniverse)]
         (is (contains? (covered-pairs kb) [both narrow])
-            "a bare implies is :both, and :both covers a backward rule")))))
+            ":forward is forward + backward, and covers a backward rule")))))
 
 (tu/deftest-kb an-exception-the-covering-rule-carries-and-the-covered-one-lacks-is-a-case-it-declines
   ;; `exceptWhen` is not on the record — it is a separate belief-following meta-sentex
@@ -659,9 +660,9 @@
   ;; cannot see is not covered, because the firing it was supposed to be spared never
   ;; happens there.
   (tu/with-terms [bird_kind healthy flies CxUp CxDown]
-    (let [general (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) CxUp)
+    (let [general (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) CxUp {:direction :forward})
           narrow  (v/assert-rule kb [(list bird_kind '?x) (list healthy '?x)]
-                                 (list flies '?x) CxDown)]
+                                 (list flies '?x) CxDown {:direction :forward})]
       (is (zero? (:subsumed-count (covered kb)))
           "two contexts with no edge between them see nothing of each other")
       (v/assert kb (list 'genlCx CxDown CxUp) 'CxUniverse)
@@ -673,10 +674,10 @@
 
 (tu/deftest-kb the-covered-list-is-capped-and-its-count-is-not
   (tu/with-terms [bird_kind flies]
-    (let [general (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse)]
+    (let [general (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse {:direction :forward})]
       (doseq [i (range 4)
               :let [c (tu/fresh-term :predicate (str "quiteHealthy" i))]]
-        (v/assert-rule kb [(list bird_kind '?x) (list c '?x)] (list flies '?x) 'CxUniverse))
+        (v/assert-rule kb [(list bird_kind '?x) (list c '?x)] (list flies '?x) 'CxUniverse {:direction :forward}))
       (let [q (:subsumption (v/kb-quality kb {:limit 2}))]
         (is (= 4 (:subsumed-count q)) "the count is of the whole set")
         (is (= 2 (count (:subsumed q))) "the list is not")
@@ -696,9 +697,9 @@
 
 (tu/deftest-kb a-conclusion-and-a-negated-one-that-unify-are-a-clash-in-waiting
   (tu/with-terms [bird_kind penguin_kind flies]
-    (let [yes (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse)
+    (let [yes (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse {:direction :forward})
           no  (v/assert-rule kb [(list penguin_kind '?x)] (list 'not (list flies '?x))
-                             'CxUniverse)
+                             'CxUniverse {:direction :forward})
           q   (clashes kb)
           e   (first (:pairs q))]
       (is (= 1 (:pair-count q)))
@@ -717,12 +718,12 @@
   ;; not a clash and must not be reported as one.
   (tu/with-terms [animal_kind dog_kind pet stray tame feral]
     (v/assert kb (list 'genl dog_kind animal_kind) 'CxUniverse)
-    (let [dog      (v/assert-rule kb [(list pet '?x)] (list dog_kind '?x) 'CxUniverse)
+    (let [dog      (v/assert-rule kb [(list pet '?x)] (list dog_kind '?x) 'CxUniverse {:direction :forward})
           not-any  (v/assert-rule kb [(list stray '?x)]
-                                  (list 'not (list animal_kind '?x)) 'CxUniverse)
-          any      (v/assert-rule kb [(list tame '?x)] (list animal_kind '?x) 'CxUniverse)
+                                  (list 'not (list animal_kind '?x)) 'CxUniverse {:direction :forward})
+          any      (v/assert-rule kb [(list tame '?x)] (list animal_kind '?x) 'CxUniverse {:direction :forward})
           not-dog  (v/assert-rule kb [(list feral '?x)]
-                                  (list 'not (list dog_kind '?x)) 'CxUniverse)
+                                  (list 'not (list dog_kind '?x)) 'CxUniverse {:direction :forward})
           pairs    (set (map (comp set :rules) (:pairs (clashes kb))))]
       (is (= #{:negation} (clash-kinds kb)))
       (is (contains? pairs #{dog not-any})
@@ -740,8 +741,8 @@
     (v/assert kb (list 'genl cat_kind 'thing) 'CxUniverse)
     (v/assert kb (list 'genl dog_kind 'thing) 'CxUniverse)
     (v/assert kb (list 'disjoint cat_kind dog_kind) 'CxUniverse)
-    (v/assert-rule kb [(list barks '?x)] (list dog_kind '?x) 'CxUniverse)
-    (v/assert-rule kb [(list meows '?x)] (list cat_kind '?x) 'CxUniverse)
+    (v/assert-rule kb [(list barks '?x)] (list dog_kind '?x) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list meows '?x)] (list cat_kind '?x) 'CxUniverse {:direction :forward})
     (let [e (first (:pairs (clashes kb)))]
       (is (= :disjoint (:kind e)))
       (is (= 'CxUniverse (:context e))))))
@@ -754,8 +755,8 @@
     (v/assert kb (list 'functional parentOf) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
-    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
-    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse {:direction :forward})
     (let [e (first (:pairs (clashes kb)))]
       (is (= :functional (:kind e)))
       (is (= 1 (:pair-count (clashes kb)))))))
@@ -769,8 +770,8 @@
     (v/assert kb (list 'functionalInArg parentOf 2) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
-    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
-    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse {:direction :forward})
     (let [e (first (:pairs (clashes kb)))]
       (is (= :functional (:kind e)))
       (is (= 1 (:pair-count (clashes kb)))))))
@@ -783,8 +784,8 @@
     (v/assert kb (list 'functionalInArg parentOf 3) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
-    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
-    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list bore '?x '?y)] (list motherOf '?x '?y) 'CxUniverse {:direction :forward})
     (is (zero? (:pair-count (clashes kb)))
         "position 3 says nothing about two binary conclusions")))
 
@@ -802,8 +803,8 @@
     (v/assert kb (list 'functionalInArg parentOf 1) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (v/assert kb (list 'genl motherOf parentOf) 'CxUniverse)
-    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse)
-    (v/assert-rule kb [(list bore '?x '?z)] (list motherOf '?z '?x) 'CxUniverse)
+    (v/assert-rule kb [(list begat '?x '?y)] (list fatherOf '?x '?y) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list bore '?x '?z)] (list motherOf '?z '?x) 'CxUniverse {:direction :forward})
     (let [e (first (:pairs (clashes kb)))]
       (is (= :functional (:kind e)))
       (is (= 1 (:pair-count (clashes kb)))))))
@@ -811,8 +812,8 @@
 (tu/deftest-kb one-tuple-concluded-both-ways-round-is-a-clash-in-waiting
   (tu/with-terms [outranks bossOf juniorTo]
     (v/assert kb (list 'asymmetric outranks) 'CxUniverse)
-    (v/assert-rule kb [(list bossOf '?x '?y)] (list outranks '?x '?y) 'CxUniverse)
-    (v/assert-rule kb [(list juniorTo '?x '?y)] (list outranks '?y '?x) 'CxUniverse)
+    (v/assert-rule kb [(list bossOf '?x '?y)] (list outranks '?x '?y) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list juniorTo '?x '?y)] (list outranks '?y '?x) 'CxUniverse {:direction :forward})
     (let [e (first (:pairs (clashes kb)))]
       (is (= :asymmetric (:kind e)))
       (is (= 1 (:pair-count (clashes kb)))))))
@@ -824,16 +825,16 @@
   ;; sets themselves.
   (testing "a literal and its negation"
     (tu/with-terms [bird_kind penguin_kind flies]
-      (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse)
+      (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse {:direction :forward})
       (v/assert-rule kb [(list penguin_kind '?x) (list 'not (list bird_kind '?x))]
-                     (list 'not (list flies '?x)) 'CxUniverse)
+                     (list 'not (list flies '?x)) 'CxUniverse {:direction :forward})
       (is (zero? (:pair-count (clashes kb))))))
   (testing "and two antecedent types a declaration separates"
     (tu/with-terms [cat_kind dog_kind barks]
       (v/assert kb (list 'genl cat_kind 'thing) 'CxUniverse)
       (v/assert kb (list 'genl dog_kind 'thing) 'CxUniverse)
-      (v/assert-rule kb [(list dog_kind '?x)] (list barks '?x) 'CxUniverse)
-      (v/assert-rule kb [(list cat_kind '?x)] (list 'not (list barks '?x)) 'CxUniverse)
+      (v/assert-rule kb [(list dog_kind '?x)] (list barks '?x) 'CxUniverse {:direction :forward})
+      (v/assert-rule kb [(list cat_kind '?x)] (list 'not (list barks '?x)) 'CxUniverse {:direction :forward})
       (is (= 1 (:pair-count (clashes kb))) "nothing separates the two antecedents yet")
       (v/assert kb (list 'disjoint cat_kind dog_kind) 'CxUniverse)
       (is (zero? (:pair-count (clashes kb)))
@@ -843,16 +844,16 @@
       (v/assert kb (list 'genl oneish 'thing) 'CxUniverse)
       (v/assert kb (list 'genl twoish 'thing) 'CxUniverse)
       (v/assert kb (list 'disjoint oneish twoish) 'CxUniverse)
-      (v/assert-rule kb ['(arity ?p 1)] (list oneish '?p) 'CxUniverse)
-      (v/assert-rule kb ['(arity ?p 1)] (list twoish '?p) 'CxUniverse)
+      (v/assert-rule kb ['(arity ?p 1)] (list oneish '?p) 'CxUniverse {:direction :forward})
+      (v/assert-rule kb ['(arity ?p 1)] (list twoish '?p) 'CxUniverse {:direction :forward})
       (is (= 1 (:pair-count (clashes kb)))
           "one arity claim on each side: the conclusions are separated and both can fire")
-      (v/assert-rule kb ['(arity ?p 2)] (list twoish '?p) 'CxUniverse)
+      (v/assert-rule kb ['(arity ?p 2)] (list twoish '?p) 'CxUniverse {:direction :forward})
       (is (= 1 (:pair-count (clashes kb)))
           "the arity table is functional, so no ?p is both 1 and 2 places")
       (testing "and a class membership says the same thing the other way"
         (v/assert kb (list 'genl equiv_kind 'binary_predicate) 'CxUniverse)
-        (v/assert-rule kb [(list equiv_kind '?p)] (list twoish '?p) 'CxUniverse)
+        (v/assert-rule kb [(list equiv_kind '?p)] (list twoish '?p) 'CxUniverse {:direction :forward})
         (is (= 1 (:pair-count (clashes kb)))
             "equiv_kind reaches binary_predicate up genl, so it claims arity 2")))))
 
@@ -861,8 +862,8 @@
   ;; one rule's context sees the other's would exempt every sibling pair, so the test is a
   ;; common descendant — and two contexts with none have no clash to form.
   (tu/with-terms [bird_kind penguin_kind flies CxLeft CxRight CxBoth]
-    (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) CxLeft)
-    (v/assert-rule kb [(list penguin_kind '?x)] (list 'not (list flies '?x)) CxRight)
+    (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) CxLeft {:direction :forward})
+    (v/assert-rule kb [(list penguin_kind '?x)] (list 'not (list flies '?x)) CxRight {:direction :forward})
     (is (zero? (:pair-count (clashes kb))) "two contexts, no common descendant")
     (v/assert kb (list 'genlCx CxBoth CxLeft) 'CxUniverse)
     (v/assert kb (list 'genlCx CxBoth CxRight) 'CxUniverse)
@@ -879,7 +880,7 @@
     (v/assert kb (except-rule (list penguin_kind '?x) [(list bird_kind '?x)]
                               (list flies '?x))
               'CxUniverse)
-    (v/assert-rule kb [(list penguin_kind '?x)] (list 'not (list flies '?x)) 'CxUniverse)
+    (v/assert-rule kb [(list penguin_kind '?x)] (list 'not (list flies '?x)) 'CxUniverse {:direction :forward})
     (let [e (first (:pairs (clashes kb)))]
       (is (= :negation (:kind e)))
       (is (true? (:excepted e))

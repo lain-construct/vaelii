@@ -76,7 +76,7 @@
   (tu/with-cleared-kb [kb tu/fresh]
     (tu/with-terms [bird flies penguin CxHalf]
       (v/assert kb (list 'genlCx CxHalf 'CxUniverse) 'CxUniverse)
-      (let [h (v/assert kb (vr/rule-sentence [(list bird '?b)] (list flies '?b)) CxHalf)]
+      (let [h (v/assert kb (vr/rule-sentence [(list bird '?b)] (list flies '?b)) CxHalf {:direction :forward})]
         (v/assert kb (list 'exceptWhen (list 'set/monotonic (list penguin '?b))
                            (v/sentex-handle h))
                   CxHalf)

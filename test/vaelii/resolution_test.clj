@@ -18,7 +18,7 @@
 (tu/deftest-kb backward-with-rule
   (let [parentOf (tu/tmp-pred) grandparentOf (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind) ann (tu/tmp-ind)]
-    (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam)
+    (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam {:direction :forward})
     (v/assert kb (list parentOf tom bob) 'CxFam)
     (v/assert kb (list parentOf bob ann) 'CxFam)
     (let [sols (v/prove kb (list grandparentOf '?g '?d) 'CxFam)]
@@ -28,7 +28,7 @@
 (tu/deftest-kb forward-chaining-derives
   (let [parentOf (tu/tmp-pred) grandparentOf (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind) ann (tu/tmp-ind)]
-    (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam)
+    (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam {:direction :forward})
     (v/assert kb (list parentOf tom bob) 'CxFam)
     (v/assert kb (list parentOf bob ann) 'CxFam)
     (testing "grandparent is materialized by forward chaining"
@@ -38,7 +38,7 @@
 (tu/deftest-kb recursion-is-bounded
   (let [nat (tu/tmp-type) z (tu/tmp-ind) succ (tu/tmp-pred)]
     (v/assert kb (list nat z) 'CxUniverse)
-    (v/assert-rule kb [(list nat '?n)] (list nat (list succ '?n)) 'CxUniverse {:chain? false})
+    (v/assert-rule kb [(list nat '?n)] (list nat (list succ '?n)) 'CxUniverse {:direction :forward :chain? false})
     (let [result (v/forward-chain kb {:max-depth 5})]
       (testing "productive recursion terminates at the depth bound and is flagged"
         (is (:truncated? result))
@@ -48,7 +48,7 @@
 (tu/deftest-kb retraction-saves-alternate-witness
   (let [parentOf (tu/tmp-pred) grandparentOf (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind) ann (tu/tmp-ind) carol (tu/tmp-ind)]
-    (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam)
+    (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam {:direction :forward})
     (v/assert kb (list parentOf tom bob)   'CxFam)
     (v/assert kb (list parentOf bob ann)   'CxFam)
     (v/assert kb (list parentOf tom carol) 'CxFam)
@@ -66,7 +66,7 @@
 (tu/deftest-kb retraction-sweeps-solely-supported
   (let [parentOf (tu/tmp-pred) grandparentOf (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind) ann (tu/tmp-ind)]
-    (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam)
+    (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam {:direction :forward})
     (v/assert kb (list parentOf tom bob) 'CxFam)
     (v/assert kb (list parentOf bob ann) 'CxFam)            ; only one witness
     (let [gp     (v/handle-of kb (list grandparentOf tom ann) 'CxFam)

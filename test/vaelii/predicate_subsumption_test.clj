@@ -21,7 +21,7 @@
   conclusion and mask the backward path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.taxonomy :as tax]
@@ -81,7 +81,7 @@
   (tu/with-terms [fatherOf parentOf hasChild A B]
     (v/assert kb (list 'genl fatherOf parentOf) 'CxCore {:strength :monotonic})
     (v/assert kb (list 'implies (list parentOf (symbol "?x") (symbol "?y"))
-                       (list hasChild (symbol "?y") (symbol "?x"))) 'CxCore)
+                       (list hasChild (symbol "?y") (symbol "?x"))) 'CxCore {:direction :forward})
     (v/assert kb (list fatherOf A B) 'CxCore {:strength :monotonic})
     (testing "a rule on the super-predicate fires on a sub-predicate fact"
       (is (seq (v/sentexes-matching kb (list hasChild B A) 'CxCore))))))

@@ -25,7 +25,7 @@
   every policy."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.nat :as nat]
             [vaelii.test-util :as tu]))
 

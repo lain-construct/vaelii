@@ -56,7 +56,7 @@
 (def ^:private asp? (solver/available?))
 
 (defn- default-rule [antes conseq]
-  (list 'set/defaultRule (vr/rule-sentence antes conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 (defn- check-tms [kb c]
   (testing "cautious beliefs are all believed"

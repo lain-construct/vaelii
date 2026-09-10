@@ -138,7 +138,11 @@
   '{arg      (arg ?n ?type)
     genlArg     (genlArg ?n ?type)
     quotedArg   (quotedArg ?n ?type)
-    interArg (interArg ?n ?type ?m ?utype)})
+    interArg (interArg ?n ?type ?m ?utype)
+    args           (args ?type)
+    argsGenl        (argsGenl ?type)
+    argAndRest      (argAndRest ?start ?type)
+    argAndRestGenl  (argAndRestGenl ?start ?type)})
 
 (def constraint-declaration-functors
   "The argument constraints this namespace reads at the entry point, as a set — `declaration-
@@ -256,14 +260,14 @@
 (def ^:dynamic *assertive-arg-types?*
   "Do the argument constraints *entail* as well as constrain?
 
-  **Off by default.**  A KB that derives types it cannot retract cleanly is worse than
-  one that derives none, and entailing changes what a KB *contains* rather than only
-  what it answers — so it is opt-in, and off leaves the constraint reading alone
-  (docs/argtypes.md).
+  **On by default.**  The entailment is additive — it mints the type a declaration
+  already constrains, as a justified, retractable sentex — and off leaves the constraint
+  reading alone (docs/argtypes.md).
 
-  `binding` it is the ordinary way in.  `VAELII_ASSERTIVE_ARG_TYPES=1` sets the root
-  value instead, which is what lets the whole suite be run under it — the parity gate
-  that says the entailment is additive rather than a different engine."
+  `binding` it is the ordinary way in.  `VAELII_ASSERTIVE_ARG_TYPES=0` sets the root
+  value off instead, which is what lets the whole suite be run under the constraint-only
+  reading — the parity gate that says the entailment is additive rather than a different
+  engine."
   (config/assertive-arg-types?))
 
 (def ^:private universal-context
@@ -612,6 +616,132 @@
           :message (str "arg constraint: " why " (arg " n " of " pred
                         (via-clause (declared-of d) pred) ")")})))))
 
+;; ---- the covering argument constraints -----------------------------------
+;; `arg` and `genlArg` type one numbered position.  `args` / `argsGenl` type EVERY
+;; accepted position, and `argAndRest` / `argAndRestGenl` every position from a start
+;; onward — the tail of a variable-arity relation, where naming a largest finite `arg`
+;; would make an unbounded relation look finite and leaving the later positions undeclared
+;; would drop the contract silently.  Each covering form generalizes its singular twin and
+;; reuses its per-argument conviction: `args` asks the instance question `arg` asks,
+;; `argsGenl` the subtype question `genlArg` asks.
+;;
+;; **The walk is over the positions the sentence actually has, not a re-counted tail.**
+;; `arity-problem` runs first in `constraint-problem` and refuses a sentence whose length
+;; its relation does not admit, so every position reached here is one a well-formed
+;; application has — there is no second notion of where the tail ends for the covering
+;; check and the arity reader to disagree about.  The covering declarations are read
+;; through the same `decls` reader the singular forms use, so a super-predicate's covering
+;; declaration binds a sub-predicate's tuples for `args-problem`'s reason.
+
+(defn- covering-declared?
+  "Is any covering declaration of one of the `:props` `kinds` marked in the taxonomy?
+  A `:props` map lookup per kind, not a functor-root index read — so a KB with no covering
+  declaration adds nothing to the firing read budget, where a per-functor
+  `stored-count-with-functor` gate would cost one functor-root read per assert for a
+  feature the KB does not use.  Over-approximates like `inter-args-problem`'s index gate:
+  the mark is global, so a covering constraint on any predicate runs the scoped check for
+  every assert, and the scoped `decls` read decides whose tuples it actually binds."
+  [kb kinds]
+  (let [tax (:taxonomy kb)]
+    (boolean (some #(seq (tax/props tax %)) kinds))))
+
+(defn- covering-triples
+  "The covering declarations of the every-position kind `ek` and the tail kind `rk`,
+  read through the shared `decls` reader and merged into `[start type kind match]`
+  entries in content order — start 1 for `ek`, the declared start for `rk`.  A tail
+  declaration whose start is not a positive integer is dropped here rather than convicting
+  from an ill-formed position; its own `(arg <rk> 2 positive_integer)` refuses it at the
+  entry point, so a stored one is a torn record, not a live constraint.  Sorting keys the
+  refusal on what the KB says, exactly as `in-content-order` does for the singular forms."
+  [decls ek rk]
+  (nm/sort-by-content-key
+   #(nm/print-key (:sentence (nth (nth % 3) 2))) compare
+   (concat (for [m (decls ek)] [1 (get (nth m 1) '?type) ek m])
+           (for [m     (decls rk)
+                 :let  [b (nth m 1) s (get b '?start)]
+                 :when (and (integer? s) (pos? s))]
+             [s (get b '?type) rk m]))))
+
+(defn- covering-clause
+  "How a covering refusal names the position it convicts: `args, position N` for an
+  every-position form, `argAndRest from M, position N` for a tail form."
+  [kind start pos]
+  (if (#{'args 'argsGenl} kind)
+    (str kind ", position " pos)
+    (str kind " from " start ", position " pos)))
+
+(defn- covering-args-problem
+  "First `(args R T)` / `(argAndRest R n T)` violation for a sentence, or nil.  Types
+  every admitted position (or every one from `n` onward) as an **instance** of `T`,
+  reusing `args-problem`'s per-argument conviction — `convicting-result-type` for an
+  application, `outside-declared-type?` for a symbol or value, and yielding the symbol arm
+  to the same entailment under the toggle.  Conjunctive with a singular `(arg R n T)`:
+  both are read, neither overrides.
+
+  Behind the O(1) gate `inter-args-problem` is, and for the same reason: nothing declares
+  a covering constraint yet and this runs on every assert."
+  [kb sentence context types decls]
+  (let [pred (nm/functor sentence)
+        as   (vec (nm/args sentence))
+        tax  (:taxonomy kb)]
+    (when (and (symbol? pred)
+               (covering-declared? kb [:declares-args-isa :declares-arg-and-rest-isa]))
+      (first
+       (for [[start t kind decl] (covering-triples decls 'args 'argAndRest)
+             pos   (range start (inc (count as)))
+             :let  [arg (arg-at as pos)
+                    r   (convicting-result-type kb nat/result-types pred arg t context)]
+             :when (and arg (or r (and (not (entailment-covers? kb tax arg t context decl))
+                                       (outside-declared-type? tax types arg t context))))]
+         {:type :arg-type :sentence sentence :arg arg :expected t :position pos
+          :message (str "arg constraint: " (pr-str arg) " must be a " t
+                        (when r (str " — " (first arg) " results in a " r))
+                        " (" (covering-clause kind start pos) " of " pred
+                        (via-clause (declared-of decl) pred) ")")})))))
+
+(defn- covering-genls-problem
+  "First `(argsGenl R T)` / `(argAndRestGenl R n T)` violation for a sentence, or nil.
+  The subtype twin of `covering-args-problem`: every admitted position (or every one from
+  `n` onward) must name a **subtype** of `T`, reusing `genls-problem`'s per-argument
+  reading — `genlResult` for an application, and the global individual floor, the scoped
+  open-world excuse and the scoped subtype test for a symbol.  Conjunctive with a singular
+  `(genlArg R n T)`.
+
+  **The individual floor is a global read (`tax/genl?-global`), for `genls-problem`'s
+  reason (E17_ROSTER).**  The floor asks whether the argument could ever be a type at all;
+  a reified NAT's minting `genl` edges land in `CxUniverse`, which a member of the upper
+  spindle sits above and cannot see, so a scoped floor would convict an imported reified
+  NAT used from a narrow context as \"an individual, so never a subtype\" — false.  The
+  subtype test proper stays scoped, the writer's own vantage."
+  [kb sentence context decls]
+  (let [pred (nm/functor sentence)
+        as   (vec (nm/args sentence))
+        tax  (:taxonomy kb)]
+    (when (and (symbol? pred)
+               (covering-declared? kb [:declares-args-genl :declares-arg-and-rest-genl]))
+      (first
+       (for [[start t kind decl] (covering-triples decls 'argsGenl 'argAndRestGenl)
+             pos   (range start (inc (count as)))
+             :let  [arg (arg-at as pos)
+                    r   (convicting-result-type kb nat/genl-result-types pred arg t context)
+                    why (if r
+                          (str (pr-str arg) " must be a subtype of " t " — "
+                               (first arg) " results in a subtype of " r)
+                          (when (and arg (checkable-term? arg) (symbol? t))
+                            (cond
+                              (not (tax/genl?-global tax arg 'thing))
+                              (when (nm/individual? arg)
+                                (str arg " is an individual, so it can never be a subtype of " t))
+
+                              (not (tax/genl? tax arg 'thing context)) nil
+
+                              (not (tax/genl? tax arg t context))
+                              (str arg " must be a subtype of " t))))]
+             :when why]
+         {:type :arg-genl :sentence sentence :arg arg :expected t :position pos
+          :message (str "arg constraint: " why " (" (covering-clause kind start pos)
+                        " of " pred (via-clause (declared-of decl) pred) ")")})))))
+
 (defn- args-quoted-problem
   "First `(quotedArg pred n type)` violation for a sentence, or nil.
 
@@ -926,6 +1056,14 @@
                    :when h]
                h))))
 
+(defn- arity-min-declaration-handle
+  "The handle of the believed `(arityMin pred m)` declaration visible from `context` — the
+  sentex a too-short application of a variable-arity relation convicts against.  Asked only
+  once the floor has found a violation, so an admissible assert never pays the retrieval."
+  [kb pred m context]
+  (let [target (list 'arityMin pred m)]
+    (handle-naming (res/matches-visible kb target context) target)))
+
 (defn- arity-problem
   "A sentence used at an arity its predicate is not declared with, or nil.
 
@@ -959,17 +1097,32 @@
   [kb sentence context types]
   (let [pred (nm/functor sentence)]
     (when (symbol? pred)
-      ;; the arity question is answered from the taxonomy cache and the predicate's
-      ;; own type memberships (`declared-arity`) — no declaration query is made here
-      (when-let [[declared via] (declared-arity kb pred context types)]
-        (let [actual (nm/arity sentence)]
-          (when (and (not= actual declared)
-                     (not (variable-arity? types pred)))
-            {:type :arity :sentence sentence :predicate pred
-             :expected declared :actual actual :via via
-             :opposing-handle (arity-declaration-handle kb via declared context)
-             :message (str pred " " (arity-binding-clause pred via declared)
-                           " but has " actual)}))))))
+      (let [actual (nm/arity sentence)]
+        (if (variable-arity? types pred)
+          ;; a variable-arity relation reads a chain of any length at or above the
+          ;; minimum `arityMin` states, so its floor is that minimum rather than an
+          ;; exact length.  An application shorter than the minimum is missing a
+          ;; guaranteed position and is refused; a longer one is admitted.  `arityMin`
+          ;; is read by retrieval, reached only on this variable-arity branch and never
+          ;; on the exact-arity path below.  A relation with no `arityMin` keeps the
+          ;; outright exemption it had before the minimum was read.
+          (when-let [m (provers/arity-min kb pred context)]
+            (when (< actual m)
+              {:type :arity :sentence sentence :predicate pred
+               :expected m :actual actual :via pred :minimum? true
+               :opposing-handle (arity-min-declaration-handle kb pred m context)
+               :message (str pred " takes at least " m " argument"
+                             (when (not= 1 m) "s") " but has " actual)}))
+          ;; a fixed-arity relation is held to its exact declared length, answered from
+          ;; the taxonomy cache and the predicate's own type memberships
+          ;; (`declared-arity`) — no declaration query is made here
+          (when-let [[declared via] (declared-arity kb pred context types)]
+            (when (not= actual declared)
+              {:type :arity :sentence sentence :predicate pred
+               :expected declared :actual actual :via via
+               :opposing-handle (arity-declaration-handle kb via declared context)
+               :message (str pred " " (arity-binding-clause pred via declared)
+                             " but has " actual)})))))))
 
 ;; ---- arity across a genl edge -------------------------------------------
 ;;
@@ -1244,7 +1397,10 @@
   [kb f pred n context types]
   (when (and (integer? n) (pos? n))
     (when-let [[declared via] (declared-arity kb pred context types)]
-      (when (and (> n declared) (not (variable-arity? types pred)))
+      ;; the position the predicate does not have is the one the shared decision reads as
+      ;; certainly-not-admitted — the same function `provers/AdmitsArgnumProver` answers, so
+      ;; a position this arm refuses is one `(admitsArgnum pred n)` does not prove
+      (when (false? (provers/admits-position? (variable-arity? types pred) declared n))
         {:type :arg-position :predicate pred
          :position n :arity declared :via via
          :message (str f " constrains argument " n " of " pred ", which "
@@ -2175,6 +2331,23 @@
   [kb sentence context]
   (first (antisymmetry-problems kb sentence context)))
 
+(defn- matches-pattern-problem
+  "A `matchesPattern` literal whose pattern argument is a ground string the regex engine
+  cannot compile, or nil.  `EvaluableProver` reads the pattern as a value at query time, so
+  an author who mistypes it would otherwise get a goal that silently never matches; this
+  reports the compile failure at the assert entry point instead.  Only a ground string
+  pattern is judged — a variable pattern is open, like every other undecided argument, and a
+  non-string pattern is the `quotedArg` arm's refusal, not this one."
+  [sentence]
+  (when (= 'matchesPattern (nm/functor sentence))
+    (let [pattern (second (nm/args sentence))]
+      (when (string? pattern)
+        (try (java.util.regex.Pattern/compile pattern) nil
+             (catch java.util.regex.PatternSyntaxException e
+               {:type :bad-pattern :sentence sentence :pattern pattern
+                :message (str "matchesPattern was given a pattern that does not compile: "
+                              (.getMessage e))}))))))
+
 (defn- checked-sentence
   "The body the definitional checks see: the double-negation-eliminated positive body,
   so a `(not (not (dog Muffet)))` is still arg/disjoint/functional-checked and a genuine
@@ -2204,9 +2377,12 @@
     (or (arity-problem kb chk context types)
         (edge-arity-problem kb chk context types)
         (declaration-arity-problem kb chk context types)
+        (matches-pattern-problem chk)
         (args-problem kb chk context types decls)
         (inter-args-problem kb chk context types decls)
         (genls-problem kb chk context decls)
+        (covering-args-problem kb chk context types decls)
+        (covering-genls-problem kb chk context decls)
         (args-quoted-problem kb chk context types decls)
         (declaration-problem kb chk context types)
         (disjoint-problem kb chk context types)
@@ -2298,6 +2474,14 @@
                    arg (arg-at as n)]
             :when (and arg (eligible? arg)
                        (mintable-type? tax t)
+                       ;; A `genlArg` mints `(genl arg t)`, which is not-well-formed when
+                       ;; `arg` is `t`: `(genl thing thing)` is what the shipped `(genlArg
+                       ;; arg 3 thing)` / `(genlArg genlArg 3 thing)` meta-declarations
+                       ;; would draw from every `(arg P n thing)` declaration.  A reflexive
+                       ;; `genl` edge is never well-formed for any `t`, and `arg`/`t` are
+                       ;; literal terms, so this is a structural exclusion like
+                       ;; `mintable-type?` above rather than a redundancy narrowing.
+                       (not (and (= kind 'genlArg) (= arg t)))
                        (declares-locally? kb dh context))]
         {:assert  (mint arg t)
          :because (into [dh] (edge-support kb pred (declared-of d) context))
@@ -3420,10 +3604,12 @@
         levels (rules/nesting sentence)
         ;; `peel-rule-wrapper` reports the wrapper it found, and a bare rule has none —
         ;; the record's default is what nil means here, as it does at the constructor.
-        ;; A level's own wrapper rides the consequent of the level above it, which is
-        ;; where a stamped rule's direction is written.
-        dirs   (cons (or (first (sx/peel-rule-wrapper sentence)) :both)
-                     (map #(or (first (sx/peel-rule-wrapper (:consequent %))) :both)
+        ;; Every sentence this runs on is a generator, and a bare generator defaults to
+        ;; :forward at the constructor (a backward generator is meaningless), so nil is
+        ;; :forward here.  A level's own wrapper rides the consequent of the level above
+        ;; it, which is where a stamped rule's direction is written.
+        dirs   (cons (or (first (sx/peel-rule-wrapper sentence)) :forward)
+                     (map #(or (first (sx/peel-rule-wrapper (:consequent %))) :forward)
                           levels))]
     (doseq [[i level dir] (map vector (range) levels dirs)
             :when         (:generated level)]
@@ -3437,7 +3623,7 @@
                              " generate")
                         {:type :not-well-formed :sentence sentence :context context
                          :nesting-level (inc i)})))
-      (when-not (contains? #{:forward :both :inert} dir)
+      (when-not (contains? #{:forward :both :inert :forward-only} dir)
         (throw (ex-info (str "a rule generator is forward-only: its conclusion is a rule,"
                              " and no backward goal asks for one.  Drop the"
                              " set/backwardRule wrapper — the wrapper on the innermost"

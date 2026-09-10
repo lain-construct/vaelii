@@ -17,9 +17,9 @@
   stays the sole complete method for its predicates under either polarity."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.interval :as iv]
-            [vaelii.impl.seed :as seed]
             [vaelii.impl.space :as space]
             [vaelii.test-util :as tu]))
 

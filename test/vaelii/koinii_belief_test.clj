@@ -9,7 +9,7 @@
   is `dispute` / argue, not this."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.koinii.belief :as bel]
             [vaelii.koinii.identity :as id]
             [vaelii.test-util :as tu])

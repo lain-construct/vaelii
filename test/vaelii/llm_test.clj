@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-test
-  "The pluggable LLM that proposes KB edits (`vaelii.impl.llm.*`).
+  "The pluggable LLM that proposes KB edits (`vaelii.host.llm.*`).
 
   Every test here runs against the **offline stub provider**, so the suite needs no
   API key and opens no socket.  What is under test is the pipeline around the model,
@@ -13,15 +13,15 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.llm.anthropic :as anthropic]
-            [vaelii.impl.llm.http :as llm-http]
-            [vaelii.impl.llm.ollama :as ollama]
-            [vaelii.impl.llm.prompt :as prompt]
-            [vaelii.impl.llm.protocol :as proto]
-            [vaelii.impl.llm.session :as session]
-            [vaelii.impl.llm.stub :as stub]
-            [vaelii.impl.llm.tools :as tools]
-            [vaelii.impl.serve :as serve]
+            [vaelii.host.llm.anthropic :as anthropic]
+            [vaelii.host.llm.http :as llm-http]
+            [vaelii.host.llm.ollama :as ollama]
+            [vaelii.host.llm.prompt :as prompt]
+            [vaelii.host.llm.protocol :as proto]
+            [vaelii.host.llm.session :as session]
+            [vaelii.host.llm.stub :as stub]
+            [vaelii.host.llm.tools :as tools]
+            [vaelii.host.serve :as serve]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -670,7 +670,7 @@
              (.orElse (.connectTimeout c) nil))
           "the connect deadline is the constant, whatever a turn was allowed")))
   (testing "the Anthropic backend reads the same constant — one deadline policy, one place"
-    (is (str/includes? (slurp (io/file "src/vaelii/impl/llm/anthropic.clj"))
+    (is (str/includes? (slurp (io/file "src/vaelii/host/llm/anthropic.clj"))
                        "(.connectTimeout b (Duration/ofMillis (long http/connect-timeout-ms)))"))))
 
 (deftest the-probes-share-one-http-client
@@ -892,17 +892,17 @@
   `VAELII_LLM_LIVE`, read through `tu/live-llm?`), so a test reaching one of these pins a
   `transport-extension-point` — which is what `the-stub-is-the-default-and-the-fallback` and
   `a-backend-that-probes-available-and-then-throws-is-logged` already do."
-  '#{vaelii.impl.llm.ollama/version
-     vaelii.impl.llm.ollama/available?
-     vaelii.impl.llm.ollama/show
-     vaelii.impl.llm.ollama/capabilities
-     vaelii.impl.llm.ollama/supports-tools?
-     vaelii.impl.llm.ollama/context-length
-     vaelii.impl.llm.ollama/warm
-     vaelii.impl.llm.provider/warm
-     vaelii.impl.llm.provider/provider
-     vaelii.impl.llm.provider/generation-provider
-     vaelii.impl.llm.provider/active-kind})
+  '#{vaelii.host.llm.ollama/version
+     vaelii.host.llm.ollama/available?
+     vaelii.host.llm.ollama/show
+     vaelii.host.llm.ollama/capabilities
+     vaelii.host.llm.ollama/supports-tools?
+     vaelii.host.llm.ollama/context-length
+     vaelii.host.llm.ollama/warm
+     vaelii.host.llm.provider/warm
+     vaelii.host.llm.provider/provider
+     vaelii.host.llm.provider/generation-provider
+     vaelii.host.llm.provider/active-kind})
 
 (def ^:private backend-constructors
   "Calls that hand back a provider bound to a **real** backend.  None of these opens a
@@ -910,23 +910,23 @@
   `provider/build` goes straight to the constructor without probing — so one of them
   alone is not a dial-out, and several tests in `:default` build one deliberately to check
   what happens when a credential is missing or a constructor throws."
-  '#{vaelii.impl.llm.ollama/provider
-     vaelii.impl.llm.ollama/generation-provider
-     vaelii.impl.llm.anthropic/provider
-     vaelii.impl.llm.provider/build})
+  '#{vaelii.host.llm.ollama/provider
+     vaelii.host.llm.ollama/generation-provider
+     vaelii.host.llm.anthropic/provider
+     vaelii.host.llm.provider/build})
 
 (def ^:private turn-drivers
   "Calls that run a turn against whatever provider they are handed.  Harmless over the
   stub, which is how most of this suite uses them — it is the **pair** that dials: a real
   backend built, and then driven."
-  '#{vaelii.impl.llm.session/propose
-     vaelii.impl.llm.session/propose-edit
-     vaelii.impl.llm.session/propose-page
-     vaelii.impl.llm.session/propose-text
-     vaelii.impl.llm.oracle/judge
-     vaelii.impl.llm.oracle/judge-batch
-     vaelii.impl.llm.protocol/complete
-     vaelii.impl.llm.protocol/stream})
+  '#{vaelii.host.llm.session/propose
+     vaelii.host.llm.session/propose-edit
+     vaelii.host.llm.session/propose-page
+     vaelii.host.llm.session/propose-text
+     vaelii.host.llm.oracle/judge
+     vaelii.host.llm.oracle/judge-batch
+     vaelii.host.llm.protocol/complete
+     vaelii.host.llm.protocol/stream})
 
 (defn- require-aliases
   "The `alias -> namespace` map a file's `:require` declares."
@@ -957,11 +957,11 @@
   hold of the transport, so what sits above it is exercised rather than dialled —
   `probe-client` *is* the client every Ollama probe sends on, and the `provider` extension point
   decides whether a real backend is built at all."
-  '#{vaelii.impl.llm.ollama/probe-client
-     vaelii.impl.llm.provider/configured
-     vaelii.impl.llm.provider/available?
-     vaelii.impl.llm.provider/build
-     vaelii.impl.llm.provider/resolve-fn})
+  '#{vaelii.host.llm.ollama/probe-client
+     vaelii.host.llm.provider/configured
+     vaelii.host.llm.provider/available?
+     vaelii.host.llm.provider/build
+     vaelii.host.llm.provider/resolve-fn})
 
 (defn- pinned-in
   "The names a form's `with-redefs` binding vectors mention.  A test that pins the var it

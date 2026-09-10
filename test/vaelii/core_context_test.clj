@@ -4,8 +4,8 @@
   "The CxCore ontology loads and documents the core predicates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.checks :as checks]
-            [vaelii.impl.core-context :as core-context]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))

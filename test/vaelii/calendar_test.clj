@@ -12,14 +12,14 @@
   no support and refuses an open end rather than enumerating the calendar."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.calendar :as cal]
-            [vaelii.impl.core-context :as core-context]
             [vaelii.impl.datetime :as dt]
             [vaelii.impl.interval :as interval]
             [vaelii.impl.plan :as plan]
             [vaelii.impl.point :as point]
             [vaelii.impl.provers :as provers]
-            [vaelii.impl.seed :as seed]
             [vaelii.test-util :as tu]))
 
 ;; A fresh KB per test: the CxCore grammar, the CxTime vocabulary the goals are written in

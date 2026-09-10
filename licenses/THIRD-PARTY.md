@@ -3,7 +3,7 @@
 Vaelii itself is licensed under the [SSPL-1.0](https://www.mongodb.com/licensing/server-side-public-license)
 (see `project.clj`). This file covers the assets **vendored into the repo** — files
 checked in under `resources/public/` and served verbatim by the browser
-(`vaelii.impl.web`), each under its own upstream licence.
+(`vaelii.host.web`), each under its own upstream licence.
 
 Everything else under `resources/public/` is the project's own work and carries no
 third-party obligation: `vaelii.css`, `select.js`, and the marks below. The badge SVGs

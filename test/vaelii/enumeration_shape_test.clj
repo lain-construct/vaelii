@@ -62,7 +62,7 @@
   (v/assert kb '(isa Muffet DomesticCat) 'CxTest {:strength :monotonic})
   (v/assert kb '(isa Tom DomesticCat) 'CxTest {:strength :monotonic})
   (v/assert kb '(genls DomesticCat Cat) 'CxTest {:strength :monotonic})
-  (v/assert-rule kb ['(isa ?x DomesticCat)] '(likes ?x Milk) 'CxTest {})
+  (v/assert-rule kb ['(isa ?x DomesticCat)] '(likes ?x Milk) 'CxTest {:direction :forward})
   (v/assert kb '(isa Rex Dog) 'CxTest)
   (let [h (v/assert kb '(isa Spot Dog) 'CxTest)]
     (v/retract! kb h))

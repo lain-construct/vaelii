@@ -47,8 +47,9 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                                ; opts: {:strength :monotonic|:default :chain? bool :max-depth n}
                                                ; `assert-opt-keys` is the roster; a key off it is refused
 (assert-rule kb antecedents consequent context opts)  ; opts as `assert` (:direction included)
-                                               ; (:forward | :backward | :inert | :both, default :both) —
-                                               ; the programmatic spelling of a set/*Rule wrapper
+                                               ; (:forward | :backward | :inert | :both, default :backward;
+                                               ; a generator defaults :forward) — the programmatic
+                                               ; spelling of a set/*Rule wrapper
 (assert-inert kb sentence context)              ; stored, indexed and durable, but NOT a premise:
                                                 ; never believed, never chained, never scanned for
                                                 ; contradictions — a recorded truth value
@@ -164,6 +165,12 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; opts: {:max-depth n :proof? true} + the node engine's
                                                ; :strategy :portfolio? :auto? :racers — the whole
                                                ; roster is `query-opt-keys`; a key off it is refused
+(query-status kb goal context opts)            ; query's answers PLUS a report -> {:answers :count :status
+                                               ; :truncated? :depth :time-to-first-answer-ms :total-time-ms
+                                               ; :stats}.  :truncated? tells a too-shallow :max-depth (the
+                                               ; bound cut a rewrite) from a genuinely empty answer; it is
+                                               ; conservative (a cyclic set is truncated at every depth).
+                                               ; One concrete context — a fanned context is refused
 (prove kb goal context opts)                   ; recur DFS backward chaining -> [solutions].  With no
                                                ; opts the UNBOUNDED one: terminates on the data,
                                                ; facts+rules
@@ -300,6 +307,14 @@ default-chain-opts                              ; the bounds a chain run takes w
 (disjoint-metatypes kb) / (metatype-members kb m) ; the declared `disjoint_metatype` cliques and one
                                                ; clique's members — consulted, never materialized,
                                                ; so no `(disjoint a b)` pair is stored to read back
+(subsumption-status kb type-a type-b [context]); the pair's genl relationship as a keyword —
+                                               ; :genl :spec :coextensional :disjoint :orthogonal
+                                               ; :unknown; genl/disjoint read the global closures,
+                                               ; `context` is the shared-instance vantage (default
+                                               ; CxUniverse)
+(disjointness-audit kb [context])              ; subsumption-status over every unordered type pair —
+                                               ; {:types :pairs :by-status :pairs-data}; the
+                                               ; :unknown pairs flag a candidate missing `disjoint`
 ;; the taxonomy, read (thin delegations to vaelii.impl.taxonomy — reads only, since
 ;; edges and metadata are maintained by assert / retract! from the sentexes stating them)
 (genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)
@@ -517,12 +532,13 @@ default-chain-opts                              ; the bounds a chain run takes w
 
 ## Choosing a query function
 
-Five entry points answer a goal, and the axis that separates them is **how much rule
+Six entry points answer a goal, and the axis that separates them is **how much rule
 expansion each will do**.  Pick by what you are asking, not by habit:
 
 | Reach for | When you want | Machinery | Returns |
 |-----------|---------------|-----------|---------|
 | **`query` / `query?`** | **the default** — one entry point, one dial: how deep to expand rules | no `:max-depth` and the registry answers alone; a `:max-depth` and the node engine expands rules that deep.  Either way a **conjunctive** join (vector goal) | binding maps `{?x v}` |
+| `query-status` | to tell a **too-shallow `:max-depth`** from an unprovable goal — the answers plus whether the bound cut the search, and the run's timings | the same search `query` runs, driven with truncation tracking on (`inference/search-report`); one concrete context | a report map — `:answers` `:truncated?` `:status` `:time-to-first-answer-ms` `:total-time-ms` `:stats` |
 | `ask` / `ask?` | an answer from what the KB stores or has cached, at a cost that does not depend on the rule graph | the prover registry (facts, transitivity, disjointness, inverse/symmetric metadata, evaluable arithmetic, NAF, arg) — **no rule expansion** | binding maps `{?x v}` |
 | `sentexes-matching` | *stored, believed* literals matching a pattern — retrieval, not reasoning | belief-filtered index read; no inference, no subtype expansion | **sentex maps** |
 | `prove` / `provable?` | backward chaining with **no depth to pick**: it terminates on the data | the recursive chainer, facts + rules only; a **conjunctive** join (vector goal) | a vector of binding maps, **one per derivation** — equal maps repeat, so `distinct` for an answer set |
@@ -989,7 +1005,7 @@ Assert known-true facts with `{:strength :monotonic}`; the default is `:default`
 (most of a common-sense KB), and a default is defeasible at the edges.
 
 `opts` on assert: `{:chain? false}` skips forward chaining, `{:max-depth n}`
-bounds it. `vaelii.impl.core-context/load-into` asserts the CxCore vocabulary — every special
+bounds it. `vaelii.host.core-context/load-into` asserts the CxCore vocabulary — every special
 predicate the engine interprets (types/contexts, arg/genlArg/interArg,
 disjoint/disjoint_metatype,
 implies + the `set/*Rule` wrappers, the transitive/symmetric/reflexive/functional/
@@ -997,10 +1013,10 @@ inverse/decontextualized_predicate metadata, `not`, `contradicts`, `ist`, and th
 predicate meta-ontology (`predicate` ⊃ unary/binary/ternary + the algebraic
 subtypes)), each documented by a `(comment <term> "...")` sentex so the KB
 documents itself in its own representation (`core-context/comment-of` reads them back),
-plus the metadata⇒predicate-type rules. `vaelii.impl.starter/load-into` builds a
+plus the metadata⇒predicate-type rules. `vaelii.host.starter/load-into` builds a
 **schema-only** common-sense KB on top — types, relation definitions, and theory
 rules, but **no individuals or facts**. Its declarative content lives as plain text
-under `resources/kb/`, one file per context, read by `vaelii.impl.seed`
+under `resources/kb/`, one file per context, read by `vaelii.host.seed`
 (`read-sentences` / `load-context`, via `clojure.edn`, so a KB file is data and can
 never run code). Every sentence about a term is grouped **term-centrically** (blocks in
 natural sort order), and every context file is **discovered on the classpath and loaded

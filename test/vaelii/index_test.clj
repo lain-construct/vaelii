@@ -103,7 +103,7 @@
       (is (= 0 (v/count-with-functor kb (tu/tmp-pred)))))
     (testing "a rule is not a fact — it contributes no functor entry"
       (let [ante (tu/tmp-pred) conseq (tu/tmp-pred)]
-        (v/assert-rule kb [(list ante '?x)] (list conseq '?x) 'CxUniverse)
+        (v/assert-rule kb [(list ante '?x)] (list conseq '?x) 'CxUniverse {:direction :forward})
         (is (= 0 (v/count-with-functor kb conseq)))))))
 
 (tu/deftest-kb the-argument-root-discriminates-by-position
@@ -131,9 +131,9 @@
 
 (tu/deftest-kb a-rule-wrapper-sets-the-direction-on-the-sentex
   (tu/with-terms [p q]
-    (testing "a bare implies works both ways"
+    (testing "a bare implies is backward by default"
       (let [h (v/assert kb (list 'implies (list p '?x) (list q '?x)) 'CxUniverse)]
-        (is (= :both (:direction (v/sentex kb h))))
+        (is (= :backward (:direction (v/sentex kb h))))
         (is (nil? (:defeasible (v/sentex kb h))))))))
 
 (tu/deftest-kb each-wrapper-lands-on-the-record
@@ -153,7 +153,7 @@
 (tu/deftest-kb the-default-wrapper-sets-defeasible-on-the-record
   (tu/with-terms [bird flies Tweety]
     (let [h (v/assert kb (list 'set/defaultRule
-                               (list 'implies (list bird '?x) (list flies '?x)))
+                               (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x))))
                       'CxUniverse)
           s (v/sentex kb h)]
       (is (true? (:defeasible s)))
@@ -181,9 +181,9 @@
                                (list 'implies (list p '?x) (list q '?x)))
                       'CxUniverse)
           s (v/sentex kb h)]
-      (testing "the record answers both directions"
+      (testing "the record answers both directions — set/forwardRule is forward + backward"
         (is (rules/forward-sentex? s))
-        (is (not (rules/backward-sentex? s))))
+        (is (rules/backward-sentex? s)))
       (testing "and the rule index carries predicates only — no direction mirror"
         (is (contains? (p/rules-by-antecedent (:index kb) p) h))
         (is (contains? (p/rules-by-consequent (:index kb) q) h))))))
@@ -202,13 +202,13 @@
 (tu/deftest-kb rule-predicate-indexes-are-complete-in-both-directions
   (let [p (tu/tmp-pred) q (tu/tmp-pred)]
     (let [fwd (v/assert-rule kb [(list p '?a)] (list q '?a)
-                             'CxUniverse {:direction :forward})]
+                             'CxUniverse {:direction :forward-only})]
       (testing "a forward-only rule is still findable by what it concludes"
         (is (contains? (p/rules-by-consequent (:index kb) q) fwd))
         (is (contains? (p/rules-by-antecedent (:index kb) p) fwd)))
       (testing "and its direction is on its own record, not inferred from the index"
         (let [s (v/sentex kb fwd)]
-          (is (= :forward (:direction s)))
+          (is (= :forward-only (:direction s)))
           (is (rules/forward-sentex? s))
           (is (not (rules/backward-sentex? s))))))))
 

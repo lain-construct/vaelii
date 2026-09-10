@@ -16,7 +16,7 @@ A pluggable language model that reads a KB through its own tools and answers wit
 already produces — so a proposal lands in the existing editor as a reviewable diff,
 adding no write path and no trust boundary.
 
-Everything lives under `vaelii.impl.llm.*`. Like `web` / `serve` / `cli`, it is an
+Everything lives under `vaelii.host.llm.*`. Like `web` / `serve` / `cli`, it is an
 application over the engine, not part of it; it is not in `vaelii.core`.
 
 ```
@@ -27,7 +27,7 @@ anthropic.clj  the Messages API backend, raw HTTP over java.net.http + cheshire
 ollama.clj     a local Ollama backend — no credential, sized context, JSON-schema decoding
 http.clj       what both HTTP backends do that is not a wire format: the read deadline,
                the not-JSON refusal, the bounded excerpt
-tools.clj      read tool schemas generated from vaelii.impl.serve/ops
+tools.clj      read tool schemas generated from vaelii.host.serve/ops
 prompt.clj     the whole-KB system prompt, generated from the live KB
 selection.clj  the selection-scoped prompt: the reader's lines + only their vocabulary
 inventory.clj  the KB's own vocabulary, in the prompt — and the flag for coined vocabulary
@@ -74,7 +74,7 @@ is the argument for it and the measurement against `phi4:14b`, control group inc
 
 ### 1. `serve/ops` is already a tool registry
 
-`vaelii.impl.serve/ops` is an allowlisted, EDN-typed map of `vaelii.core` calls — the
+`vaelii.host.serve/ops` is an allowlisted, EDN-typed map of `vaelii.core` calls — the
 surface the daemon and the browser reach a KB through. `tools/schemas` derives the
 model's tools from its **read subset** rather than transcribing them: parameter names
 and arities come from each `vaelii.core` var's own `:arglists`, descriptions from its
@@ -112,7 +112,7 @@ anything resolving to a `!` var is treated as a write whatever the table says, s
 a write's name at all.
 
 **And a read's bounds are the daemon's, for the same reason the table is.** `:max-depth`
-and `:max-ms` are held under the ceilings `vaelii.impl.serve` applies *in the op table*
+and `:max-ms` are held under the ceilings `vaelii.host.serve` applies *in the op table*
 rather than at its HTTP route, so a tool call naming a bound past one is refused
 `:over-ceiling` and comes back as the `{:ok false :error …}` a `tool_result` carries
 ([operations.md](operations.md)). A model reading a KB through a prompt it did not write
@@ -129,7 +129,7 @@ read back out of the KB it describes:
 |---|---|
 | contexts, and what each sees | `contexts`, `context-up` |
 | the type hierarchy | `types`, `genls` |
-| predicate documentation | the `(comment <term> "…")` sentexes, via `vaelii.impl.core-context/comment-of` |
+| predicate documentation | the `(comment <term> "…")` sentexes, via `vaelii.host.core-context/comment-of` |
 | argument types | the stored `arg` sentexes |
 | disjointness | `disjoint` sentexes, `disjoint-metatypes`, `metatype-members` |
 | algebraic metadata | `props`, `inverse-of` |
@@ -246,7 +246,7 @@ spelling rule writes fragmenting predicates that are perfectly well-formed. Grou
 nothing to say about it either. A three-line fragmentation case scores 3/3 admissible and
 3/3 applied.
 
-So there are exactly two guards, both in `vaelii.impl.llm.inventory`.
+So there are exactly two guards, both in `vaelii.host.llm.inventory`.
 
 ### Guard 1: the vocabulary inventory in the prompt (prevention)
 
@@ -405,8 +405,8 @@ proposing nothing.
 ## What an application calls
 
 ```clojure
-(require '[vaelii.impl.llm.session :as llm]
-         '[vaelii.impl.llm.anthropic :as anthropic])
+(require '[vaelii.host.llm.session :as llm]
+         '[vaelii.host.llm.anthropic :as anthropic])
 
 (llm/propose kb {:message  "Muffet is a dog and Ann is his owner"
                  :provider (anthropic/provider)          ; omit for the offline stub
@@ -430,7 +430,7 @@ Other options: `:system` (override the generated prompt), `:prompt-opts`,
 `:tool-opts` (`:only` / `:exclude` a set of ops), `:model`, `:max-tokens`, `:effort`,
 `:thinking-display`.
 
-`kb` is an **in-process** KB, not an `vaelii.impl.access` handle: the critic calls the
+`kb` is an **in-process** KB, not an `vaelii.host.access` handle: the critic calls the
 engine's check predicates directly, and those read the taxonomy and the index rather
 than going over a wire. The browser's attach-to-daemon mode would need the loop to run
 on the daemon side (where the KB is) and only the proposal to cross the wire.
@@ -611,8 +611,8 @@ most formal reliability at roughly 20 s. Both are per-call `:model` overrides.
 ### What a browser panel calls
 
 ```clojure
-(require '[vaelii.impl.llm.session :as llm]
-         '[vaelii.impl.llm.provider :as provider])
+(require '[vaelii.host.llm.session :as llm]
+         '[vaelii.host.llm.provider :as provider])
 
 (llm/propose-edit kb {:handles  [4211 4212 4213]      ; the drag-selected handles
                       :message  "these are all male parents, be specific"
@@ -650,8 +650,8 @@ capabilities of this"*. That is not an edit of anything: there is no selection, 
 answer is knowledge the KB does not have yet. `session/propose-page` is that turn.
 
 ```clojure
-(require '[vaelii.impl.llm.session :as llm]
-         '[vaelii.impl.llm.ollama :as ollama])
+(require '[vaelii.host.llm.session :as llm]
+         '[vaelii.host.llm.ollama :as ollama])
 
 (ollama/warm)                                    ; when the page opens
 
@@ -816,7 +816,7 @@ person put it there, one line at a time. See [docs/web.md](web.md), "Proposing k
 
 ### Choosing one
 
-`vaelii.impl.llm.provider` stands where `vaelii.impl.asp.solver` stands: a keyword names
+`vaelii.host.llm.provider` stands where `vaelii.impl.asp.solver` stands: a keyword names
 a backend, the backend is **lazily resolved** so choosing one is what loads it, and an
 unreachable backend falls back to the stub rather than throwing.
 
@@ -834,7 +834,7 @@ socket, and neither should happen because a namespace was required.
 
 ### The stub is the default
 
-`vaelii.impl.llm.stub/provider` stands where `vaelii.impl.solve/local-solver` stands:
+`vaelii.host.llm.stub/provider` stands where `vaelii.impl.solve/local-solver` stands:
 the deterministic default that makes the LLM provider usable before, and without, a real
 backend. `lein test` runs the whole pipeline against it — no API key, no socket, **no
 model call** — and a deployment with no credential degrades to a provider that proposes
@@ -891,9 +891,9 @@ provider that never saw it cannot write one. Script `{:lines …}` to drive that
 
 ### The real backend
 
-`vaelii.impl.llm.anthropic/provider` speaks the Messages API over raw HTTP. There is
+`vaelii.host.llm.anthropic/provider` speaks the Messages API over raw HTTP. There is
 no official Anthropic SDK for Clojure, and the repo already carries both halves —
-`cheshire` for JSON, and JDK `java.net.http`, which `vaelii.impl.client` already uses
+`cheshire` for JSON, and JDK `java.net.http`, which `vaelii.host.client` already uses
 to reach the vaelii daemon — so this adds **no dependency**. It mirrors that
 namespace's style: an explicit connection handle, no global state.
 
@@ -920,7 +920,7 @@ model still round-trips.
 
 ### The local backend
 
-`vaelii.impl.llm.ollama/provider` speaks Ollama's chat API over the same raw HTTP, and
+`vaelii.host.llm.ollama/provider` speaks Ollama's chat API over the same raw HTTP, and
 adds no dependency either. What differs is everything the transport does:
 
 - **No credential.** `available?` is a reachability probe, not a credential lookup — so
@@ -970,7 +970,7 @@ connect to, and is not read as one.
 
 ### What both HTTP backends share
 
-`vaelii.impl.llm.http` holds the part of a transport that is not a wire format, because a
+`vaelii.host.llm.http` holds the part of a transport that is not a wire format, because a
 deadline policy living in two places is one that gets fixed in one. Each backend passes an
 **endpoint** descriptor, `{:label :slug}` — how the far end is named in a message and in a
 thread title — and that pair is the whole of the difference between the two copies.

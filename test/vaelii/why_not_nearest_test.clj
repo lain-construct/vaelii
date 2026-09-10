@@ -15,7 +15,7 @@
   assertion order."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.cli :as cli]
+            [vaelii.host.cli :as cli]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))

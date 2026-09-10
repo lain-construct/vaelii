@@ -1,7 +1,8 @@
 # Labeling: `do/` imperatives and brave/cautious solve
 
 - **Covers:** how `do/labeling` reaches the ASP backend to commit one reversible
-  resolution of a represented dilemma.
+  resolution of a represented dilemma, and how the `(bravely S)` / `(cautiously S)` prover
+  reads the same brave/cautious classification at query time without committing.
 - **Not here:** the assumption-rule vocabulary and its persistent, inert labeling path →
   [solving.md](solving.md); the ASPIF encoding and solver backends →
   [asp.md](asp.md).
@@ -247,6 +248,45 @@ on a plain build:
 
 A build without clingo behaves like one with it, minus the ability to distinguish
 forced from arbitrary — which is precisely the thing enumeration buys.
+
+## Reading brave/cautious without committing: `(bravely S)` / `(cautiously S)`
+
+`do/labeling` commits — it re-asserts the kept side at `:monotonic` and defeats the loser
+everywhere, taking `contradictions` from 1 to 0. That is right for making a choice, but it
+is the wrong tool for merely *asking* which beliefs are forced and which are arbitrary,
+because asking would destroy the dilemma it asks about. The `(bravely S)` / `(cautiously
+S)` prover answers that question as a read.
+
+```clojure
+(v/add-reasoner kb :brave-cautious)          ; opt in, like any other reasoner
+(v/ask? kb '(bravely    (pacifist Nixon)) 'CxUniverse)   ; => true — S in some optimum
+(v/ask? kb '(cautiously (pacifist Nixon)) 'CxUniverse)   ; => false — not in every optimum
+```
+
+`(cautiously S)` holds when `S` is in **every** optimal labeling of the current dilemmas,
+`(bravely S)` when `S` is in **some** — the cautious and brave halves of the same
+classification `label/classify` reports, sourced from `label/dilemma-program` and
+`edge/classify-program`. Over a datum in no dilemma both reduce to ordinary belief, since
+every optimum agrees there. The read **commits nothing**: after asking, belief,
+`contradictions` and `last-program` are exactly as they were. This is the same brave/cautious
+distinction `classify` draws, delivered on the read path — `classify` needs a `Program`
+`settle` never built for a declined dilemma, whereas the prover builds one from the reported
+dilemmas per query.
+
+Three limits, none silent:
+
+* **It is opt-in**, so the ASP stack stays off a KB's load path until asked
+  (docs/asp.md). Without a backend, `classify-program` reports every contested datum
+  `:supportable`, so `bravely` holds for each and `cautiously` for none — honest, and never
+  overclaiming forced.
+* **`bravely` / `cautiously` are not assertible** (they join `unknown` and the aggregates as
+  reserved query operators, docs/naming.md): a stored one would be a computed value with no
+  way to keep it current.
+* **Ground `S` only, and a query rather than an antecedent.** An open `(bravely (pacifist
+  ?x))` is not applicable — the same restraint `different` takes. As a rule antecedent the
+  answer carries no support (the prover is not a `SupportingProver`), so the forward join
+  drops it and it derives nothing. Threading its support — the dilemma's contested handles —
+  so a rule could rest on it is deferred until a use asks for it.
 
 ## Naming
 

@@ -97,7 +97,7 @@
             ctx)
   (v/assert kb (vr/rule-sentence [(list parentOf '?x '?y) (list parentOf '?y '?z)]
                                  (list grandparentOf '?x '?z))
-            ctx)
+            ctx {:direction :forward})
   (v/assert kb (list bird Tweety) ctx {:strength :monotonic})
   (v/assert kb (list feathered Tweety) ctx)
   (v/assert kb (list bird Opus) ctx)

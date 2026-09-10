@@ -16,7 +16,7 @@ that *drive* it. There are five:
 | CLI | `vaelii.cli` | `lein cli <cmd> …` | driving a KB from a shell |
 | Daemon | `vaelii.serve` | `lein serve [port [dir]]` | one process owns a KB, serves it over HTTP |
 | Client | `vaelii.client` | *(library)* | talking to a daemon from Clojure |
-| Access | `vaelii.impl.access` | *(library)* | a read that resolves to a local KB or a remote daemon |
+| Access | `vaelii.host.access` | *(library)* | a read that resolves to a local KB or a remote daemon |
 
 All five go through `vaelii.core` alone — the same boundary the rest of the repo keeps
 ([api.md](api.md)). None of them is a separate repo: the
@@ -203,13 +203,13 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   anyway rather than refusing — a reverse proxy setting its own `Host` needs exactly
   this, and an operator cannot always enumerate what that will be — but it is not
   silent about it: a public bind with no allowlist warns once at startup
-  (`:id :vaelii.impl.serve/open-hosts`), and the `vaelii daemon listening` line's
+  (`:id :vaelii.host.serve/open-hosts`), and the `vaelii daemon listening` line's
   `:hosts` — `:allowlisted` or `:open` — is the one to grep for afterwards, beside
   `:auth`.
 - **A body over 16 MiB is refused** with 413 before it reaches the heap. An op body is a
   sentence and its context, so the ceiling is nowhere near a legitimate call — it is
   there so a caller who reaches the port cannot spend the daemon's heap by streaming one.
-  The cap and its `VAELII_MAX_BODY_BYTES` override are `vaelii.impl.guard`'s
+  The cap and its `VAELII_MAX_BODY_BYTES` override are `vaelii.host.guard`'s
   (`max-body-bytes`, `wrap-body-limit`), not this namespace's, because the browser has
   the same exposure through a form body and reads the same number — one ceiling, two
   servers ([web.md](web.md)).
@@ -429,7 +429,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
 
   The claim is **generated rather than maintained**. `lein regen-client`
   (`vaelii.regen-client`) reads `serve/ops`, resolves each op in `vaelii.core` and writes
-  the wrappers between two markers in `vaelii.impl.client` and `vaelii.client`; a
+  the wrappers between two markers in `vaelii.host.client` and `vaelii.client`; a
   hand-written wrapper in the public shim wins, so prose written for one survives.
   Generated at *build* time rather than macroexpanded from the table, because requiring
   the table would pull the engine, jetty and reitit onto the classpath of a namespace
@@ -443,7 +443,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   feed (`serve/feed-ops`, no `vaelii.core` fn behind it) and an op newer than the client
   both need.
 - **`assert!` and `assert-rule!` are deprecated spellings** of `assert` / `assert-rule`
-  on `vaelii.impl.client`, kept because a caller outside this repo may hold them.
+  on `vaelii.host.client`, kept because a caller outside this repo may hold them.
   Identical in every other respect: `!` means *irreversible* ([api.md](api.md)) and an
   assertion is neither, `retract!` taking it back.
 - **`blocked-justifications`** is the read a remote proof tree needs and no per-handle
@@ -470,10 +470,10 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   caller must read: non-zero, the daemon's ring dropped that many events before this
   poll reached them.
 
-## Browsing a live daemon — `vaelii.impl.access`
+## Browsing a live daemon — `vaelii.host.access`
 
 The browser (`vaelii.web`) reaches a KB through the `vaelii.core` surface alone. That
-surface is re-exported by `vaelii.impl.access` as a facade whose every op takes a
+surface is re-exported by `vaelii.host.access` as a facade whose every op takes a
 *target* that is either an in-process KB or a remote daemon — the reads the browser
 renders with (`check` among them: it writes nothing, so it is a read), plus the four
 writes it performs: `edit!`, `edit-with-consequences!`, `forward-chain`, and `preview`
@@ -526,7 +526,7 @@ the whole file when it *parses* it: the token is declared required, so a bare
 `lein uberjar` runs in a JDK stage, and what reaches the runtime image is a JRE and the
 jar. The uberjar needs no checkout and no local artifact — every `:dependencies` entry
 resolves from a public repository and the uberjar path activates no profile — so the
-image builds from a clean clone. `clojure.main -m vaelii.impl.serve` is the entry point
+image builds from a clean clone. `clojure.main -m vaelii.host.serve` is the entry point
 rather than `java -jar`, because the jar's Main-Class is `vaelii.core`.
 
 - **A token is not optional here.** The container binds an address so that a published
@@ -698,13 +698,13 @@ the read still found one of them. Set a new floor by rounding the first mention 
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_API_TOKEN` | `src/vaelii/impl/guard.clj:140+` | any string; blank or whitespace-only is unset | unset | The one shared bearer token: with it set every daemon request carries `Authorization: Bearer …` or is answered 401, and a client and an attached browser present it from their own environment. |
-| `VAELII_ALLOWED_HOSTS` | `src/vaelii/impl/guard.clj:40+` | comma-separated host **names**; a port on an entry is read as the name alone, and a value naming nothing is unset | unset | The `Host` headers a server answers, overriding the list the bind address implies. Entries are compared in the form a `Host` header is, so `kb.example.com:8080` and `kb.example.com` are one entry. |
-| `VAELII_MAX_BODY_BYTES` | `src/vaelii/impl/guard.clj:160+` | a positive whole number of bytes | `16777216` (16 MiB) | The request-body ceiling both servers refuse above, with 413. |
+| `VAELII_API_TOKEN` | `src/vaelii/host/guard.clj:140+` | any string; blank or whitespace-only is unset | unset | The one shared bearer token: with it set every daemon request carries `Authorization: Bearer …` or is answered 401, and a client and an attached browser present it from their own environment. |
+| `VAELII_ALLOWED_HOSTS` | `src/vaelii/host/guard.clj:40+` | comma-separated host **names**; a port on an entry is read as the name alone, and a value naming nothing is unset | unset | The `Host` headers a server answers, overriding the list the bind address implies. Entries are compared in the form a `Host` header is, so `kb.example.com:8080` and `kb.example.com` are one entry. |
+| `VAELII_MAX_BODY_BYTES` | `src/vaelii/host/guard.clj:160+` | a positive whole number of bytes | `16777216` (16 MiB) | The request-body ceiling both servers refuse above, with 413. |
 | `VAELII_MAX_QUERY_MS` | `src/vaelii/impl/config.clj:330+` | a whole number of milliseconds, 0 or more | `30000` | The wall clock a served read may name. A request may name less and is refused (`:over-ceiling`, 400) for naming more; a read naming none is given this, the four backward-search entry points included. `0` lifts the ceiling. |
 | `VAELII_MAX_QUERY_DEPTH` | `src/vaelii/impl/config.clj:340+` | a whole number of rule expansions, 0 or more | `256` | The rule-expansion depth a served read may name, refused the same way. `0` lifts it. |
-| `VAELII_WEB_PORT` | `src/vaelii/impl/web.clj:5830+` | a port number | `3000` | The port the browser binds. An unparseable value falls through to the property rather than failing the start. |
-| `vaelii.web.port` | `src/vaelii/impl/web.clj:5830+` | a port number | `3000` | The same port, read after the variable. |
+| `VAELII_WEB_PORT` | `src/vaelii/host/web.clj:5830+` | a port number | `3000` | The port the browser binds. An unparseable value falls through to the property rather than failing the start. |
+| `vaelii.web.port` | `src/vaelii/host/web.clj:5830+` | a port number | `3000` | The same port, read after the variable. |
 | `VAELII_DEV` | `src/vaelii/impl/config.clj:240+` | the boolean vocabulary | `false` | Whether the browser runs the hot-reload handler (re-resolving `#'app` per request, `docs/web.md`) and re-reads its stylesheet per request, serving it uncached. |
 | `VAELII_PROFILER` | `src/vaelii/impl/config.clj:240+` | the boolean vocabulary | `false` | Whether the browser starts the sampling profiler's UI. Off unless asked for: it attaches an agent to the JVM and serves on a port of its own with no authentication. The dependency ships in the `:repl` profile, so `lein browser` has it and `lein run -m vaelii.web` does not — with it absent the start logs a line and `/caches` says so rather than linking to nothing. |
 | `VAELII_PROFILER_PORT` | `src/vaelii/impl/config.clj:250+` | a port number | `8080` | Where that UI binds. Read only when the switch above says to start one. |
@@ -752,17 +752,17 @@ representation nobody chose.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_KB_PATH` | `src/vaelii/impl/catalog.clj:20+` | `:`-separated directory list | `./kbs` and `~/.vaelii/kbs` | The directories KB discovery walks. |
-| `vaelii.kb.path` | `src/vaelii/impl/catalog.clj:250+` | as above | as above | The same list, read after the variable. |
-| `VAELII_KB_CATALOG` | `src/vaelii/impl/catalog.clj:20+` | a file path | `~/.vaelii/catalog.edn` | The file naming KBs that live outside the search path. |
-| `vaelii.kb.catalog` | `src/vaelii/impl/catalog.clj:260+` | a file path | as above | The same file, read after the variable. |
+| `VAELII_KB_PATH` | `src/vaelii/host/catalog.clj:20+` | `:`-separated directory list | `./kbs` and `~/.vaelii/kbs` | The directories KB discovery walks. |
+| `vaelii.kb.path` | `src/vaelii/host/catalog.clj:250+` | as above | as above | The same list, read after the variable. |
+| `VAELII_KB_CATALOG` | `src/vaelii/host/catalog.clj:20+` | a file path | `~/.vaelii/catalog.edn` | The file naming KBs that live outside the search path. |
+| `vaelii.kb.catalog` | `src/vaelii/host/catalog.clj:260+` | a file path | as above | The same file, read after the variable. |
 
 **What the engine reasons with.**
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
 | `VAELII_ARBITRATE_CONSTRAINTS` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `false` | Whether the process arbitrates a definitional clash rather than refusing it. A KB naming a `:constraints` policy overrides it. |
-| `VAELII_ASSERTIVE_ARG_TYPES` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `false` | Whether the argument constraints entail types as well as constrain them ([argtypes.md](argtypes.md)). |
+| `VAELII_ASSERTIVE_ARG_TYPES` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `true` | Whether the argument constraints entail types as well as constrain them; `=0` opts out to the constraint-only reading ([argtypes.md](argtypes.md)). |
 | `VAELII_ASP_SOLVER` | `src/vaelii/impl/config.clj:270+` | `clingo` `clasp` | unset | Which ASP backend solves. Unset is auto: in-process clingo when it loads, else clasp. A name outside the roster is refused rather than read as auto. |
 | `vaelii.asp.solver` | `src/vaelii/impl/config.clj:50+` | `clingo` `clasp` | unset | The same choice, and it is read **first**. |
 | `VAELII_CLINGO_MAX_BYTES` | `src/vaelii/impl/config.clj:280+` | a whole number of bytes, 0 or more | `3000` | The program size above which auto mode routes a plain-ASP program to clasp even where clingo loads. |
@@ -773,13 +773,13 @@ representation nobody chose.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_LLM_PROVIDER` | `src/vaelii/impl/llm/provider.clj:10+` | `ollama` `anthropic` | unset | Which backend the LLM pipeline calls. |
-| `vaelii.llm.provider` | `src/vaelii/impl/llm/provider.clj:10+` | `ollama` `anthropic` | unset | The same choice, read **first**. |
-| `VAELII_OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:40+` | a base URL | `http://localhost:11434` | Where the Ollama backend connects. |
-| `VAELII_OLLAMA_MODEL` | `src/vaelii/impl/llm/ollama.clj:40+` | a model name | `phi4:14b` | The model a turn runs. |
-| `VAELII_OLLAMA_GENERATION_MODEL` | `src/vaelii/impl/llm/ollama.clj:60+` | a model name | `qwen3-coder:30b` | The model the page-generation path runs. |
-| `VAELII_OLLAMA_NUM_CTX` | `src/vaelii/impl/llm/ollama.clj:90+` | a whole number of tokens | `8192` | The context window a request asks for. An unparseable value is indistinguishable from the default. |
-| `VAELII_OLLAMA_KEEP_ALIVE` | `src/vaelii/impl/llm/ollama.clj:80+` | an Ollama duration (`30m`, `0`) | `30m` | How long the host is asked to hold the model resident after a turn. |
+| `VAELII_LLM_PROVIDER` | `src/vaelii/host/llm/provider.clj:10+` | `ollama` `anthropic` | unset | Which backend the LLM pipeline calls. |
+| `vaelii.llm.provider` | `src/vaelii/host/llm/provider.clj:10+` | `ollama` `anthropic` | unset | The same choice, read **first**. |
+| `VAELII_OLLAMA_HOST` | `src/vaelii/host/llm/ollama.clj:40+` | a base URL | `http://localhost:11434` | Where the Ollama backend connects. |
+| `VAELII_OLLAMA_MODEL` | `src/vaelii/host/llm/ollama.clj:40+` | a model name | `phi4:14b` | The model a turn runs. |
+| `VAELII_OLLAMA_GENERATION_MODEL` | `src/vaelii/host/llm/ollama.clj:60+` | a model name | `qwen3-coder:30b` | The model the page-generation path runs. |
+| `VAELII_OLLAMA_NUM_CTX` | `src/vaelii/host/llm/ollama.clj:90+` | a whole number of tokens | `8192` | The context window a request asks for. An unparseable value is indistinguishable from the default. |
+| `VAELII_OLLAMA_KEEP_ALIVE` | `src/vaelii/host/llm/ollama.clj:80+` | an Ollama duration (`30m`, `0`) | `30m` | How long the host is asked to hold the model resident after a turn. |
 
 **Read, not ours.** Four names another project defines and the engine reads. An operator
 still sets them, and a rename by Anthropic or Ollama is their change rather than a break
@@ -787,10 +787,10 @@ here.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `OLLAMA_HOST` | `src/vaelii/impl/llm/ollama.clj:40+` | a base URL; a bind address (`0.0.0.0`, `::`, `*`) is ignored | unset | Ollama's own variable, read after `VAELII_OLLAMA_HOST`. A host binds `0.0.0.0`; nothing connects to it. |
-| `ANTHROPIC_API_KEY` | `src/vaelii/impl/llm/anthropic.clj:100+` | an API key | unset | The credential sent as `x-api-key`, tried first. |
-| `ANTHROPIC_AUTH_TOKEN` | `src/vaelii/impl/llm/anthropic.clj:100+` | a bearer token | unset | The credential sent as `Authorization: Bearer`, tried when there is no key. |
-| `ANTHROPIC_BASE_URL` | `src/vaelii/impl/llm/anthropic.clj:370+` | a base URL | `https://api.anthropic.com` | The host that backend calls. |
+| `OLLAMA_HOST` | `src/vaelii/host/llm/ollama.clj:40+` | a base URL; a bind address (`0.0.0.0`, `::`, `*`) is ignored | unset | Ollama's own variable, read after `VAELII_OLLAMA_HOST`. A host binds `0.0.0.0`; nothing connects to it. |
+| `ANTHROPIC_API_KEY` | `src/vaelii/host/llm/anthropic.clj:100+` | an API key | unset | The credential sent as `x-api-key`, tried first. |
+| `ANTHROPIC_AUTH_TOKEN` | `src/vaelii/host/llm/anthropic.clj:100+` | a bearer token | unset | The credential sent as `Authorization: Bearer`, tried when there is no key. |
+| `ANTHROPIC_BASE_URL` | `src/vaelii/host/llm/anthropic.clj:370+` | a base URL | `https://api.anthropic.com` | The host that backend calls. |
 
 **The build stamp.**
 

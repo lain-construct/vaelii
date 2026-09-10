@@ -41,7 +41,7 @@
 (defn- except-rule
   "The shape docs/exceptions.md writes: an exception query wrapping a defeasible rule."
   [exception antes conseq]
-  (list 'exceptWhen exception (list 'set/defaultRule (vr/rule-sentence antes conseq))))
+  (list 'exceptWhen exception (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq)))))
 
 (defn- refusal
   "Assert, and return the `ex-data` of the refusal — nil if the assert went through.
@@ -74,7 +74,7 @@
   edge reaches R2 and R2's positive edge reaches back: a cycle through negation."
   [kb {:keys [base p flightless penguin ctx]}]
   (v/assert kb (except-rule (list flightless '?x) [(list base '?x)] (list p '?x)) ctx)
-  (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) ctx))
+  (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) ctx {:direction :forward}))
 
 ;; ---- the edge that closes the cycle is refused ---------------------------
 ;; DECISION: the `genl` assert is the operation at fault, so the **edge** is what is
@@ -110,8 +110,8 @@
   ;; the cycle it would close is ordinary positive recursion, which is a supported
   ;; feature rather than a violation.
   (tu/with-terms [base p flightless penguin CxPlain]
-    (is (v/assert kb (vr/rule-sentence [(list base '?x)] (list p '?x)) CxPlain))
-    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxPlain))
+    (is (v/assert kb (vr/rule-sentence [(list base '?x)] (list p '?x)) CxPlain {:direction :forward}))
+    (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxPlain {:direction :forward}))
     (is (v/assert kb (list 'genl penguin flightless) CxPlain))))
 
 ;; ---- a genlCx edge takes the same path ------------------------------
@@ -160,7 +160,7 @@
 
 (tu/deftest-kb an-edge-change-walks-nothing-when-no-rule-carries-an-exception
   (tu/with-terms [base p CxFast]
-    (v/assert kb (vr/rule-sentence [(list base '?x)] (list p '?x)) CxFast)
+    (v/assert kb (vr/rule-sentence [(list base '?x)] (list p '?x)) CxFast {:direction :forward})
     (testing "no exception anywhere: the edge assert does not walk the graph at all"
       (tu/with-terms [sub super]
         (is (zero? (walks #(v/assert kb (list 'genl sub super) CxFast))))))
@@ -185,9 +185,9 @@
     ;; a rule that *concludes* a genl edge, plus an innocuous one firing on the same
     ;; fact — chaining must finish the run, not abort at the bad conclusion
     (v/assert kb (vr/rule-sentence [(list subtypeMarker '?t)] (list 'genl '?t flightless))
-              CxDerive)
+              CxDerive {:direction :forward})
     (v/assert kb (vr/rule-sentence [(list subtypeMarker '?t)] (list noted '?t))
-              CxDerive)
+              CxDerive {:direction :forward})
     (v/assert kb (list subtypeMarker penguin) CxDerive)
     (let [vs (v/violations kb)]
       (testing "the conclusion is reported as inadmissible, with the cycle"
@@ -228,7 +228,7 @@
     (cycle-shaped-rules! kb {:base base :p p :flightless flightless :penguin penguin
                              :ctx CxDerive})
     (v/assert kb (vr/rule-sentence [(list subtypeMarker '?t)] (list 'genl '?t unrelated))
-              CxDerive)
+              CxDerive {:direction :forward})
     (v/assert kb (list subtypeMarker penguin) CxDerive)
     (is (empty? (v/violations kb)))
     (is (seq (v/sentexes-matching kb (list 'genl penguin unrelated) '?ctx)))
@@ -255,7 +255,7 @@
   ;; consequent — a var-consequent rule with a monotonic antecedent asserts cleanly.
   (tu/with-terms [holds]
     (let [h (v/assert kb (vr/rule-sentence [(list holds '?p '?x '?y)] '(?p ?x ?y))
-                      'CxNaturalWorld)]
+                      'CxNaturalWorld {:direction :forward})]
       (is (some? h))
       (v/retract! kb h))))
 

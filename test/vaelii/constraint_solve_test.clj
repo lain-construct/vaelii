@@ -48,7 +48,8 @@
         (testing "a constraint rule forward- and backward-chains for nobody"
           (is (not (rules/forward-sentex? (sentex-of kb hard))))
           (is (not (rules/backward-sentex? (sentex-of kb hard))))
-          (is (rules/forward-sentex? (sentex-of kb bare))))
+          (is (rules/backward-sentex? (sentex-of kb bare))
+              "while a bare rule chains — backward, the default"))
         (testing "and re-asserting the same hard constraint is idempotent"
           (is (= hard (v/assert kb (list 'set/hardConstraint body) 'CxUniverse))))))))
 
@@ -62,7 +63,7 @@
                                (list 'and (list benchEdge '?x '?y)
                                      (list colored '?x '?k) (list colored '?y '?k))
                                (list 'monochrome '?x '?y)))
-                'CxUniverse)
+                'CxUniverse {:direction :forward})
       ;; even given a monochrome edge as plain facts, nothing derives the marker
       (v/assert kb (list benchEdge A B) 'CxUniverse)
       (v/assert kb (list colored A 'red) 'CxUniverse)
@@ -76,14 +77,14 @@
   [kb ctx colored nodes edges]
   (doseq [k '[k1 k2 k3]]
     (v/assert kb (list 'set/assumptionRule (list 'implies (list 'bench_node '?x) (list colored '?x k)))
-              ctx))
+              ctx {:direction :forward}))
   (v/assert kb (list 'functional colored) ctx {:strength :monotonic})
   (v/assert kb (list 'set/hardConstraint
                      (list 'implies
                            (list 'and (list 'benchEdge '?x '?y)
                                  (list colored '?x '?k) (list colored '?y '?k))
                            (list 'monochrome '?x '?y)))
-            ctx)
+            ctx {:direction :forward})
   (doseq [n nodes] (v/assert kb (list 'bench_node n) ctx {:strength :monotonic}))
   (doseq [[a b] edges] (v/assert kb (list 'benchEdge a b) ctx {:strength :monotonic})))
 
@@ -186,12 +187,12 @@
   [kb ctx colored nodes edges]
   (doseq [k '[k1 k2 k3]]
     (v/assert kb (list 'set/assumptionRule (list 'implies (list 'bench_node '?x) (list colored '?x k)))
-              ctx))
+              ctx {:direction :forward}))
   (doseq [[ka kc] '[[k1 k2] [k1 k3] [k2 k3]]]
     (v/assert kb (list 'set/hardConstraint
                        (list 'implies (list 'and (list colored '?x ka) (list colored '?x kc))
                              (list 'double_colored '?x)))
-              ctx))
+              ctx {:direction :forward}))
   (v/assert kb (list 'set/hardConstraint
                      (list 'implies
                            (list 'and (list 'bench_node '?x)
@@ -199,13 +200,13 @@
                                  (list 'not (list colored '?x 'k2))
                                  (list 'not (list colored '?x 'k3)))
                            (list 'uncolored '?x)))
-            ctx)
+            ctx {:direction :forward})
   (v/assert kb (list 'set/hardConstraint
                      (list 'implies
                            (list 'and (list 'benchEdge '?x '?y)
                                  (list colored '?x '?k) (list colored '?y '?k))
                            (list 'monochrome '?x '?y)))
-            ctx)
+            ctx {:direction :forward})
   (doseq [n nodes] (v/assert kb (list 'bench_node n) ctx {:strength :monotonic}))
   (doseq [[a b] edges] (v/assert kb (list 'benchEdge a b) ctx {:strength :monotonic})))
 
@@ -249,7 +250,7 @@
         (doseq [k '[k1 k2]]
           (v/assert kb (list 'set/assumptionRule
                              (list 'implies (list cand '?c) (list colored '?c k)))
-                    'CxNegJoin))
+                    'CxNegJoin {:direction :forward}))
         (v/assert kb (list 'functional colored) 'CxNegJoin)
         (v/assert kb (list cand Item) 'CxNegJoin {:strength :monotonic})
         (testing "without the at-least-one: two optima, one colour apiece"
@@ -258,7 +259,7 @@
         (v/assert kb (list 'set/hardConstraint
                            (list 'implies (list 'not (list colored '?x '?k))
                                  (list 'mustColor '?x '?k)))
-                  'CxNegJoin)
+                  'CxNegJoin {:direction :forward})
         (testing "with it: no colour may be absent, so the one legal world keeps both"
           (let [r (v/assert kb (list 'do/label 'CxNegJoin 'CxNegJoinPlan :all) 'CxNegJoin)]
             (is (= 1 (:count r)))

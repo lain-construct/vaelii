@@ -69,7 +69,7 @@ member sees, and collecting the whole upper spindle is what makes CxUniverse one
 Data hangs below CxWell.
 
 - **CxCore** — the upper spindle's *head*: the code-supported vocabulary (every
-  special predicate the engine interprets), asserted by `vaelii.impl.core-context`. The
+  special predicate the engine interprets), asserted by `vaelii.host.core-context`. The
   root — every context sees it. It also holds the five collections at the top of the
   ontology — `intangible`, `spatial_thing`, `physical_object`, `living_thing`,
   `capability` — which the engine reads by no name and which are here for the reason
@@ -77,7 +77,7 @@ Data hangs below CxWell.
   extend has to be defined in the head.
   `starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head` holds that.
 - **the upper spindle's members** (`resources/kb/upper/`) — what things *are*, always
-  true, like `genl`. One context per domain (`vaelii.impl.starter`), each seeing CxCore
+  true, like `genl`. One context per domain (`vaelii.host.starter`), each seeing CxCore
   and seen by CxUniverse:
   - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`artifact`,
     `attribute`, `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
@@ -149,7 +149,7 @@ context present is loaded on kb start by default. There is **no** direct `(genlC
 CxCore)` edge; Well reaches Core through both spindles (middle member → CxUniverse →
 upper member → CxCore).
 
-`vaelii.impl.core-context` loads only the head (CxCore); the members are the starter's,
+`vaelii.host.core-context` loads only the head (CxCore); the members are the starter's,
 so a **CxCore-only KB is just the vocabulary** — a head with no spindle under it.
 
 ### The shipped KB is schema only

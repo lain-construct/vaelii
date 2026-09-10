@@ -6,7 +6,7 @@
   shape the numbers asked for — with nothing dropped."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.impl.io.generate :as gen]
+            [vaelii.host.io.generate :as gen]
             [vaelii.impl.naming :as nm]
             [vaelii.test-util :as tu]))
 

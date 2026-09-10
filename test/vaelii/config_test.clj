@@ -16,14 +16,14 @@
   accessor's body."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as catalog]
+            [vaelii.host.catalog :as catalog]
+            [vaelii.host.guard :as guard]
+            [vaelii.host.llm.ollama :as ollama]
+            [vaelii.host.llm.provider :as provider]
+            [vaelii.host.web :as web]
             [vaelii.impl.config :as config]
             [vaelii.impl.disk.backend :as backend]
-            [vaelii.impl.disk.files :as f]
-            [vaelii.impl.guard :as guard]
-            [vaelii.impl.llm.ollama :as ollama]
-            [vaelii.impl.llm.provider :as provider]
-            [vaelii.impl.web :as web]))
+            [vaelii.impl.disk.files :as f]))
 
 (def ^:private switched
   "Every *property* `config/check!` reads, so a test can clear the lot and see the

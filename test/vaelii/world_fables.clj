@@ -84,8 +84,8 @@
 
 (def texts
   "Each fable as prose, keyed by its context — the **input** side of the reading
-  pipeline (`vaelii.impl.llm.text`), against which the formal version below is the
-  ground truth (`vaelii.impl.llm.score`).
+  pipeline (`vaelii.host.llm.text`), against which the formal version below is the
+  ground truth (`vaelii.host.llm.score`).
 
   Written as a retelling rather than as a transliteration of the sentexes: the sentences
   are ones a reader would write, the characters are introduced by their kind rather than
@@ -140,7 +140,7 @@
                 (freed MouseA LionA)])                ; the mouse gnaws the net and frees him
   ;; a kindness given and later returned makes a repaid kindness (joined on both actors)
   (v/assert-rule kb '[(spared ?strong ?weak) (freed ?weak ?strong)]
-                 '(repaidKindness ?weak ?strong) 'CxLionMouse))
+                 '(repaidKindness ?weak ?strong) 'CxLionMouse {:direction :forward}))
 
 (defn- tortoise-and-hare [kb]
   (assert-all kb 'CxTortoiseHare
@@ -151,7 +151,7 @@
                 (napped HareA)])
   ;; the steady racer beats the fast one who stops to sleep (a three-antecedent join)
   (v/assert-rule kb '[(raced ?slow ?fast) (persevered ?slow) (napped ?fast)]
-                 '(wins ?slow ?fast) 'CxTortoiseHare))
+                 '(wins ?slow ?fast) 'CxTortoiseHare {:direction :forward}))
 
 (defn- ant-and-grasshopper [kb]
   (assert-all kb 'CxAntGrasshopper
@@ -159,10 +159,10 @@
                 (prepared_for_winter AntA)
                 (idled_in_summer GrasshopperA)])
   ;; preparing carries you through; idling does not; the one who prepared fares better
-  (v/assert-rule kb '[(prepared_for_winter ?x)] '(survives_winter ?x)  'CxAntGrasshopper)
-  (v/assert-rule kb '[(idled_in_summer ?x)]     '(suffers_in_winter ?x) 'CxAntGrasshopper)
+  (v/assert-rule kb '[(prepared_for_winter ?x)] '(survives_winter ?x)  'CxAntGrasshopper {:direction :forward})
+  (v/assert-rule kb '[(idled_in_summer ?x)]     '(suffers_in_winter ?x) 'CxAntGrasshopper {:direction :forward})
   (v/assert-rule kb '[(survives_winter ?a) (suffers_in_winter ?b)]     ; derived facts joined
-                 '(betterPreparedThan ?a ?b) 'CxAntGrasshopper))
+                 '(betterPreparedThan ?a ?b) 'CxAntGrasshopper {:direction :forward}))
 
 (defn- boy-who-cried-wolf [kb]
   ;; A liar is a narrower kind of speaker than a person.  Nothing is arbitrated here:
@@ -176,7 +176,7 @@
                 (cries_wolf BoyA)                      ; now he cries wolf again
                 (approaches WolfA BoyA)])             ; and this time the wolf is real
   ;; having raised a false alarm is what makes him one
-  (v/assert-rule kb '[(lied_before ?x)] '(liar ?x) 'CxCriedWolf)
+  (v/assert-rule kb '[(lied_before ?x)] '(liar ?x) 'CxCriedWolf {:direction :forward})
   ;; a cry is believed by default — **except** from a liar.  The exception rides on
   ;; the rule (`exceptWhen`), so for a liar the rule concludes nothing at all.
   ;;
@@ -186,15 +186,15 @@
   ;; fired — which is exactly the dependency stratification would order.  See
   ;; docs/exceptions.md, Status, for what measuring this actually showed.
   (v/assert kb '(exceptWhen (liar ?x)
-                            (set/defaultRule (implies (and (cries_wolf ?x)) (believed ?x))))
+                            (set/defaultRule (set/forwardRule (implies (and (cries_wolf ?x)) (believed ?x)))))
             'CxCriedWolf)
   ;; … and the positive claim that a liar's cry is not believed stands on its own,
   ;; queryable, rather than existing only to defeat the rule above
-  (v/assert-rule kb '[(liar ?x) (cries_wolf ?x)] '(not (believed ?x)) 'CxCriedWolf)
+  (v/assert-rule kb '[(liar ?x) (cries_wolf ?x)] '(not (believed ?x)) 'CxCriedWolf {:direction :forward})
   ;; the danger is real all the same: an approaching predator + the cry ⇒ real danger
   ;; (a joined rule with a constant character, WolfA, in an antecedent)
   (v/assert-rule kb '[(approaches WolfA ?victim) (cries_wolf ?victim)]
-                 '(in_danger ?victim) 'CxCriedWolf))
+                 '(in_danger ?victim) 'CxCriedWolf {:direction :forward}))
 
 (defn load-into
   "Load the story contexts into `kb` (which must already have the starter

@@ -128,4 +128,4 @@
          "(contested (sentexHandle ?target)) means the sentex ?target is under dispute — derived from a disputes edge, never asserted directly. Lets a reader query the disputed claims without walking the disputes meta-sentexes. The handle arg is left untyped.")
 (unary_predicate contested)
 
-(implies (disputes ?agent ?target) (contested ?target))
+(set/forwardRule (implies (disputes ?agent ?target) (contested ?target)))

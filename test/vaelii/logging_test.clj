@@ -147,7 +147,7 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [dog barks Muffet]
       (let [out (with-out-str
-                  (v/assert-rule kb [(list dog '?x)] (list barks '?x) 'CxUniverse)
+                  (v/assert-rule kb [(list dog '?x)] (list barks '?x) 'CxUniverse {:direction :forward})
                   (v/assert kb (list dog Muffet) 'CxUniverse))]
         (is (re-find #"::chain-run" out) "a chaining run reports, truncated or not")
         (is (re-find #":derived 1" out) "with what it concluded")
@@ -162,7 +162,7 @@
     (tu/with-terms [dog barksAt Muffet CxIslandA CxIslandB]
       ;; rule and fact in island contexts with no common descendant: the join
       ;; completes and the conclusion has nowhere to land
-      (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) CxIslandA)
+      (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) CxIslandA {:direction :forward})
       (v/set-log-level :debug)
       (let [out (with-out-str (v/assert kb (list dog Muffet) CxIslandB))]
         (is (re-find #"::dropped-conclusion" out) "the drop itself is a :warn")
@@ -175,7 +175,7 @@
     (v/set-log-level :warn)
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [dog barksAt Muffet CxIslandA CxIslandB]
-        (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) CxIslandA)
+        (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) CxIslandA {:direction :forward})
         (let [out (with-out-str (v/assert kb (list dog Muffet) CxIslandB))]
           (is (re-find #"::dropped-conclusion" out))
           (is (not (re-find #"::dropping-rule" out))))))))

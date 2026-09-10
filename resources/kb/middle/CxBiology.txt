@@ -18,9 +18,9 @@
 ;; The negation is derived separately, so death is a positive claim and not merely
 ;; the failure of a default: an application can query (not (alive X)) and argue from
 ;; it, where "we never concluded it was alive" supports nothing at all.
-(implies (and (dead ?x)) (not (alive ?x)))
+(set/forwardRule (implies (and (dead ?x)) (not (alive ?x))))
 (exceptWhen (dead ?x)
-  (set/defaultRule (implies (and (living_thing ?x)) (alive ?x))))
+  (set/defaultRule (set/forwardRule (implies (and (living_thing ?x)) (alive ?x)))))
 
 ;; ---- awake until told otherwise ------------------------------------------
 ;; Sleep is what this theory is willing to assume. A proof that dead-ends on an animal
@@ -31,13 +31,13 @@
 ;; states rather than a capability the engine has.
 (abducible_predicate asleep)
 
-(implies (and (asleep ?x)) (not (awake ?x)))
+(set/forwardRule (implies (and (asleep ?x)) (not (awake ?x))))
 (exceptWhen (asleep ?x)
-  (set/defaultRule (implies (and (animal ?x)) (awake ?x))))
+  (set/defaultRule (set/forwardRule (implies (and (animal ?x)) (awake ?x)))))
 
 ;; ---- air-breathing, excepted by a whole class ----------------------------
 (exceptWhen (fish ?x)
-  (set/defaultRule (implies (and (animal ?x)) (breathes_air ?x))))
+  (set/defaultRule (set/forwardRule (implies (and (animal ?x)) (breathes_air ?x)))))
 
 ;; ---- what a kind can do, and the kind that cannot -----------------------
 ;; Flight is a claim about the KIND, so it is said with capabilityType — the type-level
@@ -72,7 +72,7 @@
 ;; does not conclude, so there is no flight to defeat and nothing to arbitrate.
 ;; See docs/exceptions.md.
 (exceptWhen (penguin ?x)
-  (set/defaultRule (implies (and (bird ?x)) (hasCapability ?x flying))))
+  (set/defaultRule (set/forwardRule (implies (and (bird ?x)) (hasCapability ?x flying)))))
 
 ;; Travelling is concluded by a rule rather than left to the capability hierarchy alone.
 ;; (transitiveInArgInverse hasCapability 2 genl) already ANSWERS it — flying is a kind of
@@ -85,7 +85,7 @@
 ;; rests on the conclusion, so capabilityType's own transitiveInArgInverse is left to answer
 ;; it at retrieval.  A kind-level rule would store a record per kind to say what the
 ;; declaration already says.
-(implies (and (hasCapability ?x flying)) (hasCapability ?x travelling))
+(set/forwardRule (implies (and (hasCapability ?x flying)) (hasCapability ?x travelling)))
 
 ;; And the negative, which is not the same statement as the blocked default: the rule
 ;; above declines to conclude for a penguin, while this concludes something — that this
@@ -93,21 +93,21 @@
 ;; kind-level (not (capabilityType penguin flying)) says it of the kind; this says it of
 ;; the member, and neither follows from the other for the reason typeToInstancePred's own
 ;; comment gives.
-(implies (and (penguin ?x)) (not (hasCapability ?x flying)))
+(set/forwardRule (implies (and (penguin ?x)) (not (hasCapability ?x flying))))
 
 ;; ---- where an animal lives is where it is, by default --------------------
 ;; A default rather than a bare rule: an animal that lives in a burrow is in it now
 ;; only until something says where it actually is.
-(set/defaultRule (implies (and (livesIn ?a ?p)) (locatedIn ?a ?p)))
+(set/defaultRule (set/forwardRule (implies (and (livesIn ?a ?p)) (locatedIn ?a ?p))))
 
-(set/defaultRule (implies (and (living_thing ?x)) (mortal ?x)))
+(set/defaultRule (set/forwardRule (implies (and (living_thing ?x)) (mortal ?x))))
 
 ;; ---- warm-bloodedness, read off the class --------------------------------
 ;; Never asserted of any particular animal: the five vertebrate classes are pairwise
 ;; disjoint, so exactly one of these fires for a typed animal and the KB cannot hold
 ;; both halves of the contradiction.
-(implies (and (amphibian ?x)) (not (warm_blooded ?x)))
-(implies (and (bird ?x)) (warm_blooded ?x))
-(implies (and (fish ?x)) (not (warm_blooded ?x)))
-(implies (and (mammal ?x)) (warm_blooded ?x))
-(implies (and (reptile ?x)) (not (warm_blooded ?x)))
+(set/forwardRule (implies (and (amphibian ?x)) (not (warm_blooded ?x))))
+(set/forwardRule (implies (and (bird ?x)) (warm_blooded ?x)))
+(set/forwardRule (implies (and (fish ?x)) (not (warm_blooded ?x))))
+(set/forwardRule (implies (and (mammal ?x)) (warm_blooded ?x)))
+(set/forwardRule (implies (and (reptile ?x)) (not (warm_blooded ?x))))

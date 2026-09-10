@@ -48,7 +48,7 @@
                    (v/assert kb (list dog Felix) 'CxNaturalWorld))))
     (testing "and wrapping it in set/defaultRule must not buy a way around that"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'set/defaultRule (list dog Felix)) 'CxNaturalWorld))))
+                   (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (list dog Felix))) 'CxNaturalWorld))))
     (testing "nothing was stored either way"
       (is (empty? (v/sentexes-matching kb (list dog Felix) 'CxNaturalWorld))))))
 
@@ -61,7 +61,7 @@
                    (v/assert kb (list dog Muffet) 'SomewhereElse))))
     (testing "wrapped, it is refused too"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'set/defaultRule (list dog Muffet)) 'SomewhereElse))))))
+                   (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (list dog Muffet))) 'SomewhereElse))))))
 
 (tu/deftest-kb a-wrapper-around-a-fact-does-not-smuggle-a-non-ground-sentence-in
   ;; A non-ground fact asserts nothing — stored as a premise it would match any goal.
@@ -69,7 +69,7 @@
     (is (thrown? clojure.lang.ExceptionInfo
                  (v/assert kb (list mortal '?x) 'CxNaturalWorld)))
     (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list 'set/defaultRule (list mortal '?x)) 'CxNaturalWorld)))))
+                 (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (list mortal '?x))) 'CxNaturalWorld)))))
 
 ;; ---- gap 2: a conjunctive consequent split into several rules ----------
 ;;
@@ -86,7 +86,7 @@
         (is (= :not-range-restricted
                (try (v/assert kb (vr/rule-sentence [(list a '?x)]
                                                    (list 'and (list b '?x) (list c '?y)))
-                              'CxNaturalWorld)
+                              'CxNaturalWorld {:direction :forward})
                     nil
                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
       (testing "and the first conjunct's rule was not left behind"
@@ -99,7 +99,7 @@
   (tu/with-terms [a b c Thing]
     (let [hs (v/assert kb (vr/rule-sentence [(list a '?x)]
                                             (list 'and (list b '?x) (list c '?x)))
-                       'CxNaturalWorld)]
+                       'CxNaturalWorld {:direction :forward})]
       (is (vector? hs) "a conjunctive consequent returns the vector of rule handles")
       (is (= 2 (count hs)))
       (v/assert kb (list a Thing) 'CxNaturalWorld)
@@ -146,9 +146,9 @@
 
 (tu/deftest-kb a-rule-and-its-negated-twin-are-different-rules
   (tu/with-terms [p q]
-    (let [pos (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) 'CxNaturalWorld)
+    (let [pos (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) 'CxNaturalWorld {:direction :forward})
           neg (v/assert kb (vr/rule-sentence [(list p '?x)] (list 'not (list q '?x)))
-                        'CxNaturalWorld)]
+                        'CxNaturalWorld {:direction :forward})]
       (is (not= pos neg)
           "identical antecedents, opposite conclusions — these must be two sentexes")
       (testing "and each keeps its own consequent polarity"
@@ -205,7 +205,7 @@
       (testing "the same refusal through assert-rule, which wraps and calls assert"
         (is (= :not-indexable
                (try (v/assert-rule kb ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x)
-                                   'CxNaturalWorld)
+                                   'CxNaturalWorld {:direction :forward})
                     nil
                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
       (testing "and nothing was stored on the way to either"
@@ -216,7 +216,7 @@
   ;; antecedent that binds `?p`: forward it fires with the predicate ground, backward it
   ;; is reachable through the `p/var-consequent-key` catch-all.
   (tu/with-terms [holds loves Tom Ann]
-    (let [rule (vr/rule-sentence [(list holds '?p '?x '?y)] '(?p ?x ?y))
+    (let [rule (list 'set/forwardRule (vr/rule-sentence [(list holds '?p '?x '?y)] '(?p ?x ?y)))
           h    (v/assert kb rule 'CxNaturalWorld)]
       (is (some? h) "the rule with a concrete antecedent and a variable consequent asserts")
       (testing "forward: a matching fact fires it with the predicate ground"
@@ -231,7 +231,7 @@
   ;; antecedent binds is a typo, not a metarule, and stays refused.
   (tu/with-terms [dog]
     (is (= :not-range-restricted
-           (try (v/assert kb (vr/rule-sentence [(list dog '?x)] '(?p ?x)) 'CxNaturalWorld)
+           (try (v/assert kb (vr/rule-sentence [(list dog '?x)] '(?p ?x)) 'CxNaturalWorld {:direction :forward})
                 nil
                 (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))))
 
@@ -255,7 +255,7 @@
   ;; the instantiated rule the message asks for is exactly this, and it must land.
   (tu/with-terms [likesOf]
     (let [h (v/assert kb (vr/rule-sentence [(list likesOf '?x '?y)] (list likesOf '?y '?x))
-                      'CxNaturalWorld)]
+                      'CxNaturalWorld {:direction :forward})]
       (is (some? h))
       (v/retract! kb h))))
 

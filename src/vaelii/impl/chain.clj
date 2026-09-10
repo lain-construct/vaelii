@@ -1366,15 +1366,23 @@
   on this path is a value: an exception escaping a firing would leave the fixpoint half
   computed, and which rule fired first would decide what the KB believes."
   [kb rule sentence pctx all-antes depth bindings strength]
-  ;; A stamped rule is polycanonicalized exactly as an asserted one is
-  ;; (`rules/expand-rule`) — one rule per DNF alternative of a disjunctive antecedent,
-  ;; and one per conjunct of a conjunctive consequent, each keyed by its own predicates.
-  ;; This is where a generator's stamped `or` expands: the holes are ground by now, so
-  ;; the alternatives the mint stores are the alternatives of the rule it stamped.
-  ;; Checked before any of them is stored, for the reason `core/assert` checks its
-  ;; conjuncts first: a mapv is not a transaction, and a mint that half-landed would
-  ;; leave the KB holding part of a rule nobody wrote.
-  (let [minted (rules/expand-rule sentence)]
+  ;; A stamped rule defaults to forward (forward + backward): a generator exists to
+  ;; materialize, and its stamped rule is the generator's product, so it forward-chains
+  ;; unless the author wrote a direction wrapper on it (which rides in the sentence and
+  ;; survives substitution).  Without this default a bare stamped rule would take the
+  ;; ordinary backward default and never fire — a generator that stamps nothing live.
+  (let [sentence (if (first (sx/peel-rule-wrapper sentence))
+                   sentence
+                   (rules/wrap-direction sentence :forward))
+        ;; A stamped rule is polycanonicalized exactly as an asserted one is
+        ;; (`rules/expand-rule`) — one rule per DNF alternative of a disjunctive
+        ;; antecedent, and one per conjunct of a conjunctive consequent, each keyed by its
+        ;; own predicates.  This is where a generator's stamped `or` expands: the holes are
+        ;; ground by now, so the alternatives the mint stores are the alternatives of the
+        ;; rule it stamped.  Checked before any of them is stored, for the reason
+        ;; `core/assert` checks its conjuncts first: a mapv is not a transaction, and a mint
+        ;; that half-landed would leave the KB holding part of a rule nobody wrote.
+        minted (rules/expand-rule sentence)]
     (if-let [v (some #(checks/rule-violation kb % pctx) minted)]
       (do (violations/report kb [(assoc v :sentence sentence :context pctx
                                         :rule (:rule-handle rule))])

@@ -319,7 +319,7 @@
     (v/assert kb (list 'genl narrow_type broad_type) 'CxCore)
     (v/assert kb (list 'genl outcome_type 'thing) 'CxCore)
     (v/assert kb (list 'implies (list generatesType '?type)
-                       (list 'implies (list '?type '?x) (list outcome_type '?x))) 'CxCore)
+                       (list 'implies (list '?type '?x) (list outcome_type '?x))) 'CxCore {:direction :forward})
     (doseq [type [broad_type narrow_type]]
       (v/assert kb (list generatesType type) 'CxCore))
     (let [rule (fn [type] (list 'implies (list type '?x) (list outcome_type '?x)))

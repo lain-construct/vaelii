@@ -96,7 +96,7 @@
             (take (- n 2) (shuffle-seeded 42 (subvec v 1 (dec (count v)))))))))
 
 (defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'implies (cons 'and antes) conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (list 'implies (cons 'and antes) conseq))))
 
 (defn- run-ops
   "Apply `ops` to a freshly cleared KB and return `observe`'s reading of it."
@@ -174,7 +174,7 @@
   ;; 5 assertions, 120 orderings. The default may fire before or after the KB learns
   ;; Tweety is a penguin, before or after it learns penguins are birds at all.
   (let [ops [#(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'CxUniverse)
-             #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'CxUniverse)
+             #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'CxUniverse {:direction :forward})
              #(v/assert % '(genl penguin bird) 'CxUniverse)
              ;; Known-true: a bare rule confers :monotonic and is capped by its weakest
              ;; antecedent, so over this premise the exception concludes :monotonic and
@@ -202,8 +202,8 @@
   ;; same belief, forward *and* backward — the whole point of the block/sweep machinery
   ;; being order-independent.  24 orderings.
   (let [ops [#(v/assert % '(exceptWhen (penguin ?x)
-                                       (set/defaultRule (implies (and (bird ?x)) (flies ?x))))
-                        'CxUniverse)
+                                       (set/defaultRule (set/forwardRule (implies (and (bird ?x)) (flies ?x)))))
+                        'CxUniverse {:direction :forward})
              #(v/assert % '(penguin Tweety) 'CxUniverse)
              #(v/assert % '(bird Tweety) 'CxUniverse)
              #(v/assert % '(bird Robin) 'CxUniverse)]
@@ -233,10 +233,10 @@
                  [:tp :to :fr :fp :fo :r2 :r1]]]
     (let [kb (tu/fresh)
           op {:r1 #(v/assert kb '(exceptWhen (penguin ?x)
-                                             (set/defaultRule (implies (and (bird ?x)) (flies ?x))))
+                                             (set/defaultRule (set/forwardRule (implies (and (bird ?x)) (flies ?x)))))
                              'CxUniverse)
               :r2 #(v/assert kb '(exceptWhen (ostrich ?x)
-                                             (set/defaultRule (implies (and (bird ?x)) (flies ?x))))
+                                             (set/defaultRule (set/forwardRule (implies (and (bird ?x)) (flies ?x)))))
                              'CxUniverse)
               :fp #(v/assert kb '(bird Pengu) 'CxUniverse)
               :tp #(v/assert kb '(penguin Pengu) 'CxUniverse)
@@ -253,8 +253,8 @@
   ;; The downstream conclusion (can_travel) must track the defeat of its antecedent
   ;; whichever order the pieces arrive in.
   (let [ops [#(v/assert % (default-rule '[(bird ?x)] '(flies ?x)) 'CxUniverse)
-             #(v/assert-rule % '[(flies ?x)] '(can_travel ?x) 'CxUniverse)
-             #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'CxUniverse)
+             #(v/assert-rule % '[(flies ?x)] '(can_travel ?x) 'CxUniverse {:direction :forward})
+             #(v/assert-rule % '[(penguin ?x)] '(not (flies ?x)) 'CxUniverse {:direction :forward})
              #(v/assert % '(genl penguin bird) 'CxUniverse)
              ;; known-true, so the exception concludes :monotonic and defeats the default
              #(v/assert % '(penguin Tweety) 'CxUniverse {:strength :monotonic})]
@@ -297,7 +297,7 @@
                 "a rule joined to a growing transitive extent"
                 (into [[#(v/assert % '(transitive causes) 'CxUniverse {:strength :monotonic})
                         #(v/assert-rule % '[(does ?a ?act) (causes ?act ?e)]
-                                        '(responsibleFor ?a ?e) 'CxUniverse)]]
+                                        '(responsibleFor ?a ?e) 'CxUniverse {:direction :forward})]]
                       (mapv vector ops))
                 observe
                 ordering-sample)]
@@ -323,7 +323,7 @@
   ;; hold, which is the point: completeness here is the chainer's, not the estimator's.
   (let [ops [#(v/assert % '(transitive causes) 'CxUniverse {:strength :monotonic})
              #(v/assert-rule % '[(does ?a ?act) (causes ?act ?e)]
-                             '(responsibleFor ?a ?e) 'CxUniverse)
+                             '(responsibleFor ?a ?e) 'CxUniverse {:direction :forward})
              #(v/assert % '(does FoxO Flatter) 'CxUniverse {:strength :monotonic})
              #(v/assert % '(causes Flatter Sings) 'CxUniverse {:strength :monotonic})
              #(v/assert % '(causes Sings Falls) 'CxUniverse {:strength :monotonic})
@@ -405,8 +405,8 @@
     ;; `(qmark QOne)` binds `?x` to a term the merge retires, and the exception has to be
     ;; asked under the representative wherever in the order the merge lands.
     (let [ops [#(v/assert % '(exceptWhen (qskip ?x)
-                                         (set/defaultRule (implies (and (qmark ?x)) (qseen ?x))))
-                          'CxUniverse)
+                                         (set/defaultRule (set/forwardRule (implies (and (qmark ?x)) (qseen ?x)))))
+                          'CxUniverse {:direction :forward})
                #(v/assert % '(qmark QOne) 'CxUniverse)
                #(v/assert % '(rewriteOf QTwo QOne) 'CxUniverse)
                #(v/assert % '(qskip QOne) 'CxUniverse)]
@@ -418,8 +418,8 @@
     ;; with, and an individual-only rewrite holds a rule back from migration, so the
     ;; stored condition keeps naming `COne` for good.
     (let [ops [#(v/assert % '(exceptWhen (cskip COne)
-                                         (set/defaultRule (implies (and (cmark ?x)) (cseen ?x))))
-                          'CxUniverse)
+                                         (set/defaultRule (set/forwardRule (implies (and (cmark ?x)) (cseen ?x)))))
+                          'CxUniverse {:direction :forward})
                #(v/assert % '(cmark CBase) 'CxUniverse)
                #(v/assert % '(rewriteOf CTwo COne) 'CxUniverse)
                #(v/assert % '(cskip CTwo) 'CxUniverse)]
@@ -435,8 +435,8 @@
   ;; it must not — where a silently-false exception merely fails to guard.  This one did
   ;; not vary with the ordering at all: it drew the conclusion in all 24.
   (let [ops [#(v/assert % '(set/defaultRule
-                            (implies (and (nmark ?x) (unknown (nskip ?x))) (nseen ?x)))
-                        'CxUniverse)
+                            (set/forwardRule (implies (and (nmark ?x) (unknown (nskip ?x))) (nseen ?x))))
+                        'CxUniverse {:direction :forward})
              #(v/assert % '(nmark NOne) 'CxUniverse)
              #(v/assert % '(rewriteOf NTwo NOne) 'CxUniverse)
              #(v/assert % '(nskip NOne) 'CxUniverse)]
@@ -725,8 +725,8 @@
              [#(v/assert % '(treatyClaim France Spain) 'CxUniverse)]
              [#(v/assert % '(symmetric bordersOn) 'CxUniverse)]]
         setup (fn [kb]
-                (v/assert-rule kb '[(borderClaim ?x ?y)] '(bordersOn ?x ?y) 'CxUniverse)
-                (v/assert-rule kb '[(treatyClaim ?x ?y)] '(bordersOn ?x ?y) 'CxUniverse)
+                (v/assert-rule kb '[(borderClaim ?x ?y)] '(bordersOn ?x ?y) 'CxUniverse {:direction :forward})
+                (v/assert-rule kb '[(treatyClaim ?x ?y)] '(bordersOn ?x ?y) 'CxUniverse {:direction :forward})
                 (v/assert kb '(genl bordersOn near) 'CxUniverse))
         rows  (fn [kb] (count (v/sentexes-matching kb '(bordersOn ?x ?y) 'CxUniverse)))
         observe
@@ -1070,7 +1070,7 @@
   (let [edge    #(v/assert % '(genl cfdog_t cfmammal_t) 'CxUniverse)
         drop-it #(v/retract! % (v/handle-of % '(genl cfdog_t cfmammal_t) 'CxUniverse))
         member  #(v/assert % '(cfdog_t CfRex) 'CxUniverse)
-        rule    #(v/assert % '(implies (cfmammal_t ?x) (cf_breathes ?x)) 'CxUniverse)
+        rule    #(v/assert % '(implies (cfmammal_t ?x) (cf_breathes ?x)) 'CxUniverse {:direction :forward})
         observe (fn [kb]
                   {:records (whole-reading kb)
                    :genl    (v/genl? kb 'cfdog_t 'cfmammal_t)
@@ -1148,7 +1148,7 @@
   ;; in the orders that put the edge before the fact and nothing in the others.
   (let [ops [#(v/assert % '(genl animal_t thing) 'CxUniverse)
              #(v/assert % '(genl dog_t animal_t) 'CxUniverse)
-             #(v/assert % '(implies (animal_t ?x) (breathes ?x)) 'CxUniverse)
+             #(v/assert % '(implies (animal_t ?x) (breathes ?x)) 'CxUniverse {:direction :forward})
              #(v/assert % '(dog_t Muffet) 'CxUniverse)]
         observe (fn [kb]
                   {:derived (boolean (seq (v/sentexes-matching kb '(breathes Muffet) 'CxUniverse)))})]
@@ -1167,7 +1167,7 @@
   (let [ops [#(v/assert % '(genlCx CxVMid CxUniverse) 'CxUniverse)
              #(v/assert % '(genlCx CxVLow CxVMid) 'CxUniverse)
              #(v/assert % '(v_fact_p VA) 'CxVMid)
-             #(v/assert % '(implies (v_fact_p ?x) (v_seen_p ?x)) 'CxVLow)]
+             #(v/assert % '(implies (v_fact_p ?x) (v_seen_p ?x)) 'CxVLow {:direction :forward})]
         observe (fn [kb]
                   {:derived (boolean (seq (v/sentexes-matching kb '(v_seen_p VA) 'CxVLow)))})]
     (is (= {:derived true} (one-outcome! "visibility firing" ops observe))
@@ -1186,7 +1186,7 @@
              #(v/assert % '(genlCx CxSLow CxSMid) 'CxUniverse)
              #(v/assert % '(genl vs_terrier_t vs_dog_t) 'CxSMid {:strength :monotonic})
              #(v/assert % '(vs_terrier_t SRex) 'CxSMid {:strength :monotonic})
-             #(v/assert % '(implies (vs_dog_t ?x) (vs_seen_p ?x)) 'CxSLow)]
+             #(v/assert % '(implies (vs_dog_t ?x) (vs_seen_p ?x)) 'CxSLow {:direction :forward})]
         observe (fn [kb]
                   {:derived (boolean (seq (v/sentexes-matching kb '(vs_seen_p SRex) 'CxSLow)))})]
     (is (= {:derived true} (one-outcome! "subsumed visibility firing" ops observe ordering-sample))
@@ -1203,7 +1203,7 @@
   (let [ops [#(v/assert % '(genlCx CxVNMid CxUniverse) 'CxUniverse)
              #(v/assert % '(genlCx CxVNLow CxVNMid) 'CxUniverse)
              #(v/assert % '(not (v_neg_p VA)) 'CxVNMid {:strength :monotonic})
-             #(v/assert % '(implies (not (v_neg_p ?x)) (v_neg_seen_p ?x)) 'CxVNLow)]
+             #(v/assert % '(implies (not (v_neg_p ?x)) (v_neg_seen_p ?x)) 'CxVNLow {:direction :forward})]
         observe (fn [kb]
                   {:derived (boolean (seq (v/sentexes-matching kb '(v_neg_seen_p VA) 'CxVNLow)))})]
     (is (= {:derived true} (one-outcome! "negated visibility firing" ops observe))
@@ -1218,7 +1218,7 @@
   (let [ops [#(v/assert % '(genlCx CxXMid CxUniverse) 'CxUniverse)
              #(v/assert % '(genlCx CxXLow CxXMid) 'CxUniverse)
              #(v/assert % '(x_fact_p XB) 'CxXLow)
-             #(v/assert % '(implies (x_fact_p ?x) (x_seen_p ?x)) 'CxXMid)]
+             #(v/assert % '(implies (x_fact_p ?x) (x_seen_p ?x)) 'CxXMid {:direction :forward})]
         observe (fn [kb]
                   {:derived (boolean (seq (v/sentexes-matching kb '(x_seen_p XB) 'CxXLow)))})]
     (is (= {:derived true} (one-outcome! "inherited-rule firing" ops observe))
@@ -1431,9 +1431,9 @@
 (def ^:private derived-edge-ops
   [#(v/assert % '(genlCx CxWMid CxUniverse) 'CxUniverse)
    #(v/assert % '(w_fact_p WA) 'CxWMid)
-   #(v/assert % '(implies (w_fact_p ?x) (w_seen_p ?x)) 'CxWLow)
+   #(v/assert % '(implies (w_fact_p ?x) (w_seen_p ?x)) 'CxWLow {:direction :forward})
    #(v/assert % '(wWireP CxWLow CxWMid) 'CxUniverse)
-   #(v/assert % '(implies (wWireP ?a ?b) (genlCx ?a ?b)) 'CxUniverse)])
+   #(v/assert % '(implies (wWireP ?a ?b) (genlCx ?a ?b)) 'CxUniverse {:direction :forward})])
 
 (defn- derived-edge-observe [kb]
   {:derived (boolean (seq (v/sentexes-matching kb '(w_seen_p WA) 'CxWLow)))})
@@ -1692,7 +1692,7 @@
   ;; them.  120 orderings.
   (let [ops [#(v/assert % '(implies (typeArity ?type ?n)
                                     (implies (?type ?relation) (arity ?relation ?n)))
-                        'CxUniverse)
+                        'CxUniverse {:direction :forward})
              #(v/assert % '(typeArity binary_thing 2) 'CxUniverse)
              #(v/assert % '(typeArity ternary_thing 3) 'CxUniverse)
              #(v/assert % '(binary_thing pairOf) 'CxUniverse)
@@ -1722,7 +1722,7 @@
   (let [handle (volatile! nil)
         chains [[#(v/assert % '(implies (typeArity ?type ?n)
                                         (implies (?type ?relation) (arity ?relation ?n)))
-                            'CxUniverse)]
+                            'CxUniverse {:direction :forward})]
                 [#(vreset! handle (v/assert % '(typeArity binary_thing 2) 'CxUniverse))
                  #(v/retract! % @handle)]
                 [#(v/assert % '(typeArity ternary_thing 3) 'CxUniverse)]

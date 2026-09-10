@@ -54,7 +54,7 @@
   own, read at `web/default-port`, where an unparseable value falls through to the next
   source rather than stopping a start over a convenience variable (docs/web.md).
 
-  Three more belong to the two servers and are read at `vaelii.impl.guard`, which both
+  Three more belong to the two servers and are read at `vaelii.host.guard`, which both
   of them read: `VAELII_API_TOKEN` and `VAELII_ALLOWED_HOSTS` are a secret and a host
   list, neither of which has a domain to hold them to, and the ceiling
   `VAELII_MAX_BODY_BYTES` refuses at `guard/max-body-bytes` for the reason
@@ -289,9 +289,10 @@
 
 (defn assertive-arg-types?
   "Do the argument constraints entail as well as constrain (`VAELII_ASSERTIVE_ARG_TYPES`,
-  default off)?"
+  default on)?  `VAELII_ASSERTIVE_ARG_TYPES=0` opts out, back to the constraint-only
+  reading."
   []
-  (prop-bool "VAELII_ASSERTIVE_ARG_TYPES" false))
+  (prop-bool "VAELII_ASSERTIVE_ARG_TYPES" true))
 
 (defn web-dev?
   "Is the browser a development server (`VAELII_DEV`, default off)?  A value, not mere
@@ -372,10 +373,10 @@
 (defn max-query-ms
   "The wall-clock ceiling the daemon holds every bounded read to
   (`VAELII_MAX_QUERY_MS`, default 30000; 0 lifts it).  A request may name a smaller
-  `:max-ms` and is refused for naming a larger one (`vaelii.impl.serve`).
+  `:max-ms` and is refused for naming a larger one (`vaelii.host.serve`).
 
   **30 seconds because that is when the caller stops listening.**  The zero-dep client's
-  own read timeout is 30 s (`vaelii.impl.client`), and every op runs under the daemon's
+  own read timeout is 30 s (`vaelii.host.client`), and every op runs under the daemon's
   single write monitor — so a read still going after that is holding every other
   caller's request behind an answer nobody is waiting for."
   []
@@ -384,7 +385,7 @@
 (defn max-query-depth
   "The rule-expansion ceiling the daemon holds every bounded read to
   (`VAELII_MAX_QUERY_DEPTH`, default 256; 0 lifts it).  A request may name a smaller
-  `:max-depth` and is refused for naming a larger one (`vaelii.impl.serve`).
+  `:max-depth` and is refused for naming a larger one (`vaelii.host.serve`).
 
   256 because it is the largest depth the API's own defaults name — `why`'s — so every
   documented call sits inside it, and a depth past it is a search a remote caller sized

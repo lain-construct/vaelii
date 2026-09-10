@@ -27,7 +27,7 @@
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.disk.index-snapshot :as snap]
-            [vaelii.impl.io.generate :as gen]
+            [vaelii.host.io.generate :as gen]
             [vaelii.impl.protocols :as p]))
 
 (defn- tmpdir ^String []

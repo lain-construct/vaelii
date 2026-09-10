@@ -5,11 +5,11 @@
   taxonomy behave."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
+            [vaelii.host.starter :as starter]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.seed :as seed]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 

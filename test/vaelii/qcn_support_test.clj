@@ -11,11 +11,11 @@
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.interval :as iv]
             [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
-            [vaelii.impl.seed :as seed]
             [vaelii.impl.space :as space]
             [vaelii.test-util :as tu]))
 

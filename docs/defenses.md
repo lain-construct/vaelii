@@ -384,42 +384,47 @@ monotonic handle is never given an atom.
 
 Defends [namespaces.md](namespaces.md).
 
-### The layering inversions live in wiring.clj, not at the call sites
+### The two recursion calls live in wiring.clj, not at the call sites
 
 The engine's requires run one way, from `kb` up through `checks`, `special`,
 `integrate`, `chain` and `settle` to `vaelii.core`, and the compiler checks every edge.
-Four calls break that order, and all four live in `impl/wiring.clj` instead of at the
+Two calls break that order, and both live in `impl/wiring.clj` instead of at the
 call site that needs them.
 
-None of the four is a misplaced function waiting to be moved somewhere that restores
-the one-way order. `assert-sentence` is called back from `impl/nat.clj`,
-`impl/skolem.clj` and `impl/quasiquote.clj` because storing is a whole assert — naming,
-the definitional checks, the index, chaining, settle — so the write path itself runs
-chaining, and chaining mints a constant by calling back into that same write path. The
-cycle is in the behaviour a NAT, a skolem witness or a quasiquotation mark needs, not in
-how the code happens to be arranged, so no rearrangement removes it. `solve-goal` is the
-prover registry that `impl/resolution.clj` calls to discharge a deferred antecedent, and
-`unknown` runs that same registry back over its own argument — negation-as-failure is
-mutually recursive with the chainer that asked for it, not merely calling down into it.
-`impl/io/import.clj` sits above `vaelii.core` because reading a dump is asserting: it
-re-canonicalizes records, reindexes and recovers through the public write path.
-`core/import!` is `export!`'s inverse, and a round trip whose two halves are not both
-public is not a round trip, so the delegation has to point up to reach `vaelii.core`.
-`impl/predall.clj` sits above it for the mirror-image reason: running a `predAllSpecified`
-audit is asking. The audit asks one goal per member of the audited collection, and the
-context resolution a public read runs is private to `vaelii.core`, so an audit answered
-below that entry point would report violations a scoped read would not have
-([predall.md](predall.md)).
+Neither is a misplaced function waiting to be moved somewhere that restores the one-way
+order — both are genuine mutual recursion. `assert-sentence` is called back from
+`impl/nat.clj`, `impl/skolem.clj` and `impl/quasiquote.clj` because storing is a whole
+assert — naming, the definitional checks, the index, chaining, settle — so the write path
+itself runs chaining, and chaining mints a constant by calling back into that same write
+path. The cycle is in the behaviour a NAT, a skolem witness or a quasiquotation mark
+needs, not in how the code happens to be arranged, so no rearrangement removes it.
+`solve-goal` is the prover registry that `impl/resolution.clj` calls to discharge a
+deferred antecedent, and `unknown` runs that same registry back over its own argument —
+negation-as-failure is mutually recursive with the chainer that asked for it, not merely
+calling down into it.
 
-Gathering the four in one file beats leaving each as a `requiring-resolve` at its own
+A layering *inversion* — a namespace above `vaelii.core` that consumes its public API — is
+a different case, and none is written here: a call that can point downward is made to point
+downward. Two once pointed up through this file and no longer do. `impl/io/import.clj`
+recovered a loaded dump by calling `vaelii.core/recover`; the rebuild moved to
+`impl/recovery.clj`, below `vaelii.core`, and both `vaelii.core/recover` and the importer
+call it downward. `impl/predall.clj` audited by calling `vaelii.core/ask`; the audit now
+reads through `impl/provers.clj` with each goal prepared by
+`quasiquote/prepare-goal-for-read`, and the `genlCx` ancestor scoping it depends on is
+applied in the matching layer below anyway ([predall.md](predall.md)). Both are below
+`vaelii.core` now, which requires them, so the public audit and import entry points are
+ordinary downward delegations.
+
+Gathering the two in one file beats leaving each as a `requiring-resolve` at its own
 call site. Scattered, a `requiring-resolve` is invisible: nothing counts it, nothing
 stops the next one, and the set of places the layering is broken can only be recovered
-by grepping for it. Gathered, they are an inventory — four entries, each owing the
+by grepping for it. Gathered, they are an inventory — two entries, each owing the
 reason it cannot be an ordinary require — and `lein lint`'s E8 fails a written-out
 `requiring-resolve` anywhere else under `src/`, excepting the optional dependencies it
-names by target. Only the written-out form is a cut: a symbol computed off a keyword-dispatch
-registry names no edge at read time, so E8 never sees one. A cut with a real fix takes
-the fix; one that lands in the inventory argues for itself in writing first.
+names by target. Only the written-out form breaks the one-way order: a symbol computed off
+a keyword-dispatch registry names no edge at read time, so E8 never sees one. A call with a
+real downward fix takes the fix; one that lands in the inventory argues for itself in
+writing first.
 
 ### What a term says lives below what the engine does about it
 

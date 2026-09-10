@@ -75,7 +75,7 @@
   (v/assert kb '(genl dog animal) 'CxParity {:strength :monotonic})
   (v/assert kb '(genl animal thing) 'CxParity {:strength :monotonic})
   (v/assert kb '(arg ownerOf 2 animal) 'CxParity {:strength :monotonic})
-  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'CxParity)
+  (v/assert-rule kb '[(dog ?x)] '(mammal ?x) 'CxParity {:direction :forward})
   (v/assert kb '(dog Rex) 'CxParity {:strength :monotonic})
   (v/assert kb '(dog Muffet) 'CxParity {:strength :monotonic})
   (v/assert kb '(cat Tom) 'CxParity {:strength :monotonic})

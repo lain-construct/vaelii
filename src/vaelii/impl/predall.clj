@@ -5,9 +5,13 @@
   (docs/predall.md, resources/kb/CxCore.txt).
 
   Reached from outside through `vaelii.core/specified-violations` and
-  `vaelii.core/all-specified-violations`.  This namespace sits **above** `vaelii.core`,
-  because auditing is asking and the audit asks through the public read path, so the
-  delegation runs back down through `vaelii.impl.wiring`.
+  `vaelii.core/all-specified-violations`, which are thin delegations to the readers here.
+  The audit reads through the prover registry below (`provers/ask`) with each goal prepared
+  exactly as the public read prepares it (`quasiquote/prepare-goal-for-read`), so this
+  namespace sits **below** `vaelii.core` and `vaelii.core` requires it — no layering
+  inversion.  The audit still answers what a user's `ask` answers: it passes only concrete
+  contexts and expands no rule, and the `genlCx` ancestor scoping is applied in the matching
+  layer below (docs/namespaces.md, \"The layering\").
 
   Where the *Instance* relations stamp real inference and the *Exists* relations are
   inert records beside a sanctioned placeholder functor, `predAllSpecified` / `predSpecifiedAll` are an **integrity
@@ -27,8 +31,8 @@
   is punted (Pace): a plain individual, a literal and an *Exists* placeholder alike are
   all treated as determinate here, which is what makes `predAllSpecified` the exact
   antagonist of `predAllExists`."
-  (:require [vaelii.core :as v]
-            [vaelii.impl.provers :as provers]
+  (:require [vaelii.impl.provers :as provers]
+            [vaelii.impl.quasiquote :as quasiquote]
             [vaelii.impl.resolution :as res]))
 
 (defn indeterminate-term?
@@ -49,6 +53,22 @@
   (Pace)."
   [kb term ctx]
   (provers/indeterminate-term? kb term ctx))
+
+(defn- ask
+  "The scoped read the audit runs, reached below `vaelii.core`: prepare `goal` exactly as
+  the public read prepares it (`quasiquote/prepare-goal-for-read` — reify ground NATs,
+  rewrite terms to their equality-class representatives), then answer it through the prover
+  registry in `ctx`.  This is the whole of what `vaelii.core/ask` does for the audit's
+  inputs, which are always a concrete context and never expand a rule; the `genlCx` ancestor
+  scoping the answer rests on is applied in the matching layer below."
+  [kb goal ctx]
+  (provers/ask kb (quasiquote/prepare-goal-for-read kb goal ctx) ctx))
+
+(defn- ask?
+  "Is `goal` answerable in `ctx`?  The boolean twin of `ask`, matching
+  `vaelii.core/ask?`'s no-clock branch."
+  [kb goal ctx]
+  (boolean (seq (ask kb goal ctx))))
 
 (defn- slot-typings
   "The visible slot-`n` typing constraints binding `pred`'s tuples in `ctx`, as a set
@@ -75,16 +95,16 @@
   (into #{}
         cat
         [(for [cp (res/constraining-predicates kb 'arg pred ctx)
-               b  (v/ask kb (list 'arg cp n '?t) ctx)
+               b  (ask kb (list 'arg cp n '?t) ctx)
                :let [t (get b '?t)]
                :when (some? t)]
            {:check :membership :type t})
          (for [cp (res/constraining-predicates kb 'genlArg pred ctx)
-               b  (v/ask kb (list 'genlArg cp n '?t) ctx)
+               b  (ask kb (list 'genlArg cp n '?t) ctx)
                :let [t (get b '?t)]
                :when (some? t)]
            {:check :subtype :type t})
-         (when (v/ask? kb (list 'type_relation_predicate pred) ctx)
+         (when (ask? kb (list 'type_relation_predicate pred) ctx)
            [{:check :type-position :type 'thing}])]))
 
 (defn- satisfies-typing?
@@ -113,10 +133,10 @@
   violates even though the open-world checker excused it."
   [kb y {:keys [check type]} ctx]
   (case check
-    :membership    (v/ask? kb (list type y) ctx)
-    :subtype       (v/ask? kb (list 'genl y type) ctx)
-    :type-position (or (v/ask? kb (list 'genl y type) ctx)
-                       (v/ask? kb (list 'unary_predicate y) ctx))))
+    :membership    (ask? kb (list type y) ctx)
+    :subtype       (ask? kb (list 'genl y type) ctx)
+    :type-position (or (ask? kb (list 'genl y type) ctx)
+                       (ask? kb (list 'unary_predicate y) ctx))))
 
 (defn- admissible-filler?
   "Does at least one **determinate** filler `y`, believed at slot `n` of `pred`'s
@@ -134,7 +154,7 @@
   about nil is not a membership question."
   [kb pred x typings n ctx]
   (let [goal    (if (= n 2) (list pred x '?y) (list pred '?y x))
-        answers (v/ask kb goal ctx)]
+        answers (ask kb goal ctx)]
     (boolean
      (some (fn [b]
              (let [y (get b '?y)]
@@ -188,13 +208,13 @@
         (into #{}
               (comp (map #(get % '?x))
                     (remove #(admissible-filler? kb pred % typings n ctx)))
-              (v/ask kb (list indep '?x) ctx))}))))
+              (ask kb (list indep '?x) ctx))}))))
 
 (defn- declaration-args
   "Read the stored binary `(functor pred indep)` declarations in `ctx` as
   `[pred indep]` tuples."
   [kb functor ctx]
-  (for [b (v/ask kb (list functor '?pred '?indep) ctx)]
+  (for [b (ask kb (list functor '?pred '?indep) ctx)]
     [(get b '?pred) (get b '?indep)]))
 
 (defn- legacy-ternary-declarations
@@ -206,7 +226,7 @@
   audit, would otherwise vanish from the sweep entirely, turning an unmigrated KB
   into a fake clean sweep."
   [kb functor ctx]
-  (for [b (v/ask kb (list functor '?pred '?a '?b) ctx)]
+  (for [b (ask kb (list functor '?pred '?a '?b) ctx)]
     [(get b '?pred) (get b '?a) (get b '?b)]))
 
 (defn all-specified-violations

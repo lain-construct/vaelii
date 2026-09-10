@@ -18,8 +18,8 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [a b c X CxThe]
       ;; two rules concluding the same thing, from different premises
-      (v/assert-rule kb [(list a '?x)] (list c '?x) CxThe)
-      (v/assert-rule kb [(list b '?x)] (list c '?x) CxThe)
+      (v/assert-rule kb [(list a '?x)] (list c '?x) CxThe {:direction :forward})
+      (v/assert-rule kb [(list b '?x)] (list c '?x) CxThe {:direction :forward})
       (let [fa (v/assert kb (list a X) CxThe)
             ch (v/handle-of kb (list c X) CxThe)]
         (is (v/in? kb ch) "(c X) is derived from (a X)")
@@ -43,8 +43,8 @@
   ;; `tu/fresh` would collide — both take the scratch db pair), then compare belief.
   (tu/with-terms [a b c X CxThe]
     (letfn [(scenario [kb via-edit?]
-              (v/assert-rule kb [(list a '?x)] (list c '?x) CxThe)
-              (v/assert-rule kb [(list b '?x)] (list c '?x) CxThe)
+              (v/assert-rule kb [(list a '?x)] (list c '?x) CxThe {:direction :forward})
+              (v/assert-rule kb [(list b '?x)] (list c '?x) CxThe {:direction :forward})
               (let [fa (v/assert kb (list a X) CxThe)]
                 (if via-edit?
                   (v/edit! kb {:add [[(list b X) CxThe]] :remove [fa]})
@@ -191,7 +191,7 @@
     (tu/with-terms [dog cat barks Muffet Whiskers CxThe]
       (v/assert kb (list 'genlCx CxThe 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
-      (v/assert-rule kb [(list dog '?x)] (list barks '?x) CxThe)
+      (v/assert-rule kb [(list dog '?x)] (list barks '?x) CxThe {:direction :forward})
       (let [h  (v/assert kb (list dog Muffet) CxThe)
             bh (v/handle-of kb (list barks Muffet) CxThe)]
         (is (v/in? kb bh) "the conclusion the removal would sweep is derived")

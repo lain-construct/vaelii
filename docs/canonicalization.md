@@ -137,8 +137,10 @@ alone.
 
 `(set/forwardRule (implies …))` is not data *about* a rule — it is how the rule's
 direction is written, so like `not`/`implies` it canonicalizes **into the record**:
-`:direction` (`:forward`/`:backward`/`:inert`/`:both`, `:both` for a bare
-`implies`) and `:defeasible` (from `set/defaultRule`). Wrappers may nest — a
+`:direction` (`:forward`/`:backward`/`:both`/`:forward-only`/`:inert`, `:backward` for a
+bare `implies` — the tractable default, since forward chaining materializes a conclusion
+per match; `:forward-only` from `set/forwardOnlyRule` is a tests-only mode) and
+`:defeasible` (from `set/defaultRule`). Wrappers may nest — a
 defeasible forward rule — and never reach the stored sentence. The `:direction`
 opt on `assert` and `assert-rule` is just the programmatic spelling: it wraps, and
 the wrapper becomes the field.
@@ -146,9 +148,10 @@ the wrapper becomes the field.
 Neither slot is in the identity key, so re-asserting with a different wrapper
 resolves to the **one** sentex. Where the two spellings disagree, the slot is then
 resolved from **content**: the least restrictive direction (`:inert` is the bottom,
-`:forward` and `:backward` join to `:both`), and strict over defeasible — a rule
-somebody also stated without `set/defaultRule` is one they stated as holding
-outright. Both resolutions are commutative and idempotent, which is what the pair
+`:backward` is above it, and `:forward` / `:both` are the top — both mean forward +
+backward, so a bare spelling joined with `set/forwardRule` comes to `:both`), and
+strict over defeasible — a rule somebody also stated without `set/defaultRule` is one
+they stated as holding outright. Both resolutions are commutative and idempotent, which is what the pair
 has to be: keying the slot on which assertion arrived first would let the same two
 assertions in the two orders reach two sets of beliefs, and order independence is
 not negotiable ([nmtms.md](nmtms.md)).

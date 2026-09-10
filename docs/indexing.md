@@ -376,7 +376,8 @@ predicate) and `[:rule-index :consequent pred] -> #{...}` (by consequent predica
 
 **Both sets are complete** — every rule is registered under all of its antecedent
 predicates *and* its consequent predicate, whatever its direction — so "what could
-conclude P?" is answerable for a forward-only rule too.
+conclude P?" is answerable whatever a rule's direction, an inert rule the browser reads
+included.
 
 A **negated antecedent** `(not (p ?x))` keys under `[:not p]` rather than under `not`
 (`rules/antecedent-key`). So a negation reaches the rules with a negated antecedent on a

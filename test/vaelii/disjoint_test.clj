@@ -123,7 +123,7 @@
     (v/assert kb (list 'disjoint_metatype species) 'CxUniverse)
     (v/assert kb (list species dog) 'CxUniverse)
     ;; `cat` joins the metatype only by inference — nothing states `(species cat)`
-    (v/assert kb (list 'implies (list seed '?x) (list species '?x)) 'CxUniverse)
+    (v/assert kb (list 'implies (list seed '?x) (list species '?x)) 'CxUniverse {:direction :forward})
     (v/assert kb (list seed cat) 'CxUniverse)
     (is (seq (v/sentexes-matching kb (list species cat) '?c)) "the membership is derived")
     (let [live (tax/metatype-members t species)]

@@ -69,7 +69,7 @@
   (let [parentOf (tu/tmp-pred) grandparentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind) ann (tu/tmp-ind)]
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) 'CxFam)
+                   (list grandparentOf '?x '?z) 'CxFam {:direction :forward})
     (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) 'CxFam
                    {:direction :backward})
     (v/assert kb (list parentOf tom bob) 'CxFam)

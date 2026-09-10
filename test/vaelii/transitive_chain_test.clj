@@ -29,7 +29,7 @@
   (v/assert kb (list 'transitive causes) W {:strength :monotonic})
   (v/assert kb (list 'implies (list 'and (list spark '?a) (list causes '?a '?c))
                      (list traceable '?a '?c))
-            W))
+            W {:direction :forward}))
 
 (tu/deftest-kb a-forward-rule-fires-across-two-stored-hops
   (tu/with-terms [causes spark traceable Spark Fire Alarm]
@@ -81,7 +81,7 @@
     (v/assert kb (list causes Fire Alarm) W)
     (v/assert kb (list 'implies (list 'and (list spark '?a) (list causes '?a '?c))
                        (list traceable '?a '?c))
-              W)
+              W {:direction :forward})
     (is (v/ask? kb (list traceable Spark Alarm) W)
         "a rule stored after the chain joins over the closure at its own firing")))
 
@@ -92,7 +92,7 @@
   (tu/with-terms [causes spark traceable Spark Fire Alarm]
     (v/assert kb (list 'implies (list 'and (list spark '?a) (list causes '?a '?c))
                        (list traceable '?a '?c))
-              W)
+              W {:direction :forward})
     (v/assert kb (list spark Spark) W)
     (v/assert kb (list causes Spark Fire) W)
     (v/assert kb (list causes Fire Alarm) W)
@@ -111,7 +111,7 @@
     (v/assert kb (list 'transitive causes) W {:strength :monotonic})
     (v/assert kb (list 'implies (list 'and (list causes '?a '?b) (list causes '?b '?c))
                        (list causes '?a '?c))
-              W)
+              W {:direction :forward})
     (v/assert kb (list causes Spark Fire) W)
     (v/assert kb (list causes Fire Alarm) W)
     (testing "the pair two hops apart is derived, and stored as an ordinary fact"
@@ -135,7 +135,7 @@
     (v/assert kb (list 'genl before torder) W {:strength :monotonic})
     (v/assert kb (list 'implies (list 'and (list begins '?x) (list before '?x '?y))
                        (list torder '?x '?y))
-              W)
+              W {:direction :forward})
     (v/assert kb (list begins A) W)
     (v/assert kb (list before A B) W)
     (v/assert kb (list before B C) W)
@@ -152,7 +152,7 @@
       (v/assert kb (list 'genl before2 torder2) W {:strength :monotonic})
       (v/assert kb (list 'implies (list 'and (list begins2 '?x) (list before2 '?x '?y))
                          (list torder2 '?x '?y))
-                W)
+                W {:direction :forward})
       (v/assert kb (list begins2 P) W)
       (v/assert kb (list before2 Q R) W)
       (v/assert kb (list before2 P Q) W)

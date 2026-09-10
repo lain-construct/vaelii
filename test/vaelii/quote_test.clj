@@ -10,7 +10,7 @@
   `sameAs` / `equals` **identity** merge of the referent does not fold the quoted term."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.taxonomy :as tax]

@@ -25,7 +25,7 @@ Steps to trigger it — ideally a self-contained REPL snippet starting from a fr
 - Vaelii version / commit:
 - Backend: <!-- memory | memory-dense | memory-columnar | disk | disk-memory |
                 disk-dense | disk-columnar | overlay -->
-- Reached through: <!-- library | lein cli | daemon (vaelii.impl.serve) | browser -->
+- Reached through: <!-- library | lein cli | daemon (vaelii.host.serve) | browser -->
 - JDK / OS:
 
 **Output**

@@ -21,8 +21,8 @@
 
   Run: `lein bench-qcnchain`"
   (:require [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.seed :as seed]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.space :as space]))
 
 (defn- fresh-kb

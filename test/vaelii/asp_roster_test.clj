@@ -37,7 +37,9 @@
   #{'vaelii.asp-aspif-test
     'vaelii.asp-edge-test
     'vaelii.asp-label-test
+    'vaelii.asp-prover-test
     'vaelii.asp-solver-test
+    'vaelii.cardinality-solve-test
     'vaelii.constraint-solve-test
     'vaelii.koinii-schedule-test
     'vaelii.labeling-test

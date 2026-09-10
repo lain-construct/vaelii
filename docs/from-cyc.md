@@ -54,9 +54,9 @@ same `genl` lattice, so `(parentOf 212 Mary)` is refused `:arg-type` — 212 is 
 and `number` does not reach `animal` ([argtypes.md](argtypes.md)).
 
 The *entailment* reading — the same declaration minting `(animal Fred)` from
-`(parentOf Fred Mary)` — is real but **opt-in**, behind
-`checks/*assertive-arg-types?*` (root value false, or `VAELII_ASSERTIVE_ARG_TYPES=1`).
-It is additive: turning it on keeps the refusal and adds the derived type, as a justified
+`(parentOf Fred Mary)` — is the **default**, behind
+`checks/*assertive-arg-types?*` (root value true, or `VAELII_ASSERTIVE_ARG_TYPES=0` to opt
+out). It is additive: it keeps the refusal and adds the derived type, as a justified
 sentex that retracts like any conclusion. See [argtypes.md](argtypes.md).
 
 **Undeclared is unconstrained — which is not the same as unchecked.** No predicate has to
@@ -111,7 +111,7 @@ Cyc's three modes, and what each maps to:
 |---|---|---|
 | strict | constraints must be provable | no equivalent |
 | lenient | constraints must not be disjoint | **the default** — a demonstrated conflict is refused, an argument with no place in the hierarchy is excused |
-| assertive | that, plus eagerly concluding tighter `isa`s | `checks/*assertive-arg-types?*`, off by default, and additive rather than a replacement |
+| assertive | that, plus eagerly concluding tighter `isa`s | `checks/*assertive-arg-types?*`, on by default (additive on top of lenient; `VAELII_ASSERTIVE_ARG_TYPES=0` opts out) |
 
 One naming collision to hold: `vaelii.impl.wff` is narrower than Cyc's "WFF". It is the
 **structural** check on the special predicates — `genl` and `genlCx` acyclicity, the
@@ -215,9 +215,8 @@ and believed or not.
 | in Cyc | here |
 |---|---|
 | assert a rule | `(v/assert-rule kb [antecedents] consequent context opts)` |
-| `forwardRule` | `{:direction :forward}`, or the `set/forwardRule` wrapper |
-| `backwardRule` | `{:direction :backward}`, or `set/backwardRule` |
-| both, the default | `{:direction :both}` |
+| `forwardRule` | `set/forwardRule` / `{:direction :forward}` — here that forward-chains **and** answers backward goals (Cyc's forward-only is `set/forwardOnlyRule`, a tests-only mode) |
+| `backwardRule` — the default | bare `(implies …)`, or `set/backwardRule` / `{:direction :backward}` |
 | `:code` direction | `{:direction :inert}`, or `set/inertRule` — believed and indexed, fires neither way |
 | rule variables | `?x` |
 | range restriction | enforced: every consequent variable appears in an antecedent, the one exception being a marked head existential |

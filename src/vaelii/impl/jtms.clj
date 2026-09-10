@@ -402,7 +402,7 @@
 (defn- relabel-all*
   "Relabel every node.  No engine path calls it — the assert / retract / settle path
   relabels regions and a rebuild composes the region relabels its own adds run
-  (`core/rebuild-tms`) — so this is the differential oracle's whole-graph operation, which
+  (`recovery/rebuild-tms`) — so this is the differential oracle's whole-graph operation, which
   is why both representations carry it (`relabel`).
 
   The blocked set is **reset to empty first**, and the supersession map with it.  Neither
@@ -1072,7 +1072,7 @@
   sets — the whole-graph counterpart to the region relabels the assert / retract / settle
   path runs, for a caller that holds no smaller region.  Nothing on the live paths calls it:
   the assert / retract / settle path relabels regions, and `recover` composes the region
-  relabels its own rebuild runs (`core/rebuild-tms`), its settle re-deriving blocking
+  relabels its own rebuild runs (`recovery/rebuild-tms`), its settle re-deriving blocking
   wholesale.  It is the
   differential oracle's whole-graph operation (`strength_test`, `jtms_dense_oracle_test`,
   `jtms_blocked_test`), which is why both representations implement it.

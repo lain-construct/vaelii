@@ -381,7 +381,8 @@
   ;; inventing a name that looks like somebody's.
   (tu/with-terms [Stray]
     (v/assert kb (list 'dog Stray) N)
-    (v/assert kb '(implies (and (dog ?x)) (exists ?m (motherOf ?x ?m))) 'CxWell)
+    (v/assert kb '(implies (and (dog ?x)) (exists ?m (motherOf ?x ?m))) 'CxWell
+              {:direction :forward})
     (let [[sx] (v/sentexes-matching kb (list 'motherOf Stray '?m) N)]
       (is (some? sx) "the rule fired over the dog and left a witness")
       (testing "the witness is a minted constant and not a name anybody wrote"
@@ -518,13 +519,16 @@
     (is (v/ask? kb '(instantBefore ThreeOClock SixOClock) N)
         "the walk did, and that is the ordering the clipped facts joined over")))
 
-;; ---- known gap: functionality does not reach the event-calculus lane ------
+;; ---- per-instant functionality over the event-calculus lane --------------
 ;; `functional` is enforced by the equality closure over stored bare literals of the
-;; marked predicate.  A fact carried the Davidsonian way — a fluent under initiates /
-;; holdsAt — stores no bare literal of that predicate: the value lives inside a fluent
-;; NAT, the mark has nothing to attach to, and per-instant functionality ("at most one
-;; value at ?t") is enforced by nothing.  The control/gap pair below records both
-;; halves as executable fact; the gap test is the future per-instant repair's red test.
+;; marked predicate.  A value carried the Davidsonian way — a fluent under initiates /
+;; holdsAt — is no bare literal of that predicate: the value lives inside a fluent NAT,
+;; the mark has nothing to attach to, and functional over the bare predicate never sees
+;; it.  `functional_at_instant` is the fluent-lane check.  It is read on demand rather than
+;; enforced at assert, because whether two fluents overlap at an instant follows from the
+;; clipping closure and is not known when a fluent is asserted — so, like
+;; `specified-violations`, it reports a clash rather than merging one.  The control below
+;; is the bare-literal lane, unchanged; the three tests after it are the fluent lane.
 
 (tu/deftest-kb control-two-bare-values-of-a-functional-predicate-merge
   (tu/with-terms [primaryHostOf Svc BoxA BoxB]
@@ -535,26 +539,70 @@
     (is (v/same-class? kb BoxA BoxB)
         "two co-believed bare fillers of a functional predicate are one thing under two names")))
 
-(tu/deftest-kb known-gap-fluent-carried-values-of-a-functional-predicate-escape-the-closure
-  ;; the same two values, Davidsonian: each observation initiates a fluent carrying its
-  ;; value, neither clips the other, so BOTH hold at the later moment — and the fillers
-  ;; stay distinct, because no bare literal of the marked predicate was ever stored for
-  ;; the closure to see.  When a per-instant functionality check exists, the final
-  ;; assertion goes red: that is this test's purpose.
-  (tu/with-terms [primaryHostOf HostStateFn Svc BoxA BoxB SwapA SwapB]
-    (v/assert kb (list 'binary_predicate primaryHostOf) N)
-    (v/assert kb (list 'functional primaryHostOf) N)
-    (v/assert kb (list 'reifiable_function HostStateFn) N)
-    (v/assert kb (list 'result HostStateFn 'fluent) N)
-    (v/assert kb (list 'happens SwapA 'ThreeOClock) N)
-    (v/assert kb (list 'initiates SwapA (list HostStateFn Svc BoxA) 'ThreeOClock) N)
-    (v/assert kb (list 'happens SwapB 'FourOClock) N)
-    (v/assert kb (list 'initiates SwapB (list HostStateFn Svc BoxB) 'FourOClock) N)
-    (testing "both values hold at five — truthfully observed, never mutually clipped"
-      (is (holds-at? kb (list HostStateFn Svc BoxA) 'FiveOClock))
-      (is (holds-at? kb (list HostStateFn Svc BoxB) 'FiveOClock)))
-    (is (not (v/same-class? kb BoxA BoxB))
-        "and the fillers stay distinct — per-instant functionality is unenforced (known gap)")))
+(defn- swap-fixture
+  "Two observations of a per-instant-functional host state in `kb`, each event initiating a
+  fluent that carries its value.  `first-at` and `second-at` are the moments the two events
+  happen, so a test varies the arrival order and the overlap without restating the
+  narrative.  Every term is passed in, so a caller's `with-terms` gensyms stay distinct."
+  [kb host-state-fn svc box-a box-b swap-a swap-b first-at second-at]
+  (v/assert kb (list 'reifiable_function host-state-fn) N)
+  (v/assert kb (list 'result host-state-fn 'fluent) N)
+  (v/assert kb (list 'functional_at_instant host-state-fn) N)
+  (v/assert kb (list 'happens swap-a first-at) N)
+  (v/assert kb (list 'initiates swap-a (list host-state-fn svc box-a) first-at) N)
+  (v/assert kb (list 'happens swap-b second-at) N)
+  (v/assert kb (list 'initiates swap-b (list host-state-fn svc box-b) second-at) N))
+
+(tu/deftest-kb per-instant-functionality-reports-two-fluent-values-at-one-moment
+  ;; the same two values as the control, carried Davidsonian: each observation initiates a
+  ;; fluent, neither clips the other, so both hold at the later moments.  functional over
+  ;; the bare predicate never sees them — no bare literal is stored.  functional_at_instant is
+  ;; read on demand and reports the per-instant clash the bare mark cannot; two symbol
+  ;; values are reported as a merge, mirroring functional's split.  This is the turned
+  ;; known-gap test: the audit finds the per-instant clash that no bare mark reports.
+  (tu/with-terms [HostStateFn Svc BoxA BoxB SwapA SwapB]
+    (swap-fixture kb HostStateFn Svc BoxA BoxB SwapA SwapB 'ThreeOClock 'FourOClock)
+    (let [vs (v/functional-at-instant-violations kb HostStateFn N)]
+      (is (seq vs) "the per-instant clash is reported")
+      (is (some (fn [x] (and (= Svc (:subject x))
+                             (= #{BoxA BoxB} (:values x))
+                             (= :merge (:kind x))))
+                vs)
+          "one subject, both fluent values at one moment, classified as a merge")
+      (is (contains? (v/all-functional-at-instant-violations kb N) HostStateFn)
+          "and the whole-KB sweep reaches the same declaration"))))
+
+(tu/deftest-kb per-instant-functionality-does-not-fault-values-at-different-instants
+  ;; the negative control the B ruling exists for: the first value is clipped before the
+  ;; second begins, so no moment carries both and there is no clash — two truthful
+  ;; snapshots at different instants must not be faulted.
+  (tu/with-terms [HostStateFn Svc BoxA BoxB SwapA SwapB Stop]
+    (swap-fixture kb HostStateFn Svc BoxA BoxB SwapA SwapB 'ThreeOClock 'FiveOClock)
+    (v/assert kb (list 'happens Stop 'FourOClock) N)
+    (v/assert kb (list 'terminates Stop (list HostStateFn Svc BoxA) 'FourOClock) N)
+    (is (empty? (v/functional-at-instant-violations kb HostStateFn N))
+        "the first value ended before the second began; no instant carries both")))
+
+(tu/deftest-kb per-instant-functionality-is-independent-of-arrival-order
+  ;; order independence: the clash is a property of what the KB says, not of which fluent
+  ;; arrived first.  The two events are asserted in the reverse order of the positive test
+  ;; and the same subject and value set are reported.
+  (tu/with-terms [HostStateFn Svc BoxA BoxB SwapA SwapB]
+    (swap-fixture kb HostStateFn Svc BoxB BoxA SwapB SwapA 'FourOClock 'ThreeOClock)
+    (let [vs (v/functional-at-instant-violations kb HostStateFn N)]
+      (is (some (fn [x] (and (= Svc (:subject x)) (= #{BoxA BoxB} (:values x)))) vs)
+          "the same subject and value set, whichever event was asserted first"))))
+
+(tu/deftest-kb per-instant-functionality-follows-belief-not-what-is-stored
+  ;; belief filtering: a fluent whose initiating event is disbelieved is not a value, so
+  ;; retracting one event's happens leaves the other value alone at every moment and the
+  ;; clash is gone.
+  (tu/with-terms [HostStateFn Svc BoxA BoxB SwapA SwapB]
+    (swap-fixture kb HostStateFn Svc BoxA BoxB SwapA SwapB 'ThreeOClock 'FourOClock)
+    (is (seq (v/functional-at-instant-violations kb HostStateFn N)) "a clash while both hold")
+    (v/retract! kb (v/handle-of kb (list 'happens SwapB 'FourOClock) N))
+    (is (empty? (v/functional-at-instant-violations kb HostStateFn N))
+        "with one event disbelieved, one value holds nowhere and nothing clashes")))
 
 (tu/deftest-kb a-fluent-nobody-terminated-still-holds
   ;; The cat was indoors before the afternoon began and nothing ever put it out, so it

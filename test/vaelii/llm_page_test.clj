@@ -1,8 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-page-test
-  "The page-scoped generation path: `vaelii.impl.llm.inventory`,
-  `vaelii.impl.llm.page`, and `vaelii.impl.llm.session/propose-page`.
+  "The page-scoped generation path: `vaelii.host.llm.inventory`,
+  `vaelii.host.llm.page`, and `vaelii.host.llm.session/propose-page`.
 
   Everything above the live section runs **offline against the stub** — no host, no model,
   no socket — because what is under test is the machinery: where the vocabulary inventory
@@ -17,12 +17,12 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.llm.inventory :as inv]
-            [vaelii.impl.llm.ollama :as ollama]
-            [vaelii.impl.llm.page :as page]
-            [vaelii.impl.llm.session :as session]
-            [vaelii.impl.llm.stub :as stub]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.llm.inventory :as inv]
+            [vaelii.host.llm.ollama :as ollama]
+            [vaelii.host.llm.page :as page]
+            [vaelii.host.llm.session :as session]
+            [vaelii.host.llm.stub :as stub]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))

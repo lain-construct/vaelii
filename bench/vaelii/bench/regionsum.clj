@@ -34,7 +34,7 @@
      `lein with-profile +bench update-in :jvm-opts conj '\"-Xmx24g\"' -- run -m vaelii.bench.regionsum …`)"
   (:require [vaelii.core :as v]
             [vaelii.impl.disk.backend :as disk]
-            [vaelii.impl.io.generate :as gen]
+            [vaelii.host.io.generate :as gen]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reindex :as reindex]))

@@ -53,7 +53,7 @@
       ;; a rule over a DERIVED spatial predicate: partOfRegion denotes a disjunction, so
       ;; nothing stores it — it is only ever entailed
       (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list contained '?x)
-                     CxChainSpace)
+                     CxChainSpace {:direction :forward})
       (nest! kb CxChainSpace [RegA RegB RegC])
       (testing "the transitive relation is entailed and genuinely not stored"
         (is (nil? (v/handle-of kb (list 'properPartOfRegion RegA RegC) CxChainSpace)))
@@ -73,7 +73,7 @@
       ;; the antecedent pins A to C specifically, so the only way to satisfy it is the
       ;; two-step entailment
       (v/assert-rule kb [(list 'properPartOfRegion RegA RegC)] (list deepIn RegA)
-                     CxChainWhy)
+                     CxChainWhy {:direction :forward})
       (let [[h-ab h-bc] (nest! kb CxChainWhy [RegA RegB RegC])
             ;; `sentexes-matching` promises the set and no order, so the count is asked
             ;; first: one placement, and `?ctx` sees exactly it
@@ -95,7 +95,7 @@
                 {:strength :monotonic})
       (v/assert kb (list 'arg deepIn 1 'thing) 'CxCore {:strength :monotonic})
       (v/assert-rule kb [(list 'properPartOfRegion RegA RegC)] (list deepIn RegA)
-                     CxRetractSpace)
+                     CxRetractSpace {:direction :forward})
       (let [[_ h-bc] (nest! kb CxRetractSpace [RegA RegB RegC])]
         (is (seq (v/sentexes-matching kb (list deepIn RegA) '?ctx)) "believed while both steps stand")
         (testing "dropping the second step breaks the chain, and the conclusion goes"
@@ -118,7 +118,7 @@
               {:strength :monotonic})
     (v/assert kb (list 'arg contained 1 'thing) 'CxCore {:strength :monotonic})
     (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list contained '?x)
-                   CxInertSpace)
+                   CxInertSpace {:direction :forward})
     (nest! kb CxInertSpace [RegA RegB RegC])
     (testing "the vocabulary loads, the facts store, and the rule simply does not fire —
               registering a prover is the opt-in, and this is the KB that never did"
@@ -132,7 +132,7 @@
                 {:strength :monotonic})
       (v/assert kb (list 'arg touching 1 'thing) 'CxCore {:strength :monotonic})
       (v/assert-rule kb [(list 'externallyConnected '?x '?y)] (list touching '?x)
-                     CxAssertedSpace)
+                     CxAssertedSpace {:direction :forward})
       (v/assert kb (list 'externallyConnected RegA RegB) CxAssertedSpace
                 {:strength :monotonic})
       (testing "the ordinary matched route is untouched — entailment is a union with it,
@@ -148,7 +148,7 @@
       ;; partOfRegion contains the identity, so (partOfRegion ?x ?x) is entailed of every
       ;; region by the algebra alone — with no stored fact behind it
       (v/assert-rule kb [(list 'partOfRegion '?x '?x)] (list reflexive '?x)
-                     CxDiagonalSpace)
+                     CxDiagonalSpace {:direction :forward})
       (v/assert kb (list 'nonTangentialProperPart RegA RegB) CxDiagonalSpace
                 {:strength :monotonic})
       (testing "the algebra's identity is not evidence: a conclusion drawn from it would
@@ -164,7 +164,7 @@
                 {:strength :monotonic})
       (v/assert kb (list 'arg contained 1 'thing) 'CxCore {:strength :monotonic})
       (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list contained '?x)
-                     CxClashChain)
+                     CxClashChain {:direction :forward})
       (nest! kb CxClashChain [RegA RegB RegC])
       (is (seq (v/sentexes-matching kb (list contained RegA) '?ctx)) "believed while consistent")
       (let [clash (v/assert kb (list 'spatiallyDisconnected RegA RegB) CxClashChain

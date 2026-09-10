@@ -96,7 +96,7 @@
   '[[Kip Kipper] [Ann Anna] [Tom Thomas] [Rex Nell] [Kip Ann]])
 
 (defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'implies (cons 'and antes) conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (list 'implies (cons 'and antes) conseq))))
 
 ;; Each entry is a **chain**: `[label op]` pairs that must run in the order written.
 ;; Most chains are one op long and constrain nothing; the two at the end hold a
@@ -134,9 +134,9 @@
    [[:dogs-bark
      #(v/assert % (default-rule '[(dog ?x)] '(barks ?x)) cx-base)]]
    [[:barking-is-audible
-     #(v/assert-rule % '[(barks ?x)] '(audible ?x) cx-base {:strength :monotonic})]]
+     #(v/assert-rule % '[(barks ?x)] '(audible ?x) cx-base {:direction :forward :strength :monotonic})]]
    [[:a-silent-dog-is-quiet
-     #(v/assert-rule % '[(dog ?x) (not (barks ?x))] '(quiet ?x) cx-base)]]
+     #(v/assert-rule % '[(dog ?x) (not (barks ?x))] '(quiet ?x) cx-base {:direction :forward})]]
    [[:mammals-have-fur-unless-shorn
      #(v/assert % (list 'exceptWhen '(shorn ?x)
                         (default-rule '[(mammal ?x)] '(has_fur ?x)))
@@ -233,9 +233,9 @@
    ;; `integrate/fold-supports!` instead. The arguments are also what the pool's two
    ;; equality edges merge, so the fold and the migration meet.
    [[:an-owner-walks-the-dog
-     #(v/assert-rule % '[(ownerOf ?o ?d)] '(walksWith ?o ?d) cx-base)]]
+     #(v/assert-rule % '[(ownerOf ?o ?d)] '(walksWith ?o ?d) cx-base {:direction :forward})]]
    [[:the-dog-walks-the-owner
-     #(v/assert-rule % '[(ownerOf ?o ?d)] '(walksWith ?d ?o) cx-base)]]
+     #(v/assert-rule % '[(ownerOf ?o ?d)] '(walksWith ?d ?o) cx-base {:direction :forward})]]
    [[:walking-is-mutual
      #(v/assert % '(symmetric walksWith) 'CxUniverse {:strength :monotonic})]]
 

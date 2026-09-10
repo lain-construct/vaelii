@@ -35,7 +35,7 @@
   rule defeasible, where a bare one confers `:monotonic` and is capped by its weakest
   antecedent."
   [antes conseq]
-  (list 'set/defaultRule (vr/rule-sentence antes conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 (defn- flying-world
   "Birds fly by default; penguins do not; Tweety is a penguin and Robin a plain bird.
@@ -44,7 +44,7 @@
   [kb {:keys [bird penguin flies Tweety Robin]}]
   (v/assert kb (list 'genl penguin bird) C)
   (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) C)
-  (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) C)
+  (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) C {:direction :forward})
   (v/assert kb (list penguin Tweety) C {:strength :monotonic})
   (v/assert kb (list bird Robin) C {:strength :monotonic}))
 
@@ -85,7 +85,7 @@
       (is (= :false (:verdict (v/argue kb (list flies Tweety) C {:max-depth 3})))))
     (testing "a rule reading the defeated side does not fire on it either — the check is on
               what a subgoal answers, not on the top-level answers alone"
-      (v/assert-rule kb [(list flies '?x)] (list airborne '?x) C)
+      (v/assert-rule kb [(list flies '?x)] (list airborne '?x) C {:direction :forward})
       (is (= #{Robin} (answers (v/query kb [(list airborne '?x)] C {:max-depth 4})))))))
 
 (tu/deftest-kb the-node-engine-and-the-dfs-agree-about-the-defeated-side

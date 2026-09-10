@@ -16,11 +16,11 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.host.starter :as starter]
             [vaelii.impl.io.text :as text]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as vr]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.starter :as starter]
             [vaelii.test-util :as tu]
             [vaelii.world :as world])
   (:import (java.io File)

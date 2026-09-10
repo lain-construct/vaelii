@@ -15,7 +15,7 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.serve :as serve]
+            [vaelii.host.serve :as serve]
             [vaelii.test-util :as tu])
   (:import [java.io ByteArrayInputStream]))
 

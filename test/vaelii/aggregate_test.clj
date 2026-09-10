@@ -203,7 +203,7 @@
                                         (list 'and (list scoreOf Team '?s)
                                               (list 'agg/count '?n 7 (list scoreOf Team 7)))
                                         (list tallied Team '?n))
-                               'CxWell)
+                               'CxWell {:direction :forward})
                      nil
                      (catch clojure.lang.ExceptionInfo e e))]
           (is (some? e) "a silently unfirable rule is the one outcome worse than an error")
@@ -253,7 +253,7 @@
                      (list 'and (list node '?x)
                            (list 'agg/count '?n '?a (list ancestorOf '?a '?x)))
                      (list ancestorCount '?x '?n))
-            'CxWell))
+            'CxWell {:direction :forward}))
 
 (defn- counted
   "`{node -> n}` from the believed `(ancestorCount ?x ?n)` facts."
@@ -306,7 +306,7 @@
                                     (list 'and (list 'agg/count '?n '?a
                                                      (list ancestorOf '?a '?x)))
                                     (list ancestorCount '?x '?n))
-                           'CxWell)
+                           'CxWell {:direction :forward})
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e))
@@ -321,7 +321,7 @@
                                           (list 'agg/count '?n '?a
                                                 (list ancestorOf '?a '?x)))
                                     (list sawAncestor '?x '?a))
-                           'CxWell)
+                           'CxWell {:direction :forward})
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e))
@@ -369,7 +369,7 @@
                            (asleep-children childOf asleep '?x)
                            (list 'lessThan 1 '?n))
                      (list restful '?x))
-            'CxWell))
+            'CxWell {:direction :forward}))
 
 (tu/deftest-kb a-child-waking-lowers-the-joined-count-and-withdraws-the-firing
   (tu/with-terms [person childOf asleep restful Bob Kid1 Kid2 Kid3 Stranger]
@@ -430,7 +430,7 @@
                                                 (list 'and (list kidOf '?x '?a)
                                                       (list bigGroup '?a))))
                                     (list bigGroup '?x))
-                           'CxWell)
+                           'CxWell {:direction :forward})
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e))
@@ -458,7 +458,7 @@
                      (list 'and (list person '?x)
                            (list 'agg/count '?n '?c (list childOf '?x '?c)))
                      (list childCount '?x '?n))
-            Root))
+            Root {:direction :forward}))
 
 (tu/deftest-kb each-context-counts-what-it-sees-and-the-aggregate-does-not-place
   (tu/with-terms [person childOf childCount Ann CxRoot CxLeft CxRight]
@@ -531,7 +531,7 @@
                                (list 'agg/count '?n '?c (list childOf '?x '?c))
                                (list 'lessThan 2 '?n))
                          (list large_family '?x))
-                'CxWell)
+                'CxWell {:direction :forward})
       (is (= #{Ann} (holders kb large_family))
           "three children clears the bar and one does not")
       (testing "and the comparison is maintained against the count, both ways"
@@ -558,7 +558,7 @@
                                           (list 'lessThan 2 '?n)
                                           (list 'agg/count '?n '?c (list childOf '?x '?c)))
                                     (list large_family '?x))
-                           'CxWell)
+                           'CxWell {:direction :forward})
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e) "the comparison is above the only thing that writes ?n")
@@ -592,7 +592,7 @@
                              (list 'agg/count '?n '?c (list childOf '?x '?c))
                              (list 'lessThan 2 '?n))
                        (list large_family '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (is (= #{Ann} (holders kb large_family))            "forward")
     (is (v/ask? kb (list large_family Ann) 'CxWell)        "ask, yes")
     (is (not (v/ask? kb (list large_family Bob) 'CxWell))  "ask, no")
@@ -610,7 +610,7 @@
                              (list 'evaluate '?d (list '+ '?n 1))
                              (list 'lessThan 3 '?d))
                        (list roomFor '?x '?d))
-              'CxWell)
+              'CxWell {:direction :forward})
     (is (= [(list roomFor Ann 4)]
            (map :sentence (v/sentexes-matching kb (list roomFor '?x '?d) 'CxWell)))
         "?d reaches the consequent, and the comparison on it decides the firing")))
@@ -623,7 +623,7 @@
                              (list 'agg/count '?n '?c (list childOf '?x '?c))
                              (list 'unknown (list banned '?n)))
                        (list allowed '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (is (= #{Ann Bob} (holders kb allowed)) "nothing is banned yet")
     (let [h (v/assert kb (list banned 3) 'CxWell)]
       (is (= #{Bob} (holders kb allowed))
@@ -643,7 +643,7 @@
           e (try (v/assert kb (list 'implies
                                     (list 'and (list person '?x) (list 'lessThan 2 '?n))
                                     (list big '?x))
-                           'CxWell)
+                           'CxWell {:direction :forward})
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e) "?n is written by nothing in the rule")
@@ -664,7 +664,7 @@
                                           (list 'agg/count '?n '?a
                                                 (list bigGroup '?a)))
                                     (list bigGroup '?x))
-                           'CxWell)
+                           'CxWell {:direction :forward})
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (some? e))
@@ -796,7 +796,7 @@
                        (list 'and (list childOf '?c '?x)
                              (list 'unknown (list 'agg/count 2 '?v (list childOf '?v '?x))))
                        (list soloChildIn '?x))
-              'CxWell)
+              'CxWell {:direction :forward})
     (v/assert kb (list childOf Bo Ana) 'CxWell)
     (is (v/ask? kb (list soloChildIn Ana) 'CxWell)
         "one child: the count is not 2, the unknown holds, the rule concludes")
@@ -811,7 +811,7 @@
   ;; level 6 is not "stored facts only": a forward conclusion is stored and believed by
   ;; the time the query runs, so it is in the census like anything else
   (tu/with-terms [raw cooked burnt]
-    (v/assert kb (list 'implies (list 'and (list raw '?x)) (list cooked '?x)) 'CxWell)
+    (v/assert kb (list 'implies (list 'and (list raw '?x)) (list cooked '?x)) 'CxWell {:direction :forward})
     (doseq [n [1 2 3]] (v/assert kb (list raw (list 'DishFn n)) 'CxWell))
     (is (= 3 (one kb (list 'agg/count '?n '?v (list cooked '?v)) '?n))
         "nobody asserted a single (cooked …) and all three are counted")
@@ -848,7 +848,7 @@
                              (list 'agg/count '?n '?a (list ancestorOf '?a '?x))
                              (list node '?x))
                        (list ancestorCount '?x '?n))
-              'CxWell)
+              'CxWell {:direction :forward})
     (is (= {A 0 B 1 C 2} (counted kb ancestorCount))
         "grouped per node, exactly as if the generator had been written first")))
 
@@ -889,7 +889,7 @@
                            (list 'agg/count '?n '?c (list childOf '?x '?c))
                            (list 'lessThan 2 '?n))
                      (list large_family '?x))
-            'CxWell))
+            'CxWell {:direction :forward}))
 
 (tu/deftest-kb a-merge-that-collapses-two-counted-values-withdraws-the-firing
   ;; The census-mover that is **not** a fact arriving or leaving.  A merge retires a
@@ -1033,7 +1033,7 @@
                              '(agg/count ?n ?c (pjChildOf ?x ?c))
                              (list 'evaluate '?d (list '+ '?n ambiguity-marker)))
                        '(pjTally ?x ?d))
-              post-join-ctx)
+              post-join-ctx {:direction :forward})
     {:tallies (into #{} (map :sentence) (v/sentexes-matching kb '(pjTally ?x ?d) '?ctx))
      :entries (into [] (filter #(= :post-join-ambiguous (:violation %))) (v/violations kb))}))
 

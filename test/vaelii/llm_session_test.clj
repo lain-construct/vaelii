@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.llm-session-test
-  "The turn loop's failure modes: `vaelii.impl.llm.session` where the answer is *not* the
+  "The turn loop's failure modes: `vaelii.host.llm.session` where the answer is *not* the
   one the happy path assumes.
 
   Three things a proposal must never do, one test group each.  It must not read a turn the
@@ -19,9 +19,9 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.llm.session :as session]
-            [vaelii.impl.llm.stub :as stub]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.llm.session :as session]
+            [vaelii.host.llm.stub :as stub]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))

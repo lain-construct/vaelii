@@ -33,12 +33,12 @@
 
   Run: `lein bench-qcn [max-nodes]`  (default 160)."
   (:require [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.interval :as iv]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
-            [vaelii.impl.seed :as seed]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.space :as space]))
 
 (defn- fresh-kb []

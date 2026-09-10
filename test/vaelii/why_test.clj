@@ -25,7 +25,7 @@
 (tu/deftest-kb why-walks-a-derivation-down-to-its-premises
   (tu/with-terms [parentOf grandparentOf Tom Bob Ann CxFam]
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) CxFam)
+                   (list grandparentOf '?x '?z) CxFam {:direction :forward})
     (let [h1 (v/assert kb (list parentOf Tom Bob) CxFam)
           h2 (v/assert kb (list parentOf Bob Ann) CxFam)
           gp (v/handle-of kb (list grandparentOf Tom Ann) CxFam)
@@ -50,7 +50,7 @@
 (tu/deftest-kb why-shows-the-rule-with-the-authors-variable-names
   (tu/with-terms [parentOf grandparentOf Tom Bob Ann CxFam]
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) CxFam)
+                   (list grandparentOf '?x '?z) CxFam {:direction :forward})
     (v/assert kb (list parentOf Tom Bob) CxFam)
     (v/assert kb (list parentOf Bob Ann) CxFam)
     (let [[s] (:support (v/why kb (v/handle-of kb (list grandparentOf Tom Ann) CxFam)))]
@@ -72,9 +72,9 @@
     ;; seed -> p, p -> q, q -> p.  (p Thing) is derived twice: once from the seed and
     ;; once from (q Thing), which is itself derived from (p Thing) — a genuine cycle
     ;; in the justification graph, not a rule-level one.
-    (v/assert-rule kb [(list seedOf '?x)] (list p '?x) CxCyc)
-    (v/assert-rule kb [(list p '?x)] (list q '?x) CxCyc)
-    (v/assert-rule kb [(list q '?x)] (list p '?x) CxCyc)
+    (v/assert-rule kb [(list seedOf '?x)] (list p '?x) CxCyc {:direction :forward})
+    (v/assert-rule kb [(list p '?x)] (list q '?x) CxCyc {:direction :forward})
+    (v/assert-rule kb [(list q '?x)] (list p '?x) CxCyc {:direction :forward})
     (v/assert kb (list seedOf Thing) CxCyc)
     (let [ph (v/handle-of kb (list p Thing) CxCyc)
           w  (v/why kb ph)]
@@ -117,7 +117,7 @@
     (let [n     300
           nodes (vec (repeatedly (inc n) #(tu/tmp-ind "Node")))]
       (v/assert-rule kb [(list nextOf '?x '?y) (list reached '?x)]
-                     (list reached '?y) CxChain)
+                     (list reached '?y) CxChain {:direction :forward})
       (v/assert kb (list reached (nodes 0)) CxChain)
       ;; the chainer's own derivation bound (`default-chain-opts` :max-depth 64) would
       ;; stop the chain long before `why`'s cap is reached, so lift it past the chain
@@ -187,7 +187,7 @@
 (tu/deftest-kb why-not-reports-a-conclusion-whose-support-went-out
   (tu/with-terms [flies airborne Tweety CxBird]
     (v/assert kb (list flies Tweety) CxBird)                              ; default
-    (v/assert-rule kb [(list flies '?x)] (list airborne '?x) CxBird)
+    (v/assert-rule kb [(list flies '?x)] (list airborne '?x) CxBird {:direction :forward})
     (let [ah (v/handle-of kb (list airborne Tweety) CxBird)]
       (is (some? ah))
       (is (true? (v/in? kb ah)))
@@ -222,9 +222,9 @@
     ;; flight rule fires on a penguin *through* this edge, and a conclusion is placed
     ;; only in a context that can see the edge it subsumed through
     (v/assert kb (list 'genl penguin bird) CxBird)
-    (v/assert kb (list 'set/defaultRule (vr/rule-sentence [(list bird '?x)] (list flies '?x)))
+    (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence [(list bird '?x)] (list flies '?x))))
               CxBird)
-    (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) CxBird)
+    (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) CxBird {:direction :forward})
     (v/assert kb (list bird Robin) CxBird)
     ;; Known-true, so the bare exception rule concludes at :monotonic and *defeats* the
     ;; :default `(flies Tweety)`.  Defeat is what this test needs: a defeated datum is
@@ -254,7 +254,7 @@
   ;; engine, the tacticians and the abducer cannot answer from four readings of "which
   ;; rules apply here".
   (tu/with-terms [seenA derivedQ Subject CxWhyCand]
-    (v/assert-rule kb [(list seenA '?x)] (list derivedQ '?x) CxWhyCand)
+    (v/assert-rule kb [(list seenA '?x)] (list derivedQ '?x) CxWhyCand {:direction :forward})
     (testing "a sentence goal finds the rule that concludes it"
       (is (= 1 (count (provers/candidate-rules kb (list derivedQ Subject) CxWhyCand)))))
     (testing "a goal that is not a sentence has no functor, so there is nothing to probe"

@@ -79,7 +79,6 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [taoensso.trove :as trove]
-            [vaelii.core :as v]
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.foreign :as foreign]
@@ -93,6 +92,7 @@
             [vaelii.impl.naming :as nm]
             [vaelii.impl.opts :as opts]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.recovery :as recovery]
             [vaelii.impl.reindex :as reindex]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
@@ -120,7 +120,7 @@
 
   Every one of them is a handful of keys: a marker, a version, some counts, a
   compression name.  They are also the *first* thing read about a directory nobody has
-  promised anything about — `vaelii.impl.catalog` probes every entry of the KB search
+  promised anything about — `vaelii.host.catalog` probes every entry of the KB search
   path this way, and a load reads one before it opens a stream — so an unbounded read is
   a whole file pulled into a string on the strength of its name.  A megabyte is orders
   of magnitude above the largest of them (a hand-written `catalog.edn` naming thousands
@@ -142,7 +142,7 @@
   leave — otherwise raises a bare `RuntimeException` (\"EOF while reading\"), which is
   neither a `:type` a caller can discriminate on nor a fact about the file it names.
   Which of the two refusals means \"not a KB\" and which means \"a broken one\" is the
-  caller's to decide, and `vaelii.impl.catalog` decides it differently from the loaders."
+  caller's to decide, and `vaelii.host.catalog` decides it differently from the loaders."
   [f]
   (let [^java.io.File f (io/file f)
         limit (long manifest-bytes)
@@ -1341,7 +1341,7 @@
               ;; rather than a condition of the load.
               (let [idx (install-index! kb dir compression read-fn (read-index-meta dir)
                                         fingerprint kept? on-progress)]
-                (when (true? belief?) (v/recover kb))
+                (when (true? belief?) (recovery/recover kb))
                 (let [summary (merge
                                {:variant            variant
                                 :dialect            (if ours? :vaelii :engine)

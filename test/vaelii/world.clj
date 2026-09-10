@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.world
   "The test-world: the individuals, facts, and worked fables the shipped schema no
-  longer carries.  The starter (vaelii.impl.starter) ships schema only — types,
+  longer carries.  The starter (vaelii.host.starter) ships schema only — types,
   relations, and the theory rules — so the reasoning it demonstrates needs data to
   run on.  That data lives here, in the tests, below CxWell.
 

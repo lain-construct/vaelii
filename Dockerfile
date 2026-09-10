@@ -1,4 +1,4 @@
-# The daemon (`vaelii.impl.serve`) as an image: one JVM owns one KB and serves it
+# The daemon (`vaelii.host.serve`) as an image: one JVM owns one KB and serves it
 # over HTTP.  Two stages, because Leiningen is a build tool — a runtime image
 # carrying it would carry a dependency resolver and a network fetch into
 # production, and the uberjar already is the self-contained artifact.
@@ -69,7 +69,7 @@ ENV VAELII_LOG_LEVEL=info
 #
 # `clojure.main -m` rather than `java -jar`: `:gen-class` is on `vaelii.core`, so
 # the jar's Main-Class is the API entry point and not this one.
-ENTRYPOINT ["java", "-cp", "/app/vaelii.jar", "clojure.main", "-m", "vaelii.impl.serve"]
+ENTRYPOINT ["java", "-cp", "/app/vaelii.jar", "clojure.main", "-m", "vaelii.host.serve"]
 
 # `[port [dir]] [--listen ADDR]`.  Binding an address inside the container is what
 # lets a published port reach the daemon — and the daemon refuses that bind unless

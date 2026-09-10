@@ -135,7 +135,7 @@
       (v/assert kb (list 'implies
                          (list 'and (list hasScore '?x '?n) (list passing '?n))
                          (list hasPassed '?x))
-                'CxUniverse)
+                'CxUniverse {:direction :forward})
       (testing "the rule derives only the individual whose bound score computes true"
         (is (= #{Alice}
                (set (map #(get % '?x)
@@ -187,7 +187,7 @@
     (v/assert kb (list 'implies
                        (list 'and (list score '?x '?s) (list big_enough '?s))
                        (list topScorer '?x))
-              'CxUniverse {:strength :monotonic})
+              'CxUniverse {:direction :forward :strength :monotonic})
     (v/assert kb (list score Alice 90) 'CxUniverse {:strength :monotonic})   ; 90 > 60 holds
     (v/assert kb (list score Carol 40) 'CxUniverse {:strength :monotonic})   ; 40 > 60 fails
     (testing "the computed antecedent holds — ask? materializes the conclusion query derives"
@@ -224,7 +224,7 @@
       (v/assert kb (list 'implies
                          (list 'and (list score '?x '?s) (list big_enough '?s))
                          (list topScorer '?x))
-                'CxUniverse {:strength :monotonic})
+                'CxUniverse {:direction :forward :strength :monotonic})
       (testing "the full join over stored facts computes the check for each"
         (is (v/ask? kb (list topScorer Dave)))
         (is (not (v/ask? kb (list topScorer Erin))))

@@ -105,7 +105,7 @@
     (when preserving?
       (v/assert kb (list 'transitiveInArg rel 1 'genl) ctx {:strength :monotonic})
       (v/assert kb (list 'transitiveInArg rel 2 'genl) ctx {:strength :monotonic})))
-  (v/assert kb (list 'implies (list rel '?x '?y) (list con '?x '?y)) ctx)
+  (v/assert kb (list 'implies (list rel '?x '?y) (list con '?x '?y)) ctx {:direction :forward})
   kb)
 
 (defn- materialized
@@ -175,7 +175,7 @@
                     ;; and a flat denial of one tuple, which is a dilemma rather than
                     ;; a licence
                     (list 'not (list relOf (nth as 0) (nth bs 2)))
-                    (list 'implies (list relOf '?x '?y) (list con '?x '?y))])
+                    (list 'set/forwardRule (list 'implies (list relOf '?x '?y) (list con '?x '?y)))])
           rng     (java.util.Random. 42424242)
           go      (fn [order]
                     (let [k (tu/isolated-fresh)]

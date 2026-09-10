@@ -14,9 +14,9 @@
   retracted."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.seed :as seed]
             [vaelii.impl.provers :as provers]
-            [vaelii.impl.seed :as seed]
             [vaelii.impl.sign :as sign]
             [vaelii.test-util :as tu])
   (:import [vaelii.impl.sign SignProver]))
@@ -195,7 +195,7 @@
 (tu/deftest-kb a-forward-rule-resting-on-a-derived-sign-is-withdrawn-with-the-comparison
   (tu/with-terms [Tap Drain NetFlow WaterLevel overflowing]
     (v/assert kb (list 'arg overflowing 1 'thing) 'CxCore {:strength :monotonic})
-    (v/assert-rule kb [(list 'trendOf '?x 'SignPositive)] (list overflowing '?x) C)
+    (v/assert-rule kb [(list 'trendOf '?x 'SignPositive)] (list overflowing '?x) C {:direction :forward})
     (tub! kb Tap Drain NetFlow WaterLevel)
     (testing "ambiguous, so nothing fires"
       (is (empty? (v/sentexes-matching kb (list overflowing WaterLevel) '?ctx))))

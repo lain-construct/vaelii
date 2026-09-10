@@ -186,6 +186,10 @@
 (arg initiates 2 fluent)
 (arg initiates 3 time_point)
 
+(comment functional_at_instant
+         "(functional_at_instant ?function) means that ?function, whose value is carried as a fluent, has at most one value for one subject at any single instant. A fluent (?function ?subject ?value) states a value that holds over a stretch of time; two fluents of ?function for one subject holding at one instant with different values is a per-instant clash, the fluent-lane counterpart of functional over a bare literal. It is read on demand by vaelii.core/functional-at-instant-violations rather than enforced at assert, because whether two fluents overlap at an instant follows from initiates, terminates and the clipping closure and is not known when a fluent is asserted; the audit mirrors functional's split, reporting two symbol values as a merge and two non-symbols as a contradiction. Values holding at different instants do not clash, which is what the fluent representation buys over a bare functional mark. See docs/time.md and docs/equality.md.")
+(unary_predicate functional_at_instant)
+
 (comment instantAfter
          "(instantAfter ?instant1 ?instant2) means that ?instant1 falls strictly later in time than ?instant2. A claim about moments rather than about intervals, which is why it is spelled apart from Allen's after. The converse of instantBefore.")
 (binary_predicate instantAfter)

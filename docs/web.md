@@ -8,7 +8,7 @@
   [llm.md](llm.md).
 - **Assumes:** sentex, context, handle, justification → [glossary.md](glossary.md).
 
-`vaelii.impl.web`. A small [reitit](https://github.com/metosin/reitit)-ring browser for
+`vaelii.host.web`. A small [reitit](https://github.com/metosin/reitit)-ring browser for
 inspecting a KB. Run it with `lein run -m vaelii.web` (serves a starter-loaded KB
 on `http://127.0.0.1:3000`).
 
@@ -47,7 +47,7 @@ fn ([operations.md](operations.md)).
 `lein run` gives you a page and no way in. **`lein browser`** is `lein repl` with the
 browser already running: a prompt, a page, and a **reload channel** — **edit any source
 file and refresh**, and the next request serves the new code with no REPL step at all
-(`(require 'vaelii.impl.web :reload)` at the prompt, or over nREPL through `.nrepl-port`,
+(`(require 'vaelii.host.web :reload)` at the prompt, or over nREPL through `.nrepl-port`,
 does the same on demand).
 
 That last part is the whole reason the command exists, because the failure it avoids is
@@ -62,7 +62,7 @@ the same `:reload?` path: it reloads the changed files under `src` before each r
 a plain file edit reaches the running server with no REPL. (ring-devel ships in the
 `:dev`/`:repl` profiles only — resolved lazily, absent from the served jar, like the
 profiler.) A namespace the browser merely *calls* needs nothing beyond that reload — those
-calls already go through vars, so a changed `vaelii.impl.svg` lands on the next request
+calls already go through vars, so a changed `vaelii.host.svg` lands on the next request
 with nothing rebuilt. A plain served process pays for a reload it will never do, so
 `-main` takes this path only when `VAELII_DEV` is set.
 
@@ -73,7 +73,7 @@ loopback with no way to say otherwise. Exposing the browser stays the deliberate
 `--listen` on `-main`, which starts no REPL.
 
 A port already in use is **reported, not thrown**: you asked for a REPL, and you get one
-whether or not the port was free. `(vaelii.impl.web/dev-stop)` takes the server down
+whether or not the port was free. `(vaelii.host.web/dev-stop)` takes the server down
 without leaving the prompt; `dev-repl` called again replaces it.
 
 `-main` calls `fresh-starter-kb!`, which **clears the record + index stores first**
@@ -105,7 +105,7 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/reasoning` (GET/POST) | the **worked examples**: every kind of inference the shipped ontology performs, each a question with a live answer, the level that answered it, and links to the stored sentexes it reasoned from. GET computes every read-only card on render; POST establishes one example's premises in the reader's sandbox (below) |
 | `/assert` (GET/POST) | the **new-sentex form**: sentences (one per line), a context, and the known-true switch. GET seeds it (`?q=<term>` from a term page); POST checks every line and applies them in one `edit!`, then says what followed (below) |
 | `/edit` (GET/POST) | the **multi-sentex editor**: GET seeds a textarea for a set of selected handles, POST checks and applies the save. htmx fragments swapped into the editor panel, not standalone pages. |
-| `/propose` (GET/POST) | the **proposal panel** at the foot of a term page: GET renders the instruction box (asking no model), POST runs one page-scoped turn through `vaelii.impl.llm.session/propose-page` and swaps the lines it proposed into `#propose-result`. The turn writes nothing (below) |
+| `/propose` (GET/POST) | the **proposal panel** at the foot of a term page: GET renders the instruction box (asking no model), POST runs one page-scoped turn through `vaelii.host.llm.session/propose-page` and swaps the lines it proposed into `#propose-result`. The turn writes nothing (below) |
 | `/propose/level` (POST) | the **same proposal at another density** — the list's own originals reposted, every verdict re-derived, no second model turn. Writes nothing |
 | `/propose/line` (POST) | one reviewed line, **re-rendered on the form the reader picked** — the numbered alternative is re-derived from `correct` and re-checked, so the chips are of the sentence that would actually be stored. Writes nothing |
 | `/propose/preview` (POST) | what accepting the accepted lines would **mean** — the belief added, the belief withdrawn, the dilemmas opened, the refusals — through `vaelii.core/preview`. Writes nothing; the KB comes back at the same handles |
@@ -213,7 +213,7 @@ argument-root bound otherwise — an over-count across every binary predicate at
 position — which is why the wording differs. The centre term is never subject to a cap: a
 stated root that is not drawn reads as orphans.
 
-**Drawn with no library.** `vaelii.impl.svg` is a node, an edge, an arrowhead and the
+**Drawn with no library.** `vaelii.host.svg` is a node, an edge, an arrowhead and the
 arithmetic that lays out a row, a column or a ring — pure, KB-free, tested on hand-built
 maps. No Graphviz shell-out (a page that renders by starting a process is a page that
 cannot be served), no d3, no cytoscape, no build step, and nothing added to `project.clj`:
@@ -234,7 +234,7 @@ figure and nothing else — the page is still 200 and still complete.
 ### Somewhere safe to be wrong
 
 Every browser session gets a **sandbox**: a scratch context of its own, hung below
-`CxWell`. `vaelii.impl.sandbox`.
+`CxWell`. `vaelii.host.sandbox`.
 
 The asymmetry is the whole design, and it is not a permission check. `genlCx` already
 decides what a context can see; hanging the sandbox at the bottom of the spindle means
@@ -314,7 +314,7 @@ case: a blocked conclusion has no handle to ask about.
 
 `/demo` argues one thing at length. `/reasoning` is the breadth: a card per kind of
 inference the shipped ontology performs, each a real question with the answer the KB gave
-when the page was drawn. The table is `vaelii.impl.examples`; the page is the rendering of
+when the page was drawn. The table is `vaelii.host.examples`; the page is the rendering of
 it.
 
 Two properties keep it from being a brochure, and both are required:
@@ -532,7 +532,7 @@ last row, and the honest answer to that is the empty page it already gives.
 
 Three things here take minutes rather than milliseconds — filling a KB from a corpus,
 writing one back out, and joining every rule over everything stored — and they are **one
-mechanism** (`vaelii.impl.jobs`) with one status vocabulary, one progress reading and one
+mechanism** (`vaelii.host.jobs`) with one status vocabulary, one progress reading and one
 cancel. `/jobs` is that registry rendered; the `/kbs` panels are the same registry
 filtered to the two kinds that belong beside a KB, which is why neither is a second list
 of anything.
@@ -909,7 +909,7 @@ the write and catch — writes the good half of a batch before failing on the ba
 ## Proposing knowledge
 
 A term page says what the KB knows about a term. The panel at its foot is where a reader
-asks a model what it is *missing* — `vaelii.impl.llm.session/propose-page`, which is
+asks a model what it is *missing* — `vaelii.host.llm.session/propose-page`, which is
 shown the page's own sentexes and the vocabulary the term's `genl` neighbourhood
 licenses, and answers with type-level assertions in that vocabulary. See
 [docs/llm.md](llm.md) for the path itself.
@@ -945,7 +945,7 @@ The browser adds the bounds:
 ### The chip gutter
 
 A proposed line has **four independent things** worth knowing, and prose buries all of
-them. `vaelii.impl.llm.verdict` gathers them per entry and the panel renders each as a
+them. `vaelii.host.llm.verdict` gathers them per entry and the panel renders each as a
 **chip** — a glyph and one word — in a gutter the eye reads down:
 
 ```
@@ -960,7 +960,7 @@ them. `vaelii.impl.llm.verdict` gathers them per entry and the panel renders eac
   `arity`, `disjoint`, `malformed`) and never as the checker's sentence. A message in
   the gutter is the one thing that cannot be scanned. A type nobody has written yet
   still renders as a chip: the fallback is the keyword's own name.
-- **What shape it should have been in** — `vaelii.impl.llm.correct`. The original is
+- **What shape it should have been in** — `vaelii.host.llm.correct`. The original is
   struck through and the rewrite follows it: **superseded, not replaced**, because
   hiding what the model wrote would hide the error class the correction pass exists to
   catch, and the choice between the two shapes is the author's. `[genl]` is the other
@@ -1040,7 +1040,7 @@ three renderers drift: the day the gutter learns a fifth axis, two of them forge
 ### The gloss is composed, never generated
 
 At `guided` a row says what the line would **mean**, and that sentence is built by
-`vaelii.impl.gloss` out of the KB's own `comment` sentexes — it reaches no model at all.
+`vaelii.host.gloss` out of the KB's own `comment` sentexes — it reaches no model at all.
 
 This is the one place in the panel where nothing verifies the output. Every other axis is
 checked: `check-edit` says what the KB refuses, `correct` proposes a shape and the shape
@@ -1604,7 +1604,7 @@ there is no `assert` that would produce the content.
   ring handler), so they are unit-tested with mock request maps — no live server
   needed (see `test/vaelii/web_test.clj`).
 - **The target is resolved per request, not closed over.** `app` takes a KB, an access
-  value, or a *holder* — anything deref-able, which is what `vaelii.impl.catalog/holder`
+  value, or a *holder* — anything deref-able, which is what `vaelii.host.catalog/holder`
   gives it. That is the whole of the KB switch: activating another entry in `/kbs`
   re-points every page at once, with no restart and no handler rebuild. The header
   carries the active KB's name, swapped out of band when it changes.

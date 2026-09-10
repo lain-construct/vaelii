@@ -20,7 +20,7 @@
         representation `recover` will actually run over at scale)."
   (:require [vaelii.core :as v]
             [vaelii.impl.disk.backend :as disk]
-            [vaelii.impl.io.generate :as gen]
+            [vaelii.host.io.generate :as gen]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reindex :as reindex]))
 

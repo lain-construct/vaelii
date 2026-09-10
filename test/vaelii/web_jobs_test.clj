@@ -6,13 +6,28 @@
   refusal a second writer gets."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as catalog]
-            [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.jobs :as jobs]
-            [vaelii.impl.web :as web]
+            [vaelii.host.catalog :as catalog]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.jobs :as jobs]
+            [vaelii.host.web :as web]
+            [vaelii.impl.checks :as checks]
             [vaelii.test-util :as tu]))
 
 (def ^:dynamic *app* nil)
+
+;; The fast-path test measures wall-clock: a base KB that chains inside 250 ms.  On the
+;; shipped default the entailment mints a type per declared argument position, so the base
+;; KB is larger and chains more, and the run spills to a job.  The chaining runs on a job
+;; thread, which reads the *root* value of `*assertive-arg-types?*` rather than any
+;; test-thread binding — so this namespace pins the root off for the duration and restores
+;; it.  These tests are about the job mechanism, not the entailment (`argtype-entail-test`
+;; covers that).
+(use-fixtures :once
+  (fn [f]
+    (let [orig checks/*assertive-arg-types?*]
+      (alter-var-root #'checks/*assertive-arg-types?* (constantly false))
+      (try (f)
+           (finally (alter-var-root #'checks/*assertive-arg-types?* (constantly orig)))))))
 
 ;; `catalog/reset-registry!` cancels every job and waits for each to stop before it
 ;; forgets them, so by the time `tu/clear-kb!` runs no chaining thread is still writing

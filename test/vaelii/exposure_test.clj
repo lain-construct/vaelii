@@ -632,7 +632,7 @@
       ;; ...and the excepted rule, over vocabulary the separation does not reach
       (v/assert kb (list 'exceptWhen (list penguin '?x)
                          (list 'set/defaultRule
-                               (vr/rule-sentence [(list bird '?x)] (list flies '?x))))
+                               (list 'set/forwardRule (vr/rule-sentence [(list bird '?x)] (list flies '?x)))))
                 'CxUniverse)
       (v/clear-violations! kb)
       (v/with-deferred-settle kb

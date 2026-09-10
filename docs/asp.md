@@ -114,11 +114,12 @@ So size the variable against the *solve*, and read the table for what an operati
 costs. `asp_edge_test` and `solve_context_test` pin the counts, because a doc that names
 them and code that changes them is worse than either alone.
 
-An interrupted solve reports `:interrupted`, and **that is not an answer**. A backend's
-result is an answer set only at `:optimum` or `:sat`; `:interrupted` and `:unknown`
-carry no witness, and every reader maps an atom's absence to *defeated* or *not kept* —
-read as an answer, an empty result would defeat every contested assumption and label
-every choice head false.
+An interrupted solve that found no model reports `:interrupted`, and **that is not an
+answer**. A backend's result is an answer set at `:optimum` or `:sat`, and — since 0.18.0,
+in `:label` mode — a best model reached before the interrupt is `:best-effort`, an answer
+whose optimality is unproven. `:interrupted` and `:unknown` carry no witness, and every
+reader maps an atom's absence to *defeated* or *not kept* — read as an answer, an empty
+result would defeat every contested assumption and label every choice head false.
 
 ### Refuse rather than degrade, whenever a backend is present
 
@@ -144,11 +145,14 @@ knowledge — and the order-independence invariant in [nmtms.md](nmtms.md) is a 
 
 So with a backend present an unanswered solve **decides nothing**: `{:defeat #{}
 :violated [...] :error e}`, every contested assumption left standing, the failure logged
-at `:error` and named in `:error` for a caller that can act on it. The readers a caller
-invokes (`do/label` in every mode, and the brave/cautious classification behind `classify`
-and `label-dilemmas`) refuse with `:solver-failed` rather than return a world nobody
-computed — `label-dilemmas` by raising that same `:error`, since an empty defeat set is
-otherwise the perfectly good answer *keep everything*.
+at `:error` and named in `:error` for a caller that can act on it. The brave/cautious
+classification behind `classify` and `label-dilemmas` refuses with `:solver-failed` rather
+than return a world nobody computed — `label-dilemmas` by raising that same `:error`, since
+an empty defeat set is otherwise the perfectly good answer *keep everything*. `do/label` in
+`:one` or `:sat` mode is the one reader that does not refuse when a model was found first:
+it returns that model with `:best-effort? true`, a valid labeling whose optimality the
+interrupt left unproven. The belief path is unaffected — `edge-solver` treats
+`:best-effort` as undecided, so no wall clock moves a belief.
 
 `:unsat` keeps its own reading and is not this case: a definite *no model*, the same
 answer in every run, so it costs the invariant nothing. The edge solver degrades on it,
@@ -346,9 +350,16 @@ correct if nogoods ever grow beyond today's `S` vs `(not S)` pairs.
 
 The engine encodes the contradiction edge and nothing above it: `edge.clj`
 translates one settle's nogoods into a program, and `label.clj` classifies and labels
-what comes back. There is no multi-context classification, no cardinality grounding
-and no multi-shot solving — a solve is one program, built from one region, answered
-once.
+what comes back. There is no multi-context classification and no multi-shot solving — a
+solve is one program, built from one region, answered once.
+
+A `do/label` program carries one thing a settle program does not: **cardinality bounds**.
+A `asp/atMost` / `asp/atLeast` rule ([solving.md](solving.md)) grounds to a `Program`
+`:cardinalities` entry, and `edge/translate` renders each as one ASPIF weight-body
+statement (`aspif/weight-constraint` for a hard bound, `aspif/weight-rule` plus a minimize
+for a soft one) rather than the `C(n, k+1)` subset nogoods a hand-written bound needs.
+`settle` builds no cardinalities — they are a labeling-only construct — so `local-solver`,
+which only ever sees a settle program, never receives one.
 
 There is also **no CSP layer**: a program carries no integer constraints, so nothing
 emits clingcon theory atoms and a numeric bound reaches the solver only as the handles a

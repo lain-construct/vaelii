@@ -17,7 +17,7 @@
   antecedent index key a negation files under is `negated-antecedent-index-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.taxonomy :as tax]
@@ -122,7 +122,7 @@
   (tu/with-terms [dog_t animal_t notADog A]
     (v/assert kb (list 'genl dog_t animal_t) 'CxCore {:strength :monotonic})
     (v/assert-rule kb [(negate (list dog_t (symbol "?x")))]
-                   (list notADog (symbol "?x")) 'CxCore)
+                   (list notADog (symbol "?x")) 'CxCore {:direction :forward})
     (v/assert kb (negate (list animal_t A)) 'CxCore {:strength :monotonic})
     (testing "a rule negated on the subtype fires on a fact negated on the supertype"
       (is (seq (v/sentexes-matching kb (list notADog A) 'CxCore))))))
@@ -135,7 +135,7 @@
   (tu/with-terms [dog_t animal_t notADog A]
     (let [x    (symbol "?x")
           edge (v/assert kb (list 'genl dog_t animal_t) 'CxCore {:strength :monotonic})]
-      (v/assert-rule kb [(negate (list dog_t x))] (list notADog x) 'CxCore)
+      (v/assert-rule kb [(negate (list dog_t x))] (list notADog x) 'CxCore {:direction :forward})
       (v/assert kb (negate (list animal_t A)) 'CxCore {:strength :monotonic})
       (is (seq (v/sentexes-matching kb (list notADog A) 'CxCore))
           "the rule fires through the contrapositive")
@@ -151,7 +151,7 @@
   ;; **genls** of the edge's super, not on the specs of its sub.
   (tu/with-terms [dog_t animal_t notADog A]
     (let [x (symbol "?x")]
-      (v/assert-rule kb [(negate (list dog_t x))] (list notADog x) 'CxCore)
+      (v/assert-rule kb [(negate (list dog_t x))] (list notADog x) 'CxCore {:direction :forward})
       (v/assert kb (negate (list animal_t A)) 'CxCore {:strength :monotonic})
       (is (empty? (v/sentexes-matching kb (list notADog A) 'CxCore))
           "nothing relates the two predicates yet")
@@ -163,7 +163,7 @@
   (tu/with-terms [dog_t animal_t notAnAnimal A]
     (v/assert kb (list 'genl dog_t animal_t) 'CxCore {:strength :monotonic})
     (v/assert-rule kb [(negate (list animal_t (symbol "?x")))]
-                   (list notAnAnimal (symbol "?x")) 'CxCore)
+                   (list notAnAnimal (symbol "?x")) 'CxCore {:direction :forward})
     (v/assert kb (negate (list dog_t A)) 'CxCore {:strength :monotonic})
     (testing "not being a dog is not not being an animal"
       (is (empty? (v/sentexes-matching kb (list notAnAnimal A) 'CxCore))))))
@@ -220,7 +220,7 @@
       (testing "with no rule reading a negation, an arriving negation names no key"
         (is (empty? (rules/trigger-keys tax' (negate (list animal_t A)) (roster)))))
       (v/assert-rule kb [(negate (list dog_t (symbol "?x")))]
-                     (list grounded (symbol "?x")) 'CxCore)
+                     (list grounded (symbol "?x")) 'CxCore {:direction :forward})
       (testing "a negation on the supertype reaches the rule negated on the subtype"
         (is (= [[:not dog_t]]
                (vec (rules/trigger-keys tax' (negate (list animal_t A)) (roster))))))
@@ -266,7 +266,7 @@
       (v/assert kb (list 'genl winged_t appendaged_t) 'CxCore {:strength :monotonic})
       (v/assert kb (list 'exceptWhen (negate (list winged_t x))
                          (list 'set/defaultRule
-                               (list 'implies (list 'and (list bird_t x)) (list flies x))))
+                               (list 'set/forwardRule (list 'implies (list 'and (list bird_t x)) (list flies x)))))
                 'CxCore)
       (v/assert kb (list bird_t Opus) 'CxCore)
       (is (seq (v/sentexes-matching kb (list flies Opus) '?ctx))
@@ -286,7 +286,7 @@
       (v/assert kb (list 'genl winged_t appendaged_t) 'CxCore {:strength :monotonic})
       (v/assert kb (list 'exceptWhen (negate (list winged_t x))
                          (list 'set/defaultRule
-                               (list 'implies (list 'and (list bird_t x)) (list flies x))))
+                               (list 'set/forwardRule (list 'implies (list 'and (list bird_t x)) (list flies x)))))
                 'CxCore)
       (v/assert kb (list bird_t Opus) 'CxCore)
       (let [neg (v/assert kb (negate (list appendaged_t Opus)) 'CxCore)]
@@ -302,7 +302,7 @@
     (let [x (symbol "?x")]
       (v/assert kb (list 'exceptWhen (negate (list winged_t x))
                          (list 'set/defaultRule
-                               (list 'implies (list 'and (list bird_t x)) (list flies x))))
+                               (list 'set/forwardRule (list 'implies (list 'and (list bird_t x)) (list flies x)))))
                 'CxCore)
       (v/assert kb (list bird_t Opus) 'CxCore)
       (is (seq (v/sentexes-matching kb (list flies Opus) '?ctx)))

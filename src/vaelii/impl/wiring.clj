@@ -1,52 +1,32 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.wiring
-  "The write path and the prover registry as the layers *beneath* them see it — the whole
-  inventory of calls the require graph cannot express, in one file.
+  "The calls that run *up* the engine's layering, gathered in one file.
 
-  Everything else in the engine is layered, and every edge is a static require the
-  compiler checks: kb <- checks <- special <- integrate <- chain <- settle <- vaelii.core.
-  Exactly two calls run the other way:
+  Every edge in the engine is a static require the compiler checks:
 
-    `assert-sentence` — the full assertion path, called from `vaelii.impl.nat` (a reified
-    NAT stores its `(termOfUnit K E)` map and its materialized types), from
-    `vaelii.impl.skolem` (a firing mints its witness), and from
-    `vaelii.impl.quasiquote` (declaring the four marks quasiquotation runs on).  Storing
-    is a *whole* assert — naming, the definitional checks, the index, chaining, settle —
-    so the write path runs chaining, and chaining calls back here to mint a constant
-    (docs/skolem.md).
+    kb <- checks <- special <- integrate <- chain <- settle <- vaelii.core
 
-    `solve-goal` — the prover registry, called from `vaelii.impl.resolution` to discharge
-    a deferred antecedent (`different` / `evaluate` / `unknown`).  Backward chaining is a
-    leaf the registry dispatches to, and `unknown` runs the registry back over its own
-    argument, so negation-as-failure is mutually recursive with the chainer that asked
-    for it (docs/naf.md).
+  Three calls run the other way, and the static require graph cannot express any of them.
+  Two are **genuine mutual recursion**: the cycle is in the *behaviour*, and no code motion
+  removes it — the assert path reaches a mint that asserts (`assert-sentence`), and
+  negation-as-failure runs the prover registry back over its own argument (`solve-goal`).
+  The third, `retract-sentex`, is the teardown entry point a below-core solver
+  (`vaelii.impl.asp.solve-context`) reaches to retract a labeling artifact: the teardown
+  orchestration is core-private and has not been extracted below core, so this call runs up
+  rather than down for now.  They are collected here so the set can be counted, and so
+  `lein lint`'s **E8** can fail a literal `requiring-resolve` anywhere else under `src/` and
+  **E19** any target beyond these three.  Each is a `delay` over `requiring-resolve` rather
+  than a dynamic var; why is docs/namespaces.md, \"The layering\".
 
-  Two further calls run the other way for a different reason:
+  A namespace that merely sits *above* `vaelii.core` and calls back down to its public API is
+  **not** written here — a call that can point downward is made to point downward.  Reading a
+  dump (`vaelii.impl.io.import`) recovers through `vaelii.impl.recovery`, the
+  `predAllSpecified` audit (`vaelii.impl.predall`) reads through `vaelii.impl.provers`, and the
+  `functional_at_instant` audit (`vaelii.impl.fluent`) reads through `vaelii.impl.provers` and
+  the node engine `vaelii.impl.inference`; all sit below `vaelii.core`, which requires them.
 
-    `import-dump` — `vaelii.impl.io.import` sits *above* `vaelii.core` and requires it,
-    because reading a dump is asserting: it re-canonicalizes records, reindexes and
-    recovers through the public write path.  `vaelii.core/import!` is the inverse of
-    `export!`, which is public, and a round trip whose two halves are not both public is
-    not a round trip — so the delegation points up, and this is where a call that points
-    up is written down.
-
-    `specified-violations` / `all-specified-violations` — `vaelii.impl.predall` sits
-    *above* `vaelii.core` for the mirror-image reason: running the `predAllSpecified`
-    audit is asking.  The audit reads a declaration and then asks the KB one goal per
-    member, and a goal answered outside `vaelii.core/ask` sees neither the context's
-    `genlCx` ancestor set nor the goal preparation that read runs (`read-in-context`,
-    `ist-goal` and `prepare-goal-for-read` are private to `vaelii.core`).  An audit that
-    reported violations a scoped read would not have is worse than no audit, so the
-    reader asks through the public read path and the delegation points up to reach it.
-
-  The first two are genuine mutual recursion: the cycle is in the **behaviour**, neither
-  is a misplaced function, and no arrangement of the code removes either.  The last two
-  are layering inversions rather than recursions, and are kept here for the same reason —
-  a call the require graph cannot express belongs in the one file that inventories them.
-  Why they are gathered here rather than left at their call sites, what `lein lint`'s
-  **E8** enforces, and why each is a `delay` rather than a dynamic var —
-  docs/namespaces.md, \"The layering\"."
+  `*defer-settle?*` lives here too, because both sides of the assert recursion read it."
   (:refer-clojure :exclude [assert]))
 
 ;; ---- the write-path mode flag --------------------------------------------
@@ -76,54 +56,55 @@
   assert batch."
   false)
 
-;; ---- the two cuts, and the two inversions ---------------------------------
+;; ==== Genuine mutual recursion ============================================
+
+;; `assert-sentence` runs the full assertion path.  Three namespaces call it from inside
+;; the chaining fixpoint `vaelii.core/assert` itself started: `vaelii.impl.nat` (a reified
+;; NAT stores its `(termOfUnit K E)` map and its materialized types), `vaelii.impl.skolem`
+;; (a firing mints its witness) and `vaelii.impl.quasiquote` (declaring the four marks
+;; quasiquotation runs on).  Storing is a *whole* assert — naming, the definitional checks,
+;; the index, chaining, settle — so the write path runs chaining, and chaining calls back
+;; here to mint a constant.  The cycle is in the behaviour, and no arrangement of the code
+;; removes it (docs/skolem.md).
 
 (def ^:private core-assert
   (delay (requiring-resolve 'vaelii.core/assert)))
 
-(def ^:private provers-solve-goal
-  (delay (requiring-resolve 'vaelii.impl.provers/solve-goal)))
-
-(def ^:private io-import-dump
-  (delay (requiring-resolve 'vaelii.impl.io.import/import-dump)))
-
-(def ^:private predall-specified-violations
-  (delay (requiring-resolve 'vaelii.impl.predall/specified-violations)))
-
-(def ^:private predall-all-specified-violations
-  (delay (requiring-resolve 'vaelii.impl.predall/all-specified-violations)))
-
 (defn assert-sentence
-  "`vaelii.core/assert` — store `sentence` in `context` under `opts`, returning its handle.
-  See the namespace docstring for why this is not a require."
+  "`vaelii.core/assert` — store `sentence` in `context` under `opts`, returning its handle."
   [kb sentence context opts]
   (@core-assert kb sentence context opts))
 
+;; `solve-goal` is the prover registry's entry point.  `vaelii.impl.resolution` calls it to
+;; discharge a deferred antecedent (`different` / `evaluate` / `unknown`).  `vaelii.impl.provers`
+;; already requires `resolution`, so `resolution` cannot name `provers/solve-goal` at compile
+;; time.  Backward chaining is a leaf the registry dispatches to, and `unknown` runs the
+;; registry back over its own argument, so negation-as-failure is mutually recursive with the
+;; chainer that asked for it (docs/naf.md).
+
+(def ^:private provers-solve-goal
+  (delay (requiring-resolve 'vaelii.impl.provers/solve-goal)))
+
 (defn solve-goal
   "`vaelii.impl.provers/solve-goal` — the registry's raw solution bindings for `goal` in
-  `context`.  See the namespace docstring for why this is not a require."
+  `context`."
   [kb goal context]
   (@provers-solve-goal kb goal context))
 
-(defn import-dump
-  "`vaelii.impl.io.import/import-dump` — read the export dump at `dir` into `kb`.
-  See the namespace docstring for why this is not a require."
-  [kb dir opts]
-  (@io-import-dump kb dir opts))
+;; `retract-sentex` is the teardown entry point.  `vaelii.impl.asp.solve-context` reaches it
+;; to retract a labeling artifact (an inert truth value, its `genlCx` placement edge).
+;; Unlike the two above this is **not** a behavioural cycle: the teardown orchestration
+;; (`retract-storage!`, the settle, the orphan and meta sweeps) is core-private and has not
+;; been extracted below `vaelii.core`, so a below-core caller reaches it up here.  Extracting
+;; that orchestration below core would let this point downward like the others, and is the
+;; only reason the entry lives here rather than as an ordinary require.
 
-(defn specified-violations
-  "`vaelii.impl.predall/specified-violations` — the audit result for one binary
-  `(predAllSpecified pred indep)` declaration in `context`, always carrying a
-  `:status`: `{:status :audited :violations #{…}}`, or `{:status :gap …}` where
-  `pred` carries no visible slot typing at `arg-pos`.  A caller discriminates on
-  `:status` rather than on key presence, a gap carrying no `:violations` key.  See
-  the namespace docstring for why this is not a require."
-  [kb pred indep context arg-pos]
-  (@predall-specified-violations kb pred indep context arg-pos))
+(def ^:private core-retract
+  (delay (requiring-resolve 'vaelii.core/retract!)))
 
-(defn all-specified-violations
-  "`vaelii.impl.predall/all-specified-violations` — every `predAllSpecified` and
-  `predSpecifiedAll` declaration visible in `context`, audited.  See the namespace
-  docstring for why this is not a require."
-  [kb context]
-  (@predall-all-specified-violations kb context))
+(defn retract-sentex
+  "`vaelii.core/retract!` — retract premise support for `handle`, tearing down
+  solely-supported sentexes and justifications and reversing their taxonomy / rule-index
+  effects; returns counts."
+  [kb handle]
+  (@core-retract kb handle))

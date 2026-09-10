@@ -11,7 +11,7 @@ indexes over the same sentexes: a positional **trie**, secondary **roots** (cont
 functor / argument), a **rule index**, an **exception re-check index**, an inverted **term
 index**, and the **term roster** beside it.
 
-What ships is schema: `vaelii.impl.starter` loads the upper and middle contexts from
+What ships is schema: `vaelii.host.starter` loads the upper and middle contexts from
 `resources/kb/`, and nothing contingent — no cast, no facts of a story — comes with it.
 Two worked KBs below that schema exercise all this (no doc of their own), and they are
 test-world data under `test/vaelii/`: `vaelii.world-fables` (children's stories as
@@ -84,7 +84,7 @@ rather than a compatibility claim.
 - [contexts.md](contexts.md) — contexts, the `genlCx` spindle (head / mantle / collector), `ist` reification, justification placement.
 - [taxonomy.md](taxonomy.md) — the `genl` type hierarchy, `isa?`, `disjoint` / `disjoint_metatype`.
 - [inherit.md](inherit.md) — argument-position preservation: `(transitiveInArg P n R)` / `(transitiveInArgInverse P n R)`, whether a claim about two kinds reaches their subkinds, the specificity that lets a stated claim undercut an inherited default, the `(asymmetric P)` that lets a strict one conflict instead, and how a forward rule fires on an inherited claim by naming what the claim was read from.
-- [argtypes.md](argtypes.md) — `arg` / `genlArg` read as **entailments** as well as constraints: the type an argument declaration says a term has, minted as a derived justified sentex, both arrival directions, and why only a locally-written declaration entails. Off by default.
+- [argtypes.md](argtypes.md) — `arg` / `genlArg` read as **entailments** as well as constraints: the type an argument declaration says a term has, minted as a derived justified sentex, both arrival directions, and why only a locally-written declaration entails. On by default.
 - [predall.md](predall.md) — the `predAll` quantifier family: eight relations that quantify one argument position of a binary predicate and fix the other, in three classes — the *Instance* pair that stamps a rule per declaration, the *Exists* four that derive nothing beside a sanctioned placeholder functor, and the *Specified* pair that audits for a determinate filler; plus the extensible `indeterminate_term` category, the identity exemption it carries, and the stratification refusal that comes with it.
 - [defns.md](defns.md) — `defnNecessary` / `defnSufficient` / `defnIff`: tying a collection's membership to a defining condition on the member `?x`, expanded into ordinary forward rules justified by the `defn*` fact so retraction and belief follow it, the two registry provers that evaluate a condition at query time, and the open-world boundary that draws no non-membership from the condition's absence.
 

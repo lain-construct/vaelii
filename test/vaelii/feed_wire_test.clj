@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.feed-wire-test
   "The change feed across the process boundary: a subscription the daemon holds, read
-  forward with a cursor (`vaelii.impl.subscribe`, docs/feed.md).
+  forward with a cursor (`vaelii.host.subscribe`, docs/feed.md).
 
   `feed_test` holds what an event *means*; nothing here re-tests that.  What a wire
   feed can get wrong is a different list, and it is these five:
@@ -30,8 +30,8 @@
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.client :as vc]
             [vaelii.core :as v]
-            [vaelii.impl.serve :as serve]
-            [vaelii.impl.subscribe :as sub]
+            [vaelii.host.serve :as serve]
+            [vaelii.host.subscribe :as sub]
             [vaelii.test-util :as tu])
   (:import [java.io ByteArrayInputStream]
            [org.eclipse.jetty.server Server]))
@@ -94,7 +94,7 @@
         ;; every write goes through the daemon, so the events being compared are the
         ;; daemon's own writes rather than a listener watching something else's
         (ok! (post handler :assert-rule [[(list dog '?x)] (list barks '?x)
-                                         CxWireFeed]))
+                                         CxWireFeed {:direction :forward}]))
         (ok! (post handler :assert [(list dog Muffet) CxWireFeed]))
         ;; and a defeat, so both halves of an event cross the wire: known-true content
         ;; takes the default conclusion out of belief with its record left standing
@@ -425,8 +425,8 @@
   (testing "they are not in the vaelii.core allowlist, which is what keeps them out of
             the model's tool set and out of the local access facade"
     (is (empty? (filter serve/ops (keys serve/feed-ops))))
-    (require 'vaelii.impl.llm.tools)
-    (let [read-ops ((resolve 'vaelii.impl.llm.tools/read-ops))]
+    (require 'vaelii.host.llm.tools)
+    (let [read-ops ((resolve 'vaelii.host.llm.tools/read-ops))]
       (is (empty? (filter (set (keys serve/feed-ops)) read-ops))
           "a subscription is heap, and heap is not a thing a model allocates"))))
 

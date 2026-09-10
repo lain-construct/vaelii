@@ -17,7 +17,7 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- default-rule [antes conseq]
-  (list 'set/defaultRule (vr/rule-sentence antes conseq)))
+  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 ;; ---- 1. a specific exception wins by blocking, not by out-ranking -------
 ;; A default/default collision is not arbitrated by *specificity* — scoring each rule
@@ -89,7 +89,7 @@
   (tu/with-terms [dog fish Rex]
     (v/assert kb (list 'disjoint dog fish) 'CxUniverse)
     (v/assert kb (list dog Rex) 'CxUniverse)
-    (v/assert-rule kb [(list dog '?x)] (list fish '?x) 'CxUniverse)
+    (v/assert-rule kb [(list dog '?x)] (list fish '?x) 'CxUniverse {:direction :forward})
     (testing "the direct assertion of the derived sentence is still refused"
       ;; the assert path keeps its guardrail: a writer is told no
       (is (thrown? clojure.lang.ExceptionInfo
@@ -113,7 +113,7 @@
   (tu/with-terms [dog fish Rex]
     (v/assert kb (list 'disjoint dog fish) 'CxUniverse)
     (v/assert kb (list dog Rex) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'set/defaultRule (vr/rule-sentence [(list dog '?x)] (list fish '?x)))
+    (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence [(list dog '?x)] (list fish '?x))))
               'CxUniverse)
     (testing "the known-true membership stands and the derived one is defeated"
       (is (seq (v/sentexes-matching kb (list dog Rex) 'CxUniverse)))
@@ -131,7 +131,7 @@
     (v/assert kb (list 'functional birthYearOf) 'CxUniverse)
     (v/assert kb (list birthYearOf Tom 1980) 'CxUniverse)
     (v/assert kb (list bornIn Tom 1990) 'CxUniverse)
-    (v/assert-rule kb [(list bornIn '?x '?y)] (list birthYearOf '?x '?y) 'CxUniverse)
+    (v/assert-rule kb [(list bornIn '?x '?y)] (list birthYearOf '?x '?y) 'CxUniverse {:direction :forward})
     (testing "the direct assertion of the derived sentence is still refused"
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (list birthYearOf Tom 1990) 'CxUniverse))))
@@ -150,7 +150,7 @@
 
 (tu/deftest-kb a-derived-conclusion-is-capped-by-its-weakest-antecedent
   (tu/with-terms [smoker unhealthy Bob]
-    (v/assert-rule kb [(list smoker '?x)] (list unhealthy '?x) 'CxUniverse)  ; bare rule: confers :monotonic
+    (v/assert-rule kb [(list smoker '?x)] (list unhealthy '?x) 'CxUniverse {:direction :forward})  ; bare rule: confers :monotonic
     (v/assert kb (list smoker Bob) 'CxUniverse)                              ; :default premise
     (let [derived (v/handle-of kb (list unhealthy Bob) 'CxUniverse)]
       (is (v/in? kb derived) "the rule fired at all")
@@ -179,7 +179,7 @@
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (list mortal '?x) 'CxUniverse))))
     (testing "positive control: a rule, where variables belong, still asserts"
-      (is (some? (v/assert-rule kb [(list human '?x)] (list mortal '?x) 'CxUniverse))))))
+      (is (some? (v/assert-rule kb [(list human '?x)] (list mortal '?x) 'CxUniverse {:direction :forward}))))))
 
 ;; ---- 5. contradiction detection misses incomparable contexts -----------
 ;; BUG: `negation-nogoods` pairs S with (not S) only when one of their contexts

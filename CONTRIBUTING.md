@@ -20,7 +20,7 @@ lein browser       # the one to work in: a REPL with the browser running in it, 
 ```
 
 `lein browser` is `lein repl` with the browser already started *and a reload channel
-into it* (§6). `lein run -m vaelii.impl.web` serves the same pages with no way in, so
+into it* (§6). `lein run -m vaelii.host.web` serves the same pages with no way in, so
 prefer `lein browser` while you are editing.
 
 ### 1.1 Static analysis (`lein lint`) setup
@@ -104,7 +104,7 @@ src/vaelii/            the six public namespaces: core.clj (the whole API) plus 
 src/vaelii/impl/       everything else: engine internals, ontology content, browser
 test/vaelii/           the suite, plus the test-world fixtures (world*.clj)
 bench/                 the load/scale harnesses (:bench profile, its own source path)
-resources/kb/          the starter ontology as term-centric text, read by vaelii.impl.seed
+resources/kb/          the starter ontology as term-centric text, read by vaelii.host.seed
 resources/public/      browser assets, served verbatim (licences in licenses/THIRD-PARTY.md)
 docs/                  one note per subsystem; docs/README.md is the map
 ```
@@ -122,7 +122,7 @@ notice — the engine internals, the ontology content, and the browser alike. Te
 into `impl` freely, which is what unit tests are for; nothing outside this repo should.
 
 The five exist so that the entry points a first-time reader is pointed at are ones the
-boundary covers: a page cannot send somebody to `vaelii.impl.client` and call `impl`
+boundary covers: a page cannot send somebody to `vaelii.host.client` and call `impl`
 free to change on the same breath. A shim is cheap; a boundary nobody keeps is not a
 boundary.
 
@@ -669,20 +669,20 @@ them before merge.
 Edit a source file, then at the `lein browser` prompt:
 
 ```clojure
-(require 'vaelii.impl.web :reload)
+(require 'vaelii.host.web :reload)
 ```
 
 …and the next request serves the new code. From an editor, connect over nREPL through
 `.nrepl-port` and do the same.
 
-The reason `lein browser` exists rather than `lein run -m vaelii.impl.web` is that the
+The reason `lein browser` exists rather than `lein run -m vaelii.host.web` is that the
 failure it avoids is silent. **A ring handler is a value, and Jetty holds the one it
 was started with**, so a reload against a plain `lein run` can redefine every var on
 the page and change nothing about what is served: the namespace reloads, the page does
 not, and there is nothing to see. `lein browser` serves through a handler that
 re-resolves `#'app` per request, so a reload actually lands.
 
-`(vaelii.impl.web/dev-stop)` takes the server down without leaving the prompt.
+`(vaelii.host.web/dev-stop)` takes the server down without leaving the prompt.
 `VAELII_WEB_PORT` moves it off 3000, and moves `lein run -m vaelii.web` too — an explicit
 `--port` still wins.
 

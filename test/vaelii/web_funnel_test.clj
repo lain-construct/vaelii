@@ -7,10 +7,10 @@
   (`chain-report`) is exercised directly as well as through the page."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.catalog :as catalog]
-            [vaelii.impl.core-context :as core-context]
-            [vaelii.impl.jobs :as jobs]
-            [vaelii.impl.web :as web]
+            [vaelii.host.catalog :as catalog]
+            [vaelii.host.core-context :as core-context]
+            [vaelii.host.jobs :as jobs]
+            [vaelii.host.web :as web]
             [vaelii.test-util :as tu]))
 
 (def ^:dynamic *app* nil)
@@ -27,7 +27,7 @@
       (v/assert kb '(p A) 'CxFunnel)
       (v/assert-rule kb '[(unfired ?x)] '(never ?x) 'CxFunnel {:direction :forward})
       (v/assert kb (list 'exceptWhen '(penguin ?x)
-                         (list 'set/defaultRule (list 'implies '(bird ?x) '(flies ?x))))
+                         (list 'set/defaultRule (list 'set/forwardRule (list 'implies '(bird ?x) '(flies ?x)))))
                 'CxFunnel)
       ;; the exception must already hold when the rule fires, or (flies Opus) is placed and
       ;; only *later* defeated — a defeat, not a placement-time refusal, and the funnel would

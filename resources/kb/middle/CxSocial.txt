@@ -12,10 +12,10 @@
 (genlCx CxSocial CxUniverse)
 (genlCx CxWell CxSocial)
 
-(implies (and (friendOf ?x ?y)) (knows ?x ?y))
+(set/forwardRule (implies (and (friendOf ?x ?y)) (knows ?x ?y)))
 
-(implies (and (marriedTo ?x ?y)) (knows ?x ?y))
+(set/forwardRule (implies (and (marriedTo ?x ?y)) (knows ?x ?y)))
 
 ;; Employment is one way of belonging to a body of people; belonging is not a way of
 ;; being employed by it, so there is no converse rule.
-(implies (and (worksFor ?x ?o)) (memberOf ?x ?o))
+(set/forwardRule (implies (and (worksFor ?x ?o)) (memberOf ?x ?o)))

@@ -1,7 +1,7 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.access-test
-  "The read-access facade (`vaelii.impl.access`) and the browser's attach-to-daemon
+  "The read-access facade (`vaelii.host.access`) and the browser's attach-to-daemon
   mode.  Access dispatches a KB read to an in-process KB or a remote daemon behind one
   surface; the browser is written against that surface, so it renders a KB it owns and
   a KB a daemon owns *the same way*.
@@ -19,9 +19,9 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.access :as access]
-            [vaelii.impl.serve :as serve]
-            [vaelii.impl.web :as web]
+            [vaelii.host.access :as access]
+            [vaelii.host.serve :as serve]
+            [vaelii.host.web :as web]
             [vaelii.test-util :as tu]))
 
 (def ^:dynamic *remote* nil)

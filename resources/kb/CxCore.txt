@@ -66,29 +66,61 @@
 (binary_predicate arg1)
 (arg arg1 1 relation)
 (genlArg arg1 2 thing)
-(implies (and (arg1 ?reln ?type)) (arg ?reln 1 ?type))
-(implies (and (arg ?reln 1 ?type)) (arg1 ?reln ?type))
+(set/forwardRule (implies (and (arg1 ?reln ?type)) (arg ?reln 1 ?type)))
+(set/forwardRule (implies (and (arg ?reln 1 ?type)) (arg1 ?reln ?type)))
 
 (comment arg2
          "(arg2 ?relation ?type) is the binary projection of (arg ?relation 2 ?type) — see arg1.")
 (binary_predicate arg2)
 (arg arg2 1 relation)
 (genlArg arg2 2 thing)
-(implies (and (arg2 ?reln ?type)) (arg ?reln 2 ?type))
-(implies (and (arg ?reln 2 ?type)) (arg2 ?reln ?type))
+(set/forwardRule (implies (and (arg2 ?reln ?type)) (arg ?reln 2 ?type)))
+(set/forwardRule (implies (and (arg ?reln 2 ?type)) (arg2 ?reln ?type)))
 
 (comment arg3
          "(arg3 ?relation ?type) is the binary projection of (arg ?relation 3 ?type) — see arg1.")
 (binary_predicate arg3)
 (arg arg3 1 relation)
 (genlArg arg3 2 thing)
-(implies (and (arg3 ?reln ?type)) (arg ?reln 3 ?type))
-(implies (and (arg ?reln 3 ?type)) (arg3 ?reln ?type))
+(set/forwardRule (implies (and (arg3 ?reln ?type)) (arg ?reln 3 ?type)))
+(set/forwardRule (implies (and (arg ?reln 3 ?type)) (arg3 ?reln ?type)))
 
-;; arg / genlArg / interArg generalize along genl on the query surface the way
-;; check walks them internally — a stored subtype constraint answers its supertypes, and
-;; interArg's trigger (arg 3), being an antecedent, answers its subtypes instead.
-;; Answered by provers/MetaConstraintProver, and deliberately NOT declared
+;; The covering constraints type a whole variable-arity tail at once, where arg and
+;; genlArg type one numbered position.  args / argsGenl type every accepted position;
+;; argAndRest / argAndRestGenl type a position and every later one.  Each generalizes its
+;; singular twin and composes conjunctively with it — a position-specific arg and a
+;; covering args both bind the slot, neither overrides.  A largest finite arg would make
+;; an unbounded relation look finite; a covering constraint states the repeated role once.
+(comment args
+         "(args ?relation ?type) means that every accepted argument position of ?relation is an instance of ?type. The covering form of arg: where (arg P n T) types one numbered position, (args P T) types the whole admitted tail, so a variable-arity relation whose positions carry one role is typed without naming a largest finite position. Conjunctive with a position-specific (arg P n T). Open-world as arg is: an argument whose type is unknown cannot violate it. Checked position by position over the positions a sentence actually has; the boundary a covering constraint enforces is documented in docs/argtypes.md.")
+(binary_predicate args)
+(arg args 1 relation)
+(genlArg args 2 thing)
+
+(comment argsGenl
+         "(argsGenl ?relation ?type) means that every accepted argument position of ?relation names a subtype of ?type. The covering form of genlArg, for a variable-arity relation whose positions name kinds: argsGenl is to genlArg what args is to arg. Conjunctive with a position-specific (genlArg P n T). Open-world as genlArg is.")
+(binary_predicate argsGenl)
+(arg argsGenl 1 relation)
+(genlArg argsGenl 2 thing)
+
+(comment argAndRest
+         "(argAndRest ?relation ?position ?type) means that argument ?position of ?relation and every later position is an instance of ?type. The suffix form of args: the tail from ?position onward, the prefix below it excluded, so a relation whose head positions carry their own arg declarations and whose tail repeats one role is typed exactly. (args P T) states what (argAndRest P 1 T) states. Checked position by position; open-world as arg is.")
+(ternary_predicate argAndRest)
+(arg argAndRest 1 relation)
+(arg argAndRest 2 positive_integer)
+(genlArg argAndRest 3 thing)
+
+(comment argAndRestGenl
+         "(argAndRestGenl ?relation ?position ?type) means that argument ?position of ?relation and every later position names a subtype of ?type. The suffix form of argsGenl, and the genl twin of argAndRest.")
+(ternary_predicate argAndRestGenl)
+(arg argAndRestGenl 1 relation)
+(arg argAndRestGenl 2 positive_integer)
+(genlArg argAndRestGenl 3 thing)
+
+;; arg / genlArg / interArg and the four covering forms generalize along genl on the query
+;; surface the way check walks them internally — a stored subtype constraint answers its
+;; supertypes, and interArg's trigger (arg 3), being an antecedent, answers its subtypes
+;; instead.  Answered by provers/MetaConstraintProver, and deliberately NOT declared
 ;; transitiveInArg: the meta-predicates are among the most-queried there are, and routing
 ;; them through the general preservation prover taxes every genl lookup in the KB.  arity
 ;; stays a plain fact (a sub-predicate may carry its own signature).
@@ -382,17 +414,17 @@
 (arg arity 1 relation)
 (arg arity 2 non_negative_integer)
 
-(implies (arity ?relation ?arity) (fixed_arity ?relation))
+(set/forwardRule (implies (arity ?relation ?arity) (fixed_arity ?relation)))
 
 (comment arityMin
-         "(arityMin ?relation ?n) means that a variable-arity ?relation requires at least ?n arguments. Every further position normally repeats the same argument role rather than introducing an unnamed optional field. No WFF reader consumes this declaration.")
+         "(arityMin ?relation ?n) means that a variable-arity ?relation requires at least ?n arguments. Every further position normally repeats the same argument role rather than introducing an unnamed optional field. The arity check refuses an application of the relation shorter than ?n.")
 (binary_predicate arityMin)
 (instance_relation_predicate arityMin)
 (arg arityMin 1 relation)
 (arg arityMin 2 non_negative_integer)
 
 (comment admitsArgnum
-         "(admitsArgnum ?relation ?argnum) means that positive argument position ?argnum exists in a well-formed application of ?relation. It asks about one position, not the application's total arity. No WFF or query reader consumes it.")
+         "(admitsArgnum ?relation ?argnum) means that positive argument position ?argnum exists in a well-formed application of ?relation. It asks about one position, not the application's total arity. Answered at query time from the relation's declared arity and variable-arity mark: a fixed-arity relation admits one through its arity, a variable-arity relation every positive position.")
 (binary_predicate admitsArgnum)
 (instance_relation_predicate admitsArgnum)
 (arg admitsArgnum 1 relation)
@@ -409,17 +441,19 @@
 (unary_predicate at_least_ternary_relation)
 (genl at_least_ternary_relation at_least_binary_relation)
 
-(implies
- (and
-  (arityMin ?relation ?arity)
-  (greaterThan ?arity 1))
- (at_least_binary_relation ?relation))
+(set/forwardRule
+ (implies
+  (and
+   (arityMin ?relation ?arity)
+   (greaterThan ?arity 1))
+  (at_least_binary_relation ?relation)))
 
-(implies
- (and
-  (arityMin ?relation ?arity)
-  (greaterThan ?arity 2))
- (at_least_ternary_relation ?relation))
+(set/forwardRule
+ (implies
+  (and
+   (arityMin ?relation ?arity)
+   (greaterThan ?arity 2))
+  (at_least_ternary_relation ?relation)))
 
 ;; The meta-ontology rules below conclude into the ORDINARY placement — the maximal
 ;; context that sees the rule and the declaration — and not into a named one.  Every
@@ -438,7 +472,7 @@
 ;; per-type rule is stamped — one minted rule per mapping fact, justified by that fact
 ;; and withdrawn with it.
 (implies (relationTypeByArity ?type ?arity)
-         (implies (?type ?relation) (arity ?relation ?arity)))
+         (set/forwardRule (implies (?type ?relation) (arity ?relation ?arity))))
 
 ;; The converse, stamped the same way: an exact arity classifies the relation under the
 ;; type that maps to it, so the two spellings derive each other and asserting either
@@ -450,7 +484,7 @@
 ;; spelling was asserted collapses both.  An arity no class maps to concludes nothing —
 ;; (arity InstantFn 6) leaves InstantFn fixed_arity_function by its own declaration.
 (implies (relationTypeByArity ?type ?arity)
-         (implies (arity ?relation ?arity) (?type ?relation)))
+         (set/forwardRule (implies (arity ?relation ?arity) (?type ?relation))))
 
 ;; The three relation-wide classifications separate each other: a relation takes ONE
 ;; exact number of arguments, so a second classification is a contradiction rather than
@@ -534,6 +568,35 @@
 (genlArg defnIff 1 thing)
 (arg defnIff 2 thing)
 
+(comment intersection
+         "(intersection ?combined . ?types) means ?combined is definitionally the intersection of ?types: a thing is a ?combined exactly when it is each of ?types. A definitional collection relation over kinds, like the defn* family above, and the twin of disjoint, which states that kinds do NOT overlap. Variable-arity; (intersection causal_event causal event) names a two-way intersection and further ?types extend it. arityMin is three: the combined kind plus at least two types, since the intersection of a single type is that type and drives no rule.")
+(variable_arity_predicate intersection)
+(genlArg intersection 1 thing)
+(genlArg intersection 2 thing)
+(arityMin intersection 3)
+
+;; intersection is the definitional twin of disjoint (which states two kinds do NOT overlap).
+(termsRelated disjoint intersection)
+
+;; --- defining rules (binary and ternary; general arity pends memberOfList, see the
+;;     upstream list proposal). A combined kind is genl each type it intersects, and
+;;     anything that is each type is a member of the combined kind. ------------------
+;; Forward rules: an intersection fact materializes the genl edges when it is asserted,
+;; so the derived edge reaches the taxonomy closure and answers a variable-free genl
+;; goal at every read entry point. A bare (implies …) defaults to :backward, which the
+;; closure-backed ask/ask? path expands no rule for and so never sees.
+(set/forwardRule (implies (intersection ?combined ?type1 ?type2) (genl ?combined ?type1)))
+(set/forwardRule (implies (intersection ?combined ?type1 ?type2) (genl ?combined ?type2)))
+(set/forwardRule (implies (intersection ?combined ?type1 ?type2 ?type3) (genl ?combined ?type1)))
+(set/forwardRule (implies (intersection ?combined ?type1 ?type2 ?type3) (genl ?combined ?type2)))
+(set/forwardRule (implies (intersection ?combined ?type1 ?type2 ?type3) (genl ?combined ?type3)))
+;; membership: the consequent's predicate is a variable, so a generator stamps a
+;; concrete-functor rule per intersection fact.
+(implies (intersection ?combined ?type1 ?type2)
+         (set/defaultRule (implies (and (?type1 ?x) (?type2 ?x)) (?combined ?x))))
+(implies (intersection ?combined ?type1 ?type2 ?type3)
+         (set/defaultRule (implies (and (?type1 ?x) (?type2 ?x) (?type3 ?x)) (?combined ?x))))
+
 ;; ---- the predAll / predExists / predInstance / predSpecified matrix -------
 ;; A family of ternary relations that quantify one binary ?pred's two argument positions
 ;; against a collection or an individual, and fix the other.  Each name reads its two
@@ -559,7 +622,7 @@
 (genlArg predAllInstance 2 thing)
 (arg predAllInstance 3 thing)
 (implies (predAllInstance ?pred ?indep ?fixed)
-         (set/defaultRule (implies (?indep ?x) (?pred ?x ?fixed))))
+         (set/defaultRule (set/forwardRule (implies (?indep ?x) (?pred ?x ?fixed)))))
 
 (comment predInstanceAll
          "(predInstanceAll ?pred ?fixed ?dep) means that the fixed filler ?fixed bears ?pred to every instance of collection ?dep at ?pred's second position: for all y in ?dep, (?pred ?fixed y). The argument-swapped twin of predAllInstance. A rule generator that stamps the bidirectional defaultRule (implies (?dep ?y) (?pred ?fixed ?y)) with the holes ground, so the descent to members is ordinary chain inference (docs/generators.md).")
@@ -568,7 +631,7 @@
 (arg predInstanceAll 2 thing)
 (genlArg predInstanceAll 3 thing)
 (implies (predInstanceAll ?pred ?fixed ?dep)
-         (set/defaultRule (implies (?dep ?y) (?pred ?fixed ?y))))
+         (set/defaultRule (set/forwardRule (implies (?dep ?y) (?pred ?fixed ?y)))))
 
 ;; --- Exists class: pure record, inferentially inert -----------------------
 ;; Everything with "exist" in the name is INERT (Pace's ruling): the declaration is
@@ -722,11 +785,11 @@
 
 ;; The enforced half. Each derived mark is a real property the engine enforces exactly as
 ;; a directly written one is, so nothing is keyed on the three names above.
-(implies (and (injection ?p))  (functional ?p))
-(implies (and (injection ?p))  (functionalInArg ?p 1))
-(implies (and (surjection ?p)) (functional ?p))
-(implies (and (bijection ?p))  (injection ?p))
-(implies (and (bijection ?p))  (surjection ?p))
+(set/forwardRule (implies (and (injection ?p))  (functional ?p)))
+(set/forwardRule (implies (and (injection ?p))  (functionalInArg ?p 1)))
+(set/forwardRule (implies (and (surjection ?p)) (functional ?p)))
+(set/forwardRule (implies (and (bijection ?p))  (injection ?p)))
+(set/forwardRule (implies (and (bijection ?p))  (surjection ?p)))
 
 ;; The audited half. Totality quantifies over the domain and ontoness over the range, so
 ;; each rule reads only the ONE arg declaration that names its quantified collection —
@@ -734,9 +797,9 @@
 ;; it from the predicate's slot contract at read time. A predicate whose quantified side
 ;; is untyped concludes no requirement; one whose FILLER side is untyped concludes the
 ;; requirement and the audit reports the missing slot contract as an explicit gap.
-(implies (and (injection ?p)  (arg ?p 1 ?d)) (predAllSpecified ?p ?d))
-(implies (and (surjection ?p) (arg ?p 1 ?d)) (predAllSpecified ?p ?d))
-(implies (and (surjection ?p) (arg ?p 2 ?r)) (predSpecifiedAll ?p ?r))
+(set/forwardRule (implies (and (injection ?p)  (arg ?p 1 ?d)) (predAllSpecified ?p ?d)))
+(set/forwardRule (implies (and (surjection ?p) (arg ?p 1 ?d)) (predAllSpecified ?p ?d)))
+(set/forwardRule (implies (and (surjection ?p) (arg ?p 2 ?r)) (predSpecifiedAll ?p ?r)))
 
 (comment functionCorrespondingPredicate
          "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. ?position is 1-based over ?predicate's arguments and may be omitted, which puts the value last — the shape nearly every correspondence has. Read only for a reifiable_function, an undeclared function having no application to reify. See docs/nat.md.")
@@ -875,6 +938,12 @@
 (variable_arity_predicate lessThan)
 (arityMin lessThan 2)
 
+(comment matchesPattern
+         "(matchesPattern ?string ?pattern) means that the whole of ?string matches the regular expression ?pattern. Both arguments are string values — the text inspected and the pattern applied to it, each taken as written (quotedArg). Evaluable: computed on demand from two ground strings through a step-limited matcher, never stored and never forward-chained. The primitive a defn over a string subtype reads: a defnSufficient whose condition is (matchesPattern ?x pattern) resolves by evaluation at query time, the way the sign-refined integer collections read integer and the comparisons. matchesPattern answers false for a non-string subject, so the shape check alone defines the subtype and needs no separate (string ?x) conjunct, which the registry does not evaluate. A pattern that does not compile is refused at the assert entry point.")
+(binary_predicate matchesPattern)
+(quotedArg matchesPattern 1 string)
+(quotedArg matchesPattern 2 string)
+
 (comment modal_predicate
          "(modal_predicate ?predicate) means that (?predicate ?agent ?sentence) is a belief-style projection: it holds when ?sentence holds in ?agent's context. A grant, and the only thing that turns projection on — an undeclared predicate is never projected, so the table is open (assert the marker to add knows / desires / intends) and closed by default to everything but what a context grants. Read scoped from the asking context, like abducible_predicate: which predicates a theory reads modally is a policy of the context that declares it, not a global switch. believes ships granted here.")
 (unary_predicate modal_predicate)
@@ -930,7 +999,7 @@
          "(set/defaultRule ?rule) means that ?rule is asserted as a defeasible default. It fires from the same agenda as any other rule and confers :default strength on what it concludes, so the conclusion is withdrawn when a stronger contradicting belief holds and returns when that belief goes. A virtual wrapper interpreted on assert, never stored as a fact of its own.")
 
 (comment set/forwardRule
-         "(set/forwardRule ?rule) means that ?rule is asserted forward-only. Forward-chained and indexed by its antecedent predicates, never used in backward proof. A virtual wrapper interpreted on assert: it sets the direction field on the rule sentex and is never stored as a fact of its own.")
+         "(set/forwardRule ?rule) means that ?rule forward-chains, in addition to answering backward proof. It is forward-chained and indexed by its antecedent predicates, and its direction is :forward, which rules/backward? reads as forward and backward both. A rule that forward-chains but is never used in backward proof is set/forwardOnlyRule instead. A virtual wrapper interpreted on assert: it sets the direction field on the rule sentex and is never stored as a fact of its own.")
 
 (comment set/inertRule
          "(set/inertRule ?rule) means that ?rule is asserted inert. Stored and documented but never used for inference in either direction, which is how a rule stating something the engine implements in code gets written down where a reader will find it. A virtual wrapper interpreted on assert.")
@@ -1028,9 +1097,9 @@
 
 ;; the three marks an equivalence stands in for, derived so each is a real property the
 ;; engine enforces exactly as a directly written one is
-(implies (and (equivalence_relation ?p)) (symmetric ?p))
-(implies (and (equivalence_relation ?p)) (transitive ?p))
-(implies (and (equivalence_relation ?p)) (reflexive ?p))
+(set/forwardRule (implies (and (equivalence_relation ?p)) (symmetric ?p)))
+(set/forwardRule (implies (and (equivalence_relation ?p)) (transitive ?p)))
+(set/forwardRule (implies (and (equivalence_relation ?p)) (reflexive ?p)))
 
 ;; ---- the lattice among the relation properties ---------------------------
 ;; genl and disjoint relate the property predicates directly now that each mark carries

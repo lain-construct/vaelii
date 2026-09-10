@@ -227,7 +227,14 @@
         (.delete tmp)))))
 
 (def ^:private mode-args
-  {:label                ["--opt-mode=optN" "--models=1"]
+  ;; `:label` uses `opt`, not `optN`: `optN` proves the optimum and only THEN yields the
+  ;; optimal model(s), so a solve cancelled at the time limit mid-proof has nothing to hand
+  ;; back.  `opt` with `--models=0` streams each improving model as the bound descends, and
+  ;; `drain`'s `:optimal` retention keeps the lowest-cost one seen — so a completed solve
+  ;; ends on the proven optimum (flagged optimal, `finalize` reports `:optimum`) and an
+  ;; interrupted one still has its best model in hand (`finalize` reports `:best-effort`).
+  ;; `--models=1` would stop at the FIRST, un-optimized model, which is wrong for a labeling.
+  {:label                ["--opt-mode=opt"  "--models=0"]
    :all-optima           ["--opt-mode=optN" "--models=0"]
    :classify-true        ["--opt-mode=optN" "--enum-mode=cautious" "--models=0"]
    :classify-supportable ["--opt-mode=optN" "--enum-mode=brave"    "--models=0"]})
@@ -254,7 +261,7 @@
   "Shared post-processing for the raw drain of either solve path — one-shot
    `run-solve` or live-control `solve-control` — into the public contract
    (matches vaelii.impl.asp.clasp/solve):
-     :status    :optimum | :sat | :unsat | :interrupted | :unknown
+     :status    :optimum | :sat | :best-effort | :unsat | :interrupted | :unknown
      :atoms     vector of label strings
      :cost      optimum cost (nil if no minimize / unsat)
      :witnesses vector of value vectors (only for :all-optima)
@@ -264,11 +271,19 @@
    which holds only what the mode's retention kept (`keep-model`) — a model dropped
    for being off the best cost still had its say in both.
 
-   `:interrupted` is the cancelled search (the time limit ran out); whatever models
-   were yielded before it are not the answer the mode asked for."
+   `:interrupted` is the cancelled search (the time limit ran out) with NO model to
+   show for it.  A `:label` search cancelled *after* it had a model in hand is
+   `:best-effort` instead: that model satisfies every hard constraint and is the lowest
+   cost seen — only its optimality went unproven — so it is an answer worth handing back
+   rather than discarding.  A caller that needs a proven optimum reads the status and
+   refuses it; one that wants a good labeling under a deadline takes it.  `:all-optima`
+   and the classify modes need the search to finish (an incomplete enumeration or a
+   cut-short cautious set is unsound), so they stay `:interrupted`."
   [{:keys [result models any-optimal?] opt :optimum :as raw} mode]
   (let [cost  (first opt)
         status (cond
+                 (and (pos? (bit-and result result-interrupted))
+                      (= :label mode) (seq models))         :best-effort
                  (pos? (bit-and result result-interrupted)) :interrupted
                  (pos? (bit-and result result-unsat))       :unsat
                  (and opt any-optimal?)                     :optimum

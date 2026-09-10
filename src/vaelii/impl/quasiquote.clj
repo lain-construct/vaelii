@@ -32,7 +32,8 @@
   the constructions it governs and any identity merge over the referents inside them.  A reify
   or merge processed while the mark is absent — before it is declared, or after it is retracted
   — is not held opaque and folds the mention onto its referent's class."
-  (:require [vaelii.impl.nat :as nat]
+  (:require [vaelii.impl.kb :as kb]
+            [vaelii.impl.nat :as nat]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.wiring :as wiring]))
@@ -144,3 +145,33 @@
     (binding [wiring/*defer-settle?* true]
       (reduce-term kb raw #(nat/reify-or-mint-nat kb %)))
     raw))
+
+(defn prepare-goal-for-read
+  "Bring a `prove` / `query` / `ask` goal (a formula, or a vector of them = a conjunction)
+  into the form the stored content is in, so a lookup can meet it: **reify** ground
+  NATs to their existing constants, then **rewrite** terms to their equality-class
+  representatives and schematic normal forms (`kb/rewrite-goal`).
+
+  This is the parity every read path holds to, and the backward chainers need it as
+  much as the rest: without the rewrite step a goal naming a merged spelling — or one
+  an oriented equation would normalize — is answered by `sentexes-matching`/`ask` but
+  silently missed by `prove`/`query`, and the same knowledge answers path-dependently.
+  It is the **top** goal that is normalized, exactly as `sentexes-matching`/`ask`
+  normalize theirs; stored facts are already in normal form (migration), so subgoals a
+  rule expansion generates need no further rewriting — the same reliance `ask` makes.
+  `rewrite-goal` exempts
+  `different`, whose arguments must stay un-rewritten to read class membership, and the
+  congruence walk under it exempts a **mention** — a `quoting_function`'s arguments, and the
+  proposition a `modal_predicate` attributes to its agent, which is normalized against the
+  *agent's* partition where the projection reads it rather than against the asker's
+  (docs/belief.md).  Both exemptions hold on the stored side too, so the goal and the
+  sentex still meet at one form.
+
+  Rewritten by the merges `context` sees, since that is where the goal is asked.  It lives
+  here, beside `maybe-reduce`, because it composes the two read-time reductions
+  (`maybe-reduce` and `nat/maybe-reify-for-read`) with the equality rewrite, and both
+  `vaelii.core`'s read entry points and `vaelii.impl.predall`'s audit prepare a goal the
+  same way through this one function."
+  [kb goal context]
+  (letfn [(prep [g] (kb/rewrite-goal kb (nat/maybe-reify-for-read kb (maybe-reduce kb g)) context))]
+    (if (vector? goal) (mapv prep goal) (prep goal))))

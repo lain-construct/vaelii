@@ -27,7 +27,7 @@
     (v/assert kb (list 'genl ff mid) 'CxU {:strength :monotonic})
     (v/assert kb (list 'genl mid af) 'CxU {:strength :monotonic})
     ;; a bare rule (confers :monotonic) whose antecedent a sub-typed fact reaches
-    (v/assert kb (list 'implies (list af '?x) (list result '?x)) 'CxU)
+    (v/assert kb (list 'implies (list af '?x) (list result '?x)) 'CxU {:direction :forward})
     (v/assert kb (list ff a) 'CxU {:strength :monotonic})
     (testing "the subsuming firing derived the conclusion at the monotonic floor"
       (is (some? (class-of)) "the firing fired")

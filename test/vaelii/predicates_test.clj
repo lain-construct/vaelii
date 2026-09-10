@@ -99,7 +99,10 @@
   ;; fails on a refactor that stops routing the var through `predicates`.
   (testing "the argument constraints' subject props"
     (is (= '{arg :declares-arg-isa, genlArg :declares-arg-genl,
-             quotedArg :declares-quoted-arg, interArg :declares-inter-arg-isa}
+             quotedArg :declares-quoted-arg, interArg :declares-inter-arg-isa,
+             args :declares-args-isa, argsGenl :declares-args-genl,
+             argAndRest :declares-arg-and-rest-isa,
+             argAndRestGenl :declares-arg-and-rest-genl}
            tax/arg-declaration-props))
     (is (= tax/arg-declaration-props
            (select-keys (pr/by-storage :prop) (pr/family :argument-constraint)))))
@@ -248,7 +251,8 @@
         (is (= :bad-table-entry (:type data)))
         (is (= :family-roster (:mismatch data)))
         (is (= 'provers/meta-constraint-functors (:roster data)))
-        (is (= '#{quotedArg arg genlArg interArg} (:declared data))
+        (is (= '#{quotedArg arg genlArg interArg args argsGenl argAndRest argAndRestGenl}
+               (:declared data))
             "and the throw names both sets, so the reader sees which half is missing")))
     (testing "and the other direction — a roster naming a spelling nothing declares"
       (is (= :family-roster

@@ -127,11 +127,15 @@ The wrapper rides **inside** the consequent, where substitution never touches it
 sets the direction of the rule that gets stored: `set/forwardRule`,
 `set/backwardRule`, `set/inertRule`. `set/defaultRule` rides there too and makes the
 stamped rule defeasible rather than setting its direction. That is the only place
-either can be written for a rule nobody types out.
+either can be written for a rule nobody types out. A stamped rule with no direction
+wrapper is **backward** like any other bare rule, so a generator whose stamped rule is
+meant to materialize facts writes `set/forwardRule` inside the consequent — the shipped
+`relationTypeByArity` and `predAllInstance` generators do exactly that.
 
-The **generator itself is forward-only**. Its conclusion is a rule, and no backward
-goal asks for one — `res/concluding-rule-handles` reads a goal's predicate, and a
-generator's consequent predicate is `implies`, which nothing queries. A
+The **generator itself defaults to forward**, even bare. Its conclusion is a rule, and no
+backward goal asks for one — `res/concluding-rule-handles` reads a goal's predicate, and a
+generator's consequent predicate is `implies`, which nothing queries — so the backward
+default an ordinary rule takes would leave the generator firing in neither engine. A
 `set/backwardRule` generator is refused rather than stored claiming a capability it
 cannot exercise. `set/inertRule` stays legal, since it claims nothing. Under nesting the
 same holds of each level that stamps: only the **innermost** rule's wrapper is a free

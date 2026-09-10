@@ -9,7 +9,7 @@
   — the required check — the cascade, modeled on `target_following_meta_test`."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.sentex :as sx]
             [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu]))

@@ -88,7 +88,7 @@ asked once is not a scan.
   longer skips. Scoped to `kb`; `{:counters? true}` also zeroes the process-wide rates, in
   a call that says out loud it reaches past its argument.
 
-Both are on the remote surface (`vaelii.impl.serve`) and drive the browser's caches page.
+Both are on the remote surface (`vaelii.host.serve`) and drive the browser's caches page.
 
 ## The roster (a snapshot — `caches` is the truth)
 

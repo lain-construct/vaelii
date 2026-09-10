@@ -828,6 +828,24 @@ its context and each context holding a sentex it could pair with, beside its own
 Every one of those asks is the same scoped read from a context that already sees both
 halves.
 
+### Auditing the hierarchy for missing disjointness
+
+`subsumption-status kb a b` classifies one type pair against the whole hierarchy at once,
+returning `:genl` / `:spec` (one subsumes the other), `:coextensional` (each is `genl`
+the other), `:disjoint` (a declaration, closed under `genl`), `:orthogonal` (a shared
+instance the registry answers without rule expansion, so neither subsumption nor
+disjointness holds but overlap is shown), or `:unknown` (none of these is provable).
+`genl?` and `disjoint?` read the global closures; the `:orthogonal` witness is a
+facts-only query (`{:max-depth 0}`) for a member of `a` that is also a member of `b`, read
+from a `context` (default `CxUniverse`) because a read sees only that context and its
+`genlCx` ancestors.
+
+`disjointness-audit kb` runs the classification over every unordered pair of distinct
+types and returns `{:types :pairs :by-status :pairs-data}`. The `:unknown` pairs are the
+candidates for a missing `disjoint` declaration: no subsumption relates them, no
+declaration separates them, and no shared instance shows they overlap — so the modeller
+decides whether they should be disjoint. The audit reads only, and writes nothing.
+
 ### What a declaration reaches back over
 
 A declaration changes what already-stored content *means*, so the settle that admits

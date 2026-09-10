@@ -15,7 +15,7 @@
   of stored records alone would miss entirely."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.impl.cli :as cli]
+            [vaelii.host.cli :as cli]
             [vaelii.test-util :as tu])
   (:import (java.io File)
            (java.nio.file Files)

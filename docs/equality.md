@@ -397,6 +397,14 @@ on *every* declaration constraining that position, both spellings unioned
 a birth year, a measurement — and `sameAs` is individuals-only by OWL. `equals` is
 the only one of the three that always type-checks here.
 
+The fluent lane has its own counterpart. A value carried under `initiates` never becomes a
+bare literal, so this closure never sees it; `(functional_at_instant F)` states that `F` has
+at most one value for one subject at a single instant, and
+`vaelii.core/functional-at-instant-violations` reports a moment carrying two — a merge for
+two symbols, a contradiction otherwise. It reports rather than merges: whether two fluents
+overlap at an instant follows from the clipping closure and is read on demand, the shape
+`specified-violations` uses. See [time.md](time.md).
+
 Making it a real justification rather than a side effect is what makes it safe. The
 risk of auto-inference is that one wrong `functional` declaration silently merges
 two real individuals across the whole KB — so the merge is justified, `why` names
@@ -616,7 +624,7 @@ unequal sizes, and an equal-size pair is oriented by a fixed symbol precedence, 
 `(rel ?x ?y) = (rel ?y ?x)`, which no term order can orient — is refused; that needs
 AC-rewriting, a separate mechanism. Normalization reaches all four query paths:
 `sentexes-matching`, `ask`, `prove`, and `query` all rewrite the top goal — the last two
-through `core/prepare-goal-for-read`, which is what keeps a goal naming a merged spelling
+through `quasiquote/prepare-goal-for-read`, which is what keeps a goal naming a merged spelling
 from being answered by `ask` and silently missed by `prove`. `different` is exempt, since
 its arguments must stay un-rewritten to read class membership.
 

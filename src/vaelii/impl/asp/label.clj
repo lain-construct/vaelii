@@ -31,8 +31,8 @@
 
   **Classification reads the recorded program, never a recomputed one.** Resolving a
   tie erases its own evidence — the defeated side stops matching, so the nogood is no
-  longer derivable from the KB. `core/last-program` holds what the solver was
-  actually asked (see the KB record).
+  longer derivable from the KB. The `:program` atom on the KB holds what the solver was
+  actually asked (see the KB record); `vaelii.core/last-program` is the public read of it.
 
   **Labeling reads the TMS, not a fresh solve.** `label-context` materializes the
   labeling the engine *committed to*, taken from `jtms/in?`, rather than re-solving
@@ -52,13 +52,15 @@
   contested assumption as `:supportable` — honest (each *is* one of several options)
   and never overclaims `:true`."
   (:require
-   [vaelii.core :as v]
    [vaelii.impl.asp.edge :as edge]
    [vaelii.impl.asp.solver :as solver]
    [vaelii.impl.jtms :as jtms]
+   [vaelii.impl.kb :as kb]
    [vaelii.impl.naming :as nm]
    [vaelii.impl.protocols :as p]
-   [vaelii.impl.solve :as solve]))
+   [vaelii.impl.settle :as settle]
+   [vaelii.impl.solve :as solve]
+   [vaelii.impl.wiring :as wiring]))
 
 ;; `classify-program` lives in `asp.edge` (below core), so `settle` can stamp the
 ;; classification onto the TMS as belief settles.  Re-exported here for the KB-level
@@ -72,7 +74,7 @@
   Returns `{:true #{handle} :supportable #{handle} :false #{handle}}`, all empty when
   no tie has been arbitrated (nothing contested means nothing to be uncertain about)."
   [kb]
-  (if-let [program (v/last-program kb)]
+  (if-let [program @(:program kb)]
     (classify-program program)
     {:true #{} :supportable #{} :false #{}}))
 
@@ -104,7 +106,7 @@
   separately would let the same datum be believed by one answer and not the other,
   which is not a labeling of anything."
   [kb]
-  (when-let [ds (seq (v/contradictions kb))]
+  (when-let [ds (seq (settle/ranked (settle/contradictions-of kb)))]
     (solve/program (into #{} (mapcat :nogood) ds)
                    (mapv #(select-keys % [:nogood :priority :sentence]) ds)
                    (sides-content ds))))
@@ -244,18 +246,18 @@
       ;; the two came from separate solves; refuse to commit if they disagree
       (check-agrees program keep-set classification)
       (reset! (:program kb) program)
-      (v/assert kb (list 'genlCx ctx base) base {:strength :monotonic})
+      (wiring/assert-sentence kb (list 'genlCx ctx base) base {:strength :monotonic})
       {:context ctx
        :program program
        :classification classification
        :handles (into [] (keep (fn [h]
-                                 (when-let [s (v/sentex kb h)]
+                                 (when-let [s (p/get-sentex (:records kb) h)]
                                    ;; :monotonic is the whole mechanism — a copy at
                                    ;; :default would merely tie with the side it is
                                    ;; supposed to beat, and report a second dilemma
                                    ;; instead of deciding the first
-                                   (v/assert kb (:sentence s) ctx {:strength :monotonic})
-                                   (v/handle-of kb (:sentence s) ctx))))
+                                   (wiring/assert-sentence kb (:sentence s) ctx {:strength :monotonic})
+                                   (kb/find-sentex-handle kb (:sentence s) ctx))))
                       ;; sorted by content, never by handle: handles are allocated in
                       ;; assertion order, so iterating them would make *which* copy is
                       ;; created first depend on the order the knowledge arrived — the
@@ -301,15 +303,15 @@
   and is retracted as one."
   [kb ctx base]
   (let [tms (:tms kb)
-        program (v/last-program kb)
+        program @(:program kb)
         ;; content order, as `label-dilemmas` orders the same set: `:assumptions` is
         ;; a handle set, and hash iteration would mint the copies — and return the
         ;; `:handles` a caller retracts — in an order that tracks assertion order
         believed (nm/sort-by-content-key #(solve/content-key program %) compare
                                          (filter #(jtms/in? tms %) (:assumptions program)))]
-    (v/assert kb (list 'genlCx ctx base) base {:strength :monotonic})
+    (wiring/assert-sentence kb (list 'genlCx ctx base) base {:strength :monotonic})
     {:context ctx
      :handles (into [] (keep (fn [h]
                                (when-let [s (p/get-sentex (:records kb) h)]
-                                 (v/ist kb ctx (:sentence s)))))
+                                 (wiring/assert-sentence kb (:sentence s) ctx nil))))
                     believed)}))

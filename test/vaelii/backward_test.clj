@@ -14,7 +14,7 @@
 (tu/deftest-kb prove-facts-and-rules
   (let [parentOf (tu/tmp-pred) grandparentOf (tu/tmp-pred)
         tom (tu/tmp-ind) bob (tu/tmp-ind) ann (tu/tmp-ind) zed (tu/tmp-ind)]
-    (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam)
+    (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)] (list grandparentOf '?x '?z) 'CxFam {:direction :forward})
     (v/assert kb (list parentOf tom bob) 'CxFam)
     (v/assert kb (list parentOf bob ann) 'CxFam)
     (testing "prove a direct fact"
@@ -28,7 +28,7 @@
   (let [dog (tu/tmp-type) animal (tu/tmp-type) rock (tu/tmp-type)
         breathes (tu/tmp-pred) muffet (tu/tmp-ind) boulder (tu/tmp-ind)]
     (v/assert kb (list 'genl dog animal) 'CxUniverse)
-    (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'CxUniverse)
+    (v/assert-rule kb [(list animal '?x)] (list breathes '?x) 'CxUniverse {:direction :forward})
     (v/assert kb (list dog muffet) 'CxUniverse)
     (v/assert kb (list rock boulder) 'CxUniverse)          ; not an animal
     (testing "a rule about animals is provable for a dog (subtype), not a rock"
@@ -50,8 +50,8 @@
 (tu/deftest-kb prove-terminates-on-recursive-rule
   (let [parentOf (tu/tmp-pred) ancestorOf (tu/tmp-pred)
         aa (tu/tmp-ind) bb (tu/tmp-ind) cc (tu/tmp-ind) dd (tu/tmp-ind)]
-    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) 'CxUniverse)                   ; base
-    (v/assert-rule kb [(list parentOf '?x '?y) (list ancestorOf '?y '?z)] (list ancestorOf '?x '?z) 'CxUniverse) ; right-recursive
+    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) 'CxUniverse {:direction :forward})                   ; base
+    (v/assert-rule kb [(list parentOf '?x '?y) (list ancestorOf '?y '?z)] (list ancestorOf '?x '?z) 'CxUniverse {:direction :forward}) ; right-recursive
     (v/assert kb (list parentOf aa bb) 'CxUniverse)
     (v/assert kb (list parentOf bb cc) 'CxUniverse)
     (v/assert kb (list parentOf cc dd) 'CxUniverse)
@@ -103,9 +103,9 @@
   ;; empty answer while each conjunct answers alone.  Two children of one parent, so
   ;; both conjuncts answer only through the rules and share one goal-key.
   (tu/with-terms [parentOf ancestorOf Tom Bob Cal CxGuard]
-    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) CxGuard)
+    (v/assert-rule kb [(list parentOf '?x '?y)] (list ancestorOf '?x '?y) CxGuard {:direction :forward})
     (v/assert-rule kb [(list parentOf '?x '?y) (list ancestorOf '?y '?z)]
-                   (list ancestorOf '?x '?z) CxGuard)
+                   (list ancestorOf '?x '?z) CxGuard {:direction :forward})
     (v/assert kb (list parentOf Tom Bob) CxGuard)
     (v/assert kb (list parentOf Tom Cal) CxGuard)
     (testing "each conjunct alone answers twice, so the pair is a 4-row cross product"
@@ -128,7 +128,7 @@
 (tu/deftest-kb prove-a-single-goal-is-unchanged-by-the-conjunction-form
   (tu/with-terms [parentOf grandparentOf Tom Bob Ann CxJoin]
     (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
-                   (list grandparentOf '?x '?z) CxJoin)
+                   (list grandparentOf '?x '?z) CxJoin {:direction :forward})
     (v/assert kb (list parentOf Tom Bob) CxJoin)
     (v/assert kb (list parentOf Bob Ann) CxJoin)
     (testing "a bare sentence and the one-element vector agree, facts and rules alike"
@@ -162,8 +162,8 @@
   ;; counting halves stand aside under `VAELII_QUERY_ENGINE`, in the shape
   ;; `query_test.clj` uses, and the set halves run under both engines.
   (tu/with-terms [viaA viaB shared Someone CxDeriv]
-    (v/assert-rule kb [(list viaA '?x)] (list shared '?x) CxDeriv)
-    (v/assert-rule kb [(list viaB '?x)] (list shared '?x) CxDeriv)
+    (v/assert-rule kb [(list viaA '?x)] (list shared '?x) CxDeriv {:direction :forward})
+    (v/assert-rule kb [(list viaB '?x)] (list shared '?x) CxDeriv {:direction :forward})
     (v/assert kb (list viaA Someone) CxDeriv)
     (v/assert kb (list viaB Someone) CxDeriv)
     (let [proofs (v/prove kb (list shared '?x) CxDeriv)
@@ -214,7 +214,7 @@
 (tu/deftest-kb a-term-growing-rule-terminates-at-the-ceiling
   (tu/with-terms [p SuccFn A CxGrow]
     ;; (implies (p (SuccFn ?x)) (p ?x)): every expansion wraps one more SuccFn
-    (v/assert-rule kb [(list p (list SuccFn '?x))] (list p '?x) CxGrow)
+    (v/assert-rule kb [(list p (list SuccFn '?x))] (list p '?x) CxGrow {:direction :forward})
     (testing "with nothing stored, the search cuts at the ceiling and answers no"
       (is (false? (within-ms 20000 #(v/provable? kb (list p A) CxGrow)))))
     (testing "a fact within the allowance is still reached through the rule"
@@ -227,7 +227,7 @@
 (tu/deftest-kb a-term-shrinking-recursion-is-not-bounded
   (tu/with-terms [q SuccFn Zero CxShrink]
     ;; (implies (q ?x) (q (SuccFn ?x))): a goal about a numeral counts it down
-    (v/assert-rule kb [(list q '?x)] (list q (list SuccFn '?x)) CxShrink)
+    (v/assert-rule kb [(list q '?x)] (list q (list SuccFn '?x)) CxShrink {:direction :forward})
     (v/assert kb (list q Zero) CxShrink)
     (let [deep (nth (iterate #(list SuccFn %) Zero) 12)]
       (testing "twelve levels of descent, past the growth allowance, still answer —

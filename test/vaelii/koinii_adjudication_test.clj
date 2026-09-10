@@ -7,7 +7,7 @@
   asserts/retracts and never touches settle."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.sentex :as sx]
             [vaelii.koinii.adjudication :as adj]
             [vaelii.koinii.dispute :as d]
@@ -195,8 +195,8 @@
 (def shippable '(shippable ProdCluster))
 
 (tu/deftest-kb reasoning-keeps-deriving-on-a-contested-premise-and-says-so
-  (v/assert kb '(implies (reliable ?x) (deployable ?x)) 'CxDeploy)
-  (v/assert kb '(implies (deployable ?x) (shippable ?x)) 'CxDeploy)   ; a second hop
+  (v/assert kb '(implies (reliable ?x) (deployable ?x)) 'CxDeploy {:direction :forward})
+  (v/assert kb '(implies (deployable ?x) (shippable ?x)) 'CxDeploy {:direction :forward})   ; a second hop
   (clash! kb)                                              ; reliable ProdCluster is now contested
   (v/assert kb '(fast ProdCluster) 'CxDeploy)             ; an uncontested fact
   (testing "the paraconsistent default: the KB keeps deriving through the dispute"
@@ -215,7 +215,7 @@
   ;; there and an exact-context lookup finds it.  Here Atlas holds the rule in its OWN
   ;; context, which is where the placement then goes — so CxDeploy proves `deployable`
   ;; while storing no `deployable` of its own, and the flag has to follow the ancestor set.
-  (v/assert kb '(implies (reliable ?x) (deployable ?x)) 'CxAtlas)
+  (v/assert kb '(implies (reliable ?x) (deployable ?x)) 'CxAtlas {:direction :forward})
   (clash! kb)
   (testing "the channel proves the conclusion but is not where it lives"
     (is (v/ask? kb deployable 'CxDeploy) "the channel sees Atlas's rule and Atlas's premise")
@@ -236,7 +236,7 @@
 ;; ---- quarantine: the option, off by default ------------------------------
 
 (tu/deftest-kb quarantine-excludes-a-contested-claim-from-one-channel-reversibly
-  (v/assert kb '(implies (reliable ?x) (deployable ?x)) 'CxDeploy)
+  (v/assert kb '(implies (reliable ?x) (deployable ?x)) 'CxDeploy {:direction :forward})
   (clash! kb)
   (let [ph (v/handle-of kb P 'CxAtlas)]
     (is (v/ask? kb deployable 'CxDeploy) "before: the derivation rests on the contested claim")

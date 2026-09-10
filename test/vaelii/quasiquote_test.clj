@@ -9,7 +9,7 @@
   binds its holes, deterministically (content-addressed dedup) so a re-derivation converges."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.core-context :as core-context]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.quasiquote :as quasiquote]
             [vaelii.test-util :as tu]))
@@ -37,7 +37,7 @@
     (quasiquote/ensure-quasiquote-functions kb)
     (v/assert-rule kb [(list dog '?x)]
                    (list believes Tom (qq (list isa (unq '?x) Dog)))
-                   'CxUniverse)
+                   'CxUniverse {:direction :forward})
     (v/assert kb (list dog Fido) 'CxUniverse)
     (testing "the rule fired and constructed (isa Fido Dog) as a mention"
       (is (some? (nat/dedup-constant kb (list 'Quote (list isa Fido Dog)))))
@@ -54,9 +54,9 @@
     (quasiquote/ensure-quasiquote-functions kb)
     ;; two rules whose heads construct the identical mention from the same binding
     (v/assert-rule kb [(list dog '?x)]
-                   (list believes Tom (qq (list isa (unq '?x) Dog))) 'CxUniverse)
+                   (list believes Tom (qq (list isa (unq '?x) Dog))) 'CxUniverse {:direction :forward})
     (v/assert-rule kb [(list friend '?x)]
-                   (list believes Tom (qq (list isa (unq '?x) Dog))) 'CxUniverse)
+                   (list believes Tom (qq (list isa (unq '?x) Dog))) 'CxUniverse {:direction :forward})
     (v/assert kb (list dog Fido) 'CxUniverse)
     (v/assert kb (list friend Fido) 'CxUniverse)
     (is (= 1 (count (v/sentexes-matching kb (list 'termOfUnit '?k (list 'Quote (list isa Fido Dog)))

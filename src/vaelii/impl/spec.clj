@@ -26,12 +26,13 @@
   (`genls`, `context-up`, …) are specced too, since a wrong-arity call to one of
   them is exactly the kind of mistake instrumentation should surface early.
 
-  **Sixteen publics that take an option map are outside it**, and instrumenting says
+  **Seventeen publics that take an option map are outside it**, and instrumenting says
   nothing about their arguments: the batch writes (`assert-many`,
   `bulk-assert-facts!`), the fork and the two consequence readers over it (`fork`,
   `preview`, `edit-with-consequences!`), the store transfers (`import!`, `export!`,
   `export-text!`),
-  the two search-back reads (`search-tree`, `compare-tacticians`), the evaluatable-prover
+  the two search-back reads (`search-tree`, `compare-tacticians`) and the truncation
+  report (`query-status`), the evaluatable-prover
   registration (`add-evaluatable`), the four-valued epistemic-status read (`argue`), and
   `check`, `abduce`, `kb-quality`, `clear-caches`.
   A roster test in
@@ -92,7 +93,7 @@
 
 ;; ---- the rule-assertion option map (assert-rule adds :direction) --------
 
-(s/def ::direction #{:forward :backward :inert :both})
+(s/def ::direction #{:forward :backward :inert :both :forward-only})
 (s/def ::rule-opts (s/keys :opt-un [::strength ::chain? ::max-depth ::max-derivations
                                     ::on-progress ::progress-every-ms ::creator
                                     ::provenance ::direction]))

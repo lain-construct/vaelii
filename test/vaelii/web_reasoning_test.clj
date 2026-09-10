@@ -14,9 +14,9 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.examples :as ex]
-            [vaelii.impl.sandbox :as sandbox]
-            [vaelii.impl.web :as web]
+            [vaelii.host.examples :as ex]
+            [vaelii.host.sandbox :as sandbox]
+            [vaelii.host.web :as web]
             [vaelii.test-util :as tu]))
 
 (def ^:dynamic *app* nil)

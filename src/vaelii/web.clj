@@ -5,12 +5,12 @@
   justifications, all cross-linked.
 
   Public because it is a documented entry point — `lein browser`, or
-  `lein run -m vaelii.web`.  The implementation is `vaelii.impl.web`, which is free to
+  `lein run -m vaelii.web`.  The implementation is `vaelii.host.web`, which is free to
   change; the dev-only affordances (`dev-repl`, `dev-stop`) stay there.
 
   It binds loopback and authenticates nobody; read `.github/SECURITY.md` before
   `--listen` names an address."
-  (:require [vaelii.impl.web :as web]))
+  (:require [vaelii.host.web :as web]))
 
 (defn handler
   "The ring handler for `target` — a KB, an access value, or a catalog holder —

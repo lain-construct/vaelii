@@ -17,7 +17,7 @@
     hypothesis places its conclusion **in** that context, because placement is the
     maximal common descendant (docs/contexts.md) — so the consequences land inside the
     thing that gets discarded, with nothing arranging for it.  That is the sandbox's
-    shape (`vaelii.impl.sandbox`), for the same reason.
+    shape (`vaelii.host.sandbox`), for the same reason.
   - **Arbitration is strengths.**  A hypothesis is asserted `:default`, so it is
     defeasible by construction: a `:monotonic` fact that contradicts it wins through the
     ordinary defeat path, with no abduction-specific rule anywhere.
