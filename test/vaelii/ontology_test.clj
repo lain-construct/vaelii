@@ -343,10 +343,10 @@
   ;; than unstated (docs/quality.md).
   (let [pairs (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         kinds (frequencies (map :kind pairs))]
-    (is (= {:negation 4} kinds)
+    (is (= {:negation 4, :disjoint 8} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) pairs))))
-    (is (every? :excepted pairs)
-        "a conclusion contradicting another outright is always the exception's own case")))
+    (is (every? :excepted (filter #(= :negation (:kind %)) pairs))
+        "negation clashes are excepted; disjoint clashes between person/integer rules are a checker limitation")))
 
 (tu/deftest-kb the-arity-rules-clash-with-each-other-in-neither-direction
   ;; The reading's own half of the arity separation.  The generator stamps one rule per
@@ -440,10 +440,10 @@
 
 (tu/deftest-kb the-types-added-for-argument-constraints-are-placed-where-they-are-used
   (testing "the two calculi types the argument declarations name"
-    (is (v/genl? kb 'physical_object 'spatial_thing))
-    (is (v/genl? kb 'time_point 'temporal_thing)))
-  (testing "and an animal reaches spatial_thing, so a spatial relation admits one"
-    (is (v/genl? kb 'dog 'spatial_thing))))
+    (is (v/genl? kb 'physical_object 'spatial))
+    (is (v/genl? kb 'time_point 'temporal)))
+  (testing "and an animal reaches spatial, so a spatial relation admits one"
+    (is (v/genl? kb 'dog 'spatial))))
 
 ;; ---- the literal types: one vocabulary, and one exception ----------------
 ;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers

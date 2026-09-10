@@ -44,8 +44,8 @@ unsatisfiable network reported as a contradiction.
 The unit is an **interval**, not an instant. A meeting, a reign, a journey — something
 with a start and an end — so two of them can meet, overlap or nest, which is exactly the
 structure a point calculus throws away. The interval relations are declared `(arg …
-temporal_thing)` and the instant relations `(arg … time_point)`, `time_point` sitting
-under `temporal_thing`, so `startOf` and `endOf` bridge the two by declaration as well as
+temporal)` and the instant relations `(arg … time_point)`, `time_point` sitting
+under `temporal`, so `startOf` and `endOf` bridge the two by declaration as well as
 by meaning. A temporal relation between two predicates is refused rather than stored.
 The algebra itself knows nothing of clocks or calendars — only order and containment; the
 calendar constructors below *name* intervals for it, and compute no relation of their own.
@@ -222,7 +222,7 @@ constructors give a name to the interval a calendar already picks out:
 Each takes one integer field per argument, coarsest first, so **its arity is its
 precision**, and each is an `unreifiable_function` — the application stays structural, so
 the fields are readable inside the term rather than collapsed into an opaque constant. Each
-declares `(result … temporal_thing)`, which is what makes a calendar term an ordinary
+declares `(result … temporal)`, which is what makes a calendar term an ordinary
 argument of `before`, `during` or `subintervalOf` and **not** of `instantBefore`: a year is
 a stretch, not a moment.
 
@@ -352,7 +352,7 @@ the narrative did not. State the links, and the whole theory reads them: `clippe
 over `InstantFn` moments, `holdsAt` answers, and retracting a link takes both back.
 
 An event happens at a **moment**, so a calendar term is not one: `(happens E (DayFn 2000 1
-15))` is refused by the argument check, a day being a `temporal_thing` and `happens`'
+15))` is refused by the argument check, a day being a `temporal` and `happens`'
 second argument a `time_point`. `(happens E (InstantFn 2000 1 15 0 0 0))` is the moment
 that day begins, and `(startOf (DayFn 2000 1 15) ?i)` is how to name it.
 
@@ -394,7 +394,7 @@ every other reasoner here (`add-reasoner kb :calendar`) and answering three fami
 ```
 
 **A moment is `(InstantFn Y M D h m s)` — six integer fields, always.** It is a
-`time_point` where the calendar constructors are `temporal_thing`s, declared in `CxTime`
+`time_point` where the calendar constructors are `temporal`s, declared in `CxTime`
 beside them and `unreifiable_function` for their reason: the fields are what the ordering
 reads. Six fields and not a reduced-precision spelling, because a term is identified by
 its shape and one moment must have exactly **one** term — `"2000-01-01T00:00:00"` and

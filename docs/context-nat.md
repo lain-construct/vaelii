@@ -179,7 +179,7 @@ year one way and the month the other still orders the two contexts. Fields are n
 Three constructors and not six: a year, a month and a day are the granularities somebody
 writes a holiday or a policy *for*, and each finer field is a spelling ISO already gives.
 The three are declared in `resources/kb/upper/CxTime.txt` — they are about time, and CxTime
-is the upper context that owns time — each with a `(result … temporal_thing)`, so a
+is the upper context that owns time — each with a `(result … temporal)`, so a
 calendar term is an interval and not an instant. That is also why it cannot stand in an
 `instantBefore`, and why the moments it lies between are a separate term with a separate
 constructor: see [What this does not cover](#what-this-does-not-cover).
@@ -267,7 +267,7 @@ which is the only spelling the map is keyed by.
   `context_denoting_function`, a `contextArgSubrelation`, and either registering a comparator
   or asserting the `R` facts.
 - **A calendar term's endpoints are somebody else's job.** `(YearFn 2000)` is a
-  `temporal_thing`, so it takes the interval relations and not `instantBefore`, which is a
+  `temporal`, so it takes the interval relations and not `instantBefore`, which is a
   claim about moments. The moments it lies between are computed — half-open, so 2000 ends
   where 2001 begins — by the calendar clock, which answers `startOf` / `endOf` with an
   `(InstantFn Y M D h m s)` term and stores nothing ([time.md](time.md), "The calendar

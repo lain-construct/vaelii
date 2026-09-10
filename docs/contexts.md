@@ -71,7 +71,7 @@ Data hangs below CxWell.
 - **CxCore** — the upper spindle's *head*: the code-supported vocabulary (every
   special predicate the engine interprets), asserted by `vaelii.host.core-context`. The
   root — every context sees it. It also holds the five collections at the top of the
-  ontology — `intangible`, `spatial_thing`, `physical_object`, `living_thing`,
+  ontology — `intangible`, `spatial`, `physical_object`, `living_thing`,
   `capability` — which the engine reads by no name and which are here for the reason
   below: the members of a spindle see each other not at all, so a term two of them
   extend has to be defined in the head.
