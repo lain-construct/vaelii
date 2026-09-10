@@ -216,9 +216,11 @@
 (comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
 (genl intangible thing)
 (genl spatial thing)
+(genl temporal thing)
 (genl physical_object spatial)
 (genl living_thing physical_object)
 (genl capability intangible)
+(genl abstract intangible)
 
 ;; The expression kinds — what a sentence is BUILT OUT OF, named as collections so a
 ;; declaration can type an argument by the FORM of the expression written there rather
