@@ -1220,6 +1220,7 @@
 (termsRelated positiveExample negativeExample borderlineExample)
 
 ;; --- Lacuna proposals (CxWell, upper ontology overhaul) ---
+(binary_predicate genlInverse)
 (arg1 genlInverse binary_predicate)
 (arg1 typeGenl at_least_metatype)
 (arg2 genlInverse binary_predicate)
