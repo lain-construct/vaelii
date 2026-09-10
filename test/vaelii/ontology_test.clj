@@ -440,10 +440,10 @@
 
 (tu/deftest-kb the-types-added-for-argument-constraints-are-placed-where-they-are-used
   (testing "the two calculi types the argument declarations name"
-    (is (v/genl? kb 'physical_object 'spatial_thing))
-    (is (v/genl? kb 'time_point 'temporal_thing)))
-  (testing "and an animal reaches spatial_thing, so a spatial relation admits one"
-    (is (v/genl? kb 'dog 'spatial_thing))))
+    (is (v/genl? kb 'physical_object 'spatial))
+    (is (v/genl? kb 'time_point 'temporal)))
+  (testing "and an animal reaches spatial, so a spatial relation admits one"
+    (is (v/genl? kb 'dog 'spatial))))
 
 ;; ---- the literal types: one vocabulary, and one exception ----------------
 ;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers

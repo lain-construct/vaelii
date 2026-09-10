@@ -210,13 +210,13 @@
 ;; stay in the band: (genl artifact physical_object) is CxAbstract's, (genl animal
 ;; living_thing) is CxOrganism's, and both now resolve.
 (comment intangible "Something with no mass or location: an attribute, a relation, a time.")
-(comment spatial_thing "Something with a location, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. What the four spatial calculi relate.")
+(comment spatial "Something with a location, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. What the four spatial calculi relate.")
 (comment physical_object "Something with mass and a location in space.")
 (comment living_thing "An organism — it is born, lives, and (by default) dies.")
 (comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
 (genl intangible thing)
-(genl spatial_thing thing)
-(genl physical_object spatial_thing)
+(genl spatial thing)
+(genl physical_object spatial)
 (genl living_thing physical_object)
 (genl capability intangible)
 

@@ -153,20 +153,21 @@
 (comment substance "A homogeneous stuff (water, iron) rather than a countable object.")
 (genl substance physical_object)
 
-(comment temporal_thing "Something that happens or exists in time (an event, an interval).")
-(genl temporal_thing intangible)
+(disjoint physical_object intangible)
+
+(comment temporal "Something that happens or exists in time. Physical objects, events, and situations are all temporal.")
 
 (comment time_point "A moment rather than a stretch — one of the two instants bounding an interval. What the point algebra relates, and what startOf and endOf reach from an interval.")
-(genl time_point temporal_thing)
+(genl time_point temporal)
 
 ;; --- situation / static_situation / event: the state-of-affairs hierarchy ------
 (comment situation "A state of affairs: objects bearing properties or relations over a time interval. Parent of static_situation (the state holds unchanged) and event (the world's state changes); change is the specialization axis.")
-(genl situation temporal_thing)
+(genl situation temporal)
 
 (comment static_situation "A situation extended in time but unchanged, a held state, e.g. a file existing. Contrast event, the kind whose state changes.")
 (genl static_situation situation)
 
-(comment event "Something that happens: an occurrence located in time whose state changes. The event-calculus slots (happens/initiates/terminates) are typed temporal_thing and no event collection was declared; this names one.")
+(comment event "Something that happens: an occurrence located in time whose state changes. The event-calculus slots (happens/initiates/terminates) are typed temporal and no event collection was declared; this names one.")
 (genl event situation)
 
 ;; A situation either holds unchanged or changes, never both — the specialization axis

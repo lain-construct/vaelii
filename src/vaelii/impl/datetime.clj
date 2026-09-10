@@ -212,7 +212,7 @@
 
   A `DatetimeFn` at full precision denotes the one-*second* interval, not the instant that
   opens it — the whole family names stretches — so the two constructors are kept apart:
-  `YearFn` / `MonthFn` / `DayFn` / `DatetimeFn` are `temporal_thing`s, `InstantFn` is a
+  `YearFn` / `MonthFn` / `DayFn` / `DatetimeFn` are `temporal`s, `InstantFn` is a
   `time_point`."
   'InstantFn)
 
