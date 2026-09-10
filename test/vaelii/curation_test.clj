@@ -22,7 +22,7 @@
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
+(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
 ;; ---- Piece 1: seeAlso, a directional cross-reference ----------------------
 

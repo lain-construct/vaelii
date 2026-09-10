@@ -16,12 +16,11 @@
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.settle :as settle]
             [vaelii.impl.vocabulary :as vocab]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
+(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
 (tu/deftest-kb every-term-the-grammar-declares-is-classified
   ;; The durable half.  A functor added to CxCore without anybody deciding whether

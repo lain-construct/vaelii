@@ -30,13 +30,12 @@
   answers the same goal false by contract — the registry expands no rule."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.predall :as predall]
             [vaelii.impl.resolution :as res]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
+(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
 (defn- believes?
   "Is `sentence` a believed, stored sentex in `ctx`?  Read through `sentexes-matching`,

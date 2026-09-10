@@ -30,6 +30,7 @@
             [clojure.string :as str]
             [clojure.test :refer [is]]
             [vaelii.core :as v]
+            [vaelii.host.core-context :as core-context]
             [vaelii.host.llm.ollama :as ollama]
             [vaelii.host.starter :as starter]
             [vaelii.impl.checks :as checks]
@@ -499,6 +500,55 @@
   (v/import! kb @starter-dump {:belief? true})
   kb)
 
+;; ---- CxCore, built once and copied --------------------------------------
+
+(def core-build-space
+  "The space the CxCore dump is built on, `starter-build-space`'s counterpart: a plain
+  in-RAM KB of its own, never the shared scratch one, for the same reason — a `:once`
+  fixture in another namespace holds `scratch-space` open and `fresh` wipes what it
+  finds, so building here would wipe it.  Plain memory whatever storage the run selected,
+  since a dump is backend-portable."
+  {:backend :memory
+   :space [::core block-top]
+   :recover? false :tms tms-kind})
+
+(def ^:private core-context-dump
+  "An export dump of the CxCore vocabulary context, built **once per JVM** and read back
+  by `load-core!`, mirroring `starter-dump`.
+
+  `core-context/load-into` re-asserts the whole `CxCore.txt` through the full write path,
+  and the `neutral-fresh` fixtures rebuild a fresh core KB per test, so that cost is paid
+  once for every such test.  A restored dump reaches the same state: `import!` restores
+  the records, the justifications and the premise marks, rebuilds the index and recovers
+  belief, so what it produces is what `load-into` produces — `core_copy_test` pins that,
+  the genlCx edge `load-into` wires first included, because a recovered belief state does
+  not depend on the order the records were written.
+
+  The directory is deleted on JVM exit, deepest entry first, as `starter-dump`'s is."
+  (delay
+    (let [dir (doto (File. (System/getProperty "java.io.tmpdir")
+                           (str "vaelii-core-" (System/nanoTime)))
+                (.mkdirs))
+          kb  (doto (v/open-kb core-build-space) (clear-kb!))]
+      (core-context/load-into kb)
+      (v/export! kb (.getPath dir))
+      (clear-kb! kb)
+      (.deleteOnExit dir)
+      (run! #(.deleteOnExit ^File %) (file-seq dir))
+      (.getPath dir))))
+
+(defn load-core!
+  "Load the CxCore vocabulary into `kb` and return `kb` — `core-context/load-into`'s
+  result, restored from the dump `core-context-dump` builds once per JVM rather than
+  re-asserted, as `load-starter!` does for the starter.
+
+  A test *about the load path itself* — what `load-into` asserts, in what order, or the
+  `(genlCx CxUniverse CxCore)` edge it wires first — calls `core-context/load-into`
+  directly and pays for it, since a restored dump answers a different question."
+  [kb]
+  (v/import! kb @core-context-dump {:belief? true})
+  kb)
+
 (defn isolated-fresh
   "An empty, cleared KB on the isolated space.  See `isolated-test-kb`."
   [] (doto (isolated-test-kb) (clear-kb!)))
@@ -817,8 +867,10 @@
 
 (defn neutral-fresh
   "An `:each` fixture that builds a KB with `build-fn` (e.g. `tu/fresh`, or
-  `#(doto (tu/fresh) (core-context/load-into))`), binds it, and guards net-neutrality per
-  test."
+  `#(doto (tu/fresh) (tu/load-core!))` for one needing CxCore's vocabulary), binds it, and
+  guards net-neutrality per test.  A test *about* the CxCore load path builds with
+  `#(doto (tu/fresh) (core-context/load-into))` instead, paying the load rather than
+  restoring the dump."
   [build-fn]
   (fn [f]
     (let [kb (build-fn)]
