@@ -1227,6 +1227,7 @@
 (arg typeGenl 1 at_least_metatype)
 (arg typeGenl 2 unary_predicate)
 (at_least_metatype disjoint_metatype)
+(unary_predicate type)
 (comment genlInverse "Like binary `genl`, but with the arg order flipped. (genlInverse ?spec ?genl-inv) means (?spec ?x ?y) entails (?genl-inv ?y ?x). Does not license the converse.")
 (comment typeGenl "Higher-order genl: (typeGenl ?classifier ?genl) means every instance of ?classifier is a genl of ?genl.")
 (disjoint intangible spatial)

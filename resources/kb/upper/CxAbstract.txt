@@ -221,6 +221,7 @@
 (comment solid "A substance in the solid state of matter.")
 (comment stuff_type_by_state_of_matter "A disjoint_metatype classifying substances by physical state — solid, liquid, gas.")
 (comment stuff_type_by_substance "A disjoint_metatype classifying substances by material — wood, metal, glass_stuff, stone, liquid.")
+(comment type "A first-order type — its instances are individuals, not types. Contrasts with metatype (second order) and meta_metatype (third order).")
 (comment type_type_by_order "A disjoint_metatype partitioning fixed_order_type into type, metatype, and meta_metatype.")
 (comment unrepresented_term "An expression that cannot be further decomposed in the KB — strings, numbers, keywords, booleans, characters.")
 (comment variable_order_type "A type that can hold members of any order.")
