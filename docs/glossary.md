@@ -35,6 +35,8 @@ scratch context hung below the asking context, so an ignored call leaves the
 KB as it found it and every answer names its assumptions. See
 [abduction.md](abduction.md).
 
+**`abstract`** ![kb](../.github/badges/cat-kb.svg): An entity outside space and time — both `aspatial` and `atemporal`. See [taxonomy.md](taxonomy.md).
+
 **Aggregation** ![inference](../.github/badges/cat-inference.svg): The five
 query operators `agg/count` / `agg/sum` / `agg/min` / `agg/max` / `agg/avg` —
 namespaced like `set/*Rule`, the bare words being ordinary vocabulary.
@@ -104,6 +106,8 @@ backend the edge solver renders a contested `Program` into, solved with clingo
 (in-process JNA) or clasp (subprocess). Opt-in, with a deterministic stub
 fallback. See [asp.md](asp.md).
 
+**`aspatial`** ![kb](../.github/badges/cat-kb.svg): An entity not located in space. See [taxonomy.md](taxonomy.md).
+
 **ASPIF** ![asp](../.github/badges/cat-asp.svg): The intermediate text format a
 `Program` is emitted to before a clingo/clasp solve. Contested assumptions
 become choice atoms and nogoods become weak constraints. See [asp.md](asp.md).
@@ -112,6 +116,10 @@ become choice atoms and nogoods become weak constraints. See [asp.md](asp.md).
 direct premise support — held IN by having been written down rather than by resting
 on a justification. A sentex may be both asserted and **Derived**; `kb-diff`'s
 `:premise?` is what tells the two apart. See [nmtms.md](nmtms.md).
+
+**`at_least_metatype`** ![kb](../.github/badges/cat-kb.svg): The metatype-order collection of every type at order two or higher — `metatype`, `meta_metatype`, and up. See [taxonomy.md](taxonomy.md).
+
+**`atemporal`** ![kb](../.github/badges/cat-kb.svg): An entity not located in time. See [taxonomy.md](taxonomy.md).
 
 **Atomic (storage)** ![backend](../.github/badges/cat-backend.svg): All-or-nothing, the systems sense —
 an atomic rename publishing a new file over the live one, a crash-atomic write, and
@@ -239,6 +247,8 @@ reading of one. See [qcn.md](qcn.md).
 in — every sentex is in exactly one. Contexts form a `genlCx` hierarchy: a
 sub-context *sees* its supers. Names start with `Cx`, then CapitalCamelCase. See
 [contexts.md](contexts.md).
+
+**`context` (ontology type)** ![kb](../.github/badges/cat-kb.svg): The collection of contexts, a subtype of `expression` — `(genl context expression)`. The theory a sentex holds in is the knowledge-stratum sense, **Context**. See [taxonomy.md](taxonomy.md).
 
 **Contradiction** ![tms](../.github/badges/cat-tms.svg): A believed `P` and
 `(not P)` visible from a common context. A defeasible tie is a *represented
@@ -390,6 +400,8 @@ letting a rule state its own exception. For a binding the closed level-6 query
 holds of, the rule *blocks* — it does not conclude, so there is nothing to
 arbitrate. Undercutting defeat. See [exceptions.md](exceptions.md).
 
+**`expression`** ![kb](../.github/badges/cat-kb.svg): The parent of the representable forms — `relation`, `formula`, `context`, and `unrepresented_term`. See [taxonomy.md](taxonomy.md).
+
 **Extent** ![backend](../.github/badges/cat-backend.svg): The set of sentexes at
 a secondary root — a context, a functor, or an argument position — each set's
 cardinality being its own stored count. See [indexing.md](indexing.md).
@@ -408,6 +420,8 @@ instead of an application re-asking. One settle is one event, so a batch is one
 call; a **standing query** is a filter over the moved region and never a re-run of
 its goal. Silent under `preview`, `recover` and `reindex`, and refuses a goal the
 region cannot answer. See [feed.md](feed.md).
+
+**`fixed_order_type`** ![kb](../.github/badges/cat-kb.svg): A type all of whose members sit at one metatype order. `type_type_by_order` partitions it into `type`, `metatype`, and `meta_metatype`. See [taxonomy.md](taxonomy.md).
 
 **Fluent** ![kb](../.github/badges/cat-kb.svg): A state of affairs that holds
 over some stretches of time and not others — a cat asleep, a tortoise ahead. A fluent
@@ -432,6 +446,8 @@ decorator in [overlay.md](overlay.md).
 formula**; a logical operator applied to formulas; or a quantifier binding variables in
 a formula. *Open* when it has free variables, *closed* when it does not, and a closed
 formula is a **Sentence**. A CxCore collection too, `formula`. See [naming.md](naming.md).
+
+**`formula` (ontology type)** ![kb](../.github/badges/cat-kb.svg): The collection of formulas, a subtype of `expression` — `(genl formula expression)`. The formula-stratum grammar sense is **Formula**. See [taxonomy.md](taxonomy.md).
 
 **Forward chaining** ![inference](../.github/badges/cat-inference.svg): The
 semi-naive fixpoint over one agenda for bare and defeasible rules alike. A new
@@ -476,6 +492,8 @@ read via `sentexes-with-functor` / `count-with-functor`. See
 transitively-closed relations — `genl` between unary types and between
 predicates, `genlCx` between contexts. Cached as reflexive-transitive up/down closures, recomputed on
 edge change, belief-following. See [taxonomy.md](taxonomy.md).
+
+**`genlInverse`** ![kb](../.github/badges/cat-kb.svg): Binary `genl` with the argument order flipped. Inert — declared, read by no inference path. See [taxonomy.md](taxonomy.md).
 
 **Ground** ![inference](../.github/badges/cat-inference.svg): Containing no variables. A stored non-rule sentence
 must be ground (`checks/check-ground`); a rule's variables are implicitly universal,
@@ -633,6 +651,8 @@ or the four argument constraints. Named once on each spelling so a third reaches
 lane at once; a family is not a storage roster, its spellings caching differently. See
 [predicates.md](predicates.md).
 
+**`meta_metatype`** ![kb](../.github/badges/cat-kb.svg): A third-order type — its instances are metatypes, one order above `metatype` on the metatype-order ladder. See [taxonomy.md](taxonomy.md).
+
 **Metatype** ![kb](../.github/badges/cat-kb.svg): A type of types — its members
 are types themselves, reified under the `predicate` meta-ontology. A
 `disjoint_metatype`'s members are pairwise disjoint. See [taxonomy.md](taxonomy.md).
@@ -696,6 +716,8 @@ is computed from state, and every tie-break keys on content, never on handle id.
 See [nmtms.md](nmtms.md).
 
 ## P
+
+**`partitionedByType`** ![kb](../.github/badges/cat-kb.svg): Declares the cells that exhaustively and disjointly partition a whole, each cell an instance of a named classifier. Inert — declared, read by no inference path. See [taxonomy.md](taxonomy.md).
 
 **Path consistency** ![qr](../.github/badges/cat-qr.svg): The fixpoint that
 tightens a constraint network: for every triple, intersect the constraint on a
@@ -1088,6 +1110,12 @@ Not a second theory: `(derivativeOf R Q)` names the rate, and the trend is that
 rate's sign read at the other end of the edge, a constraint running both ways.
 See [sign.md](sign.md).
 
+**`type`** ![kb](../.github/badges/cat-kb.svg): A first-order type — its instances are individuals, `(dog Muffet)`. The base of the metatype-order ladder, below `metatype`. See [taxonomy.md](taxonomy.md).
+
+**`type_type_by_order`** ![kb](../.github/badges/cat-kb.svg): The `disjoint_metatype` that partitions `fixed_order_type` by order — `type`, `metatype`, and `meta_metatype` its disjoint cells. See [taxonomy.md](taxonomy.md).
+
+**`typeGenl`** ![kb](../.github/badges/cat-kb.svg): Higher-order `genl` — `(typeGenl ?classifier ?genl)` says every instance of `?classifier` is a `genl` of `?genl`. Inert — declared, read by no inference path. See [taxonomy.md](taxonomy.md).
+
 ## U
 
 **`underlying-body`** ![kb](../.github/badges/cat-kb.svg): The body a sentence's
@@ -1112,6 +1140,8 @@ failure prover — `(unknown S)` holds iff `S` is not derivable over the level-6
 prover list. A conjunctive `S` is **joined**, so its conjuncts may share a
 quantifier's variable. Ground/closed only and never stored. See [naf.md](naf.md).
 
+**`unrepresented_term`** ![kb](../.github/badges/cat-kb.svg): An `expression` with no further decomposition — a string, a number, a keyword, a boolean, or a character. See [taxonomy.md](taxonomy.md).
+
 ## V
 
 **Value** ![kb](../.github/badges/cat-kb.svg): An EDN scalar written in argument position —
@@ -1121,6 +1151,8 @@ answers both argument readings. See [argtypes.md](argtypes.md).
 **Variable** ![kb](../.github/badges/cat-kb.svg): A `?x` symbol standing for an unknown. Canonically renumbered
 (`?var0`, `?var1`, …) in a stored rule, with the author's spelling kept in
 the **Varmap**. See [canonicalization.md](canonicalization.md).
+
+**`variable_order_type`** ![kb](../.github/badges/cat-kb.svg): A type whose members may sit at any metatype order — individuals, types, or metatypes alike. Contrast `fixed_order_type`. See [taxonomy.md](taxonomy.md).
 
 **Varmap** ![kb](../.github/badges/cat-kb.svg): A rule's map from its canonical
 variables (`?var0`, `?var1`, …) back to what the author wrote, so

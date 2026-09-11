@@ -61,6 +61,7 @@
             [vaelii.host.io.generate :as generate]
             [vaelii.host.jobs :as jobs]
             [vaelii.host.starter :as starter]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.foreign :as foreign]
@@ -518,6 +519,22 @@
   "The KB the browser should be reading, or nil when nothing is loaded."
   []
   (:kb (entry (active))))
+
+(defn live-kbs
+  "Every KB open in *this* JVM — the records whose per-KB caches a process-wide sweep
+  reaches.  An attached daemon's entry holds a remote handle with no local caches, so
+  `:records` tells the two apart, the way `in-process?` does for one key."
+  []
+  (into [] (keep (fn [e] (let [kb (:kb e)] (when (:records kb) kb))))
+        (vals (:entries @state))))
+
+(defn install-memory-guard!
+  "Attach the cache memory-pressure guard, feeding it this catalog's live KBs so the trim
+  reaches their per-KB caches (`vaelii.impl.caches/install-memory-guard!`).  The browser
+  calls this at startup; the guard holds no roster of open KBs of its own, since the engine
+  does not."
+  []
+  (caches/install-memory-guard! {:kbs live-kbs}))
 
 (defn name-of
   "What to call `kb` — the name of the entry holding it, or nil for a KB this registry

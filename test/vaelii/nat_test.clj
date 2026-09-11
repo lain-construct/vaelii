@@ -48,6 +48,27 @@
           (is (empty? (v/sentexes-matching kb (list 'color (list FruitFn 'PearTree) '?c) '?ctx)))
           (is (= before (count (v/sentexes-matching kb (list 'termOfUnit '?k '?e) 'CxUniverse)))))))))
 
+(tu/deftest-kb handle-of-and-why-not-resolve-a-nat-to-its-stored-constant
+  ;; `ist` stores the constant, so its non-creating counterpart has to ask for the
+  ;; constant: a lookup of the compound as written answered nil while `sentexes-matching`
+  ;; and `ask?` found the sentex, and the documented composition
+  ;; `(retract! kb (handle-of kb s c))` was a silent no-op.
+  (tu/with-terms [FruitFn AppleTree]
+    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
+    (let [s (list 'color (list FruitFn AppleTree) 'Red)
+          h (v/ist kb 'CxUniverse s)]
+      (testing "handle-of answers the handle ist stored, asked with the compound"
+        (is (= h (v/handle-of kb s 'CxUniverse))))
+      (testing "why-not of the same spelling reads the stored sentex, not :not-stored"
+        (is (true? (:believed? (v/why-not kb s 'CxUniverse)))))
+      (testing "an unknown NAT still answers nil and mints nothing"
+        (let [before (v/sentex-count kb)]
+          (is (nil? (v/handle-of kb (list 'color (list FruitFn 'PearTree) 'Red) 'CxUniverse)))
+          (is (= before (v/sentex-count kb)))))
+      (testing "so the documented composition retracts it"
+        (is (pos? (:removed-sentexes (v/retract! kb (v/handle-of kb s 'CxUniverse)))))
+        (is (nil? (v/handle-of kb s 'CxUniverse)))))))
+
 ;; ---- 2. dedup ------------------------------------------------------------
 
 (tu/deftest-kb the-same-nat-yields-the-same-constant
@@ -59,6 +80,28 @@
       (testing "one termOfUnit maps the expression"
         (is (= 1 (count (v/sentexes-matching kb (list 'termOfUnit '?k (list FruitFn AppleTree))
                                              'CxUniverse))))))))
+
+(tu/deftest-kb the-same-nat-yields-the-same-constant-in-independent-kbs
+  ;; Dedup's cross-process twin, and the point of naming by content.  A reified constant is
+  ;; named from its expression (`nat/content-name`), not a process-local gensym, so the same
+  ;; NAT reifies to the same constant in a KB that has never seen the other — which is what
+  ;; lets two dumps merge, and a re-mint after a sweep dedup, rather than collide on two
+  ;; names for one expression — a collision `merge-colliding-nats!` reconciles and content
+  ;; naming avoids.
+  ;; `kb` and a second KB on its own memory store stand in for two processes; the
+  ;; process-wide symbol pool interns identity, never equality, so `=` is the honest test.
+  (tu/with-terms [FruitFn AppleTree]
+    (let [mint! (fn [k]
+                  (v/assert k (list 'reifiable_function FruitFn) 'CxUniverse)
+                  (k-of k (v/assert k (list 'color (list FruitFn AppleTree) 'Red) 'CxUniverse)))
+          open! #(v/open-kb {:backend :memory :space (gensym "nat-determinism")})
+          a     (open!)
+          b     (open!)
+          [k1 k2] (try [(mint! a) (mint! b)]
+                       (finally (v/close! a) (v/close! b)))]
+      (is (nat/reified-nat-symbol? k1) "a nat/ constant, not the raw compound")
+      (is (= k1 k2)
+          "the same expression, the same content-named constant, in two independent KBs"))))
 
 (tu/deftest-kb a-vector-spelled-nat-is-the-nat-the-list-spelling-names
   ;; Reification runs **before** `canon`, and canon makes `[F a]` and `(F a)` one

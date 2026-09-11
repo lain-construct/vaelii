@@ -7,7 +7,7 @@
   resolves that name and builds an instance of it: a record frame (`Class/forName`, then
   the static `create`), a deftype frame (`Class/forName`, then the first public
   constructor over the fields that follow), and a `Serializable` frame (an
-  `ObjectInputStream` over the bytes that follow).  nippy 3.8.1 gates the third behind
+  `ObjectInputStream` over the bytes that follow).  nippy 3.9.0 gates the third behind
   `*thaw-serializable-allowlist*` and the first two behind nothing at all.
 
   Every file the engine reads is **untrusted input** — a store directory or a dump
@@ -108,7 +108,7 @@
   every path resolving a class name still passes through them, and only then writes the
   new version here.  One line per upgrade buys a guard that cannot drift without a
   reader."
-  "3.8.1")
+  "3.9.0")
 
 (defn resolved-nippy-version
   "The nippy release actually on the classpath, or nil when it cannot be read.

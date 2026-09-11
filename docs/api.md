@@ -236,7 +236,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; it — `CxCore` by default (docs/belief.md) -> kb
 (add-reasoner kb :allen :rcc8)                 ; register shipped ones by name -> kb
 (reasoners)                                    ; the roster: the six algebras + :duration :metric-time
-                                               ;   :sign :calendar
+                                               ;   :sign :calendar, and :brave-cautious, the ASP
+                                               ;   dilemma reader (docs/labeling.md)
 (reasoner :allen)                              ; one as a value, for a registry of your own
 (lookup kb level goal context)                 ; the lookup-to-query stack, levels 0-7
 (escalate kb goal context [floor])             ; cheapest level that answers (floor defaults to 2)
@@ -309,7 +310,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; so no `(disjoint a b)` pair is stored to read back
 (subsumption-status kb type-a type-b [context]); the pair's genl relationship as a keyword —
                                                ; :genl :spec :coextensional :disjoint :orthogonal
-                                               ; :unknown; genl/disjoint read the global closures,
+                                               ; :unknown, or :inconsistent when two of those hold
+                                               ; at once; genl/disjoint read the global closures,
                                                ; `context` is the shared-instance vantage (default
                                                ; CxUniverse)
 (disjointness-audit kb [context])              ; subsumption-status over every unordered type pair —
@@ -329,11 +331,15 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                         ; :forced-decontextualized :abducible
                                                         ; :closed-extent :modal :target-following
                                                         ; :reifiable :unreifiable :quoting
-                                                        ; :context-denoting, and the four :declares-*
+                                                        ; :context-denoting, and the six :declares-*
                                                         ; that name a predicate as the SUBJECT of an
                                                         ; argument constraint (:declares-arg-isa
                                                         ; :declares-arg-genl :declares-quoted-arg
-                                                        ; :declares-inter-arg-isa)
+                                                        ; :declares-inter-arg-isa
+                                                        ; :declares-arg-and-rest-isa
+                                                        ; :declares-arg-and-rest-genl);
+                                                        ; `vaelii.impl.predicates/prop-kinds` is
+                                                        ; the roster read off the declarations
 (inverse-of kb pred [context])                                    ; the declared inverse, or nil
 ;; what the engine does with its own grammar — declared *and enforced* against declared
 ;; and ignored, which no naming or wff check can tell apart
@@ -418,7 +424,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; taking a sentence and a context takes one, Ctx
                                                 ; winning over the argument (query family, above)
 (handle-of kb sentence context)                 ; find WITHOUT creating -> handle or nil (ist's counterpart)
-(contexts-of kb sentence)                       ; contexts a sentence is asserted in
+(contexts-of kb sentence)                       ; contexts a sentence is stored AND believed in —
+                                                ; a defeated sentex's context is not listed
 (handles kb)                                     ; every live sentex handle — the whole-KB
                                                 ; enumeration a content/audit pass folds over
 (canonical-sentex kb sentence context)          ; the canonical sentex for a sentence WITHOUT
@@ -919,7 +926,20 @@ The four backward-search entry points read the same rule the other way.  **`prov
 (`:max-ms`) is what `ask` and `ask?` take, and the missing `:max-depth` is the entry point
 saying what it is — nothing in the prover registry expands a rule, so there is no
 transformation depth to bound there and a `:max-depth` would be accepted and never
-consulted.
+consulted.  Their anytime counterparts split the same way: `ask-within` reads `:max-ms` /
+`:max-results` / `:max-cost` and `prove-within` the two clocks plus `:max-depth` /
+`:max-term-growth`, with `resume` holding the union since it continues either.
+
+**Beyond the key roster, a bound refuses a value outside its domain.**  A key an entry point
+reads still holds a value it can mean: `:max-ms` a non-negative number, `:max-depth` and the
+count bounds (`:max-results`, `:max-derivations`, `:max-hypotheses`, `:node-budget`,
+`:max-term-growth`, `:progress-every-ms`) a non-negative integer, `:on-progress` a function,
+`:counters?` / `:believed?` a boolean.  One shared table (`vaelii.impl.opts/bound-domains`)
+says what each is, so `{:max-ms "x"}`, `{:on-progress 5}` and `{:believed? "yes"}` are
+`:unknown-option` with `:mismatch :bad-value` rather than a bare `ClassCastException` the
+daemon answers `:internal-error`.  A bound of `0` is a request rather than a bad value — no
+time, no rule expansion, realize nothing and resume, report at every opportunity — so it is
+admitted wherever the entry point's own contract admits it.
 
 ### What an exhausted bound answers
 

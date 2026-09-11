@@ -35,8 +35,14 @@
   meta-ontology conclusions survive a function of predicate spelling.  Asserted first,
   it cannot be."
   [kb]
-  (v/assert kb '(genlCx CxUniverse CxCore) 'CxCore)
-  (seed/load-context kb 'CxCore))
+  ;; One settle at the end, not one per sentence: the whole vocabulary is a batch, and
+  ;; `settle` computes belief from current state, so N per-assert reconciliations reach
+  ;; the same beliefs as one closing reconciliation (`v/with-deferred-settle`).  The
+  ;; `genlCx` edge is still asserted first — edges live on store, ahead of the deferred
+  ;; settle — so its ordering role (below) is unchanged.
+  (v/with-deferred-settle kb
+    (v/assert kb '(genlCx CxUniverse CxCore) 'CxCore)
+    (seed/load-context kb 'CxCore)))
 
 (defn comment-of
   "The documentation attached to `term` by `comment` sentexes, in **content order**.

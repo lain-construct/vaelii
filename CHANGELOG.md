@@ -11,286 +11,251 @@ releases is still a grep for the name you call. The full entry prose for a relea
 version is in this file's git history, at the tag of the release that shipped it —
 `git show v0.16.0:CHANGELOG.md`.
 
+## 0.18.1 — 2026-09-11 — "a typed bound at every entry point, and an upper ontology divided by space and time"
+
+- **Every bounded entry point refuses a value outside its domain by name, and the anytime
+  budget roster splits into what `ask-within` reads and what `prove-within` reads.** A bound
+  holding a value it cannot mean — a string `:max-ms`, a non-integer `:max-depth`, a non-fn
+  `:on-progress`, a string `:believed?` — reaches arithmetic or a call and throws a bare
+  `ClassCastException`, which the daemon answers `:internal-error` (a 500) where every sibling
+  refusal is a typed 400. `prove` / `ask` / `query` / `why` / `find-terms` already refuse
+  their caps; `prove-within`, `ask-within`, `search-tree`, `compare-tacticians`,
+  `forward-chain`, `assert`, `assert-rule`, `abduce`, `kb-quality`, `export!`, `import!`,
+  `clear-caches` and the extent readers now do too, reading the one shared domain table
+  (`vaelii.impl.opts/bound-domains`). A bound of `0` stays a real question wherever it was
+  one — no time, no rule expansion, realize nothing and resume, report at every opportunity.
+  Beside the value gaps: `add-evaluatable` refuses a key off `#{:result :arity :cost
+  :completeness}`; `set-cache-limit` warns and records a pin for an id no cache has registered
+  yet rather than refusing it, since the register fills lazily; and `assert-rule` runs the
+  unrecovered-KB gate before its range check, so an unrecovered KB answers `:unrecovered-kb`
+  and not `:not-range-restricted`. The anytime roster splits the way `ask` and `prove` split
+  theirs: `ask-within` reads `:max-ms` / `:max-results` / `:max-cost` and refuses a rule
+  depth, `prove-within` reads the two clocks plus `:max-depth` / `:max-term-growth` and
+  refuses `:max-cost`, and `resume` holds the union so a continuation of either passes.
+  *Class:* **Refusal** (the two accepted-and-wrong boolean values answered at a setting nobody
+  chose, and the bad numbers crashed the daemon). *Migration:* nothing for a caller whose
+  bounds are numbers of the right kind; `(clear-caches kb {:counters? "yes"})` and an extent
+  read with a string `:believed?` were both accepted as `true` and are now `:unknown-option`,
+  so pass an actual boolean. [docs/api.md](docs/api.md), [docs/anytime.md](docs/anytime.md)
+
+  *Breaks:* `:counters?`, `:believed?`, `:max-cost`, `:max-depth`, `:max-term-growth`, `add-evaluatable`
+
+- **`assert-inert` refuses an open sentence and stores an `(ist Ctx S)` form as S in
+  Ctx; `describe` refuses a `:limit`, and `why-not` a `:nearest`, that is not a count.**
+  An inert `(dog ?x)` was a stored record a `CxEverything` read answered as a fact, and a
+  stored sentence is closed (`checks/check-ground`, the refusal `assert` makes:
+  `:not-ground`). An `(ist CxA S)` stored as written was a record with the `ist` functor,
+  which `handle-of`, `contexts-of` and every read resolve past — reachable by its handle
+  and by nothing else; it now stores S in CxA, as `assert` does, and a malformed one is
+  `:shape`. `(describe kb t c {:limit 0})` answered every window empty under a `:total`
+  that read as an answer, and `{:limit "5"}` reached `take` and threw a bare
+  `ClassCastException`, which the daemon reports as `:internal-error`; both are
+  `:unknown-option` now, as at `find-terms`. `(why-not kb s c {:nearest "3"})` read the
+  value as no request and answered the plain `:not-stored`; a `:nearest` that is not a
+  non-negative integer is `:unknown-option`, and `0` still asks for nothing.
+  *Class:* **Refusal** (the stored records matched no query, and the accepted values
+  answered nothing a caller asked for). *Migration:* nothing for a caller whose inert
+  sentences are ground and whose caps are positive integers; a caller passing
+  `{:limit 0}` to `describe` for the totals alone passes `1` and reads `:total`.
+  [docs/api.md](docs/api.md), [docs/solving.md](docs/solving.md)
+
+  *Breaks:* `assert-inert`, `describe`, `why-not`
+
+- **The upper ontology gains a space/time division, a metatype-order ladder and an
+  expression subtree, renames `spatial_thing` to `spatial` and `temporal_thing` to
+  `temporal`, and adds a `CxUniverse` collector context for the cross-member disjoints.**
+  CxCore roots the space/time divisions — `spatial` and `aspatial`, `temporal` and
+  `atemporal` — and the `abstract` collection under `thing`, declares the complement
+  disjoints `(disjoint spatial aspatial)` and `(disjoint temporal atemporal)` beside the
+  cross-division `(disjoint intangible spatial)`, and re-roots `abstract` under
+  `intangible`; the rename removes `temporal`'s only prior upward edge, so
+  `(genl temporal thing)` restores it and `(disjoint physical_object intangible)` lands in
+  CxAbstract. A metatype-order ladder — `metatype`, `meta_metatype`, `at_least_metatype`,
+  `fixed_order_type`, `variable_order_type`, `type_type_by_order` — states the three-order
+  partition and its subtype edges, and the inert predicates `genlInverse`, `typeGenl` and
+  `partitionedByType` classify without an inference path. CxAbstract gains an `expression`
+  subtree under `abstract` holding `context`, `formula`, `relation`, `relation_application`
+  and `unrepresented_term`, and a substance division whose states are `solid`, `liquid`,
+  `gas` and the added `plasma`, with `liquid` moved out of `stuff_type_by_substance`
+  because a liquid is a state and not a material. The two `typeGenl` claims move from
+  CxCore, which sees no member, to CxAbstract, which sees `substance` and the stuff
+  metatypes, so a type-relating claim is written only in a context that sees the terms it
+  names. A new top-level `CxUniverse.txt` collector context holds `(disjoint organization
+  animal)`, a disjointness a single context sees both members of, and the starter loader
+  now discovers and loads top-level `kb/Cx<Name>.txt` collector files after the upper and
+  middle theories so the cross-member axiom is a live sentex. Three tests pin the shipped
+  set: one refuses a type-relating claim whose context cannot see a term it names, one
+  holds the six head-context terms kept there on purpose, and `ontology_test` pins the
+  quality clash census at `{:negation 4, :disjoint 8}` (the remaining eight come from the
+  integer-and-person checker, a stated limitation rather than real conflicts).
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer). *Migration:* a KB that wrote `spatial_thing` or `temporal_thing`
+  renames to `spatial` / `temporal`; the old spelling stores clean under open-world
+  semantics but attaches to nothing in the taxonomy, so a spatial or temporal argument
+  check does not admit it. [docs/contexts.md](docs/contexts.md),
+  [docs/glossary.md](docs/glossary.md)
+
+  *Breaks:* `spatial_thing`, `temporal_thing`
+
+- **A process-wide cache profile scales every derived cache's count bound by one
+  multiplier, tunable through `VAELII_CACHE_SCALE` and three new `vaelii.core`
+  functions.** `caches/limit-of` is the one resolver every count-bounded cache reads, on
+  both its store path and its `caches` reporting row, so the enforced bound and the
+  reported bound are one number. It returns the shipped default at scale `1.0` with no
+  override, and otherwise `default × scale` floored at 16 entries. `VAELII_CACHE_SCALE`
+  (default `1.0`, a number at or above zero, read at load) sets the scale a process starts
+  with and refuses a non-number or a negative value at engine load. `(set-cache-scale x)`
+  multiplies every counted bound on a running process, `(set-cache-limit id n)` pins one
+  cache's bound or clears the pin with `nil`, and `(cache-profile)` returns the profile in
+  force as `{:scale m :overrides {id limit}}`; `set-cache-scale` and `set-cache-limit` each
+  refuse a value they cannot mean with `:type :unknown-option`. The browser `/caches` page
+  gains a scale form posting an origin-checked write beside the existing clear. At scale
+  `1.0` with no override the resolver returns the shipped default unchanged, so the cost
+  budgets and the perf gate read the same bounds as before. *Class:* **Additive** (three
+  new public functions and one new configuration name; `test/golden/api-surface.edn` and
+  `test/golden/config-surface.edn` move with them). [docs/caches.md](docs/caches.md),
+  [docs/operations.md](docs/operations.md)
+
+- **A memory-pressure guard shrinks the caches when the old generation fills after a
+  collection and grows them back as it drains.** The guard adds a second multiplier,
+  `:pressure`, to the cache profile, so a counted cache's bound becomes
+  `default × scale × pressure` floored at 16 entries and a pinned cache's bound becomes
+  `override × pressure`. A post-collection notification listener reads the old-generation
+  used-over-max fraction after each garbage collection: at or above `0.85` it halves
+  pressure and trims the counted caches to the lower bound, at or below `0.60` it raises
+  pressure by half again while pressure is below `1.0`, and otherwise it holds. Pressure
+  is clamped to `[0.125, 1.0]`, so a heap under sustained pressure keeps an eighth of each
+  cache rather than emptying it. The trim keeps the earliest entries of a plain map and
+  defers to a shape-aware cache's own recency order rather than clearing. The daemon and
+  the browser install the guard at startup — the browser feeds it the live KBs through the
+  catalog — and nothing attaches it at engine load, so a library embedding arms no
+  listener. A JVM whose collectors emit no such notification, or that names no
+  old-generation pool, holds pressure at `1.0`. `limit-of`'s docstring is corrected in the
+  same batch to say a pin is scaled by pressure alone, not by the profile scale.
+  *Class:* **Additive** (`install-memory-guard!` and the profile's `:pressure` field are
+  new; the guard's functions stay in `vaelii.impl.caches` and the servers install them, so
+  no public-API golden moves). [docs/caches.md](docs/caches.md)
+
+- **A reified NAT or context constant is named by the SHA-256 of its expression, not a
+  per-process counter, so the same expression reifies to the same constant across
+  processes and rebuilds.** `constant-for` names a minted constant `nat/a<17 base62
+  digits>`, or `cx/a…` for a context NAT, from the first 96 bits of the SHA-256 of the
+  printed expression, where the prior scheme minted `nat/g<N>` from a process-local
+  `gensym` counter. The base62 payload holds `[A-Za-z0-9]` only, because a reified constant
+  sits in argument position and the naming check forbids the `-` and `_` a base64url
+  payload would carry. The constant symbol is documented as opaque and never read back — a
+  page and a remote reader are held to never show it, and belief never keys on it — so a
+  caller resolving the constant through `term-expression` or `expand-expression` still
+  reads the expression `(FruitFn AppleTree)` and observes no change. The content name
+  extends the engine's order-independence property to the constant symbol itself: two
+  processes that mint the same NAT now spell it identically, where the counter spelled it
+  by allocation order and left the cross-process merge to the collision-repair path. A dump
+  written by an earlier release keeps its `nat/g…` names, because dedup by the stored
+  `termOfUnit` expression runs before any mint and re-reifying resolves to the existing
+  constant. The skolem head-existential witnesses inherit the scheme through the same mint
+  path, and a hash collision degrades only into the ordinary two-expressions-one-constant
+  case the merge already reconciles by content. *Class:* **Fix** (the documented
+  order-independence invariant and the opaque-constant contract both held; the constant
+  symbol moves to match them). [docs/nat.md](docs/nat.md), [docs/skolem.md](docs/skolem.md)
+
+- **`kb-quality` stops reporting a clash that no ground term can reach, when an antecedent
+  `arg` declaration demands a type disjoint from the term the paired rule types.**
+  `kb-quality`'s contradictions-in-waiting reading reports two rules whose consequents
+  place one unified term in two disjoint types, a clash that could form if both rules fire
+  for that term. A fourth rule-out reads each antecedent predicate's `arg` declarations up
+  the predicate hierarchy — through the reader `assert` uses — and drops a pair when a
+  declared argument type is disjoint from another type the two rules place the unified term
+  in, because no ground term then satisfies both antecedents. The rule-out reads the two
+  consequents beside the antecedents, since the demanding literal states nothing about its
+  own argument's type and the demand lives on the paired rule's `arg` declaration. At least
+  one side of a disjoint pair must be a declared argument type, so two stated unary-literal
+  types that clash stay the clash the pair reports. The rule-out reads `arg` and not
+  `genlArg` or the covering forms, because `genlArg` demands a subtype one stratum up and
+  no shipped rule concludes a unary type from a `genlArg`-typed antecedent. The docstring
+  and `docs/quality.md` already described the reading as one that reports a clash that could
+  form, so the code moves to stop reporting the unreachable pairs; the shipped clash census
+  drops the relation-classification false positives the upper-ontology additions
+  introduced, leaving the eight integer-and-person residual pairs `ontology_test` pins.
+  *Class:* **Fix**. [docs/quality.md](docs/quality.md)
+
+- **`handle-of` and the sentence arity of `why-not` resolve a ground reifiable NAT to
+  its stored constant, as `sentexes-matching` and `ist` do.** After
+  `(ist kb C '(likes Rex (FruitFn Apple)))` stored `(likes Rex nat/…)`,
+  `(handle-of kb '(likes Rex (FruitFn Apple)) C)` answered nil and `why-not` answered
+  `:not-stored`, so `(retract! kb (handle-of kb s c))` — the composition the docstrings
+  name — retracted nothing and reported `{:removed-sentexes 0}`. Both now run the
+  read-mode reify (dedup, never mint) before the lookup. *Class:* **Fix**.
+  [docs/nat.md](docs/nat.md), [docs/api.md](docs/api.md)
+
+- **`provable?` and `ask?` refuse a non-map `opts` by name (`:unknown-option`), as
+  `prove` and `ask` do.** `(provable? kb g c :oops)` threw a bare
+  `IllegalArgumentException` out of the `seq` that picks the bounded arm; the roster
+  check now runs first. The daemon pads its arguments to the option arity and answered
+  `:bad-args` already, so only an in-process caller saw the difference. *Class:* **Fix**.
+  [docs/api.md](docs/api.md)
+
+- **`docs/api.md` matches the code for `reasoners`, `subsumption-status`, `contexts-of` and
+  `has-prop?`.** The API reference is corrected in four places to state what the functions
+  return. `reasoners` lists `:brave-cautious`, the ASP dilemma reader, beside the algebras.
+  `subsumption-status` returns `:inconsistent` when two of the `genl` relationships hold at
+  once, which the documented keyword set had omitted. `contexts-of` lists the contexts a
+  sentence is stored and believed in, so a defeated sentex's context is not among them,
+  where the line had said asserted. `has-prop?` recognizes six `:declares-*` prop kinds,
+  adding `:declares-arg-and-rest-isa` and `:declares-arg-and-rest-genl`. *Class:* **Fix**
+  (documentation only; the code already answered this way). [docs/api.md](docs/api.md)
+
+- **`docs/solving.md` states that a constraint background literal and an `assumptionRule`
+  antecedent ground over the registry leaf.** A constraint background literal and an
+  `assumptionRule` antecedent reach `provers/solve-goal`, the registry leaf, so a stored
+  fact, a backward rule, or a registered prover or evaluatable answers one, not only a
+  believed fact, and a computed relation is a legal antecedent. The documentation had
+  understated the reach. A new `solve_context_test` case pins that a constraint body reaches
+  a prover. *Class:* **Fix**. [docs/solving.md](docs/solving.md)
+
+- **The vocabulary load and the minting-assert path drop a redundant settle and two
+  redundant declaration reads.** The CxCore and starter loaders wrap their bodies in
+  `with-deferred-settle`, so the JTMS settles once at the end rather than once per asserted
+  sentence, measured at roughly 200 ms off the starter load on the memory backend.
+  `constraining-predicates` stops seeding an undeclared predicate — a mint's own type
+  functor — into its result, dropping the per-assert match walk that returned nothing,
+  measured at the CxCore load falling from 327 ms to 272 ms with assertive argument types
+  on. The first-level materializer skips the definitional constraint re-check when the
+  assert-path entailment check already ran it, threaded through a `pre-checked?` flag, while
+  the deeper cascade levels and the retroactive sweeps still run the re-check;
+  `assert_cost_test` re-pins the read counts down. `cascade-clash` builds the disjointness
+  separation frame once and applies its closure per candidate, where it had rebuilt the
+  frame inside a filter, and `perf`'s `disjoint-clique-membership` and
+  `disjoint-metatype-membership` claims guard the result at linear in member count.
+  *Class:* neither label — the prior path and the new one compute the same belief,
+  justification set and stored-sentex fingerprint, so only the load and assert latency move.
+
+- **A script renders the upper-ontology `genl` hierarchy to one SVG.**
+  `scripts/ontology-graph.py` reads the `resources/kb/*.txt` authoring files and emits a
+  layered is-a diagram — one node per type in the `genl` hierarchy, one edge per
+  `(genl sub super)` — with node fill set by the context a term is defined in and edge color
+  by the context the edge is written in, and it needs no KB boot. It draws through Graphviz
+  `dot` when `dot` is on the path and falls back to a dependency-free layout otherwise.
+  `--engine` selects among `dot`, `gridfold`, `icicle` and `dendrogram`, `--ratio` sets the
+  sheet aspect, and `--text-scale` sets the label point size independently of `--ratio`.
+  *Class:* **Additive**.
+
 ## 0.18.0 — 2026-09-09 — "declarations that mint the types they constrain, and rules that forward-chain only when asked"
 
-- **Assertive argument types are on by default: an `arg` / `genlArg` / `interArg`
-  declaration now mints the type it constrains, not only tests for it.** The entailment
-  shipped in 0.17.0 behind `VAELII_ASSERTIVE_ARG_TYPES`, off by default; it is now the
-  default reading. A declaration and a fact together mint a derived, justified, retractable
-  membership (`arg`) or `genl` edge (`genlArg`), so a KB holds — and `isa?` / `types-of`
-  and the definitional checks read — types the constraint-only reading leaves to a prover's
-  on-demand answer (docs/argtypes.md). The starter load ships more stored sentexes as a
-  result, and a caller counting them, or reading a type it did not assert, sees the minted
-  content.
+**15 entries** — 2 Breaking, 1 Refusal, 9 Additive, 3 Fix. Assertive argument types become
+the default reading: an `arg` / `genlArg` / `interArg` declaration mints the type it
+constrains rather than only testing for it. A bare `implies` rule defaults to `:backward`
+and materializes nothing, and `set/forwardRule` adds forward chaining to the backward use
+rather than replacing it, so a rule forward-chains only where its author asks. The arity
+vocabulary gains a runtime floor — a variable-arity application below its `arityMin` is
+refused — and `admitsArgnum` answers a position query from the declared arity. New
+declaration vocabulary types a whole variable-arity tail (`args`, `argsGenl`, `argAndRest`,
+`argAndRestGenl`) and names an `intersection` kind that derives its taxonomy edges, and new
+readers report the brave and cautious status of a labeling dilemma, a cardinality bound over
+ASP choice heads, and the subsumption status of every type pair. A state-of-affairs and
+causality cluster joins the upper ontology in CxAbstract.
 
-  Loading the shipped ontology under the entailment surfaced one ill-formed mint: the
-  meta-declarations `(genlArg arg 3 thing)` / `(genlArg genlArg 3 thing)` would draw
-  `(genl thing thing)` from every `(arg P n thing)` declaration, a reflexive edge `wff`
-  refuses. `arg-entailments` now never mints a reflexive `(genl t t)`, so the shipped KB
-  loads with a clean violations ledger. *Class:* **Breaking** (the default reading changes
-  what a KB contains). *Migration:* `VAELII_ASSERTIVE_ARG_TYPES=0` restores the
-  constraint-only default. *Breaks:* `VAELII_ASSERTIVE_ARG_TYPES`.
-
-- **A bare `implies` rule defaults to `:backward`, and `set/forwardRule` now means
-  forward and backward.** Forward chaining materializes a conclusion per match, which is
-  intractable on a large KB, so a rule forward-chains only where its author asks. A rule
-  asserted bare — no `set/*Rule` wrapper and no `:direction` — ran forward and backward
-  before (`:both`); a bare rule now backchains only and materializes nothing.
-  `set/forwardRule` adds forward chaining to the backward use rather than replacing it: a
-  rule wrapped `set/forwardRule` answers backward goals as well as forward-chaining, where
-  the wrapper made the rule forward-only before. `rules/backward?` reads `:forward` and
-  `:both` as one class, so `{:direction :forward}` and `set/forwardRule` name the same
-  forward-and-backward rule. The old forward-only reading moves to a fourth direction,
-  `set/forwardOnlyRule` / `:direction :forward-only`, which forward-chains but never
-  answers a backward goal — a mode the shipped ontology does not use. A generator, a rule
-  concluding a rule, defaults to `:forward` even when bare, because a generator stamps a
-  rule by firing forward and no backward goal asks for a rule; the shipped ontology's
-  forward-materializing meta-rules and bounded theories carry `set/forwardRule`
-  explicitly, so no shipped content changes what it derives. *Class:* **Breaking** (a
-  documented default, and the meaning of the `set/forwardRule` wrapper). *Migration:* to
-  restore forward materialization of a bare rule, wrap it `set/forwardRule` or assert it
-  with `:direction :forward` (or `:both`); to restore the old forward-only reading of
-  `set/forwardRule`, rewrite it to `set/forwardOnlyRule` or `:direction :forward-only`.
-  [docs/inference.md](docs/inference.md), [docs/generators.md](docs/generators.md)
-
-  *Breaks:* `(implies` asserted bare, `set/forwardRule`
-
-- **A variable-arity application shorter than its relation's declared `arityMin` is now
-  refused at the arity check.** 0.17.0 shipped `arityMin` deriving the
-  `at_least_*_relation` classifications, but no well-formedness reader consumed the
-  declaration, so a variable-arity relation was exempt from the arity check at every
-  length. `checks/arity-problem` now reads `arityMin` on the variable-arity branch through
-  `provers/arity-min` and convicts an application below the minimum, reporting an `:arity`
-  violation carrying `:minimum? true` with the message "`P` takes at least `n` arguments
-  but has `m`". A relation with no `arityMin`, or with two visible minima that disagree,
-  keeps the outright exemption; the floor lands at assert only, so a late `arityMin` does
-  not re-file the too-short applications stored before it. The same commit gives
-  `admitsArgnum` a runtime reader: `AdmitsArgnumProver` answers `(admitsArgnum R n)` for a
-  ground relation and position from `R`'s declared arity and variable-arity mark —
-  provable for every position of a variable-arity relation, provable up to the declared
-  arity of a fixed one, and unprovable where the KB declares neither — replacing the inert
-  record 0.17.0 shipped. `provers/admits-position?` is the one decision the prover and
-  `checks/arg-position-problem` both read, so the position query and the argument-position
-  refusal cannot answer one position two ways. *Class:* **Refusal** (a too-short
-  variable-arity application, which no well-formed caller relied on storing). *Migration:*
-  extend a refused application to the relation's `arityMin`, or correct the `arityMin`
-  declaration. [docs/predicates.md](docs/predicates.md), [docs/argtypes.md](docs/argtypes.md)
-
-  *Breaks:* `arityMin`, `(lessThan`, `(greaterThan`, `(termsRelated`, `(functionCorrespondingPredicate`
-
-- **`intersection` names the kind that is the overlap of others, and an asserted
-  intersection fact derives the taxonomy edges.** `(intersection ?combined ?type1 ?type2 …)`
-  declares `?combined` as definitionally the intersection of the listed types: a thing is
-  a `?combined` exactly when it is each type. `intersection` is a `variable_arity_predicate`
-  with `(arityMin intersection 3)` — the combined kind plus at least two types — and
-  carries `(genlArg intersection 1 thing)` and `(genlArg intersection 2 thing)` on its kind
-  positions; `(termsRelated disjoint intersection)` records `intersection` as the
-  definitional twin of `disjoint`. Two CxCore rules fire on an asserted fact at binary and
-  ternary arity: forward `intersection`→`genl` rules materialize `(genl ?combined ?typeN)`
-  for each type, so the taxonomy closure and `ask?` / `ask` read the derived edge, and a
-  membership generator stamps one concrete-functor rule per fact concluding `(?combined ?x)`
-  from `(and (?type1 ?x) (?type2 ?x) …)`. General arity above ternary awaits the
-  list-membership vocabulary. A one-type `(intersection C T)` is refused at the assert
-  entry point with `:type :arity` and stores nothing, since the intersection of a single
-  type is that type. CxCore now ships a rule whose consequent predicate is `genl`, so the
-  `/levels` report for a `genl` goal names a `:rules` method beside the closure rather than
-  the closure alone; the derived `genl` answer is unchanged. No shipped KB asserts an
-  intersection fact, so the starter load is unchanged. *Class:* **Additive**.
-  [docs/taxonomy.md](docs/taxonomy.md)
-
-- **A state-of-affairs and causality cluster joins the upper ontology in CxAbstract.**
-  Seven collections are added: `situation` (`genl temporal_thing`), with the
-  specializations `static_situation` (a state that holds unchanged) and `event` (an
-  occurrence whose state changes); `causal` and `acausal`, dividing `thing` by whether a
-  thing can occupy a cause slot; and `causal_event` and `acausal_event`, defined through
-  `intersection` — `(intersection causal_event causal event)` and
-  `(intersection acausal_event acausal event)` — so the CxCore intersection rules derive
-  their `genl` edges and membership rather than restating them. Two disjointness
-  declarations partition the divisions: `(disjoint static_situation event)` and
-  `(disjoint causal acausal)`. The `genl` closure of disjointness carries
-  `(disjoint causal acausal)` down to the intersection-defined kinds, so `causal_event` and
-  `acausal_event` read `:disjoint` without a separate declaration, and a term asserted
-  `causal` and then `acausal` is refused at the assert entry point as a contradiction.
-  *Class:* **Additive**. [docs/taxonomy.md](docs/taxonomy.md)
-
-- **`(bravely S)` and `(cautiously S)` read the brave and cautious status of a labeling
-  dilemma as a query that commits nothing.** A coexisting `P` / `¬P` dilemma leaves both
-  sides believed, and an ordinary `ask` cannot separate the forced belief from the
-  arbitrary one. `(cautiously S)` holds when `S` is in every optimal labeling and
-  `(bravely S)` when `S` is in some — the classification `do/labeling` draws. The query
-  delivers that classification on the read path: after asking, belief, `contradictions`
-  and `last-program` are unchanged, where `do/labeling` commits a labeling. The
-  `:brave-cautious` reasoner answers both, added opt-in with
-  `(add-reasoner kb :brave-cautious)` and resolved lazily so the ASP stack stays off a
-  KB's load path. `bravely` and `cautiously` are computed, not assertible — the assert
-  entry point, the special table and `wff` refuse a stored one, as they refuse `unknown`
-  and the aggregates — and each takes a ground `S`. A `bravely` or `cautiously` antecedent
-  carries no support, so the forward join drops it: the pair is a read, not a premise
-  belief rests on. *Class:* **Additive**. [docs/labeling.md](docs/labeling.md),
-  [docs/naming.md](docs/naming.md)
-
-- **`asp/atMost` / `asp/atLeast` state a cardinality bound over choice heads, and ground
-  to one solver cardinality atom per group.** `functional P` bounds a choice predicate at
-  one value per subject, but a bound past one had no construct, and a hand-written
-  at-most-`k` grounds one hard constraint per `(k+1)`-subset of the contending heads —
-  `C(n, k+1)` of them. `(asp/atMost k ?v pattern)` and `(asp/atLeast k ?v pattern)` state
-  the bound directly, with `asp/softAtMost` / `asp/softAtLeast` as soft twins that penalize
-  a breach once rather than excluding the model. The surface mirrors `agg/count`'s
-  projection: `?v` is the counted variable and the pattern's other variables are the group,
-  so a bound with no other variable is one global bound over every ground head, and a bound
-  with a free group variable is one bound per group. `rules/normalize-cardinality` rewrites
-  the surface to a constraint rule carrying a `cardAtMost` / `cardAtLeast` marker,
-  `solve-context` matches the pattern against the ground choice heads and emits one
-  `:cardinalities` entry per group, and `edge/translate` renders each as a single ASPIF
-  weight-body statement, so a cap of 10 over 30 heads is one constraint rather than
-  `C(30, 11)`. A cardinality bound is a solver atom that prunes inside the search, unlike
-  `agg/count`, which is a census over believed facts computed outside any solve and counts
-  a never-believed choice head as zero. Each head weighs one; a weighted `#sum` variant is
-  unbuilt. A malformed bound is refused with `:not-well-formed`, and `check` reports that
-  refusal rather than throwing; a global `asp/atLeast` whose predicate grounds to no head
-  is infeasible rather than silently unbounded. *Class:* **Additive**.
-  [docs/solving.md](docs/solving.md), [docs/asp.md](docs/asp.md)
-
-- **`subsumption-status`, `subsumption-statuses` and `disjointness-audit` classify every
-  type pair and name both the missing `disjoint` assertions and the contradictions.**
-  `(subsumption-statuses kb a b)` returns the set of applicable relationships between types
-  `a` and `b`, any subset of `#{:genl :spec :coextensional :disjoint :orthogonal}`: `:genl`
-  when `(genl a b)` holds, `:spec` for the converse, `:coextensional` when each is `genl`
-  the other, `:disjoint` when a `disjoint` declaration or the taxonomy proves no shared
-  instance, and `:orthogonal` when neither subsumes the other yet a shared instance is
-  provable. `(subsumption-status kb a b)` reduces the set to one keyword: a singleton
-  returns that status, an empty set returns `:unknown`, and two or more return
-  `:inconsistent` — a pair asserted both `genl`-related and `disjoint`, a contradiction
-  rather than a precedence resolved silently. `genl?` and `disjoint?` read the global
-  cached closures; the `:orthogonal` witness, a member of `a` that is also a member of `b`,
-  is read from an optional vantage `context` (default `CxUniverse`) as a facts-only query
-  (`{:max-depth 0}`), so the status is the same under every query engine.
-  `(disjointness-audit kb)` runs the classification over every unordered pair of distinct
-  types and returns
-  `{:types n :pairs n :by-status {status count} :pairs-data [{:a t :b t :status s} …]}`; a
-  caller takes `:by-status` for the census, filters `:pairs-data` on `:status :unknown` for
-  the candidate missing-`disjoint` pairs, and on `:status :inconsistent` for the pairs a KB
-  asserts both ways. Each function takes an optional trailing `context`. A `:coextensional`
-  relationship needs a `genl` cycle, which `wff` refuses at assertion, so it appears only
-  from a belief-state cycle or an equality merge. *Class:* **Additive**.
-  [docs/api.md](docs/api.md), [docs/taxonomy.md](docs/taxonomy.md)
-
-- **`args` / `argsGenl` / `argAndRest` / `argAndRestGenl` type a whole variable-arity tail
-  in one declaration.** Where `(arg P n T)` types one numbered position, `(args P T)` types
-  every accepted position of `P` as an instance of `T`, so a variable-arity relation whose
-  tail repeats one role is typed without naming a largest finite position. `argsGenl` is
-  the subtype reading: `(argsGenl P T)` types every position as a subtype of `T`, standing
-  to `genlArg` as `args` stands to `arg`. `(argAndRest P n T)` and `(argAndRestGenl P n T)`
-  type position `n` and every later one and exclude the prefix below `n`, so `(args P T)`
-  states what `(argAndRest P 1 T)` states. `args` and `argsGenl` are `binary_predicate`s
-  typed `(arg _ 1 relation)` and `(genlArg _ 2 thing)`; `argAndRest` and `argAndRestGenl`
-  are `ternary_predicate`s that add `(arg _ 2 positive_integer)`. Each is `enforced` in
-  family `:argument-constraint` with facets `#{:convicts :answers}`, checked by
-  `checks/covering-args-problem` for the instance forms and `checks/covering-genls-problem`
-  for the subtype forms, and answered up the `genl` closure by `MetaConstraintProver`.
-  Three properties hold, each of them `arg`'s: a covering constraint composes conjunctively
-  with a position-specific `(arg P n T)`, both binding the slot; a super-predicate's
-  covering constraint binds a sub-predicate's tuples through the shared declaration reader
-  `res/constraining-predicates`; and the check is convict-only and open-world, refusing a
-  tail value the KB places outside the type, passing an argument of unknown type, and
-  minting nothing, so a covering declaration arriving after the facts convicts none of
-  them. The check walks the positions a sentence has, guarded by `arity-problem`, so the
-  arity reader and the covering check agree about where the tail ends. No shipped relation
-  carries a covering constraint, so a KB without one adds nothing to the firing budget.
-  *Class:* **Additive**. [docs/argtypes.md](docs/argtypes.md)
-
-- **`query-status` runs the same search `query` runs and returns a report, so a truncated
-  read is distinguishable from an unprovable one.** `query` with `:max-depth` returns the
-  same empty or short sequence whether the goal is genuinely unprovable or the depth bound
-  cut the search, so a bound set one too low returns "no" rather than "not deep enough".
-  `query-status` runs the same search at the same depth and returns a map: `:answers` and
-  `:count`, `:status` (`:complete` or `:truncated`), `:truncated?`, `:depth`,
-  `:time-to-first-answer-ms`, `:total-time-ms`, and `:stats` (the node engine's
-  `tree-stats`, present only where a depth sent the read to that engine). `:truncated?` is
-  conservative: `true` means the depth bound stopped at least one rewrite the search would
-  otherwise have taken, so the answers may be incomplete, and `false` guarantees the
-  answers are every answer the KB entails at that depth; a facts-only read is never
-  truncated. The probe stays off the plain `query` path, since `session` allocates the
-  truncation flag only under `:track-truncation?`, which only `query-status` sets, so
-  `query` is unchanged. `query-status` reports one search over one concrete context's
-  frontier, so it takes `[kb goal context]` or `[kb goal context opts]` and refuses a
-  variable or query context with `:unsupported-context`. *Class:* **Additive**.
-  [docs/inference.md](docs/inference.md), [docs/api.md](docs/api.md)
-
-- **`functional_at_instant` is the per-instant counterpart of `functional` for a value
-  carried as a fluent: `(functional_at_instant F)` states that `F` has at most one value
-  for one subject at a single instant.** `functional` enforces at-most-one-value over a
-  predicate's bare literals, but a value carried under `initiates` never becomes a bare
-  literal, so the equality closure never sees the pair.
-  `vaelii.core/functional-at-instant-violations` reads the residual invariant on demand and
-  returns the clashes of one declaration as a set of maps
-  `{:function :subject :instant :values :kind}`, and
-  `all-functional-at-instant-violations` sweeps every visible declaration into
-  `{f #{violation…} …}`, omitting a declaration that clashes nowhere. `:kind` is `:merge`
-  when the clashing values are all symbols, the pair `functional` would merge, and
-  `:contradiction` otherwise, two numbers or strings `functional` refuses. The audit
-  reports rather than merges, because whether two fluents overlap at an instant follows
-  from the clipping closure and is not known when a fluent is asserted. `impl/fluent.clj`
-  sits below `vaelii.core`, reading facts through `provers/ask` and the one `holdsAt` rule
-  through `inference/solutions` at depth 4. CxTime ships
-  `(unary_predicate functional_at_instant)`. *Class:* **Additive**.
-  [docs/time.md](docs/time.md), [docs/equality.md](docs/equality.md)
-
-- **`matchesPattern` is a computed string-shape predicate:
-  `(matchesPattern ?string ?pattern)` holds when the whole of a ground `?string` matches
-  the regular expression `?pattern`.** `EvaluableProver` answers it, extending the
-  evaluable set from `lessThan` / `greaterThan` / `integer` to a fourth member. Both
-  arguments are `quotedArg` strings, and a non-string subject yields no solution, so the
-  shape test alone defines a string subtype —
-  `(defnSufficient dotted_quad (matchesPattern ?x "\\d+\\.\\d+\\.\\d+\\.\\d+"))` carries no
-  separate `(string ?x)` conjunct, which the registry does not evaluate. The match runs
-  through a step-limited `CharSequence` capped at 1,000,000 characters, so a pattern that
-  would backtrack past the budget raises a `:pattern-too-costly` refusal at query time
-  rather than running unbounded. A ground pattern the regex engine cannot compile is
-  refused at the assert entry point as `:bad-pattern`, rather than a goal that never
-  matches and reports no error. CxCore ships `(binary_predicate matchesPattern)` and the
-  two `quotedArg` string declarations. *Class:* **Additive**. [docs/defns.md](docs/defns.md)
-
-- **An interrupted `:one` label solve returns its best model instead of no answer.** An
-  optimising `do/label … :one` over many equal-cost optima finds an optimum in
-  milliseconds but proves it slowly, so the solve can reach the time limit
-  (`VAELII_ASP_TIME_LIMIT`) mid-proof. Both backends reported `:interrupted` and the
-  imperative reader `edge/kept-of` discarded the model already in hand, so the caller
-  received no labeling for a solve that had a valid one. The clingo and clasp `:label`
-  modes now solve with `--opt-mode=opt` and no model cap, streaming each improving model,
-  so a cancelled search keeps its lowest-cost one; a run cut off after finding a model
-  reports the new status `:best-effort` — a model found, optimality unproven — rather than
-  `:interrupted`. `edge/kept-of` reads a `:best-effort` result as an answer, and the
-  `do/label` `:one` / `:sat` result map carries `:best-effort? true` when the returned
-  labeling is one whose optimality went unproven. The belief path `edge-solver` still
-  treats `:best-effort` as undecided, so a wall clock never moves belief and order
-  independence holds. *Class:* **Fix**. *Migration:* a caller that ignores the new key
-  reads a valid labeling where it read none; a caller that needs a proven optimum tests
-  `:best-effort?` and rejects it. [docs/asp.md](docs/asp.md), [docs/labeling.md](docs/labeling.md)
-
-- **`recover` requires a stored `genl`/`genlCx` declaration to carry the complete edge
-  shape before it replays the edge.** 0.17.0's `replay-edge` guard required both endpoints
-  to be symbols, but the rebuild arm reads the stored sentence positionally (`[_ a b]`), so
-  two malformations an older or foreign writer could leave under the `genl`/`genlCx`
-  functor root still passed. An over-arity row `(genl a b surplus)` replayed as
-  `(genl a b)` with its surplus term dropped, and a wrong-functor row such as
-  `(disjoint a b)` handed up under the `genl` root replayed as `(genl a b)`. Both rows
-  carry symbols in both endpoint positions, so neither crashed and both fabricated a
-  spurious edge. `replay-edge` now activates an edge only when the stored sentence is
-  exactly `(<functor> <symbol> <symbol>)` — arity three, the literal expected functor, both
-  endpoints symbols — and otherwise skips the declaration and counts it, logged once at
-  `:warn`, the discipline the 0.17.0 fix drew for the two-element crash. No well-formed
-  store holds such a declaration, so a store the current entry point wrote replays
-  unchanged. *Class:* **Fix**. *Migration:* none.
-  [docs/storage.md](docs/storage.md#persistence--recovery)
-
-- **The web term search matches a name case-insensitively.** The `/find?q=` handler pinned
-  `:case-sensitive? true` on its `find-terms` call, so a lowercase query matched no
-  camelCase term even though `find-terms` itself defaults to case-insensitive. The handler
-  now passes `:case-sensitive? false`, so a literal query matches a term of any case and
-  `parentof` finds `parentOf`. A regex query carries its own case in the pattern and
-  requests insensitivity with `(?i)`, which the regex matcher already honours, so a regex
-  query is unchanged. *Class:* **Fix**. *Migration:* none. [docs/web.md](docs/web.md)
+*Breaks:* `VAELII_ASSERTIVE_ARG_TYPES`, `(implies` asserted bare, `set/forwardRule`,
+`arityMin`, `(lessThan`, `(greaterThan`, `(termsRelated`, `(functionCorrespondingPredicate`
 
 ## 0.17.0 — 2026-09-06 — "arity as vocabulary over every relation, and declarations that stop restating their own conclusions"
 

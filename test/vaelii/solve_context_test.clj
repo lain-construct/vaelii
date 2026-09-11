@@ -258,6 +258,45 @@
             (let [worlds (set (map (fn [l] (set (map #(nth % 2) (:true l)))) (:labelings r)))]
               (is (= #{#{'red} #{'blue}} worlds)))))))))
 
+(deftest a-constraint-body-reaches-a-prover
+  ;; ground-constraint-body proves a constraint's BACKGROUND literals over the registry
+  ;; leaf too, so a hardConstraint can forbid a choice on a condition only a registered
+  ;; prover answers — here `(forbidden ?x)`, which has no stored fact and no rule.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (tu/with-terms [cand pick forbidden Ay Bee]
+        (v/add-prover kb (reify provers/Prover
+                           (applicable?  [_ _ goal _] (and (sequential? goal) (= forbidden (first goal))))
+                           (est-bindings [_ _ _ _] 1)
+                           (cost         [_ _ _ _] :lookup)
+                           (completeness [_ _ _ _] 100)
+                           (solve [_ _ goal _]
+                             (let [[_ x] goal]
+                               (cond
+                                 (and (symbol? x) (.startsWith (name x) "?")) [{x Ay}]
+                                 (= x Ay) [{}]
+                                 :else    [])))))
+        (v/assert kb (list 'set/assumptionRule (list 'implies (list cand '?x) (list pick '?x)))
+                  'CxUniverse {:direction :forward})
+        (v/assert kb (list cand Ay) 'CxUniverse)
+        (v/assert kb (list cand Bee) 'CxUniverse)
+        ;; hard: a pick the prover marks forbidden is a nogood over that choice head
+        (v/assert kb (list 'set/hardConstraint
+                           (list 'implies (list 'and (list pick '?x) (list forbidden '?x))
+                                 (list 'probe_forbidden_pick '?x)))
+                  'CxUniverse {:direction :forward})
+        ;; soft: take a pick when one is allowed, so the optimum reaches for Bee
+        (v/assert kb (list 'set/softConstraint
+                           (list 'implies (list 'and (list 'not (list pick Ay)) (list 'not (list pick Bee)))
+                                 (list 'probe_no_pick Ay)))
+                  'CxUniverse {:direction :forward})
+        (let [r      (v/assert kb (list 'do/label 'CxUniverse (tu/tmp-ctx "Plan") :one) 'CxUniverse)
+              truths (:true (first (:labelings r)))]
+          (is (some #(= (list pick Bee) %) truths)
+              "the unforbidden choice is taken")
+          (is (not-any? #(= (list pick Ay) %) truths)
+              "the choice the prover forbids is a nogood, so it is never true"))))))
+
 ;; ---- 6. groundings are never stored; a re-run replaces -------------------
 
 (deftest groundings-are-never-stored

@@ -113,11 +113,83 @@
   [term]
   (and (symbol? term) (= nat-namespace (namespace term))))
 
+(def nat-scheme-tag
+  "The one-letter scheme prefix on every content-named reified constant, `nat/a…`.  A
+  **letter** because a symbol whose name starts with a digit is not a readable token
+  (`nat/9x…` reads back as an invalid token), so a numeric-leading hash could not
+  round-trip through a dump.  The letter is also the **version**: `a` is this scheme —
+  SHA-256 truncated to 96 bits, base62 — and a later hash or encoding change is `b`, old
+  constants keeping the names they were minted with (the whole reason a name carries its
+  scheme).  One letter covers both jobs, so there is nothing to separate and no separator.
+  Not `g`, the prefix `fresh-constant`'s gensym still uses, so the tag also tells a
+  content-named constant from a legacy `nat/g…` one.
+
+  Base62, not base64url, because a reified constant only ever stands in **argument**
+  position, where it is held to the same spelling rules as any name
+  (`naming/argument-problem`) — and base64url's two extra characters, `-` and `_`, are
+  precisely the two those rules forbid (`-` would also make the name read as a `sense`).
+  Base62 drops just those two, so `nat/a…` is `[A-Za-z0-9]` and matches the camelCase rule
+  (`naming/predicate?`) — the same rule the old `nat/g…` gensym matched, and why that one
+  passed.  The name is 18 characters: the one-letter tag and a 17-digit base62 payload."
+  "a")
+
+(def ^:private base62-alphabet
+  "The 62 name-safe digits in ASCII order (`0-9A-Za-z`), so a base62 name sorts the same
+  as the bytes behind it — the order `dedup-constant` / `group-collisions` elect a
+  survivor by."
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+
+(defn- base62
+  "Byte array `b` as an unsigned big-endian integer, base62-encoded (`base62-alphabet`)
+  and left-padded with `0` to `width` digits, so the name is fixed-length."
+  [^bytes b width]
+  (let [sixty-two (BigInteger/valueOf 62)]
+    (loop [n (BigInteger. 1 b), acc ()]
+      (if (pos? (.signum n))
+        (recur (.divide n sixty-two)
+               (cons (.charAt ^String base62-alphabet (.intValue (.mod n sixty-two))) acc))
+        (let [s (apply str acc)]
+          (str (apply str (repeat (max 0 (- width (count s))) \0)) s))))))
+
+(defn- content-name
+  "The deterministic constant name expression `E` reifies to: `nat-scheme-tag` followed
+  by the first 96 bits of `SHA-256(E)` in base62, left-padded to 17 digits (62^17 > 2^96
+  ≥ 62^16, so 17 is the width that covers the range).  A function of `E`'s printed content
+  alone, so the same expression mints the same constant in any process and after any
+  retract/rebuild, and a fact stated about the constant goes on referring to it — which is
+  how the skolem digest (`skolem/rule-digest`) keys its witnesses, and for the same
+  order-independence reason; the difference is only that a NAT hashes its own
+  already-reified expression rather than a rule.  Print limits are bound off exactly as
+  that digest binds them, so a REPL's ambient `*print-length*`/`*print-level*` cannot
+  elide `E` out of its own identity and collapse two expressions onto one name."
+  [E]
+  (let [s   (binding [*print-length* nil *print-level* nil *print-meta* false]
+              (pr-str E))
+        d   (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                     (.getBytes ^String s "UTF-8"))
+        b96 ^bytes (java.util.Arrays/copyOf ^bytes d 12)]
+    (str nat-scheme-tag (base62 b96 17))))
+
+(defn constant-for
+  "The opaque reified constant expression `E` reifies to, in reserved namespace `ns`
+  (`nat` for an object NAT, `cx` for a context NAT).  Deterministic in `E`'s content
+  (`content-name`), so re-reifying `E` — in this process, in another, or in a KB rebuilt
+  in another order — yields the *same* constant.  A hash collision (two expressions, one
+  name) can only degrade into the ordinary two-expressions-one-constant case the merge
+  repair already reconciles by content (`authoritative-expression`), never into a wrong
+  answer.  A `nat/` name matches the camelCase argument convention (`nat-scheme-tag`
+  explains the base62 choice) and a `cx/` name is exempt as a context spelling
+  (`naming/context?`), so neither needs an exemption in `naming/argument-problem`, where a
+  reified constant is checked — only ever as an argument, never as a functor."
+  [ns E]
+  (symbol ns (content-name E)))
+
 (defn fresh-constant
-  "Allocate a fresh, opaque reified constant in the given reserved namespace — `nat`
-  for an object NAT (default) or `cx` for a context NAT.  Only ever appears in
-  argument or context-slot position, so `naming/problems` (which checks functors)
-  never sees it as a functor and needs no exemption."
+  "Allocate a fresh, opaque reified constant with a process-unique gensym name in the
+  given reserved namespace — `nat` (default) or `cx`.  For a throwaway constant not tied
+  to an expression; the mint path names by content instead (`constant-for`), so this is
+  not on it.  The `g…` name is camelCase, matching the argument convention the mint's
+  base62 name matches too (`constant-for`), so it needs no naming exemption either."
   ([] (fresh-constant nat-namespace))
   ([ns] (symbol ns (name (gensym "g")))))
 
@@ -850,7 +922,7 @@
   ([kb E chain?]
    (let [head (first E)
          ctx? (context-denoting-function? kb head)
-         k    (fresh-constant (if ctx? context-namespace nat-namespace))
+         k    (constant-for (if ctx? context-namespace nat-namespace) E)
          univ universal-context
          opts {:strength :monotonic :chain? chain?}]
      (wiring/assert-sentence kb (list 'termOfUnit k E) univ (assoc opts :chain? false))

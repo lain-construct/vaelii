@@ -173,6 +173,7 @@
   "Render `program` to ASPIF.  Returns
 
       {:aspif      text or nil          ; nil when there is nothing to solve
+       :stmts      [statement ...]      ; the structured program the clingo backend injects
        :table      the atom table
        :by-label   {label nogood}       ; violation atom -> the contradiction
        :assumptions [handle ...]        ; in content-key order
@@ -321,6 +322,7 @@
                     (map (fn [[_ v]] (aspif/show v (atoms/label-of-atom table v))) v-atoms)
                     (map (fn [[_ v]] (aspif/show v (atoms/label-of-atom table v))) card-v))]
      {:aspif       (when (seq stmts) (aspif/render stmts))
+      :stmts       stmts
       :table       table
       :by-label    (into {} (map (fn [[ng v]] [(atoms/label-of-atom table v) ng]))
                          (concat v-atoms card-v))
@@ -470,8 +472,8 @@
     (empty? assumptions)      []
     (not (solver/available?)) nil
     :else
-    (let [{:keys [aspif table]} (translate program {:tiebreak? false})
-          result                (solver/solve aspif :all-optima)
+    (let [{:keys [table] :as t} (translate program {:tiebreak? false})
+          result                (solver/solve t :all-optima)
           {:keys [witnesses]}   (if (or (answered? result) (= :unsat (:status result)))
                                   result
                                   (unanswered! :all-optima result))]
@@ -518,7 +520,7 @@
           ;; half-arbitrated KB — round 1's defeats landed, stale `:conflicts`,
           ;; `settle-finish` never reached and `reset-touched!` never run.  Deciding
           ;; nothing leaves the KB exactly as the round found it.
-          (let [result (try (solver/solve aspif :label)
+          (let [result (try (solver/solve t :label)
                             (catch Throwable e {:status :failed :error (backend-failed-ex e)}))]
             (cond
               (answered? result) (interpret t result)

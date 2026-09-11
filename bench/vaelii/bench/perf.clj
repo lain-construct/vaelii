@@ -468,6 +468,80 @@
     (doall (for [_ (range 60)]
              (nanos (dotimes [_ 10] (count (v/ask kb '(disjoint pdj_l0 ?t) 'CxPerf))))))))
 
+(defn- disjoint-clique-membership
+  "A type membership arriving under a predicate that sits in an n-way sibling-disjoint
+  clique — `(sibling_disjoint SibRoot)` with n children `genl` SibRoot, so those n
+  children are mutually disjoint — where the arriving term already holds one *benign* type
+  the clique does not separate.  Every such assert builds the arriving type's separation
+  frame (whose sibling arm consults `specs(SibRoot)`) and tests the benign membership
+  against it.
+
+  The claim is **flatness in the clique size**.  `separation-frame` reads `specs(SibRoot)`
+  once and closes over the set, and the candidate test is a `contains?` against it rather
+  than a scan of the n members, so a member test costs the same against a thousand-way
+  clique as against a ten-way one.  This is the assert-path twin of `disjoint-enumeration`
+  (the query side) and `flat-cache-belief-flip` (the reconcile side): the shape it holds
+  flat is a check that walks the whole clique per candidate, or rebuilds the frame per
+  candidate over an unmemoized `specs` walk — either turns this O(clique) per assert and
+  O(clique·asserts) over the load.  `checks/cascade-clash` and `wff/disjoint-problems`
+  both build the frame once through `disjointness-test` for this reason.
+
+  Distinct arriving terms, each pre-holding the same benign type, so nothing here is a
+  clash and no term accumulates memberships: the reading is the cost of *deciding* a
+  benign membership is admissible under a large clique, which is what every such assert
+  on such a KB pays.
+
+  Measured flat: 0.84-0.95x at 500 → 4000 clique members over three runs (the sub-1.0
+  readings are the large size's JIT-warming bias `measure` documents, not a speedup).  The
+  bound is the standard 2.0 the flat claims carry — about twice the worst healthy reading."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(genl pdcm_benign thing) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(sibling_disjoint pdcm_root) 'CxPerf {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'genl (symbol (str "pdcm_s" i)) 'pdcm_root)
+                  'CxPerf {:strength :monotonic})))
+    (doall
+     (for [i (range n)
+           :let [x (symbol (str "PDCM" i))]]
+       (do (v/assert kb (list 'pdcm_benign x) 'CxPerf {:strength :monotonic})
+           (nanos (v/assert kb (list 'pdcm_s0 x) 'CxPerf {:strength :monotonic})))))))
+
+(defn- disjoint-metatype-membership
+  "The metatype twin of `disjoint-clique-membership`: a membership arriving under a type
+  that is a member of an n-member `disjoint_metatype`, the term already holding a benign
+  type the metatype does not separate.  The metatype arm of `disjointness-test` scans the
+  member roster (`filterv … ms`) per candidate rather than reading `contains?` off a
+  memoized closure the way the sibling arm does — the members are a stored set with no
+  closure to memoize — so this is the arm whose per-candidate cost tracks the member count.
+
+  The claim is **at most linear in the member count**, not flat and not quadratic: one
+  scan of the n members per candidate is the shape the arm is written to have (the comment
+  at the arm says a metatype has a handful where a closure has a chain's worth), so the
+  reading is expected to track n once the scan dominates.  The bound guards the step to
+  quadratic — rebuilding the frame per candidate over an unmemoized member filter, or a
+  member-vis probe that itself walks — which would make an assert O(members²).
+
+  Measured linear: 4.92-5.26x at 500 -> 4000 members (the `a + b·n` shape — a ~0.07ms
+  n-independent floor plus ~0.22µs a member — dilutes an 8x size step to ~5x at this
+  baseline, and approaches 8x as the member scan dominates).  Bound 12.0: above the ~8x a
+  larger baseline would read and well under the ~64x a per-member-quadratic regression
+  would cost, the `membership-under-depth` precedent for a grows-with claim."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(genl pdmt_benign thing) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(disjoint_metatype pdmt_meta) 'CxPerf {:strength :monotonic})
+    (v/assert kb '(unary_predicate pdmt_m0) 'CxPerf {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'pdmt_meta (symbol (str "pdmt_m" i))) 'CxPerf {:strength :monotonic})))
+    (doall
+     (for [i (range n)
+           :let [x (symbol (str "PDMT" i))]]
+       (do (v/assert kb (list 'pdmt_benign x) 'CxPerf {:strength :monotonic})
+           (nanos (v/assert kb (list 'pdmt_m0 x) 'CxPerf {:strength :monotonic})))))))
+
 (defn- closure-membership
   "`(pBefore Head Tail)` over an n-long chain under `(transitive pBefore)`, asked after the
   chain's closure has been asked once.
@@ -1766,6 +1840,18 @@
     :sizes     [500 4000]
     :max-ratio 2.0
     :run       disjoint-enumeration}
+
+   {:name      :disjoint-clique-membership
+    :claim     "a membership assert whose type sits in a sibling-disjoint clique is flat in the clique size"
+    :sizes     [500 4000]
+    :max-ratio 2.0
+    :run       disjoint-clique-membership}
+
+   {:name      :disjoint-metatype-membership
+    :claim     "a membership assert whose type belongs to a disjoint_metatype is at most linear in the member count, never quadratic"
+    :sizes     [500 4000]
+    :max-ratio 12.0
+    :run       disjoint-metatype-membership}
 
    {:name      :compound-probe
     :claim     "100 find-sentexes on a compound are flat in the extent of the hot atom it names"

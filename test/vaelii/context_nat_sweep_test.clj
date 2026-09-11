@@ -218,10 +218,12 @@
 ;; ---- re-minting ----------------------------------------------------------
 
 (tu/deftest-kb a-swept-context-re-mints-to-one-constant
-  ;; The claim the sweep owes: a constant collected and re-minted is indistinguishable
-  ;; from one never collected.  The `cx/` **symbol** and the handle are not part of that
-  ;; — a reified constant is opaque and per-KB, minted in assertion order, and belief may
-  ;; never key on either — so the fresh symbol below is the expected reading, not a leak.
+  ;; The claim the sweep owes: a constant collected and re-minted rebuilds the same KB.
+  ;; The **handle** is not part of that — it is per-KB and belief may never key on it — but
+  ;; the `cx/` **symbol** now is: a reified constant is named by the content of its
+  ;; expression (`nat/content-name`), so re-minting the same expression yields the *same*
+  ;; constant, in this KB or another.  The re-mint below is therefore not merely
+  ;; indistinguishable from the original — it is the original symbol, reasserted.
   (let [cxfn    (declare-dimension! kb)
         year    (list cxfn 'CxMonad (list 'DatetimeFn "2006"))
         month   (list cxfn 'CxMonad (list 'DatetimeFn "2006-01"))
@@ -233,7 +235,7 @@
     (testing "re-minting the same two expressions rebuilds the same KB"
       (let [[_ ky2] (context-in kb '(holiday NewYear) year)
             [_ km2] (context-in kb '(likes Bob Cid) month)]
-        (is (not= ky ky2) "a fresh opaque constant, as a re-mint always is")
+        (is (= ky ky2) "the same content-named constant, as a deterministic re-mint always is")
         (is (= 1 (count (v/sentexes-matching kb (list 'termOfUnit '?k year) 'CxUniverse)))
             "one constant for the expression — the re-mint dedups, it does not double")
         (is (= km2 (:context (v/sentex kb (v/assert kb '(knows Bob Dee) month))))

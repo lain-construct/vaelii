@@ -980,10 +980,30 @@
     ;; class, and the note is what a KB author asking `interpreted` is told.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
          '[[intangible "ontology, not grammar: something with no mass or location. CxCore holds it so every spindle member can extend it; no engine check names it."]
-           [spatial_thing "ontology, not grammar: something with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [spatial "ontology, not grammar: something with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [physical_object "ontology, not grammar: something with mass and a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [living_thing "ontology, not grammar: an organism. CxCore holds it so CxOrganism's kinds reach the root from CxOrganism; no engine check names it."]
            [capability "ontology, not grammar: something a kind of thing can do. CxCore holds it so CxLife can extend it; no engine check names it."]])
+
+    ;; ---- the space/time complements, the expression root, and the metatype ladder ----
+    ;; CxCore comments these too — the overhaul moved them here from CxAbstract, beside their
+    ;; genl edges — so `vocabulary/audit` answers for them and they are classified inert like
+    ;; the skeleton above: ontology the engine reads by no name.  `temporal` is `spatial`'s
+    ;; time twin; `aspatial` / `atemporal` are the not-in-space / not-in-time collections
+    ;; `abstract` sits under; the ladder is the metatype-order theory that `typeGenl` reads,
+    ;; and `typeGenl` is itself inert.
+    (map (fn [[t why]] [t (inert (collection :notes why) why)])
+         '[[temporal "ontology, not grammar: something that exists in time. CxCore holds it so CxTime and CxAbstract can extend it; no engine check names it."]
+           [aspatial "ontology, not grammar: not located in space. CxCore holds it so abstract kinds can sit under it; no engine check names it."]
+           [atemporal "ontology, not grammar: not located in time. CxCore holds it so abstract kinds can sit under it; no engine check names it."]
+           [abstract "ontology, not grammar: an entity outside space and time, the root of the expression kinds CxAbstract hangs beneath it; no engine check names it."]
+           [type "ontology, not grammar: a first-order type, on the metatype-order ladder. No engine check names it — typeGenl, which reads the ladder, is inert."]
+           [metatype "ontology, not grammar: a second-order type, on the metatype-order ladder. No engine check names it."]
+           [meta_metatype "ontology, not grammar: a third-order type, on the metatype-order ladder. No engine check names it."]
+           [at_least_metatype "ontology, not grammar: a type of order two or higher, on the metatype-order ladder. No engine check names it."]
+           [fixed_order_type "ontology, not grammar: a type whose members are all of one order, on the metatype-order ladder. No engine check names it."]
+           [variable_order_type "ontology, not grammar: a type holding members of any order, on the metatype-order ladder. No engine check names it."]
+           [type_type_by_order "ontology, not grammar: the disjoint_metatype partitioning fixed_order_type by order. No engine check names it."]])
 
     ;; ---- the hierarchy roots and the meta-level targets -------------------
     [['thing     (enforced (collection :notes "the hierarchy root the open-world floors test against by name.")
@@ -1239,6 +1259,33 @@
      ;; like any fact and read for inference by nothing.  Inert is the decision rather than
      ;; the omission — the grammar documents itself in its own representation, and a
      ;; cross-reference earns a stored sentex whether or not a check ever keys on it.
+     ['genlInverse
+      (inert {:shape {:args [:term :term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "inverse-genl between binary predicates — (genlInverse ?spec ?genl-inv)"
+                          " means (?spec ?x ?y) entails (?genl-inv ?y ?x). Not yet engine-enforced;"
+                          " aspirational ontology predicate from Lacuna proposals.")}
+             (str "aspirational: records that one binary predicate specialises the"
+                  " argument-reversed reading of another. No inference path."))]
+     ['typeGenl
+      (inert {:shape {:args [:term :term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "higher-order genl: (typeGenl ?classifier ?genl) means every instance"
+                          " of ?classifier genls to ?genl. Not yet engine-enforced; intended to"
+                          " derive (genl ?x ?genl) from (?classifier ?x) once rule support lands.")}
+             (str "aspirational: a higher-order genl constraint whose rule-based derivation"
+                  " depends on engine support for higher-order patterns. No inference path."))]
+     ['partitionedByType
+      (inert {:shape {:args [] :variadic :term} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "(partitionedByType ?whole ?classifier . ?cells) records that the"
+                          " ?cells exhaustively and disjointly partition ?whole, each a"
+                          " ?classifier instance. Inert: the disjointness rides a"
+                          " disjoint_metatype and the memberships are stated beside it, so this"
+                          " draws no inference and expands to nothing.")}
+             (str "a partition declaration (variable arity) documenting that the cell types"
+                  " exhaustively and disjointly cover the whole. Nothing infers from it — the"
+                  " disjoint_metatype and the explicit memberships carry the separation."))]
      ['termsRelated
       (inert {:shape {:args [] :variadic :term} :storage [:none] :checked false
               :family nil :facets #{}

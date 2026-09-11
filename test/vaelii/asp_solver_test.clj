@@ -56,7 +56,8 @@
                               (if (= nm "clingo_solve_handle_close")
                                 (throw (UnsatisfiedLinkError. "clingo_solve_handle_close"))
                                 0))]                        ; 0 ⇒ chk! refuses
-      (let [e (is (thrown? clojure.lang.ExceptionInfo (drain (PointerByReference.) 0 :optimal)))]
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (drain (PointerByReference.) 0 :optimal (constantly []))))]
         (testing "the drain's own failure survives, naming the call that failed"
           (is (= :solver-failed (:type (ex-data e))))
           (is (= "resume" (:op (ex-data e)))))))

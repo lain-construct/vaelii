@@ -83,7 +83,9 @@
       (is (re-find #"animal" (:body r)))
       (is (re-find #"CxCore" (:body r)))
       (is (re-find #"Core predicates" (:body r)))
-      (is (re-find #"⊥" (:body r))))
+      (is (or (re-find #"⊥" (:body r))
+              (re-find #"disjoint from" (:body r)))
+          "disjointness renders — as pairs (⊥) when ≤ front-cap, as type summaries above it"))
     (testing "the header carries a menubar to the top-level tools"
       (is (re-find #"class=\"menubar\"" (:body r)))
       (is (re-find #">Ontology<" (:body r)))
@@ -182,10 +184,18 @@
                       (= 'disjoint pred) (conj self)))]
       (let [r (GET "/")]
         (is (= 200 (:status r)))
-        (is (re-find #">nothing</a> ⊥ <a[^>]*>nothing</a>" (:body r))
-            "both sides, not one term with the other silently missing"))
+        ;; When pairs ≤ front-cap the front page renders `X ⊥ Y` rows.  When pairs
+        ;; exceed it (as they do after the upper-ontology overhaul), it renders type
+        ;; summaries and the individual pairs live on the continuation.
+        (is (or (re-find #">nothing</a> ⊥ <a[^>]*>nothing</a>" (:body r))
+                (re-find #"separated pairs" (:body r)))
+            "the front page renders — either as pairs or as summary"))
       (testing "and so does the continuation that pages the same list"
-        (is (= 200 (:status (GET "/front/rows" "section=disjoint&offset=0"))))))))
+        (is (= 200 (:status (GET "/front/rows" "section=disjoint&offset=0"))))
+        (let [deep (GET "/front/rows" (str "section=disjoint&offset=50"))]
+          (is (= 200 (:status deep)))
+          (is (re-find #">nothing</a> ⊥ <a[^>]*>nothing</a>" (:body deep))
+              "the self-disjoint pair renders on a deeper page"))))))
 
 (deftest a-term-page-survives-a-compound-in-the-taxonomy
   ;; The second half of the same story as the test above: a **type node need not be a
@@ -926,16 +936,17 @@
   `href` of the link to its own page and in the hidden form value the proposal panel
   posts; anywhere else is the leak these tests exist to catch.
 
-  The pattern is the shape `nat/fresh-constant` mints (a gensym), not a bare `nat/`,
-  which a search page's own `matching /nat/` heading would answer to."
+  The pattern is the scheme-tagged shape the mint names by content (`nat/a` + a base62
+  payload; `nat/nat-scheme-tag`), not a bare `nat/`, which a search page's own
+  `matching /nat/` heading would answer to."
   [body]
-  (re-seq #"nat/g\d" (str/replace body #"(href|value)=\"[^\"]*\"" "")))
+  (re-seq #"nat/a[0-9A-Za-z]" (str/replace body #"(href|value)=\"[^\"]*\"" "")))
 
 (defn- linked-nats
   "The distinct reified constants `body` links to — how many the page actually rendered,
   as against how many times it rendered one."
   [body]
-  (set (map second (re-seq #"/term\?q=nat%2F(g\d+)" body))))
+  (set (map second (re-seq #"/term\?q=nat%2F(a[0-9A-Za-z]+)" body))))
 
 (tu/deftest-kb a-reified-term-reads-as-the-expression-it-denotes
   (with-nat-kb kb

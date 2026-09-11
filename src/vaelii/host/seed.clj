@@ -64,6 +64,36 @@
                              " — it reads the file and jar protocols")
                         {:type :missing-resource :dir dir :url (str res)}))))))
 
+(defn- root-files
+  "The `Cx<Name>.txt` file names sitting directly under `kb/`, outside every layer
+  sub-directory, read off whichever classpath shape holds them — a filesystem tree
+  (repl / lein / test) or a packaged jar — the way `layer-files` reads a layer.
+  `CxCore.txt` is dropped here: vaelii.host.core-context loads the spindle head on its
+  own, ahead of the topology edge it must precede.  Both branches anchor on
+  `kb/CxCore.txt`, the file every KB carries, so the `kb/` root resolves even when a
+  jar records no directory entry for it."
+  []
+  (let [want "kb/"
+        res  (io/resource "kb/CxCore.txt")]
+    (when res
+      (case (.getProtocol res)
+        "file" (keep (fn [^java.io.File f]
+                       (let [n (.getName f)]
+                         (when (and (str/ends-with? n ".txt") (not= n "CxCore.txt")) n)))
+                     (.listFiles (.getParentFile (io/file res))))
+        "jar"  (let [conn ^java.net.JarURLConnection (.openConnection res)]
+                 (seq (for [^java.util.jar.JarEntry e (enumeration-seq (.entries (.getJarFile conn)))
+                            :let [n (.getName e)]
+                            :when (and (str/starts-with? n want)
+                                       (str/ends-with? n ".txt")
+                                       (not (str/includes? (subs n (count want)) "/"))
+                                       (not= n "kb/CxCore.txt"))]
+                        (subs n (count want)))))
+        (throw (ex-info (str "kb/ root sits behind classpath protocol "
+                             (.getProtocol res) ", which collector discovery cannot list"
+                             " — it reads the file and jar protocols")
+                        {:type :missing-resource :dir nil :url (str res)}))))))
+
 (defn layer-contexts
   "The context symbols whose KB files live in the layer sub-directory `dir`
   (\"upper\" / \"middle\"), sorted for determinism.  Discovered from the classpath, so
@@ -72,6 +102,19 @@
   packaged jar alike (`layer-files`)."
   [dir]
   (some->> (layer-files dir)
+           (map #(symbol (subs % 0 (- (count %) 4))))
+           (sort)                                    ; filename-derived symbols — bare sort, same order
+           vec))
+
+(defn root-contexts
+  "The context symbols whose KB files sit directly under `kb/`, minus `CxCore`, sorted
+  for determinism.  A top-level file names a spindle collector context — today only
+  `CxUniverse`, the upper spindle's — whose cross-member axioms name terms from more
+  than one member and so load above every member.  Discovered from the classpath, so
+  dropping a new top-level `Cx<Name>.txt` loads it with no code change, from a
+  filesystem tree and a packaged jar alike (`root-files`)."
+  []
+  (some->> (root-files)
            (map #(symbol (subs % 0 (- (count %) 4))))
            (sort)                                    ; filename-derived symbols — bare sort, same order
            vec))
@@ -116,8 +159,8 @@
    (load-sentences kb (read-sentences context dir) context)))
 
 (defn load-layer
-  "Load several context files from one layer sub-directory, in the order given.
-  Returns kb."
+  "Load several context files into their contexts, in the order given.  `dir` names
+  the layer sub-directory, nil for the `kb/` root (the collector files).  Returns kb."
   [kb dir contexts]
   (doseq [c contexts] (load-context kb c dir))
   kb)

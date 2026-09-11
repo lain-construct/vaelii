@@ -384,7 +384,7 @@
   (testing "a non-map budget is refused rather than read as unbounded"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a map"
                           (budget/collect (range 5) :max-results))))
-  (testing "the five rostered bounds all pass at every entry point"
+  (testing "each anytime entry point's own rostered bounds pass — ask's three and prove's four"
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [dog Muffet CxBudget]
         (v/assert kb (list dog Muffet) CxBudget)

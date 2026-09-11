@@ -83,7 +83,7 @@ be decided → [solving.md](solving.md).
 | `siblingDisjointExceptions` (plural) | `siblingDisjointException` (**singular**, house style) | exempts one pair the sibling mark or a `disjoint_metatype` would force disjoint; read over the whole KB (no scoped variant, unlike Cyc's per-Mt exceptions), pair-local, and it does not leak to subtypes |
 | `SymmetricBinaryPredicate` | `(symmetric P)` | |
 | `AsymmetricBinaryPredicate` | `(asymmetric P)` | convicts a claim whose **converse** is believed; it does not make `P` irreflexive, and `(P a a)` is admitted |
-| `genlInverse` | a forward rule | `(inverse P Q)` exists but is the stronger biconditional |
+| `genlInverse` | an inert `genlInverse` declaration, or a forward rule | vaelii declares `genlInverse`, but wires it to no inference path yet (aspirational); a working inverse is a forward rule, and `(inverse P Q)` is the stronger biconditional |
 | `unk` | `unknown` | negation as failure, ground-only, evaluated at level 6 and storing nothing. A conjunctive argument is joined, so its conjuncts may share a quantifier's variable, and `forall` is sugar for the nested case → [naf.md](naf.md) |
 | — | `(contradictions kb)` | no Cyc equivalent: the pairs that coexist, ordered by content |
 | `assertedMoreSpecifically` | — | no equivalent. Specificity is behavioral: a stated specific claim undercuts an inherited general one, so nothing is derived to arbitrate → [inherit.md](inherit.md) |
@@ -98,10 +98,12 @@ with its own handle rather than an absence:
 (v/assert-rule kb ['(dislikes ?x ?y)] '(not (likes ?x ?y))    'CxSomeContext)
 ```
 
-`(inverse P Q)` is worth knowing properly, because it is stronger than `genlInverse` in
-three ways: it is stored under an unordered key so one declaration installs both
-directions, a predicate may declare **several** partners and all are live, and a partner
-declared on a sub-predicate answers the super-predicate's goal.
+`(inverse P Q)` is the inverse that actually chains. vaelii now declares an inert
+`genlInverse` too, but the declaration carries no inference path yet, so a working
+one-directional inverse is still a forward rule. `(inverse P Q)` is stronger than that
+forward rule in three ways: it is stored under an unordered key so one declaration installs
+both directions, a predicate may declare **several** partners and all are live, and a
+partner declared on a sub-predicate answers the super-predicate's goal.
 
 ## Well-formedness: lenient by default, assertive on request
 

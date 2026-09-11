@@ -119,7 +119,7 @@
   forward join over a transitive antecedent reads the closure, so the race's beginning
   comes before its end without anybody writing that down (CxChange).  The events are left
   untyped, exactly as CheeseFalls is above: `happens`
-  constrains its first argument to a temporal_thing and `beforeEvent` constrains its own to
+  constrains its first argument to a temporal and `beforeEvent` constrains its own to
   an event, and an untyped individual satisfies both readings where a stored membership
   could only satisfy one."
   '[(time_point RaceBegins) (time_point HareLiesDown) (time_point TortoisePasses)

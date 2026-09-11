@@ -621,6 +621,34 @@
           (is (not (v/in? kb h)) "inert means never a premise")
           (v/retract! kb h))))))
 
+(deftest assert-inert-refuses-an-open-sentence-and-resolves-an-ist-form
+  ;; Two more of `assert`'s own readings, at the entry point that persists and indexes
+  ;; without premising.  An open literal stored inert is a record a `CxEverything` read
+  ;; answers as a fact, and a stored sentence is closed (`checks/check-ground`).  An
+  ;; `(ist Ctx S)` stored as written is a record with the `ist` functor, which
+  ;; `handle-of`, `contexts-of` and every read resolve past — stored, and reachable by
+  ;; nothing.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog Muffet CxInert]
+      (let [before (v/sentex-count kb)]
+        (testing "an open sentence is :not-ground, as at assert"
+          (let [e (is (thrown? clojure.lang.ExceptionInfo
+                               (v/assert-inert kb (list dog '?x) CxInert)))]
+            (is (= :not-ground (:type (ex-data e))))))
+        (testing "a malformed ist is :shape, as at assert"
+          (let [e (is (thrown? clojure.lang.ExceptionInfo
+                               (v/assert-inert kb (list 'ist CxInert) 'CxUniverse)))]
+            (is (= :shape (:type (ex-data e))))))
+        (testing "and nothing was stored by either refusal"
+          (is (= before (v/sentex-count kb)))))
+      (testing "an (ist Ctx S) stores S in Ctx, unbelieved, where handle-of finds it"
+        (let [h (v/assert-inert kb (list 'ist CxInert (list dog Muffet)) 'CxUniverse)]
+          (is (= (list dog Muffet) (:sentence (v/sentex kb h))))
+          (is (= CxInert (:context (v/sentex kb h))))
+          (is (= h (v/handle-of kb (list dog Muffet) CxInert)))
+          (is (not (v/in? kb h)) "inert means never a premise")
+          (v/retract! kb h))))))
+
 (deftest assert-inert-refuses-a-rule
   ;; A rule is indexed where it is *created* — `assert-rule-sentence`'s new branch and
   ;; the generator mint — so one stored by this entry point is one no chainer can reach, and it

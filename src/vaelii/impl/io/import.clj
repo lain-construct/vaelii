@@ -1109,6 +1109,10 @@
                (str "An option nothing reads takes the default in silence, which for"
                     " :belief? means running the belief recovery the records-only path"
                     " exists to skip."))
+  ;; `:on-progress` is a function (`opts/bound-domains`), so a non-fn one is a bare cast on
+  ;; the first frame report — refused here as `:unknown-option`.  `:belief?` is tri-valued,
+  ;; not a boolean, and has no row there; its own value check is below
+  (opts/check-values! opts "import-dump")
   (when (and (contains? opts :belief?)
              (not (contains? belief-modes (:belief? opts))))
     (throw (ex-info (str "unknown :belief? value " (pr-str (:belief? opts))

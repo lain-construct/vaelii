@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.causality-cluster-test
   "The situation/causality cluster: situation, static_situation, event (the
-  state-of-affairs hierarchy under temporal_thing), causal/acausal (whether a thing
+  state-of-affairs hierarchy under temporal), causal/acausal (whether a thing
   can occupy a cause slot), and causal_event/acausal_event defined via `intersection`.
   The tests hold that the cluster loads and that the `intersection`-defined kinds get
   their genls and membership from the CxCore intersection rules."
@@ -24,8 +24,8 @@
       "static_situation is a situation")
   (is (v/ask? kb (list 'genl 'event 'situation) 'CxUniverse)
       "event is a situation")
-  (is (v/ask? kb (list 'genl 'event 'temporal_thing) 'CxUniverse)
-      "event is a temporal_thing (transitively, via situation)"))
+  (is (v/ask? kb (list 'genl 'event 'temporal) 'CxUniverse)
+      "event is a temporal (transitively, via situation)"))
 
 ;; ---- causal / acausal partition of thing ---------------------------------
 

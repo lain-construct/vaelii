@@ -1,4 +1,4 @@
-(defproject com.vaelii/vaelii "0.18.0"
+(defproject com.vaelii/vaelii "0.18.1"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -25,8 +25,8 @@
   ;; 2.9 because `:preserve-eval-meta` below needs it: on 2.9 the key is silently
   ;; ignored and every `lein run` prints the reflection warning it exists to suppress.
   :min-lein-version "2.10.0"
-  :dependencies [[org.clojure/clojure "1.12.5"]
-                 [com.taoensso/nippy "3.8.1"]
+  :dependencies [[org.clojure/clojure "1.12.6"]
+                 [com.taoensso/nippy "3.9.0"]
                  [com.taoensso/trove "1.2.0"]
                  [metosin/reitit-ring "0.10.1"]
                  [ring/ring-core "1.15.5"]
@@ -39,7 +39,7 @@
                  [net.java.dev.jna/jna "5.19.1"]
                  ;; the dense and columnar index backends, both off by default
                  ;; (docs/density.md)
-                 [org.roaringbitmap/RoaringBitmap "1.6.20"]
+                 [org.roaringbitmap/RoaringBitmap "1.6.23"]
                  [it.unimi.dsi/fastutil-core "8.5.19"]
                  ;; XZ (LZMA2) for the exporter's `:xz`. nippy brings it transitively;
                  ;; naming it is what makes the codec a promise rather than an accident
@@ -93,7 +93,7 @@
              ;; run`/`test`/`serve`/`browser`, and is dropped when the standalone jar is
              ;; assembled, so this needs its own copy at the same version.
              :uberjar {:aot :all
-                       :dependencies [[org.slf4j/slf4j-nop "2.0.18"]]}
+                       :dependencies [[org.slf4j/slf4j-nop "2.0.19"]]}
              ;; point JNA at libclingo (docs/asp.md). `VAELII_CLINGO_LIB` names the
              ;; directory holding it; the default is Homebrew's on Apple silicon, which
              ;; is where a macOS `brew install clingo` puts it and nowhere a Linux
@@ -120,7 +120,7 @@
              ;; Naming a *released* coordinate here would resolve from Clojars today
              ;; and then ship a release pinning the previous one. The sibling is
              ;; developed from source — scripts/link-checkouts.sh — or `lein install`ed.
-             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.18.0"
+             :with-foreign {:dependencies [[com.vaelii/vaelii-foreign "0.18.1"
                                             :exclusions [com.vaelii/vaelii]]]}
              ;; static analysis, dev-only so none of it reaches an uberjar. Keep
              ;; lein-cloverage's version in step with scripts/coverage.sh, which injects
@@ -134,7 +134,7 @@
              ;; (leiningen.core.project's default-profile-metadata), so `lein pom`/`lein
              ;; deploy` declare it but a consumer's tooling never resolves it
              ;; transitively — docs/operations.md, "Neither server logs a request".
-             :dev {:dependencies [[org.slf4j/slf4j-nop "2.0.18"]
+             :dev {:dependencies [[org.slf4j/slf4j-nop "2.0.19"]
                                    ;; dev-only hot reload: `wrap-reload` reloads changed
                                    ;; source files from disk before each request, so an edit
                                    ;; shows on refresh with no restart (web/hot-reloading,
@@ -206,7 +206,7 @@
              ;; silencing it.
              :bench {:source-paths ["bench"]
                      :dependencies [[org.openjdk.jol/jol-core "0.17"]
-                                    [org.roaringbitmap/RoaringBitmap "1.6.20"]
+                                    [org.roaringbitmap/RoaringBitmap "1.6.23"]
                                     [it.unimi.dsi/fastutil-core "8.5.19"]]
                      :jvm-opts ["-Xmx6g" "--add-opens=java.base/java.lang=ALL-UNNAMED"
                                 "-Djdk.attach.allowAttachSelf=true"]

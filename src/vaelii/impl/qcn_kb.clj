@@ -447,7 +447,7 @@
                 kb [(:name calc) context ::pass] net
                 (fn [stale]
                   (caches/read-through
-                   pc-cache pc-cache-limit net
+                   pc-cache (caches/limit-of :path-consistency pc-cache-limit) net
                    (fn []
                      (let [warm (when (and (map? (:result stale))
                                            (qcn/narrowing-of? net (:net stale) algebra))
@@ -523,7 +523,7 @@
    kb [(:name calc) context ::support-pass] net
    (fn [_stale]
      (caches/read-through
-      support-cache pc-cache-limit [net support]
+      support-cache (caches/limit-of :network-support pc-cache-limit) [net support]
       #(qcn/path-consistent-with-support net support (into (nodes net) extra) algebra)))))
 
 (defn- resolved
@@ -918,29 +918,34 @@
     (doseq [c (vals @built-calculi)] (reset! (get c k) {}))
     n))
 
+(defn- trim-calculus-cache [k target]
+  (reduce + 0 (map #(caches/trim-map! (get % k) target) (vals @built-calculi))))
+
 (caches/register-cache
  {:cache    :path-consistency
   :label    "Path-consistency passes"
   :scope    :process
   :unit     "networks"
-  :limit    pc-cache-limit
+  :limit    (caches/limit-thunk :path-consistency pc-cache-limit)
   :counters nil
   :note     (str "One tightened network per network value a calculus has been asked "
                  "about. Keyed on the value rather than on the KB or the context, so a "
                  "change to the believed facts is a different key and never a stale "
                  "answer.")
   :read     (fn [_] {:entries (calculus-cache-total :pc-cache)})
-  :clear    (fn [_] (clear-calculus-cache :pc-cache))})
+  :clear    (fn [_] (clear-calculus-cache :pc-cache))
+  :trim     (fn [_ target] (trim-calculus-cache :pc-cache target))})
 
 (caches/register-cache
  {:cache    :network-support
   :label    "Network support passes"
   :scope    :process
   :unit     "networks"
-  :limit    pc-cache-limit
+  :limit    (caches/limit-thunk :network-support pc-cache-limit)
   :counters nil
   :note     (str "The same pass carrying the stored facts each entailment rests on — a "
                  "separate cache because support is asked for rarely and every query "
                  "would otherwise pay to propagate what nothing reads.")
   :read     (fn [_] {:entries (calculus-cache-total :support-cache)})
-  :clear    (fn [_] (clear-calculus-cache :support-cache))})
+  :clear    (fn [_] (clear-calculus-cache :support-cache))
+  :trim     (fn [_ target] (trim-calculus-cache :support-cache target))})

@@ -49,3 +49,81 @@
                           (when consequence (str ".  " consequence)))
                      {:type :unknown-option :mismatch :unknown-key :unknown (vec unknown)
                       :options (vec (sort opt-keys))})))))
+
+(def bound-domains
+  "What each numeric, callback or boolean bound a public entry point takes has to *be* —
+  `[key, what it is in words, the predicate]`.  One table, read by every bounded entry
+  point: `vaelii.core`'s search / chain / assert / extent checks and
+  `vaelii.impl.budget/check-budget!` all run their known keys through `check-values!`
+  below.
+
+  A value outside a bound's domain is refused for the roster check's reason at one remove.
+  A key nothing reads is one silent default (`check!` above); a key that *is* read holding
+  a value it cannot mean is the other, and quieter still where the value is not a cast
+  error but a near-miss: a string `:max-ms` reaches arithmetic and throws bare, but a
+  string `:believed?` reads as truthy and answers the stored extent where the believed one
+  was asked for.  Either way the run happens at a setting nobody chose.
+
+  Every numeric bound admits **0**, each a real question a caller may ask by name — no time
+  at all (`:max-ms`), no rule expansion (`:max-depth`), realize nothing and hand back a
+  resumable continuation (`:max-results`), report at every opportunity
+  (`:progress-every-ms`) — so the domain is non-negative rather than positive, matching the
+  anytime contract these bounds already keep and `vaelii.impl.spec`'s `nat-int?`.  What is
+  refused is the value that is not a number of the right kind at all: a string, a float, a
+  negative, a keyword where a function belongs, a string where a boolean belongs."
+  [[:max-ms            "a non-negative number of milliseconds"
+    #(and (number? %) (not (neg? (double %))))]
+   [:max-depth         "a non-negative integer" nat-int?]
+   [:max-results       "a non-negative integer" nat-int?]
+   [:max-derivations   "a non-negative integer" nat-int?]
+   [:max-hypotheses    "a non-negative integer" nat-int?]
+   [:node-budget       "a non-negative integer" nat-int?]
+   [:max-term-growth   "a non-negative integer" nat-int?]
+   [:progress-every-ms "a non-negative integer" nat-int?]
+   [:on-progress       "a function"             fn?]
+   [:counters?         "true or false"          boolean?]
+   [:believed?         "true or false"          boolean?]])
+
+(def ^:private bound-domain-map
+  "`bound-domains` as `{key [what pred]}`, for a per-key lookup rather than a scan of the
+  whole table.  `check-values!` runs on the `assert` hot path (through
+  `vaelii.core/check-assert-opts!`), where a bulk load calls it once per fact, so it reads
+  the caller's `opts` — one or two keys — against this map rather than walking the table's
+  eleven entries per call."
+  (into {} (map (fn [[k what ok?]] [k [what ok?]])) bound-domains))
+
+(defn check-values!
+  "Refuse a bound in `opts` whose value is outside its domain (`bound-domains`), `subject`
+  naming the entry point in the message as `check!` does.
+
+  The **value** refusal beside the key one, and it runs *after* it: a misspelt key is not
+  a bad value, so the key roster (`check!`) is settled before any value is read, and by
+  then every key present is one the entry point admits.  Reads the caller's `opts` against
+  `bound-domain-map`, so a key with no row here (a `:strength`, a `:strategy`) is not this
+  check's business, and a key the entry point does not read was already refused.
+
+  An **absent** key, and an explicit `nil`, are no bound rather than a bad one — a
+  legitimate request the domain does not judge, which every optional bound relies on.  When
+  more than one bound is bad, the one whose key sorts first is reported, so the refusal does
+  not turn on `opts`'s map order.  `:unknown-option` with `:mismatch :bad-value`, the shape
+  every value refusal carries."
+  [opts subject]
+  (when (map? opts)
+    ;; `reduce-kv` over the caller's map, not the eleven-entry table: on the `assert` hot
+    ;; path `opts` is a key or two and holds no bound at all, so the common case is two map
+    ;; lookups that miss and the shared empty vector back — no lazy seq allocated per call.
+    (let [bad (reduce-kv (fn [acc k v]
+                           (if-let [[what ok?] (bound-domain-map k)]
+                             (if (and (some? v) (not (ok? v)))
+                               (conj acc [k what v])
+                               acc)
+                             acc))
+                         [] opts)]
+      (when (seq bad)
+        ;; a bound key is a keyword, so `sort-by first` orders by the keyword itself — a
+        ;; content-stable order, not a `str` of it — and picks the same one to report
+        ;; whatever order the map enumerated its keys in
+        (let [[k what v] (first (sort-by first bad))]
+          (throw (ex-info (str subject " " k " must be " what ", got " (pr-str v))
+                          {:type :unknown-option :mismatch :bad-value :option k :value v}))))))
+  opts)

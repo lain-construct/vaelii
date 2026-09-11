@@ -61,6 +61,7 @@
             [vaelii.core :as v]
             [vaelii.host.guard :as guard]
             [vaelii.host.subscribe :as sub]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.config :as config])
   (:import [org.eclipse.jetty.server Server ServerConnector]))
 
@@ -980,6 +981,9 @@
                  :data {:port port :host host :dir (or dir :memory)
                         :auth posture :hosts hosts}})
     (announce-auth! host posture hosts)
+    ;; shrink the derived caches when the heap the daemon runs in fills, and grow them back
+    ;; as it frees — the daemon owns one KB, so the guard's roster is that one
+    (caches/install-memory-guard! {:kbs (fn [] [kb])})
     ;; `:max-threads` here as in `start`: `http-threads` is one half of the pair
     ;; `subscribe/max-parked` is pinned against, and a daemon run from the command line
     ;; has to hold the same relationship as one a test starts

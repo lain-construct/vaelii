@@ -210,7 +210,7 @@
             decode
             (fn [^long m]
               (caches/read-through
-               cache decode-cache-limit m
+               cache (caches/limit-of :relation-decode decode-cache-limit) m
                #(into #{} (keep-indexed (fn [i r] (when (bit-test m i) r))) rels)))
             uni (mask universe)]
         {:universe uni
@@ -236,7 +236,7 @@
 (defn- compiled
   "The bitmask form of `algebra`, built on first use."
   [algebra]
-  (caches/read-through compiled-cache compiled-cache-limit algebra
+  (caches/read-through compiled-cache (caches/limit-of :compiled-algebras compiled-cache-limit) algebra
                        #(compile-algebra algebra)))
 
 ;; ---- the pass over masks -------------------------------------------------
@@ -742,7 +742,7 @@
   :label    "Compiled algebras"
   :scope    :process
   :unit     "algebras"
-  :limit    compiled-cache-limit
+  :limit    (caches/limit-thunk :compiled-algebras compiled-cache-limit)
   :counters nil
   :note     (str "Each relation algebra's composition and converse tables, in bitmask "
                  "form, keyed on the algebra itself. One entry per calculus in use, so "
@@ -755,7 +755,7 @@
   :label    "Relation decode tables"
   :scope    :process
   :unit     "masks"
-  :limit    decode-cache-limit
+  :limit    (caches/limit-thunk :relation-decode decode-cache-limit)
   :counters nil
   :note     (str "One decoded relation set per bitmask the tightening pass has handed "
                  "back, held per compiled algebra — so the limit is per algebra and the "

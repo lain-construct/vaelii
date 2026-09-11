@@ -210,7 +210,8 @@
         (do (.incrementAndGet miss-count)
             (storing (fn [v]
                        (when (== (observe/change-clock) now)
-                         (swap! cache caches/assoc-bounded cache-limit
+                         (swap! cache caches/assoc-bounded
+                                (caches/limit-of :literal-matches cache-limit)
                                 k {:clock now :value v})))
                      (compute)))))))
 
@@ -221,7 +222,7 @@
   stamp with."
   [kb]
   {:size   (count @(:matches kb))
-   :limit  cache-limit
+   :limit  (caches/limit-of :literal-matches cache-limit)
    :hits   (.get hit-count)
    :misses (.get miss-count)
    :clock  (observe/change-clock)})
@@ -260,7 +261,7 @@
   :label    "Literal matches"
   :scope    :kb
   :unit     "literals"
-  :limit    cache-limit
+  :limit    (caches/limit-thunk :literal-matches cache-limit)
   :counters :process
   :note     (str "One literal's visible matches, keyed blind to what the caller named "
                  "its variables. Every entry carries the change clock it was computed "
@@ -272,4 +273,5 @@
                                           :hits    (:hits s)
                                           :misses  (:misses s)}))
   :clear    clear-cache
+  :trim     (fn [kb target] (caches/trim-map! (:matches kb) target))
   :reset-counters (fn [_] (reset-counters))})

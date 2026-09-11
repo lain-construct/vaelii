@@ -141,6 +141,7 @@
          "(vertebrate_class ?type) means that ?type is one of the classes of animal with a backbone. A disjoint_metatype, so its members are pairwise disjoint and nothing has to say so pair by pair: five members separate ten pairs, and the separation is inherited by every subtype — which is what makes a penguin and a dog disjoint without a word being written about either.")
 (unary_predicate vertebrate_class)
 (genlArg vertebrate_class 1 animal)
+(metatype vertebrate_class)
 (disjoint_metatype vertebrate_class)
 
 (comment wolf "A wild canine predator — the danger the boy falsely cries about.")

@@ -139,8 +139,8 @@
 
   What bounds it is **not** the vocabulary.  A KB that only names things holds one entry
   per distinct name and is ontology-sized, but three writers mint a *fresh* symbol per
-  fact: NAT reification (`nat/fresh-constant`, one `nat/g…` per reified non-atomic
-  term), head-existential skolemization (`skolem/skolemize-conclusion`, one witness per
+  fact: NAT reification (`nat/constant-for`, one content-named `nat/a…` per reified
+  non-atomic term), head-existential skolemization (`skolem/skolemize-conclusion`, one witness per
   existential per firing frontier) and abduction (one scratch context each).
   Under any of those the pool grows with the fact count rather than with the ontology,
   and nothing hands an entry back: it is static, process-wide and shared by every KB in

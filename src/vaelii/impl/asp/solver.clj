@@ -84,13 +84,15 @@
                   @clasp-usable))
 
 (defn solve
-  "Solve `aspif-text` in `mode` via the selected backend. Contract identical to
-   clasp/solve and clingo/solve. In AUTO mode the backend is chosen per program
-   size (`backend-for`): clingo for small programs, clasp for large."
-  [aspif-text mode]
-  (if (= :clingo (backend-for (count aspif-text)))
-    ((:solve @clingo-backend) aspif-text mode)
-    (clasp/solve aspif-text mode)))
+  "Solve translated program `{:aspif <text> :stmts <statements>}` in `mode` via the
+   selected backend, returning the shape clasp/solve and clingo/solve share. In AUTO
+   mode the backend is chosen per program size (`backend-for`, on the ASPIF byte
+   length): clingo for small programs, clasp for large. clingo injects `:stmts`
+   through the backend accessors; clasp consumes the `:aspif` text."
+  [program mode]
+  (if (= :clingo (backend-for (count (:aspif program))))
+    ((:solve @clingo-backend) program mode)
+    (clasp/solve (:aspif program) mode)))
 
 (defn classify-both
   "Cautious + brave classification of `aspif-text` in one shot. On the clingo

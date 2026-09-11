@@ -11,10 +11,12 @@
   second query was fast\" is a demo; \"the second query was fast because it was served
   from a cache, and here is the rate\" is a measurement.
 
-  **A register rather than a dozen accessors.**  This namespace requires nothing, which
-  is the whole design: every namespace holding a cache requires *this* one and declares
-  itself at load, so there is no require edge from the reader down to the caches and no
-  list here that a new cache has to be added to twice.  A cache in a namespace this
+  **A register rather than a dozen accessors.**  This namespace requires only `config`, a
+  leaf that holds no cache, so the reader still has no require edge down to a namespace
+  holding one: every such namespace requires *this* one and declares itself at load, and
+  there is no list here that a new cache has to be added to twice.  The `config` edge reads
+  one switch, `VAELII_CACHE_SCALE`, and `limit-of` applies it to every count-bounded
+  cache's limit.  A cache in a namespace this
   process never loaded — a qualitative calculus nobody registered, the metric-time
   reasoner — is absent from the read because it is absent from the process, which is the
   honest answer rather than a row of zeroes.
@@ -41,7 +43,12 @@
   here runs code this namespace has never seen; one that throws is reported as a row
   carrying `:error` rather than allowed to take the answer down with it.  A diagnostic
   is worth most while something is already wrong, which is exactly when it must not be
-  the next thing to break.")
+  the next thing to break."
+  (:require [vaelii.impl.config :as config])
+  (:import [com.sun.management GarbageCollectionNotificationInfo]
+           [java.lang.management ManagementFactory GarbageCollectorMXBean MemoryUsage]
+           [javax.management NotificationEmitter NotificationListener Notification]
+           [javax.management.openmbean CompositeData]))
 
 ;; ---- the bound every registered cache takes ------------------------------
 
@@ -74,6 +81,88 @@
       (swap! cache assoc-bounded limit k v)
       v)))
 
+;; ---- the tunable bound: an operator scale, a guard pressure, overrides --
+;;
+;; Every count-bounded cache reads its limit through `limit-of`, so the operator's profile
+;; and the memory-pressure guard move numbers that both the store path that enforces the
+;; bound and the `rows` entry that reports it read.  At the default profile — scale 1.0,
+;; pressure 1.0 and no override — `limit-of` returns the shipped default unchanged, so the
+;; process holds the bounds it held before a scale existed, and the goldens and cost budgets
+;; are unmoved.
+
+(def ^:private min-limit
+  "The fewest entries a scaled bound is taken to, whatever the scale.  Below this a cache
+  forces the recompute of almost every read it is asked, so a scale that would compute a
+  smaller bound is read as this instead."
+  16)
+
+(defonce ^:private the-profile
+  ;; {:scale double :pressure double :overrides {cache-id absolute-limit}}.  A `defonce` for
+  ;; the registry's reason: reloading this namespace must not reset a scale an operator set.
+  ;; `:scale` is the operator's intent, seeded from VAELII_CACHE_SCALE (`config/switches`
+  ;; marks it `:load` — this read is its first, so a bad value refuses at the engine's load);
+  ;; `:pressure` is the memory-pressure guard's own multiplier, 1.0 until the guard lowers it
+  ;; under a heap it is about to run out of and restores it as the heap frees.
+  (atom {:scale (config/cache-scale) :pressure 1.0 :overrides {}}))
+
+(defn profile
+  "The cache profile in force: `{:scale <operator multiplier> :pressure <guard multiplier>
+  :overrides {cache-id limit}}`.  A cache's effective bound is its shipped default times
+  `:scale` times `:pressure` (an override replaces the default but the two multipliers still
+  apply, so the guard can shrink a pinned cache under memory pressure)."
+  []
+  @the-profile)
+
+(defn limit-of
+  "The bound cache `id` enforces now, given its shipped default `default`.  An override names
+  an absolute limit and replaces `default`: the operator's `:scale` leaves it alone, but the
+  guard's `:pressure` still multiplies it, so a filling heap shrinks a pinned cache like every
+  other.  A `default` with no override is multiplied by both `:scale` and `:pressure`.  Either
+  result is floored at `min-limit`.  A nil `default` with no override — a cache bounded by
+  something other than a count — stays nil, since no multiplier acts on it.
+
+  Read on a cache's store path and by its `rows` entry, so the bound enforced and the bound
+  reported are one number.  At scale 1.0 and pressure 1.0 with no override the shipped
+  `default` is returned as it stands."
+  [id default]
+  (let [{:keys [scale pressure overrides]} @the-profile
+        p (double (or pressure 1.0))]
+    (if-let [ov (get overrides id)]
+      (if (== 1.0 p) (long ov) (max min-limit (long (Math/ceil (* p (double ov))))))
+      (when default
+        (let [s (* (double scale) p)]
+          (if (== 1.0 s) default
+              (max min-limit (long (Math/ceil (* s (double default)))))))))))
+
+(defn limit-thunk
+  "`#(limit-of id default)`, for a descriptor's `:limit`, so its `rows` entry reports the
+  effective bound rather than the shipped default.  See `register-cache`."
+  [id default]
+  (fn [] (limit-of id default)))
+
+(defn set-scale
+  "Multiply every count-bounded cache's shipped limit by `x`, and return the profile.
+  Reversible — `1.0` restores the shipped bounds — so bare, not `!`, as `set-solver` is:
+  it installs a setting the next cache store reads, and no belief moves."
+  [x]
+  (swap! the-profile assoc :scale (double x))
+  @the-profile)
+
+(defn set-limit
+  "Pin cache `id`'s bound to `n` regardless of scale, or clear the pin when `n` is nil, and
+  return the profile.  A caller who names both a cache and a number has stated the bound it
+  wants, so the scale does not then move it."
+  [id n]
+  (swap! the-profile update :overrides (fn [o] (if n (assoc o id (long n)) (dissoc o id))))
+  @the-profile)
+
+(defn reset-profile
+  "Restore the configured profile — the `VAELII_CACHE_SCALE` scale, pressure 1.0 and no
+  overrides — and return it."
+  []
+  (reset! the-profile {:scale (config/cache-scale) :pressure 1.0 :overrides {}})
+  @the-profile)
+
 ;; `{cache-id descriptor}`.  A `defonce` because registration happens at namespace load
 ;; and reloading *this* namespace must not empty what the namespaces already loaded put
 ;; here; keyed by id, so reloading one of *them* replaces its own entry rather than
@@ -93,7 +182,8 @@
     :unit      what one entry *is*, since entries mix units across caches
     :limit     entries held before it is cleared wholesale, or nil for a cache
                bounded by something other than a count (say what, in `:note`).
-               **A thunk where the bound is a dynamic var** — see below
+               **A thunk where the bound is a dynamic var or profile-scaled** —
+               `limit-thunk` builds the profile-scaled one; see below
     :counters  :kb, :process, or nil when nothing counts hits and misses
     :note      one line: what it holds, and what retires an entry
     :read      (fn [kb]) -> {:entries n :hits h :misses m}, any key absent where
@@ -102,6 +192,10 @@
     :clear     (fn [kb]) -> entries dropped, or absent when nothing drops it by hand.
                **Scoped to `kb`.**  A clear that reached past its argument would make
                `clear-caches` a process-wide control wearing a per-KB signature
+    :trim      (fn [kb target]) -> entries dropped, or absent.  The **partial** drop the
+               memory-pressure guard uses: bring the cache down to `target` entries while
+               keeping the rest, where `:clear` drops everything.  A `:process` cache
+               ignores `kb`; `trim-map!` is the plain-map one, the LRU trims by recency
     :reset-counters (fn [kb]) -> the counters as they stood, or absent.  Only a cache
                whose `:counters` are `:process` has one, and it is separate from `:clear`
                precisely because it is wider than `kb`
@@ -120,6 +214,16 @@
   [{:keys [cache] :as descriptor}]
   (swap! registry assoc cache descriptor)
   cache)
+
+(defn registered?
+  "Is `id` a cache registered in *this* process now?  A membership test rather than a
+  refusal, because the register fills lazily: a cache is registered when its namespace
+  loads, and a qualitative calculus or the metric-time reasoner may not be loaded yet.  So
+  `set-limit` reads this to *warn* on an id nothing has registered rather than to refuse
+  it — a not-yet-loaded cache would take the pin when it registers, where a refusal would
+  reject the very configuration a bulk load sets up before touching the calculus."
+  [id]
+  (contains? @registry id))
 
 (defn- hit-rate
   "Hits over lookups, or nil when nothing has been counted.  Nil rather than zero for an
@@ -169,7 +273,7 @@
        (mapv (fn [{:keys [read clear] :as d}]
                (let [{:keys [entries hits misses error]}
                      (try (read kb) (catch Throwable t {:error (failed t)}))]
-                 (-> (dissoc d :read :clear :reset-counters)
+                 (-> (dissoc d :read :clear :reset-counters :trim)
                      (assoc :entries    entries
                             :hits       hits
                             :misses     misses
@@ -231,3 +335,179 @@
      (cond-> {:cleared cleared
               :entries (reduce + 0 (map :entries cleared))}
        counters? (assoc :counters-reset reset)))))
+
+;; ---- partial trim: freeing memory without discarding the warm half ------
+
+(defn trim-map!
+  "Drop entries from the plain map held by atom `a` until it holds at most `target`, keeping
+  the `target` that iteration reaches first, and answer how many went.  The kept set is
+  arbitrary rather than the most recent — a plain map records no recency — which is the trade
+  against a wholesale clear: half the entries survive a trim where none survive a clear, so
+  the reads they serve are not all recomputed at once.  A cache whose entries carry recency
+  or a different shape supplies its own `:trim` rather than calling this."
+  [a ^long target]
+  (let [before (count @a)]
+    (when (> before target)
+      (swap! a (fn [m] (if (> (count m) target) (into {} (take target) m) m))))
+    (max 0 (- before (count @a)))))
+
+;; ---- the memory-pressure guard ------------------------------------------
+;;
+;; A post-collection listener reads how full the old generation is after each garbage
+;; collection and moves the profile's `:pressure` between two marks: over `pressure-high` it
+;; halves pressure and trims the caches to the new, lower bound, so the next collection has
+;; something to reclaim; under `pressure-low` it raises pressure back toward the operator's
+;; scale, so a transient spike does not leave the caches small for the life of the process.
+;; The trim is partial (`trim-map!`, or a cache's own shape-aware `:trim`), not a wholesale
+;; clear, so the work behind the surviving half is not thrown away and recomputed the moment
+;; pressure passes.  The host installs the listener (it holds the roster of live KBs the trim
+;; needs); nothing attaches it at engine load, so a library embedding pays for no listener it
+;; did not ask for.  The pure-heap caches are the guard's charge; the disk hot-record cache
+;; stays on its own `vaelii.disk.cache` cap, since its records are re-thawable from disk and
+;; its bound is set at store open.
+
+(def ^:private pressure-high
+  "The old-generation fraction, measured after a collection, over which the guard shrinks.
+  0.85 rather than higher because a shrink is worth making only while there is still headroom
+  to collect into."
+  0.85)
+
+(def ^:private pressure-low
+  "The fraction under which the guard grows the caches back — held well below `pressure-high`
+  so a reading bouncing around one mark does not shrink and grow on alternate collections."
+  0.60)
+
+(def ^:private pressure-shrink-factor 0.5)
+(def ^:private pressure-grow-factor 1.5)
+
+(def ^:private pressure-min
+  "The least the guard drives pressure to, so a heap under sustained pressure keeps a
+  fraction of each cache rather than running every read cold."
+  0.125)
+
+(defn pressure-response
+  "What a post-collection old-generation `frac` (used over max) asks of the caches at the
+  current `pressure`: `:shrink` over `pressure-high`, `:grow` under `pressure-low` while
+  pressure is still below the operator's ceiling of 1.0, else `:hold`.  A pure function of
+  the two readings, so the decision is tested without a heap that is actually full."
+  [^double frac ^double pressure]
+  (cond
+    (>= frac pressure-high)                       :shrink
+    (and (<= frac pressure-low) (< pressure 1.0)) :grow
+    :else                                         :hold))
+
+(defonce ^:private guard
+  ;; {:installed? bool :emitters [NotificationEmitter…] :listener NotificationListener
+  ;;  :kbs (fn [] <seq of live KB records>)}.  A defonce so a namespace reload does not
+  ;; strand a listener still attached to the JVM's collectors.
+  (atom {:installed? false :emitters nil :listener nil :kbs (constantly nil)}))
+
+(defn- set-pressure!
+  "Set the guard's pressure multiplier, clamped to [pressure-min 1.0], and answer it."
+  [^double p]
+  (let [p' (-> p (max pressure-min) (min 1.0))]
+    (swap! the-profile assoc :pressure p')
+    p'))
+
+(defn- trim-to-bounds!
+  "Trim every cache that offers a `:trim` down to its current effective limit — a process
+  cache once, a KB-scoped one for each live KB in `kbs` — and answer how many entries went.
+  A trim that throws costs its own cache and no other, the way a read or a clear does."
+  [kbs]
+  (reduce
+   (fn [total {:keys [scope trim] :as d}]
+     (let [target (long (or (bound (:limit d)) 0))
+           one    (fn [kb] (long (or (try (trim kb target) (catch Throwable _ 0)) 0)))]
+       (+ total (if (= :process scope) (one nil) (reduce + 0 (map one (seq kbs)))))))
+   0
+   (filter :trim (vals @registry))))
+
+(defn shrink!
+  "Lower pressure one step and trim the caches to the new, lower bound; answer
+  `{:pressure p :dropped n}`.  Public so the guard's response can be driven in a test without
+  a heap that is actually full."
+  [kbs]
+  (let [p (set-pressure! (* (double (:pressure @the-profile)) pressure-shrink-factor))]
+    {:pressure p :dropped (trim-to-bounds! kbs)}))
+
+(defn grow!
+  "Raise pressure one step back toward the operator's scale, and answer the new pressure.  No
+  trim: growing a bound drops nothing, it only lets the next store hold more."
+  []
+  (set-pressure! (* (double (:pressure @the-profile)) pressure-grow-factor)))
+
+(defn- old-gen-fraction
+  "The fraction of the old generation left in use after a collection, read from a GC
+  notification's after-collection usage map, or nil when no pool there is a collected old
+  generation.  The old generation is the heap pool whose filling precedes an out-of-memory;
+  among the pools a collector names, the one matched by name with a positive `getMax` and the
+  largest `getMax` is the tenured space on every collector the JVM ships a generational heap
+  for.  A non-generational collector names no such pool, and the guard then holds pressure."
+  [^java.util.Map after]
+  (let [cands (for [^java.util.Map$Entry e (.entrySet after)
+                    :let [^MemoryUsage u (.getValue e)
+                          nm (str (.getKey e))]
+                    :when (and u (pos? (.getMax u)) (re-find #"(?i)old|tenured" nm))]
+                [(.getMax u) (/ (double (.getUsed u)) (double (.getMax u)))])]
+    (when (seq cands) (second (apply max-key first cands)))))
+
+(defn- on-collection
+  "Respond to one collection whose after-usage map is `after`: read the old-generation
+  fraction and shrink, grow, or hold.  The listener's body, lifted out so a test drives it
+  with a usage map rather than a real collection."
+  [after]
+  (when-let [frac (old-gen-fraction after)]
+    (case (pressure-response frac (double (:pressure @the-profile)))
+      :shrink (shrink! ((:kbs @guard)))
+      :grow   (grow!)
+      :hold   nil)))
+
+(defn memory-guard
+  "Whether the guard is attached to the collectors, and the pressure it currently holds:
+  `{:installed? bool :pressure p}`.  Pressure below 1.0 says the guard has shrunk the caches
+  under a heap it is watching fill."
+  []
+  {:installed? (:installed? @guard) :pressure (:pressure @the-profile)})
+
+(defn install-memory-guard!
+  "Attach a post-collection listener to the JVM's garbage collectors that moves the cache
+  profile's `:pressure` with how full the old generation is: over `pressure-high` it shrinks
+  the caches so the next collection reclaims, under `pressure-low` it grows them back.
+
+  `:kbs` is a thunk answering the live KB records whose per-KB caches the trim reaches — the
+  host supplies it from its catalog, since the engine holds no roster of open KBs.
+
+  Attached by the servers and by nothing at engine load, so a library embedding pays for no
+  listener it did not ask for.  Idempotent: a second call replaces the `:kbs` thunk and arms
+  no second listener.  A JVM whose collectors emit no such notification keeps pressure at 1.0
+  — the guard is a best-effort relief, not a guarantee.  `!` because it attaches to the
+  process's collectors; `uninstall-memory-guard!` detaches."
+  [{:keys [kbs]}]
+  (swap! guard assoc :kbs (or kbs (constantly nil)))
+  (when-not (:installed? @guard)
+    (try
+      (let [listener (reify NotificationListener
+                       (handleNotification [_ notif _]
+                         (when (= GarbageCollectionNotificationInfo/GARBAGE_COLLECTION_NOTIFICATION
+                                  (.getType ^Notification notif))
+                           (let [info  (GarbageCollectionNotificationInfo/from
+                                        ^CompositeData (.getUserData ^Notification notif))
+                                 after (.getMemoryUsageAfterGc (.getGcInfo info))]
+                             (on-collection after)))))
+            emitters (for [^GarbageCollectorMXBean b (ManagementFactory/getGarbageCollectorMXBeans)
+                           :when (instance? NotificationEmitter b)]
+                       (doto ^NotificationEmitter b (.addNotificationListener listener nil nil)))]
+        (swap! guard assoc :installed? true :listener listener :emitters (vec emitters)))
+      (catch Throwable _ (swap! guard assoc :installed? false))))
+  (memory-guard))
+
+(defn uninstall-memory-guard!
+  "Detach the guard's listener from every collector it armed and restore pressure to 1.0;
+  answer the guard state.  Safe when nothing is installed."
+  []
+  (let [{:keys [emitters listener]} @guard]
+    (doseq [^NotificationEmitter e emitters]
+      (try (.removeNotificationListener e ^NotificationListener listener) (catch Throwable _ nil))))
+  (set-pressure! 1.0)
+  (swap! guard assoc :installed? false :emitters nil :listener nil)
+  (memory-guard))

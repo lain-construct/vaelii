@@ -73,9 +73,10 @@ solve is the only reader.
 same `genlCx` up-closure that scopes the `assumptionRules` — has its body split by
 predicate: a literal whose predicate names a ground choice head is a **choice literal**,
 everything else is a **background** fact. The background literals are proved together
-through the ordinary conjunctive prover (`prove` in the base, belief-filtered and
-cost-planned); each solution is then extended across the choice literals against an index
-of the ground heads. Every satisfying binding yields one nogood over the choice-head ids
+through the ordinary conjunctive prover over the same **registry leaf** as the
+assumptionRule antecedents (`prove` in the base, belief-filtered and cost-planned, a
+prover- or evaluatable-answered literal reachable like any other); each solution is then
+extended across the choice literals against an index of the ground heads. Every satisfying binding yields one nogood over the choice-head ids
 it used, with the substituted head riding along as that nogood's description. A negated
 choice literal `(not <choice>)` carries through as a head required *absent*, so a body of
 nothing but those is an at-least-one. Negated *background* literals are outside the
@@ -213,10 +214,18 @@ and — under `:all` — materializes **one inert labeling context per optimal a
 The optional third argument is the mode: `:all` (the default), `:one` or `:sat`, and
 anything else is refused as `:not-assertible`.
 
-1. **Ground** — each assumptionRule's antecedents are proved over the facts believed in
-   `Base` (a scoped, belief-filtered join — not a whole-KB scan), its head substituted
-   per solution. A rule's `exceptWhen` guard is honored per binding, evaluated in `Base`
-   — grounding is a fourth consumer of a rule's firing beside the three chainers, and a
+1. **Ground** — each assumptionRule's antecedents are proved over the knowledge visible
+   from `Base` (a scoped, belief-filtered join — not a whole-KB scan), its head
+   substituted per solution. The join runs over a **registry leaf** (`provers/solve-goal`),
+   the same division `vaelii.core/query` runs: an antecedent is answered by a stored fact
+   (through `FactProver`), a backward rule, *or a registered prover* — a transitive or
+   cached closure, an evaluatable, an app-registered reasoner over Clojure state. So a
+   candidate that rests on a computed relation — `(sameLandmass ?a ?b)` over a Clojure
+   partition, `(lessThan ?x 10)` — is a legal antecedent, not something the caller must
+   pre-project into stored candidate facts. (The leaf costs a prover-answered conjunct by
+   the prover's own `est-bindings`, so an open relation plans last rather than enumerating
+   first.) A rule's `exceptWhen` guard is honored per binding, evaluated in `Base` —
+   grounding is a fourth consumer of a rule's firing beside the three chainers, and a
    choice the exception holds of is not offered. That is how a candidate menu is
    filtered declaratively ("any cell may take any value, except one already ruled
    out"). The grounding stays **in memory**: the Program keys the heads by

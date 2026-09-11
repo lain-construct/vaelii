@@ -2635,12 +2635,19 @@
   side of this pair unwritten.
 
   Content order over the types, so which of several clashes is named is keyed on what the
-  KB says rather than on the order the cascade enumerated its mints."
+  KB says rather than on the order the cascade enumerated its mints.
+
+  `disjointness-test` once rather than `tax/disjoint?` per candidate: the frame the test
+  closes over depends on `t` and `context` alone, and `t` is fixed across the candidates,
+  so building it once and applying it to each is the amortization `disjointness-test`
+  exists for — the same shape `wff/disjoint-problems` uses.  `disjoint?` is that test asked
+  once, so the result is unchanged."
   [tax sentence context added]
   (when (= 1 (nm/arity sentence))
-    (let [t (nm/functor sentence)
-          x (first (nm/args sentence))]
-      (when-let [t' (first (filter #(and (not= % t) (tax/disjoint? tax t % context))
+    (let [t   (nm/functor sentence)
+          x   (first (nm/args sentence))
+          dj? (tax/disjointness-test tax t context)]
+      (when-let [t' (first (filter #(and (not= % t) (dj? %))
                                    (sort (get added x))))]
         {:type :disjoint :sentence sentence :types [t t']
          :message (str "disjointness violated: " x " cannot be both " t " and " t')}))))
@@ -2679,22 +2686,29 @@
   per assert — a cost `assert_cost_test` counts."
   [kb sentence context types decls]
   (when *assertive-arg-types?*
-    (let [seed (constraint-entailments kb sentence context types decls)
-          {:keys [mints readers]} (entailment-cascade kb sentence context types decls seed)
-          added (cascade-memberships sentence mints)
-          tax   (:taxonomy kb)]
-      {:entailments seed
-       :refusal
-       (first
-        (keep (fn [m]
-                (when-let [p (or (constraint-problem kb m context types
-                                                     (get readers (nm/functor m)))
-                                 (cascade-clash tax m context added))]
-                  (assoc p :entailed-from sentence
-                         :message (str "arg constraint: " (nm/print-key sentence)
-                                       " entails " (nm/print-key m)
-                                       ", which cannot be admitted — " (:message p)))))
-              mints))})))
+    (let [seed (constraint-entailments kb sentence context types decls)]
+      ;; The common assert draws no entailment (its functor carries no visible
+      ;; declaration).  An empty seed makes the cascade's frontier empty, so `mints` is
+      ;; exactly the seed and the refusal `keep` over it is nil — computing the cascade,
+      ;; the `added` memberships and the `keep` at all is the same `{:entailments []
+      ;; :refusal nil}` reached without reading anything.
+      (if (empty? seed)
+        {:entailments seed :refusal nil}
+        (let [{:keys [mints readers]} (entailment-cascade kb sentence context types decls seed)
+              added (cascade-memberships sentence mints)
+              tax   (:taxonomy kb)]
+          {:entailments seed
+           :refusal
+           (first
+            (keep (fn [m]
+                    (when-let [p (or (constraint-problem kb m context types
+                                                         (get readers (nm/functor m)))
+                                     (cascade-clash tax m context added))]
+                      (assoc p :entailed-from sentence
+                             :message (str "arg constraint: " (nm/print-key sentence)
+                                           " entails " (nm/print-key m)
+                                           ", which cannot be admitted — " (:message p)))))
+                  mints))})))))
 
 (defn constraint-checks
   "Throw the first definitional violation as typed ex-info — the assert path.

@@ -294,6 +294,16 @@
   []
   (prop-bool "VAELII_ASSERTIVE_ARG_TYPES" true))
 
+(defn cache-scale
+  "The multiplier applied to every in-memory derived cache's shipped entry limit
+  (`VAELII_CACHE_SCALE`, default 1.0).  Below 1 shrinks the caches for a small-heap
+  embedding; above 1 grows them for a bulk load.  A per-cache floor keeps a small scale
+  from taking a cache below the point where it saves nothing
+  (`vaelii.impl.caches/min-limit`).  Read at `vaelii.impl.caches`' load, so a value that is
+  not a number, or is below zero, refuses there naming the switch."
+  []
+  (prop-double "VAELII_CACHE_SCALE" 1.0 0 nil))
+
 (defn web-dev?
   "Is the browser a development server (`VAELII_DEV`, default off)?  A value, not mere
   presence: `VAELII_DEV=0` says off and read as presence it said on."
@@ -439,6 +449,7 @@
    {:names ["vaelii.belief.snapshot"]               :reader #'belief-snapshot?             :read-at :open}
    {:names ["VAELII_ARBITRATE_CONSTRAINTS"]         :reader #'arbitrate-constraints?       :read-at :load}
    {:names ["VAELII_ASSERTIVE_ARG_TYPES"]           :reader #'assertive-arg-types?         :read-at :load}
+   {:names ["VAELII_CACHE_SCALE"]                   :reader #'cache-scale                  :read-at :load}
    {:names ["VAELII_DEV"]                           :reader #'web-dev?                     :read-at :load}
    {:names ["VAELII_PROFILER"]                      :reader #'profiler?                    :read-at :open}
    {:names ["VAELII_PROFILER_PORT"]                 :reader #'profiler-port                :read-at :open}

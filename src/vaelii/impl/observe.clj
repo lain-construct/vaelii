@@ -298,7 +298,8 @@
                   (if (and hit (== now (long (:clock hit))))
                     (:value hit)
                     (let [v (build (:value hit))]
-                      (swap! cache caches/assoc-bounded resident-limit
+                      (swap! cache caches/assoc-bounded
+                             (caches/limit-of :resident resident-limit)
                              k {:value v :clock now})
                       v))))]
         (when pin (swap! pin assoc pk v))
@@ -325,7 +326,7 @@
     true
     (if (= v (get @cache k ::absent))
       false
-      (do (swap! cache caches/assoc-bounded resident-limit k v)
+      (do (swap! cache caches/assoc-bounded (caches/limit-of :resident resident-limit) k v)
           true))))
 
 (def ^:private ^AtomicLong neighbour-hits (AtomicLong. 0))
@@ -424,7 +425,7 @@
   :label    "Resident derived values"
   :scope    :kb
   :unit     "networks and passes"
-  :limit    resident-limit
+  :limit    (caches/limit-thunk :resident resident-limit)
   :counters nil
   :note     (str "What this KB's derived structures cost to read out of the store — a "
                  "qualitative constraint network per calculus and context, the metric "
@@ -435,7 +436,8 @@
   :clear    (fn [kb] (let [a (:qcn kb)
                            n (if a (count @a) 0)]
                        (some-> a (reset! {}))
-                       n))})
+                       n))
+  :trim     (fn [kb target] (when-let [a (:qcn kb)] (caches/trim-map! a target)))})
 
 (caches/register-cache
  {:cache    :stored-handles

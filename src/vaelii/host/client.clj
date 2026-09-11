@@ -360,7 +360,8 @@
   (call conn :contexts []))
 
 (defn contexts-of
-  "The contexts in which `sentence` is asserted."
+  "The contexts in which `sentence` is stored **and believed** — a read through
+  `sentexes-matching`, so the context of a defeated or unsupported sentex is not listed."
   [conn sentence]
   (call conn :contexts-of [sentence]))
 
@@ -505,10 +506,14 @@
   (call conn :handles []))
 
 (defn has-prop?
-  "Does `pred` carry the metadata property `kind` — one of `:transitive`, `:symmetric`,
-  `:asymmetric`, `:reflexive`, `:functional`, `:decontextualized`,
-  `:forced-decontextualized`, `:abducible`, `:reifiable`, `:unreifiable`? Declared by the
-  corresponding sentex, e.g. `(symmetric siblingOf)`."
+  "Does `pred` carry the metadata property `kind`? The kinds are the ones the grammar's
+  declarations maintain — `vaelii.impl.predicates/prop-kinds` enumerates them, and
+  docs/api.md lists them: the relation algebra (`:transitive`, `:symmetric`,
+  `:asymmetric`, `:reflexive`, `:functional`, `:irreflexive`, `:anti-symmetric`,
+  `:anti-transitive`), the grants (`:decontextualized`, `:forced-decontextualized`,
+  `:abducible`, `:closed-extent`, `:modal`, `:target-following`), the function kinds
+  (`:reifiable`, `:unreifiable`, `:quoting`, `:context-denoting`) and the `:declares-*`
+  kinds naming a predicate as the subject of an argument constraint."
   ([conn kind pred] (call conn :has-prop? [kind pred]))
   ([conn kind pred context] (call conn :has-prop? [kind pred context])))
 

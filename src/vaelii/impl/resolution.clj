@@ -1925,29 +1925,33 @@
   judgement `checks/args-problem` already makes about the memberships it reads.  A cycle
   in predicate `genl` cannot loop the walk, `genls` being a closure read.
 
-  **`pred` itself is never filtered and the proper supers always are.**  Reading
-  `pred`'s own declarations is the retrieval that was being made anyway; a super would
-  cost a retrieval that did not exist before, so each is filtered first against the
-  roster of predicates some declaration of that kind names
-  (`tax/arg-declaration-props`).  That is a set membership rather than an index probe,
-  which is what keeps the descension free: asked of the index it would be one
-  argument-root read per super per assert, so a membership of a type ten deep in the
-  hierarchy would pay ten of them, and nine of those types declare nothing.  The roster
-  is global and therefore a superset of what any context can see — a predicate no
-  sentence anywhere declares `kind` of cannot carry a declaration this reader would find
-  — and the scoped retrieval it gates is what decides which of them actually speak here.
+  **`pred` and its proper supers are both filtered against the roster** of predicates
+  some declaration of `kind` names (`tax/arg-declaration-props`).  A predicate the
+  roster does not name carries no `(kind predicate …)` declaration in any context, so
+  the scoped retrieval its inclusion would gate returns nothing; every consumer reads
+  declarations off the predicates handed back, so an undeclared predicate contributes an
+  empty retrieval whether it is listed or dropped.  The filter is a set membership rather
+  than an index probe, which is what keeps the walk cheap: asked of the index it would be
+  one argument-root read per predicate per assert, so a membership of a type ten deep in
+  the hierarchy would pay ten of them, and nine of those types declare nothing —
+  including, on a minting assert, the mint's own functor (a type name like `animal`,
+  which no sentence declares `arg` of).  The roster is global and therefore a superset of
+  what any context can see, and the scoped retrieval it gates decides which of the named
+  predicates actually speak here.  When nothing anywhere declares `kind` the roster is
+  empty and the walk returns `[]` without reading the closure at all.
 
   Sorted, so which declaration a refusal names — and the order the entailments are drawn
   in — is a function of the vocabulary rather than of the closure's hash order."
   [kb kind pred context]
-  (let [tax    (:taxonomy kb)
-        supers (tax/genls tax pred context)]
-    (if (<= (count supers) 1)
-      [pred]
-      (let [declaring (tax/props tax (tax/arg-declaration-props kind))]
-        (if (empty? declaring)
-          [pred]
-          (into [pred] (comp (remove #(= pred %)) (filter declaring)) (sort supers)))))))
+  (let [tax       (:taxonomy kb)
+        declaring (tax/props tax (tax/arg-declaration-props kind))]
+    (if (empty? declaring)
+      []
+      (let [supers (tax/genls tax pred context)
+            base   (if (contains? declaring pred) [pred] [])]
+        (if (<= (count supers) 1)
+          base
+          (into base (comp (remove #(= pred %)) (filter declaring)) (sort supers)))))))
 
 ;; ---- backward chaining --------------------------------------------------
 ;; The pieces below — goal-key, planned-antecedents — are the

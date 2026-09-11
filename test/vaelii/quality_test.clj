@@ -857,6 +857,53 @@
         (is (= 1 (:pair-count (clashes kb)))
             "equiv_kind reaches binary_predicate up genl, so it claims arity 2")))))
 
+(tu/deftest-kb an-arg-type-disjoint-from-the-other-conclusion-is-not-a-clash-in-waiting
+  ;; The fourth half of the satisfiability test, the one `separated-antecedents?` cannot
+  ;; read: the type that rules a term out is not a membership the antecedent states but a
+  ;; type an `arg` declaration demands.  `(measures ?p ?v)` demands `?p` be a `gauge`
+  ;; through `(arg measures 1 gauge)`, and the paired rule concludes `(ledgered ?p)`, which
+  ;; places the same term under `record` — disjoint, so no ground term makes both
+  ;; antecedents hold and the pair is unreachable (vaelii#95).  The demand is read against
+  ;; the paired rule's *conclusion*, since `logged` states nothing about its argument.
+  (tu/with-terms [gauge record calibrated ledgered measures logged]
+    (v/assert kb (list 'genl gauge 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl record 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl calibrated gauge) 'CxUniverse)
+    (v/assert kb (list 'genl ledgered record) 'CxUniverse)
+    (v/assert kb (list 'disjoint gauge record) 'CxUniverse)
+    (v/assert-rule kb [(list measures '?p '?v)] (list calibrated '?p) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list logged '?p)] (list ledgered '?p) 'CxUniverse {:direction :forward})
+    (testing "an unknown antecedent domain leaves the disjoint conclusions a clash in waiting"
+      (is (= 1 (:pair-count (clashes kb)))
+          "measures declares no argument type yet, so nothing rules the shared term out"))
+    (testing "a declared domain the other conclusion does not exclude stays a candidate"
+      (v/assert kb (list 'arg measures 1 'thing) 'CxUniverse)
+      (is (= 1 (:pair-count (clashes kb)))
+          "thing excludes nothing, so the pair is still a candidate (vaelii#95, criterion 2)"))
+    (testing "a declared domain disjoint from the other conclusion prunes it"
+      (v/assert kb (list 'arg measures 1 gauge) 'CxUniverse)
+      (is (zero? (:pair-count (clashes kb)))
+          "a gauge is not a record, so measures and logged never both fire for one term"))))
+
+(tu/deftest-kb a-genlArg-typed-antecedent-is-not-read-and-so-not-pruned
+  ;; The scope boundary of the reading above, pinned as a limitation rather than fixed.
+  ;; `arg-type-conflicted?` reads `arg` and not `genlArg`: `(genlArg subGauge 1 gauge)`
+  ;; demands the argument be a *subtype* of `gauge` rather than a member of it — a claim
+  ;; one stratum up — so it is not compared against a membership conclusion through
+  ;; `disjoint?`, which would conflate the two levels.  The pair therefore stays reported,
+  ;; and a sound `genlArg` reading would be its own check over two subtype bounds.
+  (tu/with-terms [gauge record calibrated ledgered subGauge logged]
+    (v/assert kb (list 'genl gauge 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl record 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl calibrated gauge) 'CxUniverse)
+    (v/assert kb (list 'genl ledgered record) 'CxUniverse)
+    (v/assert kb (list 'disjoint gauge record) 'CxUniverse)
+    (v/assert kb (list 'genlArg subGauge 1 gauge) 'CxUniverse)
+    (v/assert-rule kb [(list subGauge '?p '?q)] (list calibrated '?p) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list logged '?p)] (list ledgered '?p) 'CxUniverse {:direction :forward})
+    (is (= 1 (:pair-count (clashes kb)))
+        "the genlArg subtype bound is not read, so the disjoint conclusions stay a candidate")))
+
 (tu/deftest-kb two-rules-no-context-can-see-together-are-not-a-clash-in-waiting
   ;; A nogood needs a context that sees both halves (docs/nmtms.md).  Asking only whether
   ;; one rule's context sees the other's would exempt every sibling pair, so the test is a

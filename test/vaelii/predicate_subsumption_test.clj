@@ -21,13 +21,12 @@
   conclusion and mask the backward path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
+(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
 (defn- proj [triples] (into #{} (map #(vec (take 2 %))) triples))
 

@@ -5794,8 +5794,27 @@
                 (if (= 1 (count failed)) "was" "were") " left as "
                 (if (= 1 (count failed)) "it was" "they were") ".")))))
 
+(defn- caches-scale-note
+  "What setting the scale changed, above the numbers it moved."
+  [scale]
+  (str "Cache scale set to " scale ". Every counted cache now holds that multiple of its "
+       "shipped bound — the table shows the effective limit each one enforces. 1.0 restores "
+       "the shipped bounds, and no belief moved."))
+
+(defn- caches-scale-form
+  "The one field that tunes every counted cache at once: a multiplier on the shipped
+  bounds, posted as its own origin-checked write like the clear beside it."
+  [scale]
+  [:form.kb-action {:method "post" :action "/caches/scale"
+                    :hx-post "/caches/scale" :hx-target "#main" :hx-select "#main"
+                    :hx-swap "outerHTML"}
+   [:label "Scale "
+    [:input {:type "number" :name "scale" :min "0" :step "0.25" :value (str scale)}]]
+   [:button {:type "submit"} "Set scale"]])
+
 (defn- caches-page
-  "The cache screen.  `note` is what a clear reported, above the numbers it changed."
+  "The cache screen.  `note` is what a clear or a scale change reported, above the numbers
+  it changed."
   ([view] (caches-page view nil))
   ([{:keys [kb] :as view} note]
    (let [rows      (v/caches kb)
@@ -5815,6 +5834,14 @@
              (memory-panel false)
              [:h3 "What is cached"]
              (caches-panel rows)
+             [:h3 "Tuning"]
+             [:p.muted "Every counted cache above holds this multiple of its shipped bound. "
+              "Below 1 shrinks the caches for a small heap; above 1 grows them for a bulk "
+              "load. 1.0 restores the shipped bounds, and VAELII_CACHE_SCALE sets the value "
+              "the process starts with. A per-cache floor keeps a small scale from taking a "
+              "cache below the point where it saves nothing. This is process-wide: it moves "
+              "every KB's caches in this JVM, not only this one's."]
+             (caches-scale-form (:scale (v/cache-profile)))
              [:h3 "Clearing"]
              [:p.muted "A clear is a measuring instrument, not an edit: clear, ask the "
               "same question again, and watch the miss the second ask no longer gets to "
@@ -6353,6 +6380,19 @@
                                            r  (v/clear-caches kb)]
                                        (caches-page (view kb req)
                                                     (caches-clear-note r)))
+                                     (cross-origin-refusal)))}]
+         ["/caches/scale" {:post (fn [req]
+                                   (if (same-origin? req)
+                                     (let [kb  (current target)
+                                           raw (get-in req [:params "scale"])
+                                           n   (some-> raw str str/trim not-empty parse-double)]
+                                       (if (and n (>= (double n) 0.0))
+                                         (do (v/set-cache-scale n)
+                                             (caches-page (view kb req) (caches-scale-note n)))
+                                         (caches-page (view kb req)
+                                                      (str "Cache scale must be a number 0 or "
+                                                           "more, not " (pr-str raw)
+                                                           " — nothing changed."))))
                                      (cross-origin-refusal)))}]
          ;; the jobs screen: every long run this process has made recently, and the one
          ;; control that stops one.  The list is a self-terminating poll like the KB panels
@@ -7067,6 +7107,9 @@
     ;; points.  Here the class is normally absent — it ships in the `:repl` profile — and
     ;; `start-profiler` says so in the log rather than failing the start
     (start-profiler)
+    ;; shrink the derived caches when the heap fills and grow them back as it frees, over
+    ;; every KB this process has open (`catalog/live-kbs`)
+    (catalog/install-memory-guard!)
     ;; a development server (`VAELII_DEV`) serves through the hot-reload path — an edit to
     ;; any source file shows on the next refresh with no restart; a plain served process
     ;; pays nothing for a reload it will never do, so it keeps the static handler.

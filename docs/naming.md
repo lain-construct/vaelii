@@ -345,12 +345,12 @@ word means adding its row here and its entry there, in the same commit.
 | atomic sentence | formula | 1 | Atomic sentence |
 | belief | knowledge | 2 | Belief; Belief (an agent's) |
 | constraint | formula, knowledge | 2 | Constraint (rule slot); Constraint network |
-| context | knowledge | 3 | Context; Query context; Placement context |
+| context | knowledge | 4 | Context; Query context; Placement context; context (ontology type) |
 | denotational term | term | 1 | Denotational term |
 | derived | knowledge | 1 | Derived |
 | entry point | machine | 1 | Entry point |
 | extent | machine | 1 | Extent |
-| formula | formula | 1 | Formula |
+| formula | formula | 2 | Formula; formula (ontology type) |
 | frame | machine | 1 | Frame |
 | ground | term | 1 | Ground |
 | inert | knowledge | 1 | Inert |

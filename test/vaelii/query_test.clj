@@ -165,6 +165,25 @@
       (testing "and nil opts is the no-rule-expansion read, as ever — at the depth in force"
         (is (= (if (tu/query-engine-override) [{'?z Bob}] []) (vec (v/query kb goal CxQ nil))))))))
 
+(tu/deftest-kb a-non-map-opts-is-refused-by-name-at-the-existence-entry-points-too
+  ;; `provable?` and `ask?` test `(seq opts)` to pick the bounded arm, and `(seq :oops)`
+  ;; throws a bare IllegalArgumentException — where `prove` and `ask` refuse the same
+  ;; opts by name.  The daemon pads its args to the option arity and hides it; in
+  ;; process the four have to agree.
+  (tu/with-terms [dog Rex CxQ]
+    (v/assert kb (list dog Rex) CxQ)
+    (let [goal (list dog Rex)]
+      (doseq [[nm f] [["provable?" #(v/provable? kb goal CxQ %)]
+                      ["ask?"      #(v/ask? kb goal CxQ %)]
+                      ["prove"     #(v/prove kb goal CxQ %)]
+                      ["ask"       #(v/ask kb goal CxQ %)]]
+              bad [:oops 5 "max-ms"]]
+        (let [e (is (thrown? clojure.lang.ExceptionInfo (f bad)) (str nm " " (pr-str bad)))]
+          (is (= :unknown-option (:type (ex-data e))) (str nm " " (pr-str bad)))))
+      (testing "and an empty map is the unbounded read, as nil is"
+        (is (true? (v/provable? kb goal CxQ {})))
+        (is (true? (v/ask? kb goal CxQ {})))))))
+
 (tu/deftest-kb a-bounded-query-answers-a-subset-of-what-prove-answers
   ;; The two engines terminate on different things — `query` on its bound, `prove` on the
   ;; data — so within the bound they must agree, and past it `prove` may know more.  A

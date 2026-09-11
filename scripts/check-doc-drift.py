@@ -1257,6 +1257,7 @@ E17_ROSTER = {
     ("src/vaelii/impl/special.clj", "recheck-genl-edge"),
     ("src/vaelii/impl/special.clj", "recheck-negated-exceptions"),
     ("src/vaelii/impl/special.clj", "subtree-sentexes"),
+    ("src/vaelii/impl/special.clj", "super-reaches-declaration?"),
     ("src/vaelii/impl/special.clj", "negative-subsumption-seeds"),
     ("src/vaelii/impl/special.clj", "subsumption-seeds"),
     ("src/vaelii/impl/special.clj", "roster-antecedent-functors"),

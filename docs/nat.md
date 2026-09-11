@@ -123,12 +123,28 @@ compound through its function's declared result — see [Typing an application t
 never minted](#typing-an-application-that-is-never-minted) below, which is what makes
 one declaration bind both classes of function.
 
-`mint-nat!` allocates a fresh opaque `K`, asserts `(termOfUnit K E)`, materializes the
+`mint-nat!` allocates the opaque `K`, asserts `(termOfUnit K E)`, materializes the
 result types (`(T K)` per `result`, `(genl K T)` per `genlResult`), and returns
 `K`, all at `:monotonic` strength — a reified NAT's identity and result types are structural,
 not defeasible. `assert` stores synchronously, so a second occurrence of `E` in the
 same sentence dedups against the first; a `(rewriteOf T E)` declaration short-circuits
 the mint to the real term `T`.
+
+`K` is **named by the content of `E`**, not a process-local gensym: `constant-for`
+hashes `E` with SHA-256, takes the first 96 bits, and encodes them base62 behind a
+one-letter scheme tag — `nat/a<17 base62>` for an object NAT, `cx/a…` for a context one
+(`nat-scheme-tag`). So the same expression reifies to the **same** constant in any
+process and after any rebuild, and the skolem digest ([skolem.md](skolem.md)) names its
+witnesses the same way and for the same order-independence reason. This pays off in two
+places: two dumps that minted the same NAT hold the same `(termOfUnit K E)` fact and merge
+by deduplication, and a re-mint after an orphan sweep resolves to the constant it had
+before — where a gensym would have minted a second name for one expression and left the
+collision for `merge-colliding-nats!` to reconcile. base62 rather than a shorter
+base64url because `K` stands in argument position, held to the naming convention
+(`naming/argument-problem`), and base64url's `-` and `_` are exactly the characters that
+convention forbids; the tag's leading letter keeps the name a readable token (a
+digit-leading name is not) and doubles as the version — a later hash or encoding change
+is `nat/b…`, old constants keeping their names.
 
 ## Typing an application that is never minted
 

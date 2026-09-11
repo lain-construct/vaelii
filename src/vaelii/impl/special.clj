@@ -1187,14 +1187,29 @@
   A **value**, never a throw.  Two of its callers run after their triggering sentex is
   stored (that is what gives them a handle to be justified by) and inside a fixpoint,
   neither of which may abort halfway; the third would rather refuse a hypothesis than
-  fail the query that wanted it."
-  [kb sentence context]
-  (or (when-let [ps (nm/blocking-problems (:naming kb) sentence context)]
-        {:violation :naming
-         :detail    {:message (str "naming invariant: " (str/join "; " ps))}})
-      (checks/constraint-violation kb sentence context)
-      (wff-violation kb sentence)
-      (checks/edge-stratification-violation kb sentence)))
+  fail the query that wanted it.
+
+  `pre-checked?` omits `constraint-violation`, the definitional-constraint arm, for a
+  caller that has already run it against this exact content.  The assert path's
+  first-level argument-type mints are the one such caller: `checks/entailment-check`
+  runs `constraint-problem` (and `cascade-clash`, which reads the source's own
+  membership) over every mint of the cascade **before** the trigger is stored, and
+  refuses the trigger if any mint fails — so a first-level mint reaching the materializer
+  has passed the constraint check already, and storing the trigger and the mints beside
+  it only adds memberships, which cannot turn a passing `args`/`disjoint`/`arity` check
+  into a failing one (each convicts on an absent type, never a present one).  Naming,
+  well-formedness and edge stratification are **not** what `entailment-check` runs, so
+  they are asked here whichever way `pre-checked?` reads.  Every other caller — forward
+  chaining, the retroactive sweeps, and the cascade's own deeper levels, none of which
+  `entailment-check` pre-validates — leaves it false and pays the full check."
+  ([kb sentence context] (inadmissible kb sentence context false))
+  ([kb sentence context pre-checked?]
+   (or (when-let [ps (nm/blocking-problems (:naming kb) sentence context)]
+         {:violation :naming
+          :detail    {:message (str "naming invariant: " (str/join "; " ps))}})
+       (when-not pre-checked? (checks/constraint-violation kb sentence context))
+       (wff-violation kb sentence)
+       (checks/edge-stratification-violation kb sentence))))
 
 (def ^:private empty-entailment-result {:new [] :violations []})
 
@@ -1231,10 +1246,10 @@
   a subset of the finite `{(type, term)}` product the KB's own vocabulary spans.  Each
   recursive step therefore consumes one element of a finite set that never shrinks, so
   the cascade closes; the cycle test in `argtype_entail_test` is the check on that."
-  [kb ent src-handle context]
+  [kb ent src-handle context pre-checked?]
   (let [sentence (:assert ent)
         because  (vec (:because ent))]
-    (if-let [v (inadmissible kb sentence context)]
+    (if-let [v (inadmissible kb sentence context pre-checked?)]
       {:new [] :violations [(assoc v :sentence sentence :context context
                                    :entailed-from src-handle)]}
       (let [[h2 s2 new?] (kb/find-or-create-sentex kb sentence context)]
@@ -1284,11 +1299,19 @@
   `place-conclusion` — because what a declaration says about an argument is a claim
   about the predicate, not about how a particular sentence arrived.  Entailing only
   what a caller asserted would make belief depend on arrival order, exactly as lifting
-  only asserted content would."
-  [kb entailments handle context]
-  (reduce (fn [acc e] (merge-with into acc (entail-arg-type kb e handle context)))
-          empty-entailment-result
-          entailments))
+  only asserted content would.
+
+  `pre-checked?` says these entailments already passed the definitional constraint
+  check, so each mint's admissibility test skips it (`inadmissible`).  Only the assert
+  path passes true, and only for its first level: `checks/entailment-check` validated
+  those before the trigger was stored.  The default is false, which every other caller
+  takes and which the cascade the materializer walks itself takes — a mint drawn one
+  level down was not on `entailment-check`'s pre-store list, so it is checked in full."
+  ([kb entailments handle context] (deduce-arg-types kb entailments handle context false))
+  ([kb entailments handle context pre-checked?]
+   (reduce (fn [acc e] (merge-with into acc (entail-arg-type kb e handle context pre-checked?)))
+           empty-entailment-result
+           entailments)))
 
 (defn- retroactive-mints
   "The entailments a newly stored declaration `dh` draws over one already-stored sentex
@@ -1394,6 +1417,36 @@
                 empty-entailment-result
                 (subtree-sentexes kb pred))))))
 
+(defn- super-reaches-declaration?
+  "Does `super`, or a genl-ancestor of it, carry an entailing argument declaration?
+  `entail-under-edge` reads this before it walks a subtree.
+
+  A `(genl sub super)` edge draws a new type over `sub`'s facts only through a
+  declaration the edge is itself a support of: `checks/edge-support` cites the arriving
+  edge in the mint's `:because`, so a route that does not run through the edge
+  deduplicates against one that already held and adds nothing (`has-justification?`).  A
+  route that does run through it reaches its declaring predicate `D` as
+  `fact-functor →* sub → super →* D`, so `D` is a genl-ancestor of `super`.  When no
+  ancestor of `super` declares, the edge mints and justifies nothing, and the subtree
+  read is skipped.
+
+  **`genls-global`, not the scoped `genls`** (E17): `entail-under-edge` sweeps stored
+  sentexes across every context the subtree spans, so there is no one vantage to scope
+  to, and the gate must over-approximate in the direction the answer is — a declaration
+  this edge cannot see from one context still mints a required justification in another
+  that can, so a scoped gate that returned false there would drop it, where a spare true
+  only reads a subtree that yields nothing.  Read through the same global roster
+  (`tax/arg-declaration-props`) `res/constraining-predicates` filters against, so the
+  gate and the reader it guards cannot disagree about which predicates declare."
+  [kb super]
+  (and (symbol? super)
+       (let [tax       (:taxonomy kb)
+             declaring (reduce (fn [acc k]
+                                 (into acc (tax/props tax (tax/arg-declaration-props k))))
+                               #{}
+                               (keys entailing-declarations))]
+         (boolean (some declaring (tax/genls-global tax super))))))
+
 (defn entail-under-edge
   "When a `(genl sub super)` edge arrives, draw what the declarations on `super` now say
   about the `(sub …)` sentexes **already stored** — the third arrival order of the same
@@ -1412,18 +1465,23 @@
   disagree — and the mints deduplicate on content, so a fact whose type was already
   entailed by a route that survives contributes a justification and no second record.
 
-  **Two gates in front of the subtree, because this arm fires on a `genl` edge** — the
+  **Three gates in front of the subtree, because this arm fires on a `genl` edge** — the
   commonest thing an ontology says, where the other two fire on a declaration.  Off
-  unless `*assertive-arg-types?*`, since with the entailment off there is nothing to
-  mint and the edge's other consequences are `subsumption-seeds`'; and off unless the KB
-  stores an argument constraint at all, which is one index count per kind and is what
-  keeps an edge under a predicate nobody constrained from reading a subtree's extent to
-  discover there was nothing to draw.  The extent itself is `subtree-sentexes`, filtered
-  by cardinality for the same reason one step further in."
+  unless `*assertive-arg-types?*`, since with the entailment off there is nothing to mint
+  and the edge's other consequences are `subsumption-seeds`'; off unless the KB stores an
+  argument constraint at all (`any-stored?`, one index count per kind); and off unless a
+  genl-ancestor of `super` carries one (`super-reaches-declaration?`).  The first two
+  keep an edge under a predicate nobody constrained from reading a subtree's extent to
+  discover there was nothing to draw; the third keeps an edge whose `sub` is constrained
+  but whose `super` reaches no declaration from reading it, since every mint this arm
+  draws cites the arriving edge and so reaches its declaring predicate through `super`.
+  The extent itself is `subtree-sentexes`, filtered by cardinality for the same reason
+  one step further in."
   [kb sentence]
   (when (and checks/*assertive-arg-types?*
              (= 'genl (nm/functor sentence))
-             (any-stored? kb (keys entailing-declarations)))
+             (any-stored? kb (keys entailing-declarations))
+             (super-reaches-declaration? kb (nth sentence 2)))
     (let [[_ sub] sentence]
       (when (symbol? sub)
         (reduce (fn [acc sx]

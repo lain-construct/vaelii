@@ -37,7 +37,7 @@
             [vaelii.host.core-context :as core-context]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
+(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
 (defn- ex-type
   "The `:type` on the ex-info a thunk throws, or nil if it does not throw."

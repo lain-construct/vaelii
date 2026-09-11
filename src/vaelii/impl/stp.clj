@@ -902,7 +902,7 @@
                kb [::pass context] net
                (fn [stale]
                  (caches/read-through
-                  closure-cache closure-cache-limit
+                  closure-cache (caches/limit-of :metric-closures closure-cache-limit)
                   [net provers/*quantity-tolerance*]
                   (fn []
                     (let [all  (into (nodes net) extra-nodes)
@@ -965,7 +965,7 @@
   what a pair needs to reach it.  The distances themselves are dropped: `closure` already
   holds those, and this pass exists only to say which edges produced them."
   [net]
-  (caches/read-through via-cache closure-cache-limit net
+  (caches/read-through via-cache (caches/limit-of :metric-reconstructions closure-cache-limit) net
                        (fn []
                          (let [node-vec (nm/by-print-key (nodes net))
                                n        (count node-vec)
@@ -1260,7 +1260,7 @@
   :label    "Metric closures"
   :scope    :process
   :unit     "networks"
-  :limit    closure-cache-limit
+  :limit    (caches/limit-thunk :metric-closures closure-cache-limit)
   :counters nil
   :note     (str "The all-pairs shortest-path closure of a metric network, keyed on the "
                  "network value and the measure tolerance the verdict was read to — so "
@@ -1269,14 +1269,15 @@
                  "distance matrix the bounds were read off beside them, which is what the "
                  "next arriving constraint is relaxed into rather than closing again.")
   :read     (fn [_] {:entries (count @closure-cache)})
-  :clear    (fn [_] (let [n (count @closure-cache)] (reset! closure-cache {}) n))})
+  :clear    (fn [_] (let [n (count @closure-cache)] (reset! closure-cache {}) n))
+  :trim     (fn [_ target] (caches/trim-map! closure-cache target))})
 
 (caches/register-cache
  {:cache    :metric-reconstructions
   :label    "Metric path reconstructions"
   :scope    :process
   :unit     "networks"
-  :limit    closure-cache-limit
+  :limit    (caches/limit-thunk :metric-reconstructions closure-cache-limit)
   :counters nil
   :note     (str "The same shortest-path pass carrying the table that says which edges "
                  "produced each bound, so a forward firing can rest on the constraints "
@@ -1284,4 +1285,5 @@
                  "asked for rarely and every metric goal would otherwise pay to fill an "
                  "int[n²] nothing reads.")
   :read     (fn [_] {:entries (count @via-cache)})
-  :clear    (fn [_] (let [n (count @via-cache)] (reset! via-cache {}) n))})
+  :clear    (fn [_] (let [n (count @via-cache)] (reset! via-cache {}) n))
+  :trim     (fn [_ target] (caches/trim-map! via-cache target))})

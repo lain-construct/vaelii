@@ -115,6 +115,21 @@
     (testing "a zero asks for nothing and runs nothing"
       (is (not (contains? (v/why-not kb (list goal A B) CxOff {:nearest 0}) :nearest))))))
 
+(tu/deftest-kb a-nearest-that-is-not-a-count-is-refused-rather-than-read-as-no-request
+  ;; `{:nearest "3"}` read as no request answered the ordinary `:not-stored`, which is
+  ;; exactly what a goal no rule concludes gives — the silence the roster refuses for a
+  ;; misspelt key, here for a mistyped value.  Zero stays the request for nothing.
+  (tu/with-terms [p goal A B CxOff]
+    (v/assert kb (list 'genlCx CxOff 'CxUniverse) 'CxUniverse)
+    (v/assert-rule kb [(list p '?x '?y)] (list goal '?x '?y) CxOff)
+    (doseq [bad ["3" -1 1.5 :three]]
+      (let [e (is (thrown? clojure.lang.ExceptionInfo
+                           (v/why-not kb (list goal A B) CxOff {:nearest bad}))
+                  (pr-str bad))]
+        (is (= :unknown-option (:type (ex-data e))) (pr-str bad))))
+    (testing "nil is the absent key"
+      (is (not (contains? (v/why-not kb (list goal A B) CxOff {:nearest nil}) :nearest))))))
+
 (tu/deftest-kb nearest-is-attached-to-not-stored-alone
   ;; Every other reason already names the thing that stopped the sentence, so a search
   ;; for near misses would be work with nothing to report.

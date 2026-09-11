@@ -32,11 +32,10 @@
   bookkeeping (`termOfUnit`, `result`) rides real vocabulary."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.nat :as nat]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
+(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
 ;; ---- baseline: ground congruence is already free ------------------------
 

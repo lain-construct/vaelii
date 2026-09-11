@@ -12,10 +12,9 @@
   no forward rule firing, which a computed condition never triggers (docs/defns.md)."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
+(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
 ;; ---- 1. the primitive: `integer` is computable from a bare value ----
 

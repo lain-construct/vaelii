@@ -30,7 +30,14 @@
             [vaelii.test-util :as tu])
   (:import [java.io File]))
 
-(use-fixtures :each (tu/neutral-fresh tu/fresh))
+(defn- reset-profile-after
+  "The cache profile and the memory-pressure guard are process-wide and outlive a KB, so a
+  test that set a scale, drove pressure, or attached the guard and left it would change what
+  every later test reads.  Restore the default and detach the guard after each."
+  [f]
+  (try (f) (finally (caches/uninstall-memory-guard!) (caches/reset-profile))))
+
+(use-fixtures :each (tu/neutral-fresh tu/fresh) reset-profile-after)
 
 (defn- row [kb id] (first (filter #(= id (:cache %)) (v/caches kb))))
 
@@ -138,6 +145,204 @@
   (is (= 128 (:limit (row kb :taxonomy-scoped-closures))))
   (binding [tax/*scoped-memo-budget* 1]
     (is (= 1 (:limit (row kb :taxonomy-scoped-closures))))))
+
+;; ---- the tunable profile ------------------------------------------------
+
+(tu/deftest-kb the-default-profile-is-the-shipped-bounds
+  ;; The invariant the whole scale rests on: at scale 1.0 with no override, a routed cache
+  ;; enforces and reports exactly the number it shipped with, so the goldens and the cost
+  ;; budgets are the ones the engine always had.
+  (is (= {:scale 1.0 :pressure 1.0 :overrides {}} (v/cache-profile)))
+  (is (= 4096   (:limit (row kb :literal-matches))))
+  (is (= 256    (:limit (row kb :resident))))
+  (is (= 256    (:limit (row kb :path-consistency))))
+  (is (= 8192   (:limit (row kb :relation-decode))))
+  (is (= 100000 (:limit (row kb :closure-answers))))
+  (is (= 4096 (caches/limit-of :literal-matches 4096))
+      "and limit-of returns the shipped default untouched, not a rounded copy of it"))
+
+(tu/deftest-kb a-scale-moves-every-routed-cache-and-restores
+  (v/set-cache-scale 0.5)
+  (is (= 2048 (:limit (row kb :literal-matches))) "half the shipped 4096")
+  (is (= 128  (:limit (row kb :resident))))
+  (is (= 128  (:limit (row kb :path-consistency))))
+  (v/set-cache-scale 4)
+  (is (= 16384 (:limit (row kb :literal-matches))) "four times the shipped 4096")
+  (is (= 1024  (:limit (row kb :resident))))
+  (is (= 1.0 (:scale (v/set-cache-scale 1.0))))
+  (is (= 4096 (:limit (row kb :literal-matches))) "and 1.0 is the shipped bound again"))
+
+(tu/deftest-kb the-scale-floors-rather-than-shrinking-to-uselessness
+  (v/set-cache-scale 0.0001)
+  (is (= 16 (:limit (row kb :resident)))
+      "a scale that would compute fewer than min-limit is read as min-limit")
+  (is (= 16 (:limit (row kb :literal-matches)))))
+
+(tu/deftest-kb the-symbol-pool-is-structural-and-the-scale-leaves-it-alone
+  ;; The interning pool's check runs per symbol interned — the hottest path on a load — and
+  ;; scaling it risks the sharing it exists for, so it keeps its own dynamic bound and is
+  ;; not routed through the scale.
+  (v/set-cache-scale 0.25)
+  (is (= 1000000 (:limit (row kb :symbol-pool))) "the pool is not scaled by the profile")
+  (is (= 1024 (:limit (row kb :literal-matches))) "while a routed cache is"))
+
+(tu/deftest-kb an-override-pins-a-cache-and-the-scale-does-not-move-it
+  (v/set-cache-scale 0.5)
+  (v/set-cache-limit :resident 1000)
+  (is (= 1000 (:limit (row kb :resident))) "the override wins over the scale")
+  (is (= 2048 (:limit (row kb :literal-matches))) "a cache with no override still scales")
+  (is (= {:resident 1000} (:overrides (v/cache-profile))))
+  (v/set-cache-limit :resident nil)
+  (is (= 128 (:limit (row kb :resident))) "clearing the override returns it to the scale")
+  (is (= {} (:overrides (v/cache-profile)))))
+
+(tu/deftest-kb a-bad-scale-or-override-is-refused-by-name
+  (doseq [bad [-1 "big" nil]]
+    (is (= :unknown-option
+           (:type (try (v/set-cache-scale bad)
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))))
+        (str "a scale of " (pr-str bad) " is refused, not read as the nearest legal one")))
+  (is (= :unknown-option
+         (:type (try (v/set-cache-limit "resident" 10)
+                     (catch clojure.lang.ExceptionInfo e (ex-data e)))))
+      "an id that is not a keyword is refused")
+  (doseq [bad [-5 0 2.5]]
+    (is (= :unknown-option
+           (:type (try (v/set-cache-limit :resident bad)
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))))
+        (str "a limit of " (pr-str bad) " is refused"))))
+
+;; ---- the memory-pressure guard ------------------------------------------
+
+(deftest pressure-response-decides-by-the-two-water-marks
+  ;; A pure function of the post-collection reading and the current pressure, so the
+  ;; decision is checked without a heap that is actually full.
+  (is (= :shrink (caches/pressure-response 0.90 1.0)) "over the high-water mark")
+  (is (= :shrink (caches/pressure-response 0.86 0.5)) "and again while already shrunk")
+  (is (= :grow   (caches/pressure-response 0.50 0.5)) "under the low mark with room to grow")
+  (is (= :hold   (caches/pressure-response 0.50 1.0)) "under the low mark but already at the ceiling")
+  (is (= :hold   (caches/pressure-response 0.70 1.0)) "between the marks")
+  (is (= :hold   (caches/pressure-response 0.70 0.5)) "between the marks, either way"))
+
+(tu/deftest-kb a-shrink-lowers-pressure-and-the-bound-and-a-grow-raises-them
+  (is (= 256 (:limit (row kb :resident))) "the shipped bound at pressure 1.0")
+  (caches/shrink! [])
+  (is (= 0.5 (:pressure (v/cache-profile))))
+  (is (= 128 (:limit (row kb :resident))) "half, under pressure 0.5")
+  (caches/shrink! [])
+  (is (= 0.25 (:pressure (v/cache-profile))))
+  (is (= 64 (:limit (row kb :resident))))
+  (caches/grow!)
+  (is (< 0.25 (:pressure (v/cache-profile))) "and a grow raises pressure")
+  (dotimes [_ 10] (caches/grow!))
+  (is (= 1.0 (:pressure (v/cache-profile))) "capped at the operator's scale")
+  (is (= 256 (:limit (row kb :resident))) "so the bound is the shipped one again"))
+
+(tu/deftest-kb the-pressure-floor-keeps-a-fraction-rather-than-running-cold
+  (dotimes [_ 20] (caches/shrink! []))
+  (is (<= 0.1 (:pressure (v/cache-profile))) "pressure never reaches zero")
+  (is (pos? (:limit (row kb :resident)))
+      "so a cache under sustained pressure still holds something"))
+
+(tu/deftest-kb pressure-trims-an-override-even-though-the-scale-does-not
+  ;; The decision behind the guard: a pin the operator set with set-cache-limit stands against
+  ;; the scale but not against a filling heap.  The scale leaves a pinned bound alone; pressure
+  ;; shrinks it like any other counted cache, because a pin the guard could not reach would
+  ;; keep the heap short of the reclaim the guard exists to force.
+  (v/set-cache-scale 0.5)
+  (v/set-cache-limit :resident 1000)
+  (is (= 1000 (:limit (row kb :resident))) "the scale does not move a pinned bound")
+  (caches/shrink! [])
+  (is (= 500 (:limit (row kb :resident))) "but pressure 0.5 halves the pin")
+  (dotimes [_ 20] (caches/shrink! []))
+  (is (= 125 (:limit (row kb :resident)))
+      "and the floor is pressure-min (0.125) times the pin, not min-limit"))
+
+(deftest a-trim-keeps-the-target-rather-than-emptying-the-map
+  ;; The "not too much" property, on the plain-map helper the trims share: past its target a
+  ;; cache keeps that many entries where a wholesale clear keeps none, so the reads the
+  ;; survivors serve are not all recomputed at once.
+  (let [a (atom (into {} (map (fn [i] [i i])) (range 100)))]
+    (is (= 60 (caches/trim-map! a 40)) "dropped the excess")
+    (is (= 40 (count @a)) "and kept the target, not zero")
+    (is (zero? (caches/trim-map! a 40)) "a map already at the target is left alone")
+    (is (= 40 (count @a)))))
+
+(tu/deftest-kb a-shrink-trims-a-registered-cache-to-its-lowered-bound
+  (let [a (atom (into {} (map (fn [i] [i i])) (range 100)))]
+    (with-registered
+      {:cache :probe-trim :label "Probe" :scope :process :unit "probes"
+       :limit (caches/limit-thunk :probe-trim 80) :counters nil :note "a probe."
+       :read (fn [_] {:entries (count @a)})
+       :trim (fn [_ target] (caches/trim-map! a target))}
+      (fn []
+        (is (= 80 (:limit (row kb :probe-trim))) "the effective bound at pressure 1.0")
+        (let [{:keys [dropped]} (caches/shrink! [])]   ; pressure 0.5 -> bound 40
+          (is (= 40 (:limit (row kb :probe-trim))))
+          (is (= 40 (count @a)) "trimmed to the lowered bound, not emptied")
+          (is (>= dropped 60) "and the shrink reports what it dropped"))))))
+
+(tu/deftest-kb a-kb-scoped-shrink-hands-the-trim-each-live-kb
+  ;; trim-to-bounds! runs a :process cache's trim once and a :kb cache's trim once for each
+  ;; live KB, handing it the KB — the path the literal cache's per-KB trim takes, which the
+  ;; :process probe above does not reach.  Driven with shrink! [kb] rather than a real
+  ;; collection.
+  (let [seen (atom [])
+        a    (atom (into {} (map (fn [i] [i i])) (range 100)))]
+    (with-registered
+      {:cache :probe-kb-trim :label "Probe" :scope :kb :unit "probes"
+       :limit (caches/limit-thunk :probe-kb-trim 80) :counters nil :note "a probe."
+       :read (fn [_] {:entries (count @a)})
+       :trim (fn [k target] (swap! seen conj k) (caches/trim-map! a target))}
+      (fn []
+        (is (= 80 (:limit (row kb :probe-kb-trim))) "the effective bound at pressure 1.0")
+        (let [{:keys [dropped]} (caches/shrink! [kb])]   ; pressure 0.5 -> bound 40
+          (is (= [kb] @seen) "the :kb trim received the live KB, once")
+          (is (= 40 (count @a)) "trimmed to the lowered bound, not emptied")
+          (is (>= dropped 60)))))))
+
+(tu/deftest-kb the-listener-body-shrinks-grows-and-holds-by-the-reading
+  ;; on-collection is the listener's body: it reads the old-generation fraction from a
+  ;; collection's after-usage map, decides by pressure-response, and drives shrink!, grow! or a
+  ;; hold — pulling the KBs a shrink trims from the guard's own :kbs thunk.  Every piece is
+  ;; tested apart from this one; this drives the assembled chain with usage maps rather than a
+  ;; real collection, which is what the body was lifted out of the listener to allow.
+  (let [on-collection @#'caches/on-collection
+        old-gen (fn [used] (doto (java.util.HashMap.)
+                             (.put "G1 Old Gen"
+                                   (java.lang.management.MemoryUsage. 0 used 1000 1000))))]
+    (caches/install-memory-guard! {:kbs (fn [] [kb])})
+    (is (= 1.0 (:pressure (v/cache-profile))))
+    (on-collection (old-gen 900))
+    (is (= 0.5 (:pressure (v/cache-profile))) "a reading over the high mark shrinks")
+    (on-collection (old-gen 900))
+    (is (= 0.25 (:pressure (v/cache-profile))) "and again while already shrunk")
+    (on-collection (old-gen 700))
+    (is (= 0.25 (:pressure (v/cache-profile))) "a reading between the marks holds")
+    (on-collection (old-gen 100))
+    (is (< 0.25 (:pressure (v/cache-profile))) "a reading under the low mark grows")
+    (testing "a collection that names no old-gen pool leaves pressure where it is"
+      (let [p (:pressure (v/cache-profile))]
+        (on-collection (java.util.HashMap.))
+        (is (= p (:pressure (v/cache-profile))))))))
+
+(deftest the-guard-attaches-to-the-collectors-and-detaches
+  (is (false? (:installed? (caches/memory-guard))) "nothing attached to start")
+  (let [g (caches/install-memory-guard! {:kbs (constantly [])})]
+    (is (true? (:installed? g)) "it attaches to the JVM's collectors"))
+  (is (true? (:installed? (caches/memory-guard))))
+  (let [g (caches/uninstall-memory-guard!)]
+    (is (false? (:installed? g)) "and detaches again")
+    (is (= 1.0 (:pressure g)) "restoring pressure on the way out")))
+
+(deftest the-old-generation-fraction-is-read-from-the-tenured-pool
+  (let [ogf @#'caches/old-gen-fraction
+        m   (doto (java.util.HashMap.)
+              (.put "G1 Old Gen"    (java.lang.management.MemoryUsage. 0 900 1000 1000))
+              (.put "G1 Eden Space" (java.lang.management.MemoryUsage. 0 50 100 -1)))]
+    (is (== 0.9 (ogf m)) "used over max on the old-gen pool, not eden")
+    (is (nil? (ogf (java.util.HashMap.)))
+        "a collector that names no old-gen pool reads nil, and the guard then holds")))
 
 ;; ---- a row answers for itself, and fails for itself ---------------------
 
@@ -331,7 +536,13 @@
   "Limit-shaped constants in `src/` that bound something other than a cache, each with
   what it does bound.  Explicit rather than a pattern: a pattern excusing `*-budget*`
   would excuse the taxonomy's scoped memo, which is a cache bound and has a row."
-  {"default-limit"       "quality.clj — how many findings a report lists"
+  {"min-limit"           (str "caches.clj — the floor `limit-of` never scales a bound "
+                              "below; a clamp on the tunable bound, not a cache of its own")
+   "set-limit"           (str "caches.clj — the setter that pins one cache's bound; a "
+                              "function, not a constant, and it writes a bound rather than "
+                              "being one")
+   "set-cache-limit"     "core.clj — the public setter wrapping `caches/set-limit`"
+   "default-limit"       "quality.clj — how many findings a report lists"
    "dense-table-limit"   (str "qcn.clj — whether a composition table is built whole or "
                               "per base relation; a build decision, and the table is not "
                               "evicted")

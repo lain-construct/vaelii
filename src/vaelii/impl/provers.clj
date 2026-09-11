@@ -689,17 +689,18 @@
   "Hold `v` at `k`, under `clock`.  No `!`: it destroys nothing and every entry is
   derived, so the next ask recomputes whatever the drop below took."
   [kb k v ^long clock]
-  (when (and (:closures kb) (<= (count v) (long *closure-answer-limit*)))
-    (swap! (:closures kb)
-           (fn [c]
-             (let [c (if (== clock (long (:clock c -1)))
-                       c
-                       {:clock clock :members 0 :entries {}})
-                   m (+ (long (:members c 0)) (count v))]
-               (cond
-                 (contains? (:entries c) k) c
-                 (> m (long *closure-answer-limit*)) {:clock clock :members 0 :entries {}}
-                 :else (assoc c :members m :entries (assoc (:entries c) k v))))))))
+  (let [lim (long (caches/limit-of :closure-answers *closure-answer-limit*))]
+    (when (and (:closures kb) (<= (count v) lim))
+      (swap! (:closures kb)
+             (fn [c]
+               (let [c (if (== clock (long (:clock c -1)))
+                         c
+                         {:clock clock :members 0 :entries {}})
+                     m (+ (long (:members c 0)) (count v))]
+                 (cond
+                   (contains? (:entries c) k) c
+                   (> m lim) {:clock clock :members 0 :entries {}}
+                   :else (assoc c :members m :entries (assoc (:entries c) k v)))))))))
 
 (defn- cached-reach
   "The reach of `node` under `pred` in `dir`, from the KB's cache when it holds one, else
@@ -3155,12 +3156,31 @@
 
 ;; ---- what this namespace holds ------------------------------------------
 
+(defn- trim-closures
+  "Drop cached reaches from `kb`'s closure cache until the members held are at most `target`,
+  keeping the entries iteration reaches first and recomputing the member count, and answer how
+  many members went.  The cache is bounded by members rather than entries — an entry is a
+  whole reach set — so the guard's target is a member count, and the trim keeps whole reaches
+  up to it rather than dropping the map wholesale the way `:clear` does."
+  [kb ^long target]
+  (if-let [a (:closures kb)]
+    (let [before (long (:members @a 0))]
+      (when (> before target)
+        (swap! a (fn [c]
+                   (loop [es (seq (:entries c)) kept (transient {}) m 0]
+                     (let [e (first es)]
+                       (if (and e (<= (+ m (count (val e))) target))
+                         (recur (next es) (assoc! kept (key e) (val e)) (+ m (count (val e))))
+                         (assoc c :members m :entries (persistent! kept))))))))
+      (max 0 (- before (long (:members @a 0)))))
+    0))
+
 (caches/register-cache
  {:cache    :closure-answers
   :label    "Closure answers"
   :scope    :kb
   :unit     "closures"
-  :limit    (fn [] *closure-answer-limit*)
+  :limit    (caches/limit-thunk :closure-answers *closure-answer-limit*)
   :counters nil
   :note     (str "One declared-transitive predicate's reach from one node, in one "
                  "direction, seen from one context — the answer an open-argument ask "
@@ -3173,4 +3193,5 @@
   :clear    (fn [kb] (let [a (:closures kb)
                            n (if a (count (:entries @a)) 0)]
                        (some-> a (reset! {}))
-                       n))})
+                       n))
+  :trim     (fn [kb target] (trim-closures kb target))})

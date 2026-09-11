@@ -709,6 +709,7 @@ the read still found one of them. Set a new floor by rounding the first mention 
 | `VAELII_PROFILER` | `src/vaelii/impl/config.clj:240+` | the boolean vocabulary | `false` | Whether the browser starts the sampling profiler's UI. Off unless asked for: it attaches an agent to the JVM and serves on a port of its own with no authentication. The dependency ships in the `:repl` profile, so `lein browser` has it and `lein run -m vaelii.web` does not — with it absent the start logs a line and `/caches` says so rather than linking to nothing. |
 | `VAELII_PROFILER_PORT` | `src/vaelii/impl/config.clj:250+` | a port number | `8080` | Where that UI binds. Read only when the switch above says to start one. |
 | `VAELII_LOG_LEVEL` | `src/vaelii/impl/config.clj:280+` | `error` `warn` `info` `debug` `trace`, case-insensitive | unset | The level the engine's own statements print at, installed as the engine loads. Unset installs no backend at all, which is a setting rather than a default. |
+| `VAELII_CACHE_SCALE` | `src/vaelii/impl/config.clj:290+` | a number 0 or more | `1.0` | The multiplier on every in-memory derived cache's shipped entry limit, applied as the engine loads. Below 1 shrinks the caches for a small heap; above 1 grows them for a bulk load. A per-cache floor keeps a small scale from taking a cache below the point where it saves nothing. `vaelii.core/set-cache-scale` is the same dial on a running process, and `caches` shows the effective limit each cache enforces. |
 
 **The durable store.** All system properties, all read at `open-kb`.
 

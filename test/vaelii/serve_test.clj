@@ -559,6 +559,30 @@
           (is (= :budget-exhausted (:type r)))
           (is (= 400 (:status r))))))))
 
+(tu/deftest-kb a-bound-value-outside-its-domain-is-a-typed-400-not-a-500
+  ;; The floor under docs/operations.md's one-vocabulary promise, for the value domains
+  ;; rather than the key rosters.  Without the value check a string where a number belongs
+  ;; reaches arithmetic and throws a bare `ClassCastException`, which the daemon answers
+  ;; `:internal-error` (500) — a backend fault at every 5xx alarm between the caller and
+  ;; the daemon.  A caller's mistake is a 400, so one op per family is checked here: the
+  ;; reply is `:unknown-option` and the status 400, never `:internal-error`.
+  (tu/with-terms [dog Muffet CxServe]
+    (let [handler (open-app kb)]
+      (post-op handler :assert [(list dog Muffet) CxServe])
+      (doseq [[op args] [[:prove              [(list dog '?x) CxServe {:max-ms "x"}]]
+                         [:prove-within       [(list dog '?x) CxServe {:max-depth "x"}]]
+                         [:ask-within         [(list dog '?x) CxServe {:max-results "x"}]]
+                         [:search-tree        [(list dog '?x) CxServe {:max-depth 2 :node-budget "x"}]]
+                         [:forward-chain      [{:max-derivations "x"}]]
+                         [:abduce             [(list dog '?x) CxServe {:max-hypotheses "x"}]]
+                         [:kb-quality         [{:on-progress 5}]]
+                         [:clear-caches       [{:counters? "yes"}]]
+                         [:sentexes-in-context [CxServe {:believed? "yes"}]]]]
+        (let [r (post-op handler op args)]
+          (is (false? (:ok r)) (str op))
+          (is (= :unknown-option (:type r)) (str op " is a typed refusal, not a bare cast"))
+          (is (= 400 (:status r)) (str op " is a client error, not a 500")))))))
+
 (tu/deftest-kb the-models-tool-surface-is-held-to-the-same-ceiling
   ;; `vaelii.host.llm.tools` generates its schemas from `serve/ops` and calls back into
   ;; it, so a ceiling applied at the HTTP route would be a ceiling the model does not

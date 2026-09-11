@@ -453,7 +453,7 @@
   [{:name    :plain
     :build   plain
     :sentexes 100
-    :reads   {:argument-root 500 :argument-slot 500 :exception-index 100
+    :reads   {:argument-root 100 :argument-slot 100 :exception-index 100
               :functor-root 1200 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 202 :slots 200}}
 
@@ -470,7 +470,7 @@
    {:name    :membership
     :build   membership
     :sentexes 100
-    :reads   {:argument-root 700 :argument-slot 700 :exception-index 100
+    :reads   {:argument-root 300 :argument-slot 300 :exception-index 100
               :functor-root 1200 :rule-index 200 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
 
@@ -479,14 +479,14 @@
    ;; together say whether the descension is flat in the depth of the hierarchy or
    ;; proportional to it.  Today it is proportional; a change that makes it flat drops
    ;; this one to `:membership`'s numbers and is the improvement carried as data.
-   ;; Read against `:membership`: 700 -> 1500 in each of `:argument-root` and
+   ;; Read against `:membership`: 300 -> 1100 in each of `:argument-root` and
    ;; `:argument-slot`, for eight more supers over a hundred asserts.  That is **one
    ;; `:argument-root` and one `:argument-slot` per super per assert**, exactly, and the
    ;; writes do not move at all — the depth buys reads and stores nothing.
    {:name    :deep-membership
     :build   deep-membership
     :sentexes 100
-    :reads   {:argument-root 1500 :argument-slot 1500 :exception-index 100
+    :reads   {:argument-root 1100 :argument-slot 1100 :exception-index 100
               :functor-root 1200 :rule-index 1000 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 400 :terms 300 :roots 300 :roster 100 :slots 100}}
 
@@ -501,11 +501,26 @@
    ;; `special/entail-arg-type` recurs the entailment cascade only on a transition to
    ;; believed, and an already-believed dedup target is not one. That skip is the −2 in each
    ;; of `:argument-root`, `:argument-slot` and `:functor-root` against the pre-skip budget.
+   ;;
+   ;; Every minted type is a functor no sentence declares `arg` or `genlArg` of, so deriving
+   ;; its own entailments no longer probes the argument index for declarations it lacks:
+   ;; `res/constraining-predicates` filters a mint's functor against the declaration roster,
+   ;; which is the −1,400 `:argument-root` and −1,300 `:argument-slot` this workload stopped
+   ;; reading when the filter landed.
+   ;;
+   ;; And each mint's admissibility is checked once, not twice.  `checks/entailment-check`
+   ;; runs `constraint-problem` over every prospective mint before the trigger is stored and
+   ;; refuses the trigger if one fails, so the materializer's own `constraint-violation` over
+   ;; the same first-level mints (`special/inadmissible`, `pre-checked?`) asks a question
+   ;; already answered — storing the trigger only adds memberships, which convict on an absent
+   ;; type and never a present one.  Skipping it is the −600 `:argument-root`, −600
+   ;; `:argument-slot` and −400 `:functor-root` here; the retroactive and chaining mints, which
+   ;; no pre-store check covers, still pay it.
    {:name    :declared
     :build   declared
     :sentexes 100
-    :reads   {:argument-root 2600 :argument-slot 2400 :exception-index 100
-              :functor-root 1900 :rule-index 100 :trie-counts 100 :trie-lookup 300}
+    :reads   {:argument-root 600 :argument-slot 500 :exception-index 100
+              :functor-root 1500 :rule-index 100 :trie-counts 100 :trie-lookup 300}
     :writes  {:levels 500 :terms 300 :roots 400 :roster 0 :slots 200}}
 
    ;; **No `:rule-index` family at all, and only a negative workload reads that way.**  An
@@ -518,7 +533,7 @@
    {:name    :negative
     :build   negative
     :sentexes 100
-    :reads   {:argument-root 500 :argument-slot 500 :exception-index 200
+    :reads   {:argument-root 100 :argument-slot 100 :exception-index 200
               :functor-root 1100 :trie-counts 200 :trie-lookup 100}
     :writes  {:levels 400 :terms 400 :roots 400 :roster 103 :slots 101}}
 
@@ -534,14 +549,14 @@
    {:name    :functional-in-arg-arity-2
     :build   functional-in-arg-arity-2
     :sentexes 100
-    :reads   {:argument-root 1200 :argument-slot 1200 :exception-index 100
+    :reads   {:argument-root 800 :argument-slot 800 :exception-index 100
               :functor-root 1200 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 200 :slots 200}}
 
    {:name    :compound
     :build   compound
     :sentexes 100
-    :reads   {:argument-root 500 :argument-slot 500 :exception-index 100
+    :reads   {:argument-root 100 :argument-slot 100 :exception-index 100
               :functor-root 1200 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 800 :terms 600 :roots 400 :roster 104 :slots 200}}
 
@@ -561,7 +576,7 @@
    {:name    :rule-fired
     :build   rule-fired
     :sentexes 200
-    :reads   {:argument-root 1000 :argument-slot 1000 :exception-index 300
+    :reads   {:argument-root 200 :argument-slot 200 :exception-index 300
               :functor-root 1900 :rule-index 200 :trie-counts 200 :trie-lookup 200}
     :writes  {:levels 1000 :terms 800 :roots 800 :roster 200 :slots 400}}
 
@@ -582,14 +597,14 @@
    {:name    :taxonomy-edge
     :build   taxonomy-edge
     :sentexes 100
-    :reads   {:argument-root 700 :argument-slot 700 :exception-index 300
+    :reads   {:argument-root 300 :argument-slot 300 :exception-index 300
               :functor-root 1600 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 400 :roots 400 :roster 101 :slots 101}}
 
    ;; **One retrieval per relative the arity table does not name**, which is what the entry point
    ;; costs an arity declaration, and `declaration-relatives` is the number to read it
-   ;; against.  Measured at both: four relatives cost 1000 `:argument-root` and 1000
-   ;; `:argument-slot`, two cost 800 and 800, so the per-relative term is **one of each per
+   ;; against.  Measured at both: four relatives cost 600 `:argument-root` and 600
+   ;; `:argument-slot`, two cost 400 and 400, so the per-relative term is **one of each per
    ;; relative per assert** and everything else here is the constant.  That is the same
    ;; pair, in the same proportion, that `:membership` and `:deep-membership` read off the
    ;; descension's other walk — the two questions are one membership retrieval apiece and
@@ -601,7 +616,7 @@
    {:name    :arity-declaration
     :build   arity-declaration
     :sentexes 100
-    :reads   {:argument-root 1000 :argument-slot 1000 :exception-index 100
+    :reads   {:argument-root 600 :argument-slot 600 :exception-index 100
               :functor-root 1000 :rule-index 100 :trie-counts 100 :trie-lookup 100}
     :writes  {:levels 500 :terms 300 :roots 300 :roster 1 :slots 100}}])
 

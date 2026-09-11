@@ -171,6 +171,18 @@
               (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))
   (is (= v/describe-opt-keys #{:limit})))
 
+(tu/deftest-kb a-window-that-is-not-a-positive-integer-is-refused-rather-than-cast
+  ;; `{:limit "5"}` reached `take` and threw a bare ClassCastException — a 500 over the
+  ;; daemon, where `find-terms`' `:limit` is a typed refusal — and `{:limit 0}` answered
+  ;; every list empty under a `:total` that read like an answer.
+  (doseq [bad ["5" 0 -3 1.5]]
+    (let [e (is (thrown? clojure.lang.ExceptionInfo (v/describe kb 'dog W {:limit bad}))
+                (pr-str bad))]
+      (is (= :unknown-option (:type (ex-data e))) (pr-str bad))
+      (is (= :bad-value (:mismatch (ex-data e))))))
+  (testing "and nil is the default window"
+    (is (= (:genls (v/describe kb 'dog W)) (:genls (v/describe kb 'dog W {:limit nil}))))))
+
 (tu/deftest-kb a-spelling-that-declares-no-role-answers-the-common-shape-and-no-more
   (let [d (v/describe kb '?x W)]
     (is (= :variable (:role d)))

@@ -1022,24 +1022,96 @@
                         {} lits)]
     (boolean (some (fn [[_ ns]] (> (count ns) 1)) by-term))))
 
+(defn- declared-arg-types
+  "The `[position type]` pairs an `arg` declaration binds `pred`'s tuples to, read up the
+  predicate hierarchy the reader `assert` uses (`res/constraining-predicates`), so a
+  super-predicate's declaration types a sub-predicate's tuple.  A declaration read, not an
+  inference: nothing is derived and no fact is consulted, the same standing
+  `separated-antecedents?` and `arity-conflicted?` have beside it."
+  [kb pred context]
+  (when (and (symbol? pred) (not (sx/variable? pred)))
+    (for [p     (res/constraining-predicates kb 'arg pred context)
+          [_ b] (res/matches-visible kb (list 'arg p '?n '?t) context)
+          :let  [n (get b '?n) t (get b '?t)]
+          :when (and (integer? n) (symbol? t) (not (sx/variable? t)))]
+      [n t])))
+
+(defn- arg-type-conflicted?
+  "Does an antecedent `arg` declaration demand a term be of a type disjoint from another
+  type the two rules place that term in?  The separation `separated-antecedents?` cannot
+  read, because the demanding literal is not itself a type membership: `(arity ?r ?a)`
+  demands `?r` be a `relation` through `(arg arity 1 relation)`, and the paired rule
+  concludes `(liar ?r)`, which places the same term under `person`.  `relation` and
+  `person` are disjoint, so no ground term makes both antecedents hold and the pair is
+  unreachable (vaelii#95).
+
+  `lits` are the positive antecedents of both rules and both consequents, already under σ,
+  so a variable the two rules unify appears once and its demands are read together.  Each
+  term collects a set of `[type source]`: `source` is `:declared` for a type an `arg`
+  declaration binds a position to and `:stated` for a type a unary literal names outright.
+  The pair is unreachable when a term holds two disjoint types **one of which is declared**.
+  Two stated types clashing is the clash the pair already reports, not a reason to hide it,
+  so at least one side of a disjoint pair must be a declared arg type.
+
+  **`arg` alone is read, not `genlArg` or the covering forms `args` / `argAndRest`.**
+  `genlArg` demands the argument be a *subtype* of the named type rather than a member of
+  it — a claim one stratum up — so reading a `genlArg` bound against a membership type
+  through `disjoint?` would compare two different levels.  A sound `genlArg` reading is its
+  own check, over two subtype bounds a term cannot satisfy at once, and nothing needs it:
+  no shipped rule concludes a unary type from a `genlArg`-typed antecedent, so no
+  `:disjoint` pair ever carries one to prune."
+  [kb lits context]
+  (let [tax     (:taxonomy kb)
+        demands (reduce
+                 (fn [m l]
+                   (let [f  (nm/functor l)
+                         as (vec (nm/args l))]
+                     (if (or (sx/negation? l) (not (symbol? f)) (sx/variable? f))
+                       m
+                       (let [m (if (= 1 (count as))
+                                 (update m (first as) (fnil conj #{}) [f :stated])
+                                 m)]
+                         (reduce (fn [m [n t]]
+                                   (if (<= 1 n (count as))
+                                     (update m (nth as (dec n)) (fnil conj #{}) [t :declared])
+                                     m))
+                                 m (declared-arg-types kb f context))))))
+                 {} lits)]
+    (boolean
+     (some (fn [[_ ts]]
+             (let [ts (vec ts)]
+               (some (fn [[i j]]
+                       (let [[t1 s1] (nth ts i), [t2 s2] (nth ts j)]
+                         (and (not= t1 t2)
+                              (or (= :declared s1) (= :declared s2))
+                              (tax/disjoint? tax t1 t2 context))))
+                     (for [i (range (count ts)), j (range (inc i) (count ts))] [i j]))))
+           demands))))
+
 (defn- jointly-satisfiable?
   "Could both antecedent sets hold at once — **shallowly**?
 
-  Three things rule it out and nothing else does: a literal appearing under σ together
-  with its own negation, one term claimed to be of two separated types, and one term bound
-  to two arities.  **No inference is run and no fact is consulted** — each of the three is
+  Four things rule it out and nothing else does: a literal appearing under σ together with
+  its own negation, one term claimed to be of two separated types, one term bound to two
+  arities, and one term an `arg` declaration demands be of a type disjoint from one the two
+  rules place it in.  **No inference is run and no fact is consulted** — each of the four is
   a declaration read.  This is what the rules say about each other, and a pair it admits
   is a clash that *could* form rather than one that will — which is the whole reading,
-  since a clash that had already formed would be in `(contradictions kb)` instead."
+  since a clash that had already formed would be in `(contradictions kb)` instead.
+
+  The fourth reads the consequents beside the antecedents, since the type an `arg`
+  declaration demands of one rule's variable is disjoint from the type the **other** rule
+  *concludes* about the unified term (`arg-type-conflicted?`)."
   [kb a b sigma context]
-  (let [lits (into (mapv #(res/substitute % sigma) (:antecedent a))
-                   (map #(res/substitute % sigma))
-                   (:antecedent b))
-        pos  (into #{} (remove sx/negation?) lits)
-        neg  (into #{} (comp (filter sx/negation?) (map second)) lits)]
+  (let [subst #(res/substitute % sigma)
+        lits  (into (mapv subst (:antecedent a)) (map subst) (:antecedent b))
+        pos   (into #{} (remove sx/negation?) lits)
+        neg   (into #{} (comp (filter sx/negation?) (map second)) lits)
+        heads (conj pos (subst (:consequent a)) (subst (:consequent b)))]
     (and (empty? (set/intersection pos neg))
          (not (separated-antecedents? kb pos context))
-         (not (arity-conflicted? kb pos context)))))
+         (not (arity-conflicted? kb pos context))
+         (not (arg-type-conflicted? kb heads context)))))
 
 (defn- rule-functors
   "Every predicate a rule names — its consequent's and its antecedents', a negation

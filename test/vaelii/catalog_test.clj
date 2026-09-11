@@ -246,6 +246,19 @@
     (is (false? (cat/loading?)) "nor was a loader started")
     (cat/unload! "core")))
 
+(deftest live-kbs-lists-in-process-kbs-and-omits-a-remote-handle
+  ;; The memory-pressure guard trims per-KB caches, so catalog/install-memory-guard! feeds it
+  ;; the KBs open in this JVM.  A KB is one with a record store (:records); an attached
+  ;; daemon's entry holds a remote handle with none, and the guard would trim nothing on a
+  ;; name that has no local cache, so live-kbs leaves it out.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (cat/register! "base" "Base KB" kb {:source (cat/source "core")})
+    (is (= [kb] (cat/live-kbs)) "the in-process KB is listed")
+    (cat/register! "far" "A daemon" {:daemon "http://elsewhere:3000"}
+                   {:source (cat/source "core")})
+    (is (= [kb] (cat/live-kbs))
+        "and a remote handle with no :records is left off")))
+
 (deftest activating-switches-what-the-holder-yields
   (let [a (cat/load-source "core")
         _ (wait-for)

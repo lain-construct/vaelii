@@ -290,14 +290,27 @@ A mark's reach is asked at three points — whether the KB declares any, which g
 conclusion joins, and whether two conclusions share one — and all three go through one
 reader, so a spelling reaches the detector through every read or through none.
 
-"Jointly satisfiable" is **shallow**, and three things rule it out: a literal appearing
-under σ together with its own negation, one term claimed to be of two separated types, and
-one term bound to two arities — `(arity ?p 1)` beside `(arity ?p 2)`, and `(arity ?p 1)`
-beside `(equivalence_relation ?p)`, which claims 2 by reaching `binary_predicate` up `genl`.
-Each of the three is a **declaration read**: **no inference is run and no fact is
+"Jointly satisfiable" is **shallow**, and four things rule it out: a literal appearing
+under σ together with its own negation, one term claimed to be of two separated types, one
+term bound to two arities — `(arity ?p 1)` beside `(arity ?p 2)`, and `(arity ?p 1)` beside
+`(equivalence_relation ?p)`, which claims 2 by reaching `binary_predicate` up `genl` — and
+one term an `arg` declaration demands be of a type disjoint from one the two rules place it
+in. Each of the four is a **declaration read**: **no inference is run and no fact is
 consulted.** This is what the rules say about each other, so a pair here is a clash that
 *could* form rather than one that has — a clash already formed is in
 `(contradictions kb)`, which is the other question and the other reader.
+
+The fourth rule-out reads the two consequents beside the antecedents, because the type an
+`arg` declaration demands of one rule's variable is disjoint from the type the **other**
+rule *concludes* about the unified term. `(arity ?r ?a) => (fixed_arity ?r)` demands `?r`
+be a `relation` through `(arg arity 1 relation)`, and CxCriedWolf's
+`(lied_before ?x) => (liar ?x)` places the unified term under `person`. No ground term is
+both a relation and a person, so the two rules never both fire for one term and the pair is
+dropped. The demand is read where a membership cannot state it: `lied_before` says nothing
+about its argument's type, so only the `arg` declaration on the paired rule's antecedent
+rules the term out. A declared domain the other conclusion does not exclude, and an
+undeclared one, both stay candidates — two stated types clashing is the clash the pair
+reports, so at least one side of the disjoint pair must be a declared arg type.
 
 Scoped to a context that can see **both** rules. That is a common descendant of the two
 contexts and not a `sees?` between them, for [nmtms.md](nmtms.md)'s reason: asking only

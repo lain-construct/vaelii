@@ -664,7 +664,7 @@
     (let [ta         (System/nanoTime)
           translated (edge/translate program {:tiebreak? false :keep-belief? keep-belief?})
           tb         (System/nanoTime)
-          result     (solver/solve (:aspif translated) :label)
+          result     (solver/solve translated :label)
           tc         (System/nanoTime)]
       {:optima       (if (= :unsat (:status result)) [] [(edge/kept-of translated result)])
        ;; a cancelled optimization that still had a model: the labeling is valid but its

@@ -51,26 +51,48 @@
   (see the single-writer contract in docs/storage.md)."
   (:require [vaelii.impl.opts :as opts]))
 
+(def ask-budget-keys
+  "Every bound `ask-within` reads: the wall clock, the result cap, and the qualitative
+  prover-cost ceiling.  **Not `:max-depth` / `:max-term-growth`**, which bound rule
+  expansion `ask` does not do — the same split `vaelii.core/ask-opt-keys` makes for `ask`."
+  #{:max-ms :max-results :max-cost})
+
+(def prove-budget-keys
+  "Every bound `prove-within` reads: the wall clock, the result cap, and the two guards on
+  rule expansion.  **Not `:max-cost`**, an `ask` concept `prove` ignores — the same split
+  `vaelii.core/prove-opt-keys` makes for `prove`."
+  #{:max-ms :max-results :max-depth :max-term-growth})
+
 (def budget-keys
-  "Every bound a budget may carry.  `collect` reads `:max-ms` / `:max-results`;
-  `:max-cost` is honored by `ask-within` (it selects which provers run, before the
-  stream is built), and `:max-depth` / `:max-term-growth` by `prove-within`, which
-  reads them through `prove-bounds` — all five are budget vocabulary, so all five pass
-  `check-budget!`.  Public for the reason `vaelii.core/assert-opt-keys` is: it is the
-  answer to \"is this a real bound?\"."
-  #{:max-ms :max-results :max-cost :max-depth :max-term-growth})
+  "Every bound a budget may carry — the **union** of what `ask-within` and `prove-within`
+  each read.  `resume` continues either, so it holds a partial to this union rather than to
+  one entry point's half; `check-budget!` defaults to it, and the two entry points pass
+  their own narrower roster instead.  Public for the reason `vaelii.core/assert-opt-keys`
+  is: it is the answer to \"is this a real bound?\"."
+  (into ask-budget-keys prove-budget-keys))
 
 (defn check-budget!
-  "Refuse a budget key nothing reads, and a non-nil non-map budget (`:unknown-option`
-  both).  A budget is a map of *optional* bounds, so a misspelt key is not missing —
-  the run is simply unbounded: `{:max-mss 100}` realizes the whole stream, which on an
-  infinite source never returns, and is in any case the opposite of what was asked.
-  (A `:max-cost` value outside the tiers is the *value* check, `:unknown-option` at
+  "Refuse a budget key nothing reads, a value outside a bound's domain, and a non-nil
+  non-map budget (`:unknown-option` all three).  A budget is a map of *optional* bounds,
+  so a misspelt key is not missing — the run is simply unbounded: `{:max-mss 100}`
+  realizes the whole stream, which on an infinite source never returns, and is in any case
+  the opposite of what was asked.  And a bound holding a value it cannot mean — a string
+  `:max-ms`, a zero `:max-results` — reaches arithmetic and throws bare, where every
+  sibling refusal is typed; `check-values!` catches it here (`opts/bound-domains`).
+  (A `:max-cost` value outside the tiers is checked separately, `:unknown-option` at
   `vaelii.impl.provers/cost-capped-provers`, which `ask-capped` reads the registry
-  through — this is the key check one level up.)"
-  [budget]
-  (opts/check! budget budget-keys "budget"
-               "A bound nothing reads is an unbounded run in silence."))
+  through — it is not a numeric bound, so it has no row in `bound-domains`.)
+
+  `opt-keys` defaults to the union `budget-keys` — what `resume`, `collect` and the two
+  drivers hold a budget to, since a `resume` continues either entry point.  `ask-within`
+  and `prove-within` pass their own narrower roster and subject, so a caller who names
+  `:max-depth` at `ask-within` is told it is not a bound `ask` reads."
+  ([budget] (check-budget! budget budget-keys "budget"))
+  ([budget opt-keys subject]
+   (opts/check! budget opt-keys subject
+                "A bound nothing reads is an unbounded run in silence.")
+   (opts/check-values! budget subject)
+   budget))
 
 (defn deadline
   "Absolute `System/nanoTime` instant `:max-ms` from now, or nil when unbounded."

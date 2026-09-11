@@ -220,7 +220,11 @@
   [opts]
   (opts/check! opts export-opt-keys "export!"
                (str "An option nothing reads takes the default in silence,"
-                    " which here writes a dump other than the one asked for.")))
+                    " which here writes a dump other than the one asked for."))
+  ;; the one bound-domains value beside the two dump-shape checks: `:on-progress` is a
+  ;; function, so a non-fn one is a bare cast on the first chunk boundary rather than the
+  ;; typed refusal every sibling gives (`opts/bound-domains`)
+  (opts/check-values! opts "export!"))
 
 (defn- check-variant! [variant]
   (when-not (contains? variants variant)

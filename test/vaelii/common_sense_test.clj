@@ -99,7 +99,7 @@
     (is (v/ask? kb '(physical_object Bone1)))            ; a supertype of food
     (is (not (v/ask? kb '(vehicle Bone1)))))            ; but only what actually follows
   (testing "asking for all of an individual's inferred types"
-    (is (= '#{food physical_object spatial_thing thing}
+    (is (= '#{food physical_object spatial temporal thing}
            (set (map #(get % '?t) (v/ask kb '(?t Bone1) '?ctx)))))))
 
 ;; ---- arithmetic, and the ordering derived from it ------------------------
@@ -639,7 +639,7 @@
   ;; when something happened, while `(InstantFn …)` is a moment and can.  The clock is
   ;; what turns the first into the second (docs/time.md, "The calendar clock").
   (is (= :arg-type (refusal kb '(happens CatStretches (DayFn 2000 1 15)) N))
-      "a day is a temporal_thing where happens wants a time_point")
+      "a day is a temporal where happens wants a time_point")
   (let [h (v/assert kb '(happens CatStretches (InstantFn 2000 1 15 9 30 0)) N)]
     (is (some? h) "the moment that morning is an ordinary argument")
     (v/retract! kb h)))

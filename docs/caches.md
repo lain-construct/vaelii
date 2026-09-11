@@ -2,9 +2,11 @@
 
 - **Covers:** the cache register (`vaelii.impl.caches`) — how a derived, droppable
   structure declares itself, what a descriptor says (`:scope` `:unit` `:limit`
-  `:counters` `:note`), the one bound policy (wholesale clear, never eviction), the two
-  reads `caches` / `clear-caches`, and a snapshot roster of every registered cache with
-  its bound.
+  `:counters` `:note`), the one bound policy (wholesale clear, never eviction), the profile
+  that scales every counted bound (`VAELII_CACHE_SCALE`, `cache-profile`,
+  `set-cache-scale`, `set-cache-limit`), the memory-pressure guard that shrinks the caches
+  under a filling heap and grows them back, the two reads `caches` / `clear-caches`, and a
+  snapshot roster of every registered cache with its bound.
 - **Not here:** what the *stores* cost — the JVM heap figure and a loaded KB's estimated
   footprint → [catalog.md](catalog.md); what the index *is* → [indexing.md](indexing.md),
   [density.md](density.md); readings about the *traffic* rather than the held answers →
@@ -22,9 +24,10 @@ counts them.
 
 ## The register
 
-`vaelii.impl.caches` **requires nothing**. Every namespace that holds a cache requires
+`vaelii.impl.caches` **requires only `config`**, a leaf that holds no cache, so the reader
+still has no require edge down to a namespace that holds one. Every such namespace requires
 *it* and calls `register-cache` once at load, so there is no list here for a new cache to
-be added to twice and no require edge from the reader down to the caches. The register is
+be added to twice. The one `config` edge reads `VAELII_CACHE_SCALE`. The register is
 open: a cache in a namespace this process never loaded — a qualitative calculus nobody
 touched — is simply absent from the read, which is the honest answer rather than a row of
 zeroes.
@@ -35,8 +38,10 @@ Each descriptor carries what a reader needs to compare rows that count different
   every KB in the JVM shares. It says what `:entries` counts.
 - **`:unit`** — what one entry *is*: a literal, a network, a symbol, a mask. A column of
   bare integers compares none of them, so the unit rides every row.
-- **`:limit`** — entries held before the cache is cleared, or nil for one bounded by
-  something other than a count (a generation, the store lifecycle), named in `:note`.
+- **`:limit`** — the effective bound: entries held before the cache is cleared, or nil for
+  one bounded by something other than a count (a generation, the store lifecycle), named in
+  `:note`. A counted bound is the shipped default scaled by the profile (below), so the
+  number a row reports is the number the cache enforces now.
 - **`:counters`** — `:kb`, `:process`, or nil: what a row's `:hits` / `:misses` count,
   which is not always what its `:entries` count. The literal cache is the awkward case —
   per-KB entries, process-wide `AtomicLong` counters — and conflating them would bill one
@@ -75,6 +80,64 @@ repeat; a scan is the read where they do not.
 It is the *probe* that opts out, not the walk: the seed read a `(P ?x ?x)` condensation
 takes is one extent literal, asked through the ordinary cached entry point, because one literal
 asked once is not a scan.
+
+## Tuning the bounds
+
+Every counted bound in the roster below is a **shipped default** the process scales by one
+number. At scale 1.0 — the default — a cache enforces exactly the roster's bound, so a
+process that sets nothing holds the bounds it always did. `VAELII_CACHE_SCALE` sets the
+scale a process starts with (default `1.0`, read as the engine loads): below 1 shrinks
+every counted cache for a small heap, above 1 grows them for a bulk load. A per-cache floor
+(`caches/min-limit`, 16 entries) keeps a small scale from taking a cache below the point
+where the reads it serves are a fraction of the reads it forces to recompute.
+
+On a running process the same dial is `vaelii.core`:
+
+- `(cache-profile)` — the scale and any per-cache overrides in force.
+- `(set-cache-scale x)` — multiply every counted bound by `x`, process-wide; `1.0` restores
+  the shipped bounds. Refused when `x` is not a number 0 or more.
+- `(set-cache-limit id n)` — pin one cache's bound to `n`, or clear the pin with `nil`. `id`
+  is a `:cache` keyword from `caches`. The scale leaves a pinned bound alone, for a cache
+  measured on its own. The memory-pressure guard does not: a pinned cache shrinks under a
+  filling heap like every other counted cache, because the guard's relief has to reach every
+  counted cache or a pin holds the heap short of the reclaim the guard exists to force.
+
+## The memory-pressure guard
+
+The scale is an operator's standing choice; the **pressure** is the engine's own response to
+a heap filling under it. On the servers a post-collection listener reads how full the old
+generation is after each garbage collection and moves a second multiplier, `:pressure`,
+between two marks:
+
+- over **0.85** it halves pressure and trims the counted caches down to the new, lower bound,
+  so the next collection has something to reclaim;
+- under **0.60** it raises pressure back toward the operator's scale, so a transient spike
+  does not leave the caches small for the rest of the run.
+
+Both multipliers apply: a cache's effective bound is `default × scale × pressure`, floored at
+`min-limit`, and `cache-profile` shows both. A pinned cache's bound is `override × pressure`,
+since a pin is set against the scale but not against the guard. The trim is **partial**, not a
+wholesale clear
+(`trim-map!`, or a cache's own shape-aware `:trim`): past the lowered bound a cache keeps that
+many entries rather than none, so the reads the survivors serve are not all recomputed the
+moment pressure passes. The pressure floor (0.125) keeps a heap under sustained pressure
+holding a fraction of each cache rather than running every read cold.
+
+The guard is the **servers'** — attached at startup (`caches/install-memory-guard!`, fed the
+live KBs by the host's catalog) and by nothing at engine load, so a library embedding pays
+for no listener it did not ask for. A JVM whose collectors emit no such notification, or names
+no old-generation pool, keeps pressure at 1.0; the guard is a best-effort relief, not a
+guarantee. The pure-heap caches are its charge — the disk hot-record cache stays on its own
+`vaelii.disk.cache` cap, since its records are re-thawable from disk and its bound is set at
+store open.
+
+`caches` reports the effective bound each cache enforces, so the scale and the row never
+disagree. Three bounds stand outside the scale: the **symbol pool**
+(`*symbol-pool-limit*`), because its check runs per symbol interned — the hottest path on a
+load — and scaling it risks the sharing it exists for; the **scoped-closure pass budget**
+(`*scoped-memo-budget*`), a per-pass budget rather than a resident cache; and **hot
+records**, whose per-kind LRU has its own knob (`vaelii.disk.cache`). The nil-bound caches
+have no count to scale.
 
 ## Reading them
 

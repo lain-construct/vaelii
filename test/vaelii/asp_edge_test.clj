@@ -87,7 +87,7 @@
         (is (= (text #{1 2 3 4}) (text #{4 3 2 1}))))
       (testing "it prunes: keep-belief wants all four, the hard cap allows two"
         (let [t (edge/translate (prog #{1 2 3 4}))
-              r (solver/solve (:aspif t) :label)]
+              r (solver/solve t :label)]
           (is (contains? #{:optimum :sat} (:status r)))
           (is (= 2 (count (edge/kept-of t r)))))))))
 

@@ -66,7 +66,9 @@
   the definitional layer must precede the theories that reason over it — and the one
   computed batch (every type is also a unary_predicate).  Within a layer, every
   context file present is loaded (discovered from the classpath), so adding a KB is
-  dropping a file in kb/upper/ or kb/middle/, no code change."
+  dropping a file in kb/upper/ or kb/middle/, no code change.  `seed/root-contexts`
+  discovers the top-level collector files (`kb/Cx<Name>.txt` other than `CxCore.txt`,
+  today `CxUniverse.txt`) from the classpath as well."
   (:require [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.host.seed :as seed]
@@ -76,11 +78,25 @@
   "Populate `kb` with the starter schema — every context under resources/kb/, loaded
   on kb start by default. Returns kb."
   [kb]
-  (core-context/load-into kb)                                       ; CxCore.txt: the vocabulary head
-  (seed/load-layer kb "upper"  (seed/layer-contexts "upper"))  ; every definitional context
-  (seed/load-layer kb "middle" (seed/layer-contexts "middle")) ; every theory context
+  ;; The whole starter is one batch: belief settles once at the end, not once per
+  ;; sentence (`v/with-deferred-settle`, belief computed from current state, so the
+  ;; single closing reconciliation reaches the same beliefs as N per-assert ones).  The
+  ;; nested `core-context/load-into` defers into this batch — its own wrapper is a no-op
+  ;; and this one's settle reconciles both.
+  (v/with-deferred-settle kb
+    (core-context/load-into kb)                                     ; CxCore.txt: the vocabulary head
+    (seed/load-layer kb "upper"  (seed/layer-contexts "upper"))  ; every definitional context
+    (seed/load-layer kb "middle" (seed/layer-contexts "middle"))  ; every theory context
+    ;; The spindle collector files sit at the kb/ root, not in a layer sub-directory.
+    ;; A collector's cross-member axiom names terms from more than one member, so the
+    ;; file loads above every member where both terms are visible.  `seed/root-contexts`
+    ;; discovers these files from the classpath and omits CxCore, the head loaded above.
+    ;; Today the one such file is CxUniverse.txt, holding `(disjoint organization animal)`.
+    (seed/load-layer kb nil (seed/root-contexts)))               ; top-level collector files
   ;; The subtypes of thing are unary types. Other genl components may relate
-  ;; predicates of any arity and do not imply unary membership.
-  (doseq [t (nm/by-print-key (v/specs kb 'thing))]
-    (v/assert kb (list 'unary_predicate t) 'CxCore))
+  ;; predicates of any arity and do not imply unary membership.  `specs` is read after the
+  ;; batch above settles, so its extent is the believed one; a second batch stores the marks.
+  (v/with-deferred-settle kb
+    (doseq [t (nm/by-print-key (v/specs kb 'thing))]
+      (v/assert kb (list 'unary_predicate t) 'CxCore)))
   kb)

@@ -543,7 +543,11 @@
   (opts/check! opts extent-opt-keys fn-name
                (str "An option nothing reads takes the default in silence, which here"
                     " means the stored extent — defeated defaults included — where the"
-                    " believed one was asked for.")))
+                    " believed one was asked for."))
+  ;; and the value: `:believed?` is a boolean, so `{:believed? \"yes\"}` — which
+  ;; `believed-filter` reads as truthy — is refused rather than silently answering the
+  ;; believed extent under a value that only looks like `true` (`opts/bound-domains`)
+  (opts/check-values! opts fn-name))
 
 (defn- believed-filter
   "Apply the extent fns' `{:believed? true}` option: keep only sentexes the JTMS
@@ -750,13 +754,19 @@
   [kb k y] (tax/sees? (:taxonomy kb) k y))
 
 (defn has-prop?
-  "Does `pred` carry the metadata property `kind` — one of `:transitive`,
-  `:symmetric`, `:asymmetric`, `:reflexive`, `:functional`, `:decontextualized`,
-  `:forced-decontextualized`, `:abducible`, `:reifiable`, `:unreifiable`?  Declared
-  by the corresponding sentex, e.g. `(symmetric siblingOf)`.
+  "Does `pred` carry the metadata property `kind`?  The kinds are the ones the grammar's
+  declarations maintain — `vaelii.impl.predicates/prop-kinds` enumerates them, and
+  docs/api.md lists them: the relation algebra (`:transitive`, `:symmetric`,
+  `:asymmetric`, `:reflexive`, `:functional`, `:irreflexive`, `:anti-symmetric`,
+  `:anti-transitive`), the grants (`:decontextualized`, `:forced-decontextualized`,
+  `:abducible`, `:closed-extent`, `:modal`, `:target-following`), the function kinds
+  (`:reifiable`, `:unreifiable`, `:quoting`, `:context-denoting`) and the `:declares-*`
+  kinds naming a predicate as the subject of an argument constraint.  Declared by the
+  corresponding sentex, e.g. `(symmetric siblingOf)`.  A kind off that roster answers
+  false for every term rather than being refused.
 
-  A predicate carries all but the last two: `:reifiable` / `:unreifiable` are a
-  *function*'s kind, declared by `(reifiable_function F)`, and read by the reify pass
+  A predicate carries every relation kind and grant; the function kinds are a
+  *function*'s, declared by `(reifiable_function F)` and read by the reify pass
   (`vaelii.impl.nat`).
 
   Argument-position *preservation* is not here: `(transitiveInArg P n R)` is per
@@ -922,6 +932,10 @@
    (check-bound-opts! opts #{:limit :on-progress} "kb-quality")
    (when-some [n (:limit opts)]
      (check-limit! n "kb-quality :limit"))
+   ;; `:on-progress` is a function, so a non-fn one is a bare cast on the first phase
+   ;; report — refused here as `:unknown-option` (`opts/bound-domains`).  `:limit` is not
+   ;; in that table; `check-limit!` above owns it
+   (opts/check-values! opts "kb-quality")
    (quality/census kb opts)))
 
 (defn quality-report
@@ -1613,8 +1627,11 @@
                 ;; declaration must reach the facts already stored exactly as it
                 ;; reaches the facts that follow: `deduce-arg-types` is this sentence
                 ;; meeting the declarations, `entail-existing` is this sentence *being*
-                ;; a declaration and meeting the facts.
-                args  (special/deduce-arg-types kb ents h context)
+                ;; a declaration and meeting the facts.  `ents` are pre-checked: they
+                ;; came from `constraint-checks`, so `entailment-check` already ran the
+                ;; definitional constraint check over them before the store, and the
+                ;; materializer need not run it a second time (special/inadmissible).
+                args  (special/deduce-arg-types kb ents h context (not *bulk-load?*))
                 back  (special/entail-existing kb sentence h)
                 ;; ...and the third order of the same three ingredients: a `genl` edge
                 ;; between predicates brings stored sub-predicate facts under the
@@ -1982,6 +1999,11 @@
   (opts/check! opts assert-opt-keys "assert"
                (str "An option nothing reads takes the default in silence, which for"
                     " :strength means storing a default where known-true was meant."))
+  ;; the chain bounds and the progress callback carried through to `chain/chain-all`
+  ;; (`:max-depth` / `:max-derivations` / `:progress-every-ms` / `:on-progress`), value
+  ;; checked here so a bad one refuses at the assert entry point rather than reaching the
+  ;; fixpoint's arithmetic only when a rule happens to fire (`opts/bound-domains`)
+  (opts/check-values! opts "assert")
   (when (map? opts)
     (when (and (contains? opts :strength)
                (not (strength/assertable? (:strength opts))))
@@ -2027,7 +2049,10 @@
   rule.  `opts` flows to chaining ({:max-depth ..}, {:chain? false}) and carries the
   assumption `:strength` (:default, the common case, or :monotonic for known-true
   content that no default may defeat and that is never sent to a solver).  A
-  contradiction is resolved softly at settle time, never thrown.  A rule that
+  rebuttal — the negation of a believed sentence — is resolved at settle time, never
+  thrown; a definitional clash (`:disjoint`, `:functional`, `:asymmetric`) against stored
+  content is thrown under the `:refuse` constraint policy and settled under
+  `:arbitrate` (`check`'s docstring).  A rule that
   concludes a conjunction is polycanonicalized into one rule per conjunct — then this
   returns the vector of their handles; otherwise it returns the single sentex handle.
 
@@ -2199,6 +2224,12 @@
   ([kb antecedents consequent] (assert-rule kb antecedents consequent 'CxUniverse nil))
   ([kb antecedents consequent context] (assert-rule kb antecedents consequent context nil))
   ([kb antecedents consequent context opts]
+   ;; the unrecovered-KB gate first, before the range check, so this refuses like every
+   ;; other write entry point: on a KB whose belief was never built `assert` answers
+   ;; `:unrecovered-kb`, and the early range check would otherwise answer
+   ;; `:not-range-restricted` where `checks/check-rule!` inside `assert` makes the same
+   ;; range check anyway (the early call only decides which refusal wins)
+   (check-writable! kb "assert-rule")
    (rules/check-range-restricted antecedents consequent)
    ;; `:direction` is just the programmatic spelling of a set/*Rule wrapper — wrap
    ;; and hand it to the one rule path, where the sentex constructor turns it into
@@ -2350,7 +2381,15 @@
                            `rules/max-alternatives`
     :not-stratified        a cycle through negation the rule or edge would close
     :not-assertible        a `do/` imperative inside a rule
+    :exception-not-closed  an exceptWhen variable no antecedent of the rule binds
     :arg-type              an arg constraint on an argument
+    :arg-genl              a genlArg constraint — the argument is not a subtype of the floor
+    :inter-arg-type        an interArg constraint whose trigger argument holds and whose
+                           target argument does not
+    :arg-position          a declaration constraining a position the predicate's
+                           declared length does not have
+    :arg-constraint-kind   a declaration of the wrong family for the predicate's
+                           relation_kind
     :arg-variable          two argument constraints on one rule variable that no
                            term satisfies at once
     :disjoint              a type membership the taxonomy separates
@@ -2709,8 +2748,11 @@
   sentexes, same index, same beliefs, same `count-with-functor` — because the skipped
   work only validates or dedups; it never changes what is stored.  The caller owns the
   two preconditions the mode trades on: every fact is well-formed (the checks would
-  have passed) and no two are the same sentence in the same context (the dedup would
-  have missed).  Use plain `assert` / `assert-many` when either is in doubt.
+  have passed) and no two are the same **canonical** sentence in the same context (the
+  dedup would have missed) — the two spellings of a symmetric literal are one sentence,
+  so `(siblingOf Ann Bob)` beside `(siblingOf Bob Ann)` is a duplicate here and stores
+  two records for one proposition.  Use plain `assert` / `assert-many` when either is
+  in doubt.
 
   `opts` flows to each `assert` (e.g. `:strength :monotonic`); `:chain?` is forced
   false — a rule/consequent that needs forward firing is not a bulk-fact load.
@@ -2833,7 +2875,12 @@
   [opts]
   (opts/check! opts forward-chain-opt-keys "forward-chain"
                (str "An option nothing reads takes the default in silence,"
-                    " which for a bound means running unbounded.")))
+                    " which for a bound means running unbounded."))
+  ;; and the value domains beside the roster: a string `:max-depth` / `:max-derivations`
+  ;; reaches the fixpoint's arithmetic and throws bare, and a non-fn `:on-progress` a bare
+  ;; cast on the first report — both refused here as `:unknown-option` instead
+  ;; (`opts/bound-domains`)
+  (opts/check-values! opts "forward-chain"))
 
 (defn forward-chain
   "Run forward chaining to a fixpoint over every believed sentex, then settle
@@ -3246,13 +3293,16 @@
   declaration was re-spelled by it (docs/canonicalization.md).
 
   Being ist's counterpart, it reads an `(ist Ctx S)` sentence the way `ist` writes one:
-  S is looked up in Ctx, which wins over `context` (`ist-goal`).  And it refuses the
-  vector spelling of a sentence for the reason `assert` does — one entry point cannot answer
-  for a spelling the entry point it counterparts refuses to store."
+  S is looked up in Ctx, which wins over `context` (`ist-goal`).  A ground reifiable NAT
+  in `sentence` is resolved to its stored constant first (dedup, never mint), as
+  `sentexes-matching` resolves one — `ist` stores the constant, so the lookup has to
+  ask for it.  And it refuses the vector spelling of a sentence for the reason `assert`
+  does — one entry point cannot answer for a spelling the entry point it counterparts
+  refuses to store."
   [kb sentence context]
   (check-shape! (sentence-goal-problem sentence))
   (let [[sentence context] (checked-ist-goal kb sentence context)]
-    (kb/find-sentex-handle kb sentence context)))
+    (kb/find-sentex-handle kb (nat/maybe-reify-for-read kb sentence) context)))
 
 (defn handles
   "Every live sentex handle in the KB — premises and anything forward-derived alike,
@@ -3303,10 +3353,15 @@
   moves **no** belief.  So many labelings coexist and the always-true KB is untouched,
   with no per-context (ATMS) belief needed — coexistence falls out of not premising.
 
-  Only the shape and naming invariants are enforced (a materialized head is already
-  well-formed); no constraint / wff / equality / chaining runs.  A **rule** is refused
-  (`:not-indexable`) — a labeling labels atoms, and the reason is below.  `assert-inert`
-  is additive, so no `!`; drop it with `retract!` on the returned handle.
+  Only the shape, naming and groundness invariants are enforced (a materialized head is
+  already well-formed); no constraint / wff / equality / chaining runs.  An open sentence
+  is refused (`:not-ground`) as at `assert`: a stored sentence is closed, and a stored
+  literal holding a variable would answer a `CxEverything` read as a fact.  An
+  `(ist Ctx S)` sentence stores S in Ctx, as `assert` does; stored as written, the `ist`
+  form is a record no read resolves, since every read takes the form apart first.  A
+  **rule** is refused (`:not-indexable`) — a labeling labels atoms, and the reason is
+  below.  `assert-inert` is additive, so no `!`; drop it with `retract!` on the returned
+  handle.
 
   A KB whose derived state was never built refuses this exactly as it refuses `assert`
   (`:unrecovered-kb`).  Not premising is what makes an inert sentex harmless to belief;
@@ -3323,35 +3378,50 @@
   ;; durable-log constraint `check-sentence-shape!` closes with
   (check-shape! (context-shape-problem kb context))
   (check-sentence-shape! sentence)
-  (nm/check! (:naming kb) sentence context)
-  ;; ...and the one refusal that is this entry point's own.  A rule fires because
-  ;; `index-rule-sentex` put its predicates in the rule index, and that runs where a rule
-  ;; sentex is *created* — `assert-rule-sentence`'s new branch, and the generator mint.
-  ;; So a rule stored here is one no chainer can reach, and it stays that way: asserting
-  ;; the same rule afterwards resolves to this handle, takes the existing branch and does
-  ;; not index it either, which leaves a *believed* rule that silently never fires.  That
-  ;; is `check-generator`'s reasoning about the accepted-and-inert rule, at this entry point —
-  ;; and nothing this primitive exists for wants one, a labeling's materialized truth
-  ;; values being atoms and their negations.
-  ;;
-  ;; **Two inertnesses, and the message names the other one**, because the caller who
-  ;; lands here usually wants it: `set/inertRule` is a rule that is believed, indexed and
-  ;; browsable and fires neither way — the spelling for a rule kept as *documentation*,
-  ;; a transitivity a cached closure computes instead (docs/taxonomy.md).  This entry point's
-  ;; inertness is the sentex's: not a premise, so never believed at all.
-  (when (rules/rule-sentence? (rules/inner-rule sentence))
-    (throw (ex-info (str "a rule cannot be stored inert: nothing indexes it, so no"
-                         " chainer can reach it, and a later assert of the same rule"
-                         " resolves to the stored sentex and does not index it either."
-                         "  For a rule kept as documentation — stored, indexed and"
-                         " browsable, firing neither forwards nor backwards — assert"
-                         " set/inertRule (or {:direction :inert}), which is the other"
-                         " inertness: the rule is believed and never fires")
-                    {:type :not-indexable :sentence sentence :context context})))
-  (first (kb/find-or-create-sentex kb sentence context)))
+  (if (and (sequential? sentence) (= sx/ist-functor (first sentence)))
+    ;; `(ist Ctx S)` is not stored, at this entry point as at `assert`: it names the context
+    ;; S holds in, and the record is S in Ctx.  Stored as written it was a record with
+    ;; the `ist` functor that `handle-of`, `contexts-of` and every read resolved past.
+    (if-let [[ctx s] (ist-parts sentence)]
+      (assert-inert kb s ctx)
+      (check-shape! (ist-shape-problem sentence)))
+    (do
+      (nm/check! (:naming kb) sentence context)
+      ;; a stored sentence is closed (`checks/check-ground`, the same refusal `assert`
+      ;; makes): an inert literal holding a variable is a record every belief-blind read
+      ;; answers as a fact, and a labeling's materialized truth values are ground atoms
+      (checks/check-ground kb sentence context)
+      ;; ...and the one refusal that is this entry point's own.  A rule fires because
+      ;; `index-rule-sentex` put its predicates in the rule index, and that runs where a
+      ;; rule sentex is *created* — `assert-rule-sentence`'s new branch, and the generator
+      ;; mint.  So a rule stored here is one no chainer can reach, and it stays that way:
+      ;; asserting the same rule afterwards resolves to this handle, takes the existing
+      ;; branch and does not index it either, which leaves a *believed* rule that silently
+      ;; never fires.  That is `check-generator`'s reasoning about the accepted-and-inert
+      ;; rule, at this entry point — and nothing this primitive exists for wants one, a
+      ;; labeling's materialized truth values being atoms and their negations.
+      ;;
+      ;; **Two inertnesses, and the message names the other one**, because the caller who
+      ;; lands here usually wants it: `set/inertRule` is a rule that is believed, indexed
+      ;; and browsable and fires neither way — the spelling for a rule kept as
+      ;; *documentation*, a transitivity a cached closure computes instead
+      ;; (docs/taxonomy.md).  This entry point's inertness is the sentex's: not a premise,
+      ;; so never believed at all.
+      (when (rules/rule-sentence? (rules/inner-rule sentence))
+        (throw (ex-info (str "a rule cannot be stored inert: nothing indexes it, so no"
+                             " chainer can reach it, and a later assert of the same rule"
+                             " resolves to the stored sentex and does not index it either."
+                             "  For a rule kept as documentation — stored, indexed and"
+                             " browsable, firing neither forwards nor backwards — assert"
+                             " set/inertRule (or {:direction :inert}), which is the other"
+                             " inertness: the rule is believed and never fires")
+                        {:type :not-indexable :sentence sentence :context context})))
+      (first (kb/find-or-create-sentex kb sentence context)))))
 
 (defn contexts-of
-  "The contexts in which `sentence` is asserted."
+  "The contexts in which `sentence` is stored **and believed** — a read through
+  `sentexes-matching`, so the context of a defeated or unsupported sentex is not listed.
+  `handle-of` per context answers storage regardless of belief."
   [kb sentence]
   (distinct (map :context (sentexes-matching kb sentence '?ctx))))
 
@@ -3524,34 +3594,18 @@
   (docs/anytime.md).  Public for `query-opt-keys`' reason."
   #{:max-ms :max-depth})
 
-(def ^:private search-bound-domains
-  "What each bound on a search entry point has to *be* — `[key, what it is, the predicate]`.
-
-  A value outside the domain is refused for `query-depth`'s reason: a bound nobody could
-  have meant reads as **no bound**, and an unbounded search returned as though it were the
-  bounded one asked for is an answer at a setting nobody chose.  `0` is legal at both, and
-  is a real question at each — no time at all, no rule expansion at all."
-  [[:max-ms    "a non-negative number of milliseconds"
-    #(and (number? %) (not (neg? (double %))))]
-   [:max-depth "a non-negative integer" nat-int?]])
-
 (defn- check-search-opts!
   "The key roster and then the value domains one bounded read entry point owes.  The key check
-  runs first because a misspelt key is not a bad value — it is a key that is not there."
+  runs first because a misspelt key is not a bad value — it is a key that is not there;
+  then `opts/check-values!` reads the one domain table every bounded entry point shares
+  (`opts/bound-domains`), which for a search means `:max-ms` and `:max-depth`.  A bound
+  nobody could have meant reads as no bound, and an unbounded search answered as though it
+  were the bounded one is a search at a setting nobody chose."
   [opts opt-keys entry-point]
   (opts/check! opts opt-keys entry-point
                (str "A bound nothing reads is an unbounded search in silence, on an entry point"
                     " whose whole point is that the search stops."))
-  (when (map? opts)
-    (doseq [[k what ok?] search-bound-domains
-            :let [v (get opts k)]
-            :when (and (contains? opts k) (some? v) (not (ok? v)))]
-      (throw (ex-info (str entry-point " " k " must be " what ", got " (pr-str v)
-                           " — a value that is not one reads as no bound at all, and an"
-                           " unbounded search answered as though it were the bounded one"
-                           " is a search at a setting nobody chose")
-                      {:type :unknown-option :mismatch :bad-value :option k :value v}))))
-  opts)
+  (opts/check-values! opts entry-point))
 
 (defn- bound-exhausted!
   "The refusal a bounded read owes when its budget ran out before the search did.
@@ -3623,16 +3677,12 @@
                (str "An option nothing reads takes the default in silence, which here"
                     " is a search at a setting nobody chose — a misspelt depth answers"
                     " facts-only as though no rule could reach the goal."))
-  (when (and (contains? opts :max-depth)
-             (some? (:max-depth opts))
-             (not (nat-int? (:max-depth opts))))
-    (throw (ex-info (str entry-point " :max-depth must be a non-negative integer, got "
-                         (pr-str (:max-depth opts))
-                         " — 0 permits no rule expansion (facts only), a real answer a"
-                         " caller may ask for by name; a negative or non-integer depth"
-                         " reads as no depth at all, which is that same answer taken at"
-                         " a setting nobody chose.")
-                    {:type :unknown-option :mismatch :bad-value :max-depth (:max-depth opts)})))
+  ;; the value domains, from the one table every bounded entry point shares
+  ;; (`opts/bound-domains`): `:max-depth` here, and for `search-tree` /
+  ;; `compare-tacticians` the `:max-ms` and `:node-budget` their rosters add.  A depth
+  ;; that is not a non-negative integer reads as no depth at all, which is that same
+  ;; facts-only answer taken at a setting nobody chose.
+  (opts/check-values! opts entry-point)
   (or (:max-depth opts)
       (when (map? *query-options*) (:max-depth *query-options*))
       inference/*max-depth*))
@@ -3771,9 +3821,11 @@
   ([kb goal] (provable? kb goal '?ctx nil))
   ([kb goal context] (provable? kb goal context nil))
   ([kb goal context opts]
+   ;; before the `seq` test: `(seq :oops)` throws a bare IllegalArgumentException, where
+   ;; `prove` refuses the same non-map opts by name — this entry point mirrors that one
+   (check-search-opts! opts prove-opt-keys "provable?")
    (if (seq opts)
      (do (check-shape! (conjunction-goal-problem goal))
-         (check-search-opts! opts prove-opt-keys "provable?")
          (let [[goal context] (ist-goal kb goal context)
                goals-in (fn [ctx] (goal-conjunction (quasiquote/prepare-goal-for-read kb goal ctx)))
                ;; the cap is this entry point's, not the caller's: it is what makes an existence
@@ -3839,9 +3891,11 @@
   ([kb goal] (ask? kb goal '?ctx nil))
   ([kb goal context] (ask? kb goal context nil))
   ([kb goal context opts]
+   ;; before the `seq` test, for `provable?`'s reason: a non-map opts is a typed refusal
+   ;; at `ask`, and `(seq :oops)` would throw bare here
+   (check-search-opts! opts ask-opt-keys "ask?")
    (if (seq opts)
      (do (check-shape! (sentence-goal-problem goal))
-         (check-search-opts! opts ask-opt-keys "ask?")
          (let [[goal context] (ist-goal kb goal context)]
            (boolean
             (seq (read-in-context
@@ -4129,6 +4183,9 @@
    ;; so a misspelt key is a run at defaults nobody chose — or handles the caller
    ;; meant to keep, torn down before returning
    (check-bound-opts! opts #{:max-hypotheses :max-depth :keep?} "abduce")
+   ;; and the caps' values: a string `:max-hypotheses` / `:max-depth` reaches the loop's
+   ;; arithmetic and throws bare, refused here as `:unknown-option` (`opts/bound-domains`)
+   (opts/check-values! opts "abduce")
    ;; the same conjunction `prove` takes, so the same reading of a vector
    (check-shape! (conjunction-goal-problem goal))
    ;; `:not-ground`, the type an open formula already refuses under: the hypotheses
@@ -4370,7 +4427,11 @@
     to bind or a value to check, and the rest are the ground inputs `f` receives.
 
   `opts` (a map, or nil) is `provers/evaluatable`'s — `:result`, `:arity`, `:cost` and
-  `:completeness`, whose defaults (`:lookup`, 100) suit a purely computed relation.  The
+  `:completeness`, whose defaults (`:lookup`, 100) suit a purely computed relation.  A key
+  off that four is **refused** (`:unknown-option`): `provers/evaluatable` reads those and
+  nothing else, so a misspelt `:reslt` or `:copmleteness` would take its default in
+  silence — a check predicate where a result-binding was meant, or the authoritative-
+  computation claim where a KB also stores facts under the predicate.  The
   fn is a real fn value the caller supplies, so this evaluates no KB data through
   `clojure.core/eval`.  Composes with `add-prover` and returns `kb`; the wrapped fn then
   answers a direct `ask` / `query` goal and — the node engine's leaf being the registry —
@@ -4378,7 +4439,12 @@
   is indistinguishable from a `:leaf` of the derivation.  The DFS `prove` (leaf: stored facts) and forward
   materialization do not reach it (docs/inference.md)."
   ([kb pred f] (add-evaluatable kb pred f nil))
-  ([kb pred f opts] (add-prover kb (provers/evaluatable pred f opts))))
+  ([kb pred f opts]
+   (opts/check! opts #{:result :arity :cost :completeness} "add-evaluatable"
+                (str "An option nothing reads takes the default in silence, which for a"
+                     " computed relation means a shape or a cost tier the caller did not"
+                     " choose."))
+   (add-prover kb (provers/evaluatable pred f opts))))
 
 (defn register-modal-predicate
   "Grant `pred` belief-style projection: after this, `(pred agent sentence)` is answered
@@ -4654,6 +4720,13 @@
    ;; `ask`'s entry point, since this is `ask` bounded: a goal it refuses cannot be one this
    ;; answers, or the budget would decide which spelling is legal
    (check-shape! (sentence-goal-problem goal))
+   ;; the budget against `ask`'s half of the roster: `:max-ms` / `:max-results` /
+   ;; `:max-cost`, and not `:max-depth` / `:max-term-growth`, which bound a rule expansion
+   ;; `ask` does not do (`budget/ask-budget-keys`).  `collect` below re-checks against the
+   ;; union, so a `resume` under either entry point still passes; this is the split the
+   ;; entry point owes.  Value checks ride along, so a string `:max-ms` is `:unknown-option`
+   ;; and not the bare cast it would be inside `deadline`.
+   (budget/check-budget! budget budget/ask-budget-keys "ask-within")
    (let [[goal context] (checked-ist-goal kb goal context)]
      (budget/collect (provers/ask-capped kb (quasiquote/prepare-goal-for-read kb goal context)
                                          context (:max-cost budget))
@@ -4704,6 +4777,13 @@
   ([kb goal budget] (prove-within kb goal '?ctx budget))
   ([kb goal context budget]
    (check-shape! (conjunction-goal-problem goal))
+   ;; the budget against `prove`'s half of the roster — `:max-ms` / `:max-results` /
+   ;; `:max-depth` / `:max-term-growth`, and not `:max-cost`, an `ask` concept `prove`
+   ;; ignores (`budget/prove-budget-keys`).  **Before `inference-engine?` reads
+   ;; `:max-depth`**: the node-engine selector takes `(long max-depth)`, so a string depth
+   ;; is a bare cast here unless the value check has already refused it, and the node arm
+   ;; never reaches `search-within`'s own `check-budget!`.
+   (budget/check-budget! budget budget/prove-budget-keys "prove-within")
    (let [[goal context] (checked-ist-goal kb goal context)
          goals (goal-conjunction (quasiquote/prepare-goal-for-read kb goal context))]
      (if (inference-engine? (:max-depth budget))
@@ -4948,7 +5028,68 @@
   ([kb] (clear-caches kb nil))
   ([kb opts]
    (check-bound-opts! opts #{:counters?} "clear-caches")
+   ;; `:counters?` is a boolean the impl reads as truthy, so `{:counters? \"yes\"}` would
+   ;; zero the process counters under a value that only looks like `true` — refused here
+   ;; as `:unknown-option` (`opts/bound-domains`)
+   (opts/check-values! opts "clear-caches")
    (caches-impl/clear-caches kb opts)))
+
+(defn cache-profile
+  "The cache tuning in force, process-wide: `{:scale <multiplier> :overrides {cache-id
+  limit}}`.  Every count-bounded cache holds its shipped default limit multiplied by
+  `:scale`, unless `:overrides` pins it to an absolute number.  `set-cache-scale` and
+  `set-cache-limit` change it; `caches` shows the effective limit each cache enforces."
+  []
+  (caches-impl/profile))
+
+(defn set-cache-scale
+  "Multiply every count-bounded cache's shipped limit by `x`, on a **running** process, and
+  return the profile.  `1.0` restores the shipped bounds; below 1 shrinks the caches for a
+  small heap, above 1 grows them for a bulk load.  A per-cache floor keeps a small scale
+  from taking a cache below the point where it saves nothing.
+
+  Process-wide and not per-KB, as `set-log-level` is: two KBs in one JVM share one set of
+  process caches, and every per-KB cache reads the one scale.  `VAELII_CACHE_SCALE` sets the
+  value a process starts with; this is the same dial from a REPL.  Refused by name when `x`
+  is not a number, or is below zero (`:type :unknown-option`)."
+  [x]
+  (when-not (and (number? x) (>= (double x) 0.0))
+    (throw (ex-info (str "cache scale must be a number 0 or more, not " (pr-str x))
+                    {:type :unknown-option :mismatch :bad-value :scale x})))
+  (caches-impl/set-scale x))
+
+(defn set-cache-limit
+  "Pin cache `id`'s bound to `n` regardless of the scale, or clear the pin when `n` is nil,
+  and return the profile.  `id` is a `:cache` keyword from `caches`, `n` a positive whole
+  number.  An override is absolute — the scale does not move it — for a caller who has
+  measured one cache and wants a bound the global scale would not give it.  Refused by name
+  when `id` is not a keyword, or `n` is neither nil nor a positive whole number
+  (`:type :unknown-option`).
+
+  An `id` that names **no currently-registered cache** is *warned*, not refused, and the
+  pin is recorded anyway.  A refusal would be wrong here: the register fills lazily (a
+  cache registers when its namespace loads, and a qualitative calculus may not be loaded
+  yet), so a bound set for a cache before its namespace loads is a legitimate request the
+  cache picks up on registration.  The warning is what a typo — the far likelier reading —
+  surfaces under, since a pin for an id nothing ever registers sits inert in the overrides
+  forever otherwise."
+  [id n]
+  (when-not (keyword? id)
+    (throw (ex-info (str "cache id must be a keyword from `caches`, not " (pr-str id))
+                    {:type :unknown-option :mismatch :bad-value :cache id})))
+  (when-not (or (nil? n) (and (integer? n) (pos? n)))
+    (throw (ex-info (str "cache limit must be a positive whole number or nil, not " (pr-str n))
+                    {:type :unknown-option :mismatch :bad-value :limit n})))
+  ;; a pin (not a clear) for an id no cache has registered: recorded, since a not-yet-loaded
+  ;; cache picks it up, but warned since a typo is the likelier reading and would otherwise
+  ;; sit inert forever
+  (when (and (some? n) (not (caches-impl/registered? id)))
+    (trove/log! {:level :warn :id ::cache-limit-unknown-id
+                 :msg (str "set-cache-limit pins " (pr-str id) ", which names no cache"
+                           " registered in this process yet — a typo, unless its namespace"
+                           " has not loaded; the pin is recorded and applies if it does")
+                 :data {:cache id :limit n}}))
+  (caches-impl/set-limit id n))
 
 (defn violations
   "The definitional constraints a *derived* conclusion would have broken during the
@@ -6287,6 +6428,11 @@
    (opts/check! opts describe-opt-keys "describe"
                 (str "A window this entry point does not read is a window the caller asked for,"
                      " did not get, and is told nothing about."))
+   ;; the value refusal every cap owes (`check-limit!`): a string reached `take` and
+   ;; threw a bare cast error — over the daemon a 500 — and a zero or negative window
+   ;; answered every list empty under a `:total` that looked like an answer
+   (when-some [n (:limit opts)]
+     (check-limit! n "describe :limit"))
    (let [limit (or (:limit opts) default-describe-limit)
          role  (described-role kb term)
          up    (genls kb term context)
@@ -6796,7 +6942,8 @@
   ([kb handle] (why-not-handle kb (the-handle handle "why-not")))
   ([kb sentence context]
    (let [[sentence context] (checked-ist-goal kb sentence context)
-         h (kb/find-sentex-handle kb sentence context)]
+         ;; the stored spelling of a ground reifiable NAT is its constant (`handle-of`)
+         h (kb/find-sentex-handle kb (nat/maybe-reify-for-read kb sentence) context)]
      (if (and h (in? kb h))
        (why-not-handle kb h)
        (if-let [exc (excepted-argument kb sentence context)]
@@ -6816,6 +6963,13 @@
    (opts/check! opts why-not-opt-keys "why-not"
                 (str "A misspelt :nearest reads as no request at all, and the ordinary"
                      " :not-stored answer is exactly what a goal no rule concludes gives."))
+   ;; the value refusal beside the roster check: `{:nearest "3"}` read as no request
+   ;; answers the ordinary `:not-stored`, which is the silence the roster exists to
+   ;; refuse.  `0` stays legal and asks for nothing; nil is the absent key.
+   (when-some [n (:nearest opts)]
+     (when-not (nat-int? n)
+       (throw (ex-info (str "why-not :nearest must be a non-negative integer, got " (pr-str n))
+                       {:type :unknown-option :mismatch :bad-value :nearest n}))))
    (let [base (why-not kb sentence context)
          n    (:nearest opts)]
      (if (and (number? n) (pos? (long n)) (= :not-stored (:reason base)))

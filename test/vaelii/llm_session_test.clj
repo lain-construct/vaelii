@@ -19,12 +19,11 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.host.llm.session :as session]
             [vaelii.host.llm.stub :as stub]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
+(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
 ;; ---- a small world, and answers a host cut off --------------------------
 

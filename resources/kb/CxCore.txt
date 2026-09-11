@@ -196,7 +196,7 @@
 (genl character thing)
 (genl symbol thing)
 
-;; The upper-ontology skeleton: the five collections a band context has to be able to
+;; The upper-ontology skeleton: the collections a band context has to be able to
 ;; SEE in order to place its own types under the root.  They sit here rather than in
 ;; CxAbstract because the band's contexts are siblings and no sibling sees another: with
 ;; living_thing defined in CxAbstract, (genl animal living_thing) written in CxOrganism
@@ -204,21 +204,31 @@
 ;; there convicted nothing in its own context.  A term extended from more than one band
 ;; context belongs above them all, which is here.
 ;;
-;; Nothing in the engine reads any of the five by name — they are classified inert in
+;; Nothing in the engine reads any of them by name — they are classified inert in
 ;; vaelii.impl.predicates for that reason.  What they are is the top of the ontology,
 ;; and the grammar head is where every context can reach it.  The kinds hanging off them
 ;; stay in the band: (genl artifact physical_object) is CxAbstract's, (genl animal
 ;; living_thing) is CxOrganism's, and both now resolve.
 (comment intangible "Something with no mass or location: an attribute, a relation, a time.")
-(comment spatial_thing "Something with a location, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. What the four spatial calculi relate.")
+(comment spatial "Something with a location, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. What the four spatial calculi relate.")
+(comment temporal "Something that happens or exists in time. Physical objects, events, and situations are all temporal.")
+(comment aspatial "Not located in space. The complement CxSpace's calculi never relate.")
+(comment atemporal "Not located in time. Numbers, relations and the rest of the abstract kinds are atemporal; a fluent is intangible but not atemporal, since it holds over time.")
 (comment physical_object "Something with mass and a location in space.")
 (comment living_thing "An organism — it is born, lives, and (by default) dies.")
 (comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
+(comment abstract "An entity outside space and time — a number, a relation, an expression, a language. Below both aspatial and atemporal.")
 (genl intangible thing)
-(genl spatial_thing thing)
-(genl physical_object spatial_thing)
+(genl spatial thing)
+(genl temporal thing)
+(genl aspatial thing)
+(genl atemporal thing)
+(genl physical_object spatial)
 (genl living_thing physical_object)
 (genl capability intangible)
+(genl abstract intangible)
+(genl abstract aspatial)
+(genl abstract atemporal)
 
 ;; The expression kinds — what a sentence is BUILT OUT OF, named as collections so a
 ;; declaration can type an argument by the FORM of the expression written there rather
@@ -989,8 +999,12 @@
 (unary_predicate relation_kind)
 (genlArg relation_kind 1 predicate)
 (disjoint_metatype relation_kind)
+(metatype relation_kind)
 (relation_kind instance_relation_predicate)
 (relation_kind type_relation_predicate)
+;; A metatype's typeGenl target is a first-order type — (interArg typeGenl 1 metatype 2 type).
+;; binary_predicate's instances are individual predicates, so it is a `type`.
+(type binary_predicate)
 
 (comment set/backwardRule
          "(set/backwardRule ?rule) means that ?rule is asserted backward-only. Used in backward proof and indexed by its consequent predicate, never forward-chained. A virtual wrapper interpreted on assert, never stored as a fact of its own.")
@@ -1216,3 +1230,65 @@
 (target_following_predicate borderlineExample)
 
 (termsRelated positiveExample negativeExample borderlineExample)
+
+;; --- Lacuna proposals (upper ontology overhaul) ---
+;; Two predicates the engine does not yet act on (inert, no inference path — see
+;; vaelii.impl.predicates):
+(binary_predicate genlInverse)
+(binary_predicate typeGenl)
+(arg genlInverse 1 binary_predicate)
+(arg genlInverse 2 binary_predicate)
+(arg typeGenl 1 at_least_metatype)
+(arg typeGenl 2 unary_predicate)
+(comment genlInverse "Like binary `genl`, but with the arg order flipped. (genlInverse ?spec ?genl-inv) means (?spec ?x ?y) entails (?genl-inv ?y ?x). Does not license the converse.")
+(comment typeGenl "Higher-order genl: (typeGenl ?classifier ?genl) means every instance of ?classifier is a genl of ?genl.")
+(termsRelated genlInverse inverse)
+
+;; The metatype-order ladder: a type is first-order (its instances are individuals), a
+;; metatype second-order (its instances are types), a meta_metatype third-order.
+;; fixed_order_type is those three; variable_order_type holds members of any order;
+;; at_least_metatype is metatype and up.  type_type_by_order partitions fixed_order_type
+;; into the three orders.
+(comment type "A first-order type — its instances are individuals, not types. Contrasts with metatype (second order) and meta_metatype (third order).")
+(comment metatype "A second-order type — its instances are types.")
+(comment meta_metatype "A third-order type — its instances are metatypes.")
+(comment at_least_metatype "A type whose instances are themselves types (at least second-order): metatypes, meta_metatypes, and any higher order.")
+(comment fixed_order_type "A type all of whose members are of one order — a type, a metatype, or a meta_metatype. Contrast variable_order_type.")
+(comment variable_order_type "A type that can hold members of any order.")
+(comment type_type_by_order "A disjoint_metatype partitioning fixed_order_type into type, metatype, and meta_metatype.")
+(comment partitionedByType "(partitionedByType ?whole ?classifier . ?cells) declares that the ?cells exhaustively and disjointly partition ?whole, and that each cell is an instance of ?classifier. Inert — the disjointness and the memberships are stated directly beside it.")
+(unary_predicate type)
+(at_least_metatype disjoint_metatype)
+(disjoint_metatype type_type_by_order)
+(genl at_least_metatype variable_order_type)
+(genl disjoint_metatype at_least_metatype)
+(genl meta_metatype at_least_metatype)
+(genl metatype at_least_metatype)
+(genl fixed_order_type unary_predicate)
+(genl variable_order_type unary_predicate)
+(interArg typeGenl 1 meta_metatype 2 metatype)
+(interArg typeGenl 1 metatype 2 type)
+(partitionedByType fixed_order_type type_type_by_order type metatype meta_metatype)
+;; The partition's memberships and subtype edges, stated explicitly so the disjoint_metatype
+;; separates the three orders and each is a fixed_order_type — partitionedByType is inert and
+;; expands to nothing.
+(type_type_by_order type)
+(type_type_by_order metatype)
+(type_type_by_order meta_metatype)
+(genl type fixed_order_type)
+(genl metatype fixed_order_type)
+(genl meta_metatype fixed_order_type)
+(typeGenl disjoint_metatype at_least_metatype)
+(typeGenl meta_metatype metatype)
+(typeGenl metatype type)
+(typeGenl relation_kind binary_predicate)
+(typeGenl type_type_by_order fixed_order_type)
+(variable_order_type fixed_order_type)
+(variable_order_type variable_order_type)
+
+(disjoint intangible spatial)
+;; A thing is either located in space or aspatial, and either in time or atemporal: each
+;; pair is a complement.  The quality checker's schematic clash reading prunes the phantom
+;; pairs these create by antecedent arg-type disjointness (vaelii#95, fix(quality)).
+(disjoint spatial aspatial)
+(disjoint temporal atemporal)

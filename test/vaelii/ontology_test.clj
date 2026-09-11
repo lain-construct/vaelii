@@ -289,6 +289,138 @@
     (is (= (:edged (:taxonomy q)) (:rooted (:taxonomy q)))
         "every name with a genl edge reaches the root")))
 
+(def ^:private type-relating-predicates
+  "The predicates whose every argument is a TYPE (or a predicate) the claim relates, so the
+  claim is meaningful only in a context that sees all of them at once.  A `genl`, `disjoint`,
+  `intersection` or `typeGenl` between two members' terms therefore belongs at the context
+  that sees both — the collector (CxUniverse for the upper spindle), never the head, which
+  sees no member (docs/contexts.md, and the rule `resources/kb/CxUniverse.txt`'s own header
+  states).
+
+  `arg` / `genlArg` / `quotedArg` / `result` / `interArg` and the relation-metadata marks are
+  deliberately NOT here: they constrain a relation's OWN argument or classify the relation
+  itself, and the type they name is checked from the DATA context that asserts a tuple — every
+  data context sits below the collector and sees the whole upper spindle — so a member
+  declaring `(arg parentOf 1 animal)` over CxOrganism's `animal` is checked where it bites and
+  is not misplaced."
+  '#{genl disjoint typeGenl genlInverse intersection partitionedByType partitionedInto
+     siblingDisjointException})
+
+(tu/deftest-kb no-authored-type-relation-names-a-term-its-own-context-cannot-see
+  ;; The scoped complement of `every-shipped-type-is-placed-under-the-root`.  That test asks
+  ;; whether a type reaches `thing` from SOME context; this one asks whether a claim RELATING
+  ;; types (`type-relating-predicates`) is written where every type it names reaches `thing`
+  ;; from that same context.  A relating claim written where one side is invisible does not
+  ;; separate or subsume the two types in that context, and names a term that context does
+  ;; not root.
+  ;;
+  ;; The spindle is what makes this possible.  CxCore, the head, sees no member
+  ;; (docs/contexts.md), so `(typeGenl stuff_type_by_substance substance)` in CxCore over a
+  ;; `substance` defined in CxAbstract stores clean — an undeclared symbol cannot violate an
+  ;; assert-time check (open-world, docs/taxonomy.md) — and the claim lands in a context that
+  ;; cannot read its own subject.  A relation between two members' terms therefore belongs at
+  ;; or above the collector that sees both.
+  ;;
+  ;; Read off the text files the starter actually loads — `CxCore.txt`, `upper/`, `middle/`
+  ;; (`vaelii.host.starter`) — because the claim is about what those contexts *write*, not
+  ;; what the engine derives or the starter publishes (`(unary_predicate T)` is asserted into
+  ;; CxCore for every subtype of `thing`, and the arity rules conclude from those in CxCore
+  ;; too; both are deliberate).  A top-level `CxUniverse.txt` is NOT among the loaded files,
+  ;; so a relating claim placed there would not be read at all — a separate defect this test
+  ;; is not the guard for.  The loaded KB still answers rooting, since `v/genl?` scoped to a
+  ;; context is the exact visibility the write side checks against.
+  (let [anywhere (fn [t]   (v/genl? kb t 'thing))          ; reaches the root from some context
+        rooted?  (fn [t c] (v/genl? kb t 'thing c))        ; reaches it from context c
+        up       (memoize (fn [c] (set (v/context-up kb c))))
+        homes    (fn [ts]                                  ; most-general contexts rooting every t in ts
+                   (let [all (filter (fn [c] (every? #(rooted? % c) ts)) (v/contexts kb))]
+                     (filterv (fn [c] (not-any? #(and (not= % c) (contains? (up c) %)) all))
+                              all)))
+        relating? (fn [s] (and (seq? s) (contains? type-relating-predicates (first s))))
+        resolve*  (fn [[form fctx]]                         ; (ist Cx S) writes S into Cx
+                    (if (and (seq? form) (= 'ist (first form)))
+                      [(nth form 2) (nth form 1)]
+                      [form fctx]))
+        names    (fn [sentence] (distinct (filter symbol? (tree-seq seq? seq sentence))))
+        files    (cons (io/file "resources/kb/CxCore.txt")
+                       (filter text/kb-file? (mapcat #(file-seq (io/file (str "resources/kb/" %)))
+                                                     ["upper" "middle"])))
+        forms    (->> files
+                      (mapcat (fn [f] (let [c (text/context-of f)]
+                                        (map #(vector % c) (text/read-forms f)))))
+                      (map resolve*)
+                      (filter (fn [[s _]] (relating? s))))
+        blind    (for [[s c] forms
+                       :let  [miss (filter #(and (anywhere %) (not (rooted? % c))) (names s))]
+                       :when (seq miss)]
+                   {:context c :sentence s :cannot-see (vec miss) :move-to (homes (distinct miss))})]
+    (is (seq forms) "the shipped context files were found and read")
+    (is (empty? blind)
+        (str "type relations written where a term they name is invisible — move each to a "
+             "context that sees the named types (or root the types at/above the head):\n"
+             (apply str (interpose "\n"
+                                   (for [b blind]
+                                     (str "  " (:context b) " asserts " (pr-str (:sentence b))
+                                          "\n    cannot see " (pr-str (:cannot-see b))
+                                          " — defined in " (pr-str (:move-to b))
+                                          ", so move the assertion there"))))))))
+
+(def ^:private head-terms-one-member-may-keep
+  "CxCore inert terms only one spindle member references today, kept in the head on
+  purpose — each with the reason.  A term absent from this roster that only one member uses
+  fails the test below; a term here that gains a second member user fails it too, so the
+  roster stays a list of reasons rather than a list of debts."
+  '{abstract "the top-level abstract/concrete ontological division, held in the head beside intangible / spatial / temporal so any member can extend it; only CxAbstract does today"
+    capability "the upper-ontology skeleton collection CxLife extends (vaelii.impl.predicates); the head holds it so a member can place a capability under the root"
+    denotational_term "the logic sense of `term`, vocabulary the head documents; only CxAbstract links it into the expression lattice today"
+    formula "the formula-ladder type the head documents beside the grammar sense; only CxAbstract places it under expression today"
+    relation_application "an expression kind the head documents; only CxAbstract places it under expression today"
+    typeToInstancePred "a relation-linking predicate the head declares as vocabulary; only CxAbstract uses it (partType / partOf) today"})
+
+(tu/deftest-kb head-vocabulary-a-single-member-uses-belongs-in-that-member
+  ;; The inverse of `no-authored-type-relation-names-a-term-its-own-context-cannot-see`.
+  ;; CxCore, the head, holds a term because more than one spindle member has to SEE it — a
+  ;; member sees the head and not its siblings, so a term two members share lives in the head
+  ;; (docs/contexts.md).  A CxCore ontology term that only ONE member ever references does not
+  ;; earn that placement: it could live in that member, and holding it in the head widens the
+  ;; shared vocabulary for no reader that needs it there.  This names each such term and the
+  ;; single member to move it to.
+  ;;
+  ;; Scope: the INERT vocabulary CxCore declares (`v/vocabulary-audit`'s `:inert`) — the
+  ;; ontology terms the engine reads by no name.  An `:enforced` term (a code path reads it by
+  ;; name) stays in the head whatever its members, so it is out of scope.  A term no member
+  ;; references — used only by CxCore's own structure — is head vocabulary, not a member's, so
+  ;; it is not flagged; only a count of exactly one member is.
+  ;;
+  ;; A term CxCore itself references from another term (a subtype, a disjoint partner, an arg
+  ;; type, a rule that names it) cannot move down: the head would then reference a term it
+  ;; cannot see.  `core-structural-use?` reads that off the head's own sentexes — the term
+  ;; appears as a functor or an argument past the subject (the second element), rather than
+  ;; only as the subject of its own declaration — and holds such a term in the head.
+  (let [members  (set (map text/context-of
+                           (mapcat #(filter text/kb-file? (file-seq (io/file (str "resources/kb/" %))))
+                                   ["upper" "middle"])))
+        users    (fn [t] (distinct (filter members (map :context (v/find-sentexes kb t)))))
+        core-structural-use?
+        (fn [t] (some (fn [sx]
+                        (let [s (:sentence sx)]
+                          (and (seq? s) (not= 'comment (first s))
+                               (some #{t} (cons (first s) (drop 2 s))))))
+                      (filter #(= 'CxCore (:context %)) (v/find-sentexes kb t))))
+        loners   (for [[t _why] (:inert (v/vocabulary-audit kb))
+                       :let  [ms (users t)]
+                       :when (and (= 1 (count ms))
+                                  (not (core-structural-use? t))
+                                  (not (contains? head-terms-one-member-may-keep t)))]
+                   {:term t :used-only-by (first ms)})]
+    (is (empty? loners)
+        (str "CxCore ontology terms only one member uses — move each to that member (or add "
+             "it to `head-terms-one-member-may-keep` with a reason):\n"
+             (apply str (interpose "\n"
+                                   (for [c loners]
+                                     (str "  " (:term c) " — used only by " (:used-only-by c)
+                                          ", so move it there"))))))))
+
 ;; ---- the shipped rules, read against each other --------------------------
 
 (tu/deftest-kb no-shipped-rule-is-covered-by-another
@@ -341,12 +473,23 @@
   ;; different `(arity ?p n)` for one `?p`, and the three classes are declared pairwise
   ;; `disjoint`, so no `?p` satisfies two antecedents and the pairs are unreachable rather
   ;; than unstated (docs/quality.md).
+  ;;
+  ;; The eight `:disjoint` pairs are the checker's residual limitation.  Each pairs an
+  ;; integer-classification rule — `(integer ?x)` or a signed refinement of it concluding
+  ;; another — with CxCriedWolf's `lied_before → liar`, whose conclusions `integer` and
+  ;; `liar` a separation makes disjoint.  No ground term is both an integer and a person,
+  ;; so the pairs are unreachable, but the checker cannot read that: `integer` and
+  ;; `lied_before` carry no `arg` declaration, so the only type each antecedent states is
+  ;; the membership that is itself the clash.  The relation-classification rules — arity,
+  ;; `bijection`, the arity classes — do carry an `arg` declaration typing their variable a
+  ;; `relation`, which `arg-type-conflicted?` reads to drop their pairs with `lied_before`
+  ;; as unreachable (vaelii#95).
   (let [pairs (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         kinds (frequencies (map :kind pairs))]
-    (is (= {:negation 4} kinds)
+    (is (= {:negation 4, :disjoint 8} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) pairs))))
-    (is (every? :excepted pairs)
-        "a conclusion contradicting another outright is always the exception's own case")))
+    (is (every? :excepted (filter #(= :negation (:kind %)) pairs))
+        "negation clashes are excepted; the disjoint clashes are integer/person rules the checker cannot prune")))
 
 (tu/deftest-kb the-arity-rules-clash-with-each-other-in-neither-direction
   ;; The reading's own half of the arity separation.  The generator stamps one rule per
@@ -354,6 +497,14 @@
   ;; relation holds both classes — which `(disjoint unary binary)` and its two peers
   ;; refuse on the antecedents.  No `?relation` satisfies two of them, so the pair is
   ;; unreachable rather than unstated (docs/quality.md).
+  ;;
+  ;; `(disjoint intangible spatial)` makes a relation-classification conclusion and a
+  ;; story-predicate conclusion disjoint, so the arity rules would pair with CxCriedWolf's
+  ;; `lied_before → liar` if the checker read only the conclusions.  It reads the
+  ;; antecedents' `arg` declarations too: `(arg arity 1 relation)` types the arity rule's
+  ;; variable a `relation`, disjoint from the `person` the paired rule concludes, so
+  ;; `arg-type-conflicted?` drops the pair as unreachable (vaelii#95).  The arity table
+  ;; therefore pairs with nothing.
   (let [pairs   (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         about   (fn [f] (filter (fn [p] (some #(some #{f} (flatten %)) (:sentences p)))
                                 pairs))]
@@ -440,10 +591,10 @@
 
 (tu/deftest-kb the-types-added-for-argument-constraints-are-placed-where-they-are-used
   (testing "the two calculi types the argument declarations name"
-    (is (v/genl? kb 'physical_object 'spatial_thing))
-    (is (v/genl? kb 'time_point 'temporal_thing)))
-  (testing "and an animal reaches spatial_thing, so a spatial relation admits one"
-    (is (v/genl? kb 'dog 'spatial_thing))))
+    (is (v/genl? kb 'physical_object 'spatial))
+    (is (v/genl? kb 'time_point 'temporal)))
+  (testing "and an animal reaches spatial, so a spatial relation admits one"
+    (is (v/genl? kb 'dog 'spatial))))
 
 ;; ---- the literal types: one vocabulary, and one exception ----------------
 ;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers

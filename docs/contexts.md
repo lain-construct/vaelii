@@ -71,7 +71,7 @@ Data hangs below CxWell.
 - **CxCore** — the upper spindle's *head*: the code-supported vocabulary (every
   special predicate the engine interprets), asserted by `vaelii.host.core-context`. The
   root — every context sees it. It also holds the five collections at the top of the
-  ontology — `intangible`, `spatial_thing`, `physical_object`, `living_thing`,
+  ontology — `intangible`, `spatial`, `physical_object`, `living_thing`,
   `capability` — which the engine reads by no name and which are here for the reason
   below: the members of a spindle see each other not at all, so a term two of them
   extend has to be defined in the head.
@@ -105,7 +105,11 @@ Data hangs below CxWell.
     interval the calendar already picks out ([context-nat.md](context-nat.md)).
 - **CxUniverse** — the upper spindle's *collector* and the middle spindle's *head*, left free for **lifting**: universally-true facts collect here
   (`decontextualized_predicate` justifications and the forced `genlCx` extent). It sees
-  every upper member and is seen by every middle member. Being the one context
+  every upper member and is seen by every middle member. It also holds hand-authored
+  cross-member axioms: `resources/kb/CxUniverse.txt` states `(disjoint organization
+  animal)`, whose `organization` and `animal` come from different upper members. No
+  member sees a sibling, so only the collector sees both terms, and a cross-member
+  `disjoint` belongs here. Being the one context
   that sees the whole upper spindle is what makes it the head of the next.
 - **the middle spindle's members** (`kb/middle/`) — how the definitional things *interrelate*,
   where several overlapping theories can coexist. One context per theory, each seeing

@@ -172,29 +172,29 @@
 ;; touches it, leading from the bound term's postings instead — which costs the two extra
 ;; `:argument-root` and `:argument-slot` reads per firing that separate their budgets.
 ;; Those are the same reads a *singleton* closure would spend on a fan that is not there,
-;; which is why `:unfanned-join` reads 500/500 against `:fanned-join`'s 700/700.
+;; which is why `:unfanned-join` reads 100/100 against `:fanned-join`'s 300/300.
 
 (def ^:private budgets
   [{:name :single-antecedent
     :build single-antecedent
-    :reads {:argument-root 600 :argument-slot 600 :exception-index 200
+    :reads {:argument-root 200 :argument-slot 200 :exception-index 200
             :functor-root 901 :rule-index 200 :trie-counts 100}}
 
    {:name :unfanned-join
     :build unfanned-join
-    :reads {:argument-root 500 :argument-slot 500 :exception-index 200
+    :reads {:argument-root 100 :argument-slot 100 :exception-index 200
             :functor-root 903 :rule-index 200 :trie-counts 100 :trie-lookup 100}}
 
    {:name :fanned-join
     :build fanned-join
-    :reads {:argument-root 700 :argument-slot 700 :exception-index 200
+    :reads {:argument-root 300 :argument-slot 300 :exception-index 200
             :functor-root 903 :rule-index 200 :trie-counts 100}}
 
    ;; two `:trie-lookup` per firing, not one: the mirror is a second orientation to look
    ;; the conclusion's own handle up under, and both orientations reach `join-matches`
    {:name :symmetric-trigger
     :build symmetric-trigger
-    :reads {:argument-root 500 :argument-slot 500 :exception-index 200
+    :reads {:argument-root 100 :argument-slot 100 :exception-index 200
             :functor-root 903 :rule-index 200 :trie-counts 100 :trie-lookup 200}}])
 
 ;; ---- measuring -----------------------------------------------------------

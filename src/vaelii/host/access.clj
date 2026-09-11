@@ -184,3 +184,10 @@
 (def calculi           core/calculi)
 (def open-kb           core/open-kb)
 (def clear!            core/clear!)
+;; the cache profile is process-wide, not a KB read, so it delegates straight rather than
+;; dispatching to a target: the scale it moves is this process's, the way `set-log-level`
+;; changes the process a daemon runs in rather than the KB it serves.  Only the two the
+;; browser uses are re-exported — the read and the scale control; a per-cache override is
+;; `vaelii.core/set-cache-limit` for an API or REPL caller
+(def cache-profile     core/cache-profile)
+(def set-cache-scale   core/set-cache-scale)

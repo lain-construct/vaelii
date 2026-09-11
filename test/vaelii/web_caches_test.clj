@@ -25,7 +25,10 @@
     (let [kb (doto (tu/fresh) core-context/load-into)]
       (catalog/register! "base" "Base KB" kb {:source (catalog/source "core")})
       (binding [tu/*kb* kb, *app* (web/app (catalog/holder kb))]
-        (try (f) (finally (catalog/reset-registry!) (tu/clear-kb! kb)))))))
+        (try (f) (finally (catalog/reset-registry!) (tu/clear-kb! kb)
+                          ;; the cache profile is process-wide, so a scale a test set is
+                          ;; put back before the next one reads a limit
+                          (caches/reset-profile)))))))
 
 (defn- GET [uri & [qs]]
   (*app* (cond-> {:request-method :get :uri uri} qs (assoc :query-string qs))))
@@ -185,6 +188,31 @@
         (is (re-find #"Could not be read \(ExceptionInfo: the read blew up\)" body))
         (is (re-find #"Literal matches" body) "and every other row still rendered"))
       (finally (swap! reg dissoc :probe-web-unreadable)))))
+
+;; ---- the scale ----------------------------------------------------------
+
+(deftest the-scale-control-is-post-only-and-origin-checked
+  (testing "refuses a cross-origin caller"
+    (is (= 403 (:status (POST "/caches/scale" {"scale" "0.5"}
+                          {"host" "localhost:3000" "origin" "http://evil.example"})))))
+  (testing "and is not reachable by navigation"
+    (is (= 405 (:status (GET "/caches/scale"))))))
+
+(deftest setting-the-scale-moves-every-counted-limit-and-says-so
+  (let [{:keys [status body]} (POST "/caches/scale" {"scale" "0.5"})]
+    (is (= 200 status))
+    (is (re-find #"Cache scale set to 0.5" body))
+    (is (re-find #"id=\"caches\"" body) "and answers with the page it changed"))
+  (is (= 0.5 (:scale (v/cache-profile))) "the process now holds the smaller bounds")
+  (is (= 2048 (:limit (first (filter #(= :literal-matches (:cache %)) (v/caches tu/*kb*)))))
+      "half the shipped 4096"))
+
+(deftest a-scale-that-is-not-a-number-changes-nothing
+  (let [{:keys [status body]} (POST "/caches/scale" {"scale" "big"})]
+    (is (= 200 status))
+    (is (re-find #"must be a number 0 or more" body))
+    (is (re-find #"nothing changed" body)))
+  (is (= 1.0 (:scale (v/cache-profile))) "the scale is unmoved"))
 
 ;; ---- the anchor a diagnostics page lives or dies by ----------------------
 

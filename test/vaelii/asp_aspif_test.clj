@@ -117,9 +117,16 @@
 
 ;; ---- solving -----------------------------------------------------------
 
+(defn- pm
+  "A translated program map `{:aspif :stmts}` from a statement vector, the shape the
+  backend facade now takes: clingo injects `:stmts` through the backend accessors,
+  clasp consumes the rendered `:aspif` text."
+  [stmts]
+  {:aspif (aspif/render stmts) :stmts stmts})
+
 (deftest a-fact-appears-in-the-answer-set
   (when asp?
-    (let [r (solver/solve (aspif/render [(aspif/fact 1) (aspif/show 1 "a")]) :label)]
+    (let [r (solver/solve (pm [(aspif/fact 1) (aspif/show 1 "a")]) :label)]
       (is (contains? #{:sat :optimum} (:status r)))
       (is (= ["a"] (:atoms r))))))
 
@@ -127,12 +134,12 @@
   ;; {a}. {b}. :- not a, not b.  :- a, b.   -- exactly one of a/b, and minimizing a
   ;; leaves b as the only optimum.
   (when asp?
-    (let [prog (aspif/render [(aspif/choice 1) (aspif/choice 2)
-                              (aspif/constraint [1 2])
-                              (aspif/constraint [-1 -2])
-                              (aspif/minimize 1 [[1 1]])
-                              (aspif/show 1 "a") (aspif/show 2 "b")])
-          r (solver/solve prog :label)]
+    (let [stmts [(aspif/choice 1) (aspif/choice 2)
+                 (aspif/constraint [1 2])
+                 (aspif/constraint [-1 -2])
+                 (aspif/minimize 1 [[1 1]])
+                 (aspif/show 1 "a") (aspif/show 2 "b")]
+          r (solver/solve (pm stmts) :label)]
       (testing "the constrained-against atom is dropped, its partner kept"
         (is (= ["b"] (:atoms r)))))))
 
@@ -140,7 +147,7 @@
   ;; clasp signals outcomes through exit codes 10/20/30; those are results, not
   ;; failures, and must not surface as exceptions.
   (when asp?
-    (let [r (solver/solve (aspif/render [(aspif/fact 1) (aspif/constraint [1])]) :label)]
+    (let [r (solver/solve (pm [(aspif/fact 1) (aspif/constraint [1])]) :label)]
       (is (= :unsat (:status r))))))
 
 (deftest a-weight-constraint-bounds-a-cardinality
@@ -148,12 +155,12 @@
   ;; (forbid all three absent — the count of absent reaching 3), minimizing a and b.
   ;; The single kept atom is therefore c.
   (when asp?
-    (let [prog (aspif/render [(aspif/choice 1) (aspif/choice 2) (aspif/choice 3)
-                              (aspif/weight-constraint 2 [[1 1] [2 1] [3 1]])
-                              (aspif/weight-constraint 3 [[-1 1] [-2 1] [-3 1]])
-                              (aspif/minimize 1 [[1 1] [2 1]])
-                              (aspif/show 1 "a") (aspif/show 2 "b") (aspif/show 3 "c")])
-          r (solver/solve prog :label)]
+    (let [stmts [(aspif/choice 1) (aspif/choice 2) (aspif/choice 3)
+                 (aspif/weight-constraint 2 [[1 1] [2 1] [3 1]])
+                 (aspif/weight-constraint 3 [[-1 1] [-2 1] [-3 1]])
+                 (aspif/minimize 1 [[1 1] [2 1]])
+                 (aspif/show 1 "a") (aspif/show 2 "b") (aspif/show 3 "c")]
+          r (solver/solve (pm stmts) :label)]
       (testing "exactly one atom survives the at-most-1 / at-least-1 pair"
         (is (= ["c"] (:atoms r)))))))
 
@@ -161,22 +168,22 @@
   ;; The level ordering the edge solver's objective depends on: level 5 is satisfied
   ;; at the expense of level 1.
   (when asp?
-    (let [prog (aspif/render [(aspif/choice 1) (aspif/choice 2)
-                              (aspif/constraint [1 2])
-                              (aspif/constraint [-1 -2])
-                              (aspif/minimize 5 [[1 1]])
-                              (aspif/minimize 1 [[2 1]])
-                              (aspif/show 1 "a") (aspif/show 2 "b")])]
-      (is (= ["b"] (:atoms (solver/solve prog :label)))))))
+    (let [stmts [(aspif/choice 1) (aspif/choice 2)
+                 (aspif/constraint [1 2])
+                 (aspif/constraint [-1 -2])
+                 (aspif/minimize 5 [[1 1]])
+                 (aspif/minimize 1 [[2 1]])
+                 (aspif/show 1 "a") (aspif/show 2 "b")]]
+      (is (= ["b"] (:atoms (solver/solve (pm stmts) :label)))))))
 
 (defn- pigeonhole
-  "`n` pigeons into `n-1` holes, as ASPIF — unsatisfiable, and exponentially hard for a
-  clause-learning solver to prove so, which is what makes it a program that does not
-  finish inside a one-second budget."
+  "`n` pigeons into `n-1` holes, as a statement vector — unsatisfiable, and
+  exponentially hard for a clause-learning solver to prove so, which is what makes it a
+  program that does not finish inside a one-second budget."
   [n]
   (let [holes (range 1 n)
         id    (fn [p h] (+ (* (dec p) (dec n)) h))]
-    (aspif/render
+    (vec
      (concat
       (for [p (range 1 (inc n)), h holes] (aspif/choice (id p h)))
       ;; every pigeon sits somewhere
@@ -186,17 +193,20 @@
         (aspif/constraint [(id p1 h) (id p2 h)]))))))
 
 (defn- backends
-  "Every backend this JVM can actually run, as `[name solve-fn]` — clasp when the
-  binary answers, clingo when libclingo loaded."
+  "Every backend this JVM can actually run, as `[name (fn [stmts mode])]` — clasp when
+  the binary answers (on the rendered ASPIF text), clingo when libclingo loaded (on the
+  structured statements through the backend accessors)."
   []
   (cond-> []
     (do (require 'vaelii.impl.asp.clasp)
         ((resolve 'vaelii.impl.asp.clasp/available?)))
-    (conj ["clasp" (resolve 'vaelii.impl.asp.clasp/solve)])
+    (conj ["clasp" (let [f (resolve 'vaelii.impl.asp.clasp/solve)]
+                     (fn [stmts mode] (f (aspif/render stmts) mode)))])
     (try (require 'vaelii.impl.asp.clingo)
          ((resolve 'vaelii.impl.asp.clingo/available?))
          (catch Throwable _ false))
-    (conj ["clingo" (resolve 'vaelii.impl.asp.clingo/solve)])))
+    (conj ["clingo" (let [f (resolve 'vaelii.impl.asp.clingo/solve)]
+                      (fn [stmts mode] (f (pm stmts) mode)))])))
 
 (deftest ^:slow a-solve-past-the-time-limit-is-interrupted-not-answered
   ;; The budget bounds the single writer's exposure to a hard program, on either
@@ -217,9 +227,9 @@
   (when (and asp? (some? (resolve 'vaelii.impl.asp.clasp/solve)))
     (require 'vaelii.impl.asp.clasp)
     (let [clasp-solve (resolve 'vaelii.impl.asp.clasp/solve)
-          prog (aspif/render [(aspif/choice 1) (aspif/choice 2)
-                              (aspif/constraint [1 2])
-                              (aspif/minimize 1 [[1 1] [2 1]])
-                              (aspif/show 1 "a") (aspif/show 2 "b")])]
-      (is (= (set (:atoms (solver/solve prog :label)))
-             (set (:atoms (clasp-solve prog :label))))))))
+          stmts [(aspif/choice 1) (aspif/choice 2)
+                 (aspif/constraint [1 2])
+                 (aspif/minimize 1 [[1 1] [2 1]])
+                 (aspif/show 1 "a") (aspif/show 2 "b")]]
+      (is (= (set (:atoms (solver/solve (pm stmts) :label)))
+             (set (:atoms (clasp-solve (aspif/render stmts) :label))))))))
