@@ -23,12 +23,23 @@
             [vaelii.impl.rewrite :as rewrite]
             [vaelii.impl.taxonomy :as tax]))
 
-;; The cycle and overlap checks below read the **global** closure deliberately.  A
-;; cycle is a property of the whole edge set: a check narrowed to some context's
-;; visible edges would admit an edge that is cyclic globally, and a `genl` cycle is
-;; something the taxonomy is entitled to assume it does not have.  The overlap check
-;; is the same story one step out: `disjoint` of genl-related types is contradictory
-;; wherever the edge path exists, not merely where it is visible.
+;; The cycle check below reads the **global** closure deliberately.  A cycle is a
+;; property of the whole edge set: a check narrowed to some context's visible edges
+;; would admit an edge that is cyclic globally, and a `genl` cycle is something the
+;; taxonomy is entitled to assume it does not have.
+;;
+;; The overlap check reads the **scoped** closure instead — `disjoint-problems` takes
+;; the assertion context and reads `tax/genl?`, not `tax/genl?-global`.  `assert` and
+;; the scoped `(genl a b)` query then agree in the asserting context: where an
+;; `except` hides the bridging edge, the query returns empty and `(disjoint a b)` is
+;; admitted; where the edge is visible, both see it and the assertion is refused.  An
+;; `except` is a visibility hole, not a retraction, so the refusal is scoped to the
+;; contexts that see the overlap rather than fired everywhere the edge exists (#92).
+;;
+;; This scopes the **assert-time** reading only.  `disjoint?`'s own genl-relatedness
+;; guards stay global (taxonomy.clj), because disjointness must be monotone on
+;; visibility — seeing more contexts may only add witnesses, never remove one — and a
+;; scoped guard there would drop a witness a wider reader sees.
 ;;
 ;; **`genlCx` is the exception, and deliberately.**  A cycle between types says
 ;; two types are coextensive — a claim about terms, which is what the equality
@@ -41,7 +52,7 @@
 ;; is where a sentex is *stored*, not only what it can see — and would throw away
 ;; which context an assertion was made in.  See docs/contexts.md.
 
-(defn genl-problems [tax [_ sub super :as s]]
+(defn genl-problems [tax [_ sub super :as s] _context]
   (cond-> []
     (not= 3 (count s))     (conj "genl takes two arguments")
     (nm/individual? sub)   (conj (str sub " is an individual; genl relates types"))
@@ -51,7 +62,7 @@
     (conj (str "genl " sub " " super " creates a cycle (" super
                " is already a subtype of " sub ")"))))
 
-(defn genlCx-problems [_tax [_ sub super :as s]]
+(defn genlCx-problems [_tax [_ sub super :as s] _context]
   (cond-> []
     (not= 3 (count s))        (conj "genlCx takes two arguments")
     (not (nm/context? sub))   (conj (str sub " is not a context (must start with Cx)"))
@@ -71,26 +82,29 @@
     ;; (mutual visibility) and is admitted — see the note above.
     (= sub super)             (conj (str sub " genlCx itself"))))
 
-(defn disjoint-problems [tax [_ a b :as s]]
+(defn disjoint-problems [tax [_ a b :as s] context]
   (cond-> []
     (not= 3 (count s))  (conj "disjoint takes two arguments")
     (nm/individual? a)  (conj (str a " is an individual; disjoint relates types"))
     (nm/individual? b)  (conj (str b " is an individual; disjoint relates types"))
     (= a b)             (conj (str a " disjoint with itself"))
-    (and (not= a b) (or (tax/genl?-global tax a b) (tax/genl?-global tax b a)))
+    ;; genl-relatedness scoped to the asserting context (not `genl?-global`): an
+    ;; `except` hiding the bridging edge admits the pair here exactly as the scoped
+    ;; `(genl a b)` query returns empty there (#92).  See the header note.
+    (and (not= a b) (or (tax/genl? tax a b context) (tax/genl? tax b a context)))
     (conj (str a " and " b " are genl-related, so they overlap and can't be disjoint"))))
 
-(defn disjoint-metatype-problems [_ [_ m :as s]]
+(defn disjoint-metatype-problems [_ [_ m :as s] _context]
   (cond-> []
     (not= 2 (count s)) (conj "disjoint_metatype takes one argument")
     (nm/individual? m) (conj (str m " is an individual; disjoint_metatype marks a metatype"))))
 
-(defn sibling-disjoint-problems [_ [_ c :as s]]
+(defn sibling-disjoint-problems [_ [_ c :as s] _context]
   (cond-> []
     (not= 2 (count s)) (conj "sibling_disjoint takes one argument")
     (nm/individual? c) (conj (str c " is an individual; sibling_disjoint marks a collection"))))
 
-(defn siblingDisjointException-problems [_ [_ a b :as s]]
+(defn siblingDisjointException-problems [_ [_ a b :as s] _context]
   (cond-> []
     (not= 3 (count s)) (conj "siblingDisjointException takes two arguments")
     (nm/individual? a) (conj (str a " is an individual; siblingDisjointException relates types"))
@@ -119,7 +133,7 @@
   skillCapableOf) 1 intelligent_agent)` constrains the relation that NAT denotes — so a
   non-atomic term is a first argument too.  What is left to refuse is a first argument
   that is no kind of term at all: a number, a string, a keyword."
-  [_ [f pred n type :as s]]
+  [_ [f pred n type :as s] _context]
   (cond-> []
     (not= 4 (count s))    (conj (str f " takes three arguments"))
     (not (or (symbol? pred) (sequential? pred)))
@@ -141,7 +155,7 @@
   argument that is a dog is also a mammal — the awkward spelling of a `genl` edge, but a
   true claim the check will enforce, so there is nothing here to refuse.  What the
   positions may not be is absent or non-positive."
-  [_ [f pred n type m utype :as s]]
+  [_ [f pred n type m utype :as s] _context]
   (cond-> []
     (not= 6 (count s))    (conj (str f " takes five arguments"))
     (not (or (symbol? pred) (sequential? pred)))
@@ -161,7 +175,7 @@
   for, and the same position and type checks, differing only in whether a start position
   is present.  `args` is `argAndRest` at start 1, so one check reads both arities and
   takes the type from whichever position holds it."
-  [_ [f pred a b :as s]]
+  [_ [f pred a b :as s] _context]
   (let [tail? (contains? '#{argAndRest argAndRestGenl} f)
         type  (if tail? b a)
         start a]
@@ -202,7 +216,7 @@
   exotic one through.  The **preserved-along** relation is stricter, and stays a
   symbol: `fact-reach` walks it by building `(R x ?v)`, which a non-atomic term does
   not make a sentence of, and `usable-relation?` has no transitivity to read off one."
-  [tax [f pred n rel :as s]]
+  [tax [f pred n rel :as s] _context]
   (cond-> []
     (not= 4 (count s))    (conj (str f " takes three arguments"))
     (not (or (symbol? pred) (sequential? pred)))
@@ -242,14 +256,14 @@
   The predicate is held to what `prop-problems` holds its subject to rather than to
   `arg-preserving-problems`' looser symbol-or-compound test: this mark is read off a
   sentence's functor, and a functor is a symbol."
-  [_ [f pred n :as s]]
+  [_ [f pred n :as s] _context]
   (cond-> []
     (not= 3 (count s))    (conj (str f " takes two arguments"))
     (nm/individual? pred) (conj (str pred " is an individual; " f " marks a predicate"))
     (not (and (integer? n) (pos? n)))
     (conj (str f " position must be a positive integer"))))
 
-(defn prop-problems [_ [f pred :as s]]
+(defn prop-problems [_ [f pred :as s] _context]
   (cond-> []
     (not= 2 (count s))    (conj (str f " takes one argument"))
     (nm/individual? pred) (conj (str pred " is an individual; " f " marks a predicate"))))
@@ -318,7 +332,7 @@
   individual by the naming invariants, so `prop-problems` (which refuses an
   individual) is the wrong check.  All that matters here is the arity and that the
   name is a symbol."
-  [_ [f fname :as s]]
+  [_ [f fname :as s] _context]
   (cond-> []
     (not= 2 (count s))    (conj (str f " takes one argument"))
     (not (symbol? fname)) (conj (str f " expects a function name (a symbol)"))))
@@ -334,7 +348,7 @@
   name.  Whether `pos` is in `F`'s arity is not knowable here — no declaration states an
   application's arity — so it is left to the producer, which simply finds no sibling pair
   to order when `pos` is out of range."
-  [_ [f fname pos rel :as s]]
+  [_ [f fname pos rel :as s] _context]
   (cond-> []
     (not= 4 (count s))    (conj (str f " takes a function, an argument position, and a sub-relation"))
     (not (symbol? fname)) (conj (str f " expects a function name (a symbol)"))
@@ -353,7 +367,7 @@
   1-based; omitted, the value takes `P`'s last argument, which is the shape nearly
   every correspondence has.  Whether `N` is in range is not knowable here: it is
   checked against the *application*'s arity, which no declaration states."
-  [_ [f fname pred pos :as s]]
+  [_ [f fname pred pos :as s] _context]
   (cond-> []
     (not (<= 3 (count s) 4))
     (conj (str f " takes a function, a predicate, and optionally an argument position"))
@@ -395,7 +409,7 @@
   individuals-only (OWL); `rewriteOf` is the spelling relation, so it is the one
   that carries vocabulary alignment across predicates and types.  `(sameAs A A)` is
   fine — OWL makes `sameAs` reflexive."
-  [tax [f a b :as s]]
+  [tax [f a b :as s] _context]
   (cond
     (and (= f 'rewriteOf) (sequential? b))
     (cond-> []
@@ -431,7 +445,7 @@
   `differentFrom`, a positive commitment that a later `sameAs` would contradict, and
   docs/equality.md deliberately does not build it.  Stored as a premise it would also
   be silently ignored, since the prover is authoritative and never reads facts."
-  [_ [_ & args]]
+  [_ [_ & args] _context]
   [(str "different is not assertible: it is answered from the equality closure"
         " (a positive commitment that two terms differ would be OWL's differentFrom,"
         " which vaelii does not build) — ask it instead: (ask? kb '(different "
@@ -444,7 +458,7 @@
   stored.  Stored as a premise it would be a computed value with no way to keep it current,
   the same reason the aggregates and `unknown` are refused; and the prover is authoritative
   and never reads such a fact.  Ask it instead."
-  [_ [f & args]]
+  [_ [f & args] _context]
   [(str f " is not assertible: it reads the current dilemmas (in every optimal labeling"
         " for cautiously, in some for bravely) and is answered by the :brave-cautious"
         " reasoner, not stored — ask it, e.g. (ask? kb '(" f " " (str/join " " args) "))")])
@@ -460,11 +474,11 @@
   storing one would put a computed value under truth maintenance with no way to
   invalidate it (docs/aggregate.md, \"Query-only\").  Belongs in a rule antecedent or
   a query goal, not an assertion."
-  [_ [f & _args]]
+  [_ [f & _args] _context]
   [(str f " is not assertible: it is a query operator answered by a prover, not a fact"
         " to store — use it in a rule antecedent or ask it, e.g. (ask? kb '(" f " ...))")])
 
-(defn inverse-problems [_ [_ p q :as s]]
+(defn inverse-problems [_ [_ p q :as s] _context]
   (cond-> []
     (not= 3 (count s)) (conj "inverse takes two arguments")
     (nm/individual? p) (conj (str p " is an individual; inverse relates predicates"))

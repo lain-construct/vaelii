@@ -1452,7 +1452,7 @@
                    (or (:violation adm)
                        ;; structural well-formedness of a special predicate the rule
                        ;; concluded — a derived `genl` edge can close a taxonomy cycle
-                       (special/wff-violation kb conseq)
+                       (special/wff-violation kb conseq pctx)
                        (checks/edge-stratification-violation kb conseq)))]
     (if v
       (do (violations/report kb

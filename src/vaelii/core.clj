@@ -1527,7 +1527,7 @@
       (let [ents (when-not *bulk-load?*
                    (nm/check! (:naming kb) sentence context)
                    (checks/check-ground kb sentence context)
-                   (when-let [ps (seq (special/wff-problems (:taxonomy kb) sentence))]
+                   (when-let [ps (seq (special/wff-problems (:taxonomy kb) sentence context))]
                      (throw (ex-info (str "not well-formed: " (str/join "; " ps))
                                      {:type :not-well-formed :sentence sentence})))
                    ;; the rule-set half of well-formedness, for the *other* thing that can
@@ -2314,7 +2314,7 @@
          {:type :naming :sentence sentence :context context
           :message (str "naming invariant: " p)})
       #(some-> (problem (fn [] (checks/check-ground kb sentence context))) vector)
-      #(for [p (special/wff-problems (:taxonomy kb) sentence)]
+      #(for [p (special/wff-problems (:taxonomy kb) sentence context)]
          {:type :not-well-formed :sentence sentence :message (str "not well-formed: " p)})
       #(some-> (problem (fn [] (checks/check-edge-stratified kb sentence context))) vector)
       #(some-> (problem (fn [] (checks/check-closed-extent-stratified kb sentence context))) vector)

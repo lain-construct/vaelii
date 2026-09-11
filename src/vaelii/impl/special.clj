@@ -16,8 +16,10 @@
                                            posting, no migration, no universal lifting,
                                            because the store already holds what those
                                            side effects produced
-    :wff          (fn [tax sentence])      structural well-formedness (vaelii.impl.wff
-                                           keeps the check fns; the table points at them)
+    :wff          (fn [tax sentence context]) structural well-formedness (vaelii.impl.wff
+                                           keeps the check fns; the table points at them.
+                                           `context` scopes the arms that read it — today
+                                           only `disjoint-problems`)
 
   and `check-entries` refuses an asymmetric entry **at namespace load**, so an
   add-side arm without its removal and rebuild halves is a build failure rather
@@ -1208,7 +1210,7 @@
          {:violation :naming
           :detail    {:message (str "naming invariant: " (str/join "; " ps))}})
        (when-not pre-checked? (checks/constraint-violation kb sentence context))
-       (wff-violation kb sentence)
+       (wff-violation kb sentence context)
        (checks/edge-stratification-violation kb sentence))))
 
 (def ^:private empty-entailment-result {:new [] :violations []})
@@ -2021,8 +2023,8 @@
   the derivation-path form of the well-formedness check.  Public as `wff-violation`
   below the table; declared-through here because migration needs it before the
   table exists."
-  [kb sentence]
-  (when-let [ps (seq (wff-problems (:taxonomy kb) sentence))]
+  [kb sentence context]
+  (when-let [ps (seq (wff-problems (:taxonomy kb) sentence context))]
     {:violation :not-well-formed
      :detail    {:problems (vec ps)
                  :message  (str "not well-formed: " (str/join "; " ps))}}))
@@ -2285,7 +2287,7 @@
           (let [existing (kb/find-sentex-handle kb rewritten reader)
                 v        (when-not existing
                            (or (checks/constraint-violation kb rewritten reader)
-                               (wff-violation* kb rewritten)))]
+                               (wff-violation* kb rewritten reader)))]
             (if v
               {:form rewritten :violations [(assoc v :sentence rewritten :context reader
                                                    :rule handle)]}
@@ -3733,8 +3735,8 @@
 
 (defn- defn-wff-problems
   "The `:wff` arm for the three `defn*` collection definitions — the member-variable
-  check (`sx/defn-condition-problems`), read in the table's `[tax sentence]` shape."
-  [_tax sentence]
+  check (`sx/defn-condition-problems`), read in the table's `[tax sentence context]` shape."
+  [_tax sentence _context]
   (sx/defn-condition-problems sentence))
 
 (def ^:private ^:dynamic *edge-replay-skips*
@@ -4214,10 +4216,15 @@
   "Structural well-formedness problems for `sentence` (empty if OK) — the `:wff`
   column of the table, walked.  A sentence whose functor has no entry (or no `:wff`
   arm) is structurally unconstrained here; its argument *types* are still checked
-  by the arg constraints."
-  [tax sentence]
+  by the arg constraints.
+
+  `context` is the asserting (or, on the derivation path, the landing) context, passed
+  to every arm.  Today only `wff/disjoint-problems` reads it — to scope its
+  genl-relatedness check to the edges that context sees (#92); the rest are
+  context-free structural checks and ignore it."
+  [tax sentence context]
   (if-let [wf (:wff (get table (and (sequential? sentence) (first sentence))))]
-    (wf tax sentence)
+    (wf tax sentence context)
     []))
 
 (defn wff-violation
@@ -4233,9 +4240,12 @@
   and those are what matching, placement and stratification all read.
 
   Dropped and reported rather than thrown, like every check on that path: chaining
-  is a fixpoint and must not abort halfway through one."
-  [kb sentence]
-  (wff-violation* kb sentence))
+  is a fixpoint and must not abort halfway through one.
+
+  `context` is the context the derived sentence lands in, scoping the same
+  genl-relatedness read the assert path scopes (#92)."
+  [kb sentence context]
+  (wff-violation* kb sentence context))
 
 (defn- structural-integrate
   "The **structural** integrate arms — the ones no functor can key, dispatched on the

@@ -4,6 +4,7 @@
   "Well-formedness checking of genl, genlCx, disjoint, disjoint_metatype, arg."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -38,6 +39,32 @@
     (testing "genl-related types can't be disjoint"
       (v/assert kb (list 'genl dog mammal) 'CxUniverse)
       (is (ill-formed? (list 'disjoint dog mammal) 'CxUniverse)))))
+
+(tu/deftest-kb disjoint-well-formedness-scopes-to-the-asserting-context
+  ;; #92: the disjoint overlap check reads genl scoped to the asserting context, not
+  ;; globally.  Where an `except` hides the bridging genl edge, the scoped `(genl a b)`
+  ;; query returns empty and `(disjoint a b)` is admitted there; where the edge is
+  ;; visible, both see it and the assertion is refused.  An `except` is a visibility
+  ;; hole, not a retraction, so the assert-time refusal now agrees with the scoped read.
+  (tu/with-terms [dog mammal CxTop CxMid]
+    (v/assert kb (list 'genlCx CxTop 'CxWell) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx CxMid CxTop) 'CxUniverse {:strength :monotonic})
+    (let [edge (v/assert kb (list 'genl dog mammal) CxTop {:strength :monotonic})]
+      (testing "the bridging edge is visible in CxTop and its descendant CxMid"
+        (is (v/ask? kb (list 'genl dog mammal) CxTop))
+        (is (v/ask? kb (list 'genl dog mammal) CxMid)))
+      (testing "so the disjoint assertion is refused in both"
+        (is (ill-formed? (list 'disjoint dog mammal) CxTop))
+        (is (ill-formed? (list 'disjoint dog mammal) CxMid)))
+      (v/assert kb (list 'except (sx/sentex-handle edge)) CxMid {:strength :monotonic})
+      (testing "excepting the edge in CxMid empties the scoped query there, not in CxTop"
+        (is (not (v/ask? kb (list 'genl dog mammal) CxMid)))
+        (is (v/ask? kb (list 'genl dog mammal) CxTop)))
+      (testing "(disjoint dog mammal) is now admitted in CxMid, where the overlap is hidden"
+        (is (v/assert kb (list 'disjoint dog mammal) CxMid {:strength :monotonic})))
+      (testing "while it stays refused in CxTop, where the edge is visible — the refusal
+                narrowed, it was not removed"
+        (is (ill-formed? (list 'disjoint dog mammal) CxTop))))))
 
 (tu/deftest-kb arg-and-genlCx-well-formedness
   (let [parentOf (tu/tmp-pred) animal (tu/tmp-type) muffet (tu/tmp-ind) a-ctx (tu/tmp-ctx)]

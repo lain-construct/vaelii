@@ -427,7 +427,7 @@ docstring. What is on it:
 | Caller class | Why it must not be scoped |
 |---|---|
 | `vaelii.core`'s own 2-arity `genls` / `specs` / `genl?` | the public API offers both readings, and this arity **is** the global one |
-| assert-time refusals (`wff`, `checks`) | a refusal is a claim about the KB: a cycle refused when asked from one context and allowed from another is a coin toss, not a rule |
+| assert-time refusals (`wff/genl-problems`, `checks`) | a refusal is a claim about the KB: a cycle refused when asked from one context and allowed from another is a coin toss, not a rule. The disjoint **overlap** refusal is the deliberate exception — `wff/disjoint-problems` reads the scoped `genl?`, so it agrees with the scoped `(genl a b)` query and an `except` that hides the bridging edge admits the pair (#92) |
 | the forward join and the trigger keys (`rules/trigger-keys`, `chain`, `inherit/moved-predicates`, `vantage`) | a firing is placed in a context the join decides, so the candidate fan cannot be scoped by one — the narrowing happens at placement |
 | the exception re-check triggers (`special`) | a trigger over-approximates in the direction the answer is: a declaration this edge cannot see still qualifies a rule in some context that can, and a missed trigger is a wrong belief where a spare one is a query |
 | settle's candidate discovery | an over-approximated candidate merely checks and yields nothing; the arbitration that follows is scoped |
@@ -1425,7 +1425,12 @@ Before storing, `assert` checks the special predicates are structurally sound:
 - `genl` / `genlCx` — both arguments are types / contexts (not individuals), not
   equal, and don't create a cycle (the reverse relation must not already hold).
 - `disjoint` / `disjoint_metatype` — arguments are types; two genl-related types can't
-  be declared disjoint (one contains the other, so they overlap).
+  be declared disjoint (one contains the other, so they overlap). Genl-relatedness here
+  is read **scoped to the asserting context**, not globally: where an `except` hides the
+  bridging edge, the scoped `(genl a b)` query is empty and the disjoint assertion is
+  admitted, so the refusal agrees with the query in the context it is made (#92). This is
+  the assert-time reading only — `disjoint?`'s own genl-relatedness guards stay global, so
+  disjointness remains monotone on visibility ([above](#the-global-readers-and-who-may-use-one)).
 - `arg` / `genlArg` — a predicate, a positive-integer position, and a type. One
   check serves both (`wff/arg-constraint-problems`): they are structurally identical
   and differ only in what they demand of the argument, which is `checks`' business.

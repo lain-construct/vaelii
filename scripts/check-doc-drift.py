@@ -1228,9 +1228,12 @@ E17_ROSTER = {
     ("src/vaelii/core.clj", "genl?"),
     # Assert-time refusals. A refusal is a claim about the KB and not about a vantage:
     # a cycle refused when asked from one context and allowed from another is not a
-    # refusal, it is a coin toss.
+    # refusal, it is a coin toss.  `disjoint-problems` is the deliberate exception and
+    # reads the scoped `genl?` instead — its overlap refusal is meant to agree with the
+    # scoped `(genl a b)` query, so an `except` that hides the bridging edge admits the
+    # pair (#92, docs/taxonomy.md).  The genl-relatedness guards in `disjoint?` itself
+    # stay global; only the assert-time reading moved, which is why disjoint is not here.
     ("src/vaelii/impl/wff.clj", "genl-problems"),
-    ("src/vaelii/impl/wff.clj", "disjoint-problems"),
     ("src/vaelii/impl/wff.clj", "rule-edges"),
     ("src/vaelii/impl/checks.clj", "genls-problem"),
     ("src/vaelii/impl/checks.clj", "covering-genls-problem"),
