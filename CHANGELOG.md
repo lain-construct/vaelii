@@ -229,6 +229,27 @@ version is in this file's git history, at the tag of the release that shipped it
   *Class:* neither label — the prior path and the new one compute the same belief,
   justification set and stored-sentex fingerprint, so only the load and assert latency move.
 
+- **The one-shot clingo solve injects its ground program through the `clingo_backend_*`
+  accessors rather than writing an ASPIF text to a temp file, and the extracted batch
+  loader backs a new incremental session API.** `do/label` and `do/classify` reach
+  `clingo/solve` through `solve-context` and `solver/solve`, so the one-shot solve runs
+  whenever a KB modification triggers an ASP labeling. `edge/translate` now returns its
+  structured `:stmts` beside the ASPIF text, and `backend-batch!` interns each program atom
+  as the symbol `a(<id>)` carrying its label, remaps every head and body literal through the
+  vid→cid table, and emits the rules into a live backend — no temp file, no re-parse, no
+  `#show` statement; a model's true atoms return through `clingo_model_symbols` and map back
+  to labels through the symbol association the batch returns. `solver/solve` and
+  `clingo/solve` now take the translated program map `{:aspif :stmts}`; AUTO routing still
+  keys on the ASPIF byte length and clasp still consumes the rendered text. The extracted
+  `backend-batch!` also backs a new session API in `vaelii.impl.asp.clingo` — `open-session`,
+  `add-program!`, `declare-external!`, `assign-external!`, `solve-session`, `close-session!`
+  — which grows a live control a batch at a time and toggles an external atom's truth between
+  solves with no re-grounding; the session entry points have no production caller yet.
+  *Class:* neither label — the one-shot path returns the same answer sets it returned through
+  the temp file, so only the solve mechanism and the ~0.3 ms per-solve temp-file write move,
+  and the session functions add no believed content. [docs/asp.md](docs/asp.md),
+  [docs/solving.md](docs/solving.md)
+
 - **A script renders the upper-ontology `genl` hierarchy to one SVG.**
   `scripts/ontology-graph.py` reads the `resources/kb/*.txt` authoring files and emits a
   layered is-a diagram — one node per type in the `genl` hierarchy, one edge per
